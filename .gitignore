@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# caches Python
+__pycache__/
+*.py[cod]
+# lockfile uv
+uv.lock
+# logs et fichiers d’OS
+*.log
+.DS_Store
+
+cursor_instructions
+media-summarizer-app_accessKeys.csv
