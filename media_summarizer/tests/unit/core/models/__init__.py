@@ -1,0 +1,3 @@
+"""
+Tests for domain models.
+"""

@@ -1,22 +1,76 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+# AWS credentials
+media-summarizer-app_accessKeys.csv
+*.pem
+*.key
 
-# Virtual environments
-.venv
-
-# caches Python
+# Python
 __pycache__/
 *.py[cod]
-# lockfile uv
-uv.lock
-# logs et fichiers d’OS
-*.log
-.DS_Store
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
-cursor_instructions
-media-summarizer-app_accessKeys.csv
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Local development
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.kiro/
+
+# Logs
+logs/
+*.log
+
+# Media files
+*.mp3
+*.wav
+*.mp4
+*.m4a
+*.ogg
+*.flac
+*.aac
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraformrc
+terraform.rc
+
+# LocalStack
+.localstack/
+
+# Temporary files
+tmp/
+temp/

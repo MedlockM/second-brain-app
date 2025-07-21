@@ -1,0 +1,140 @@
+version: '3.8'
+
+services:
+  # Service API FastAPI
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/media_summarizer
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - db
+      - localstack
+    command: uvicorn media_summarizer.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Service de transcription Whisper
+  whisper:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/whisper.Dockerfile
+    volumes:
+      - .:/app
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    depends_on:
+      - localstack
+
+  # Worker de résolution RSS
+  rss-worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/media_summarizer
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    depends_on:
+      - db
+      - localstack
+    command: python -m media_summarizer.workers.rss_worker
+
+  # Worker de téléchargement audio
+  download-worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/media_summarizer
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    depends_on:
+      - db
+      - localstack
+    command: python -m media_summarizer.workers.download_worker
+
+  # Worker de résumé LLM
+  summarize-worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/media_summarizer
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - db
+      - localstack
+    command: python -m media_summarizer.workers.summarize_worker
+
+  # Worker d'envoi d'emails
+  email-worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/media_summarizer
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    depends_on:
+      - db
+      - localstack
+    command: python -m media_summarizer.workers.email_worker
+
+  # Base de données PostgreSQL
+  db:
+    image: postgres:15
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=media_summarizer
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # LocalStack pour simuler les services AWS
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,sqs,ses
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+    volumes:
+      - ./infrastructure/localstack:/docker-entrypoint-initaws.d
+      - localstack_data:/tmp/localstack
+
+volumes:
+  postgres_data:
+  localstack_data:
