@@ -35,8 +35,8 @@ def test_validation_exception_handler(client):
     """Test the validation exception handler."""
     # Send a request with invalid data to trigger validation error
     response = client.post(
-        "/api/v1/podcasts/submit",
-        json={"url": "not-a-valid-url"}  # Missing required email field
+        "/api/v1/podcast-search/submit-episode",
+        json={"feed_id": -1}  # Invalid feed_id (must be > 0) and missing required fields
     )
     assert response.status_code == 422
     data = response.json()
@@ -48,11 +48,11 @@ def test_general_exception_handler():
     """Test the general exception handler."""
     # Since the exception handler is async, we'll test it indirectly
     # by checking if it's properly registered
-    
+
     # Check that the exception handler is registered for Exception
     exception_handlers = app.exception_handlers.get(Exception)
     assert exception_handlers is not None
-    
+
     # We can't easily test the actual handler in a unit test because it's async
     # and requires a proper FastAPI context, so we'll just verify it exists
 
@@ -62,28 +62,23 @@ def test_router_inclusion():
     # Check that all expected routes are registered
     routes = [route.path for route in app.routes]
     assert "/api/v1/health" in "".join(routes)
-    assert "/api/v1/podcasts" in "".join(routes)
+    assert "/api/v1/podcast-search" in "".join(routes)
     assert "/api/v1/users" in "".join(routes)
     assert "/api/v1/credits" in "".join(routes)
 
 
 def test_startup_event():
-    """Test the startup event handler."""
-    # This is a simple test to ensure the startup event exists
-    startup_event = next(
-        (handler for handler in app.router.on_startup if handler.__name__ == "startup_event"),
-        None
-    )
-    assert startup_event is not None
-    # We don't call the event handler as it might be async
+    """Test the lifespan handles startup logic."""
+    # Test that the app has a lifespan configured which handles startup
+    assert app.router.lifespan_context is not None
+    # Verify that the lifespan is callable (it's an async context manager)
+    assert callable(app.router.lifespan_context)
 
 
 def test_shutdown_event():
-    """Test the shutdown event handler."""
-    # This is a simple test to ensure the shutdown event exists
-    shutdown_event = next(
-        (handler for handler in app.router.on_shutdown if handler.__name__ == "shutdown_event"),
-        None
-    )
-    assert shutdown_event is not None
-    # We don't call the event handler as it might be async
+    """Test the lifespan handles shutdown logic."""
+    # Test that the app has a lifespan configured which handles shutdown
+    assert app.router.lifespan_context is not None
+    # Since startup and shutdown are handled by the same lifespan context manager,
+    # this test verifies the same thing as startup but maintains the original intent
+    assert callable(app.router.lifespan_context)

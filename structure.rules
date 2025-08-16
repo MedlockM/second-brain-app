@@ -1,0 +1,98 @@
+---
+inclusion: always
+---
+
+# Media Summarizer - Project Structure
+
+## Directory Organization
+
+```
+media-summarizer/
+├── api/                    # FastAPI application code
+│   ├── endpoints/          # API route definitions
+│   ├── models/             # Pydantic models for request/response
+│   └── dependencies/       # Dependency injection components
+├── core/                   # Core business logic
+│   ├── services/           # Business service implementations
+│   ├── models/             # Domain models
+│   └── exceptions/         # Custom exception definitions
+├── infrastructure/         # Infrastructure components
+│   ├── docker/             # Dockerfiles for services
+│   │   ├── api.Dockerfile
+│   │   ├── whisper.Dockerfile
+│   │   └── worker.Dockerfile
+│   ├── terraform/          # IaC for AWS deployment
+│   └── localstack/         # LocalStack configuration
+├── workers/                # Background processing workers
+│   ├── transcription/      # Whisper transcription worker
+│   ├── summarization/      # LLM summarization worker
+│   └── notification/       # Email notification worker
+├── adapters/               # External service adapters
+│   ├── rss/                # RSS feed resolution
+│   ├── storage/            # S3 storage adapter
+│   ├── queue/              # SQS queue adapter
+│   ├── email/              # SES email adapter
+│   └── database/           # PostgreSQL database adapter
+├── tests/                  # Test suite
+│   ├── unit/               # Unit tests
+│   ├── integration/        # Integration tests
+│   └── fixtures/           # Test fixtures
+└── scripts/                # Utility scripts
+```
+
+## Key Files
+
+- `pyproject.toml` - Project metadata and dependencies
+- `docker-compose.dev.yml` - Local development environment setup
+- `docker-compose.prod.yml` - Production deployment configuration
+- `.env.example` - Example environment variables
+- `README.md` - Project documentation
+
+## Naming Conventions
+
+### Python Code
+- **Files**: Snake case (e.g., `rss_resolver.py`)
+- **Classes**: Pascal case (e.g., `RSSResolver`)
+- **Functions/Methods**: Snake case (e.g., `resolve_feed`)
+- **Variables**: Snake case (e.g., `podcast_url`)
+- **Constants**: Uppercase with underscores (e.g., `MAX_RETRIES`)
+
+### Database
+- **Tables**: Snake case, plural (e.g., `podcast_episodes`)
+- **Columns**: Snake case (e.g., `created_at`)
+- **Primary Keys**: `id` (standard across all tables)
+- **Foreign Keys**: `<table_singular>_id` (e.g., `user_id`)
+
+## Code Organization Principles
+
+1. **Separation of Concerns**: Each module has a single responsibility
+2. **Dependency Inversion**: High-level modules don't depend on low-level modules
+3. **Domain-Driven Design**: Core business logic is isolated from infrastructure concerns
+4. **Asynchronous First**: All I/O operations should be async-compatible
+5. **Stateless Services**: Services should be stateless to enable horizontal scaling
+6. **Hexagonal Architecture**: Code must be structured in Hexagonal Architecture.
+
+## Testing Strategy
+
+- **Unit Tests**: Test individual components in isolation, use mock when necesary.
+- **Integration Tests**: Test interactions between components, they should use as most as possible LocalStack to provide real AWS service interactions rather than mocking them. They also should use the stripe library (already installed in the uv environment) and the test api key in the .env to simulate real interaction for all the Stripe related components. HTTP server using httpx. Whisper and LLM api call can be mocked.
+- **End-to-End Tests**: Test complete workflows
+- **Test Coverage**: Aim for >80% code coverage, use cov (pytest-cov) for measuring coverage
+- **Test Naming**: `test_<function_name>_<scenario>` (e.g., `test_resolve_feed_valid_url`)
+- **Refactoring**: when refactoring an existing test modify the original file instead of creating new test files that would create redundancy.
+
+## Stratégie de génération de code 
+
+1. **Debugging**: Quand tu debugges tu dois chercher la cause racine du problème plutôt que d'accepter des quick fix qui trahiraient l'intention initiale du code.
+2. **Debugging2**: Ne passe pas à la tâche suivante tant que le problème n'est pas résolu.
+3. **Debugging3**: Si un problème persiste malgré plusieurs tentatives suggère à l'utilisateur une toute nouvelle approche.
+
+## Stratégie de génération de commande à exécuter dans le terminal
+
+1. **Environnement**: Si l'environnement uv 'media-summarizer-project' n'est pas encore activé dans le terminal, active le une fois grâce à une ligne de commande source .venv/bin/activate
+2. **Installation de dépendances**: Toujours installer les dépendances dans l'environnement virtuel uv avec les commandes suivantes:
+   ```bash
+   source .venv/bin/activate && uv pip install -e .  # Pour les dépendances principales
+   source .venv/bin/activate && uv pip install -e ".[dev]"  # Pour les dépendances de développement
+   ```
+3. **Ne jamais** installer des dépendances globalement ou en dehors de l'environnement virtuel uv

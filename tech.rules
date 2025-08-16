@@ -1,0 +1,83 @@
+---
+inclusion: always
+---
+
+# Media Summarizer - Technical Stack
+
+## Core Technologies
+- **Backend**: Python with FastAPI
+- **Database**: DynamoDB in production
+- **Message Queue**: Amazon SQS
+- **Storage**: Amazon S3
+- **Containerization**: Docker with AWS Fargate
+- **AI Models**: Whisper Tiny for dev phase and Large for prod, GPT-4 (summarization)
+- **Frontend**: Generated with v0.dev/Lovable/Bolt
+
+## Development Environment
+- **Package Manager**: uv (Python)
+- **Local Development**: LocalStack for AWS services simulation
+- **Testing**: pytest, pytest-asyncio
+- **Code Quality**: black, ruff
+
+## Architecture Pattern
+- Microservices architecture
+- CQRS (Command Query Responsibility Segregation) pattern
+- Asynchronous processing pipeline
+
+## AWS Services
+- AWS Fargate (container orchestration)
+- Amazon SQS (message queue)
+- Amazon S3 (file storage)
+- Amazon DynamoDB (database)
+- Amazon SES (email delivery)
+
+## Common Commands
+
+### Development Setup
+```bash
+# Install dependencies with uv
+uv pip install -e .
+
+# Install development dependencies
+uv pip install -e ".[dev]"
+
+# Start local development environment
+docker-compose -f docker-compose.dev.yml up
+```
+
+### Testing
+```bash
+# Run all tests
+pytest
+
+# Run specific test file
+pytest tests/test_rss_resolver.py
+
+# Run with asyncio support
+pytest --asyncio-mode=auto
+```
+
+### Docker Commands
+```bash
+# Build Whisper container
+docker build -f infrastructure/docker/whisper.Dockerfile -t media-summarizer/whisper .
+
+# Run specific service locally
+docker-compose -f docker-compose.dev.yml up api
+```
+
+### Deployment
+```bash
+# Deploy infrastructure with Terraform
+cd infrastructure/terraform
+terraform apply
+
+# Deploy services to AWS Fargate
+# (Deployment scripts to be implemented)
+```
+
+## Error Handling Strategy
+- Automatic retries with exponential backoff
+- Comprehensive error logging
+- User notification for permanent failures
+- Credit refund mechanism for failed jobs

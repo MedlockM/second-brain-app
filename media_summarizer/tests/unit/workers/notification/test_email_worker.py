@@ -1,5 +1,6 @@
 """
 Unit tests for the email notification worker.
+Tests the actual functions that exist in the worker.
 """
 import json
 import os
@@ -7,6 +8,7 @@ import pytest
 import pytest_asyncio
 import asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
+from botocore.exceptions import ClientError
 
 # Set AWS credentials for testing
 os.environ["AWS_ACCESS_KEY_ID"] = "test"
@@ -15,635 +17,312 @@ os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 os.environ["AWS_ENDPOINT_URL"] = "http://localhost:4566"
 
 from media_summarizer.workers.notification.email_worker import (
-    send_email,
-    send_confirmation_email,
     send_error_notification,
     send_completion_notification,
     process_message,
-    get_queue_url,
 )
 
 
-@pytest.fixture
-def mock_ses_client():
-    """Mock SES client for testing."""
-    mock_client = AsyncMock()
-    mock_client.send_email = AsyncMock(return_value={"MessageId": "test-message-id"})
-    return mock_client
 
 
-@pytest.fixture
-def mock_sqs_client():
-    """Mock SQS client for testing."""
-    mock_client = AsyncMock()
-    mock_client.delete_message = AsyncMock()
-    return mock_client
+class TestSendErrorNotification:
+    """Test cases for send_error_notification function."""
 
+    @pytest.mark.asyncio
+    async def test_send_error_notification_success(self):
+        """Test successful error notification sending."""
+        # Setup
+        recipient = "user@example.com"
+        job_id = "test-job-123"
+        error_message = "Transcription failed: Invalid audio format"
+        step = "transcription"
 
-@pytest.fixture
-def confirmation_message():
-    """Create a sample confirmation message."""
-    return {
-        "MessageId": "test-message-id",
-        "ReceiptHandle": "test-receipt-handle",
-        "Body": json.dumps({
-            "job_id": "test-job-id",
-            "email": "user@example.com",
-            "notification_type": "confirmation",
-            "podcast_title": "Test Podcast"
-        })
-    }
+        with patch('media_summarizer.utils.ses.send_email') as mock_send:
+            mock_send.return_value = {"MessageId": "test-message-id"}
 
-
-@pytest.fixture
-def error_message():
-    """Create a sample error message."""
-    return {
-        "MessageId": "test-message-id",
-        "ReceiptHandle": "test-receipt-handle",
-        "Body": json.dumps({
-            "job_id": "test-job-id",
-            "email": "user@example.com",
-            "notification_type": "error",
-            "error": "Test error message",
-            "step": "transcription"
-        })
-    }
-
-
-@pytest.fixture
-def completion_message():
-    """Create a sample completion message."""
-    return {
-        "MessageId": "test-message-id",
-        "ReceiptHandle": "test-receipt-handle",
-        "Body": json.dumps({
-            "job_id": "test-job-id",
-            "email": "user@example.com",
-            "notification_type": "completion",
-            "podcast_title": "Test Podcast",
-            "summary_url": "https://example.com/summary/test-job-id"
-        })
-    }
-
-
-@pytest.mark.asyncio
-async def test_send_email(mock_ses_client):
-    """Test sending an email."""
-    # Setup
-    recipient = "user@example.com"
-    subject = "Test Subject"
-    body_text = "Test body text"
-    body_html = "<p>Test body HTML</p>"
-    
-    # Execute - Test with session creation
-    with patch("media_summarizer.workers.notification.email_worker.session") as mock_session:
-        mock_session.create_client.return_value.__aenter__.return_value = mock_ses_client
-        result = await send_email(recipient, subject, body_text, body_html)
-    
-        # Verify
-        mock_ses_client.send_email.assert_called_once()
-        call_args = mock_ses_client.send_email.call_args[1]
-        
-        assert call_args["Destination"]["ToAddresses"] == [recipient]
-        assert call_args["Message"]["Subject"]["Data"] == subject
-        assert call_args["Message"]["Body"]["Text"]["Data"] == body_text
-        assert call_args["Message"]["Body"]["Html"]["Data"] == body_html
-        assert result == {"MessageId": "test-message-id"}
-        
-    # Reset mock
-    mock_ses_client.reset_mock()
-    
-    # Execute - Test with provided ses_client
-    result = await send_email(recipient, subject, body_text, body_html, ses_client=mock_ses_client)
-    
-    # Verify
-    mock_ses_client.send_email.assert_called_once()
-    call_args = mock_ses_client.send_email.call_args[1]
-    
-    assert call_args["Destination"]["ToAddresses"] == [recipient]
-    assert call_args["Message"]["Subject"]["Data"] == subject
-    assert call_args["Message"]["Body"]["Text"]["Data"] == body_text
-    assert call_args["Message"]["Body"]["Html"]["Data"] == body_html
-    assert result == {"MessageId": "test-message-id"}
-
-
-@pytest.mark.asyncio
-async def test_send_confirmation_email(mock_ses_client):
-    """Test sending a confirmation email."""
-    # Setup
-    recipient = "user@example.com"
-    job_id = "test-job-id"
-    podcast_title = "Test Podcast"
-    
-    # Execute - without ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_confirmation_email(recipient, job_id, podcast_title)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Your podcast is being processed" in call_args[0][1]
-        assert podcast_title in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert podcast_title in call_args[0][3]
-        assert job_id in call_args[0][3]
-        assert result == {"MessageId": "test-message-id"}
-        
-    # Execute - with ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_confirmation_email(recipient, job_id, podcast_title, ses_client=mock_ses_client)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Your podcast is being processed" in call_args[0][1]
-        assert podcast_title in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert podcast_title in call_args[0][3]
-        assert job_id in call_args[0][3]
-        assert call_args[1]["ses_client"] == mock_ses_client
-        assert result == {"MessageId": "test-message-id"}
-
-
-@pytest.mark.asyncio
-async def test_send_confirmation_email_without_title(mock_ses_client):
-    """Test sending a confirmation email without podcast title."""
-    # Setup
-    recipient = "user@example.com"
-    job_id = "test-job-id"
-    
-    # Execute - without ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_confirmation_email(recipient, job_id)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Your podcast is being processed" in call_args[0][1]
-        assert "submitting your podcast for processing" in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert result == {"MessageId": "test-message-id"}
-        
-    # Execute - with ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_confirmation_email(recipient, job_id, ses_client=mock_ses_client)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Your podcast is being processed" in call_args[0][1]
-        assert "submitting your podcast for processing" in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert call_args[1]["ses_client"] == mock_ses_client
-        assert result == {"MessageId": "test-message-id"}
-
-
-@pytest.mark.asyncio
-async def test_send_error_notification(mock_ses_client):
-    """Test sending an error notification."""
-    # Setup
-    recipient = "user@example.com"
-    job_id = "test-job-id"
-    error_message = "Test error message"
-    step = "transcription"
-    
-    # Execute - without ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_error_notification(recipient, job_id, error_message, step)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Error processing your podcast" in call_args[0][1]
-        assert error_message in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert step in call_args[0][2]
-        assert error_message in call_args[0][3]
-        assert job_id in call_args[0][3]
-        assert step in call_args[0][3]
-        assert result == {"MessageId": "test-message-id"}
-        
-    # Execute - with ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_error_notification(recipient, job_id, error_message, step, ses_client=mock_ses_client)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Error processing your podcast" in call_args[0][1]
-        assert error_message in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert step in call_args[0][2]
-        assert error_message in call_args[0][3]
-        assert job_id in call_args[0][3]
-        assert step in call_args[0][3]
-        assert call_args[1]["ses_client"] == mock_ses_client
-        assert result == {"MessageId": "test-message-id"}
-
-
-@pytest.mark.asyncio
-async def test_send_error_notification_without_step(mock_ses_client):
-    """Test sending an error notification without step information."""
-    # Setup
-    recipient = "user@example.com"
-    job_id = "test-job-id"
-    error_message = "Test error message"
-    
-    # Execute - without ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_error_notification(recipient, job_id, error_message)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Error processing your podcast" in call_args[0][1]
-        assert error_message in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert "step" not in call_args[0][2]
-        assert result == {"MessageId": "test-message-id"}
-        
-    # Execute - with ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_error_notification(recipient, job_id, error_message, ses_client=mock_ses_client)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Error processing your podcast" in call_args[0][1]
-        assert error_message in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert "step" not in call_args[0][2]
-        assert call_args[1]["ses_client"] == mock_ses_client
-        assert result == {"MessageId": "test-message-id"}
-
-
-@pytest.mark.asyncio
-async def test_send_completion_notification(mock_ses_client):
-    """Test sending a completion notification."""
-    # Setup
-    recipient = "user@example.com"
-    job_id = "test-job-id"
-    podcast_title = "Test Podcast"
-    summary_url = "https://example.com/summary/test-job-id"
-    
-    # Execute - without ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_completion_notification(recipient, job_id, podcast_title, summary_url)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Your podcast summary is ready" in call_args[0][1]
-        assert podcast_title in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert summary_url in call_args[0][2]
-        assert podcast_title in call_args[0][3]
-        assert job_id in call_args[0][3]
-        assert summary_url in call_args[0][3]
-        assert result == {"MessageId": "test-message-id"}
-        
-    # Execute - with ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_completion_notification(recipient, job_id, podcast_title, summary_url, ses_client=mock_ses_client)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Your podcast summary is ready" in call_args[0][1]
-        assert podcast_title in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert summary_url in call_args[0][2]
-        assert podcast_title in call_args[0][3]
-        assert job_id in call_args[0][3]
-        assert summary_url in call_args[0][3]
-        assert call_args[1]["ses_client"] == mock_ses_client
-        assert result == {"MessageId": "test-message-id"}
-
-
-@pytest.mark.asyncio
-async def test_send_completion_notification_minimal(mock_ses_client):
-    """Test sending a completion notification with minimal information."""
-    # Setup
-    recipient = "user@example.com"
-    job_id = "test-job-id"
-    
-    # Execute - without ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_completion_notification(recipient, job_id)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Your podcast summary is ready" in call_args[0][1]
-        assert "Your podcast has been processed successfully" in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert "summary_url" not in call_args[0][2]
-        assert result == {"MessageId": "test-message-id"}
-        
-    # Execute - with ses_client
-    with patch("media_summarizer.workers.notification.email_worker.send_email") as mock_send_email:
-        mock_send_email.return_value = {"MessageId": "test-message-id"}
-        result = await send_completion_notification(recipient, job_id, ses_client=mock_ses_client)
-    
-        # Verify
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        
-        assert call_args[0][0] == recipient
-        assert "Your podcast summary is ready" in call_args[0][1]
-        assert "Your podcast has been processed successfully" in call_args[0][2]
-        assert job_id in call_args[0][2]
-        assert "summary_url" not in call_args[0][2]
-        assert call_args[1]["ses_client"] == mock_ses_client
-        assert result == {"MessageId": "test-message-id"}
-
-
-def test_get_queue_url():
-    """Test the get_queue_url function."""
-    # Test with AWS_ENDPOINT_URL set
-    with patch("media_summarizer.workers.notification.email_worker.AWS_ENDPOINT_URL", "http://localhost:4566"):
-        url = get_queue_url("test-queue")
-        assert url == "http://localhost:4566/000000000000/test-queue"
-    
-    # Test without AWS_ENDPOINT_URL
-    with patch("media_summarizer.workers.notification.email_worker.AWS_ENDPOINT_URL", None):
-        url = get_queue_url("test-queue")
-        assert url == "test-queue"
-
-
-@pytest.mark.asyncio
-async def test_process_message_confirmation(confirmation_message, mock_ses_client, mock_sqs_client):
-    """Test processing a confirmation message."""
-    # Setup
-    # Test 1: Without custom clients
-    with patch("media_summarizer.workers.notification.email_worker.send_confirmation_email") as mock_send_confirmation:
-        with patch("media_summarizer.workers.notification.email_worker.session") as mock_session:
-            mock_session_sqs_client = AsyncMock()
-            mock_session.create_client.return_value.__aenter__.return_value = mock_session_sqs_client
-            
             # Execute
-            await process_message(confirmation_message)
-            
+            result = await send_error_notification(recipient, job_id, error_message, step)
+
             # Verify
-            mock_send_confirmation.assert_called_once()
-            call_args = mock_send_confirmation.call_args
-            
-            assert call_args[0][0] == "user@example.com"
-            assert call_args[0][1] == "test-job-id"
-            assert call_args[0][2] == "Test Podcast"
-            
-            mock_session_sqs_client.delete_message.assert_called_once()
-    
-    # Test 2: With custom clients
-    with patch("media_summarizer.workers.notification.email_worker.send_confirmation_email") as mock_send_confirmation:
-        # Execute
-        await process_message(confirmation_message, ses_client=mock_ses_client, sqs_client=mock_sqs_client)
-        
-        # Verify
-        mock_send_confirmation.assert_called_once()
-        call_args = mock_send_confirmation.call_args
-        
-        assert call_args[0][0] == "user@example.com"
-        assert call_args[0][1] == "test-job-id"
-        assert call_args[0][2] == "Test Podcast"
-        assert call_args[1]["ses_client"] == mock_ses_client
-        
-        mock_sqs_client.delete_message.assert_called_once()
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args
 
+            assert call_args[1]['recipient'] == recipient
+            assert "error" in call_args[1]['subject'].lower()
+            assert job_id in call_args[1]['body_text']
+            assert error_message in call_args[1]['body_text']
+            assert step in call_args[1]['body_text']
+            assert result["MessageId"] == "test-message-id"
 
-@pytest.mark.asyncio
-async def test_process_message_error(error_message, mock_ses_client, mock_sqs_client):
-    """Test processing an error message."""
-    # Setup
-    # Test 1: Without custom clients
-    with patch("media_summarizer.workers.notification.email_worker.send_error_notification") as mock_send_error:
-        with patch("media_summarizer.workers.notification.email_worker.session") as mock_session:
-            mock_session_sqs_client = AsyncMock()
-            mock_session.create_client.return_value.__aenter__.return_value = mock_session_sqs_client
-            
+    @pytest.mark.asyncio
+    async def test_send_error_notification_without_step(self):
+        """Test error notification without step parameter."""
+        # Setup
+        recipient = "user@example.com"
+        job_id = "test-job-123"
+        error_message = "Unknown error occurred"
+
+        with patch('media_summarizer.utils.ses.send_email') as mock_send:
+            mock_send.return_value = {"MessageId": "test-message-id"}
+
             # Execute
-            await process_message(error_message)
-            
+            result = await send_error_notification(recipient, job_id, error_message)
+
             # Verify
-            mock_send_error.assert_called_once()
-            call_args = mock_send_error.call_args
-            
-            assert call_args[0][0] == "user@example.com"
-            assert call_args[0][1] == "test-job-id"
-            assert call_args[0][2] == "Test error message"
-            assert call_args[0][3] == "transcription"
-            
-            mock_session_sqs_client.delete_message.assert_called_once()
-    
-    # Test 2: With custom clients
-    with patch("media_summarizer.workers.notification.email_worker.send_error_notification") as mock_send_error:
-        # Execute
-        await process_message(error_message, ses_client=mock_ses_client, sqs_client=mock_sqs_client)
-        
-        # Verify
-        mock_send_error.assert_called_once()
-        call_args = mock_send_error.call_args
-        
-        assert call_args[0][0] == "user@example.com"
-        assert call_args[0][1] == "test-job-id"
-        assert call_args[0][2] == "Test error message"
-        assert call_args[0][3] == "transcription"
-        assert call_args[1]["ses_client"] == mock_ses_client
-        
-        mock_sqs_client.delete_message.assert_called_once()
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args
 
+            assert call_args[1]['recipient'] == recipient
+            assert error_message in call_args[1]['body_text']
+            assert result["MessageId"] == "test-message-id"
 
-@pytest.mark.asyncio
-async def test_process_message_completion(completion_message, mock_ses_client, mock_sqs_client):
-    """Test processing a completion message."""
-    # Setup
-    # Test 1: Without custom clients
-    with patch("media_summarizer.workers.notification.email_worker.send_completion_notification") as mock_send_completion:
-        with patch("media_summarizer.workers.notification.email_worker.session") as mock_session:
-            mock_session_sqs_client = AsyncMock()
-            mock_session.create_client.return_value.__aenter__.return_value = mock_session_sqs_client
-            
+    @pytest.mark.asyncio
+    async def test_send_error_notification_long_error(self):
+        """Test error notification with very long error message."""
+        # Setup
+        recipient = "user@example.com"
+        job_id = "test-job-123"
+        long_error = "Very long error message with stack trace: " + "Error details\n" * 50
+        step = "summarization"
+
+        with patch('media_summarizer.utils.ses.send_email') as mock_send:
+            mock_send.return_value = {"MessageId": "test-message-id"}
+
             # Execute
-            await process_message(completion_message)
-            
+            result = await send_error_notification(recipient, job_id, long_error, step)
+
             # Verify
-            mock_send_completion.assert_called_once()
-            call_args = mock_send_completion.call_args
-            
-            assert call_args[0][0] == "user@example.com"
-            assert call_args[0][1] == "test-job-id"
-            assert call_args[0][2] == "Test Podcast"
-            assert call_args[0][3] == "https://example.com/summary/test-job-id"
-            
-            mock_session_sqs_client.delete_message.assert_called_once()
-    
-    # Test 2: With custom clients
-    with patch("media_summarizer.workers.notification.email_worker.send_completion_notification") as mock_send_completion:
-        # Execute
-        await process_message(completion_message, ses_client=mock_ses_client, sqs_client=mock_sqs_client)
-        
-        # Verify
-        mock_send_completion.assert_called_once()
-        call_args = mock_send_completion.call_args
-        
-        assert call_args[0][0] == "user@example.com"
-        assert call_args[0][1] == "test-job-id"
-        assert call_args[0][2] == "Test Podcast"
-        assert call_args[0][3] == "https://example.com/summary/test-job-id"
-        assert call_args[1]["ses_client"] == mock_ses_client
-        
-        mock_sqs_client.delete_message.assert_called_once()
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args
+            assert long_error in call_args[1]['body_text']
 
 
-@pytest.mark.asyncio
-async def test_process_message_unknown_type():
-    """Test processing a message with unknown notification type."""
-    # Setup
-    message = {
-        "MessageId": "test-message-id",
-        "ReceiptHandle": "test-receipt-handle",
-        "Body": json.dumps({
-            "job_id": "test-job-id",
-            "email": "user@example.com",
-            "notification_type": "unknown"
-        })
-    }
-    
-    with patch("media_summarizer.workers.notification.email_worker.send_confirmation_email") as mock_send_confirmation:
-        with patch("media_summarizer.workers.notification.email_worker.send_error_notification") as mock_send_error:
-            with patch("media_summarizer.workers.notification.email_worker.send_completion_notification") as mock_send_completion:
-                with patch("media_summarizer.workers.notification.email_worker.session") as mock_session:
-                    mock_sqs_client = AsyncMock()
-                    mock_session.create_client.return_value.__aenter__.return_value = mock_sqs_client
-                    
-                    # Execute
-                    await process_message(message)
-                    
-                    # Verify
-                    mock_send_confirmation.assert_not_called()
-                    mock_send_error.assert_not_called()
-                    mock_send_completion.assert_not_called()
-                    mock_sqs_client.delete_message.assert_not_called()
+class TestSendCompletionNotification:
+    """Test cases for send_completion_notification function."""
+
+    @pytest.mark.asyncio
+    async def test_send_completion_notification_success(self):
+        """Test successful completion notification sending."""
+        # Setup
+        recipient = "user@example.com"
+        job_id = "test-job-123"
+        podcast_title = "Test Podcast"
+        episode_title = "Test Episode"
+        summary_content = {
+            "main_topics": ["Topic 1", "Topic 2"],
+            "key_points": ["Point 1", "Point 2"],
+            "notable_quotes": ["Quote 1"],
+            "conclusion": "Test conclusion"
+        }
+
+        with patch('media_summarizer.utils.ses.send_email') as mock_send:
+            mock_send.return_value = {"MessageId": "test-message-id"}
+
+            # Execute
+            result = await send_completion_notification(recipient, job_id, podcast_title, episode_title, summary_content)
+
+            # Verify
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args
+
+            assert call_args[1]['recipient'] == recipient
+            assert "ready" in call_args[1]['subject'].lower() or "summary" in call_args[1]['subject'].lower()
+            assert job_id in call_args[1]['body_text']
+            assert podcast_title in call_args[1]['body_text']
+            assert episode_title in call_args[1]['body_text']
+            assert "Topic 1" in call_args[1]['body_text']
+            assert "Point 1" in call_args[1]['body_text']
+            assert result["MessageId"] == "test-message-id"
+
+    @pytest.mark.asyncio
+    async def test_send_completion_notification_minimal(self):
+        """Test completion notification with minimal parameters."""
+        # Setup
+        recipient = "user@example.com"
+        job_id = "test-job-123"
+
+        with patch('media_summarizer.utils.ses.send_email') as mock_send:
+            mock_send.return_value = {"MessageId": "test-message-id"}
+
+            # Execute
+            result = await send_completion_notification(recipient, job_id)
+
+            # Verify
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args
+
+            assert call_args[1]['recipient'] == recipient
+            assert job_id in call_args[1]['body_text']
+            assert result["MessageId"] == "test-message-id"
+
+    @pytest.mark.asyncio
+    async def test_send_completion_notification_with_string_summary(self):
+        """Test completion notification with string summary content."""
+        # Setup
+        recipient = "user@example.com"
+        job_id = "test-job-123"
+        podcast_title = "Test Podcast"
+        episode_title = "Test Episode"
+        summary_content = "This is a plain text summary of the podcast episode."
+
+        with patch('media_summarizer.utils.ses.send_email') as mock_send:
+            mock_send.return_value = {"MessageId": "test-message-id"}
+
+            # Execute
+            result = await send_completion_notification(recipient, job_id, podcast_title, episode_title, summary_content)
+
+            # Verify - should still work with string summary
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args
+            assert summary_content in call_args[1]['body_text']
+            assert result["MessageId"] == "test-message-id"
 
 
-@pytest.mark.asyncio
-async def test_process_message_missing_fields():
-    """Test processing a message with missing required fields."""
-    # Setup
-    message = {
-        "MessageId": "test-message-id",
-        "ReceiptHandle": "test-receipt-handle",
-        "Body": json.dumps({
-            "notification_type": "confirmation"
-            # Missing job_id and email
-        })
-    }
-    
-    with patch("media_summarizer.workers.notification.email_worker.send_confirmation_email") as mock_send_confirmation:
-        with patch("media_summarizer.workers.notification.email_worker.session") as mock_session:
-            mock_sqs_client = AsyncMock()
-            mock_session.create_client.return_value.__aenter__.return_value = mock_sqs_client
-            
+class TestProcessMessage:
+    """Test cases for process_message function."""
+
+    @pytest.mark.asyncio
+    async def test_process_message_error(self):
+        """Test processing error message."""
+        # Setup
+        message = {
+            "Body": json.dumps({
+                "notification_type": "error",
+                "job_id": "test-job-123",
+                "email": "user@example.com",
+                "error": "Processing failed",
+                "step": "transcription"
+            })
+        }
+
+        with patch('media_summarizer.workers.notification.email_worker.send_error_notification') as mock_send:
+            with patch('media_summarizer.utils.sqs.delete_message') as mock_delete:
+                mock_send.return_value = {"MessageId": "test-message-id"}
+
+                # Execute
+                await process_message(message)
+
+                # Verify
+                mock_send.assert_called_once_with(
+                    "user@example.com", "test-job-123", "Processing failed", "transcription"
+                )
+                mock_delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_message_completion(self):
+        """Test processing completion message."""
+        # Setup
+        message = {
+            "Body": json.dumps({
+                "notification_type": "completion",
+                "job_id": "test-job-123",
+                "email": "user@example.com",
+                "podcast_title": "Test Podcast",
+                "episode_title": "Test Episode",
+                "summary_content": {
+                    "main_topics": ["Topic 1"],
+                    "key_points": ["Point 1"],
+                    "conclusion": "Test conclusion"
+                }
+            })
+        }
+
+        with patch('media_summarizer.workers.notification.email_worker.send_completion_notification') as mock_send:
+            with patch('media_summarizer.utils.sqs.delete_message') as mock_delete:
+                mock_send.return_value = {"MessageId": "test-message-id"}
+
+                # Execute
+                await process_message(message)
+
+                # Verify
+                mock_send.assert_called_once_with(
+                    "user@example.com", "test-job-123", "Test Podcast", "Test Episode", {
+                        "main_topics": ["Topic 1"],
+                        "key_points": ["Point 1"],
+                        "conclusion": "Test conclusion"
+                    }
+                )
+                mock_delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_message_invalid_json(self):
+        """Test processing message with invalid JSON."""
+        # Setup
+        message = {
+            "Body": "invalid json"
+        }
+
+        with patch('media_summarizer.utils.sqs.delete_message') as mock_delete:
             # Execute
             await process_message(message)
-            
-            # Verify
-            mock_send_confirmation.assert_not_called()
-            mock_sqs_client.delete_message.assert_not_called()
 
+            # Verify - message should NOT be deleted for invalid JSON
+            mock_delete.assert_not_called()
 
-@pytest.mark.asyncio
-async def test_process_message_ses_error(confirmation_message):
-    """Test handling of SES errors during message processing."""
-    # Setup
-    with patch("media_summarizer.workers.notification.email_worker.send_confirmation_email") as mock_send_confirmation:
-        mock_send_confirmation.side_effect = Exception("SES error")
-        
-        with patch("media_summarizer.workers.notification.email_worker.session") as mock_session:
-            mock_sqs_client = AsyncMock()
-            mock_session.create_client.return_value.__aenter__.return_value = mock_sqs_client
-            
-            with patch("asyncio.sleep", AsyncMock()) as mock_sleep:
-                # Execute
-                await process_message(confirmation_message)
-                
-                # Verify
-                assert mock_send_confirmation.call_count > 1  # Should retry
-                mock_sleep.assert_called()  # Should sleep between retries
-                mock_sqs_client.delete_message.assert_not_called()  # Should not delete the message
+    @pytest.mark.asyncio
+    async def test_process_message_unknown_notification_type(self):
+        """Test processing message with unknown notification type."""
+        # Setup
+        message = {
+            "Body": json.dumps({
+                "notification_type": "unknown_type",
+                "job_id": "test-job-123",
+                "email": "user@example.com"
+            })
+        }
 
+        with patch('media_summarizer.utils.sqs.delete_message') as mock_delete:
+            # Execute
+            await process_message(message)
 
-@pytest.mark.asyncio
-async def test_process_message_max_retries(confirmation_message):
-    """Test that process_message stops after max retries."""
-    # Setup
-    with patch("media_summarizer.workers.notification.email_worker.send_confirmation_email") as mock_send_confirmation:
-        mock_send_confirmation.side_effect = Exception("SES error")
-        
-        with patch("media_summarizer.workers.notification.email_worker.session") as mock_session:
-            mock_sqs_client = AsyncMock()
-            mock_session.create_client.return_value.__aenter__.return_value = mock_sqs_client
-            
-            with patch("media_summarizer.workers.notification.email_worker.MAX_RETRIES", 2):
-                with patch("asyncio.sleep", AsyncMock()) as mock_sleep:
+            # Verify - message should NOT be deleted for unknown type
+            mock_delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_message_missing_fields(self):
+        """Test processing message with missing required fields."""
+        # Setup
+        message = {
+            "Body": json.dumps({
+                "notification_type": "error"
+                # Missing job_id and email
+            })
+        }
+
+        with patch('media_summarizer.utils.sqs.delete_message') as mock_delete:
+            # Execute
+            await process_message(message)
+
+            # Verify - message should NOT be deleted for missing fields
+            mock_delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_message_send_error_with_retry(self):
+        """Test processing message when sending fails."""
+        # Setup
+        message = {
+            "Body": json.dumps({
+                "notification_type": "error",
+                "job_id": "test-job-123",
+                "email": "user@example.com",
+                "error": "Test error"
+            }),
+            "ReceiptHandle": "test-receipt-handle"
+        }
+
+        with patch('media_summarizer.workers.notification.email_worker.send_error_notification') as mock_send:
+            with patch('media_summarizer.utils.sqs.delete_message') as mock_delete:
+                with patch('asyncio.sleep') as mock_sleep:
+                    # First call fails, second succeeds
+                    mock_send.side_effect = [
+                        ClientError({'Error': {'Code': 'Throttling'}}, 'SendEmail'),
+                        {"MessageId": "test-message-id"}
+                    ]
+
                     # Execute
-                    await process_message(confirmation_message)
-                    
-                    # Verify
-                    assert mock_send_confirmation.call_count == 3  # Initial + 2 retries
-                    assert mock_sleep.call_count == 2  # Should sleep between retries
-                    mock_sqs_client.delete_message.assert_not_called()  # Should not delete the message
+                    await process_message(message)
 
-
-@pytest.mark.asyncio
-async def test_process_message_sqs_delete_error(confirmation_message):
-    """Test handling of SQS delete errors during message processing."""
-    # Setup
-    with patch("media_summarizer.workers.notification.email_worker.send_confirmation_email") as mock_send_confirmation:
-        with patch("media_summarizer.workers.notification.email_worker.session") as mock_session:
-            mock_sqs_client = AsyncMock()
-            mock_sqs_client.delete_message.side_effect = Exception("SQS delete error")
-            mock_session.create_client.return_value.__aenter__.return_value = mock_sqs_client
-            
-            with patch("asyncio.sleep", AsyncMock()) as mock_sleep:
-                # Execute
-                await process_message(confirmation_message)
-                
-                # Verify
-                assert mock_send_confirmation.call_count >= 1  # Email should be sent at least once
-                assert mock_sqs_client.delete_message.call_count > 1  # Should retry delete
-                mock_sleep.assert_called()  # Should sleep between retries
+                    # Verify retry behavior
+                    assert mock_send.call_count == 2
+                    assert mock_sleep.call_count == 1
+                    mock_delete.assert_called_once()

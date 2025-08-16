@@ -15,7 +15,14 @@ os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 os.environ["AWS_ENDPOINT_URL"] = "http://localhost:4566"
 
 from media_summarizer.api.main import app
-from media_summarizer.api.endpoints.credits import CreditBalance, CreditPurchase, process_payment
+from media_summarizer.api.endpoints.credits import (
+    CreditPurchaseRequest,
+    CreditDeductionRequest,
+    CreditRefundRequest,
+    CreditBalanceResponse,
+    CreditTransactionResponse
+)
+from media_summarizer.core.models import User, CreditTransaction
 
 
 @pytest.fixture
@@ -26,198 +33,376 @@ def client():
 
 @pytest.fixture
 def mock_db():
-    """Mock database session for testing."""
+    """Mock database connection for testing."""
     with patch("media_summarizer.api.endpoints.credits.get_db") as mock_get_db:
-        mock_session = MagicMock()
-        mock_get_db.return_value.__anext__.return_value = mock_session
-        yield mock_session
+        mock_connection = AsyncMock()
+        mock_get_db.return_value = mock_connection
+        yield mock_connection
 
 
-def test_get_credit_balance_success(client, mock_db):
-    """Test successful credit balance retrieval."""
-    # Setup
-    # In a real implementation, we would mock the database query that retrieves the user's credit balance
-    
-    # Execute
-    response = client.get("/api/v1/credits/balance")
-    
-    # Verify
-    assert response.status_code == 200
-    data = response.json()
-    assert "balance" in data
-    assert isinstance(data["balance"], int)
-    assert data["balance"] == 100  # This matches the hardcoded value in the endpoint
-
-
-def test_purchase_credits_success(client, mock_db):
-    """Test successful credit purchase."""
-    # Setup
-    # In a real implementation, we would mock the database query that updates the user's credit balance
-    
-    # Execute
-    response = client.post(
-        "/api/v1/credits/purchase",
-        json={"amount": 50}
+@pytest.fixture
+def sample_user():
+    """Create a sample user for testing."""
+    return User(
+        id="user123",
+        email="test@example.com",
+        credits=100
     )
-    
-    # Verify
-    assert response.status_code == 200
-    data = response.json()
-    assert "balance" in data
-    assert isinstance(data["balance"], int)
-    assert data["balance"] == 150  # 100 (initial) + 50 (purchased)
 
 
-def test_purchase_credits_invalid_amount(client):
-    """Test credit purchase with invalid amount."""
-    # Execute with negative amount
-    response = client.post(
-        "/api/v1/credits/purchase",
-        json={"amount": -10}
+@pytest.fixture
+def sample_transaction():
+    """Create a sample credit transaction for testing."""
+    return CreditTransaction.create_purchase(
+        user_id="user123",
+        amount=50,
+        description="Test purchase"
     )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
-    
-    # Execute with zero amount
-    response = client.post(
-        "/api/v1/credits/purchase",
-        json={"amount": 0}
-    )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
 
 
-def test_purchase_credits_missing_amount(client):
-    """Test credit purchase with missing amount."""
-    # Execute
-    response = client.post(
-        "/api/v1/credits/purchase",
-        json={}
-    )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
+class TestCreditBalance:
+    """Test cases for credit balance endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_get_user_credits_success(self, client, mock_db, sample_user):
+        """Test successful credit balance retrieval."""
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            mock_get_user.return_value = sample_user
+
+            response = client.get("/api/v1/users/user123/credits")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["user_id"] == "user123"
+            assert data["credits"] == 100
+            assert "last_updated" in data
+
+    @pytest.mark.asyncio
+    async def test_get_user_credits_not_found(self, client, mock_db):
+        """Test credit balance retrieval for non-existent user."""
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            mock_get_user.return_value = None
+
+            response = client.get("/api/v1/users/nonexistent/credits")
+
+            assert response.status_code == 404
+            assert "Utilisateur non trouvé" in response.json()["detail"]
 
 
-def test_purchase_credits_non_integer_amount(client):
-    """Test credit purchase with non-integer amount."""
-    # Execute
-    response = client.post(
-        "/api/v1/credits/purchase",
-        json={"amount": 10.5}
-    )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
+class TestCreditPurchase:
+    """Test cases for credit purchase endpoints."""
 
-
-@pytest.mark.asyncio
-async def test_process_payment_success():
-    """Test successful payment processing."""
-    # Setup
-    amount = 50
-    payment_method_id = "pm_test_123"
-    customer_id = "cus_test_123"
-    
-    # Execute
-    with patch("uuid.uuid4") as mock_uuid:
-        mock_uuid.return_value = uuid.UUID("12345678-1234-5678-1234-567812345678")
-        result = await process_payment(amount, payment_method_id, customer_id)
-    
-    # Verify
-    assert result["success"] is True
-    assert result["transaction_id"] == "txn-12345678-1234-5678-1234-567812345678"
-    assert result["amount"] == amount
-
-
-@pytest.mark.asyncio
-async def test_process_payment_without_optional_params():
-    """Test payment processing without optional parameters."""
-    # Setup
-    amount = 50
-    
-    # Execute
-    with patch("uuid.uuid4") as mock_uuid:
-        mock_uuid.return_value = uuid.UUID("12345678-1234-5678-1234-567812345678")
-        result = await process_payment(amount)
-    
-    # Verify
-    assert result["success"] is True
-    assert result["transaction_id"] == "txn-12345678-1234-5678-1234-567812345678"
-    assert result["amount"] == amount
-
-
-@pytest.mark.asyncio
-async def test_process_payment_with_payment_method_only():
-    """Test payment processing with only payment method provided."""
-    # Setup
-    amount = 50
-    payment_method_id = "pm_test_123"
-    
-    # Execute
-    with patch("uuid.uuid4") as mock_uuid:
-        mock_uuid.return_value = uuid.UUID("12345678-1234-5678-1234-567812345678")
-        result = await process_payment(amount, payment_method_id)
-    
-    # Verify
-    assert result["success"] is True
-    assert result["transaction_id"] == "txn-12345678-1234-5678-1234-567812345678"
-    assert result["amount"] == amount
-
-
-@pytest.mark.asyncio
-async def test_purchase_credits_with_payment_integration(client, mock_db):
-    """Test credit purchase with payment processing integration."""
-    # Setup
-    with patch("media_summarizer.api.endpoints.credits.process_payment") as mock_process_payment:
-        mock_process_payment.return_value = {
-            "success": True,
-            "transaction_id": "txn-test-123",
-            "amount": 50
-        }
-        
-        # Execute
-        response = client.post(
-            "/api/v1/credits/purchase",
-            json={
-                "amount": 50,
-                "payment_method_id": "pm_test_123",
-                "customer_id": "cus_test_123"
-            }
+    @pytest.mark.asyncio
+    async def test_purchase_credits_success(self, client, mock_db, sample_user):
+        """Test successful credit purchase."""
+        updated_user = User(
+            id=sample_user.id,
+            email=sample_user.email,
+            credits=sample_user.credits + 50
         )
-        
-        # Verify
-        assert response.status_code == 200
-        data = response.json()
-        assert "balance" in data
-        assert data["balance"] == 150  # 100 (initial) + 50 (purchased)
-        
-        # Verify process_payment was called with correct parameters
-        mock_process_payment.assert_called_once()
+
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            with patch("media_summarizer.api.endpoints.credits.database_async.create_credit_transaction") as mock_create_tx:
+                with patch("media_summarizer.api.endpoints.credits.database_async.update_user_credits") as mock_update_credits:
+                    mock_get_user.return_value = sample_user
+                    mock_update_credits.return_value = updated_user
+
+                    response = client.post("/api/v1/credits/purchase", json={
+                        "user_id": "user123",
+                        "amount": 50,
+                        "payment_method": "stripe",
+                        "description": "Test purchase"
+                    })
+
+                    assert response.status_code == 200
+                    data = response.json()
+                    assert data["user_id"] == "user123"
+                    assert data["credits"] == 150
+                    mock_create_tx.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_purchase_credits_user_not_found(self, client, mock_db):
+        """Test credit purchase for non-existent user."""
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            mock_get_user.return_value = None
+
+            response = client.post("/api/v1/credits/purchase", json={
+                "user_id": "nonexistent",
+                "amount": 50,
+                "payment_method": "stripe"
+            })
+
+            assert response.status_code == 404
+            assert "Utilisateur non trouvé" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_purchase_credits_invalid_amount(self, client):
+        """Test credit purchase with invalid amount."""
+        response = client.post("/api/v1/credits/purchase", json={
+            "user_id": "user123",
+            "amount": -10,
+            "payment_method": "stripe"
+        })
+
+        assert response.status_code == 422  # Validation error
+
+    @pytest.mark.asyncio
+    async def test_purchase_credits_missing_fields(self, client):
+        """Test credit purchase with missing required fields."""
+        response = client.post("/api/v1/credits/purchase", json={
+            "amount": 50
+        })
+
+        assert response.status_code == 422  # Validation error
 
 
-# Nous allons simplifier les tests d'erreur de base de données
-# en nous concentrant sur les tests qui fonctionnent déjà
+class TestCreditDeduction:
+    """Test cases for credit deduction endpoints."""
 
-# Note: Dans un environnement réel, nous devrions configurer correctement
-# les tests d'erreur de base de données, mais pour l'instant, nous allons
-# nous concentrer sur les tests qui fonctionnent déjà
+    @pytest.mark.asyncio
+    async def test_deduct_credits_success(self, client, mock_db, sample_user):
+        """Test successful credit deduction."""
+        updated_user = User(
+            id=sample_user.id,
+            email=sample_user.email,
+            credits=sample_user.credits - 20
+        )
 
-# Ces tests sont commentés car ils nécessitent une configuration plus avancée
-# pour simuler correctement les erreurs de base de données
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            with patch("media_summarizer.api.endpoints.credits.database_async.create_credit_transaction") as mock_create_tx:
+                with patch("media_summarizer.api.endpoints.credits.database_async.update_user_credits") as mock_update_credits:
+                    mock_get_user.return_value = sample_user
+                    mock_update_credits.return_value = updated_user
 
-"""
-def test_purchase_credits_db_error(client):
-    # Test credit purchase with database error
-    # Ce test nécessite une configuration plus avancée pour simuler correctement
-    # les erreurs de base de données
-    pass
+                    response = client.post("/api/v1/credits/deduct", json={
+                        "user_id": "user123",
+                        "amount": 20,
+                        "job_id": "job456",
+                        "description": "Processing fee"
+                    })
 
-def test_get_credit_balance_db_error(client):
-    # Test credit balance retrieval with database error
-    # Ce test nécessite une configuration plus avancée pour simuler correctement
-    # les erreurs de base de données
-    pass
-"""
+                    assert response.status_code == 200
+                    data = response.json()
+                    assert data["user_id"] == "user123"
+                    assert data["credits"] == 80
+                    mock_create_tx.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deduct_credits_insufficient_balance(self, client, mock_db, sample_user):
+        """Test credit deduction with insufficient balance."""
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            mock_get_user.return_value = sample_user
+
+            response = client.post("/api/v1/credits/deduct", json={
+                "user_id": "user123",
+                "amount": 150,  # More than available
+                "description": "Too much"
+            })
+
+            assert response.status_code == 400
+            assert "Crédits insuffisants" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_deduct_credits_user_not_found(self, client, mock_db):
+        """Test credit deduction for non-existent user."""
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            mock_get_user.return_value = None
+
+            response = client.post("/api/v1/credits/deduct", json={
+                "user_id": "nonexistent",
+                "amount": 20
+            })
+
+            assert response.status_code == 404
+            assert "Utilisateur non trouvé" in response.json()["detail"]
+
+
+class TestCreditRefund:
+    """Test cases for credit refund endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_refund_credits_success(self, client, mock_db, sample_user):
+        """Test successful credit refund."""
+        updated_user = User(
+            id=sample_user.id,
+            email=sample_user.email,
+            credits=sample_user.credits + 30
+        )
+
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            with patch("media_summarizer.api.endpoints.credits.database_async.create_credit_transaction") as mock_create_tx:
+                with patch("media_summarizer.api.endpoints.credits.database_async.update_user_credits") as mock_update_credits:
+                    mock_get_user.return_value = sample_user
+                    mock_update_credits.return_value = updated_user
+
+                    response = client.post("/api/v1/credits/refund", json={
+                        "user_id": "user123",
+                        "amount": 30,
+                        "job_id": "job456",
+                        "reason": "Job failed"
+                    })
+
+                    assert response.status_code == 200
+                    data = response.json()
+                    assert data["user_id"] == "user123"
+                    assert data["credits"] == 130
+                    mock_create_tx.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_refund_credits_user_not_found(self, client, mock_db):
+        """Test credit refund for non-existent user."""
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            mock_get_user.return_value = None
+
+            response = client.post("/api/v1/credits/refund", json={
+                "user_id": "nonexistent",
+                "amount": 30,
+                "reason": "Failed job"
+            })
+
+            assert response.status_code == 404
+            assert "Utilisateur non trouvé" in response.json()["detail"]
+
+
+class TestCreditTransactions:
+    """Test cases for credit transaction endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_get_user_credit_transactions_success(self, client, mock_db, sample_user, sample_transaction):
+        """Test successful retrieval of user credit transactions."""
+        transactions = [sample_transaction]
+
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            with patch("media_summarizer.api.endpoints.credits.database_async.get_credit_transactions_by_user_id") as mock_get_transactions:
+                mock_get_user.return_value = sample_user
+                mock_get_transactions.return_value = transactions
+
+                response = client.get("/api/v1/users/user123/credits/transactions")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert len(data) == 1
+                assert data[0]["user_id"] == "user123"
+                assert data[0]["amount"] == 50
+                assert data[0]["type"] == "purchase"
+
+    @pytest.mark.asyncio
+    async def test_get_user_credit_transactions_user_not_found(self, client, mock_db):
+        """Test credit transactions retrieval for non-existent user."""
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_user_by_id") as mock_get_user:
+            mock_get_user.return_value = None
+
+            response = client.get("/api/v1/users/nonexistent/credits/transactions")
+
+            assert response.status_code == 404
+            assert "Utilisateur non trouvé" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_get_credit_transaction_success(self, client, mock_db, sample_transaction):
+        """Test successful retrieval of a specific credit transaction."""
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_credit_transaction_by_id") as mock_get_transaction:
+            mock_get_transaction.return_value = sample_transaction
+
+            response = client.get(f"/api/v1/credits/transactions/{sample_transaction.id}")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["id"] == sample_transaction.id
+            assert data["user_id"] == "user123"
+            assert data["amount"] == 50
+
+    @pytest.mark.asyncio
+    async def test_get_credit_transaction_not_found(self, client, mock_db):
+        """Test retrieval of non-existent credit transaction."""
+        with patch("media_summarizer.api.endpoints.credits.database_async.get_credit_transaction_by_id") as mock_get_transaction:
+            mock_get_transaction.return_value = None
+
+            response = client.get("/api/v1/credits/transactions/txn123")
+
+            assert response.status_code == 404
+            assert "Transaction non trouvée" in response.json()["detail"]
+
+
+class TestModelValidation:
+    """Test cases for Pydantic model validation."""
+
+    def test_credit_purchase_request_validation(self):
+        """Test CreditPurchaseRequest validation."""
+        # Valid request
+        valid_request = CreditPurchaseRequest(
+            user_id="user123",
+            amount=50,
+            payment_method="stripe",
+            description="Test purchase"
+        )
+        assert valid_request.amount == 50
+
+        # Invalid amount (negative)
+        with pytest.raises(ValueError):
+            CreditPurchaseRequest(
+                user_id="user123",
+                amount=-10,
+                payment_method="stripe"
+            )
+
+        # Invalid amount (zero)
+        with pytest.raises(ValueError):
+            CreditPurchaseRequest(
+                user_id="user123",
+                amount=0,
+                payment_method="stripe"
+            )
+
+    def test_credit_deduction_request_validation(self):
+        """Test CreditDeductionRequest validation."""
+        # Valid request
+        valid_request = CreditDeductionRequest(
+            user_id="user123",
+            amount=20,
+            job_id="job456",
+            description="Processing fee"
+        )
+        assert valid_request.amount == 20
+
+        # Invalid amount
+        with pytest.raises(ValueError):
+            CreditDeductionRequest(
+                user_id="user123",
+                amount=-5
+            )
+
+    def test_credit_refund_request_validation(self):
+        """Test CreditRefundRequest validation."""
+        # Valid request
+        valid_request = CreditRefundRequest(
+            user_id="user123",
+            amount=30,
+            reason="Job failed"
+        )
+        assert valid_request.amount == 30
+
+        # Invalid amount
+        with pytest.raises(ValueError):
+            CreditRefundRequest(
+                user_id="user123",
+                amount=0,
+                reason="Invalid"
+            )
+
+    def test_credit_balance_response_from_user(self, sample_user):
+        """Test CreditBalanceResponse.from_user method."""
+        response = CreditBalanceResponse.from_user(sample_user)
+
+        assert response.user_id == sample_user.id
+        assert response.credits == sample_user.credits
+        assert response.last_updated == sample_user.updated_at.isoformat()
+
+    def test_credit_transaction_response_from_transaction(self, sample_transaction):
+        """Test CreditTransactionResponse.from_transaction method."""
+        response = CreditTransactionResponse.from_transaction(sample_transaction)
+
+        assert response.id == sample_transaction.id
+        assert response.user_id == sample_transaction.user_id
+        assert response.amount == sample_transaction.amount
+        assert response.type == sample_transaction.type
+        assert response.created_at == sample_transaction.created_at.isoformat()

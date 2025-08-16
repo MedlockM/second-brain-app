@@ -1,0 +1,33 @@
+---
+inclusion: always
+---
+
+# Media Summarizer - Product Overview
+
+## Product Description
+Media Summarizer is a service that automatically generates AI-powered summaries of podcast episodes. Users submit links to podcast episodes from various platforms (Spotify, Apple Podcasts, Google Podcasts, etc.), and the system processes these links to deliver structured summaries via email.
+
+## Core Features
+- Podcast link submission from any major platform
+- Automatic RSS feed resolution
+- Audio downloading and processing
+- High-quality transcription using Whisper Large
+- AI-powered summarization with structured output
+- Email delivery of summaries
+- Credit-based payment system
+
+## User Experience
+- Simple web interface for submitting podcast links
+- Real-time validation of submitted links
+- Status tracking for submitted jobs
+- Email notifications with summaries
+- Credit purchase system
+
+## Target Users
+- Podcast listeners who want to quickly understand episode content
+- Researchers collecting information from podcast episodes
+- Content creators tracking industry discussions
+- Anyone who wants to remember podcast content without re-listening
+
+## Business Model
+The service operates on a credit-based system where users purchase credits and spend them to process podcast episodes. The credit cost may vary based on the length and complexity of the podcast.

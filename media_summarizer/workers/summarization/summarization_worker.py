@@ -1,302 +1,421 @@
 """
 Summarization worker for processing transcriptions and generating summaries using LLM.
+
+Migrated to use the new utils for S3 and SQS operations instead of direct AWS libraries.
 """
 import json
 import logging
-from typing import Dict, Any, Optional, List
+import os
+from datetime import datetime
+from typing import Dict, Any, Optional
 
-import aiohttp
 import asyncio
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-logger = logging.getLogger(__name__)
+from media_summarizer.utils import s3, sqs
+from media_summarizer.workers.base_worker import (
+    process_message_with_retry,
+    get_sqs_receive_params
+)
+import aiohttp
+import json as json_module
+
 
 class LLMAPIError(Exception):
-    """Exception raised when there's an error with the LLM API."""
+    """Exception raised when LLM API returns an error or refuses to process content."""
     pass
 
-class SummarizationWorker:
-    """Worker for generating summaries from transcriptions using LLM."""
-    
-    def __init__(self, llm_api_url: str, llm_api_key: str):
-        """
-        Initialize the summarization worker.
-        
-        Args:
-            llm_api_url: URL of the LLM API
-            llm_api_key: API key for the LLM API
-        """
-        self.llm_api_url = llm_api_url
-        self.llm_api_key = llm_api_key
-        self.max_chunk_size = 4000  # Maximum size of text chunk to send to LLM
-        self.max_retries = 3
-    
-    # For testing purposes, we'll make this configurable
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=lambda e: isinstance(e, (LLMAPIError, aiohttp.ClientError)),
-        reraise=True
-    )
-    async def _call_llm_api(self, prompt: str) -> Dict[str, Any]:
-        """
-        Call the LLM API with the given prompt.
-        
-        Args:
-            prompt: The prompt to send to the LLM API
-            
-        Returns:
-            The response from the LLM API
-            
-        Raises:
-            LLMAPIError: If there's an error with the LLM API after retries
-        """
+logger = logging.getLogger(__name__)
+
+# Configuration
+SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
+NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-queue")
+
+
+async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_title):
+    """Call LLM API directly for summarization."""
+    prompt = f"""
+    Please summarize the following podcast episode transcript:
+
+    Podcast: {podcast_title}
+    Episode: {episode_title}
+
+    Transcript:
+    {transcription}
+
+    Please provide a structured summary with:
+    - Main topics discussed
+    - Key points
+    - Notable quotes (if any)
+    - Conclusion
+
+    Format the response as JSON with these fields: main_topics, key_points, notable_quotes, conclusion
+    """
+
+    async with aiohttp.ClientSession() as session:
         headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.llm_api_key}"
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
         }
-        
+
         payload = {
             "model": "gpt-4",
             "messages": [
-                {"role": "system", "content": "You are a helpful assistant that summarizes podcast transcriptions."},
                 {"role": "user", "content": prompt}
             ],
-            "temperature": 0.3,
-            "max_tokens": 1000
+            "max_tokens": 1000,
+            "temperature": 0.7
         }
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.llm_api_url,
-                    headers=headers,
-                    json=payload,
-                    timeout=60
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"LLM API error: {response.status} - {error_text}")
-                        raise LLMAPIError(f"LLM API returned status {response.status}: {error_text}")
-                    
-                    return await response.json()
-        except asyncio.TimeoutError:
-            logger.error("LLM API request timed out")
-            raise LLMAPIError("LLM API request timed out")
-        except aiohttp.ClientError as e:
-            logger.error(f"LLM API request failed: {str(e)}")
-            raise LLMAPIError(f"LLM API request failed: {str(e)}")
-    
-    def _chunk_text(self, text: str) -> List[str]:
-        """
-        Split the text into chunks of maximum size.
-        
-        Args:
-            text: The text to split
-            
-        Returns:
-            List of text chunks
-        """
-        # Simple chunking by character count
-        # In a real implementation, we would use more sophisticated chunking
-        # that respects sentence or paragraph boundaries
-        chunks = []
-        for i in range(0, len(text), self.max_chunk_size):
-            chunks.append(text[i:i + self.max_chunk_size])
-        return chunks
-    
-    async def generate_summary(self, transcription: str) -> Dict[str, Any]:
-        """
-        Generate a summary from the given transcription.
-        
-        Args:
-            transcription: The transcription text to summarize
-            
-        Returns:
-            Dictionary containing the summary and metadata
-            
-        Raises:
-            LLMAPIError: If there's an error with the LLM API
-        """
-        if not transcription:
-            raise ValueError("Transcription cannot be empty")
-        
-        # For very long transcriptions, we need to chunk the text
-        if len(transcription) > self.max_chunk_size:
-            return await self._process_long_transcription(transcription)
-        
-        # For shorter transcriptions, we can process directly
-        return await self._process_short_transcription(transcription)
-    
-    async def _process_short_transcription(self, transcription: str) -> Dict[str, Any]:
-        """
-        Process a short transcription that fits within the token limit.
-        
-        Args:
-            transcription: The transcription text to summarize
-            
-        Returns:
-            Dictionary containing the summary and metadata
-        """
-        prompt = f"""
-        Please summarize the following podcast transcription:
-        
-        {transcription}
-        
-        Provide a structured summary with the following sections:
-        1. Main topics
-        2. Key points
-        3. Notable quotes
-        4. Conclusion
-        
-        Format your response as JSON with these sections as keys.
-        """
-        
-        response = await self._call_llm_api(prompt)
-        
-        try:
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            # Extract JSON from the content (it might be wrapped in markdown code blocks)
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
-            
-            summary_data = json.loads(content)
-            
-            return {
-                "summary": summary_data,
-                "metadata": {
-                    "model": response.get("model", "unknown"),
-                    "usage": response.get("usage", {}),
-                    "chunked": False
-                }
-            }
-        except (json.JSONDecodeError, IndexError, KeyError) as e:
-            logger.error(f"Failed to parse LLM response: {str(e)}")
-            raise LLMAPIError(f"Failed to parse LLM response: {str(e)}")
-    
-    async def _process_long_transcription(self, transcription: str) -> Dict[str, Any]:
-        """
-        Process a long transcription by chunking it and then combining the results.
-        
-        Args:
-            transcription: The transcription text to summarize
-            
-        Returns:
-            Dictionary containing the summary and metadata
-        """
-        chunks = self._chunk_text(transcription)
-        logger.info(f"Processing long transcription in {len(chunks)} chunks")
-        
-        # First, summarize each chunk
-        chunk_summaries = []
-        for i, chunk in enumerate(chunks):
-            logger.info(f"Processing chunk {i+1}/{len(chunks)}")
-            prompt = f"""
-            Please summarize the following chunk ({i+1}/{len(chunks)}) of a podcast transcription:
-            
-            {chunk}
-            
-            Provide a brief summary of the main points in this chunk.
-            """
-            
-            response = await self._call_llm_api(prompt)
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            chunk_summaries.append(content)
-        
-        # Then, combine the chunk summaries
-        combined_summary = "\n\n".join([f"Chunk {i+1}: {summary}" for i, summary in enumerate(chunk_summaries)])
-        
-        # Finally, create a structured summary from the combined summaries
-        prompt = f"""
-        Below are summaries of different chunks of a podcast transcription:
-        
-        {combined_summary}
-        
-        Based on these summaries, provide a structured summary of the entire podcast with the following sections:
-        1. Main topics
-        2. Key points
-        3. Notable quotes (if any were mentioned in the summaries)
-        4. Conclusion
-        
-        Format your response as JSON with these sections as keys.
-        """
-        
-        response = await self._call_llm_api(prompt)
-        
-        try:
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            # Extract JSON from the content (it might be wrapped in markdown code blocks)
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
-            
-            summary_data = json.loads(content)
-            
-            return {
-                "summary": summary_data,
-                "metadata": {
-                    "model": response.get("model", "unknown"),
-                    "usage": response.get("usage", {}),
-                    "chunked": True,
-                    "chunk_count": len(chunks)
-                }
-            }
-        except (json.JSONDecodeError, IndexError, KeyError) as e:
-            logger.error(f"Failed to parse LLM response: {str(e)}")
-            raise LLMAPIError(f"Failed to parse LLM response: {str(e)}")
 
-async def process_message(message: Dict[str, Any], 
-                         llm_api_url: str, 
-                         llm_api_key: str) -> Dict[str, Any]:
+        async with session.post(api_url, headers=headers, json=payload) as response:
+            response.raise_for_status()
+            result = await response.json()
+
+            # Extract the content from the response
+            content = result["choices"][0]["message"]["content"]
+
+            # Check if the LLM response indicates an error or inability to process
+            error_indicators = [
+                "cannot generate", "impossible to", "not possible to", "unable to",
+                "challenging to understand", "typographical errors", "clear and accurate transcript",
+                "incorrectly formatted", "translation error", "nonsensical"
+            ]
+
+            content_lower = content.lower()
+            if any(indicator in content_lower for indicator in error_indicators):
+                raise LLMAPIError(f"LLM refused to process content: {content[:200]}...")
+
+            # Try to parse as JSON, fallback to plain text only for valid summaries
+            try:
+                summary_data = json_module.loads(content)
+                return summary_data
+            except json_module.JSONDecodeError:
+                # If it's not JSON but also not an error, treat as plain text summary
+                if len(content.strip()) < 50:
+                    raise LLMAPIError(f"LLM response too short, likely an error: {content}")
+
+                return {
+                    "main_topics": ["Content summarized"],
+                    "key_points": [content[:500] + "..." if len(content) > 500 else content],
+                    "notable_quotes": [],
+                    "conclusion": "Summary provided in plain text format"
+                }
+SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+
+
+async def upload_summary(bucket: str, key: str, summary_data: Dict[str, Any]) -> None:
+    """Upload a summary to S3 asynchronously using utils."""
+    try:
+        summary_json = json.dumps(summary_data, indent=2)
+        summary_bytes = summary_json.encode('utf-8')
+
+        # Use BytesIO to create a file-like object
+        from io import BytesIO
+        summary_file = BytesIO(summary_bytes)
+
+        await s3.upload_file_object(
+            bucket=bucket,
+            key=key,
+            file_obj=summary_file,
+            content_type="application/json",
+            metadata={
+                "content-type": "application/json",
+                "job-type": "podcast-summary"
+            }
+        )
+
+        logger.info(f"Successfully uploaded summary to s3://{bucket}/{key}")
+
+    except Exception as e:
+        logger.error(f"Failed to upload summary to S3: {str(e)}")
+        raise
+
+
+async def download_transcription(bucket: str, key: str) -> str:
+    """Download transcription from S3 asynchronously using utils."""
+    try:
+        # Download the transcription content
+        content = await s3.download_file_to_memory(bucket=bucket, key=key)
+
+        # Decode bytes to string
+        transcription_text = content.decode('utf-8')
+
+        logger.info(f"Successfully downloaded transcription from s3://{bucket}/{key}")
+        return transcription_text
+
+    except Exception as e:
+        logger.error(f"Failed to download transcription from S3: {str(e)}")
+        raise
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10)
+)
+async def generate_summary_with_retry(transcription_text: str, job_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate summary with retry logic."""
+    try:
+        # Initialize the summarization service with environment variables
+        llm_api_url = os.environ.get("LLM_API_URL", "https://api.openai.com/v1/chat/completions")
+        llm_api_key = os.environ.get("OPENAI_API_KEY")
+
+        if not llm_api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+
+        # Extract metadata for better summarization
+        podcast_title = job_data.get("podcast_title", "Unknown Podcast")
+        episode_title = job_data.get("episode_title", "Unknown Episode")
+
+        # Generate the summary using direct API call
+        summary_result = await call_llm_api(llm_api_url, llm_api_key, transcription_text, podcast_title, episode_title)
+
+        logger.info(f"Successfully generated summary for job {job_data.get('job_id')}")
+        return summary_result
+    except Exception as e:
+        logger.error(f"Unexpected error during summarization: {str(e)}")
+        raise
+
+
+async def send_notification(
+    notification_type: str,
+    job_id: str,
+    email: str,
+    **kwargs
+) -> None:
+    """Send notification message to the email queue using utils."""
+    try:
+        notification_data = {
+            "notification_type": notification_type,
+            "job_id": job_id,
+            "email": email,
+            **kwargs
+        }
+
+        await sqs.send_message(
+            queue_name=NOTIFICATION_QUEUE,
+            message_body=notification_data
+        )
+
+        logger.info(f"Sent {notification_type} notification for job {job_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to send notification: {str(e)}")
+        raise
+
+
+async def process_summarization_message(message_body: Dict[str, Any]) -> None:
     """
-    Process a message from the queue.
-    
+    Process a single summarization message.
+
     Args:
-        message: The message from the queue
-        llm_api_url: URL of the LLM API
-        llm_api_key: API key for the LLM API
-        
-    Returns:
-        Dictionary containing the processing result
-        
-    Raises:
-        ValueError: If the message is invalid
-        LLMAPIError: If there's an error with the LLM API
+        message_body: The message body containing job information
     """
-    if not isinstance(message, dict):
+    job_id = message_body.get("job_id")
+    transcript_s3_key = message_body.get("transcript_s3_key")
+    transcript_bucket = message_body.get("transcript_bucket", "media-summarizer-transcriptions")
+    email = message_body.get("email")
+
+    if not all([job_id, transcript_s3_key, email]):
+        logger.error(f"Missing required fields in message: {message_body}")
+        raise ValueError("Missing required fields in summarization message")
+
+    # Ensure all required fields are strings
+    if not isinstance(job_id, str) or not isinstance(transcript_s3_key, str) or not isinstance(email, str):
+        logger.error(f"Invalid field types in message: {message_body}")
+        raise ValueError("Invalid field types in summarization message")
+
+    logger.info(f"Starting summarization for job {job_id}")
+
+    # Update job status to summarizing
+    from media_summarizer.utils import database_async
+    job = await database_async.get_processing_job_by_id(job_id)
+    if job:
+        job.mark_summarizing()
+        await database_async.update_processing_job(job)
+
+    try:
+        import time
+
+        # Download the transcription
+        logger.info(f"Downloading transcription for job {job_id}")
+        transcription_text = await download_transcription(transcript_bucket, transcript_s3_key)
+
+        if not transcription_text or len(transcription_text.strip()) == 0:
+            raise ValueError("Empty or invalid transcription content")
+
+        # Generate the summary
+        logger.info(f"Generating summary for job {job_id}")
+        start_time = time.time()
+        summary_result = await generate_summary_with_retry(transcription_text, message_body)
+        summarization_duration = time.time() - start_time
+
+        # Prepare summary data for storage
+        summary_data = {
+            "job_id": job_id,
+            "podcast_title": message_body.get("podcast_title", "Unknown Podcast"),
+            "episode_title": message_body.get("episode_title", "Unknown Episode"),
+            "summary": summary_result,
+            "transcription_length": len(transcription_text),
+            "generated_at": datetime.now().isoformat(),
+            "processing_metadata": {
+                "transcript_s3_key": transcript_s3_key,
+                "summary_s3_key": f"{job_id}.json"
+            }
+        }
+
+        # Upload summary to S3
+        summary_s3_key = f"{job_id}.json"
+        logger.info(f"Uploading summary for job {job_id}")
+        await upload_summary(SUMMARY_BUCKET, summary_s3_key, summary_data)
+
+        # Update job with summary location and duration
+        if job:
+            job.set_summary_location(summary_s3_key)
+            job.set_processing_duration('summarization', int(summarization_duration))
+            await database_async.update_processing_job(job)
+
+        # Generate summary URL (presigned URL for access)
         try:
-            message = json.loads(message)
-        except (TypeError, json.JSONDecodeError):
-            raise ValueError("Invalid message format")
-    
-    job_id = message.get("job_id")
-    transcription_key = message.get("transcription_key")
-    user_id = message.get("user_id")
-    
-    if not job_id or not transcription_key or not user_id:
-        raise ValueError("Missing required fields in message")
-    
-    # In a real implementation, we would fetch the transcription from S3
-    # For now, we'll assume the transcription is in the message
-    transcription = message.get("transcription", "")
-    
-    if not transcription:
-        raise ValueError("Transcription cannot be empty")
-        
-    if not isinstance(transcription, str):
-        raise ValueError("Transcription must be a string")
-    
-    worker = SummarizationWorker(llm_api_url, llm_api_key)
-    summary_result = await worker.generate_summary(transcription)
-    
-    # In a real implementation, we would save the summary to S3 and update the job status
-    
-    return {
-        "job_id": job_id,
-        "user_id": user_id,
-        "summary": summary_result["summary"],
-        "metadata": summary_result["metadata"]
-    }
+            summary_url = await s3.generate_presigned_url(
+                bucket=SUMMARY_BUCKET,
+                key=summary_s3_key,
+                expiration=3600 * 24 * 7  # 7 days
+            )
+        except Exception as e:
+            logger.warning(f"Failed to generate presigned URL: {str(e)}")
+            summary_url = f"s3://{SUMMARY_BUCKET}/{summary_s3_key}"
+
+        # Send completion notification with summary content
+        await send_notification(
+            notification_type="completion",
+            job_id=job_id,
+            email=email,
+            podcast_title=message_body.get("podcast_title"),
+            episode_title=message_body.get("episode_title"),
+            summary_content=summary_result
+        )
+
+        logger.info(f"Successfully completed summarization for job {job_id}")
+
+    except LLMAPIError as e:
+        logger.error(f"LLM API error for job {job_id}: {str(e)}")
+
+        # Mark job as failed in database
+        if job:
+            job.mark_failed(str(e), "summarization")
+            await database_async.update_processing_job(job)
+
+        await send_notification(
+            notification_type="error",
+            job_id=job_id,
+            email=email,
+            error=f"Failed to generate summary: {str(e)}",
+            step="summarization"
+        )
+        raise
+
+    except Exception as e:
+        logger.error(f"Summarization failed for job {job_id}: {str(e)}")
+
+        # Mark job as failed in database
+        if job:
+            job.mark_failed(str(e), "summarization")
+            await database_async.update_processing_job(job)
+
+        await send_notification(
+            notification_type="error",
+            job_id=job_id,
+            email=email,
+            error=f"Summarization failed: {str(e)}",
+            step="summarization"
+        )
+        raise
+
+
+async def process_message(message: Dict[str, Any]) -> None:
+    """
+    Process an SQS message for summarization.
+
+    Args:
+        message: SQS message containing job information
+    """
+    try:
+        # Parse message body
+        body = json.loads(message.get("Body", "{}"))
+
+        # Process the summarization
+        await process_summarization_message(body)
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse message body: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Error processing summarization message: {str(e)}")
+        raise
+
+
+async def poll_queue() -> None:
+    """
+    Poll the SQS queue for summarization messages.
+    """
+    logger.info("Starting summarization worker - polling queue")
+
+    while True:
+        try:
+            # Receive messages from the queue
+            messages = await sqs.receive_messages(
+                queue_name=SUMMARIZATION_QUEUE,
+                max_messages=1,  # Process one at a time for LLM rate limiting
+                wait_time_seconds=20,  # Long polling
+                visibility_timeout=300  # 5 minutes for processing
+            )
+
+            if messages:
+                logger.info(f"Received {len(messages)} messages")
+
+                # Process messages one by one
+                for message in messages:
+                    try:
+                        await process_message(message)
+
+                        # Delete message after successful processing
+                        receipt_handle = message.get("ReceiptHandle")
+                        if receipt_handle:
+                            await sqs.delete_message(
+                                queue_name=SUMMARIZATION_QUEUE,
+                                receipt_handle=receipt_handle
+                            )
+
+                        logger.info("Successfully processed and deleted message")
+
+                    except Exception as e:
+                        logger.error(f"Failed to process message: {str(e)}")
+                        # Message will become visible again after visibility timeout
+                        # for retry by another worker instance
+
+            # Small delay to prevent excessive API calls
+            await asyncio.sleep(1)
+
+        except Exception as e:
+            logger.error(f"Error polling summarization queue: {str(e)}")
+            # Wait before retrying
+            await asyncio.sleep(5)
+
+
+async def main() -> None:
+    """
+    Main entry point for the summarization worker.
+    """
+    logger.info("Starting summarization worker")
+    await poll_queue()
+
+
+if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+    asyncio.run(main())

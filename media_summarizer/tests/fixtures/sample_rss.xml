@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Test Podcast</title>
+    <link>https://example.com/podcast</link>
+    <description>A test podcast for integration testing</description>
+    <language>en-us</language>
+    <itunes:author>Test Author</itunes:author>
+    <itunes:image href="https://example.com/podcast/cover.jpg"/>
+    <itunes:category text="Technology"/>
+    <item>
+      <title>Test Episode</title>
+      <description>This is a test episode for integration testing</description>
+      <pubDate>Tue, 22 Jul 2025 12:00:00 GMT</pubDate>
+      <enclosure url="https://example.com/episode.mp3" length="12345678" type="audio/mpeg"/>
+      <guid isPermaLink="false">test-episode-guid</guid>
+      <itunes:duration>00:30:00</itunes:duration>
+      <itunes:explicit>no</itunes:explicit>
+    </item>
+  </channel>
+</rss>

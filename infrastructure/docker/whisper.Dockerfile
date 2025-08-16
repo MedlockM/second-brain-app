@@ -18,11 +18,14 @@ COPY pyproject.toml ./
 # Installation des dépendances
 RUN uv pip install --system -e .
 
-# Pré-téléchargement du modèle Whisper Large
-RUN python -c "import whisper; whisper.load_model('large')"
+# Pré-téléchargement du modèle Whisper
+ARG WHISPER_MODEL_SIZE=tiny
+ENV WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE}
+RUN python -c "import whisper; import os; whisper.load_model(os.environ.get('WHISPER_MODEL_SIZE', 'tiny'))"
 
 # Copie du code source
 COPY . .
 
-# Commande par défaut
-CMD ["python", "-m", "media_summarizer.workers.transcription.worker"]
+# Commande par défaut (peut être surchargée)
+# Mode SQS worker par défaut, HTTP server si WHISPER_MODE=http
+CMD ["sh", "-c", "if [ \"$WHISPER_MODE\" = \"http\" ]; then python -m media_summarizer.workers.transcription.http_server; else python -m media_summarizer.workers.transcription.worker; fi"]

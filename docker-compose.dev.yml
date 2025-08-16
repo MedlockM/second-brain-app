@@ -1,8 +1,7 @@
-version: '3.8'
-
 services:
   # Service API FastAPI
   api:
+    profiles: ["api", "full"]
     build:
       context: .
       dockerfile: infrastructure/docker/api.Dockerfile
@@ -11,22 +10,42 @@ services:
     volumes:
       - .:/app
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/media_summarizer
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
+      - AWS_REGION=us-east-1
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STRIPE_API_KEY=${STRIPE_TEST_API_KEY}
+      - PODCASTINDEXORG_API_KEY=${PODCASTINDEXORG_API_KEY}
+      - PODCASTINDEXORG_API_SECRET=${PODCASTINDEXORG_API_SECRET}
+      # S3 Buckets
+      - AUDIO_BUCKET=media-summarizer-audio
+      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - SUMMARY_BUCKET=media-summarizer-summaries
+      # DynamoDB Tables
+      - USERS_TABLE=users
+      - PODCASTS_TABLE=podcasts
+      - EPISODES_TABLE=episodes
+      - PROCESSING_JOBS_TABLE=processing_jobs
+      - CREDIT_TRANSACTIONS_TABLE=credit_transactions
+      # SQS Queues
+      - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
+      - TRANSCRIPTION_QUEUE=transcription-queue
+      - SUMMARIZATION_QUEUE=summarization-queue
+      - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
-      - db
       - localstack
-    command: uvicorn media_summarizer.api.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn media_summarizer.api.main:app --host 0.0.0.0 --port 8000
 
   # Service de transcription Whisper
   whisper:
+    profiles: ["whisper", "workers", "full"]
     build:
       context: .
       dockerfile: infrastructure/docker/whisper.Dockerfile
+      args:
+        - WHISPER_MODEL_SIZE=tiny # Use tiny model for development
     volumes:
       - .:/app
     environment:
@@ -34,107 +53,135 @@ services:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
+      - AWS_REGION=us-east-1
+      - WHISPER_MODEL_SIZE=tiny # Use tiny model for development
+      - ENVIRONMENT=development
+      - SQS_MAX_MESSAGES=1
+      - SQS_WAIT_TIME=1
+      - SQS_VISIBILITY_TIMEOUT=120
+      - SQS_HEARTBEAT_INTERVAL=60
+      - ENABLE_FAST_POLLING=true
+      - TEST_MODE=true
+      # S3 Buckets
+      - AUDIO_BUCKET=media-summarizer-audio
+      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - SUMMARY_BUCKET=media-summarizer-summaries
+      # DynamoDB Tables
+      - USERS_TABLE=users
+      - PROCESSING_JOBS_TABLE=processing_jobs
+      - CREDIT_TRANSACTIONS_TABLE=credit_transactions
+      # SQS Queues
+      - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
+      - TRANSCRIPTION_QUEUE=transcription-queue
+      - SUMMARIZATION_QUEUE=summarization-queue
+      - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
       - localstack
-
-  # Worker de résolution RSS
-  rss-worker:
-    build:
-      context: .
-      dockerfile: infrastructure/docker/worker.Dockerfile
-    volumes:
-      - .:/app
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/media_summarizer
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - AWS_DEFAULT_REGION=us-east-1
-    depends_on:
-      - db
-      - localstack
-    command: python -m media_summarizer.workers.rss_worker
 
   # Worker de téléchargement audio
   download-worker:
+    profiles: ["workers", "full"]
     build:
       context: .
       dockerfile: infrastructure/docker/worker.Dockerfile
     volumes:
       - .:/app
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/media_summarizer
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
+      - AWS_REGION=us-east-1
+      # S3 Buckets
+      - AUDIO_BUCKET=media-summarizer-audio
+      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - SUMMARY_BUCKET=media-summarizer-summaries
+      # DynamoDB Tables
+      - USERS_TABLE=users
+      - PROCESSING_JOBS_TABLE=processing_jobs
+      - CREDIT_TRANSACTIONS_TABLE=credit_transactions
+      # SQS Queues
+      - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
+      - TRANSCRIPTION_QUEUE=transcription-queue
+      - SUMMARIZATION_QUEUE=summarization-queue
+      - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
-      - db
       - localstack
     command: python -m media_summarizer.workers.download_worker
 
   # Worker de résumé LLM
   summarize-worker:
+    profiles: ["workers", "full"]
     build:
       context: .
       dockerfile: infrastructure/docker/worker.Dockerfile
     volumes:
       - .:/app
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/media_summarizer
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
+      - AWS_REGION=us-east-1
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # S3 Buckets
+      - AUDIO_BUCKET=media-summarizer-audio
+      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - SUMMARY_BUCKET=media-summarizer-summaries
+      # DynamoDB Tables
+      - USERS_TABLE=users
+      - PROCESSING_JOBS_TABLE=processing_jobs
+      - CREDIT_TRANSACTIONS_TABLE=credit_transactions
+      # SQS Queues
+      - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
+      - TRANSCRIPTION_QUEUE=transcription-queue
+      - SUMMARIZATION_QUEUE=summarization-queue
+      - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
-      - db
       - localstack
-    command: python -m media_summarizer.workers.summarize_worker
+    command: python -m media_summarizer.workers.summarization.summarization_worker
 
   # Worker d'envoi d'emails
   email-worker:
+    profiles: ["workers", "full"]
     build:
       context: .
       dockerfile: infrastructure/docker/worker.Dockerfile
     volumes:
       - .:/app
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/media_summarizer
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
+      - AWS_REGION=us-east-1
+      # S3 Buckets
+      - AUDIO_BUCKET=media-summarizer-audio
+      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - SUMMARY_BUCKET=media-summarizer-summaries
+      # DynamoDB Tables
+      - USERS_TABLE=users
+      - PROCESSING_JOBS_TABLE=processing_jobs
+      - CREDIT_TRANSACTIONS_TABLE=credit_transactions
+      # SQS Queues
+      - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
+      - TRANSCRIPTION_QUEUE=transcription-queue
+      - SUMMARIZATION_QUEUE=summarization-queue
+      - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
-      - db
       - localstack
-    command: python -m media_summarizer.workers.email_worker
+    command: python -m media_summarizer.workers.notification.email_worker
 
-  # Base de données PostgreSQL
-  db:
-    image: postgres:15
-    ports:
-      - "5433:5432"
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=media_summarizer
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  # LocalStack pour simuler les services AWS
+  # LocalStack pour simuler les services AWS (incluant DynamoDB)
   localstack:
+    profiles: ["infrastructure", "api", "workers", "full"]
     image: localstack/localstack:latest
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=s3,sqs,ses
+      - SERVICES=s3,sqs,ses,dynamodb
       - DEBUG=1
-      - DATA_DIR=/tmp/localstack/data
+      - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
       - ./infrastructure/localstack:/docker-entrypoint-initaws.d
-      - localstack_data:/tmp/localstack
-
-volumes:
-  postgres_data:
-  localstack_data:
+      - /var/run/docker.sock:/var/run/docker.sock

@@ -5,7 +5,6 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
-from pydantic import EmailStr
 
 # Set AWS credentials for testing
 os.environ["AWS_ACCESS_KEY_ID"] = "test"
@@ -14,7 +13,12 @@ os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 os.environ["AWS_ENDPOINT_URL"] = "http://localhost:4566"
 
 from media_summarizer.api.main import app
-from media_summarizer.api.endpoints.users import UserCreate, UserResponse
+from media_summarizer.api.endpoints.users import (
+    UserCreateRequest,
+    UserResponse,
+    UserUpdateRequest
+)
+from media_summarizer.core.models import User
 
 
 @pytest.fixture
@@ -25,254 +29,313 @@ def client():
 
 @pytest.fixture
 def mock_db():
-    """Mock database session for testing."""
+    """Mock database connection for testing."""
     with patch("media_summarizer.api.endpoints.users.get_db") as mock_get_db:
-        mock_session = MagicMock()
-        mock_get_db.return_value.__anext__.return_value = mock_session
-        yield mock_session
+        mock_connection = AsyncMock()
+        mock_get_db.return_value = mock_connection
+        yield mock_connection
 
 
-def test_register_user_success(client, mock_db):
-    """Test successful user registration."""
-    # Setup
-    test_email = "test@example.com"
-    test_password = "securepassword123"
-    
-    # Execute
-    response = client.post(
-        "/api/v1/users/register",
-        json={"email": test_email, "password": test_password}
+@pytest.fixture
+def sample_user():
+    """Create a sample user for testing."""
+    return User(
+        id="user123",
+        email="test@example.com",
+        credits=100
     )
-    
-    # Verify
-    assert response.status_code == 200
-    data = response.json()
-    assert "id" in data
-    assert "email" in data
-    assert data["email"] == test_email
 
 
-def test_register_user_invalid_email(client):
-    """Test user registration with invalid email."""
-    # Execute with invalid email
-    response = client.post(
-        "/api/v1/users/register",
-        json={"email": "invalid-email", "password": "securepassword123"}
-    )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
+class TestUserCreation:
+    """Test cases for user creation endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_create_user_success(self, client, mock_db, sample_user):
+        """Test successful user creation."""
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_email") as mock_get_by_email:
+            with patch("media_summarizer.api.endpoints.users.database_async.create_user") as mock_create:
+                mock_get_by_email.return_value = None  # User doesn't exist
+                mock_create.return_value = sample_user
+
+                response = client.post("/api/v1/users", json={
+                    "email": "test@example.com"
+                })
+
+                assert response.status_code == 201
+                data = response.json()
+                assert data["email"] == "test@example.com"
+                assert data["credits"] == 100
+                assert "id" in data
+                assert "created_at" in data
+                assert "updated_at" in data
+                mock_create.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_create_user_email_already_exists(self, client, mock_db, sample_user):
+        """Test user creation with existing email."""
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_email") as mock_get_by_email:
+            mock_get_by_email.return_value = sample_user  # User exists
+
+            response = client.post("/api/v1/users", json={
+                "email": "test@example.com"
+            })
+
+            assert response.status_code == 409
+            assert "Un utilisateur avec cet email existe déjà" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_create_user_invalid_email(self, client):
+        """Test user creation with invalid email."""
+        response = client.post("/api/v1/users", json={
+            "email": "invalid-email"
+        })
+
+        assert response.status_code == 422  # Validation error
+
+    @pytest.mark.asyncio
+    async def test_create_user_missing_email(self, client):
+        """Test user creation with missing email."""
+        response = client.post("/api/v1/users", json={})
+
+        assert response.status_code == 422  # Validation error
+
+    @pytest.mark.asyncio
+    async def test_create_user_database_error(self, client, mock_db):
+        """Test user creation with database error."""
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_email") as mock_get_by_email:
+            with patch("media_summarizer.api.endpoints.users.database_async.create_user") as mock_create:
+                mock_get_by_email.return_value = None
+                mock_create.side_effect = Exception("Database error")
+
+                response = client.post("/api/v1/users", json={
+                    "email": "test@example.com"
+                })
+
+                assert response.status_code == 500
+                assert "Erreur lors de la création de l'utilisateur" in response.json()["detail"]
 
 
-def test_register_user_missing_fields(client):
-    """Test user registration with missing fields."""
-    # Execute with missing email
-    response = client.post(
-        "/api/v1/users/register",
-        json={"password": "securepassword123"}
-    )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
-    
-    # Execute with missing password
-    response = client.post(
-        "/api/v1/users/register",
-        json={"email": "test@example.com"}
-    )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
-    
-    # Execute with empty body
-    response = client.post(
-        "/api/v1/users/register",
-        json={}
-    )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
+class TestUserRetrieval:
+    """Test cases for user retrieval endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_id_success(self, client, mock_db, sample_user):
+        """Test successful user retrieval by ID."""
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_id") as mock_get_by_id:
+            mock_get_by_id.return_value = sample_user
+
+            response = client.get("/api/v1/users/user123")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["id"] == "user123"
+            assert data["email"] == "test@example.com"
+            assert data["credits"] == 100
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_id_not_found(self, client, mock_db):
+        """Test user retrieval by ID when user doesn't exist."""
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_id") as mock_get_by_id:
+            mock_get_by_id.return_value = None
+
+            response = client.get("/api/v1/users/nonexistent")
+
+            assert response.status_code == 404
+            assert "Utilisateur non trouvé" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_email_success(self, client, mock_db, sample_user):
+        """Test successful user retrieval by email."""
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_email") as mock_get_by_email:
+            mock_get_by_email.return_value = sample_user
+
+            response = client.get("/api/v1/users/email/test@example.com")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["id"] == "user123"
+            assert data["email"] == "test@example.com"
+            assert data["credits"] == 100
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_email_not_found(self, client, mock_db):
+        """Test user retrieval by email when user doesn't exist."""
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_email") as mock_get_by_email:
+            mock_get_by_email.return_value = None
+
+            response = client.get("/api/v1/users/email/nonexistent@example.com")
+
+            assert response.status_code == 404
+            assert "Utilisateur non trouvé" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_email_invalid_format(self, client):
+        """Test user retrieval by email with invalid email format."""
+        response = client.get("/api/v1/users/email/invalid-email")
+
+        assert response.status_code == 422  # Validation error
 
 
-def test_register_user_empty_password():
-    """Test user registration with empty password."""
-    # Import the model directly
-    from media_summarizer.api.endpoints.users import UserCreate
-    from pydantic import ValidationError
-    import pytest
-    
-    # Verify that the validation raises an exception
-    with pytest.raises(ValidationError) as excinfo:
-        user = UserCreate(email="test@example.com", password="")
-    
-    # Check that the error message contains our validation message
-    assert "Le mot de passe ne peut pas être vide" in str(excinfo.value)
+class TestUserUpdate:
+    """Test cases for user update endpoints."""
 
-
-def test_register_user_whitespace_password():
-    """Test user registration with password containing only whitespace."""
-    # Import the model directly
-    from media_summarizer.api.endpoints.users import UserCreate
-    from pydantic import ValidationError
-    import pytest
-    
-    # Verify that the validation raises an exception
-    with pytest.raises(ValidationError) as excinfo:
-        user = UserCreate(email="test@example.com", password="   ")
-    
-    # Check that the error message contains our validation message
-    assert "Le mot de passe ne peut pas être vide" in str(excinfo.value)
-
-
-def test_login_user_success(client, mock_db):
-    """Test successful user login."""
-    # Setup
-    test_email = "test@example.com"
-    test_password = "securepassword123"
-    
-    # Execute
-    response = client.post(
-        "/api/v1/users/login",
-        json={"email": test_email, "password": test_password}
-    )
-    
-    # Verify
-    assert response.status_code == 200
-    data = response.json()
-    assert "access_token" in data
-    assert "token_type" in data
-    assert data["token_type"] == "bearer"
-
-
-def test_login_user_invalid_email(client):
-    """Test user login with invalid email."""
-    # Execute
-    response = client.post(
-        "/api/v1/users/login",
-        json={"email": "invalid-email", "password": "securepassword123"}
-    )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
-
-
-def test_login_user_missing_fields(client):
-    """Test user login with missing fields."""
-    # Execute with missing email
-    response = client.post(
-        "/api/v1/users/login",
-        json={"password": "securepassword123"}
-    )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
-    
-    # Execute with missing password
-    response = client.post(
-        "/api/v1/users/login",
-        json={"email": "test@example.com"}
-    )
-    
-    # Verify
-    assert response.status_code == 422  # Unprocessable Entity
-
-
-@pytest.mark.asyncio
-async def test_register_user_direct():
-    """Test the register_user function directly."""
-    # Import the function directly
-    from media_summarizer.api.endpoints.users import register_user
-    
-    # Create test data
-    user = UserCreate(email="test@example.com", password="securepassword123")
-    mock_db = AsyncMock()
-    
-    # Execute
-    result = await register_user(user=user, db=mock_db)
-    
-    # Verify
-    assert isinstance(result, UserResponse)
-    assert result.email == "test@example.com"
-    assert hasattr(result, "id")
-
-
-@pytest.mark.asyncio
-async def test_login_user_direct():
-    """Test the login_user function directly."""
-    # Import the function directly
-    from media_summarizer.api.endpoints.users import login_user
-    
-    # Create test data
-    user = UserCreate(email="test@example.com", password="securepassword123")
-    mock_db = AsyncMock()
-    
-    # Execute
-    result = await login_user(user=user, db=mock_db)
-    
-    # Verify
-    assert "access_token" in result
-    assert "token_type" in result
-    assert result["token_type"] == "bearer"
-
-
-# Additional tests for error cases
-
-def test_register_user_db_error(client):
-    """Test user registration with database error."""
-    # Setup
-    with patch("media_summarizer.api.endpoints.users.get_db") as mock_get_db:
-        mock_session = MagicMock()
-        mock_session.execute.side_effect = Exception("Database error")
-        mock_get_db.return_value.__anext__.return_value = mock_session
-        
-        # Execute
-        response = client.post(
-            "/api/v1/users/register",
-            json={"email": "test@example.com", "password": "securepassword123"}
+    @pytest.mark.asyncio
+    async def test_update_user_success(self, client, mock_db, sample_user):
+        """Test successful user update."""
+        updated_user = User(
+            id=sample_user.id,
+            email="updated@example.com",
+            credits=sample_user.credits
         )
-        
-        # Verify
-        # Note: Since the endpoint is not fully implemented, it doesn't actually use the database
-        # In a real implementation, this would test the error handling
-        assert response.status_code == 200  # This would be 500 in a real implementation
 
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_id") as mock_get_by_id:
+            with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_email") as mock_get_by_email:
+                with patch("media_summarizer.api.endpoints.users.database_async.update_user") as mock_update:
+                    mock_get_by_id.return_value = sample_user
+                    mock_get_by_email.return_value = None  # New email doesn't exist
+                    mock_update.return_value = updated_user
 
-def test_login_user_db_error(client):
-    """Test user login with database error."""
-    # Setup
-    with patch("media_summarizer.api.endpoints.users.get_db") as mock_get_db:
-        mock_session = MagicMock()
-        mock_session.execute.side_effect = Exception("Database error")
-        mock_get_db.return_value.__anext__.return_value = mock_session
-        
-        # Execute
-        response = client.post(
-            "/api/v1/users/login",
-            json={"email": "test@example.com", "password": "securepassword123"}
+                    response = client.put("/api/v1/users/user123", json={
+                        "email": "updated@example.com"
+                    })
+
+                    assert response.status_code == 200
+                    data = response.json()
+                    assert data["email"] == "updated@example.com"
+                    mock_update.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_user_not_found(self, client, mock_db):
+        """Test user update when user doesn't exist."""
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_id") as mock_get_by_id:
+            mock_get_by_id.return_value = None
+
+            response = client.put("/api/v1/users/nonexistent", json={
+                "email": "updated@example.com"
+            })
+
+            assert response.status_code == 404
+            assert "Utilisateur non trouvé" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_update_user_email_conflict(self, client, mock_db, sample_user):
+        """Test user update with email that already exists."""
+        existing_user = User(
+            id="other123",
+            email="existing@example.com",
+            credits=50
         )
-        
-        # Verify
-        # Note: Since the endpoint is not fully implemented, it doesn't actually use the database
-        # In a real implementation, this would test the error handling
-        assert response.status_code == 200  # This would be 500 in a real implementation
+
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_id") as mock_get_by_id:
+            with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_email") as mock_get_by_email:
+                mock_get_by_id.return_value = sample_user
+                mock_get_by_email.return_value = existing_user  # Email exists
+
+                response = client.put("/api/v1/users/user123", json={
+                    "email": "existing@example.com"
+                })
+
+                assert response.status_code == 409
+                assert "Un utilisateur avec cet email existe déjà" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_update_user_no_changes(self, client, mock_db, sample_user):
+        """Test user update with no changes."""
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_id") as mock_get_by_id:
+            mock_get_by_id.return_value = sample_user
+
+            response = client.put("/api/v1/users/user123", json={})
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["email"] == sample_user.email
+
+    @pytest.mark.asyncio
+    async def test_update_user_invalid_email(self, client):
+        """Test user update with invalid email."""
+        response = client.put("/api/v1/users/user123", json={
+            "email": "invalid-email"
+        })
+
+        assert response.status_code == 422  # Validation error
+
+    @pytest.mark.asyncio
+    async def test_update_user_database_error(self, client, mock_db, sample_user):
+        """Test user update with database error."""
+        with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_id") as mock_get_by_id:
+            with patch("media_summarizer.api.endpoints.users.database_async.get_user_by_email") as mock_get_by_email:
+                with patch("media_summarizer.api.endpoints.users.database_async.update_user") as mock_update:
+                    mock_get_by_id.return_value = sample_user
+                    mock_get_by_email.return_value = None
+                    mock_update.side_effect = Exception("Database error")
+
+                    response = client.put("/api/v1/users/user123", json={
+                        "email": "updated@example.com"
+                    })
+
+                    assert response.status_code == 500
+                    assert "Erreur lors de la mise à jour" in response.json()["detail"]
 
 
-# Tests for user profile management
-# Note: These tests are placeholders since the endpoints don't exist yet
+class TestUserDeletion:
+    """Test cases for user deletion endpoints."""
 
-def test_get_user_profile():
-    """Test getting a user profile."""
-    # This test is a placeholder since the endpoint doesn't exist yet
-    pytest.skip("Endpoint not implemented yet")
+    @pytest.mark.asyncio
+    async def test_delete_user_success(self, client, mock_db):
+        """Test successful user deletion."""
+        with patch("media_summarizer.api.endpoints.users.database_async.delete_user") as mock_delete:
+            mock_delete.return_value = True
+
+            response = client.delete("/api/v1/users/user123")
+
+            assert response.status_code == 204
+            mock_delete.assert_called_once_with("user123")
+
+    @pytest.mark.asyncio
+    async def test_delete_user_not_found(self, client, mock_db):
+        """Test user deletion when user doesn't exist."""
+        with patch("media_summarizer.api.endpoints.users.database_async.delete_user") as mock_delete:
+            mock_delete.return_value = False
+
+            response = client.delete("/api/v1/users/nonexistent")
+
+            assert response.status_code == 404
+            assert "Utilisateur non trouvé" in response.json()["detail"]
 
 
-def test_update_user_profile():
-    """Test updating a user profile."""
-    # This test is a placeholder since the endpoint doesn't exist yet
-    pytest.skip("Endpoint not implemented yet")
+class TestModelValidation:
+    """Test cases for Pydantic model validation."""
 
+    def test_user_create_request_validation(self):
+        """Test UserCreateRequest validation."""
+        # Valid request
+        valid_request = UserCreateRequest(email="test@example.com")
+        assert valid_request.email == "test@example.com"
 
-def test_delete_user():
-    """Test deleting a user."""
-    # This test is a placeholder since the endpoint doesn't exist yet
-    pytest.skip("Endpoint not implemented yet")
+        # Invalid email
+        with pytest.raises(ValueError):
+            UserCreateRequest(email="invalid-email")
+
+    def test_user_update_request_validation(self):
+        """Test UserUpdateRequest validation."""
+        # Valid request with email
+        valid_request = UserUpdateRequest(email="test@example.com")
+        assert valid_request.email == "test@example.com"
+
+        # Valid request without email
+        valid_request = UserUpdateRequest()
+        assert valid_request.email is None
+
+        # Invalid email
+        with pytest.raises(ValueError):
+            UserUpdateRequest(email="invalid-email")
+
+    def test_user_response_from_user(self, sample_user):
+        """Test UserResponse.from_user method."""
+        response = UserResponse.from_user(sample_user)
+
+        assert response.id == sample_user.id
+        assert response.email == sample_user.email
+        assert response.credits == sample_user.credits
+        assert response.created_at == sample_user.created_at.isoformat()
+        assert response.updated_at == sample_user.updated_at.isoformat()

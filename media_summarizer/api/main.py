@@ -1,16 +1,27 @@
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
-from media_summarizer.api.endpoints import health, podcasts, users, credits
+from media_summarizer.api.endpoints import health, users, credits, podcast_search, jobs
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    # Initialisation des ressources (connexions DB, etc.)
+    yield
+    # Shutdown
+    # Libération des ressources
+    pass
 
 # Création de l'application FastAPI
 app = FastAPI(
     title="Media Summarizer API",
     description="API pour le service de résumé automatique de podcasts",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Configuration CORS
@@ -38,16 +49,7 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={"detail": str(exc)},
     )
 
-# Événements de démarrage et d'arrêt
-@app.on_event("startup")
-async def startup_event():
-    # Initialisation des ressources (connexions DB, etc.)
-    pass
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    # Libération des ressources
-    pass
 
 @app.get("/")
 async def root():
@@ -55,6 +57,7 @@ async def root():
 
 # Inclusion des routes API
 app.include_router(health.router, prefix="/api/v1/health", tags=["health"])
-app.include_router(podcasts.router, prefix="/api/v1/podcasts", tags=["podcasts"])
+app.include_router(podcast_search.router, prefix="/api/v1/podcast-search", tags=["podcast-search"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
-app.include_router(credits.router, prefix="/api/v1/credits", tags=["credits"])
+app.include_router(credits.router, prefix="/api/v1", tags=["credits"])
+app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])

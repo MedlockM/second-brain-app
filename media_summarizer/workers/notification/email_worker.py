@@ -2,198 +2,66 @@
 Email notification worker for Media Summarizer.
 
 This worker handles sending email notifications to users, including:
-- Confirmation emails when a job is submitted
 - Error notifications when a job fails
 - Completion notifications when a job is finished
+
+Migrated to use the new utils for SES, SQS, and database operations.
 """
 import json
 import os
 import asyncio
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
+from datetime import datetime, timezone
+
+from media_summarizer.utils import ses, sqs, database_async
+from media_summarizer.core.models import JobStatus
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# AWS configuration
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
-
-# Import AWS session
-try:
-    from aiobotocore.session import get_session
-    session = get_session()
-except ImportError:
-    logger.error("aiobotocore is not installed. Please install it with 'pip install aiobotocore'.")
-    raise
-
-# Email configuration
+# Configuration
 DEFAULT_SENDER = os.environ.get("DEFAULT_EMAIL_SENDER", "noreply@media-summarizer.com")
 MAX_RETRIES = 3
-RETRY_DELAY = 2  # seconds
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+RETRY_DELAY = 0.01 if TEST_MODE else 2  # seconds
+EMAIL_QUEUE_NAME = "email-notification-queue"
 
 
-async def send_email(
-    recipient: str,
-    subject: str,
-    body_text: str,
-    body_html: Optional[str] = None,
-    sender: Optional[str] = None,
-    reply_to: Optional[List[str]] = None,
-    ses_client=None
-) -> Dict[str, Any]:
-    """
-    Send an email using Amazon SES.
-    
-    Args:
-        recipient: Email address of the recipient
-        subject: Email subject
-        body_text: Plain text email body
-        body_html: HTML email body (optional)
-        sender: Email address of the sender (optional, defaults to DEFAULT_SENDER)
-        reply_to: List of reply-to email addresses (optional)
-        ses_client: SES client for testing (optional)
-        
-    Returns:
-        Dict containing the response from SES
-    """
-    if not sender:
-        sender = DEFAULT_SENDER
-        
-    if not reply_to:
-        reply_to = [DEFAULT_SENDER]
-        
-    email_message = {
-        "Destination": {
-            "ToAddresses": [recipient]
-        },
-        "Message": {
-            "Body": {
-                "Text": {
-                    "Charset": "UTF-8",
-                    "Data": body_text
-                }
-            },
-            "Subject": {
-                "Charset": "UTF-8",
-                "Data": subject
-            }
-        },
-        "Source": sender,
-        "ReplyToAddresses": reply_to
-    }
-    
-    # Add HTML body if provided
-    if body_html:
-        email_message["Message"]["Body"]["Html"] = {
-            "Charset": "UTF-8",
-            "Data": body_html
-        }
-    
-    # Send the email
-    if ses_client is None:
-        async with session.create_client(
-            "ses", region_name=AWS_REGION, endpoint_url=AWS_ENDPOINT_URL
-        ) as ses_client:
-            response = await ses_client.send_email(**email_message)
-            return response
-    else:
-        # Use provided client (for testing)
-        response = await ses_client.send_email(**email_message)
-        return response
 
-
-async def send_confirmation_email(
-    recipient: str,
-    job_id: str,
-    podcast_title: Optional[str] = None,
-    ses_client=None
-) -> Dict[str, Any]:
-    """
-    Send a confirmation email when a podcast processing job is submitted.
-    
-    Args:
-        recipient: Email address of the recipient
-        job_id: ID of the processing job
-        podcast_title: Title of the podcast (optional)
-        ses_client: SES client for testing (optional)
-        
-    Returns:
-        Dict containing the response from SES
-    """
-    subject = "Your podcast is being processed"
-    
-    # Create the email body
-    if podcast_title:
-        body_text = f"Thank you for submitting your podcast '{podcast_title}' for processing.\n\n"
-    else:
-        body_text = "Thank you for submitting your podcast for processing.\n\n"
-        
-    body_text += f"Your job ID is: {job_id}\n\n"
-    body_text += "We'll send you another email when your summary is ready.\n\n"
-    body_text += "The Media Summarizer Team"
-    
-    # Create HTML version
-    if podcast_title:
-        body_html = f"""
-        <html>
-        <body>
-            <h2>Thank you for submitting your podcast</h2>
-            <p>We've received your request to process the podcast: <strong>{podcast_title}</strong></p>
-            <p>Your job ID is: <strong>{job_id}</strong></p>
-            <p>We'll send you another email when your summary is ready.</p>
-            <p>The Media Summarizer Team</p>
-        </body>
-        </html>
-        """
-    else:
-        body_html = f"""
-        <html>
-        <body>
-            <h2>Thank you for submitting your podcast</h2>
-            <p>We've received your request to process your podcast.</p>
-            <p>Your job ID is: <strong>{job_id}</strong></p>
-            <p>We'll send you another email when your summary is ready.</p>
-            <p>The Media Summarizer Team</p>
-        </body>
-        </html>
-        """
-    
-    return await send_email(recipient, subject, body_text, body_html)
 
 
 async def send_error_notification(
     recipient: str,
     job_id: str,
     error_message: str,
-    step: Optional[str] = None,
-    ses_client=None
+    step: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Send an error notification when a podcast processing job fails.
-    
+
     Args:
         recipient: Email address of the recipient
         job_id: ID of the processing job
         error_message: Description of the error
         step: Processing step where the error occurred (optional)
-        
+
     Returns:
         Dict containing the response from SES
     """
     subject = "Error processing your podcast"
-    
+
     # Create the email body
     body_text = f"We encountered an error while processing your podcast (Job ID: {job_id}).\n\n"
-    
+
     if step:
         body_text += f"The error occurred during the {step} step.\n\n"
-        
+
     body_text += f"Error details: {error_message}\n\n"
     body_text += "Our team has been notified and will investigate the issue.\n\n"
     body_text += "The Media Summarizer Team"
-    
+
     # Create HTML version
     body_html = f"""
     <html>
@@ -201,10 +69,10 @@ async def send_error_notification(
         <h2>Error Processing Your Podcast</h2>
         <p>We encountered an error while processing your podcast (Job ID: <strong>{job_id}</strong>).</p>
     """
-    
+
     if step:
         body_html += f"<p>The error occurred during the <strong>{step}</strong> step.</p>"
-        
+
     body_html += f"""
         <p>Error details: <em>{error_message}</em></p>
         <p>Our team has been notified and will investigate the issue.</p>
@@ -212,158 +80,238 @@ async def send_error_notification(
     </body>
     </html>
     """
-    
-    return await send_email(recipient, subject, body_text, body_html)
+
+    return await ses.send_email(
+        recipient=recipient,
+        subject=subject,
+        body_text=body_text,
+        body_html=body_html,
+        sender=DEFAULT_SENDER
+    )
 
 
 async def send_completion_notification(
     recipient: str,
     job_id: str,
     podcast_title: Optional[str] = None,
-    summary_url: Optional[str] = None,
-    ses_client=None
+    episode_title: Optional[str] = None,
+    summary_content: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Send a completion notification when a podcast processing job is finished.
-    
+
     Args:
         recipient: Email address of the recipient
         job_id: ID of the processing job
         podcast_title: Title of the podcast (optional)
-        summary_url: URL to access the summary (optional)
-        
+        episode_title: Title of the episode (optional)
+        summary_content: The actual summary content (optional)
+
     Returns:
         Dict containing the response from SES
     """
     subject = "Your podcast summary is ready"
-    
-    # Create the email body
+
+    # Create the email body with summary content
+    body_text = "Your podcast summary is ready!\n\n"
+
     if podcast_title:
-        body_text = f"Your podcast '{podcast_title}' has been processed successfully.\n\n"
-    else:
-        body_text = "Your podcast has been processed successfully.\n\n"
-        
+        body_text += f"Podcast: {podcast_title}\n"
+    if episode_title:
+        body_text += f"Episode: {episode_title}\n"
+
     body_text += f"Job ID: {job_id}\n\n"
-    
-    if summary_url:
-        body_text += f"You can view your summary here: {summary_url}\n\n"
-        
+
+    # Include the actual summary content
+    if summary_content:
+        body_text += "SUMMARY:\n"
+        body_text += "=" * 50 + "\n\n"
+
+        if isinstance(summary_content, dict):
+            if "main_topics" in summary_content:
+                body_text += "MAIN TOPICS:\n"
+                if isinstance(summary_content["main_topics"], list):
+                    for topic in summary_content["main_topics"]:
+                        body_text += f"• {topic}\n"
+                else:
+                    body_text += f"{summary_content['main_topics']}\n"
+                body_text += "\n"
+
+            if "key_points" in summary_content:
+                body_text += "KEY POINTS:\n"
+                if isinstance(summary_content["key_points"], list):
+                    for point in summary_content["key_points"]:
+                        body_text += f"• {point}\n"
+                else:
+                    body_text += f"{summary_content['key_points']}\n"
+                body_text += "\n"
+
+            if "notable_quotes" in summary_content and summary_content["notable_quotes"]:
+                body_text += "NOTABLE QUOTES:\n"
+                if isinstance(summary_content["notable_quotes"], list):
+                    for quote in summary_content["notable_quotes"]:
+                        body_text += f"• \"{quote}\"\n"
+                else:
+                    body_text += f"• \"{summary_content['notable_quotes']}\"\n"
+                body_text += "\n"
+
+            if "conclusion" in summary_content:
+                body_text += "CONCLUSION:\n"
+                body_text += f"{summary_content['conclusion']}\n\n"
+        else:
+            # Fallback for non-structured summary
+            body_text += f"{summary_content}\n\n"
+
+        body_text += "=" * 50 + "\n\n"
+
     body_text += "Thank you for using Media Summarizer!\n\n"
     body_text += "The Media Summarizer Team"
-    
+
     # Create HTML version
     body_html = f"""
     <html>
     <body>
         <h2>Your Podcast Summary is Ready</h2>
+        <div style="margin-bottom: 20px;">
     """
-    
+
     if podcast_title:
-        body_html += f"<p>Your podcast '<strong>{podcast_title}</strong>' has been processed successfully.</p>"
-    else:
-        body_html += "<p>Your podcast has been processed successfully.</p>"
-        
-    body_html += f"<p>Job ID: <strong>{job_id}</strong></p>"
-    
-    if summary_url:
-        body_html += f"""
-        <p>You can view your summary here: <a href="{summary_url}">{summary_url}</a></p>
+        body_html += f"<p><strong>Podcast:</strong> {podcast_title}</p>"
+    if episode_title:
+        body_html += f"<p><strong>Episode:</strong> {episode_title}</p>"
+
+    body_html += f"<p><strong>Job ID:</strong> {job_id}</p></div>"
+
+    # Include the actual summary content in HTML
+    if summary_content:
+        body_html += """
+        <div style="border: 1px solid #ddd; padding: 20px; margin: 20px 0; border-radius: 5px; background-color: #f9f9f9;">
+            <h3>Summary</h3>
         """
-        
+
+        if isinstance(summary_content, dict):
+            if "main_topics" in summary_content:
+                body_html += "<h4>Main Topics:</h4><ul>"
+                if isinstance(summary_content["main_topics"], list):
+                    for topic in summary_content["main_topics"]:
+                        body_html += f"<li>{topic}</li>"
+                else:
+                    body_html += f"<li>{summary_content['main_topics']}</li>"
+                body_html += "</ul>"
+
+            if "key_points" in summary_content:
+                body_html += "<h4>Key Points:</h4><ul>"
+                if isinstance(summary_content["key_points"], list):
+                    for point in summary_content["key_points"]:
+                        body_html += f"<li>{point}</li>"
+                else:
+                    body_html += f"<li>{summary_content['key_points']}</li>"
+                body_html += "</ul>"
+
+            if "notable_quotes" in summary_content and summary_content["notable_quotes"]:
+                body_html += "<h4>Notable Quotes:</h4><ul>"
+                if isinstance(summary_content["notable_quotes"], list):
+                    for quote in summary_content["notable_quotes"]:
+                        body_html += f"<li><em>\"{quote}\"</em></li>"
+                else:
+                    body_html += f"<li><em>\"{summary_content['notable_quotes']}\"</em></li>"
+                body_html += "</ul>"
+
+            if "conclusion" in summary_content:
+                body_html += f"<h4>Conclusion:</h4><p>{summary_content['conclusion']}</p>"
+        else:
+            # Fallback for non-structured summary
+            body_html += f"<p>{summary_content}</p>"
+
+        body_html += "</div>"
+
     body_html += """
         <p>Thank you for using Media Summarizer!</p>
         <p>The Media Summarizer Team</p>
     </body>
     </html>
     """
-    
-    return await send_email(recipient, subject, body_text, body_html)
+
+    return await ses.send_email(
+        recipient=recipient,
+        subject=subject,
+        body_text=body_text,
+        body_html=body_html,
+        sender=DEFAULT_SENDER
+    )
 
 
-def get_queue_url(queue_name: str) -> str:
-    """
-    Get the URL for an SQS queue.
-    
-    Args:
-        queue_name: Name of the queue
-        
-    Returns:
-        URL of the queue
-    """
-    if AWS_ENDPOINT_URL:
-        # LocalStack format
-        return f"{AWS_ENDPOINT_URL}/000000000000/{queue_name}"
-    else:
-        # AWS format (will be resolved by the SQS client)
-        return queue_name
 
 
-async def process_message(message: Dict[str, Any], retries: int = 0, ses_client=None, sqs_client=None) -> None:
+
+async def process_message(message: Dict[str, Any], retries: int = 0) -> None:
     """
     Process an SQS message and send the appropriate email notification.
-    
+
     Args:
         message: SQS message to process
         retries: Number of retries attempted (used internally for retry logic)
-        ses_client: SES client for testing (optional)
-        sqs_client: SQS client for testing (optional)
     """
     try:
         # Parse the message body
         body = json.loads(message.get("Body", "{}"))
-        
+
         # Extract common fields
         job_id = body.get("job_id")
         recipient = body.get("email")
-        notification_type = body.get("notification_type", "confirmation")
-        
+        notification_type = body.get("notification_type")
+
         if not job_id or not recipient:
             logger.error(f"Missing required fields in message: {body}")
             return
-        
+
+        # Mark job as notifying before sending any email
+        try:
+            job = await database_async.get_processing_job_by_id(job_id)
+            if job:
+                job.mark_notifying()
+                await database_async.update_processing_job(job)
+        except Exception as e:
+            logger.error(f"Error updating job status to notifying: {str(e)}")
+
         # Send the appropriate notification based on type
-        if notification_type == "confirmation":
-            podcast_title = body.get("podcast_title")
-            await send_confirmation_email(recipient, job_id, podcast_title, ses_client=ses_client)
-            logger.info(f"Sent confirmation email for job {job_id} to {recipient}")
-            
-        elif notification_type == "error":
+        if notification_type == "error":
             error_message = body.get("error", "Unknown error")
             step = body.get("step")
-            await send_error_notification(recipient, job_id, error_message, step, ses_client=ses_client)
+            await send_error_notification(recipient, job_id, error_message, step)
             logger.info(f"Sent error notification for job {job_id} to {recipient}")
-            
+
         elif notification_type == "completion":
             podcast_title = body.get("podcast_title")
-            summary_url = body.get("summary_url")
-            await send_completion_notification(recipient, job_id, podcast_title, summary_url, ses_client=ses_client)
+            episode_title = body.get("episode_title")
+            summary_content = body.get("summary_content")
+            await send_completion_notification(recipient, job_id, podcast_title, episode_title, summary_content)
             logger.info(f"Sent completion notification for job {job_id} to {recipient}")
-            
+
+            # Mark job as completed after successful email sending
+            try:
+                job = await database_async.get_processing_job_by_id(job_id)
+                if job:
+                    job.mark_completed()
+                    await database_async.update_processing_job(job)
+            except Exception as e:
+                logger.error(f"Error updating job status to completed: {str(e)}")
+
         else:
             logger.error(f"Unknown notification type: {notification_type}")
             return  # Don't delete the message for unknown notification types
-            
+
         # Delete the message from the queue
-        if sqs_client is None:
-            async with session.create_client(
-                "sqs", region_name=AWS_REGION, endpoint_url=AWS_ENDPOINT_URL
-            ) as sqs_client:
-                queue_url = get_queue_url("email-notification-queue")
-                await sqs_client.delete_message(
-                    QueueUrl=queue_url,
-                    ReceiptHandle=message.get("ReceiptHandle")
-                )
-        else:
-            # Use provided client (for testing)
-            queue_url = get_queue_url("email-notification-queue")
-            await sqs_client.delete_message(
-                QueueUrl=queue_url,
-                ReceiptHandle=message.get("ReceiptHandle")
+        receipt_handle = message.get("ReceiptHandle")
+        if receipt_handle:
+            await sqs.delete_message(
+                queue_name=EMAIL_QUEUE_NAME,
+                receipt_handle=receipt_handle
             )
-            
+
     except Exception as e:
         logger.error(f"Error processing notification message: {str(e)}")
-        
+
         # Implement retry logic
         if retries < MAX_RETRIES:
             logger.info(f"Retrying in {RETRY_DELAY} seconds (attempt {retries + 1}/{MAX_RETRIES})")
@@ -372,7 +320,6 @@ async def process_message(message: Dict[str, Any], retries: int = 0, ses_client=
         else:
             logger.error(f"Max retries exceeded for message: {message}")
             # Log the error but don't raise, to avoid crashing the worker
-            # In a production environment, this should be reported to a monitoring system
 
 
 async def poll_queue() -> None:
@@ -381,27 +328,20 @@ async def poll_queue() -> None:
     """
     while True:
         try:
-            async with session.create_client(
-                "sqs", region_name=AWS_REGION, endpoint_url=AWS_ENDPOINT_URL
-            ) as sqs_client:
-                queue_url = get_queue_url("email-notification-queue")
-                
-                # Receive messages from the queue
-                response = await sqs_client.receive_message(
-                    QueueUrl=queue_url,
-                    MaxNumberOfMessages=10,
-                    WaitTimeSeconds=20  # Long polling
-                )
-                
-                messages = response.get("Messages", [])
-                
-                if messages:
-                    logger.info(f"Received {len(messages)} messages")
-                    
-                    # Process messages concurrently
-                    tasks = [process_message(message) for message in messages]
-                    await asyncio.gather(*tasks)
-                    
+            # Receive messages from the queue
+            messages = await sqs.receive_messages(
+                queue_name=EMAIL_QUEUE_NAME,
+                max_messages=10,
+                wait_time_seconds=20  # Long polling
+            )
+
+            if messages:
+                logger.info(f"Received {len(messages)} messages")
+
+                # Process messages concurrently
+                tasks = [process_message(message) for message in messages]
+                await asyncio.gather(*tasks, return_exceptions=True)
+
         except Exception as e:
             logger.error(f"Error polling queue: {str(e)}")
             # Wait before retrying
