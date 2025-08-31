@@ -76,7 +76,7 @@ class TestPodcastIndexE2E:
             "LLM_API_URL": "https://api.openai.com/v1/chat/completions",
             # Override table names to match LocalStack configuration
             "USERS_TABLE": "users",
-            "PROCESSING_JOBS_TABLE": "jobs",
+            "PROCESSING_JOBS_TABLE": "processing_jobs",
             "CREDIT_TRANSACTIONS_TABLE": "credit_transactions"
         }
 
@@ -304,7 +304,7 @@ class TestPodcastIndexE2E:
         except Exception as e:
             print(f"⚠️  Error checking queue {queue_name}: {e}")
 
-    def verify_email_sent(self, ses_client, email_address, job_id, max_wait=30):
+    def verify_email_sent(self, ses_client, email, job_id, max_wait=10):
         """
         Verify that an email was sent via SES for a specific job (environment-aware).
 
@@ -324,7 +324,7 @@ class TestPodcastIndexE2E:
         # If we're using LocalStack AND in test environment, use its API
         if (aws_endpoint and "localhost" in aws_endpoint and "4566" in aws_endpoint and
             is_test_env):
-            return self._verify_email_localstack(email_address, job_id, aws_endpoint, max_wait)
+            return self._verify_email_localstack(email, job_id, aws_endpoint, max_wait)
         else:
             # In production or when LocalStack not available, fallback to connectivity check
             print("⚠️  Production mode: Using SES connectivity check instead of email verification")
@@ -424,13 +424,13 @@ class TestPodcastIndexE2E:
         except Exception:
             return False
 
-    def verify_job_completed(self, dynamodb_client, job_id, max_wait=60):
+    def verify_job_completed(self, dynamodb_client, job_id, max_wait=10):
         """Verify that a job is marked as completed in DynamoDB."""
         start_time = time.time()
         while time.time() - start_time < max_wait:
             try:
                 response = dynamodb_client.get_item(
-                    TableName="jobs",
+                    TableName="processing_jobs",
                     Key={"id": {"S": job_id}}
                 )
                 if "Item" in response:
@@ -442,7 +442,7 @@ class TestPodcastIndexE2E:
             except Exception as e:
                 print(f"Debug: Error checking job status: {e}")
 
-            time.sleep(3)
+            time.sleep(1)
         return False
 
     def verify_pipeline_files_created(self, s3_client, job_id):
@@ -570,24 +570,40 @@ class TestPodcastIndexE2E:
         assert episodes_data["count"] > 0, "No episodes found for the podcast"
         print(f"✅ Found {episodes_data['count']} episodes")
 
-        # Step 3: Find suitable episode (preferably under 3 minutes)
+        # Step 3: Find suitable episode (prioritize very short episodes for fast testing)
         print("🎯 Step 3: Looking for suitable episode for processing")
 
         selected_episode = None
 
-        # First try to find episode under 3 minutes
+        # First try to find episode under 30 seconds for ultra-fast testing
         for episode in episodes_data["episodes"]:
-            if episode.get("duration") and episode["duration"] < 180:
+            if episode.get("duration") and episode["duration"] < 30:
                 selected_episode = episode
-                print(f"✅ Found short episode: '{episode['title']}' ({episode['duration']}s)")
+                print(f"✅ Found ultra-short episode: '{episode['title']}' ({episode['duration']}s)")
                 break
 
-        # If no short episode, take the shortest available
+        # Second try: episodes under 60 seconds
+        if not selected_episode:
+            for episode in episodes_data["episodes"]:
+                if episode.get("duration") and episode["duration"] < 60:
+                    selected_episode = episode
+                    print(f"✅ Found short episode: '{episode['title']}' ({episode['duration']}s)")
+                    break
+
+        # Third try: episodes under 2 minutes
+        if not selected_episode:
+            for episode in episodes_data["episodes"]:
+                if episode.get("duration") and episode["duration"] < 120:
+                    selected_episode = episode
+                    print(f"⚠️  Found medium episode: '{episode['title']}' ({episode['duration']}s)")
+                    break
+
+        # Last resort: take the shortest available
         if not selected_episode:
             episodes_with_duration = [ep for ep in episodes_data["episodes"] if ep.get("duration")]
             if episodes_with_duration:
                 selected_episode = min(episodes_with_duration, key=lambda x: x["duration"])
-                print(f"⚠️  No episode under 3 minutes, using shortest: '{selected_episode['title']}' ({selected_episode['duration']}s)")
+                print(f"⚠️  Using shortest available: '{selected_episode['title']}' ({selected_episode['duration']}s)")
             else:
                 # Fallback to first episode
                 selected_episode = episodes_data["episodes"][0]
@@ -595,16 +611,46 @@ class TestPodcastIndexE2E:
 
         assert selected_episode is not None, "No suitable episode found for processing"
 
-        # Step 4: Submit episode for processing
-        print("⚡ Step 4: Submitting episode for processing")
+        # Step 4: Authenticate via Magic Link (required for submit-episode)
+        print("🔐 Step 4: Authenticating via Magic Link")
 
+        # Request magic link
+        magic_link_response = fastapi_client.post(
+            "/api/v1/auth/request-magic-link",
+            json={"email": test_email}
+        )
+        assert magic_link_response.status_code == 200, f"Magic link request failed: {magic_link_response.text}"
+
+        # Extract magic token from DynamoDB
+        auth_tokens_response = localstack_clients["dynamodb"].scan(
+            TableName="auth_tokens",
+            FilterExpression="token_type = :token_type AND email = :email",
+            ExpressionAttributeValues={
+                ":token_type": {"S": "magic_link"},
+                ":email": {"S": test_email}
+            }
+        )
+        auth_tokens = auth_tokens_response.get("Items", [])
+        assert len(auth_tokens) > 0, "No magic link tokens found in DynamoDB"
+        magic_token = auth_tokens[0]["token"]["S"]
+
+        # Verify token to get JWT
+        verify_response = fastapi_client.post(
+            "/api/v1/auth/verify-token",
+            json={"token": magic_token, "email": test_email}
+        )
+        assert verify_response.status_code == 200, f"Token verification failed: {verify_response.text}"
+        jwt_token = verify_response.json()["access_token"]
+
+        print("⚡ Step 5: Submitting episode for processing (authenticated)")
         submission_response = fastapi_client.post(
             "/api/v1/podcast-search/submit-episode",
             json={
                 "feed_id": feed_id,
                 "episode_guid": selected_episode["guid"],
                 "user_email": test_email
-            }
+            },
+            headers={"Authorization": f"Bearer {jwt_token}"}
         )
 
         assert submission_response.status_code == 200, f"Episode submission failed: {submission_response.text}"
@@ -620,10 +666,10 @@ class TestPodcastIndexE2E:
         print("⏳ Step 5: Waiting for complete workflow...")
         print("   Expected: RSS Resolution → Audio Download → Transcription → Summarization → Email")
 
-        # Adjust timeout based on episode duration
+        # Adjust timeout based on episode duration (reduced for faster testing)
         episode_duration = selected_episode.get("duration", 20)
-        base_timeout = 60  # 1 minute base for workers to process
-        processing_timeout = max(base_timeout, episode_duration + 30)  # Episode duration + 30s overhead
+        base_timeout = 20  # 20 seconds base for workers to process
+        processing_timeout = max(base_timeout, min(episode_duration + 15, 45))  # Cap at 45s max
 
         print(f"   Timeout set to {processing_timeout} seconds based on episode duration")
 
@@ -664,7 +710,7 @@ class TestPodcastIndexE2E:
 
             # Check job completion status (primary indicator)
             if not job_completed:
-                job_completed = self.verify_job_completed(localstack_clients["dynamodb"], job_id, max_wait=5)
+                job_completed = self.verify_job_completed(localstack_clients["dynamodb"], job_id, max_wait=2)
                 if job_completed:
                     print(f"   ✅ Job marked as completed ({elapsed}s)")
 
@@ -695,7 +741,7 @@ class TestPodcastIndexE2E:
 
             status_summary = f"Job: {job_completed}, Files: {files_created}, Email: {email_sent}"
             print(f"   Still waiting... ({elapsed}s elapsed) - {status_summary}")
-            await asyncio.sleep(5)
+            await asyncio.sleep(2)
 
         # Step 6: Verify workflow completion
         if not workflow_completed:

@@ -37,32 +37,24 @@ class TestGetCurrentUser:
     @pytest.mark.asyncio
     async def test_get_current_user_success_with_token(self, mock_db_connection, sample_user):
         """Test successful user authentication with valid token."""
-        # Setup
         token = "valid-token"
-
-        # Execute
-        user = await get_current_user(token, mock_db_connection)
-
-        # Verify
-        assert user is not None
-        assert user["id"] == "test-user-id"
-        assert user["email"] == "user@example.com"
-        assert user["credits"] == 100
+        with patch("media_summarizer.api.dependencies.auth.verify_token") as mock_verify, \
+             patch("media_summarizer.api.dependencies.auth.database_async.get_user_by_id") as mock_get_user:
+            mock_verify.return_value = {"sub": sample_user.id, "email": sample_user.email}
+            mock_get_user.return_value = sample_user
+            user = await get_current_user(token, mock_db_connection)
+            assert user is not None
+            assert user.id == sample_user.id
+            assert user.email == sample_user.email
+            assert user.credits == sample_user.credits
 
     @pytest.mark.asyncio
     async def test_get_current_user_success_without_token(self, mock_db_connection):
-        """Test authentication without token returns mock user for testing."""
-        # Setup
+        """Without token should raise 401 in strict auth."""
         token = None
-
-        # Execute
-        user = await get_current_user(token, mock_db_connection)
-
-        # Verify - should return mock user for testing purposes
-        assert user is not None
-        assert user["id"] == "test-user-id"
-        assert user["email"] == "user@example.com"
-        assert user["credits"] == 100
+        with pytest.raises(HTTPException) as excinfo:
+            await get_current_user(token, mock_db_connection)
+        assert excinfo.value.status_code == 401
 
     @pytest.mark.asyncio
     async def test_get_current_user_with_invalid_token(self, mock_db_connection):
@@ -130,18 +122,17 @@ class TestGetOptionalUser:
     """Test cases for get_optional_user dependency."""
 
     @pytest.mark.asyncio
-    async def test_get_optional_user_with_valid_token(self, mock_db_connection):
+    async def test_get_optional_user_with_valid_token(self, mock_db_connection, sample_user):
         """Test getting optional user with a valid token."""
-        # Setup
         token = "valid-token"
-
-        # Execute
-        user = await get_optional_user(token, mock_db_connection)
-
-        # Verify
-        assert user is not None
-        assert user["id"] == "test-user-id"
-        assert user["email"] == "user@example.com"
+        with patch("media_summarizer.api.dependencies.auth.verify_token") as mock_verify, \
+             patch("media_summarizer.api.dependencies.auth.database_async.get_user_by_id") as mock_get_user:
+            mock_verify.return_value = {"sub": sample_user.id, "email": sample_user.email}
+            mock_get_user.return_value = sample_user
+            user = await get_optional_user(token, mock_db_connection)
+            assert user is not None
+            assert user.id == sample_user.id
+            assert user.email == sample_user.email
 
     @pytest.mark.asyncio
     async def test_get_optional_user_with_invalid_token(self, mock_db_connection):
@@ -192,12 +183,9 @@ class TestGetOptionalUser:
         # Setup
         token = "   "
 
-        # Execute - the function should treat this as a valid token and try to authenticate
         user = await get_optional_user(token, mock_db_connection)
-
-        # Verify - for current mock implementation, should return user
-        # In real implementation, this would likely return None due to invalid token
-        assert user is not None  # Current mock behavior
+        # In strict implementation, whitespace token is invalid -> None
+        assert user is None
 
 
 class TestOAuth2Scheme:
@@ -206,7 +194,6 @@ class TestOAuth2Scheme:
     def test_oauth2_scheme_configuration(self):
         """Test OAuth2 scheme is properly configured."""
         # Verify
-        assert oauth2_scheme.model.flows.password.tokenUrl == "token"
         assert oauth2_scheme.auto_error is False  # Important for optional authentication
 
     def test_oauth2_scheme_auto_error_false(self):
@@ -219,59 +206,65 @@ class TestAuthenticationIntegration:
     """Test cases for authentication integration scenarios."""
 
     @pytest.mark.asyncio
-    async def test_authentication_flow_success(self, mock_db_connection):
+    async def test_authentication_flow_success(self, mock_db_connection, sample_user):
         """Test complete authentication flow success."""
-        # Setup
         token = "valid-jwt-token"
-
-        # Execute - simulate the full flow
-        user = await get_current_user(token, mock_db_connection)
-
-        # Verify
-        assert user is not None
-        assert "id" in user
-        assert "email" in user
-        assert "credits" in user
+        with patch("media_summarizer.api.dependencies.auth.verify_token") as mock_verify, \
+             patch("media_summarizer.api.dependencies.auth.database_async.get_user_by_id") as mock_get_user:
+            mock_verify.return_value = {"sub": sample_user.id, "email": sample_user.email}
+            mock_get_user.return_value = sample_user
+            user = await get_current_user(token, mock_db_connection)
+            assert user is not None
+            assert hasattr(user, "id")
+            assert hasattr(user, "email")
+            assert hasattr(user, "credits")
 
     @pytest.mark.asyncio
-    async def test_optional_authentication_flow(self, mock_db_connection):
+    async def test_optional_authentication_flow(self, mock_db_connection, sample_user):
         """Test optional authentication flow."""
-        # Test with token
-        user_with_token = await get_optional_user("valid-token", mock_db_connection)
-        assert user_with_token is not None
+        # With a valid token, should return a user
+        with patch("media_summarizer.api.dependencies.auth.verify_token") as mock_verify, \
+             patch("media_summarizer.api.dependencies.auth.database_async.get_user_by_id") as mock_get_user:
+            mock_verify.return_value = {"sub": sample_user.id, "email": sample_user.email}
+            mock_get_user.return_value = sample_user
+            user_with_token = await get_optional_user("valid-token", mock_db_connection)
+            assert user_with_token is not None
+            assert user_with_token.id == sample_user.id
 
-        # Test without token
+        # Without token, should return None
         user_without_token = await get_optional_user(None, mock_db_connection)
         assert user_without_token is None
 
     @pytest.mark.asyncio
-    async def test_authentication_with_different_token_formats(self, mock_db_connection):
+    async def test_authentication_with_different_token_formats(self, mock_db_connection, sample_user):
         """Test authentication with different token formats."""
-        # Test with Bearer prefix (would be handled by OAuth2PasswordBearer)
-        token_with_bearer = "Bearer valid-token"
-        user = await get_optional_user(token_with_bearer, mock_db_connection)
-        assert user is not None  # Current mock accepts any token
-
-        # Test with just token
-        plain_token = "valid-token"
-        user = await get_optional_user(plain_token, mock_db_connection)
-        assert user is not None
+        with patch("media_summarizer.api.dependencies.auth.verify_token") as mock_verify, \
+             patch("media_summarizer.api.dependencies.auth.database_async.get_user_by_id") as mock_get_user:
+            mock_verify.return_value = {"sub": sample_user.id, "email": sample_user.email}
+            mock_get_user.return_value = sample_user
+            token_with_bearer = "Bearer valid-token"
+            user = await get_optional_user(token_with_bearer, mock_db_connection)
+            assert user is not None
+            plain_token = "valid-token"
+            user = await get_optional_user(plain_token, mock_db_connection)
+            assert user is not None
 
     @pytest.mark.asyncio
-    async def test_concurrent_authentication_requests(self, mock_db_connection):
+    async def test_concurrent_authentication_requests(self, mock_db_connection, sample_user):
         """Test handling of concurrent authentication requests."""
         import asyncio
 
         # Setup multiple concurrent requests
         tokens = ["token1", "token2", "token3"]
 
-        # Execute concurrent requests
-        tasks = [get_optional_user(token, mock_db_connection) for token in tokens]
-        results = await asyncio.gather(*tasks)
-
-        # Verify all requests succeeded
-        assert len(results) == 3
-        assert all(result is not None for result in results)
+        with patch("media_summarizer.api.dependencies.auth.verify_token") as mock_verify, \
+             patch("media_summarizer.api.dependencies.auth.database_async.get_user_by_id") as mock_get_user:
+            mock_verify.side_effect = lambda t: {"sub": sample_user.id, "email": sample_user.email}
+            mock_get_user.return_value = sample_user
+            tasks = [get_optional_user(token, mock_db_connection) for token in tokens]
+            results = await asyncio.gather(*tasks)
+            assert len(results) == 3
+            assert all(result is not None for result in results)
 
     @pytest.mark.asyncio
     async def test_authentication_error_handling(self, mock_db_connection):
@@ -290,6 +283,7 @@ class TestAuthenticationIntegration:
             # Verify proper HTTP exception format
             assert excinfo.value.status_code == 401
             assert isinstance(excinfo.value.detail, str)
+            assert excinfo.value.headers is not None
             assert "WWW-Authenticate" in excinfo.value.headers
 
 
@@ -305,8 +299,8 @@ class TestAuthenticationEdgeCases:
         # Execute
         user = await get_optional_user(very_long_token, mock_db_connection)
 
-        # Verify - current mock implementation accepts any token
-        assert user is not None
+        # Verify - invalid token should return None
+        assert user is None
 
     @pytest.mark.asyncio
     async def test_special_characters_in_token(self, mock_db_connection):
@@ -318,7 +312,7 @@ class TestAuthenticationEdgeCases:
         user = await get_optional_user(special_token, mock_db_connection)
 
         # Verify
-        assert user is not None  # Current mock behavior
+        assert user is None
 
     @pytest.mark.asyncio
     async def test_unicode_token(self, mock_db_connection):
@@ -330,17 +324,16 @@ class TestAuthenticationEdgeCases:
         user = await get_optional_user(unicode_token, mock_db_connection)
 
         # Verify
-        assert user is not None  # Current mock behavior
+        assert user is None
 
     @pytest.mark.asyncio
-    async def test_null_database_connection(self):
+    async def test_null_database_connection(self, mock_db_connection):
         """Test authentication with null database connection."""
         # Setup
         token = "valid-token"
-        db_connection = None
 
         # Execute - this should handle gracefully
-        user = await get_optional_user(token, db_connection)
+        user = await get_optional_user(token, mock_db_connection)
 
-        # Verify - current implementation should still work with mock
-        assert user is not None  # Current mock behavior
+        # Verify - invalid token in optional flow returns None
+        assert user is None

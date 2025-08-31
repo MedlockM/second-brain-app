@@ -6,11 +6,19 @@ Package pour les modèles de domaine utilisant DynamoDB.
 from .user import User
 from .credit_transaction import CreditTransaction
 from .processing_job import ProcessingJob, JobStatus
+from .auth import AuthToken, TokenType, TokenVerificationResponse, AuthUser, RegisterRequest, LoginRequest, EmailVerificationRequest
 
 # Export all models
 __all__ = [
     'User',
     'CreditTransaction',
     'ProcessingJob',
-    'JobStatus'
+    'JobStatus',
+    'AuthToken',
+    'TokenType',
+    'TokenVerificationResponse',
+    'AuthUser',
+    'RegisterRequest',
+    'LoginRequest',
+    'EmailVerificationRequest'
 ]

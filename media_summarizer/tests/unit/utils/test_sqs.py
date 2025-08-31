@@ -395,6 +395,40 @@ class TestSendMessagesBatch:
             )
 
 
+class TestChangeMessageVisibility:
+    """Test change_message_visibility functionality."""
+
+    @pytest.mark.asyncio
+    async def test_change_message_visibility_success(self, mock_session):
+        mock_session_obj, mock_client = mock_session
+        mock_client.change_message_visibility.return_value = {"ResponseMetadata": {"HTTPStatusCode": 200}}
+
+        result = await sqs.change_message_visibility(
+            queue_name="test-queue",
+            receipt_handle="rh-123",
+            timeout_seconds=600,
+        )
+
+        mock_client.change_message_visibility.assert_called_once()
+        call_args = mock_client.change_message_visibility.call_args[1]
+        assert call_args["QueueUrl"] == sqs.get_queue_url("test-queue")
+        assert call_args["ReceiptHandle"] == "rh-123"
+        assert call_args["VisibilityTimeout"] == 600
+        assert result["ResponseMetadata"]["HTTPStatusCode"] == 200
+
+    @pytest.mark.asyncio
+    async def test_change_message_visibility_error(self, mock_session):
+        mock_session_obj, mock_client = mock_session
+        mock_client.change_message_visibility.side_effect = Exception("SQS error")
+
+        with pytest.raises(Exception, match="SQS error"):
+            await sqs.change_message_visibility(
+                queue_name="test-queue",
+                receipt_handle="rh-123",
+                timeout_seconds=600,
+            )
+
+
 class TestGetSyncSqsClient:
     """Test synchronous SQS client functionality."""
 

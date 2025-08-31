@@ -82,7 +82,7 @@ class EpisodeSelectionRequest(BaseModel):
     """Request model for episode selection."""
     feed_id: int = Field(..., description="Podcast Index feed ID", gt=0)
     episode_guid: str = Field(..., description="Episode GUID", min_length=1)
-    user_email: str = Field(..., description="User email address")
+    user_email: Optional[str] = Field(default=None, description="User email address (deprecated, will be ignored if auth is provided)")
 
 
 class EpisodeSelectionResponse(BaseModel):

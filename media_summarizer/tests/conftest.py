@@ -5,12 +5,27 @@ This file contains fixtures and configuration that will be available to all test
 import os
 import json
 import pytest
-import pytest_asyncio
+# Optional: pytest-asyncio for async fixtures; degrade gracefully if missing
+try:
+    import pytest_asyncio  # type: ignore
+except Exception:  # pragma: no cover
+    class _AsyncioProxy:
+        fixture = pytest.fixture
+    pytest_asyncio = _AsyncioProxy()  # type: ignore
 import sys
-import httpx
+try:
+    import httpx  # type: ignore
+except Exception:
+    httpx = None  # not required for unit tests
 import subprocess
 import time
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
+try:
+    from unittest.mock import AsyncMock  # type: ignore
+except Exception:  # pragma: no cover
+    class AsyncMock(MagicMock):
+        async def __call__(self, *args, **kwargs):
+            return super().__call__(*args, **kwargs)
 from pathlib import Path
 
 # Load environment variables from .env file for integration tests

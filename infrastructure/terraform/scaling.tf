@@ -183,7 +183,9 @@ resource "aws_iam_policy" "ecs_task_policy" {
           "s3:DeleteObject"
         ]
         Resource = [
-          "${aws_s3_bucket.media_storage.arn}/*"
+          "${aws_s3_bucket.audio.arn}/*",
+          "${aws_s3_bucket.transcripts.arn}/*",
+          "${aws_s3_bucket.summaries.arn}/*"
         ]
       },
       {
@@ -192,7 +194,9 @@ resource "aws_iam_policy" "ecs_task_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          aws_s3_bucket.media_storage.arn
+          aws_s3_bucket.audio.arn,
+          aws_s3_bucket.transcripts.arn,
+          aws_s3_bucket.summaries.arn
         ]
       },
       {
@@ -270,11 +274,26 @@ resource "aws_sqs_queue" "rss_resolution" {
   }
 }
 
+# Dead-letter queue for audio download
+resource "aws_sqs_queue" "audio_download_dlq" {
+  name = "audio-download-dlq"
+
+  tags = {
+    Name        = "audio-download-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 resource "aws_sqs_queue" "audio_download" {
-  name                      = "audio-download-queue"
+  name                       = "audio-download-queue"
   visibility_timeout_seconds = 300
-  message_retention_seconds = 1209600
-  max_receive_count         = 3
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.audio_download_dlq.arn
+    maxReceiveCount     = 3
+  })
 
   tags = {
     Name        = "audio-download-queue"
@@ -283,11 +302,26 @@ resource "aws_sqs_queue" "audio_download" {
   }
 }
 
+# Dead-letter queue for transcription
+resource "aws_sqs_queue" "transcription_dlq" {
+  name = "transcription-dlq"
+
+  tags = {
+    Name        = "transcription-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 resource "aws_sqs_queue" "transcription" {
-  name                      = "transcription-queue"
+  name                       = "transcription-queue"
   visibility_timeout_seconds = 1800 # 30 minutes for long transcriptions
-  message_retention_seconds = 1209600
-  max_receive_count         = 3
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.transcription_dlq.arn
+    maxReceiveCount     = 3
+  })
 
   tags = {
     Name        = "transcription-queue"
@@ -296,11 +330,26 @@ resource "aws_sqs_queue" "transcription" {
   }
 }
 
+# Dead-letter queue for summarization
+resource "aws_sqs_queue" "summarization_dlq" {
+  name = "summarization-dlq"
+
+  tags = {
+    Name        = "summarization-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 resource "aws_sqs_queue" "summarization" {
-  name                      = "summarization-queue"
+  name                       = "summarization-queue"
   visibility_timeout_seconds = 300
-  message_retention_seconds = 1209600
-  max_receive_count         = 3
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.summarization_dlq.arn
+    maxReceiveCount     = 3
+  })
 
   tags = {
     Name        = "summarization-queue"
@@ -309,11 +358,26 @@ resource "aws_sqs_queue" "summarization" {
   }
 }
 
+# Dead-letter queue for email notifications
+resource "aws_sqs_queue" "email_notification_dlq" {
+  name = "email-notification-dlq"
+
+  tags = {
+    Name        = "email-notification-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 resource "aws_sqs_queue" "email_notification" {
-  name                      = "email-notification-queue"
+  name                       = "email-notification-queue"
   visibility_timeout_seconds = 300
-  message_retention_seconds = 1209600
-  max_receive_count         = 3
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.email_notification_dlq.arn
+    maxReceiveCount     = 3
+  })
 
   tags = {
     Name        = "email-notification-queue"
@@ -322,42 +386,31 @@ resource "aws_sqs_queue" "email_notification" {
   }
 }
 
-# S3 Bucket for media storage
-resource "aws_s3_bucket" "media_storage" {
-  bucket = "${var.project_name}-media-storage-${random_id.bucket_suffix.hex}"
-
+# S3 Buckets for media storage (prod): unique names per account/env
+resource "aws_s3_bucket" "audio" {
+  bucket = "${var.project_name}-audio-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
-    Name        = "${var.project_name}-media-storage"
+    Name        = "${var.project_name}-audio"
     Environment = var.environment
     Project     = var.project_name
   }
 }
 
-resource "random_id" "bucket_suffix" {
-  byte_length = 4
-}
-
-resource "aws_s3_bucket_versioning" "media_storage" {
-  bucket = aws_s3_bucket.media_storage.id
-  versioning_configuration {
-    status = "Enabled"
+resource "aws_s3_bucket" "transcripts" {
+  bucket = "${var.project_name}-transcripts-${data.aws_caller_identity.current.account_id}-${var.environment}"
+  tags = {
+    Name        = "${var.project_name}-transcripts"
+    Environment = var.environment
+    Project     = var.project_name
   }
 }
 
-resource "aws_s3_bucket_lifecycle_configuration" "media_storage" {
-  bucket = aws_s3_bucket.media_storage.id
-
-  rule {
-    id     = "delete_old_files"
-    status = "Enabled"
-
-    expiration {
-      days = 30
-    }
-
-    noncurrent_version_expiration {
-      noncurrent_days = 7
-    }
+resource "aws_s3_bucket" "summaries" {
+  bucket = "${var.project_name}-summaries-${data.aws_caller_identity.current.account_id}-${var.environment}"
+  tags = {
+    Name        = "${var.project_name}-summaries"
+    Environment = var.environment
+    Project     = var.project_name
   }
 }
 
@@ -812,9 +865,19 @@ output "queue_urls" {
   }
 }
 
-output "s3_bucket_name" {
-  description = "Name of the S3 bucket for media storage"
-  value       = aws_s3_bucket.media_storage.bucket
+output "audio_bucket_name" {
+  description = "Name of the S3 bucket for audio files"
+  value       = aws_s3_bucket.audio.bucket
+}
+
+output "transcripts_bucket_name" {
+  description = "Name of the S3 bucket for transcripts"
+  value       = aws_s3_bucket.transcripts.bucket
+}
+
+output "summaries_bucket_name" {
+  description = "Name of the S3 bucket for summaries"
+  value       = aws_s3_bucket.summaries.bucket
 }
 
 output "dynamodb_table_names" {

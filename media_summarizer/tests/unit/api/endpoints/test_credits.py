@@ -15,6 +15,8 @@ os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 os.environ["AWS_ENDPOINT_URL"] = "http://localhost:4566"
 
 from media_summarizer.api.main import app
+from media_summarizer.api.dependencies.auth import require_verified_email
+from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.api.endpoints.credits import (
     CreditPurchaseRequest,
     CreditDeductionRequest,
@@ -29,6 +31,15 @@ from media_summarizer.core.models import User, CreditTransaction
 def client():
     """Create a test client for the FastAPI app."""
     return TestClient(app)
+
+@pytest.fixture(autouse=True)
+def auth_override():
+    """Override auth to always provide a verified user for credits endpoints."""
+    async def _ov():
+        return AuthUser(id="user123", email="test@example.com", credits=100)
+    app.dependency_overrides[require_verified_email] = _ov
+    yield
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -114,11 +125,8 @@ class TestCreditPurchase:
                         "description": "Test purchase"
                     })
 
-                    assert response.status_code == 200
-                    data = response.json()
-                    assert data["user_id"] == "user123"
-                    assert data["credits"] == 150
-                    mock_create_tx.assert_called_once()
+                    assert response.status_code == 400
+                    assert "Direct Stripe purchases are no longer supported" in response.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_purchase_credits_user_not_found(self, client, mock_db):

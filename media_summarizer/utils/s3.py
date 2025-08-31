@@ -81,7 +81,7 @@ async def upload_file(
                 return response
     except Exception as e:
         logger.error(f"Error uploading file to S3: {str(e)}")
-        raise
+        raise Exception(f"Error uploading file to S3: {str(e)}") from e
 
 
 async def upload_file_object(
@@ -130,7 +130,7 @@ async def upload_file_object(
             return response
     except Exception as e:
         logger.error(f"Error uploading file object to S3: {str(e)}")
-        raise
+        raise Exception(f"Error uploading file object to S3: {str(e)}") from e
 
 
 async def download_file(bucket: str, key: str, file_path: str) -> bool:
@@ -167,7 +167,7 @@ async def download_file(bucket: str, key: str, file_path: str) -> bool:
         return True
     except Exception as e:
         logger.error(f"Error downloading file from S3: {str(e)}")
-        raise
+        raise Exception(f"Error downloading file from S3: {str(e)}") from e
 
 
 async def download_file_to_memory(bucket: str, key: str) -> bytes:
@@ -196,7 +196,7 @@ async def download_file_to_memory(bucket: str, key: str) -> bytes:
             return content
     except Exception as e:
         logger.error(f"Error downloading file to memory from S3: {str(e)}")
-        raise
+        raise Exception(f"Error downloading file to memory from S3: {str(e)}") from e
 
 
 async def get_object(bucket: str, key: str) -> Dict[str, Any]:
@@ -224,7 +224,7 @@ async def get_object(bucket: str, key: str) -> Dict[str, Any]:
             return response
     except Exception as e:
         logger.error(f"Error getting object from S3: {str(e)}")
-        raise
+        raise Exception(f"Error getting object from S3: {str(e)}") from e
 
 
 async def delete_object(bucket: str, key: str) -> Dict[str, Any]:
@@ -252,7 +252,7 @@ async def delete_object(bucket: str, key: str) -> Dict[str, Any]:
             return response
     except Exception as e:
         logger.error(f"Error deleting object from S3: {str(e)}")
-        raise
+        raise Exception(f"Error deleting object from S3: {str(e)}") from e
 
 
 async def object_exists(bucket: str, key: str) -> bool:
@@ -266,6 +266,7 @@ async def object_exists(bucket: str, key: str) -> bool:
     Returns:
         True if the object exists, False otherwise
     """
+    from botocore.exceptions import ClientError
     try:
         async with session.create_client(
             's3',
@@ -274,12 +275,19 @@ async def object_exists(bucket: str, key: str) -> bool:
         ) as s3:
             await s3.head_object(Bucket=bucket, Key=key)
             return True
-    except Exception as e:
-        # Check if it's a 404 error (object not found)
-        from botocore.exceptions import ClientError
-        if isinstance(e, ClientError) and e.response.get('Error', {}).get('Code') == '404':
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') == '404':
             return False
-        logger.error(f"Error checking if object exists in S3: {str(e)}")
+        raise
+    except Exception as e:
+        # Some tests or callers may raise generic exceptions with a response attribute
+        code = None
+        try:
+            code = getattr(e, 'response', {}).get('Error', {}).get('Code')
+        except Exception:
+            code = None
+        if code in ('404', 'NoSuchKey', 'NotFound'):
+            return False
         raise
 
 
@@ -320,7 +328,7 @@ async def generate_presigned_url(
             return response
     except Exception as e:
         logger.error(f"Error generating presigned URL: {str(e)}")
-        raise
+        raise Exception(f"Error generating presigned URL: {str(e)}") from e
 
 
 async def list_objects(
@@ -361,7 +369,7 @@ async def list_objects(
             return objects
     except Exception as e:
         logger.error(f"Error listing objects from S3: {str(e)}")
-        raise
+        raise Exception(f"Error listing objects from S3: {str(e)}") from e
 
 
 async def get_object_metadata(bucket: str, key: str) -> Dict[str, Any]:
@@ -389,7 +397,7 @@ async def get_object_metadata(bucket: str, key: str) -> Dict[str, Any]:
             return response
     except Exception as e:
         logger.error(f"Error getting object metadata: {str(e)}")
-        raise
+        raise Exception(f"Error getting object metadata: {str(e)}") from e
 
 
 async def copy_object(
@@ -437,7 +445,7 @@ async def copy_object(
             return response
     except Exception as e:
         logger.error(f"Error copying object: {str(e)}")
-        raise
+        raise Exception(f"Error copying object: {str(e)}") from e
 
 
 async def upload_multipart_file(
@@ -480,7 +488,7 @@ async def upload_multipart_file(
             endpoint_url=AWS_ENDPOINT_URL
         ) as s3:
             # Initiate multipart upload
-            create_params = {
+            create_params: Dict[str, Any] = {
                 'Bucket': bucket,
                 'Key': key,
                 'ContentType': content_type
@@ -527,15 +535,14 @@ async def upload_multipart_file(
                 logger.info(f"Multipart file uploaded to S3: s3://{bucket}/{key} ({len(parts)} parts)")
                 return response
 
-            except Exception as e:
+            except Exception as inner_e:
                 # Abort multipart upload on error
                 await s3.abort_multipart_upload(
                     Bucket=bucket,
                     Key=key,
                     UploadId=upload_id
                 )
-                raise
-
+                raise Exception(f"Error during multipart upload: {str(inner_e)}") from inner_e
     except Exception as e:
         logger.error(f"Error uploading multipart file to S3: {str(e)}")
-        raise
+        raise Exception(f"Error uploading multipart file to S3: {str(e)}") from e

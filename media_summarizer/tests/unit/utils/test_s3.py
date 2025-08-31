@@ -164,7 +164,7 @@ class TestDownloadFile:
     async def test_download_file_success(self, mock_session, tmp_path):
         """Test successful file download."""
         mock_session_obj, mock_client = mock_session
-        
+
         # Mock the response with Body that has read() method
         mock_body = AsyncMock()
         mock_body.read.return_value = b"test content"
@@ -186,7 +186,7 @@ class TestDownloadFile:
     async def test_download_file_creates_directory(self, mock_session, tmp_path):
         """Test download creates parent directories."""
         mock_session_obj, mock_client = mock_session
-        
+
         # Mock the response with Body that has read() method
         mock_body = AsyncMock()
         mock_body.read.return_value = b"test content"
@@ -383,7 +383,7 @@ class TestGeneratePresignedUrl:
     async def test_generate_presigned_url_default_params(self, mock_session):
         """Test presigned URL generation with default parameters."""
         mock_session_obj, mock_client = mock_session
-        mock_client.generate_presigned_url.return_value = "https://example.com"
+        mock_client.generate_presigned_url = Mock(return_value="https://example.com")
 
         await s3.generate_presigned_url(
             bucket="test-bucket",

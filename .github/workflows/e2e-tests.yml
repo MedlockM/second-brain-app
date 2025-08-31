@@ -1,0 +1,640 @@
+name: End-to-End Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      test_scope:
+        description: "Scope of E2E tests to run"
+        required: true
+        default: "core"
+        type: choice
+        options:
+          - core
+          - auth-payment
+          - complete-journey
+          - all
+      environment:
+        description: "Test environment"
+        required: true
+        default: "ci"
+        type: choice
+        options:
+          - ci
+          - staging
+
+env:
+  PYTHON_VERSION: "3.12"
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+jobs:
+  setup:
+    name: Setup E2E Environment
+    runs-on: ubuntu-latest
+    outputs:
+      test-matrix: ${{ steps.determine-tests.outputs.test-matrix }}
+      should-run-auth: ${{ steps.determine-tests.outputs.should-run-auth }}
+      should-run-journey: ${{ steps.determine-tests.outputs.should-run-journey }}
+      should-run-existing: ${{ steps.determine-tests.outputs.should-run-existing }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine test scope
+        id: determine-tests
+        run: |
+          case "${{ github.event.inputs.test_scope || 'core' }}" in
+            "auth-payment")
+              echo "should-run-auth=true" >> $GITHUB_OUTPUT
+              echo "should-run-journey=false" >> $GITHUB_OUTPUT
+              echo "should-run-existing=false" >> $GITHUB_OUTPUT
+              echo 'test-matrix=["auth-payment"]' >> $GITHUB_OUTPUT
+              ;;
+            "complete-journey")
+              echo "should-run-auth=false" >> $GITHUB_OUTPUT
+              echo "should-run-journey=true" >> $GITHUB_OUTPUT
+              echo "should-run-existing=false" >> $GITHUB_OUTPUT
+              echo 'test-matrix=["user-journey"]' >> $GITHUB_OUTPUT
+              ;;
+            "all")
+              echo "should-run-auth=true" >> $GITHUB_OUTPUT
+              echo "should-run-journey=true" >> $GITHUB_OUTPUT
+              echo "should-run-existing=true" >> $GITHUB_OUTPUT
+              echo 'test-matrix=["auth-payment", "user-journey", "podcast-index"]' >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "should-run-auth=true" >> $GITHUB_OUTPUT
+              echo "should-run-journey=true" >> $GITHUB_OUTPUT
+              echo "should-run-existing=false" >> $GITHUB_OUTPUT
+              echo 'test-matrix=["auth-payment", "user-journey"]' >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Validate Docker Compose
+        run: |
+          docker-compose -f docker-compose.dev.yml config --quiet
+
+  e2e-auth-payment:
+    name: E2E Auth & Payment Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should-run-auth == 'true'
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+
+      - name: Create virtual environment
+        run: |
+          uv venv .venv
+          echo "VIRTUAL_ENV=.venv" >> $GITHUB_ENV
+          echo ".venv/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install -e ".[dev]"
+
+      - name: Create E2E environment file
+        run: |
+          cat > .env << EOF
+          ENVIRONMENT=test
+          USE_LOCALSTACK=true
+          AWS_ACCESS_KEY_ID=test
+          AWS_SECRET_ACCESS_KEY=test
+          AWS_DEFAULT_REGION=us-east-1
+          AWS_ENDPOINT_URL=http://localhost:4566
+
+          # Stripe test configuration
+          STRIPE_SECRET_KEY=sk_test_51234567890abcdef_test_key_for_e2e_testing
+          STRIPE_PUBLISHABLE_KEY=pk_test_51234567890abcdef_test_key_for_e2e_testing
+          STRIPE_WEBHOOK_SECRET=whsec_test_webhook_secret_for_e2e_testing
+
+          # JWT and Auth
+          JWT_SECRET_KEY=test_jwt_secret_key_for_e2e_auth_testing
+          JWT_ALGORITHM=HS256
+          JWT_EXPIRATION_HOURS=24
+
+          # Email configuration
+          EMAIL_FROM=noreply@example.com
+          FRONTEND_URL=http://localhost:3000
+
+          # Database tables
+          USERS_TABLE=users
+          MAGIC_LINKS_TABLE=magic_links
+          TRANSACTIONS_TABLE=transactions
+          PODCASTS_TABLE=podcasts
+          EPISODES_TABLE=episodes
+
+          # S3 Buckets
+          AUDIO_BUCKET=test-media-files
+          TRANSCRIPT_BUCKET=test-transcripts
+          SUMMARY_BUCKET=test-summaries
+
+          # SQS Queues
+          EMAIL_NOTIFICATION_QUEUE=email-notification-queue
+          DOWNLOAD_QUEUE=download-queue
+          TRANSCRIPTION_QUEUE=transcription-queue
+          SUMMARIZATION_QUEUE=summarization-queue
+
+          # Test specific
+          TEST_ENVIRONMENT=e2e
+          TEST_TIMEOUT=300
+          E2E_CLEANUP=true
+          EOF
+
+      - name: Start E2E infrastructure
+        run: |
+          # Start only LocalStack for E2E tests (no workers needed for auth/payment)
+          docker-compose -f docker-compose.dev.yml --profile infrastructure up -d
+
+          # Wait for LocalStack to be ready
+          echo "⏳ Waiting for LocalStack to be ready..."
+          timeout 120 bash -c 'until curl -s http://localhost:4566/health | grep -q "\"status\": \"running\""; do sleep 3; echo "Waiting..."; done'
+
+          # Verify all required services are available
+          echo "🔍 Verifying LocalStack services..."
+          curl -f http://localhost:4566/health
+
+          # Additional wait for service initialization
+          sleep 10
+
+      - name: Initialize E2E database schema
+        run: |
+          # Run database initialization for E2E tests
+          python -c "
+          import boto3
+          import os
+
+          # Create DynamoDB client
+          client = boto3.client(
+              'dynamodb',
+              endpoint_url='http://localhost:4566',
+              region_name='us-east-1',
+              aws_access_key_id='test',
+              aws_secret_access_key='test'
+          )
+
+          # Define tables for E2E tests
+          tables = [
+              {
+                  'TableName': 'users',
+                  'KeySchema': [{'AttributeName': 'id', 'KeyType': 'HASH'}],
+                  'AttributeDefinitions': [{'AttributeName': 'id', 'AttributeType': 'S'}],
+                  'BillingMode': 'PAY_PER_REQUEST'
+              },
+              {
+                  'TableName': 'magic_links',
+                  'KeySchema': [{'AttributeName': 'token', 'KeyType': 'HASH'}],
+                  'AttributeDefinitions': [{'AttributeName': 'token', 'AttributeType': 'S'}],
+                  'BillingMode': 'PAY_PER_REQUEST'
+              },
+              {
+                  'TableName': 'transactions',
+                  'KeySchema': [{'AttributeName': 'id', 'KeyType': 'HASH'}],
+                  'AttributeDefinitions': [{'AttributeName': 'id', 'AttributeType': 'S'}],
+                  'BillingMode': 'PAY_PER_REQUEST'
+              }
+          ]
+
+          for table in tables:
+              try:
+                  client.create_table(**table)
+                  print(f'✅ Created table: {table[\"TableName\"]}')
+              except Exception as e:
+                  if 'ResourceInUseException' not in str(e):
+                      print(f'⚠️ Error creating table {table[\"TableName\"]}: {e}')
+          "
+
+      - name: Run Auth & Payment E2E Tests
+        run: |
+          pytest \
+            media_summarizer/tests/end_to_end/test_auth_payment_e2e.py \
+            -v \
+            -s \
+            --tb=short \
+            --strict-markers \
+            -m "e2e" \
+            --maxfail=3 \
+            --durations=10 \
+            --cov=media_summarizer \
+            --cov-report=xml:coverage-e2e-auth-payment.xml \
+            --cov-report=term-missing \
+            --junit-xml=results-e2e-auth-payment.xml
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: e2e-auth-payment-results
+          path: |
+            results-e2e-auth-payment.xml
+            coverage-e2e-auth-payment.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: coverage-e2e-auth-payment.xml
+          flags: e2e-auth-payment
+          name: e2e-auth-payment
+
+      - name: Store infrastructure logs
+        if: failure()
+        run: |
+          mkdir -p e2e-logs
+          docker-compose -f docker-compose.dev.yml logs localstack > e2e-logs/localstack.log
+          curl -s http://localhost:4566/health > e2e-logs/localstack-health.json || true
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: e2e-auth-payment-logs
+          path: e2e-logs/
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose -f docker-compose.dev.yml down -v --remove-orphans
+
+  e2e-user-journey:
+    name: E2E Complete User Journey
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should-run-journey == 'true'
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+
+      - name: Create virtual environment
+        run: |
+          uv venv .venv
+          echo "VIRTUAL_ENV=.venv" >> $GITHUB_ENV
+          echo ".venv/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install -e ".[dev]"
+
+      - name: Create E2E environment file
+        run: |
+          cat > .env << EOF
+          ENVIRONMENT=test
+          USE_LOCALSTACK=true
+          AWS_ACCESS_KEY_ID=test
+          AWS_SECRET_ACCESS_KEY=test
+          AWS_DEFAULT_REGION=us-east-1
+          AWS_ENDPOINT_URL=http://localhost:4566
+
+          # OpenAI for summarization (using test key or mock)
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || 'sk-test-mock-key-for-e2e' }}
+
+          # Stripe test configuration
+          STRIPE_SECRET_KEY=sk_test_51234567890abcdef_test_key_for_e2e_testing
+          STRIPE_PUBLISHABLE_KEY=pk_test_51234567890abcdef_test_key_for_e2e_testing
+          STRIPE_WEBHOOK_SECRET=whsec_test_webhook_secret_for_e2e_testing
+
+          # JWT and Auth
+          JWT_SECRET_KEY=test_jwt_secret_key_for_e2e_auth_testing
+          JWT_ALGORITHM=HS256
+          JWT_EXPIRATION_HOURS=24
+
+          # Email configuration
+          EMAIL_FROM=noreply@example.com
+          FRONTEND_URL=http://localhost:3000
+
+          # Database tables
+          USERS_TABLE=users
+          MAGIC_LINKS_TABLE=magic_links
+          TRANSACTIONS_TABLE=transactions
+          PODCASTS_TABLE=podcasts
+          EPISODES_TABLE=episodes
+
+          # S3 Buckets
+          AUDIO_BUCKET=test-media-files
+          TRANSCRIPT_BUCKET=test-transcripts
+          SUMMARY_BUCKET=test-summaries
+
+          # SQS Queues
+          EMAIL_NOTIFICATION_QUEUE=email-notification-queue
+          DOWNLOAD_QUEUE=download-queue
+          TRANSCRIPTION_QUEUE=transcription-queue
+          SUMMARIZATION_QUEUE=summarization-queue
+
+          # Test specific
+          TEST_ENVIRONMENT=e2e
+          TEST_TIMEOUT=600
+          E2E_CLEANUP=true
+          WHISPER_MODEL_SIZE=tiny
+          ENABLE_MOCK_PROCESSING=true
+          EOF
+
+      - name: Start E2E full stack
+        run: |
+          # Start infrastructure
+          docker-compose -f docker-compose.dev.yml --profile infrastructure up -d
+
+          # Wait for LocalStack
+          echo "⏳ Waiting for LocalStack..."
+          timeout 120 bash -c 'until curl -s http://localhost:4566/health | grep -q "\"status\": \"running\""; do sleep 3; done'
+
+          # Start API for endpoint testing
+          docker-compose -f docker-compose.dev.yml --profile api up -d
+
+          # Wait for API to be ready
+          echo "⏳ Waiting for API..."
+          timeout 60 bash -c 'until curl -s http://localhost:8000/health > /dev/null; do sleep 2; done'
+
+          # Verify stack
+          echo "🔍 Verifying E2E stack..."
+          curl -f http://localhost:4566/health
+          curl -f http://localhost:8000/health
+
+      - name: Initialize E2E database schema
+        run: |
+          python -c "
+          import boto3
+
+          # Create all required tables and buckets for full user journey
+          client = boto3.client(
+              'dynamodb',
+              endpoint_url='http://localhost:4566',
+              region_name='us-east-1',
+              aws_access_key_id='test',
+              aws_secret_access_key='test'
+          )
+
+          s3_client = boto3.client(
+              's3',
+              endpoint_url='http://localhost:4566',
+              region_name='us-east-1',
+              aws_access_key_id='test',
+              aws_secret_access_key='test'
+          )
+
+          sqs_client = boto3.client(
+              'sqs',
+              endpoint_url='http://localhost:4566',
+              region_name='us-east-1',
+              aws_access_key_id='test',
+              aws_secret_access_key='test'
+          )
+
+          # Create DynamoDB tables
+          tables = [
+              {'TableName': 'users', 'KeySchema': [{'AttributeName': 'id', 'KeyType': 'HASH'}], 'AttributeDefinitions': [{'AttributeName': 'id', 'AttributeType': 'S'}], 'BillingMode': 'PAY_PER_REQUEST'},
+              {'TableName': 'magic_links', 'KeySchema': [{'AttributeName': 'token', 'KeyType': 'HASH'}], 'AttributeDefinitions': [{'AttributeName': 'token', 'AttributeType': 'S'}], 'BillingMode': 'PAY_PER_REQUEST'},
+              {'TableName': 'transactions', 'KeySchema': [{'AttributeName': 'id', 'KeyType': 'HASH'}], 'AttributeDefinitions': [{'AttributeName': 'id', 'AttributeType': 'S'}], 'BillingMode': 'PAY_PER_REQUEST'},
+              {'TableName': 'podcasts', 'KeySchema': [{'AttributeName': 'id', 'KeyType': 'HASH'}], 'AttributeDefinitions': [{'AttributeName': 'id', 'AttributeType': 'S'}], 'BillingMode': 'PAY_PER_REQUEST'},
+              {'TableName': 'episodes', 'KeySchema': [{'AttributeName': 'id', 'KeyType': 'HASH'}], 'AttributeDefinitions': [{'AttributeName': 'id', 'AttributeType': 'S'}], 'BillingMode': 'PAY_PER_REQUEST'}
+          ]
+
+          for table in tables:
+              try:
+                  client.create_table(**table)
+                  print(f'✅ Created table: {table[\"TableName\"]}')
+              except Exception as e:
+                  if 'ResourceInUseException' not in str(e):
+                      print(f'⚠️ Error: {e}')
+
+          # Create S3 buckets
+          buckets = ['test-media-files', 'test-transcripts', 'test-summaries']
+          for bucket in buckets:
+              try:
+                  s3_client.create_bucket(Bucket=bucket)
+                  print(f'✅ Created bucket: {bucket}')
+              except Exception as e:
+                  print(f'⚠️ Bucket error: {e}')
+
+          # Create SQS queues
+          queues = ['email-notification-queue', 'download-queue', 'transcription-queue', 'summarization-queue']
+          for queue in queues:
+              try:
+                  sqs_client.create_queue(QueueName=queue)
+                  print(f'✅ Created queue: {queue}')
+              except Exception as e:
+                  print(f'⚠️ Queue error: {e}')
+          "
+
+      - name: Run Complete User Journey E2E Tests
+        run: |
+          pytest \
+            media_summarizer/tests/end_to_end/test_complete_user_journey_e2e.py \
+            -v \
+            -s \
+            --tb=short \
+            --strict-markers \
+            -m "e2e" \
+            --maxfail=2 \
+            --durations=10 \
+            --cov=media_summarizer \
+            --cov-report=xml:coverage-e2e-user-journey.xml \
+            --cov-report=term-missing \
+            --junit-xml=results-e2e-user-journey.xml
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: e2e-user-journey-results
+          path: |
+            results-e2e-user-journey.xml
+            coverage-e2e-user-journey.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: coverage-e2e-user-journey.xml
+          flags: e2e-user-journey
+          name: e2e-user-journey
+
+      - name: Store infrastructure logs
+        if: failure()
+        run: |
+          mkdir -p e2e-logs
+          docker-compose -f docker-compose.dev.yml logs > e2e-logs/full-stack.log
+          curl -s http://localhost:4566/health > e2e-logs/localstack-health.json || true
+          curl -s http://localhost:8000/health > e2e-logs/api-health.json || true
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: e2e-user-journey-logs
+          path: e2e-logs/
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose -f docker-compose.dev.yml down -v --remove-orphans
+
+  e2e-existing-tests:
+    name: E2E Existing Podcast Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: needs.setup.outputs.should-run-existing == 'true'
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+
+      - name: Create virtual environment
+        run: |
+          uv venv .venv
+          echo "VIRTUAL_ENV=.venv" >> $GITHUB_ENV
+          echo ".venv/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install -e ".[dev]"
+
+      - name: Create environment file
+        run: |
+          cat > .env << EOF
+          ENVIRONMENT=test
+          USE_LOCALSTACK=true
+          AWS_ACCESS_KEY_ID=test
+          AWS_SECRET_ACCESS_KEY=test
+          AWS_DEFAULT_REGION=us-east-1
+          AWS_ENDPOINT_URL=http://localhost:4566
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || 'sk-test-mock' }}
+          PODCASTINDEXORG_API_KEY=${{ secrets.PODCASTINDEXORG_API_KEY || 'test-key' }}
+          PODCASTINDEXORG_API_SECRET=${{ secrets.PODCASTINDEXORG_API_SECRET || 'test-secret' }}
+          TEST_ENVIRONMENT=e2e
+          EOF
+
+      - name: Start infrastructure
+        run: |
+          docker-compose -f docker-compose.dev.yml --profile infrastructure up -d
+          timeout 120 bash -c 'until curl -s http://localhost:4566/health | grep -q "running"; do sleep 3; done'
+
+      - name: Run existing E2E tests
+        run: |
+          pytest \
+            media_summarizer/tests/end_to_end/test_podcast_index_e2e.py \
+            -v \
+            -s \
+            --tb=short \
+            -m "e2e" \
+            --maxfail=1 \
+            --cov=media_summarizer \
+            --cov-report=xml:coverage-e2e-existing.xml \
+            --junit-xml=results-e2e-existing.xml
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: e2e-existing-results
+          path: |
+            results-e2e-existing.xml
+            coverage-e2e-existing.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: coverage-e2e-existing.xml
+          flags: e2e-existing
+          name: e2e-existing
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose -f docker-compose.dev.yml down -v --remove-orphans
+
+  e2e-summary:
+    name: E2E Test Summary
+    runs-on: ubuntu-latest
+    needs: [setup, e2e-auth-payment, e2e-user-journey, e2e-existing-tests]
+    if: always()
+
+    steps:
+      - name: Download all test results
+        uses: actions/download-artifact@v3
+        with:
+          path: test-results
+
+      - name: Summarize test results
+        run: |
+          echo "# E2E Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## Test Jobs Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Setup: ${{ needs.setup.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Auth & Payment: ${{ needs.e2e-auth-payment.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- User Journey: ${{ needs.e2e-user-journey.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Existing Tests: ${{ needs.e2e-existing-tests.result }}" >> $GITHUB_STEP_SUMMARY
+
+          # Count total results
+          total_tests=0
+          passed_tests=0
+
+          for xml_file in test-results/*/results-*.xml; do
+            if [[ -f "$xml_file" ]]; then
+              tests=$(grep -o 'tests="[0-9]*"' "$xml_file" | grep -o '[0-9]*' || echo "0")
+              failures=$(grep -o 'failures="[0-9]*"' "$xml_file" | grep -o '[0-9]*' || echo "0")
+              errors=$(grep -o 'errors="[0-9]*"' "$xml_file" | grep -o '[0-9]*' || echo "0")
+
+              total_tests=$((total_tests + tests))
+              passed_tests=$((passed_tests + tests - failures - errors))
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Overall Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Tests**: $total_tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **Passed**: $passed_tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **Failed**: $((total_tests - passed_tests))" >> $GITHUB_STEP_SUMMARY
+
+          if [[ $passed_tests -eq $total_tests ]] && [[ $total_tests -gt 0 ]]; then
+            echo "- **Status**: ✅ All E2E tests passed!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Status**: ❌ Some E2E tests failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check overall status
+        run: |
+          if [[ "${{ needs.e2e-auth-payment.result }}" == "failure" ]] || \
+             [[ "${{ needs.e2e-user-journey.result }}" == "failure" ]] || \
+             [[ "${{ needs.e2e-existing-tests.result }}" == "failure" ]]; then
+            echo "❌ E2E tests failed"
+            exit 1
+          elif [[ "${{ needs.e2e-auth-payment.result }}" == "skipped" ]] && \
+               [[ "${{ needs.e2e-user-journey.result }}" == "skipped" ]] && \
+               [[ "${{ needs.e2e-existing-tests.result }}" == "skipped" ]]; then
+            echo "⚠️ All E2E tests were skipped"
+            exit 1
+          else
+            echo "✅ E2E tests completed successfully"
+          fi

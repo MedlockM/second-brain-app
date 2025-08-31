@@ -9,16 +9,19 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+    env_file:
+      - .env.dev
     environment:
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
       - AWS_REGION=us-east-1
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - STRIPE_API_KEY=${STRIPE_TEST_API_KEY}
-      - PODCASTINDEXORG_API_KEY=${PODCASTINDEXORG_API_KEY}
-      - PODCASTINDEXORG_API_SECRET=${PODCASTINDEXORG_API_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - STRIPE_TEST_API_KEY=${STRIPE_TEST_API_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - PODCASTINDEXORG_API_KEY=${PODCASTINDEXORG_API_KEY:-}
+      - PODCASTINDEXORG_API_SECRET=${PODCASTINDEXORG_API_SECRET:-}
       # S3 Buckets
       - AUDIO_BUCKET=media-summarizer-audio
       - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
@@ -29,13 +32,18 @@ services:
       - EPISODES_TABLE=episodes
       - PROCESSING_JOBS_TABLE=processing_jobs
       - CREDIT_TRANSACTIONS_TABLE=credit_transactions
+      - AUTH_TOKENS_TABLE=auth_tokens
+      - STRIPE_EVENTS_TABLE=stripe_events
       # SQS Queues
       - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
       - TRANSCRIPTION_QUEUE=transcription-queue
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
-      - localstack
+      localstack:
+        condition: service_healthy
+      terraform:
+        condition: service_completed_successfully
     command: uvicorn media_summarizer.api.main:app --host 0.0.0.0 --port 8000
 
   # Service de transcription Whisper
@@ -48,6 +56,8 @@ services:
         - WHISPER_MODEL_SIZE=tiny # Use tiny model for development
     volumes:
       - .:/app
+    env_file:
+      - .env.dev
     environment:
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
@@ -76,7 +86,10 @@ services:
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
-      - localstack
+      localstack:
+        condition: service_healthy
+      terraform:
+        condition: service_completed_successfully
 
   # Worker de téléchargement audio
   download-worker:
@@ -86,6 +99,8 @@ services:
       dockerfile: infrastructure/docker/worker.Dockerfile
     volumes:
       - .:/app
+    env_file:
+      - .env.dev
     environment:
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
@@ -106,7 +121,10 @@ services:
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
-      - localstack
+      localstack:
+        condition: service_healthy
+      terraform:
+        condition: service_completed_successfully
     command: python -m media_summarizer.workers.download_worker
 
   # Worker de résumé LLM
@@ -117,13 +135,15 @@ services:
       dockerfile: infrastructure/docker/worker.Dockerfile
     volumes:
       - .:/app
+    env_file:
+      - .env.dev
     environment:
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
       - AWS_REGION=us-east-1
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # S3 Buckets
       - AUDIO_BUCKET=media-summarizer-audio
       - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
@@ -138,7 +158,10 @@ services:
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
-      - localstack
+      localstack:
+        condition: service_healthy
+      terraform:
+        condition: service_completed_successfully
     command: python -m media_summarizer.workers.summarization.summarization_worker
 
   # Worker d'envoi d'emails
@@ -149,6 +172,8 @@ services:
       dockerfile: infrastructure/docker/worker.Dockerfile
     volumes:
       - .:/app
+    env_file:
+      - .env.dev
     environment:
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
@@ -169,19 +194,51 @@ services:
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
-      - localstack
+      localstack:
+        condition: service_healthy
+      terraform:
+        condition: service_completed_successfully
     command: python -m media_summarizer.workers.notification.email_worker
 
   # LocalStack pour simuler les services AWS (incluant DynamoDB)
   localstack:
     profiles: ["infrastructure", "api", "workers", "full"]
-    image: localstack/localstack:latest
+    image: localstack/localstack:3.0
     ports:
       - "4566:4566"
     environment:
       - SERVICES=s3,sqs,ses,dynamodb
       - DEBUG=1
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      - EAGER_SERVICE_LOADING=1
+      - SKIP_INFRA_DOWNLOADS=1
+      - PERSISTENCE=0
+      - LAMBDA_EXECUTOR=local
+      - EDGE_PORT=4566
+      - DEFAULT_REGION=us-east-1
+      - LOCALSTACK_HOST=localhost:4566
     volumes:
-      - ./infrastructure/localstack:/docker-entrypoint-initaws.d
       - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  terraform:
+    profiles: ["infrastructure", "full"]
+    image: hashicorp/terraform:1.6.6
+    working_dir: /workspace
+    volumes:
+      - ./infrastructure/terraform/localstack:/workspace
+    environment:
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - TF_VAR_localstack_endpoint=http://localstack:4566
+    entrypoint: []
+    command: ["/bin/sh", "-lc", "terraform init -upgrade && terraform validate && terraform plan -out=tfplan && terraform apply -auto-approve tfplan"]
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: "no"

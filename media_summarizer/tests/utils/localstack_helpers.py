@@ -128,6 +128,60 @@ DYNAMODB_TABLES = {
             "ReadCapacityUnits": 5,
             "WriteCapacityUnits": 5
         }
+    },
+    "auth_tokens": {
+        "KeySchema": [
+            {"AttributeName": "id", "KeyType": "HASH"}
+        ],
+        "AttributeDefinitions": [
+            {"AttributeName": "id", "AttributeType": "S"},
+            {"AttributeName": "token", "AttributeType": "S"},
+            {"AttributeName": "user_id", "AttributeType": "S"},
+            {"AttributeName": "token_type", "AttributeType": "S"}
+        ],
+        "GlobalSecondaryIndexes": [
+            {
+                "IndexName": "token-index",
+                "KeySchema": [
+                    {"AttributeName": "token", "KeyType": "HASH"}
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+            },
+            {
+                "IndexName": "user-index",
+                "KeySchema": [
+                    {"AttributeName": "user_id", "KeyType": "HASH"}
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+            },
+            {
+                "IndexName": "user-type-index",
+                "KeySchema": [
+                    {"AttributeName": "user_id", "KeyType": "HASH"},
+                    {"AttributeName": "token_type", "KeyType": "RANGE"}
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+            }
+        ],
+        "ProvisionedThroughput": {
+            "ReadCapacityUnits": 5,
+            "WriteCapacityUnits": 5
+        }
+    },
+    "stripe_events": {
+        "KeySchema": [
+            {"AttributeName": "id", "KeyType": "HASH"}
+        ],
+        "AttributeDefinitions": [
+            {"AttributeName": "id", "AttributeType": "S"}
+        ],
+        "ProvisionedThroughput": {
+            "ReadCapacityUnits": 5,
+            "WriteCapacityUnits": 5
+        }
     }
 }
 

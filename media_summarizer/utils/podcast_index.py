@@ -21,6 +21,10 @@ PODCAST_INDEX_BASE_URL = "https://api.podcastindex.org/api/1.0"
 API_KEY = os.getenv("PODCASTINDEXORG_API_KEY")
 API_SECRET = os.getenv("PODCASTINDEXORG_API_SECRET")
 
+# HTTP client configuration (durcissement: timeouts explicites)
+PODCAST_INDEX_TIMEOUT_SECONDS = int(os.getenv("PODCAST_INDEX_TIMEOUT_SECONDS", "20"))
+_HTTP_TIMEOUT = httpx.Timeout(PODCAST_INDEX_TIMEOUT_SECONDS)
+
 
 def _generate_headers() -> Dict[str, str]:
     """
@@ -88,7 +92,7 @@ async def search_podcasts(
         if http_client:
             response = await http_client.get(url, headers=headers, params=params)
         else:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
                 response = await client.get(url, headers=headers, params=params)
 
         response.raise_for_status()
@@ -131,7 +135,7 @@ async def get_podcast_by_feed_url(
         if http_client:
             response = await http_client.get(url, headers=headers, params=params)
         else:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
                 response = await client.get(url, headers=headers, params=params)
 
         response.raise_for_status()
@@ -184,7 +188,7 @@ async def get_episodes_by_feed_id(
         if http_client:
             response = await http_client.get(url, headers=headers, params=params)
         else:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
                 response = await client.get(url, headers=headers, params=params)
 
         response.raise_for_status()
@@ -387,7 +391,7 @@ async def get_trending_podcasts(
         if http_client:
             response = await http_client.get(url, headers=headers, params=params)
         else:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
                 response = await client.get(url, headers=headers, params=params)
 
         response.raise_for_status()

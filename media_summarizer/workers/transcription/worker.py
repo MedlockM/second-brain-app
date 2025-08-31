@@ -31,6 +31,10 @@ MAX_RETRIES = 3
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 RETRY_BASE_DELAY = 0.01 if TEST_MODE else 1  # secondes
 
+# Heartbeat/visibility settings
+HEARTBEAT_INTERVAL = float(os.environ.get("HEARTBEAT_INTERVAL", "60"))
+TRANSCRIPTION_VISIBILITY_TIMEOUT = int(os.environ.get("TRANSCRIPTION_VISIBILITY_TIMEOUT", "1800"))
+
 # Whisper model configuration
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "tiny" if TEST_MODE else "large")
 
@@ -272,24 +276,65 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
 
 async def process_message(message: Dict[str, Any]) -> None:
     """
-    Process an SQS message for transcription.
+    Process an SQS message for transcription with heartbeat to extend visibility.
 
     Args:
         message: SQS message containing job information
     """
+    receipt_handle = message.get("ReceiptHandle")
+    heartbeat_task = None
+
+    async def _heartbeat_loop():
+        try:
+            # Initial immediate extension to ensure a fresh window
+            await sqs.change_message_visibility(
+                queue_name=TRANSCRIPTION_QUEUE,
+                receipt_handle=receipt_handle,
+                timeout_seconds=TRANSCRIPTION_VISIBILITY_TIMEOUT,
+            )
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                await sqs.change_message_visibility(
+                    queue_name=TRANSCRIPTION_QUEUE,
+                    receipt_handle=receipt_handle,
+                    timeout_seconds=TRANSCRIPTION_VISIBILITY_TIMEOUT,
+                )
+        except asyncio.CancelledError:
+            # Graceful shutdown of heartbeat
+            pass
+        except Exception as e:
+            # Log but do not interrupt main processing
+            logger.warning(f"Heartbeat failed to extend visibility: {e}")
+
     try:
         # Parse message body
         body = json.loads(message.get("Body", "{}"))
 
+        # Start heartbeat if we have a receipt handle
+        if receipt_handle:
+            heartbeat_task = asyncio.create_task(_heartbeat_loop())
+
         # Process the transcription
         await process_transcription_message(body)
 
+        # After success, delete message (done by poller loop) and exit
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse message body: {str(e)}")
         raise
     except Exception as e:
         logger.error(f"Error processing transcription message: {str(e)}")
         raise
+    finally:
+        if heartbeat_task:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                # Expected during normal shutdown of the heartbeat task
+                pass
+            except Exception:
+                # Swallow any other heartbeat errors on shutdown
+                pass
 
 
 async def poll_queue() -> None:
@@ -305,7 +350,7 @@ async def poll_queue() -> None:
                 queue_name=TRANSCRIPTION_QUEUE,
                 max_messages=1,  # Process one at a time for Whisper
                 wait_time_seconds=20,  # Long polling
-                visibility_timeout=1800  # 30 minutes for transcription processing
+                visibility_timeout=TRANSCRIPTION_VISIBILITY_TIMEOUT
             )
 
             if messages:

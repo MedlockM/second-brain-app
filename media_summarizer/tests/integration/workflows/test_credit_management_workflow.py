@@ -173,9 +173,10 @@ class TestCreditManagementWorkflow(BaseIntegrationTestCase):
         Test purchasing credits using real Stripe integration and DynamoDB storage.
 
         This test verifies that:
-        1. The API endpoint processes credit purchase with real Stripe
-        2. The user's credit balance is updated in DynamoDB
-        3. Credit transaction is recorded in DynamoDB
+        1. The new payment intent API endpoint creates Stripe payment intent
+        2. The payment confirmation endpoint processes the payment
+        3. The user's credit balance is updated in DynamoDB
+        4. Credit transaction is recorded in DynamoDB
         """
         # Create a test user in DynamoDB
         test_user = localstack_dynamodb_client.create_user(
@@ -196,30 +197,47 @@ class TestCreditManagementWorkflow(BaseIntegrationTestCase):
         app.dependency_overrides[get_current_user] = get_current_user_override
 
         try:
-            # Create a test payment method using a test token instead of raw card data
-            payment_method = real_stripe_client.PaymentMethod.create(
-                type="card",
-                card={
-                    "token": "tok_visa",  # Use Stripe test token instead of raw card data
-                },
-            )
-
-            # Execute the credit purchase request
-            response = test_client.post(
-                "/api/v1/credits/purchase",
+            # Step 1: Create payment intent using new endpoint
+            intent_response = test_client.post(
+                "/api/v1/payments/intent",
                 json={
-                    "user_id": "test-user-id",
-                    "amount": 50,  # 50 credits
-                    "payment_method": "stripe",
-                    "description": "Test credit purchase"
+                    "credits": 50,
+                    "currency": "eur"
                 }
             )
 
-            # Verify the response
-            assert response.status_code == 200
-            data = response.json()
-            assert "credits" in data
-            assert data["credits"] == 150  # 100 + 50
+            # Verify payment intent creation
+            assert intent_response.status_code == 200
+            intent_data = intent_response.json()
+            assert "payment_intent_id" in intent_data
+            assert "client_secret" in intent_data
+            assert intent_data["credits"] == 50
+            assert intent_data["amount"] == 999  # Small package price
+
+            payment_intent_id = intent_data["payment_intent_id"]
+
+            # Step 2: Simulate payment confirmation using Stripe test token
+            # In a real scenario, the frontend would handle payment with Stripe.js
+            # For testing, we'll confirm the payment intent directly with Stripe
+            real_stripe_client.PaymentIntent.confirm(
+                payment_intent_id,
+                payment_method="pm_card_visa"  # Use Stripe test payment method
+            )
+
+            # Step 3: Confirm payment through our API
+            confirm_response = test_client.post(
+                "/api/v1/payments/confirm",
+                json={
+                    "payment_intent_id": payment_intent_id
+                }
+            )
+
+            # Verify payment confirmation
+            assert confirm_response.status_code == 200
+            confirm_data = confirm_response.json()
+            assert confirm_data["status"] == "succeeded"
+            assert confirm_data["credits_added"] == 50
+            assert "transaction_id" in confirm_data
 
             # Verify credits were added in DynamoDB
             updated_user = localstack_dynamodb_client.get_user("test-user-id")

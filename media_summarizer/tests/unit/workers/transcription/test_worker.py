@@ -44,8 +44,10 @@ class TestDownloadAudioFile:
             await download_audio_file(audio_s3_key, local_path)
 
             # Verify
+            from os import getenv
+            expected_bucket = getenv("AUDIO_BUCKET", "media-summarizer-audio")
             mock_download.assert_called_once_with(
-                bucket="media-summarizer-audio",
+                bucket=expected_bucket,
                 key=audio_s3_key,
                 file_path=local_path
             )
@@ -109,7 +111,9 @@ class TestUploadTranscription:
             mock_upload.assert_called_once()
             call_args = mock_upload.call_args
 
-            assert call_args[1]['bucket'] == "media-summarizer-transcriptions"
+            from os import getenv
+            expected_transcript_bucket = getenv("TRANSCRIPT_BUCKET", "media-summarizer-transcriptions")
+            assert call_args[1]['bucket'] == expected_transcript_bucket
             assert call_args[1]['key'] == transcript_s3_key
 
             # Check that the file object contains the transcription
@@ -348,8 +352,8 @@ class TestProcessTranscriptionMessage:
                         with patch('media_summarizer.workers.transcription.worker.transcribe_async') as mock_transcribe:
                             with patch('os.path.exists') as mock_exists:
                                 with patch('pathlib.Path.stat') as mock_stat:
-                                    with patch('media_summarizer.workers.transcription.worker.database_async.get_processing_job_by_id') as mock_get_job:
-                                        with patch('media_summarizer.workers.transcription.worker.database_async.update_processing_job') as mock_update_job:
+                                    with patch('media_summarizer.utils.database_async.get_processing_job_by_id') as mock_get_job:
+                                        with patch('media_summarizer.utils.database_async.update_processing_job') as mock_update_job:
 
                                             # Setup mocks
                                             mock_exists.return_value = True
@@ -383,8 +387,8 @@ class TestProcessTranscriptionMessage:
 
         with patch('media_summarizer.workers.transcription.worker.download_audio_file') as mock_download:
             with patch('media_summarizer.workers.transcription.worker.send_notification') as mock_send_notif:
-                with patch('media_summarizer.workers.transcription.worker.database_async.get_processing_job_by_id') as mock_get_job:
-                    with patch('media_summarizer.workers.transcription.worker.database_async.update_processing_job') as mock_update_job:
+                with patch('media_summarizer.utils.database_async.get_processing_job_by_id') as mock_get_job:
+                    with patch('media_summarizer.utils.database_async.update_processing_job') as mock_update_job:
 
                         # Setup mocks
                         mock_download.side_effect = ClientError(
@@ -418,8 +422,8 @@ class TestProcessTranscriptionMessage:
                 with patch('media_summarizer.workers.transcription.worker.transcribe_async') as mock_transcribe:
                     with patch('os.path.exists') as mock_exists:
                         with patch('pathlib.Path.stat') as mock_stat:
-                            with patch('media_summarizer.workers.transcription.worker.database_async.get_processing_job_by_id') as mock_get_job:
-                                with patch('media_summarizer.workers.transcription.worker.database_async.update_processing_job') as mock_update_job:
+                            with patch('media_summarizer.utils.database_async.get_processing_job_by_id') as mock_get_job:
+                                with patch('media_summarizer.utils.database_async.update_processing_job') as mock_update_job:
 
                                     # Setup mocks
                                     mock_exists.return_value = True
@@ -453,6 +457,79 @@ class TestProcessTranscriptionMessage:
 
 class TestProcessMessage:
     """Test cases for process_message function."""
+
+    @pytest.mark.asyncio
+    async def test_process_message_starts_heartbeat_and_extends_visibility(self, monkeypatch):
+        # Prepare message
+        message = {
+            "Body": json.dumps({
+                "job_id": "test-job-123",
+                "audio_s3_key": "audio/test.mp3",
+                "email": "user@example.com"
+            }),
+            "ReceiptHandle": "test-receipt-handle"
+        }
+
+        # Speed up heartbeat for test
+        import media_summarizer.workers.transcription.worker as worker_mod
+        monkeypatch.setattr(worker_mod, "HEARTBEAT_INTERVAL", 0.01, raising=False)
+        monkeypatch.setattr(worker_mod, "TRANSCRIPTION_VISIBILITY_TIMEOUT", 10, raising=False)
+
+        # Mock visibility change and processing
+        calls = {"count": 0}
+
+        async def fake_change_visibility(queue_name, receipt_handle, timeout_seconds):
+            calls["count"] += 1
+            assert queue_name == worker_mod.TRANSCRIPTION_QUEUE
+            assert receipt_handle == message["ReceiptHandle"]
+            assert timeout_seconds == worker_mod.TRANSCRIPTION_VISIBILITY_TIMEOUT
+            return {}
+
+        async def fake_process(body):
+            # simulate short processing with small sleep to allow at least one heartbeat tick
+            await asyncio.sleep(0.03)
+
+        monkeypatch.setattr('media_summarizer.utils.sqs.change_message_visibility', fake_change_visibility)
+        monkeypatch.setattr('media_summarizer.workers.transcription.worker.process_transcription_message', fake_process)
+
+        # Execute
+        await worker_mod.process_message(message)
+
+        # Verify at least one change call (immediate) occurred
+        assert calls["count"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_process_message_heartbeat_handles_errors(self, monkeypatch):
+        message = {
+            "Body": json.dumps({
+                "job_id": "test-job-123",
+                "audio_s3_key": "audio/test.mp3",
+                "email": "user@example.com"
+            }),
+            "ReceiptHandle": "test-receipt-handle"
+        }
+
+        import media_summarizer.workers.transcription.worker as worker_mod
+        monkeypatch.setattr(worker_mod, "HEARTBEAT_INTERVAL", 0.01, raising=False)
+        monkeypatch.setattr(worker_mod, "TRANSCRIPTION_VISIBILITY_TIMEOUT", 10, raising=False)
+
+        # First call succeeds, then raise once, then succeed
+        seq = iter([None, Exception("temp error"), None])
+
+        async def flaky_change_visibility(queue_name, receipt_handle, timeout_seconds):
+            v = next(seq, None)
+            if isinstance(v, Exception):
+                raise v
+            return {}
+
+        async def fake_process(body):
+            await asyncio.sleep(0.04)
+
+        monkeypatch.setattr('media_summarizer.utils.sqs.change_message_visibility', flaky_change_visibility)
+        monkeypatch.setattr('media_summarizer.workers.transcription.worker.process_transcription_message', fake_process)
+
+        # Should not raise despite heartbeat transient error
+        await worker_mod.process_message(message)
 
     @pytest.mark.asyncio
     async def test_process_message_success(self):

@@ -313,3 +313,45 @@ def get_sync_sqs_client():
         region_name=AWS_REGION,
         endpoint_url=AWS_ENDPOINT_URL
     )
+
+
+async def change_message_visibility(
+    queue_name: str,
+    receipt_handle: str,
+    timeout_seconds: int
+) -> Dict[str, Any]:
+    """
+    Change the visibility timeout of a message currently being processed.
+
+    Args:
+        queue_name: Name of the queue
+        receipt_handle: Receipt handle of the message
+        timeout_seconds: New visibility timeout in seconds (absolute from now)
+
+    Returns:
+        Dict containing the response from SQS
+
+    Raises:
+        Exception: If there's an error changing the visibility timeout
+    """
+    queue_url = get_queue_url(queue_name)
+    params = {
+        "QueueUrl": queue_url,
+        "ReceiptHandle": receipt_handle,
+        "VisibilityTimeout": timeout_seconds,
+    }
+
+    try:
+        async with session.create_client(
+            'sqs',
+            region_name=AWS_REGION,
+            endpoint_url=AWS_ENDPOINT_URL
+        ) as sqs_client:
+            response = await sqs_client.change_message_visibility(**params)
+            logger.info(
+                f"Changed message visibility for queue {queue_name} to {timeout_seconds}s"
+            )
+            return response
+    except Exception as e:
+        logger.error(f"Error changing message visibility for queue {queue_name}: {str(e)}")
+        raise

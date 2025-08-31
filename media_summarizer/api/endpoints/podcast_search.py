@@ -4,12 +4,15 @@ Endpoints pour la recherche et la sélection de podcasts via l'API Podcast Index
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import EmailStr
 
 from media_summarizer.utils.database_async import get_db
 from media_summarizer.utils import database_async, sqs, podcast_index
 from media_summarizer.core.models import User, ProcessingJob, CreditTransaction
+from media_summarizer.api.dependencies.auth import get_current_user, require_verified_email
+from media_summarizer.core.models.auth import AuthUser
+from media_summarizer.api.rate_limit import limiter, get_limit_from_env
 from media_summarizer.api.models.podcast_models import (
     PodcastSearchRequest,
     PodcastSearchResponse,
@@ -31,13 +34,21 @@ logger = logging.getLogger(__name__)
 # Configuration
 REQUIRED_CREDITS = 1  # Nombre de crédits requis pour traiter un épisode
 
+# Per-endpoint rate limits
+SEARCH_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_SEARCH", "60/minute")
+EPISODES_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_EPISODES", "60/minute")
+SUBMIT_EPISODE_LIMIT = get_limit_from_env("RATE_LIMIT_SUBMIT_EPISODE", "6/minute")
+TRENDING_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_TRENDING", "60/minute")
+
 
 
 
 
 @router.post("/search", response_model=PodcastSearchResponse)
+@limiter.limit(SEARCH_LIMIT)
 async def search_podcasts(
-    request: PodcastSearchRequest
+    payload: PodcastSearchRequest,
+    request: Request
 ):
     """
     Recherche des podcasts par mot-clé via l'API Podcast Index.
@@ -53,13 +64,13 @@ async def search_podcasts(
         HTTPException: Si la recherche échoue
     """
     try:
-        logger.info(f"Searching for podcasts with query: {request.query}")
+        logger.info(f"Searching for podcasts with query: {payload.query}")
 
         # Recherche via l'API Podcast Index
         search_result = await podcast_index.search_podcasts(
-            query=request.query,
-            max_results=request.max_results,
-            clean=request.clean
+            query=payload.query,
+            max_results=payload.max_results,
+            clean=payload.clean
         )
 
         if not search_result.get("status") == "true":
@@ -79,7 +90,7 @@ async def search_podcasts(
             status="success",
             podcasts=podcasts,
             count=len(podcasts),
-            query=request.query
+            query=payload.query
         )
 
     except Exception as e:
@@ -91,8 +102,10 @@ async def search_podcasts(
 
 
 @router.post("/episodes", response_model=EpisodesListResponse)
+@limiter.limit(EPISODES_LIMIT)
 async def get_podcast_episodes(
-    request: EpisodesListRequest
+    payload: EpisodesListRequest,
+    request: Request
 ):
     """
     Récupère la liste des épisodes d'un podcast.
@@ -108,12 +121,12 @@ async def get_podcast_episodes(
         HTTPException: Si la récupération échoue
     """
     try:
-        logger.info(f"Getting episodes for feed ID: {request.feed_id}")
+        logger.info(f"Getting episodes for feed ID: {payload.feed_id}")
 
         # Récupérer les épisodes directement
         episodes_result = await podcast_index.get_episodes_by_feed_id(
-            feed_id=request.feed_id,
-            max_results=request.max_results
+            feed_id=payload.feed_id,
+            max_results=payload.max_results
         )
 
         if not episodes_result.get("status") == "true":
@@ -138,7 +151,7 @@ async def get_podcast_episodes(
             status="success",
             episodes=episodes,
             count=len(episodes),
-            feed_id=request.feed_id,
+            feed_id=payload.feed_id,
             podcast_title=podcast_title
         )
 
@@ -153,9 +166,12 @@ async def get_podcast_episodes(
 
 
 @router.post("/submit-episode", response_model=EpisodeSelectionResponse)
+@limiter.limit(SUBMIT_EPISODE_LIMIT)
 async def submit_episode_for_processing(
-    request: EpisodeSelectionRequest,
-    db=Depends(get_db)
+    payload: EpisodeSelectionRequest,
+    request: Request,
+    db=Depends(get_db),
+    current_user: AuthUser = Depends(require_verified_email)
 ):
     """
     Soumet un épisode spécifique pour traitement après sélection par l'utilisateur.
@@ -172,14 +188,12 @@ async def submit_episode_for_processing(
     Raises:
         HTTPException: Si l'utilisateur n'existe pas, n'a pas assez de crédits, ou si l'épisode n'existe pas
     """
-
-
     try:
-        logger.info(f"Processing episode submission for feed {request.feed_id}, episode {request.episode_guid}")
+        logger.info(f"Processing episode submission for feed {payload.feed_id}, episode {payload.episode_guid}")
 
         # Récupérer les épisodes du feed pour trouver celui avec le GUID correspondant
         episodes_data = await podcast_index.get_episodes_by_feed_id(
-            feed_id=request.feed_id,
+            feed_id=payload.feed_id,
             max_results=100  # Récupérer plus d'épisodes pour augmenter les chances de trouver le bon
         )
 
@@ -192,7 +206,7 @@ async def submit_episode_for_processing(
         # Chercher l'épisode avec le GUID correspondant
         episode_info = None
         for episode in episodes_data.get("items", []):
-            if episode.get("guid") == request.episode_guid:
+            if episode.get("guid") == payload.episode_guid:
                 episode_info = episode
                 break
 
@@ -209,22 +223,23 @@ async def submit_episode_for_processing(
                 detail="Aucun fichier audio trouvé pour cet épisode"
             )
 
-        # Validation de l'URL audio extraite
-        if not audio_url.startswith(('http://', 'https://')):
+        # Validation stricte de l'URL audio
+        try:
+            from media_summarizer.core.validators import validate_audio_url
+            await validate_audio_url(audio_url)
+        except ValueError as ve:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Impossible d'extraire une URL audio valide pour cet épisode"
+                detail=f"URL audio invalide: {str(ve)}"
             )
 
-        # Récupérer ou créer l'utilisateur
-        user = await database_async.get_user_by_email(request.user_email)
+        # Récupérer l'utilisateur authentifié
+        user = await database_async.get_user_by_id(current_user.id)
         if not user:
-            # Créer un nouvel utilisateur avec 0 crédits
-            user = User(
-                email=request.user_email,
-                credits=0
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Utilisateur authentifié introuvable"
             )
-            user = await database_async.create_user(user)
 
         # Vérifier que l'utilisateur a assez de crédits
         if user.credits < REQUIRED_CREDITS:
@@ -313,7 +328,9 @@ async def submit_episode_for_processing(
 
 
 @router.get("/trending", response_model=TrendingPodcastsResponse)
+@limiter.limit(TRENDING_LIMIT)
 async def get_trending_podcasts(
+    request: Request,
     max_results: int = 20,
     language: Optional[str] = None,
     category: Optional[str] = None

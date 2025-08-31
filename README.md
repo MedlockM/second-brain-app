@@ -17,6 +17,9 @@ Media Summarizer est un service qui génère automatiquement des résumés de po
 - Résumés structurés générés par IA
 - Livraison des résumés par email
 - Système de paiement basé sur des crédits
+- Authentification locale (email + mot de passe) avec sessions persistantes (30 jours)
+- Intégration Stripe pour les paiements
+- Tests end-to-end complets
 
 ## Architecture
 
@@ -27,6 +30,8 @@ Le projet utilise une architecture microservices avec:
 - Stockage: Amazon S3
 - Conteneurisation: Docker avec LocalStack pour le développement
 - Modèles IA: Whisper tiny/large (transcription), GPT-4 (résumé)
+- Paiements: Stripe pour la gestion des crédits
+- Authentification: JWT (email/mot de passe) + Social (Google/Apple) avec refresh cookie httpOnly (30 jours)
 
 ## 🚀 Démarrage rapide
 
@@ -48,8 +53,82 @@ uv pip install -e ".[dev]"
 # 4. Démarrer LocalStack et tous les services
 docker-compose -f docker-compose.dev.yml --profile full up -d
 
-# 5. Initialiser la base de données DynamoDB
-python scripts/init_db.py init
+# 5. Ou utiliser le Makefile pour une approche simplifiée
+make dev-full
+```
+
+## 🧪 Tests
+
+### Tests rapides avec Makefile
+
+```bash
+# Tests unitaires uniquement
+make test-unit
+
+# Tests d'intégration
+make test-integration
+
+# Tests E2E complets
+make test-e2e
+
+# Tous les tests
+make test-all
+
+# Tests avec couverture
+make test-with-coverage
+```
+
+### Tests manuels avec pytest
+
+```bash
+# Tests rapides (unitaires)
+pytest -m "not e2e and not integration" -v
+
+# Tests d'intégration
+pytest -m integration -v
+
+# Tests E2E spécifiques
+pytest media_summarizer/tests/end_to_end/test_auth_payment_e2e.py -m e2e -v -s
+```
+
+### Tests End-to-End (E2E)
+
+Le projet inclut des tests E2E complets qui valident l'ensemble du parcours utilisateur :
+
+```bash
+# Tests E2E authentification + paiement
+make test-e2e-auth
+
+# Tests E2E parcours utilisateur complet
+make test-e2e-journey
+
+# Tests E2E existants (podcast processing)
+make test-e2e-existing
+
+# Tous les tests E2E
+make test-e2e
+```
+
+#### Scénarios E2E couverts
+
+1. **Nouvel utilisateur** : Inscription → Authentification → Achat de crédits → Traitement podcast
+2. **Utilisateur existant** : Authentification → Traitement direct (avec crédits suffisants)
+3. **Crédits insuffisants** : Tentative de traitement → Achat de crédits → Retry
+4. **Gestion d'erreurs** : Authentification invalide, paiements échoués, etc.
+
+#### CI/CD et E2E Tests
+
+Les tests E2E sont intégrés dans GitHub Actions :
+- **Pipeline automatique** : Chaque PR/push lance les tests E2E
+- **Parallélisation** : Tests auth/payment et user journey en parallèle
+- **Infrastructure automatisée** : LocalStack et services AWS simulés
+- **Rapports de couverture** : Intégration avec Codecov
+
+Voir `media_summarizer/tests/end_to_end/README.md` pour la documentation complète.
+
+# 6. Initialiser la base de données DynamoDB
+make init-db
+# ou manuellement : python scripts/init_db.py init
 ```
 
 ### 🔧 Configuration manuelle
@@ -92,6 +171,15 @@ python scripts/init_db.py init
 | **Production** | `large` | Haute qualité, AWS prod, DynamoDB | Production |
 
 ### Configuration rapide
+
+#### Cookies en production (si front ≠ API)
+- COOKIE_SECURE=true
+- COOKIE_SAMESITE=None
+- COOKIE_DOMAIN=.yourdomain.com
+
+#### Endpoints d’authentification
+- Local: POST /api/v1/auth/register, /login, /refresh, /logout, GET /me
+- Social: GET /api/v1/auth/google/login, /google/callback, /apple/login, /apple/callback
 
 ```bash
 # Vérifier le statut des tables DynamoDB
@@ -144,6 +232,18 @@ curl http://localhost:8000/health
 ```
 
 ## 🧪 Tests
+
+## ⏱️ Rate limiting
+
+The API uses SlowAPI for per-IP rate limiting.
+
+- Global default is controlled by RATE_LIMIT_PER_MINUTE (e.g., 60/minute).
+- Sensitive endpoints have dedicated limits; you can override via env:
+  - RATE_LIMIT_PAYMENTS_PACKAGES, RATE_LIMIT_PAYMENTS_INTENT, RATE_LIMIT_PAYMENTS_CONFIRM,
+    RATE_LIMIT_PAYMENTS_REFUND, RATE_LIMIT_PAYMENTS_CUSTOMER, RATE_LIMIT_PAYMENTS_HISTORY
+  - RATE_LIMIT_PODCAST_SEARCH, RATE_LIMIT_PODCAST_EPISODES, RATE_LIMIT_SUBMIT_EPISODE, RATE_LIMIT_PODCAST_TRENDING
+
+See .env.example for sample values.
 
 ```bash
 # Exécuter tous les tests

@@ -32,6 +32,9 @@ SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
 NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-queue")
 
 
+# LLM timeout from env (seconds)
+LLM_TIMEOUT_SECONDS = int(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
+
 async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_title):
     """Call LLM API directly for summarization."""
     prompt = f"""
@@ -52,7 +55,8 @@ async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_t
     Format the response as JSON with these fields: main_topics, key_points, notable_quotes, conclusion
     """
 
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=LLM_TIMEOUT_SECONDS)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"

@@ -270,6 +270,8 @@ class RealEmailWorkerClient(RealWorkerClient):
         return job_id
 
 
+
+
 class RealWorkflowClient:
     """
     Client for testing complete workflows through real worker services.
@@ -441,6 +443,8 @@ def create_email_worker_client() -> RealEmailWorkerClient:
 def create_workflow_client() -> RealWorkflowClient:
     """Create a complete workflow client."""
     return RealWorkflowClient()
+
+
 
 
 # Test utilities

@@ -31,12 +31,12 @@ class TestDownloadWorkerBusinessLogic:
              patch('media_summarizer.utils.sqs.send_message') as mock_sqs_send, \
              patch('media_summarizer.utils.database_async.get_processing_job_by_id') as mock_get_job, \
              patch('media_summarizer.utils.database_async.update_processing_job') as mock_update_job:
-            
+
             # Configurer les mocks
             mock_download.return_value = None  # Succès du téléchargement
             mock_s3_upload.return_value = {"ETag": "test-etag"}
             mock_sqs_send.return_value = None
-            
+
             # Mock job status updates
             from media_summarizer.core.models.processing_job import ProcessingJob, JobStatus
             mock_job = ProcessingJob(user_id="test-user", user_email="test@example.com")
@@ -51,7 +51,7 @@ class TestDownloadWorkerBusinessLogic:
             mock_s3_upload.assert_called_once()
             mock_sqs_send.assert_called_once()
             mock_get_job.assert_called_once()
-            mock_update_job.assert_called_once()
+            assert mock_update_job.call_count == 2  # mark_downloading() + set_audio_location()
 
     @pytest.mark.asyncio
     async def test_download_worker_handles_missing_required_fields(self):
@@ -62,8 +62,9 @@ class TestDownloadWorkerBusinessLogic:
         }
 
         # Le traitement devrait lever une exception pour champ manquant
-        with pytest.raises(ValueError, match="Missing required field: audio_url"):
-            await process_message(test_message)
+        with patch('media_summarizer.utils.sqs.send_message') as mock_sqs_send:
+            with pytest.raises(ValueError, match="Missing required field: audio_url"):
+                await process_message(test_message)
 
     @pytest.mark.asyncio
     async def test_download_worker_network_error_propagation(self):
@@ -77,14 +78,16 @@ class TestDownloadWorkerBusinessLogic:
 
         # Mock download qui échoue
         with patch('media_summarizer.workers.download_worker.download_audio') as mock_download, \
-             patch('media_summarizer.workers.download_worker.database_async.get_processing_job_by_id') as mock_get_job, \
-             patch('media_summarizer.workers.download_worker.database_async.update_processing_job') as mock_update_job:
-            
+             patch('media_summarizer.utils.database_async.get_processing_job_by_id') as mock_get_job, \
+             patch('media_summarizer.utils.database_async.update_processing_job') as mock_update_job, \
+             patch('media_summarizer.utils.sqs.send_message') as mock_sqs_send:
+
             mock_download.side_effect = Exception("Network timeout")
             mock_get_job.return_value = MagicMock()
             mock_update_job.return_value = None
+            mock_sqs_send.return_value = None
 
-            # Le traitement devrait lever l'exception
+            # Le traitement devrait lever l'exception réseau
             with pytest.raises(Exception, match="Network timeout"):
                 await process_message(test_message)
 
@@ -100,14 +103,16 @@ class TestDownloadWorkerBusinessLogic:
 
         # Mock download réussi mais upload S3 échoue
         with patch('media_summarizer.workers.download_worker.download_audio') as mock_download, \
-             patch('media_summarizer.workers.download_worker.s3.upload_file') as mock_s3_upload, \
-             patch('media_summarizer.workers.download_worker.database_async.get_processing_job_by_id') as mock_get_job, \
-             patch('media_summarizer.workers.download_worker.database_async.update_processing_job') as mock_update_job:
-            
+             patch('media_summarizer.utils.s3.upload_file') as mock_s3_upload, \
+             patch('media_summarizer.utils.database_async.get_processing_job_by_id') as mock_get_job, \
+             patch('media_summarizer.utils.database_async.update_processing_job') as mock_update_job, \
+             patch('media_summarizer.utils.sqs.send_message') as mock_sqs_send:
+
             mock_download.return_value = None
             mock_s3_upload.side_effect = Exception("S3 upload failed")
             mock_get_job.return_value = MagicMock()
             mock_update_job.return_value = None
+            mock_sqs_send.return_value = None
 
             # Le traitement devrait lever l'exception S3
             with pytest.raises(Exception, match="S3 upload failed"):
@@ -128,18 +133,18 @@ class TestDownloadWorkerBusinessLogic:
 
         # Mock pour succès
         with patch('media_summarizer.workers.download_worker.download_audio') as mock_download, \
-             patch('media_summarizer.workers.download_worker.s3.upload_file') as mock_s3_upload, \
-             patch('media_summarizer.workers.download_worker.sqs.send_message') as mock_sqs_send, \
-             patch('media_summarizer.workers.download_worker.database_async.get_processing_job_by_id') as mock_get_job, \
-             patch('media_summarizer.workers.download_worker.database_async.update_processing_job') as mock_update_job:
-            
+             patch('media_summarizer.utils.s3.upload_file') as mock_s3_upload, \
+             patch('media_summarizer.utils.sqs.send_message') as mock_sqs_send, \
+             patch('media_summarizer.utils.database_async.get_processing_job_by_id') as mock_get_job, \
+             patch('media_summarizer.utils.database_async.update_processing_job') as mock_update_job:
+
             mock_download.return_value = None
             mock_s3_upload.return_value = None
             mock_sqs_send.return_value = None
             mock_get_job.return_value = MagicMock()
             mock_update_job.return_value = None
 
-            # Traitement du message SQS
+            # Le traitement devrait réussir
             await process_message(sqs_message)
 
             # Vérifications

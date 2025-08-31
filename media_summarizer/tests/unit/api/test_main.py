@@ -35,8 +35,8 @@ def test_validation_exception_handler(client):
     """Test the validation exception handler."""
     # Send a request with invalid data to trigger validation error
     response = client.post(
-        "/api/v1/podcast-search/submit-episode",
-        json={"feed_id": -1}  # Invalid feed_id (must be > 0) and missing required fields
+        "/api/v1/podcast-search/episodes",
+        json={"feed_id": -1}  # Invalid feed_id (must be > 0)
     )
     assert response.status_code == 422
     data = response.json()

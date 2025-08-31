@@ -1,5 +1,8 @@
 """
 Endpoints pour la gestion des crédits.
+
+Note: L'endpoint /credits/purchase est déprécié en faveur des nouveaux endpoints de paiement Stripe.
+Utilisez /payments/intent et /payments/confirm pour les nouveaux achats de crédits.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
@@ -10,6 +13,7 @@ import uuid
 from media_summarizer.utils.database_async import get_db
 from media_summarizer.utils import database_async
 from media_summarizer.core.models import User, CreditTransaction
+from media_summarizer.api.dependencies.auth import require_verified_email
 
 router = APIRouter()
 
@@ -102,7 +106,8 @@ class CreditTransactionResponse(BaseModel):
 @router.get("/users/{user_id}/credits", response_model=CreditBalanceResponse)
 async def get_user_credits(
     user_id: str,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    current_user=Depends(require_verified_email)
 ):
     """
     Récupère le solde de crédits d'un utilisateur.
@@ -127,13 +132,18 @@ async def get_user_credits(
     return CreditBalanceResponse.from_user(user)
 
 
-@router.post("/credits/purchase", response_model=CreditBalanceResponse)
+@router.post("/credits/purchase", response_model=CreditBalanceResponse, deprecated=True)
 async def purchase_credits(
     purchase_request: CreditPurchaseRequest,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    current_user=Depends(require_verified_email)
 ):
     """
     Achète des crédits pour un utilisateur.
+
+    **DÉPRÉCIÉ**: Cet endpoint est déprécié. Utilisez les nouveaux endpoints de paiement Stripe:
+    - POST /api/v1/payments/intent pour créer un intent de paiement
+    - POST /api/v1/payments/confirm pour confirmer le paiement
 
     Args:
         purchase_request: Données de la demande d'achat
@@ -153,12 +163,25 @@ async def purchase_credits(
             detail="Utilisateur non trouvé"
         )
 
+    # Log deprecation warning
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(f"DEPRECATED: Direct credit purchase used for user {purchase_request.user_id}. "
+                   f"Please migrate to Stripe payment endpoints.")
+
+    # Reject Stripe payment method to encourage migration
+    if purchase_request.payment_method.lower() == "stripe":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Direct Stripe purchases are no longer supported. Use /api/v1/payments/intent endpoint instead."
+        )
+
     try:
-        # Créer la transaction d'achat
+        # Créer la transaction d'achat (pour compatibilité avec méthodes non-Stripe)
         transaction = CreditTransaction.create_purchase(
             user_id=purchase_request.user_id,
             amount=purchase_request.amount,
-            description=purchase_request.description or f"Achat de {purchase_request.amount} crédits"
+            description=purchase_request.description or f"Achat direct de {purchase_request.amount} crédits (DEPRECATED)"
         )
         await database_async.create_credit_transaction(transaction)
 
@@ -181,7 +204,8 @@ async def purchase_credits(
 @router.post("/credits/deduct", response_model=CreditBalanceResponse)
 async def deduct_credits(
     deduction_request: CreditDeductionRequest,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    current_user=Depends(require_verified_email)
 ):
     """
     Déduit des crédits d'un utilisateur.
@@ -245,7 +269,8 @@ async def deduct_credits(
 @router.post("/credits/refund", response_model=CreditBalanceResponse)
 async def refund_credits(
     refund_request: CreditRefundRequest,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    current_user=Depends(require_verified_email)
 ):
     """
     Rembourse des crédits à un utilisateur.
@@ -298,7 +323,8 @@ async def refund_credits(
 async def get_user_credit_transactions(
     user_id: str,
     limit: Optional[int] = 50,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    current_user=Depends(require_verified_email)
 ):
     """
     Récupère l'historique des transactions de crédits d'un utilisateur.
@@ -339,7 +365,8 @@ async def get_user_credit_transactions(
 @router.get("/credits/transactions/{transaction_id}", response_model=CreditTransactionResponse)
 async def get_credit_transaction(
     transaction_id: str,
-    db=Depends(get_db)
+    db=Depends(get_db),
+    current_user=Depends(require_verified_email)
 ):
     """
     Récupère une transaction de crédits par son ID.
