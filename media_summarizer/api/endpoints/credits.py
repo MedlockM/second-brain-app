@@ -1,24 +1,7 @@
-"""
-Endpoints pour la gestion des crédits.
-
-Note: L'endpoint /credits/purchase est déprécié en faveur des nouveaux endpoints de paiement Stripe.
-Utilisez /payments/intent et /payments/confirm pour les nouveaux achats de crédits.
-"""
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional
-from datetime import datetime
-import uuid
-
-from media_summarizer.utils.database_async import get_db
-from media_summarizer.utils import database_async
-from media_summarizer.core.models import User, CreditTransaction
-from media_summarizer.api.dependencies.auth import require_verified_email
+# Legacy credits API removed in favor of minutes-based billing.
+from fastapi import APIRouter
 
 router = APIRouter()
-
-
-class CreditPurchaseRequest(BaseModel):
     """Modèle pour l'achat de crédits."""
     user_id: str = Field(..., description="ID de l'utilisateur")
     amount: int = Field(..., gt=0, description="Nombre de crédits à acheter")

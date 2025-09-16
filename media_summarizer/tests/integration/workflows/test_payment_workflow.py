@@ -56,10 +56,10 @@ class TestPaymentWorkflow:
         from dotenv import load_dotenv
         load_dotenv()
 
-        stripe_api_key = os.environ.get("STRIPE_TEST_API_KEY")
+        stripe_api_key = os.environ.get("STRIPE_API_KEY")
         if not stripe_api_key:
             pytest.skip(
-                "STRIPE_TEST_API_KEY not found in environment variables")
+                "STRIPE_API_KEY not found in environment variables")
 
         # Test network connectivity to Stripe
         try:
@@ -185,8 +185,8 @@ class TestPaymentWorkflow:
             assert updated_user["credits"] == 175  # 25 + 150
 
             # Step 5: Verify transaction was recorded
-            transactions = localstack_dynamodb_client.get_credit_transactions_by_user_id("payment-test-user")
-            purchase_transactions = [tx for tx in transactions if tx["type"] == "purchase"]
+            transactions = localstack_dynamodb_client.get_user_transactions("payment-test-user")
+            purchase_transactions = [tx for tx in transactions if tx.get("type") == "purchase"]
 
             assert len(purchase_transactions) >= 1
 

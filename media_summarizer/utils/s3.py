@@ -8,6 +8,9 @@ import logging
 import os
 from typing import Dict, Any, Optional, BinaryIO, Union, List
 import mimetypes
+import base64
+import binascii
+import asyncio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -61,17 +64,47 @@ async def upload_file(
             content_type = "application/octet-stream"
 
     try:
+        # Fallback to boto3 for LocalStack to avoid known checksum issues in aiobotocore with S3 v3 provider
+        if AWS_ENDPOINT_URL:
+            import boto3  # Local import to avoid heavy dependency at module import
+            with open(file_path, 'rb') as f:
+                file_bytes = f.read()
+
+            def _put_object_sync():
+                s3_client = boto3.client(
+                    's3',
+                    region_name=AWS_REGION,
+                    endpoint_url=AWS_ENDPOINT_URL,
+                    aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID', 'test'),
+                    aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY', 'test'),
+                )
+                return s3_client.put_object(
+                    Bucket=bucket,
+                    Key=key,
+                    Body=file_bytes,
+                    ContentType=content_type,
+                    **({"Metadata": metadata} if metadata else {})
+                )
+
+            response = await asyncio.to_thread(_put_object_sync)
+            logger.info(f"File uploaded to S3 (boto3 fallback): s3://{bucket}/{key}")
+            return response
+
+        # Default path: use aiobotocore
         async with session.create_client(
             's3',
             region_name=AWS_REGION,
             endpoint_url=AWS_ENDPOINT_URL
         ) as s3:
             with open(file_path, 'rb') as f:
+                # Read into memory to provide as raw bytes (workaround for LocalStack S3 v3 checksum handling)
+                file_bytes = f.read()
+
                 upload_params = {
                     "Bucket": bucket,
                     "Key": key,
-                    "Body": f,
-                    "ContentType": content_type
+                    "Body": file_bytes,
+                    "ContentType": content_type,
                 }
                 if metadata:
                     upload_params["Metadata"] = metadata
@@ -81,6 +114,13 @@ async def upload_file(
                 return response
     except Exception as e:
         logger.error(f"Error uploading file to S3: {str(e)}")
+        # Do not auto-create buckets. Infra must be provisioned via Terraform.
+        if "NoSuchBucket" in str(e):
+            msg = (
+                f"S3 bucket '{bucket}' does not exist. Provision infrastructure via Terraform before running the app. "
+                f"Bucket required for key '{key}'."
+            )
+            raise RuntimeError(msg) from e
         raise Exception(f"Error uploading file to S3: {str(e)}") from e
 
 

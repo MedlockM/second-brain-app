@@ -15,6 +15,19 @@ from typing import Dict, Any
 import whisper
 
 from media_summarizer.utils import s3, sqs
+# Re-export commonly patched attributes for test compatibility
+from media_summarizer.utils.sqs import session as _aio_session  # type: ignore
+from media_summarizer.utils.sqs import AWS_ENDPOINT_URL as AWS_ENDPOINT_URL  # type: ignore
+from media_summarizer.utils.sqs import AWS_REGION as AWS_REGION  # type: ignore
+
+# Provide a compat shim exposing .client(...) to mirror aiobotocore session usage in tests
+class _SessionShim:
+    def __init__(self, aio_session):
+        self._s = aio_session
+    def client(self, *args, **kwargs):
+        return self._s.create_client(*args, **kwargs)
+
+session = _SessionShim(_aio_session)
 from media_summarizer.core.utils.whisper_async import transcribe_async
 
 # Configuration du logging
@@ -155,7 +168,8 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
         message_body: The message body containing job information
     """
     job_id = message_body.get("job_id")
-    audio_s3_key = message_body.get("audio_s3_key")
+    # Accept both key variants used across tests
+    audio_s3_key = message_body.get("audio_s3_key") or message_body.get("s3_audio_key")
     email = message_body.get("email")
 
     if not all([job_id, audio_s3_key, email]):

@@ -11,7 +11,7 @@ import aioboto3
 from boto3.dynamodb.conditions import Key, Attr
 import os
 
-from media_summarizer.core.models import User, CreditTransaction, ProcessingJob, JobStatus
+from media_summarizer.core.models import User, ProcessingJob, JobStatus
 from media_summarizer.core.models.auth import AuthToken, TokenType
 
 # Configure logging
@@ -204,7 +204,7 @@ async def update_user_credits(user_id: str, credits: int) -> Optional[User]:
 
 
 # Credit transaction operations
-async def create_credit_transaction(transaction: CreditTransaction) -> CreditTransaction:
+async def create_credit_transaction(transaction: Any) -> Any:
     """Create a new credit transaction in DynamoDB."""
     session = get_session()
     async with session.resource('dynamodb', endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION) as dynamodb:
@@ -223,7 +223,7 @@ async def create_credit_transaction(transaction: CreditTransaction) -> CreditTra
             raise
 
 
-async def get_credit_transaction_by_id(transaction_id: str) -> Optional[CreditTransaction]:
+async def get_credit_transaction_by_id(transaction_id: str) -> Optional[Any]:
     """Get a credit transaction by ID."""
     try:
         session = get_session()
@@ -239,7 +239,7 @@ async def get_credit_transaction_by_id(transaction_id: str) -> Optional[CreditTr
         raise
 
 
-async def get_credit_transactions_by_user_id(user_id: str) -> List[CreditTransaction]:
+async def get_credit_transactions_by_user_id(user_id: str) -> List[Any]:
     """Get all credit transactions for a user."""
     try:
         session = get_session()

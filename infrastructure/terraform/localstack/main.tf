@@ -37,6 +37,142 @@ locals {
 }
 
 # -------------------- DynamoDB Tables --------------------
+resource "aws_dynamodb_table" "subscriptions" {
+  name         = "subscriptions"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "status"
+    type = "S"
+  }
+  attribute {
+    name = "stripe_subscription_id"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "user-index"
+    hash_key        = "user_id"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "status-index"
+    hash_key        = "status"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "stripe-index"
+    hash_key        = "stripe_subscription_id"
+    projection_type = "ALL"
+  }
+
+  tags = { Name = "subscriptions", Environment = local.environment, Project = local.project }
+}
+
+resource "aws_dynamodb_table" "minute_buckets" {
+  name         = "minute_buckets"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "expires_at"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "user-index"
+    hash_key        = "user_id"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "expiry-index"
+    hash_key        = "expires_at"
+    projection_type = "ALL"
+  }
+
+  tags = { Name = "minute_buckets", Environment = local.environment, Project = local.project }
+}
+
+resource "aws_dynamodb_table" "minute_usage" {
+  name         = "minute_usage"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "job_id"
+    type = "S"
+  }
+  attribute {
+    name = "status"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "user-index"
+    hash_key        = "user_id"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "job-index"
+    hash_key        = "job_id"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "status-index"
+    hash_key        = "status"
+    projection_type = "ALL"
+  }
+
+  tags = { Name = "minute_usage", Environment = local.environment, Project = local.project }
+}
+
+resource "aws_dynamodb_table" "follows" {
+  name         = "follows"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+  range_key    = "feed_id"
+
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "feed_id"
+    type = "S"
+  }
+
+  tags = { Name = "follows", Environment = local.environment, Project = local.project }
+}
 resource "aws_dynamodb_table" "users" {
   name         = "users"
   billing_mode = "PAY_PER_REQUEST"
@@ -257,6 +393,10 @@ output "dynamodb_tables" {
     aws_dynamodb_table.credit_transactions.name,
     aws_dynamodb_table.auth_tokens.name,
     aws_dynamodb_table.stripe_events.name,
+    aws_dynamodb_table.subscriptions.name,
+    aws_dynamodb_table.minute_buckets.name,
+    aws_dynamodb_table.minute_usage.name,
+    aws_dynamodb_table.follows.name,
   ]
 }
 

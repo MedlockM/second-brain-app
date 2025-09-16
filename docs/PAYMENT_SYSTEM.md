@@ -224,9 +224,8 @@ Crée un remboursement pour un paiement.
 #### Obligatoires
 
 ```bash
-# Clé API Stripe (utilise STRIPE_TEST_API_KEY en développement)
-STRIPE_API_KEY=sk_live_xxx
-STRIPE_TEST_API_KEY=sk_test_xxx
+# Clé API Stripe (utilisez une clé sk_test_* en développement)
+STRIPE_API_KEY=sk_test_xxx
 
 # Secret webhook Stripe
 STRIPE_WEBHOOK_SECRET=whsec_xxx
@@ -236,7 +235,7 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 
 ```yaml
 environment:
-  - STRIPE_API_KEY=${STRIPE_TEST_API_KEY}
+  - STRIPE_API_KEY=${STRIPE_API_KEY}
   - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
 ```
 
@@ -367,7 +366,7 @@ pytest media_summarizer/tests/integration/workflows/test_credit_management_workf
 
 ```bash
 # Variables d'environnement pour les tests
-export STRIPE_TEST_API_KEY=sk_test_xxx
+export STRIPE_API_KEY=sk_test_xxx
 export STRIPE_WEBHOOK_SECRET=whsec_test_xxx
 ```
 
@@ -408,7 +407,7 @@ export STRIPE_WEBHOOK_SECRET=whsec_test_xxx
 
 ```bash
 # Vérifier la configuration Stripe
-curl -H "Authorization: Bearer $STRIPE_TEST_API_KEY" \
+curl -H "Authorization: Bearer $STRIPE_API_KEY" \
   https://api.stripe.com/v1/payment_intents/pi_xxx
 
 # Tester un webhook

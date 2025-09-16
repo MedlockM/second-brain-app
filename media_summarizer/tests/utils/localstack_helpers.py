@@ -404,55 +404,25 @@ def upload_s3_file(bucket_name: str, key: str, file_path: str) -> Dict[str, Any]
 @pytest.fixture
 def localstack_dynamodb_client():
     """
-    Create a DynamoDB client connected to LocalStack.
+    Create a DynamoDB LocalStack helper client for tests.
 
     Returns:
-        A boto3 DynamoDB client
+        A helper client exposing convenience methods (create_user, get_user, etc.)
     """
-    dynamodb = boto3.client(
-        'dynamodb',
-        endpoint_url=AWS_ENDPOINT_URL,
-        region_name=AWS_REGION,
-        aws_access_key_id=AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-    )
+    # Import here to avoid circular imports during test discovery
+    from media_summarizer.tests.utils.dynamodb_localstack import DynamoDBLocalStackClient
 
-    # Ensure tables exist
-    for table_name, table_config in DYNAMODB_TABLES.items():
-        try:
-            # Check if table exists
-            try:
-                dynamodb.describe_table(TableName=table_name)
-            except dynamodb.exceptions.ResourceNotFoundException:
-                # Create the table if it doesn't exist
-                dynamodb.create_table(
-                    TableName=table_name,
-                    **table_config
-                )
-                # Wait for the table to be active
-                waiter = dynamodb.get_waiter('table_exists')
-                waiter.wait(TableName=table_name)
-        except Exception as e:
-            print(f"Error ensuring DynamoDB table {table_name} exists: {str(e)}")
+    client = DynamoDBLocalStackClient()
+    # Ensure tables exist for tests
+    client.setup_tables()
 
-    yield dynamodb
+    yield client
 
-    # Clean up test data after tests
-    for table_name in DYNAMODB_TABLES.keys():
-        try:
-            # Scan all items in the table
-            response = dynamodb.scan(TableName=table_name)
-            items = response.get('Items', [])
-
-            # Delete all items
-            for item in items:
-                key = {'id': item['id']}
-                dynamodb.delete_item(
-                    TableName=table_name,
-                    Key=key
-                )
-        except Exception as e:
-            print(f"Error cleaning up DynamoDB table {table_name}: {str(e)}")
+    # Clean tables after tests
+    try:
+        client.clear_tables()
+    except Exception as e:
+        print(f"Error cleaning up DynamoDB tables: {str(e)}")
 
 
 @pytest.fixture

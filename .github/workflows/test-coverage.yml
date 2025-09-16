@@ -63,7 +63,8 @@ jobs:
         AWS_SECRET_ACCESS_KEY: test
         AWS_REGION: us-east-1
         AWS_ENDPOINT_URL: http://localhost:4566
-        STRIPE_TEST_API_KEY: ${{ secrets.STRIPE_TEST_API_KEY }}
+        STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+        STRIPE_REDIRECT_POLICY: never
       run: |
         pytest --cov=media_summarizer --cov-report=xml:coverage.xml --cov-report=term-missing
     

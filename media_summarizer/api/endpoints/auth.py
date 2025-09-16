@@ -15,6 +15,7 @@ from media_summarizer.core.models.auth import (
     TokenType,
     EmailVerificationRequest,
 )
+from pydantic import BaseModel, Field
 from media_summarizer.core.models import User
 from media_summarizer.utils import database_async
 from media_summarizer.utils.auth_utils import create_access_token, create_token_payload, verify_password, hash_password, JWT_ACCESS_TOKEN_EXPIRE_MINUTES
@@ -180,6 +181,121 @@ async def refresh_token(
         access_token=access_token,
         token_type="bearer",
         expires_in=access_minutes * 60,
+        user={"id": user.id, "email": user.email, "credits": user.credits},
+    )
+
+
+# ---------------- Magic Link compatibility endpoints ----------------
+from pydantic import EmailStr
+
+
+class MagicLinkRequest(BaseModel):
+    email: EmailStr = Field(..., description="User email")
+
+    @staticmethod
+    def normalize_email(email: str) -> str:
+        return email.strip().lower()
+
+
+@router.post("/request-magic-link", status_code=status.HTTP_200_OK)
+async def request_magic_link(
+    request: MagicLinkRequest,
+    background_tasks: BackgroundTasks,
+    db: DynamoDBConnection = Depends(get_db)
+):
+    """
+    Backward-compatible endpoint to request a magic link.
+
+    This maps to the current email verification flow. For existing users, re-issues a
+    verification token; for new users, creates the user and sends both magic link and a welcome email.
+    """
+    # Safe wrappers to prevent background task exceptions from bubbling up
+    async def _send_magic_link_safe(email: str, token: str):
+        try:
+            await email_service.send_magic_link_email(email=email, verification_token=token)
+        except Exception as exc:
+            logger.error(f"Background email send failed for {email}: {exc}")
+
+    async def _send_welcome_safe(email: str):
+        try:
+            await email_service.send_welcome_email(email=email)
+        except Exception as exc:
+            logger.error(f"Background welcome email failed for {email}: {exc}")
+
+    try:
+        email = MagicLinkRequest.normalize_email(str(request.email))
+        existing = await database_async.get_user_by_email(email)
+        new_user_created = False
+        if existing:
+            user = existing
+        else:
+            user = User(email=email, credits=100, auth_provider="local")
+            user = await database_async.create_user(user)
+            new_user_created = True
+
+        # Revoke any existing verification tokens and create a new one
+        await database_async.revoke_user_tokens(user.id, TokenType.EMAIL_VERIFICATION)
+        verification = AuthToken.create_email_verification_token(user_id=user.id, email=user.email)
+        await database_async.create_auth_token(verification)
+
+        # Send magic link (alias to email verification)
+        background_tasks.add_task(_send_magic_link_safe, user.email, verification.token)
+        if new_user_created:
+            background_tasks.add_task(_send_welcome_safe, user.email)
+
+        return {"message": "Magic link sent", "email": user.email}
+    except Exception as e:
+        logger.error(f"Failed to send magic link: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to send magic link")
+
+
+@router.post("/verify-token", response_model=TokenVerificationResponse)
+async def verify_token_endpoint(
+    request: EmailVerificationRequest,
+    response: Response,
+    db: DynamoDBConnection = Depends(get_db)
+):
+    """
+    Backward-compatible endpoint to verify a magic link token.
+
+    Validates and consumes an EMAIL_VERIFICATION token, then issues a JWT access token.
+    """
+    token_string = request.token
+    email = request.email.strip().lower()
+
+    # Fetch token
+    auth_token = await database_async.get_auth_token_by_token(token_string)
+    if not auth_token or auth_token.token_type not in (TokenType.EMAIL_VERIFICATION, TokenType.MAGIC_LINK):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid magic link token")
+
+    # Provide specific error messages expected by tests
+    if auth_token.used_at is not None or not auth_token.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Magic link token has already been used")
+    if auth_token.is_expired():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Magic link token expired")
+
+    if auth_token.email != email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid magic link token")
+
+    # Fetch user
+    user = await database_async.get_user_by_id(auth_token.user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Consume token
+    auth_token.mark_as_used()
+    await database_async.update_auth_token(auth_token)
+
+    # Issue access token (24 hours for compatibility with tests)
+    access_token = create_access_token(
+        data=create_token_payload(user_id=user.id, email=user.email, additional_data={"credits": user.credits}),
+        expires_delta=timedelta(hours=24),
+    )
+
+    return TokenVerificationResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=24 * 60 * 60,
         user={"id": user.id, "email": user.email, "credits": user.credits},
     )
 

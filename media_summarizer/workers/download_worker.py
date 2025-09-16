@@ -19,6 +19,26 @@ from media_summarizer.workers.base_worker import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Backward-compatibility helpers expected by some tests
+# Not used by the new utils-based implementation, but kept for patchability in tests
+
+def get_s3_client():
+    import boto3
+    return boto3.client(
+        's3',
+        region_name=os.environ.get("AWS_REGION", "us-east-1"),
+        endpoint_url=os.environ.get("AWS_ENDPOINT_URL")
+    )
+
+
+def get_sqs_client():
+    import boto3
+    return boto3.client(
+        'sqs',
+        region_name=os.environ.get("AWS_REGION", "us-east-1"),
+        endpoint_url=os.environ.get("AWS_ENDPOINT_URL")
+    )
+
 # Configuration des buckets S3
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
 

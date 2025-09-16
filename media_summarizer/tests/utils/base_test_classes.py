@@ -276,8 +276,7 @@ class BaseIntegrationTestCase(BaseTestCase):
             except Exception as e:
                 print(f"Error with queue {queue_name}: {e}")
                 # Fallback to old format
-                queue_url = f"{
-                    os.environ['AWS_ENDPOINT_URL']}/000000000000/{queue_name}"
+                queue_url = f"{os.environ['AWS_ENDPOINT_URL']}/000000000000/{queue_name}"
                 client.queue_urls[queue_name] = queue_url
 
         yield client
@@ -461,11 +460,11 @@ class BaseIntegrationTestCase(BaseTestCase):
     def stripe_client(self):
         """Create a real Stripe client using the test API key from .env."""
         import stripe
-        # Get the Stripe test API key from environment variables
-        stripe_api_key = os.environ.get("STRIPE_TEST_API_KEY")
+        # Get the Stripe API key from environment variables
+        stripe_api_key = os.environ.get("STRIPE_API_KEY")
         if not stripe_api_key:
             pytest.skip(
-                "STRIPE_TEST_API_KEY not found in environment variables")
+                "STRIPE_API_KEY not found in environment variables")
 
         # Configure the Stripe library with the test API key
         stripe.api_key = stripe_api_key

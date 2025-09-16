@@ -90,7 +90,7 @@ class EpisodeSelectionResponse(BaseModel):
     job_id: str = Field(..., description="Processing job ID")
     status: str = Field(..., description="Job status")
     message: str = Field(..., description="Response message")
-    credits_deducted: int = Field(..., description="Credits deducted")
+    minutes_hold_estimated: int = Field(..., description="Estimated minutes placed on hold for this job")
     estimated_processing_time: str = Field(..., description="Estimated processing time")
     episode_title: str = Field(..., description="Selected episode title")
     podcast_title: str = Field(..., description="Podcast title")

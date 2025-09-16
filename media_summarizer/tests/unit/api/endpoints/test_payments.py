@@ -541,3 +541,91 @@ class TestGetPaymentHistory(TestPaymentEndpoints):
         response = self.client.get("/api/v1/payments/history")
 
         assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+
+class TestCheckoutSession(TestPaymentEndpoints):
+    """Tests for POST /billing/create-checkout-session endpoint."""
+
+    def setup_method(self):
+        super().setup_method()
+        self.mock_current_user()
+
+    @patch('media_summarizer.api.endpoints.payments.StripeService')
+    async def test_create_checkout_session_success(self, mock_stripe_service_class):
+        mock_service = AsyncMock()
+        mock_service.create_checkout_session.return_value = {
+            "session_id": "cs_test_123",
+            "url": "https://checkout.stripe.com/test/cs_test_123"
+        }
+        mock_stripe_service_class.return_value = mock_service
+
+        response = self.client.post(
+            "/api/v1/billing/create-checkout-session",
+            json={"credits": 50}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["session_id"] == "cs_test_123"
+        assert data["url"].startswith("https://")
+
+    @patch('media_summarizer.api.endpoints.payments.StripeService')
+    async def test_create_checkout_session_value_error(self, mock_stripe_service_class):
+        mock_service = AsyncMock()
+        mock_service.create_checkout_session.side_effect = ValueError("Missing price ID")
+        mock_stripe_service_class.return_value = mock_service
+
+        response = self.client.post(
+            "/api/v1/billing/create-checkout-session",
+            json={"credits": 50}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Missing price ID" in response.json()["detail"]
+
+    @patch('media_summarizer.api.endpoints.payments.StripeService')
+    async def test_create_checkout_session_stripe_error(self, mock_stripe_service_class):
+        mock_service = AsyncMock()
+        mock_service.create_checkout_session.side_effect = StripeError("Stripe down")
+        mock_stripe_service_class.return_value = mock_service
+
+        response = self.client.post(
+            "/api/v1/billing/create-checkout-session",
+            json={"credits": 50}
+        )
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    def test_create_checkout_session_unauthenticated(self):
+        app.dependency_overrides.clear()
+        response = self.client.post(
+            "/api/v1/billing/create-checkout-session",
+            json={"credits": 50}
+        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestCustomerPortal(TestPaymentEndpoints):
+    """Tests for POST /billing/customer-portal endpoint."""
+
+    def setup_method(self):
+        super().setup_method()
+        self.mock_current_user()
+
+    @patch('media_summarizer.api.endpoints.payments.StripeService')
+    async def test_create_customer_portal_success(self, mock_stripe_service_class):
+        mock_service = AsyncMock()
+        mock_service.get_or_create_customer.return_value = "cus_test_123"
+        mock_service.create_customer_portal_session.return_value = {"url": "https://billing.stripe.com/p/session_123"}
+        mock_stripe_service_class.return_value = mock_service
+
+        response = self.client.post("/api/v1/billing/customer-portal")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["url"].startswith("https://")
+
+    @patch('media_summarizer.api.endpoints.payments.StripeService')
+    async def test_create_customer_portal_stripe_error(self, mock_stripe_service_class):
+        mock_service = AsyncMock()
+        mock_service.get_or_create_customer.side_effect = StripeError("Customer error")
+        mock_stripe_service_class.return_value = mock_service
+
+        response = self.client.post("/api/v1/billing/customer-portal")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED

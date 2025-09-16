@@ -198,3 +198,28 @@ class StripeCustomerResponse(BaseModel):
     email: str = Field(..., description="Customer email")
     payment_methods: List[PaymentMethodResponse] = Field(..., description="Available payment methods")
     created_at: datetime = Field(..., description="Customer creation date")
+
+
+class CheckoutSessionRequest(BaseModel):
+    """Request model for creating a Stripe Checkout Session."""
+    credits: int = Field(..., gt=0, description="Number of credits to purchase")
+
+    @field_validator('credits')
+    @classmethod
+    def validate_credits(cls, v):
+        """Validate that credits amount corresponds to available packages."""
+        valid_amounts = [50, 150, 500, 1000]  # Must match StripeService.credit_packages
+        if v not in valid_amounts:
+            raise ValueError(f'Credits must be one of: {valid_amounts}')
+        return v
+
+
+class CheckoutSessionResponse(BaseModel):
+    """Response model for Stripe Checkout Session creation."""
+    session_id: str = Field(..., description="Stripe Checkout Session ID")
+    url: str = Field(..., description="URL to redirect the user to")
+
+
+class CustomerPortalResponse(BaseModel):
+    """Response model for Stripe Billing Customer Portal."""
+    url: str = Field(..., description="URL to redirect the user to")

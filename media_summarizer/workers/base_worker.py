@@ -15,7 +15,6 @@ from typing import Dict, Any, Callable, Awaitable
 import asyncio
 
 from media_summarizer.utils import sqs, database_async
-from media_summarizer.core.models.credit_transaction import CreditTransaction
 from media_summarizer.core.models.processing_job import ProcessingJob
 
 logger = logging.getLogger(__name__)
@@ -113,13 +112,14 @@ async def process_message_with_retry(
         # Retry strategy based on attempt count
         if receive_count >= max_retries:
             # After max attempts: delete to prevent infinite loop
-            # Attempt credit refund if applicable
+            # Release minutes hold if applicable
             try:
                 if job_id and job_id != "unknown":
-                    refunded = await refund_credits_on_failure(job_id)
-                    logger.info(f"[{worker_name}] Refund on failure for job {job_id}: {refunded}")
+                    from media_summarizer.core.services.minute_pool import release_hold
+                    released = await release_hold(job_id)
+                    logger.info(f"[{worker_name}] Released minute hold on failure for job {job_id}: {released}")
             except Exception as refund_err:
-                logger.error(f"[{worker_name}] Failed to refund credits on failure for job {job_id}: {refund_err}")
+                logger.error(f"[{worker_name}] Failed to release minute hold on failure for job {job_id}: {refund_err}")
 
             # Technical errors are logged for monitoring/alerting
             logger.warning(
@@ -172,46 +172,7 @@ def get_sqs_receive_params(visibility_timeout: int = 120) -> Dict[str, Any]:
     }
 
 
-async def refund_credits_on_failure(job_id: str) -> bool:
-    """
-    Refund user credits for a failed job if credits were deducted.
-
-    This function is idempotent: it checks existing refund transactions for the job.
-
-    Returns:
-        True if a refund was performed, False otherwise.
-    """
-    try:
-        job = await database_async.get_processing_job_by_id(job_id)
-        if not job:
-            return False
-        if not getattr(job, "credits_deducted", False):
-            return False
-
-        # Check if refund already exists for this job
-        transactions = await database_async.get_credit_transactions_by_user_id(job.user_id)
-        for tx in transactions:
-            if tx.job_id == job.id and tx.type == "refund":
-                return False  # already refunded
-
-        # Perform refund
-        refund_tx = CreditTransaction.create_refund(
-            user_id=job.user_id,
-            amount=job.credits_cost,
-            job_id=job.id,
-            description=f"Remboursement suite à l'échec du job {job.id}"
-        )
-        await database_async.create_credit_transaction(refund_tx)
-
-        # Update user credits
-        user = await database_async.get_user_by_id(job.user_id)
-        if not user:
-            return False
-        new_credits = user.credits + job.credits_cost
-        await database_async.update_user_credits(job.user_id, new_credits)
-        return True
-    except Exception:
-        return False
+# Legacy refund_credits_on_failure removed in favor of minute holds release
 
 
 async def send_error_notification(

@@ -58,10 +58,10 @@ To run these tests, you need:
    docker-compose -f docker-compose.dev.yml up -d
    ```
 
-2. **Stripe test API key** in your `.env` file:
-   ```
-   STRIPE_TEST_API_KEY=sk_test_...
-   ```
+2. **Stripe API key** in your `.env` file:
+```
+STRIPE_API_KEY=sk_test_...
+```
 
 3. **Python environment** with all dependencies:
    ```bash
@@ -98,6 +98,13 @@ pytest media_summarizer/tests/integration/ --cov=media_summarizer --cov-report=h
 ```
 
 ## Test Structure
+
+### SQS testing guidelines (stability)
+- Always delete messages you read during tests. After a successful receive, call DeleteMessage to avoid messages staying invisible for the VisibilityTimeout window and causing flakiness.
+- Prefer unique queues per test when asserting downstream messages. For example, create a per-test queue name and temporarily route logical names (e.g., "transcription-queue") to the unique queue via a monkeypatch of the resolver in media_summarizer.utils.sqs.get_queue_url.
+- If you must read from a shared queue, widen the retry window (WaitTimeSeconds and attempts) and still delete any messages you pulled to keep the queue clean for other tests.
+- Ensure credentials exist for aiobotocore/boto3 in tests (e.g., set AWS_ACCESS_KEY_ID=test, AWS_SECRET_ACCESS_KEY=test, AWS_REGION=us-east-1, AWS_ENDPOINT_URL=http://localhost:4566).
+- Purge queues you depend on at the beginning of the test to avoid residual inflight messages from previous runs (local only).
 
 The improved integration tests use:
 

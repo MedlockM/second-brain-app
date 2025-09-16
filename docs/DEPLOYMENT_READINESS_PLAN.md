@@ -20,16 +20,19 @@
 ## Décisions Stratégiques à Trancher
 
 ### Décisions Produit
-1. **Modèle de tarification** : Combien de crédits par euro ? (Recommandation : 10 crédits pour 10€)
-2. **Modèle d'authentification** : OAuth social (Google/Apple) + fallback local email/mot de passe avec sessions 30 jours (cookies httpOnly). Magic Link abandonné.
-3. **Crédits d'essai** : Offrir des crédits gratuits à l'inscription ? (Recommandation : 1 crédit gratuit)
-4. **Refund policy** : Remboursement automatique en cas d'échec ? (Recommandation : Oui)
+1. Modèle de monétisation “minutes” (remplace les crédits)
+   - Abonnements S/M/L: S=240 min (2€), M=840 min (5€), L=1 980 min (10€)
+   - Packs minutes: 100/1,50€; 300/3€; 600/6€; 1 200/10€ (validité 6 mois)
+   - Débit au réel (arrondi à la minute), rollover 1 mois des minutes d’abonnement
+2. Authentification: OAuth social (Google/Apple) + fallback email/mot de passe (30 jours, httpOnly). Magic Link abandonné.
+3. Gratuité de départ (optionnelle): offrir un petit pack de minutes à l’inscription ? (ex: 30 min)
+4. Politique d’usage: si pool insuffisant → proposer pack ou upgrade (prorata Stripe)
 
 ### Décisions Techniques
-1. **Infrastructure cible** : VM unique ou AWS ECS ? (Recommandation : ECS Fargate)
-2. **Domaine et certificats** : Quel domaine ? (Prérequis : acheter le domaine avant)
-3. **Région AWS** : us-east-1 ou eu-west-1 ? (Recommandation : eu-west-1 pour RGPD)
-4. **Modèle OpenAI** : gpt-4 ou gpt-4-turbo ? (Recommandation : gpt-4-turbo-preview)
+1. Infrastructure cible: ECS Fargate (recommandé)
+2. Domaine/certificats: domaine acquis + ACM (HTTPS)
+3. Région AWS: eu-west-1 (RGPD)
+4. Modèle OpenAI: gpt-4-turbo-preview
 
 ---
 
@@ -135,98 +138,85 @@ APPLE_REDIRECT_URI=https://api.yourdomain.com/api/v1/auth/apple/callback
 
 ---
 
-## Chantier 2: Paiements et Crédits (Stripe)
+## Chantier 2: Monétisation en minutes (Stripe)
 
 ### 2.1 Objectif
-Intégrer Stripe pour l'achat de crédits via Checkout Session et webhook, avec idempotence et gestion d'erreurs.
+Basculer vers un modèle “minutes” avec abonnements (S/M/L) et packs one-shot. Créditer un pool de minutes, débiter au réel, gérer rollover 1 mois, et piloter le tout via Stripe (checkout + webhooks) et des “minute buckets”.
 
 ### 2.2 État Actuel
-- **Fichier concerné** : `media_summarizer/api/endpoints/credits.py`
-  - `purchase_credits()` modifie directement les crédits sans paiement
-  - Pas d'intégration Stripe malgré la dépendance
-  - Pas de webhook endpoint
+- Code actuel orienté “crédits” (endpoints /credits/*, modèles CreditTransaction, etc.).
+- Intégration Stripe en place pour l’achat de crédits (à remplacer par abonnements + packs minutes).
 
 ### 2.3 Changements à Réaliser
 
-#### A. Créer les endpoints Stripe
+#### A. Endpoints Billing (API)
+- POST /api/v1/billing/subscriptions/checkout { tier: S|M|L }
+- POST /api/v1/billing/packs/checkout { minutes: 100|300|600|1200 }
+- POST /api/v1/billing/customer-portal
+- GET  /api/v1/billing/me (statut abonnement, buckets, prochain cycle)
+- GET  /api/v1/billing/history (abonnements + packs)
+- POST /api/v1/payments/webhook (conservé): traite les événements Stripe suivants:
+  - checkout.session.completed (mode=payment|subscription)
+  - invoice.payment_succeeded (création bucket d’abonnement pour la période)
+  - customer.subscription.created/updated/deleted (sync statut)
 
-**Nouveau fichier** : `media_summarizer/api/endpoints/billing.py`
-```python
-# POST /api/v1/billing/create-checkout-session
-# - Crée une session Stripe Checkout
-# - Stocke metadata (user_id, credits_amount)
-# - Retourne l'URL de paiement
+#### B. Produits/Prices Stripe
+- Abonnements (prices mensuels): STRIPE_PRICE_ID_SUB_S / SUB_M / SUB_L
+- Packs minutes: STRIPE_PRICE_ID_PACK_100 / 300 / 600 / 1200
+- URLs de succès/annulation: STRIPE_SUCCESS_URL / STRIPE_CANCEL_URL
 
-# POST /api/v1/billing/customer-portal
-# - Crée une session portail client Stripe
-```
+#### C. Minute Buckets et usage
+- minute_buckets: enregistre les minutes disponibles (source=subscription|pack|rollover|migration, minutes_total, minutes_remaining, expires_at)
+- minute_usage: holds/finalize par job (status=held/finalized/released/expired)
+- Rollover: fin de période -> créer un bucket “rollover” (expiration = fin du mois suivant)
+- Ordre de consommation: rollover → abonnement courant → packs par expiration
 
-**Nouveau fichier** : `media_summarizer/api/endpoints/webhooks.py`
-```python
-# POST /webhooks/stripe (non authentifié, vérifie signature)
-# - Vérifie signature avec stripe.Webhook.construct_event()
-# - Handle checkout.session.completed
-# - Crédite l'utilisateur avec idempotence (check event_id)
-# - Crée CreditTransaction
-```
-
-#### B. Configurer les produits Stripe
-
-**Setup Stripe Dashboard** :
-```
-Produit : "Crédits Media Summarizer"
-Prix :
-  - 10 crédits : 10€
-  - 50 crédits : 40€ (20% réduction)
-  - 100 crédits : 70€ (30% réduction)
-```
-
-#### C. Modifier les endpoints existants
-
-**Modifier** : `media_summarizer/api/endpoints/credits.py`
-```python
-# Supprimer ou protéger purchase_credits() -> admin only
-# Garder deduct_credits() et refund_credits() (protégés)
-```
+#### D. Dépréciation de l’ancien système
+- Supprimer /credits/* et la logique CreditTransaction après migration one-shot (1 crédit = 1 minute)
+- Supprimer /payments/intent|confirm|refund (paiement packs via Checkout + webhooks)
 
 ### 2.4 Variables d'Environnement
-
 ```bash
-# Production
 STRIPE_API_KEY=sk_live_xxx
 STRIPE_WEBHOOK_SECRET=whsec_xxx
-STRIPE_PRICE_ID_10=price_xxx  # 10 crédits
-STRIPE_PRICE_ID_50=price_xxx  # 50 crédits
-STRIPE_PRICE_ID_100=price_xxx # 100 crédits
+# Abonnements
+STRIPE_PRICE_ID_SUB_S=price_xxx
+STRIPE_PRICE_ID_SUB_M=price_xxx
+STRIPE_PRICE_ID_SUB_L=price_xxx
+# Packs minutes
+STRIPE_PRICE_ID_PACK_100=price_xxx
+STRIPE_PRICE_ID_PACK_300=price_xxx
+STRIPE_PRICE_ID_PACK_600=price_xxx
+STRIPE_PRICE_ID_PACK_1200=price_xxx
+# Redirections
 STRIPE_SUCCESS_URL=https://app.yourdomain.com/payment-success
 STRIPE_CANCEL_URL=https://app.yourdomain.com/payment-cancel
 ```
 
 ### 2.5 Critères d'Acceptation
-- [ ] Checkout Session créée avec les bonnes metadata
-- [ ] Webhook vérifie la signature Stripe
-- [ ] Crédits ajoutés uniquement après paiement confirmé
-- [ ] Idempotence : même event_id traité une seule fois
-- [ ] Transaction enregistrée dans credit_transactions
-- [ ] Email de confirmation envoyé
+- [ ] Checkout abonnement/pack opérationnel
+- [ ] Webhooks idempotents (stripe_events) et sécurisés (signature)
+- [ ] Buckets minutes créés correctement aux événements (packs et factures d’abonnement)
+- [ ] Rollover mensuel effectif
+- [ ] Dashboard /billing/me exact (minutes libres/réservées, prévision totale)
 
 ### 2.6 Tests
-- **Unitaires** : Mock Stripe SDK, vérifier logique métier
-- **Intégration** : Stripe CLI pour tester webhooks localement
-- **E2E** : Paiement test complet avec carte test Stripe
+- **Unitaires** : services Stripe V2, minute pool (allocation, holds, finalize, release)
+- **Intégration** : Stripe CLI pour webhooks (subscription + payment)
+- **E2E** : souscription, achat pack, soumission épisode, débit au réel, rollover
 
 ### 2.7 Risques et Mitigations
-- **Risque** : Double crédit sur retry webhook
-  - **Mitigation** : Table idempotence_keys ou check event_id unique
-- **Risque** : Webhook down
-  - **Mitigation** : Retry automatique Stripe, monitoring, reconciliation manuelle
+- **Risque** : double crédit sur retry webhook
+  - **Mitigation** : table d’idempotence existante (stripe_events)
+- **Risque** : conflits de débit concurrent
+  - **Mitigation** : ConditionExpression DynamoDB lors des débits/retours de minutes
 
 ### 2.8 Livrables
-- [ ] `media_summarizer/api/endpoints/billing.py`
-- [ ] `media_summarizer/api/endpoints/webhooks.py`
-- [ ] Migration base pour table idempotence
-- [ ] Configuration Stripe Dashboard
-- [ ] Tests webhook avec Stripe CLI
+- [ ] Endpoints billing (subscriptions/packs/me/history)
+- [ ] Webhooks V2 (subscriptions + packs)
+- [ ] MinutePoolService et tables minute_buckets/minute_usage
+- [ ] Migration crédits→minutes (script)
+- [ ] Documentation mise à jour (PAYMENT_SYSTEM)
 
 ---
 
@@ -240,8 +230,8 @@ Aligner parfaitement les ressources AWS (DynamoDB, S3, SQS) avec les attentes du
 ### 3.2 État Actuel
 
 **Code attend** (`media_summarizer/utils/database_async.py`) :
-- Tables : `users`, `processing_jobs`, `credit_transactions`
-- GSIs : `email-index`, `user-index`, `status-index`
+- Tables : `users`, `processing_jobs`, `subscriptions`, `minute_buckets`, `minute_usage`, `follows`, `stripe_events`
+- GSIs : `email-index`, `user-index`, `status-index`, `expiry-index`, `job-index`
 
 **Terraform a** (`infrastructure/terraform/scaling.tf`) :
 - Tables avec noms différents et attributs incomplets
@@ -383,12 +373,14 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 ```
 
-#### C. Remboursement automatique
+#### C. Libération automatique des minutes en cas d'échec
+
+Adapter le traitement d’échec des jobs pour libérer les minutes placées en hold.
 
 **Modifier** : `media_summarizer/workers/base_worker.py`
 ```python
-# Ajouter fonction refund_credits_on_failure()
-# Appeler depuis tous les workers en cas d'échec
+# Remplacer refund_credits_on_failure() par release_hold_on_failure()
+# Appeler MinutePoolService.release_hold(job_id) si le job échoue définitivement
 ```
 
 #### D. Validation stricte
@@ -929,9 +921,9 @@ SES_CONFIGURATION_SET=media-summarizer-prod
 3. **Chantier 4** : Durcissement API partie 1 (2 jours)
 
 ### Phase 2: Monétisation (Semaine 3)
-4. **Chantier 2** : Intégration Stripe (3 jours)
-5. **Chantier 4** : Remboursements auto (1 jour)
-6. Tests end-to-end paiements (1 jour)
+4. **Chantier 2** : Monétisation minutes (Stripe V2: abonnements + packs + webhooks) (3-5 jours)
+5. **Chantier 4** : Libération auto des minutes en cas d’échec (1 jour)
+6. Tests end-to-end monétisation (1 jour)
 
 ### Phase 3: Infrastructure Prod (Semaine 4)
 7. [Reporté] **Chantier 7** : Déploiement ECS — déplacé en Phase 5
@@ -957,7 +949,7 @@ SES_CONFIGURATION_SET=media-summarizer-prod
 ### Checklist Pré-Production
 - [ ] Tous les tests passent (unit, integration, E2E)
 - [ ] Authentification fonctionne (Google/Apple OAuth + fallback local)
-- [ ] Paiements Stripe testés (sandbox et live)
+- [ ] Abonnements & packs (Stripe) testés (sandbox et live) avec webhooks
 - [ ] Infrastructure Terraform appliquée
 - [ ] Secrets dans Secrets Manager
 - [ ] Domaine vérifié dans SES
@@ -1041,15 +1033,29 @@ TRANSCRIPT_BUCKET=media-summarizer-transcriptions-xxx-prod
 SUMMARY_BUCKET=media-summarizer-summaries-xxx-prod
 USERS_TABLE=users
 PROCESSING_JOBS_TABLE=processing_jobs
-CREDIT_TRANSACTIONS_TABLE=credit_transactions
+SUBSCRIPTIONS_TABLE=subscriptions
+MINUTE_BUCKETS_TABLE=minute_buckets
+MINUTE_USAGE_TABLE=minute_usage
+FOLLOWS_TABLE=follows
+STRIPE_EVENTS_TABLE=stripe_events
 ```
 
 ### Variables Stripe
 ```bash
 STRIPE_API_KEY=<from-secrets-manager>
 STRIPE_WEBHOOK_SECRET=<from-secrets-manager>
-STRIPE_PRICE_ID_10=price_xxx
+# Abonnements
+STRIPE_PRICE_ID_SUB_S=price_xxx
+STRIPE_PRICE_ID_SUB_M=price_xxx
+STRIPE_PRICE_ID_SUB_L=price_xxx
+# Packs minutes
+STRIPE_PRICE_ID_PACK_100=price_xxx
+STRIPE_PRICE_ID_PACK_300=price_xxx
+STRIPE_PRICE_ID_PACK_600=price_xxx
+STRIPE_PRICE_ID_PACK_1200=price_xxx
+# Redirections
 STRIPE_SUCCESS_URL=https://app.yourdomain.com/payment-success
+STRIPE_CANCEL_URL=https://app.yourdomain.com/payment-cancel
 ```
 
 ### Variables Email

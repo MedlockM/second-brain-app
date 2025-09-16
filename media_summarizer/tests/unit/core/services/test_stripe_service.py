@@ -18,7 +18,7 @@ from media_summarizer.core.models.user import User
 class TestStripeServiceInitialization:
     """Tests for StripeService initialization."""
 
-    @patch.dict("os.environ", {"STRIPE_TEST_API_KEY": "sk_test_123"})
+    @patch.dict("os.environ", {"STRIPE_API_KEY": "sk_test_123"})
     def test_initialization_with_test_key(self):
         """Test successful initialization with test API key."""
         service = StripeService()
@@ -35,12 +35,12 @@ class TestStripeServiceInitialization:
     @patch.dict("os.environ", {}, clear=True)
     def test_initialization_without_api_key(self):
         """Test initialization failure without API key."""
-        with pytest.raises(ValueError, match="STRIPE_API_KEY or STRIPE_TEST_API_KEY environment variable is required"):
+        with pytest.raises(ValueError, match="STRIPE_API_KEY environment variable is required"):
             StripeService()
 
     def test_credit_packages_configuration(self):
         """Test that credit packages are properly configured."""
-        with patch.dict("os.environ", {"STRIPE_TEST_API_KEY": "sk_test_123"}):
+        with patch.dict("os.environ", {"STRIPE_API_KEY": "sk_test_123"}):
             service = StripeService()
             packages = service.get_credit_packages()
 
@@ -61,7 +61,7 @@ class TestStripeCustomerManagement:
 
     def setup_method(self):
         """Set up test fixtures."""
-        with patch.dict("os.environ", {"STRIPE_TEST_API_KEY": "sk_test_123"}):
+        with patch.dict("os.environ", {"STRIPE_API_KEY": "sk_test_123"}):
             self.service = StripeService()
 
     @pytest.mark.asyncio
@@ -142,7 +142,7 @@ class TestCreditPackages:
 
     def setup_method(self):
         """Set up test fixtures."""
-        with patch.dict("os.environ", {"STRIPE_TEST_API_KEY": "sk_test_123"}):
+        with patch.dict("os.environ", {"STRIPE_API_KEY": "sk_test_123"}):
             self.service = StripeService()
 
     def test_get_credit_packages(self):
@@ -176,7 +176,7 @@ class TestPaymentIntents:
 
     def setup_method(self):
         """Set up test fixtures."""
-        with patch.dict("os.environ", {"STRIPE_TEST_API_KEY": "sk_test_123"}):
+        with patch.dict("os.environ", {"STRIPE_API_KEY": "sk_test_123"}):
             self.service = StripeService()
 
     @pytest.mark.asyncio
@@ -272,7 +272,7 @@ class TestPaymentProcessing:
 
     def setup_method(self):
         """Set up test fixtures."""
-        with patch.dict("os.environ", {"STRIPE_TEST_API_KEY": "sk_test_123"}):
+        with patch.dict("os.environ", {"STRIPE_API_KEY": "sk_test_123"}):
             self.service = StripeService()
 
     @pytest.mark.asyncio
@@ -358,7 +358,7 @@ class TestRefunds:
 
     def setup_method(self):
         """Set up test fixtures."""
-        with patch.dict("os.environ", {"STRIPE_TEST_API_KEY": "sk_test_123"}):
+        with patch.dict("os.environ", {"STRIPE_API_KEY": "sk_test_123"}):
             self.service = StripeService()
 
     @pytest.mark.asyncio
@@ -435,7 +435,7 @@ class TestWebhooks:
 
     def setup_method(self):
         """Set up test fixtures."""
-        with patch.dict("os.environ", {"STRIPE_TEST_API_KEY": "sk_test_123"}):
+        with patch.dict("os.environ", {"STRIPE_API_KEY": "sk_test_123"}):
             self.service = StripeService()
 
     @patch.dict("os.environ", {"STRIPE_WEBHOOK_SECRET": "whsec_test123"})
@@ -529,7 +529,7 @@ class TestPaymentMethods:
 
     def setup_method(self):
         """Set up test fixtures."""
-        with patch.dict("os.environ", {"STRIPE_TEST_API_KEY": "sk_test_123"}):
+        with patch.dict("os.environ", {"STRIPE_API_KEY": "sk_test_123"}):
             self.service = StripeService()
 
     @patch("stripe.PaymentMethod.list")
@@ -568,7 +568,7 @@ class TestStripeServiceEdgeCases:
 
     def setup_method(self):
         """Set up test fixtures."""
-        with patch.dict("os.environ", {"STRIPE_TEST_API_KEY": "sk_test_123"}):
+        with patch.dict("os.environ", {"STRIPE_API_KEY": "sk_test_123"}):
             self.service = StripeService()
 
     @pytest.mark.asyncio

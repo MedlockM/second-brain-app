@@ -16,10 +16,21 @@ Media Summarizer est un service qui génère automatiquement des résumés de po
 - Transcription adaptative avec Whisper (tiny/large selon l'environnement)
 - Résumés structurés générés par IA
 - Livraison des résumés par email
-- Système de paiement basé sur des crédits
+- Système de paiement basé sur des crédits (en cours de migration vers un modèle “minutes” — voir section Compatibilité/Migration)
 - Authentification locale (email + mot de passe) avec sessions persistantes (30 jours)
 - Intégration Stripe pour les paiements
 - Tests end-to-end complets
+
+## Compatibilité / Migration vers le modèle “minutes”
+
+Le projet migre du modèle “crédits” vers un modèle “minutes”:
+- Abonnements S/M/L créditant un pool de minutes mensuel (S=240, M=840, L=1 980).
+- Packs minutes one‑shot (100/300/600/1200) avec validité 6 mois.
+- Débit au réel (arrondi à la minute), rollover 1 mois pour les minutes d’abonnement.
+- Endpoint /credits/* et /payments/intent|confirm|refund seront retirés au profit de nouveaux endpoints billing (subscriptions/packs) et des webhooks Stripe.
+- Une migration one‑shot “1 crédit = 1 minute” sera appliquée: création d’un bucket de minutes “migration” par utilisateur, puis mise à 0 de l’ancien champ credits.
+
+Documentation minute‑based: docs/PAYMENT_SYSTEM_V2.md.
 
 ## Architecture
 
@@ -196,16 +207,35 @@ python scripts/init_db.py init
 
 ```bash
 # Démarrer l'environnement de développement complet (API + Workers + LocalStack)
-docker-compose -f docker-compose.dev.yml --profile full up -d
+ docker-compose -f docker-compose.dev.yml --profile full up -d
 
 # Démarrer seulement l'API et LocalStack
-docker-compose -f docker-compose.dev.yml --profile api up -d
+ docker-compose -f docker-compose.dev.yml --profile api up -d
 
 # Démarrer seulement les workers
-docker-compose -f docker-compose.dev.yml --profile workers up -d
+ docker-compose -f docker-compose.dev.yml --profile workers up -d
 
 # Démarrer seulement l'infrastructure (LocalStack)
-docker-compose -f docker-compose.dev.yml --profile infrastructure up -d
+ docker-compose -f docker-compose.dev.yml --profile infrastructure up -d
+```
+
+### Préflight infrastructure (S3)
+
+- L'API exécute un contrôle de pré-démarrage qui vérifie l'existence des buckets S3 requis.
+- Ce contrôle est activé par défaut via `PRESTART_INFRA_CHECK=1` et fait échouer le démarrage si des buckets manquent.
+- L'approvisionnement des buckets est géré par le service Terraform inclus dans `docker-compose.dev.yml`.
+
+Commandes utiles:
+
+```bash
+# Lancer l’infra complète (incluant Terraform)
+docker-compose -f docker-compose.dev.yml --profile full up -d
+
+# Vérifier les logs Terraform
+docker-compose -f docker-compose.dev.yml logs terraform
+
+# Exécuter manuellement le préflight S3
+uv run python -m media_summarizer.utils.infra_check
 ```
 
 ## 📊 Services disponibles
@@ -284,9 +314,9 @@ Tous les workers utilisent DynamoDB pour le suivi des jobs et S3/SQS via LocalSt
 
 Le projet utilise DynamoDB avec les tables suivantes:
 
-- `users`: Informations utilisateur et crédits
+- `users`: Informations utilisateur (champ credits en cours de décommission)
 - `processing_jobs`: Suivi des tâches de traitement
-- `credit_transactions`: Historique des transactions de crédits
+- (Nouveaux) `subscriptions`, `minute_buckets`, `minute_usage`, `follows`, `stripe_events`: tables pour le modèle “minutes”
 - `podcasts`: Métadonnées des podcasts (optionnel)
 - `episodes`: Métadonnées des épisodes (optionnel)
 

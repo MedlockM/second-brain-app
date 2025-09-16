@@ -23,6 +23,7 @@ env:
   PYTHON_VERSION: "3.12"
   DOCKER_BUILDKIT: 1
   COMPOSE_DOCKER_CLI_BUILD: 1
+  STRIPE_REDIRECT_POLICY: never
 
 jobs:
   setup:
@@ -89,16 +90,17 @@ jobs:
         run: |
           uv pip install -e ".[dev]"
 
-      - name: Create .env file
+      - name: Create .env.dev file
         run: |
-          cat > .env << EOF
+          cat > .env.dev << EOF
           ENVIRONMENT=test
           AWS_ACCESS_KEY_ID=test
           AWS_SECRET_ACCESS_KEY=test
           AWS_DEFAULT_REGION=us-east-1
           AWS_ENDPOINT_URL=http://localhost:4566
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-          STRIPE_TEST_API_KEY=${{ secrets.STRIPE_TEST_API_KEY }}
+          STRIPE_API_KEY=${{ secrets.STRIPE_API_KEY }}
+          STRIPE_REDIRECT_POLICY=never
           TEST_ENVIRONMENT=component
           TEST_WORKERS=stopped
           EOF
@@ -198,16 +200,17 @@ jobs:
         run: |
           uv pip install -e ".[dev]"
 
-      - name: Create .env file
+      - name: Create .env.dev file
         run: |
-          cat > .env << EOF
+          cat > .env.dev << EOF
           ENVIRONMENT=test
           AWS_ACCESS_KEY_ID=test
           AWS_SECRET_ACCESS_KEY=test
           AWS_DEFAULT_REGION=us-east-1
           AWS_ENDPOINT_URL=http://localhost:4566
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-          STRIPE_TEST_API_KEY=${{ secrets.STRIPE_TEST_API_KEY }}
+          STRIPE_API_KEY=${{ secrets.STRIPE_API_KEY }}
+          STRIPE_REDIRECT_POLICY=never
           TEST_ENVIRONMENT=workflow
           TEST_WORKERS=required
           EOF
@@ -322,16 +325,17 @@ jobs:
         run: |
           uv pip install -e ".[dev]"
 
-      - name: Create .env file
+      - name: Create .env.dev file
         run: |
-          cat > .env << EOF
+          cat > .env.dev << EOF
           ENVIRONMENT=test
           AWS_ACCESS_KEY_ID=test
           AWS_SECRET_ACCESS_KEY=test
           AWS_DEFAULT_REGION=us-east-1
           AWS_ENDPOINT_URL=http://localhost:4566
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-          STRIPE_TEST_API_KEY=${{ secrets.STRIPE_TEST_API_KEY }}
+          STRIPE_API_KEY=${{ secrets.STRIPE_API_KEY }}
+          STRIPE_REDIRECT_POLICY=never
           TEST_ENVIRONMENT=component
           TEST_WORKERS=stopped
           EOF

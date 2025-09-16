@@ -167,6 +167,8 @@ class DynamoDBLocalStackClient:
             'id': user_id,
             'email': email,
             'credits': credits,
+            # Mark users as verified by default for integration tests
+            'email_verified_at': kwargs.get('email_verified_at', '2023-01-01T00:00:00Z'),
             'created_at': kwargs.get('created_at', '2023-01-01T00:00:00Z'),
             'updated_at': kwargs.get('updated_at', '2023-01-01T00:00:00Z'),
             **kwargs

@@ -9,7 +9,7 @@ from pydantic import EmailStr
 
 from media_summarizer.utils.database_async import get_db
 from media_summarizer.utils import database_async, sqs, podcast_index
-from media_summarizer.core.models import User, ProcessingJob, CreditTransaction
+from media_summarizer.core.models import User, ProcessingJob
 from media_summarizer.api.dependencies.auth import get_current_user, require_verified_email
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.api.rate_limit import limiter, get_limit_from_env
@@ -32,7 +32,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # Configuration
-REQUIRED_CREDITS = 1  # Nombre de crédits requis pour traiter un épisode
+DEFAULT_MINUTES_ESTIMATE = 0  # Estimation initiale (affinée plus tard)
 
 # Per-endpoint rate limits
 SEARCH_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_SEARCH", "60/minute")
@@ -210,6 +210,14 @@ async def submit_episode_for_processing(
                 episode_info = episode
                 break
 
+        # Extraire la durée si disponible (en secondes selon PodcastIndex)
+        duration_seconds = 0
+        try:
+            if episode_info and episode_info.get("duration") is not None:
+                duration_seconds = int(episode_info.get("duration") or 0)
+        except Exception:
+            duration_seconds = 0
+
         if not episode_info:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -241,13 +249,6 @@ async def submit_episode_for_processing(
                 detail="Utilisateur authentifié introuvable"
             )
 
-        # Vérifier que l'utilisateur a assez de crédits
-        if user.credits < REQUIRED_CREDITS:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Crédits insuffisants. Vous avez {user.credits} crédits, mais {REQUIRED_CREDITS} sont nécessaires pour traiter un épisode."
-            )
-
         # Créer le job de traitement
         try:
             logger.info(f"Creating ProcessingJob for user {user.id}")
@@ -255,8 +256,7 @@ async def submit_episode_for_processing(
                 user_id=user.id,
                 user_email=user.email,
                 podcast_url=episode_info.get("feedUrl", ""),
-                episode_url=audio_url,
-                credits_cost=REQUIRED_CREDITS
+                episode_url=audio_url
             )
             logger.info(f"ProcessingJob created successfully: {job.id}")
             logger.info(f"Job created_at: {job.created_at}")
@@ -269,24 +269,19 @@ async def submit_episode_for_processing(
             logger.error(f"Error type: {type(e)}")
             raise
 
-        # Déduire les crédits
-        new_credits = user.credits - REQUIRED_CREDITS
-        await database_async.update_user_credits(user.id, new_credits)
-
-        # Créer la transaction de déduction
+        # Minute-based: place an initial hold (estimated minutes)
         episode_title = episode_info.get("title", "Episode inconnu")
         feed_title = episode_info.get("feedTitle", "Podcast inconnu")
 
-        transaction = CreditTransaction.create_deduction(
-            user_id=user.id,
-            amount=REQUIRED_CREDITS,
-            job_id=created_job.id,
-            description=f"Traitement de l'épisode: {episode_title}"
-        )
-        await database_async.create_credit_transaction(transaction)
+        try:
+            from math import ceil
+            minutes_estimated = ceil(duration_seconds / 60) if duration_seconds > 0 else DEFAULT_MINUTES_ESTIMATE
+            from media_summarizer.core.services.minute_pool import allocate_hold_for_job
+            await allocate_hold_for_job(user_id=user.id, job_id=created_job.id, minutes_estimated=minutes_estimated)
+        except Exception as e:
+            logger.warning(f"Failed to allocate minute hold for job {created_job.id}: {e}")
 
-        # Marquer les crédits comme déduits
-        created_job.deduct_credits()
+        # Persist job as created
         await database_async.update_processing_job(created_job)
 
         # Envoyer directement vers la queue de download puisqu'on a déjà l'URL audio
@@ -296,7 +291,8 @@ async def submit_episode_for_processing(
             "user_email": user.email,
             "audio_url": audio_url,
             "episode_title": episode_title,
-            "podcast_title": feed_title
+            "podcast_title": feed_title,
+            "audio_duration_seconds": duration_seconds
         }
 
         try:
@@ -311,7 +307,7 @@ async def submit_episode_for_processing(
             job_id=created_job.id,
             status=created_job.status.value,
             message="Épisode soumis avec succès pour traitement",
-            credits_deducted=REQUIRED_CREDITS,
+            minutes_hold_estimated=(minutes_estimated if duration_seconds > 0 else DEFAULT_MINUTES_ESTIMATE),
             estimated_processing_time="5-10 minutes",
             episode_title=episode_title,
             podcast_title=feed_title

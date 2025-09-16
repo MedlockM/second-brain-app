@@ -27,6 +27,11 @@ class LLMAPIError(Exception):
 
 logger = logging.getLogger(__name__)
 
+# Minimal class wrapper for backward-compatibility with tests that patch
+class SummarizationWorker:
+    async def run(self):
+        await poll_queue()
+
 # Configuration
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
 NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-queue")
@@ -279,6 +284,20 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
             job.set_processing_duration('summarization', int(summarization_duration))
             await database_async.update_processing_job(job)
 
+        # Finalize minute usage based on audio duration if provided; fallback to heuristic
+        try:
+            from math import ceil
+            provided_duration = message_body.get("audio_duration_seconds")
+            if isinstance(provided_duration, (int, float)) and provided_duration > 0:
+                minutes_used = max(1, ceil(provided_duration / 60))
+            else:
+                # Fallback heuristic if duration missing
+                minutes_used = max(1, int(len(transcription_text) / 800))
+            from media_summarizer.core.services.minute_pool import finalize_usage
+            await finalize_usage(job_id, minutes_used)
+        except Exception as e:
+            logger.warning(f"Failed to finalize minute usage for job {job_id}: {e}")
+
         # Generate summary URL (presigned URL for access)
         try:
             summary_url = await s3.generate_presigned_url(
@@ -337,7 +356,7 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
         raise
 
 
-async def process_message(message: Dict[str, Any]) -> None:
+async def process_message(message: Dict[str, Any], llm_api_url: Optional[str] = None, llm_api_key: Optional[str] = None) -> None:
     """
     Process an SQS message for summarization.
 

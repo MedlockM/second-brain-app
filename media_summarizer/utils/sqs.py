@@ -38,9 +38,22 @@ def get_queue_url(queue_name: str) -> str:
     """
     # For local development with LocalStack
     if AWS_ENDPOINT_URL:
-        return f"{AWS_ENDPOINT_URL}/000000000000/{queue_name}"
+        # Prefer host-style SQS endpoint (http://sqs.<region>.localhost:4566) for compatibility with SDKs
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(AWS_ENDPOINT_URL)
+            host = parsed.hostname or "localhost"
+            port = parsed.port or 4566
+            scheme = parsed.scheme or "http"
+            if host in ("localhost", "127.0.0.1"):
+                return f"{scheme}://sqs.{AWS_REGION}.{host}:{port}/000000000000/{queue_name}"
+            else:
+                # Fallback to path-style when using non-local hostnames
+                return f"{AWS_ENDPOINT_URL}/000000000000/{queue_name}"
+        except Exception:
+            return f"{AWS_ENDPOINT_URL}/000000000000/{queue_name}"
 
-    # For production AWS
+    # For production AWS, the SDK returns the full URL; here we return the name (caller should resolve)
     return queue_name
 
 

@@ -121,6 +121,7 @@ jobs:
           STRIPE_SECRET_KEY=sk_test_51234567890abcdef_test_key_for_e2e_testing
           STRIPE_PUBLISHABLE_KEY=pk_test_51234567890abcdef_test_key_for_e2e_testing
           STRIPE_WEBHOOK_SECRET=whsec_test_webhook_secret_for_e2e_testing
+          STRIPE_REDIRECT_POLICY=never
 
           # JWT and Auth
           JWT_SECRET_KEY=test_jwt_secret_key_for_e2e_auth_testing
@@ -315,6 +316,7 @@ jobs:
           STRIPE_SECRET_KEY=sk_test_51234567890abcdef_test_key_for_e2e_testing
           STRIPE_PUBLISHABLE_KEY=pk_test_51234567890abcdef_test_key_for_e2e_testing
           STRIPE_WEBHOOK_SECRET=whsec_test_webhook_secret_for_e2e_testing
+          STRIPE_REDIRECT_POLICY=never
 
           # JWT and Auth
           JWT_SECRET_KEY=test_jwt_secret_key_for_e2e_auth_testing

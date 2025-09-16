@@ -7,7 +7,8 @@ import pytest
 import boto3
 import tempfile
 import os
-from unittest.mock import patch, AsyncMock, MagicMock
+import uuid
+from unittest.mock import patch
 from media_summarizer.workers.download_worker import process_message
 from media_summarizer.workers.base_worker import process_message_with_retry
 
@@ -34,6 +35,22 @@ def localstack_s3_client():
         aws_secret_access_key='test',
         region_name='us-east-1'
     )
+
+
+@pytest.fixture(autouse=True)
+def configure_utils_for_localstack():
+    """Configure les utilitaires async SQS/S3 pour pointer vers LocalStack."""
+    from media_summarizer.utils import sqs as utils_sqs, s3 as utils_s3
+    utils_sqs.AWS_ENDPOINT_URL = 'http://localhost:4566'
+    utils_sqs.AWS_REGION = 'us-east-1'
+    utils_s3.AWS_ENDPOINT_URL = 'http://localhost:4566'
+    utils_s3.AWS_REGION = 'us-east-1'
+    # S'assurer que des credentials existent pour les clients aiobotocore/boto3
+    os.environ.setdefault('AWS_ACCESS_KEY_ID', 'test')
+    os.environ.setdefault('AWS_SECRET_ACCESS_KEY', 'test')
+    os.environ.setdefault('AWS_DEFAULT_REGION', 'us-east-1')
+    os.environ.setdefault('AWS_REGION', 'us-east-1')
+    yield
 
 
 @pytest.fixture
@@ -76,8 +93,32 @@ class TestDownloadWorkerIntegration:
     """Tests d'intégration pour le Download Worker."""
 
     @pytest.mark.asyncio
-    async def test_download_worker_with_real_sqs_and_s3(self, localstack_sqs_client, localstack_s3_client, test_queue, test_bucket):
+    async def test_download_worker_with_real_sqs_and_s3(self, localstack_sqs_client, localstack_s3_client, test_queue, test_bucket, monkeypatch):
         """Test du Download worker avec vraies queues SQS et bucket S3."""
+        # Utiliser le bucket de test dans le worker
+        from media_summarizer.workers import download_worker as dw
+        dw.AUDIO_BUCKET = test_bucket
+
+        # Créer la queue de transcription réelle
+        # Créer une queue de transcription unique par test et rediriger l'utilitaire vers celle-ci
+        unique_trans_q_name = f"transcription-queue-{uuid.uuid4().hex[:8]}"
+        trans_q_url = localstack_sqs_client.create_queue(QueueName=unique_trans_q_name)["QueueUrl"]
+
+        # Monkeypatch le resolveur d'URL pour que 'transcription-queue' pointe vers notre queue unique
+        from media_summarizer.utils import sqs as utils_sqs
+        original_get_queue_url = utils_sqs.get_queue_url
+        def _patched_get_queue_url(name: str) -> str:
+            if name == "transcription-queue":
+                return trans_q_url
+            return original_get_queue_url(name)
+        monkeypatch.setattr(utils_sqs, "get_queue_url", _patched_get_queue_url)
+
+        # Purger la queue pour éviter des messages résiduels/inflight d'autres tests
+        try:
+            localstack_sqs_client.purge_queue(QueueUrl=trans_q_url)
+        except Exception:
+            pass
+
         # 1. Envoyer un message à la queue
         test_message_body = {
             "job_id": "download-integration-001",
@@ -93,31 +134,9 @@ class TestDownloadWorkerIntegration:
             MessageBody=json.dumps(test_message_body)
         )
 
-        # 2. Mock le téléchargement HTTP et l'envoi vers transcription
-        transcription_messages = []
-
-        async def mock_send_to_transcription_queue(message):
-            transcription_messages.append(message)
-
-        # Mock du contenu audio
-        mock_audio_content = b"fake audio content for testing"
-
-        with patch('media_summarizer.workers.download_worker.download_audio') as mock_download, \
-             patch('media_summarizer.workers.download_worker.get_s3_client') as mock_s3_client, \
-             patch('media_summarizer.workers.download_worker.get_sqs_client') as mock_sqs_client_func:
-
-            # Configurer les mocks
-            mock_download.return_value = None  # download_audio ne retourne rien, écrit dans un fichier
-
-            # Mock S3 client
-            mock_s3 = MagicMock()
-            mock_s3_client.return_value = mock_s3
-
-            # Mock SQS client pour les envois de messages
-            mock_sqs = MagicMock()
-            mock_sqs.get_queue_url.return_value = {'QueueUrl': 'http://localhost:4566/000000000000/transcription-queue'}
-            mock_sqs.send_message.side_effect = lambda **kwargs: transcription_messages.append(json.loads(kwargs['MessageBody']))
-            mock_sqs_client_func.return_value = mock_sqs
+        # 2. Mock le téléchargement HTTP uniquement (le reste utilise S3/SQS réels via utils)
+        with patch('media_summarizer.workers.download_worker.download_audio') as mock_download:
+            mock_download.return_value = None  # download_audio écrit normalement dans un fichier temporaire
 
             # 3. Recevoir et traiter le message avec le vrai worker
             response = localstack_sqs_client.receive_message(
@@ -134,29 +153,47 @@ class TestDownloadWorkerIntegration:
             result = await process_message_with_retry(
                 message=message,
                 processor=process_message,
-                sqs_client=localstack_sqs_client,
-                queue_url=test_queue,
+                queue_name="test-download-integration-queue",
                 max_retries=3,
                 worker_name="download-worker"
             )
 
             # 5. Vérifications
             assert result is True, "Download processing should succeed"
-            assert len(transcription_messages) == 1, "Should send one message to transcription queue"
 
-            transcription_message = transcription_messages[0]
+            # Vérifier l'upload S3
+            s3_objects = localstack_s3_client.list_objects_v2(Bucket=test_bucket)
+            keys = [obj['Key'] for obj in s3_objects.get('Contents', [])]
+            assert f"{test_message_body['job_id']}.mp3" in keys, "Uploaded audio not found in S3"
+
+            # Vérifier le message envoyé à la queue de transcription (with retry to handle eventual consistency)
+            transcription_message = None
+            for _ in range(12):  # étend la fenêtre de retry (~24s)
+                trans_resp = localstack_sqs_client.receive_message(
+                    QueueUrl=trans_q_url,
+                    MaxNumberOfMessages=1,
+                    WaitTimeSeconds=2
+                )
+                if 'Messages' in trans_resp and trans_resp.get('Messages'):
+                    m = trans_resp['Messages'][0]
+                    transcription_message = json.loads(m['Body'])
+                    # Supprimer le message reçu pour éviter qu'il reste en "inflight"
+                    localstack_sqs_client.delete_message(
+                        QueueUrl=trans_q_url,
+                        ReceiptHandle=m['ReceiptHandle']
+                    )
+                    break
+            assert transcription_message is not None, "No message received from transcription queue after retries"
             assert transcription_message["job_id"] == "download-integration-001"
-            assert transcription_message["s3_audio_key"] == f"{test_message_body['job_id']}.mp3"
+            assert transcription_message["audio_s3_key"] == f"{test_message_body['job_id']}.mp3"
             assert transcription_message["podcast_title"] == "Integration Test Podcast"
             assert transcription_message["episode_title"] == "Test Episode"
             assert transcription_message["user_id"] == "user123"
             assert transcription_message["email"] == "test@example.com"
             assert transcription_message["success"] is True
 
-            # Vérifier que les fonctions ont été appelées
+            # Vérifier que la fonction de téléchargement a bien été appelée
             mock_download.assert_called_once()
-            mock_s3.upload_file.assert_called_once()
-            mock_sqs.send_message.assert_called_once()
 
         # 6. Vérifier que le message a été supprimé de la queue
         response = localstack_sqs_client.receive_message(
@@ -164,7 +201,7 @@ class TestDownloadWorkerIntegration:
             MaxNumberOfMessages=1,
             WaitTimeSeconds=1
         )
-        assert 'Messages' not in response, "Message should be deleted after successful processing"
+        assert not response.get('Messages'), "Message should be deleted after successful processing"
 
     @pytest.mark.asyncio
     async def test_download_worker_retry_on_network_error(self, localstack_sqs_client, test_queue):
@@ -202,8 +239,7 @@ class TestDownloadWorkerIntegration:
             result = await process_message_with_retry(
                 message=message,
                 processor=process_message,
-                sqs_client=localstack_sqs_client,
-                queue_url=test_queue,
+                queue_name="test-download-integration-queue",
                 max_retries=3,
                 worker_name="download-worker"
             )
@@ -252,8 +288,7 @@ class TestDownloadWorkerIntegration:
             result = await process_message_with_retry(
                 message=message,
                 processor=process_message,
-                sqs_client=localstack_sqs_client,
-                queue_url=test_queue,
+                queue_name="test-download-integration-queue",
                 max_retries=3,
                 worker_name="download-worker"
             )
@@ -285,8 +320,7 @@ class TestDownloadWorkerIntegration:
         result = await process_message_with_retry(
             message=message,
             processor=process_message,
-            sqs_client=localstack_sqs_client,
-            queue_url=test_queue,
+            queue_name="test-download-integration-queue",
             max_retries=3,
             worker_name="download-worker"
         )
@@ -295,8 +329,32 @@ class TestDownloadWorkerIntegration:
         assert result is False, "Invalid message should fail"
 
     @pytest.mark.asyncio
-    async def test_multiple_download_messages_processing(self, localstack_sqs_client, test_queue):
+    async def test_multiple_download_messages_processing(self, localstack_sqs_client, localstack_s3_client, test_queue, test_bucket, monkeypatch):
         """Test du traitement de plusieurs messages de téléchargement."""
+        # Utiliser le bucket de test dans le worker
+        from media_summarizer.workers import download_worker as dw
+        dw.AUDIO_BUCKET = test_bucket
+
+        # Créer la queue de transcription réelle
+        # Créer une queue de transcription unique par test et rediriger l'utilitaire vers celle-ci
+        unique_trans_q_name = f"transcription-queue-{uuid.uuid4().hex[:8]}"
+        trans_q_url = localstack_sqs_client.create_queue(QueueName=unique_trans_q_name)["QueueUrl"]
+
+        # Monkeypatch le resolveur d'URL pour que 'transcription-queue' pointe vers notre queue unique
+        from media_summarizer.utils import sqs as utils_sqs
+        original_get_queue_url = utils_sqs.get_queue_url
+        def _patched_get_queue_url(name: str) -> str:
+            if name == "transcription-queue":
+                return trans_q_url
+            return original_get_queue_url(name)
+        monkeypatch.setattr(utils_sqs, "get_queue_url", _patched_get_queue_url)
+
+        # Purger la queue pour éviter des messages résiduels/inflight d'autres tests
+        try:
+            localstack_sqs_client.purge_queue(QueueUrl=trans_q_url)
+        except Exception:
+            pass
+
         # 1. Envoyer plusieurs messages
         job_ids = []
         for i in range(3):
@@ -317,28 +375,14 @@ class TestDownloadWorkerIntegration:
                 MessageBody=json.dumps(test_message_body)
             )
 
-        # 2. Mock les fonctions de téléchargement
-        transcription_messages = []
-
-        with patch('media_summarizer.workers.download_worker.download_audio') as mock_download, \
-             patch('media_summarizer.workers.download_worker.get_s3_client') as mock_s3_client, \
-             patch('media_summarizer.workers.download_worker.get_sqs_client') as mock_sqs_client_func:
-
-            # Configurer les mocks
+        # 2. Mock la fonction de téléchargement uniquement
+        with patch('media_summarizer.workers.download_worker.download_audio') as mock_download:
             mock_download.return_value = None
 
-            # Mock S3 client
-            mock_s3 = MagicMock()
-            mock_s3_client.return_value = mock_s3
-
-            # Mock SQS client
-            mock_sqs = MagicMock()
-            mock_sqs.get_queue_url.return_value = {'QueueUrl': 'http://localhost:4566/000000000000/transcription-queue'}
-            mock_sqs.send_message.side_effect = lambda **kwargs: transcription_messages.append(json.loads(kwargs['MessageBody'])["job_id"])
-            mock_sqs_client_func.return_value = mock_sqs
-
-            # 3. Traiter tous les messages
-            for _ in range(3):
+            # 3. Traiter tous les messages jusqu'à en avoir effectivement 3
+            processed = 0
+            attempts = 0
+            while processed < 3 and attempts < 20:
                 response = localstack_sqs_client.receive_message(
                     QueueUrl=test_queue,
                     MaxNumberOfMessages=1,
@@ -347,20 +391,37 @@ class TestDownloadWorkerIntegration:
                 )
 
                 if 'Messages' in response:
-                    message = response['Messages'][0]
+                    for message in response['Messages']:
+                        result = await process_message_with_retry(
+                            message=message,
+                            processor=process_message,
+                            queue_name="test-download-integration-queue",
+                            max_retries=3,
+                            worker_name="download-worker"
+                        )
+                        assert result is True, f"Message processing should succeed"
+                        processed += 1
+                attempts += 1
 
-                    result = await process_message_with_retry(
-                        message=message,
-                        processor=process_message,
-                        sqs_client=localstack_sqs_client,
-                        queue_url=test_queue,
-                        max_retries=3,
-                        worker_name="download-worker"
-                    )
-
-                    assert result is True, f"Message processing should succeed"
-
-            # 4. Vérifications
-            assert len(transcription_messages) == 3, "Should process all messages"
-            for job_id in job_ids:
-                assert job_id in transcription_messages, f"Job {job_id} should be processed"
+        # 4. Vérifications
+        # Vérifier l'envoi de 3 messages vers la queue de transcription
+        all_received = []
+        attempts = 0
+        while len(all_received) < 3 and attempts < 10:
+            trans_resp = localstack_sqs_client.receive_message(
+                QueueUrl=trans_q_url,
+                MaxNumberOfMessages=3,
+                WaitTimeSeconds=2
+            )
+            msgs = trans_resp.get('Messages', [])
+            for m in msgs:
+                all_received.append(json.loads(m['Body']))
+                # Supprimer chaque message reçu pour éviter l'invisibilité
+                localstack_sqs_client.delete_message(
+                    QueueUrl=trans_q_url,
+                    ReceiptHandle=m['ReceiptHandle']
+                )
+            attempts += 1
+        assert len(all_received) == 3, f"Should process all messages, got {len(all_received)}"
+        received_job_ids = {m["job_id"] for m in all_received}
+        assert received_job_ids == set(job_ids), "All job IDs should be forwarded to transcription queue"

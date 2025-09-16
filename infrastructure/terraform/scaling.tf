@@ -210,7 +210,7 @@ resource "aws_iam_policy" "ecs_task_policy" {
           "dynamodb:Scan"
         ]
         Resource = [
-          aws_dynamodb_table.jobs.arn,
+          aws_dynamodb_table.processing_jobs.arn,
           aws_dynamodb_table.users.arn
         ]
       },
@@ -414,68 +414,54 @@ resource "aws_s3_bucket" "summaries" {
   }
 }
 
-# DynamoDB Tables
-resource "aws_dynamodb_table" "jobs" {
-  name           = "${var.project_name}-jobs"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "job_id"
+# DynamoDB Tables (aligned with application expectations)
+resource "aws_dynamodb_table" "processing_jobs" {
+  name         = "processing_jobs"          # EXACT application name
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
 
-  attribute {
-    name = "job_id"
-    type = "S"
-  }
+  attribute { name = "id"         type = "S" }
+  attribute { name = "user_id"    type = "S" }
+  attribute { name = "job_status" type = "S" }
 
-  attribute {
-    name = "user_id"
-    type = "S"
-  }
-
-  attribute {
-    name = "status"
-    type = "S"
-  }
-
+  # GSI: user-index (query jobs by user)
   global_secondary_index {
-    name     = "UserJobsIndex"
-    hash_key = "user_id"
-    range_key = "job_id"
+    name            = "user-index"
+    hash_key        = "user_id"
+    projection_type = "ALL"
   }
 
+  # GSI: status-index (query by status)
   global_secondary_index {
-    name     = "StatusIndex"
-    hash_key = "status"
-    range_key = "job_id"
+    name            = "status-index"
+    hash_key        = "job_status"
+    projection_type = "ALL"
   }
 
   tags = {
-    Name        = "${var.project_name}-jobs"
+    Name        = "processing_jobs"
     Environment = var.environment
     Project     = var.project_name
   }
 }
 
 resource "aws_dynamodb_table" "users" {
-  name           = "${var.project_name}-users"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "user_id"
+  name         = "users"                     # EXACT application name
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
 
-  attribute {
-    name = "user_id"
-    type = "S"
-  }
+  attribute { name = "id"    type = "S" }
+  attribute { name = "email" type = "S" }
 
-  attribute {
-    name = "email"
-    type = "S"
-  }
-
+  # GSI: email-index (lookup by email)
   global_secondary_index {
-    name     = "EmailIndex"
-    hash_key = "email"
+    name            = "email-index"
+    hash_key        = "email"
+    projection_type = "ALL"
   }
 
   tags = {
-    Name        = "${var.project_name}-users"
+    Name        = "users"
     Environment = var.environment
     Project     = var.project_name
   }
@@ -883,9 +869,20 @@ output "summaries_bucket_name" {
 output "dynamodb_table_names" {
   description = "Names of the DynamoDB tables"
   value = {
-    jobs  = aws_dynamodb_table.jobs.name
-    users = aws_dynamodb_table.users.name
+    processing_jobs = aws_dynamodb_table.processing_jobs.name
+    users           = aws_dynamodb_table.users.name
   }
+}
+
+# Explicit outputs for app wiring
+output "users_table_name" {
+  description = "Users table name"
+  value       = aws_dynamodb_table.users.name
+}
+
+output "processing_jobs_table_name" {
+  description = "Processing jobs table name"
+  value       = aws_dynamodb_table.processing_jobs.name
 }
 
 output "ecr_repository_url" {

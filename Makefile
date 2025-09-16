@@ -1,6 +1,9 @@
 # Media Summarizer Makefile
 # Simplified commands for development and testing
 
+# Ensure bash is used for recipes (needed for sourcing .env.dev)
+SHELL := bash
+
 .PHONY: help install dev test test-unit test-integration test-e2e test-all clean setup-dev setup-e2e coverage lint format docker-build docker-up docker-down
 
 # Default target
@@ -36,8 +39,8 @@ test-unit: ## Run unit tests only
 
 test-integration: ## Run integration tests
 	@echo "🔗 Running integration tests..."
-	pytest -m integration -v --tb=short
 
+	bash -lc 'set -a; source .env.dev 2>/dev/null || true; set +a; uv run pytest -m integration -v --tb=short --no-cov'
 test-e2e: ## Run E2E tests (assumes LocalStack already running)
 	@echo "🧪 Running E2E tests..."
 	@echo "⚠️ Make sure LocalStack is running: 'make setup-e2e'"

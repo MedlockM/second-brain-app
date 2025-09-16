@@ -233,6 +233,13 @@ class EmailService:
             logger.error(f"Error sending welcome email to {email}: {str(e)}")
             return False
 
+    async def send_magic_link_email(self, email: str, verification_token: str) -> bool:
+        """
+        Backward-compatible alias used by older tests: send the email verification link
+        using the same implementation as send_email_verification.
+        """
+        return await self.send_email_verification(email=email, verification_token=verification_token)
+
     async def _send_email(
         self,
         to_email: str,

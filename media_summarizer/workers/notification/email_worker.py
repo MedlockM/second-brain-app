@@ -244,7 +244,7 @@ async def send_completion_notification(
 
 
 
-async def process_message(message: Dict[str, Any], retries: int = 0) -> None:
+async def process_message(message: Dict[str, Any], retries: int = 0, ses_client: Optional[Any] = None) -> None:
     """
     Process an SQS message and send the appropriate email notification.
 

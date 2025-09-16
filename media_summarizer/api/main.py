@@ -11,14 +11,24 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from media_summarizer.api.endpoints import health, users, credits, podcast_search, jobs, payments
+from media_summarizer.api.endpoints import health, users, podcast_search, jobs
 from media_summarizer.api.endpoints import auth
 from media_summarizer.api.endpoints import auth_social
+from media_summarizer.api.endpoints import podcasts
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     # Initialisation des ressources (connexions DB, etc.)
+    # Fail fast if required S3 buckets are missing (Terraform should provision infra)
+    if os.environ.get("PRESTART_INFRA_CHECK", "1") == "1":
+        from media_summarizer.utils.infra_check import s3_preflight_check
+        missing = await s3_preflight_check()
+        if missing:
+            raise RuntimeError(
+                "Infrastructure not ready: missing S3 buckets: " + ", ".join(missing) +
+                ". Please run Terraform (docker-compose terraform service) and retry."
+            )
     yield
     # Shutdown
     # Libération des ressources
@@ -81,12 +91,23 @@ async def general_exception_handler(request: Request, exc: Exception):
 async def root():
     return {"message": "Bienvenue sur l'API Media Summarizer"}
 
+# Public redirect landing pages for Stripe Checkout
+# These are not webhooks; they are simple pages where the browser lands after payment
+@app.get("/payment-success", include_in_schema=False)
+async def payment_success(session_id: str | None = None):
+    return {"status": "success", "session_id": session_id}
+
+@app.get("/payment-cancel", include_in_schema=False)
+async def payment_cancel():
+    return {"status": "cancelled"}
+
 # Inclusion des routes API
 app.include_router(health.router, prefix="/api/v1/health", tags=["health"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(auth_social.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(podcast_search.router, prefix="/api/v1/podcast-search", tags=["podcast-search"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
-app.include_router(credits.router, prefix="/api/v1", tags=["credits"])
-app.include_router(payments.router, prefix="/api/v1", tags=["payments"])
+from media_summarizer.api.endpoints import billing
+app.include_router(billing.router, prefix="/api/v1", tags=["billing"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
+app.include_router(podcasts.router, prefix="/api/v1", tags=["podcasts"])

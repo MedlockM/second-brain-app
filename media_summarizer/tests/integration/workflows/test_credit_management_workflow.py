@@ -53,6 +53,7 @@ from media_summarizer.tests.utils.httpx_test_server import (
 )
 
 from media_summarizer.api.main import app
+from media_summarizer.core.models.auth import AuthUser
 
 
 class TestCreditManagementWorkflow(BaseIntegrationTestCase):
@@ -86,10 +87,10 @@ class TestCreditManagementWorkflow(BaseIntegrationTestCase):
         from dotenv import load_dotenv
         load_dotenv()
 
-        stripe_api_key = os.environ.get("STRIPE_TEST_API_KEY")
+        stripe_api_key = os.environ.get("STRIPE_API_KEY")
         if not stripe_api_key:
             pytest.skip(
-                "STRIPE_TEST_API_KEY not found in environment variables")
+                "STRIPE_API_KEY not found in environment variables")
 
         # Test network connectivity to Stripe
         try:
@@ -137,10 +138,7 @@ class TestCreditManagementWorkflow(BaseIntegrationTestCase):
         from media_summarizer.api.dependencies.auth import get_current_user
 
         def get_current_user_override():
-            return {
-                "id": "test-user-id",
-                "email": "user@example.com"
-            }
+            return AuthUser(id="test-user-id", email="user@example.com", credits=150)
 
         app.dependency_overrides[get_current_user] = get_current_user_override
 
@@ -468,10 +466,7 @@ class TestCreditManagementWorkflow(BaseIntegrationTestCase):
         from media_summarizer.api.dependencies.auth import get_current_user
 
         def get_current_user_override():
-            return {
-                "id": "test-user-id",
-                "email": "user@example.com"
-            }
+            return AuthUser(id="test-user-id", email="user@example.com", credits=0)
 
         app.dependency_overrides[get_current_user] = get_current_user_override
 
@@ -535,10 +530,7 @@ class TestCreditManagementWorkflow(BaseIntegrationTestCase):
         from media_summarizer.api.dependencies.auth import get_current_user
 
         def get_current_user_override():
-            return {
-                "id": "test-user-id",
-                "email": "user@example.com"
-            }
+            return AuthUser(id="test-user-id", email="user@example.com", credits=100)
 
         app.dependency_overrides[get_current_user] = get_current_user_override
 

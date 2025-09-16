@@ -103,6 +103,7 @@ Key flows (end-to-end)
 4) Summary stored to S3; email notification sent via SES; job status tracked in DynamoDB
 
 Testing architecture (high level)
+- SQS in tests: to avoid flakiness when peeking into queues, always delete messages after receiving them, prefer per-test unique queues (monkeypatch get_queue_url to map logical names like "transcription-queue" to the test queue), and widen retry windows when necessary. Ensure AWS creds are set in the test environment for aiobotocore/boto3 (AWS_ACCESS_KEY_ID/SECRET, AWS_REGION, AWS_ENDPOINT_URL).
 - pytest.ini routes tests to media_summarizer/tests and enables asyncio, coverage, and rich markers
 - Integration tests emphasize real services: LocalStack for AWS, real Whisper docker service, httpx async server for RSS/audio
 - E2E tests require API + workers + LocalStack up; helper script validates services and runs -m e2e

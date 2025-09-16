@@ -27,9 +27,9 @@ class StripeService:
 
     def __init__(self):
         """Initialize the Stripe service with API key."""
-        self.api_key = os.environ.get("STRIPE_API_KEY") or os.environ.get("STRIPE_TEST_API_KEY")
+        self.api_key = os.environ.get("STRIPE_API_KEY")
         if not self.api_key:
-            raise ValueError("STRIPE_API_KEY or STRIPE_TEST_API_KEY environment variable is required")
+            raise ValueError("STRIPE_API_KEY environment variable is required")
 
         stripe.api_key = self.api_key
 
@@ -177,13 +177,18 @@ class StripeService:
                 payment_metadata.update(metadata)
 
             # Create payment intent
+            redirect_policy = os.getenv("STRIPE_REDIRECT_POLICY", "always").lower()
+            apm = {"enabled": True}
+            if redirect_policy == "never":
+                apm["allow_redirects"] = "never"
+
             payment_intent = stripe.PaymentIntent.create(
                 amount=package["price_cents"],
                 currency=currency,
                 customer=customer_id,
                 metadata=payment_metadata,
                 description=f"{package['name']} - {credits} crédits",
-                automatic_payment_methods={"enabled": True}
+                automatic_payment_methods=apm
             )
 
             logger.info(f"Created payment intent {payment_intent.id} for user {user_id} - {credits} credits")

@@ -61,27 +61,6 @@ resource "aws_dynamodb_table" "processing_jobs_v1" {
   }
 }
 
-# Credit transactions table
-resource "aws_dynamodb_table" "credit_transactions_v1" {
-  name         = "credit_transactions"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "id"
-
-  attribute { name = "id"      type = "S" }
-  attribute { name = "user_id" type = "S" }
-
-  global_secondary_index {
-    name            = "user-index"
-    hash_key        = "user_id"
-    projection_type = "ALL"
-  }
-
-  tags = {
-    Name        = "credit_transactions"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
 
 # Auth tokens table used for refresh/email verification tokens
 resource "aws_dynamodb_table" "auth_tokens_v1" {
@@ -131,10 +110,6 @@ output "processing_jobs_table_name" {
   description = "Processing jobs table name"
 }
 
-output "credit_transactions_table_name" {
-  value       = aws_dynamodb_table.credit_transactions_v1.name
-  description = "Credit transactions table name"
-}
 
 output "auth_tokens_table_name" {
   value       = aws_dynamodb_table.auth_tokens_v1.name

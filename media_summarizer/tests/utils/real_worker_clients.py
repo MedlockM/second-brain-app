@@ -118,6 +118,31 @@ class RealWorkerClient:
         return self.docker_client.is_container_healthy(worker_name)
 
 
+class RealRSSWorkerClient(RealWorkerClient):
+    """Client for simulating an RSS resolution step feeding the download queue."""
+
+    def is_available(self) -> bool:
+        # If download worker is running, we consider RSS step available in tests
+        return self._is_worker_running("download-worker")
+
+    async def submit_rss_job(self, podcast_url: str, email: str, user_id: str, job_id: str | None = None) -> str:
+        """
+        Simulate an RSS resolution by enqueueing a message for the download worker.
+        """
+        if not job_id:
+            job_id = str(uuid.uuid4())
+        message = {
+            "job_id": job_id,
+            "podcast_url": podcast_url,
+            "user_email": email,
+            "user_id": user_id,
+        }
+        await self._send_message(QUEUE_NAMES["audio_download"], message)
+        return job_id
+
+    async def wait_for_download_message(self, job_id: str, timeout: int = 30) -> Optional[Dict[str, Any]]:
+        """Wait for the message to be visible in the download queue (loopback for tests)."""
+        return await self._wait_for_message(QUEUE_NAMES["audio_download"], timeout=timeout, expected_job_id=job_id)
 
 
 class RealDownloadWorkerClient(RealWorkerClient):
@@ -281,6 +306,7 @@ class RealWorkflowClient:
     """
 
     def __init__(self):
+        self.rss_client = RealRSSWorkerClient()
         self.download_client = RealDownloadWorkerClient()
         self.transcription_client = RealTranscriptionWorkerClient()
         self.summarization_client = RealSummarizationWorkerClient()
@@ -296,11 +322,39 @@ class RealWorkflowClient:
             self.email_client.is_available()
         )
 
+
+
+# Factory functions used by tests/base classes
+
+def create_rss_worker_client() -> RealRSSWorkerClient:
+    return RealRSSWorkerClient()
+
+
+def create_download_worker_client() -> RealDownloadWorkerClient:
+    return RealDownloadWorkerClient()
+
+
+def create_transcription_worker_client() -> RealTranscriptionWorkerClient:
+    return RealTranscriptionWorkerClient()
+
+
+def create_summarization_worker_client() -> RealSummarizationWorkerClient:
+    return RealSummarizationWorkerClient()
+
+
+def create_email_worker_client() -> RealEmailWorkerClient:
+    return RealEmailWorkerClient()
+
+
+def create_workflow_client() -> RealWorkflowClient:
+    return RealWorkflowClient()
+
     def get_unavailable_workers(self) -> List[str]:
         """Get list of unavailable workers."""
         unavailable = []
 
-
+        if not self.rss_client.is_available():
+            unavailable.append("rss-worker")
         if not self.download_client.is_available():
             unavailable.append("download-worker")
         if not self.transcription_client.is_available():
