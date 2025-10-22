@@ -90,3 +90,13 @@ Objectif
 - Soumission épisode → hold placé, finalize sur durée réelle; si insuffisant, job en WAITING_FOR_MINUTES + notification.
 - Rollover de fin de période → bucket “rollover” créé et consommé en priorité.
 
+11) Tests locaux avec stripe listen (sans mock)
+- Prérequis: `stripe` CLI installé, clés test dans .env.dev (STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET)
+- Démarrer l’API et LocalStack (si nécessaire), puis:
+  ```bash
+  stripe listen --forward-to http://localhost:8000/api/v1/payments/webhook
+  # Remplacer STRIPE_WEBHOOK_SECRET par le secret affiché et redémarrer l’API
+  ```
+- Créer un checkout (packs ou subscriptions) via les endpoints billing et finaliser le paiement dans la page Stripe.
+- Vérifier `/api/v1/billing/me` et `/api/v1/billing/history`.
+

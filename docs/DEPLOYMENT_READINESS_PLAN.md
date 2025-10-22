@@ -136,6 +136,20 @@ APPLE_REDIRECT_URI=https://api.yourdomain.com/api/v1/auth/apple/callback
 - [ ] Documentation OpenAPI + guide d’auth (docs/AUTHENTICATION_SETUP.md)
 - [ ] Tests unitaires/intégration
 
+### 1.9 Spotify OAuth (Link Account) — Readiness Checklist
+- Configuration
+  - [ ] SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET / SPOTIFY_REDIRECT_URI définis (dev/staging/prod)
+  - [ ] Redirect URI whitelistee dans le dashboard Spotify pour chaque environnement
+- Sécurité
+  - [ ] Cookies: Secure=true en prod ; SameSite adapté (None si front ≠ domaine, sur HTTPS)
+  - [ ] Aucun logging de tokens Spotify (access/refresh)
+- Observabilité
+  - [ ] Logs d’erreurs callback (state_mismatch, token_exchange_failed, profile_fetch_failed, persistence_failed)
+- Tests de fumée (staging)
+  - [ ] Utilisateur connecté → /api/v1/auth/spotify/login → consentement → /api/v1/auth/spotify/callback → redirection succès
+  - [ ] Inspection DB: champs spotify_* peuplés sur l’utilisateur
+  - [ ] Cas erreur: state mismatch redirige bien vers error
+
 ---
 
 ## Chantier 2: Monétisation en minutes (Stripe)
@@ -170,10 +184,21 @@ Basculer vers un modèle “minutes” avec abonnements (S/M/L) et packs one-sho
 - minute_usage: holds/finalize par job (status=held/finalized/released/expired)
 - Rollover: fin de période -> créer un bucket “rollover” (expiration = fin du mois suivant)
 - Ordre de consommation: rollover → abonnement courant → packs par expiration
+- Débit au réel: minutes = ceil(durée_secondes / 60)
 
 #### D. Dépréciation de l’ancien système
 - Supprimer /credits/* et la logique CreditTransaction après migration one-shot (1 crédit = 1 minute)
 - Supprimer /payments/intent|confirm|refund (paiement packs via Checkout + webhooks)
+
+#### E. Réservations “soft” (follows) et prévision
+- Mettre en place des réservations non bloquantes par podcast suivi pour estimer la consommation mensuelle.
+- Règles de prévision: 4/3/2/<1 mois selon l’horizon; recalcul mensuel automatique.
+- Exposer la prévision dans /billing/me (prévision totale et par source) sans empêcher les soumissions.
+
+#### F. Intégration workers et états
+- À la soumission d’un épisode: place_hold(job_id, estimate) via MinutePoolService.
+- Après le download (durée réelle connue): finalize(actual) pour débiter les minutes réelles; release_hold en cas d’échec.
+- Si le pool est insuffisant à la soumission: marquer le job en WAITING_FOR_MINUTES (sans échec), et le reprendre automatiquement lorsque des minutes deviennent disponibles (achat, rollover, renouvellement).
 
 ### 2.4 Variables d'Environnement
 ```bash
@@ -1091,3 +1116,79 @@ Ce plan couvre les 8 chantiers critiques pour une mise en production réussie. L
 - Prévoir une période de soft launch avec utilisateurs beta
 - Monitorer de près les premiers jours post-launch
 - Avoir un plan de rollback prêt
+
+---
+
+## Statut d’avancement (2025-10-02)
+
+Cette section suit l’état réel du code et liste les TODO par phase. Les cases cochées indiquent ce qui est en place. Les éléments restants sont listés en TODO.
+
+Références clés dans le repo (non exhaustif):
+- Auth: `media_summarizer/api/endpoints/auth.py`, `media_summarizer/api/endpoints/auth_social.py`, `media_summarizer/api/dependencies/auth.py`
+- Durcissement API / Rate limiting / Validators: `media_summarizer/api/rate_limit.py`, `media_summarizer/core/validators.py`, `media_summarizer/api/endpoints/podcast_search.py`
+- Monétisation minutes: `media_summarizer/api/endpoints/billing.py`, `media_summarizer/core/services/stripe_service_v2.py`, `media_summarizer/core/services/minute_pool.py`
+- Workers: `media_summarizer/workers/base_worker.py`, `media_summarizer/workers/summarization/summarization_worker.py`
+- Terraform (DynamoDB/SQS/S3/LocalStack): `infrastructure/terraform/*`
+- CI: `.github/workflows/*.yml`
+
+### Phase 1 — Fondations
+- [x] Chantier 3 — Alignement infra (DynamoDB tables + GSI, SQS avec DLQ, S3)
+  - Terraform: `dynamodb_core_tables.tf`, `dynamodb_minutes_tables.tf`, `dynamodb_stripe_events.tf`, ressources SQS/S3 dans `scaling.tf` et LocalStack dans `localstack/main.tf`.
+  - Note: prévoir des outputs explicites S3 (audio/transcripts/summaries) pour consommation applicative.
+- [x] Chantier 1 — Auth (OAuth social Google/Apple + fallback local + cookies httpOnly 30j + CORS)
+  - Implémenté + tests d’intégration pour Google/Apple.
+  - [x] Documentation d’auth (guide ajouté: docs/AUTHENTICATION_SETUP.md). OpenAPI auto via /docs.
+- [x] Chantier 4 (partie 1) — Durcissement API
+  - Rate limiting global et par endpoint (slowapi), validation stricte URL audio, release automatique des minutes sur échec job.
+
+### Phase 2 — Monétisation (minutes) et tests
+- [x] Endpoints minutes V2 (`/billing/subscriptions/checkout`, `/billing/packs/checkout`, `/billing/me`) et webhooks `/payments/webhook` v2.
+- [x] StripeService V2 (abonnements + packs + idempotence) et MinutePool (hold/finalize/release).
+- [x] Tables minutes (subscriptions, minute_buckets, minute_usage, follows) + `stripe_events`.
+- [x] Rollover mensuel automatique (créé à l’arrivée de la nouvelle facture: leftover -> bucket « rollover » avec expiry = fin de période courante).
+- [x] Endpoint `/billing/history` (implémenté) avec agrégation via minute_buckets/subscriptions.
+- [x] Migration crédits→minutes — N/A (site non publié). Remplacé complètement par le système minutes; endpoints `/payments/*` neutralisés; tests « crédits » désactivés.
+- [x] E2E « minutes » (abonnement + pack + webhooks + consommation réelle) ajoutés et passants.
+
+### Phase 3 — CI/CD de base
+- [x] CI tests (intégration, E2E, coverage): `.github/workflows/integration-tests.yml`, `.github/workflows/e2e-tests.yml`, `.github/workflows/test-coverage.yml`.
+- [ ] Pipeline build/push images (API, workers, whisper) vers ECR (sur tag `v*`).
+- [ ] Déploiement automatique (mise à jour task definitions / services ECS) et/ou job Terraform avec approbation.
+
+### Phase 4 — Optimisations
+- [ ] OpenAI/LLM tuning dans `summarization_worker.py`:
+  - Rendre le modèle configurable via env (LLM_MODEL, LLM_MAX_TOKENS, LLM_TEMPERATURE, LLM_MAX_RETRIES) et ne plus hardcoder "gpt-4"; gérer timeouts/retries paramétrables.
+  - Logger l’usage/coûts (sans exposer la clé).
+  - Fallback JSON robuste (déjà partiellement présent, à aligner avec le plan).
+- [ ] Observabilité/Monitoring:
+  - Terraform CloudWatch (alarms 5xx ALB/API, âge plus ancien message SQS, CPU/Mem ECS), logs structurés JSON, Sentry (optionnel).
+- [ ] Tests de charge et optimisations (script/outillage, runbook perfs).
+
+### Phase 5 — Go Live
+- [ ] Terraform Prod ECS Fargate (Option B): ECR, TaskDefinition API, Service ECS API always-on derrière ALB, ALB (HTTP puis HTTPS/ACM ultérieur), Route53, Secrets Manager/SSM.
+- [ ] Workflows GitHub Actions de déploiement (OIDC, build/push ECR, update ECS, Terraform plan/apply avec approbation).
+- [ ] SES production: domaine vérifié, SPF/DKIM/DMARC, sortie sandbox, bounces/complaints (SNS + traitement).
+- [ ] Exécuter les checklists pré-prod/go-live/post-launch (SSL/TLS ALB, health checks, backups DynamoDB, alertes, secrets, runbooks, monitoring dashboard, rollback).
+
+---
+
+### TODO par phase (concret)
+
+Phase 2
+- [x] Migration crédits→minutes — N/A (site non publié). Remplacement direct par minutes; endpoints `/payments/*` neutralisés; tests crédits désactivés.
+- [x] Écrire E2E complets « minutes »: abonnement/packs/webhooks/consommation sur soumission d’épisode.
+
+Phase 3
+- [ ] Ajouter `.github/workflows/build-and-push.yml` (build & push images API/worker/whisper vers ECR sur tag `v*`).
+- [ ] Ajouter `.github/workflows/deploy.yml` (update task definitions/services ECS et/ou Terraform apply avec approbation, via OIDC).
+
+Phase 4
+- [ ] Paramétrage LLM via env (LLM_MODEL, LLM_MAX_TOKENS, LLM_TEMPERATURE, LLM_MAX_RETRIES) + logging coûts + retries/timeout.
+- [ ] Ajout Terraform monitoring (CloudWatch alarms), formatage logs JSON, intégration Sentry (optionnel).
+- [ ] Préparer et lancer des tests de charge; documenter un runbook de perfs.
+
+Phase 5
+- [ ] Compléter Terraform Prod (ECR, ECS API/Workers, ALB, Route53, Secrets Manager/SSM, autoscaling, budgets).
+- [ ] Mettre en place les workflows de déploiement (build/push + déploiement ECS/Terraform avec approvals).
+- [ ] Configurer SES en production (domaine, SPF/DKIM/DMARC, sortie sandbox, bounces/complaints).
+- [ ] Exécuter les checklists et bascule DNS le moment venu.

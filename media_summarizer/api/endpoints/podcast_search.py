@@ -2,6 +2,8 @@
 Endpoints pour la recherche et la sélection de podcasts via l'API Podcast Index.
 """
 import logging
+import os
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -9,6 +11,7 @@ from pydantic import EmailStr
 
 from media_summarizer.utils.database_async import get_db
 from media_summarizer.utils import database_async, sqs, podcast_index
+from media_summarizer.core.services.episode_submission import submit_episode_for_user
 from media_summarizer.core.models import User, ProcessingJob
 from media_summarizer.api.dependencies.auth import get_current_user, require_verified_email
 from media_summarizer.core.models.auth import AuthUser
@@ -152,7 +155,7 @@ async def get_podcast_episodes(
             episodes=episodes,
             count=len(episodes),
             feed_id=payload.feed_id,
-            podcast_title=podcast_title
+            podcast_title=podcast_title,
         )
 
     except HTTPException:
@@ -249,69 +252,20 @@ async def submit_episode_for_processing(
                 detail="Utilisateur authentifié introuvable"
             )
 
-        # Créer le job de traitement
-        try:
-            logger.info(f"Creating ProcessingJob for user {user.id}")
-            job = ProcessingJob(
-                user_id=user.id,
-                user_email=user.email,
-                podcast_url=episode_info.get("feedUrl", ""),
-                episode_url=audio_url
-            )
-            logger.info(f"ProcessingJob created successfully: {job.id}")
-            logger.info(f"Job created_at: {job.created_at}")
-            logger.info(f"Job data: {job.to_dynamodb_item()}")
-
-            created_job = await database_async.create_processing_job(job)
-            logger.info(f"Job saved to DynamoDB: {created_job.id}")
-        except Exception as e:
-            logger.error(f"Error creating or saving ProcessingJob: {str(e)}")
-            logger.error(f"Error type: {type(e)}")
-            raise
-
-        # Minute-based: place an initial hold (estimated minutes)
+        # Préparer les titres pour logs/réponses/notifications
         episode_title = episode_info.get("title", "Episode inconnu")
         feed_title = episode_info.get("feedTitle", "Podcast inconnu")
 
-        try:
-            from math import ceil
-            minutes_estimated = ceil(duration_seconds / 60) if duration_seconds > 0 else DEFAULT_MINUTES_ESTIMATE
-            from media_summarizer.core.services.minute_pool import allocate_hold_for_job
-            await allocate_hold_for_job(user_id=user.id, job_id=created_job.id, minutes_estimated=minutes_estimated)
-        except Exception as e:
-            logger.warning(f"Failed to allocate minute hold for job {created_job.id}: {e}")
-
-        # Persist job as created
-        await database_async.update_processing_job(created_job)
-
-        # Envoyer directement vers la queue de download puisqu'on a déjà l'URL audio
-        message_body = {
-            "job_id": created_job.id,
-            "user_id": user.id,
-            "user_email": user.email,
-            "audio_url": audio_url,
-            "episode_title": episode_title,
-            "podcast_title": feed_title,
-            "audio_duration_seconds": duration_seconds
-        }
-
-        try:
-            logger.info(f"Sending message to audio download queue for job {created_job.id}")
-            await sqs.send_message("audio-download-queue", message_body)
-            logger.info(f"Successfully sent message to audio download queue for job {created_job.id}")
-        except Exception as e:
-            logger.error(f"Failed to send message to audio download queue for job {created_job.id}: {e}")
-            # Ne pas faire échouer toute la requête si SQS échoue
-
-        return EpisodeSelectionResponse(
-            job_id=created_job.id,
-            status=created_job.status.value,
-            message="Épisode soumis avec succès pour traitement",
-            minutes_hold_estimated=(minutes_estimated if duration_seconds > 0 else DEFAULT_MINUTES_ESTIMATE),
-            estimated_processing_time="5-10 minutes",
+        # Déléguer la logique au service partagé (idempotence globale, facturation, notifications)
+        result = await submit_episode_for_user(
+            user=user,
+            episode_guid=payload.episode_guid,
             episode_title=episode_title,
-            podcast_title=feed_title
+            feed_title=feed_title,
+            audio_url=audio_url,
+            duration_seconds=duration_seconds,
         )
+        return EpisodeSelectionResponse(**result)
 
     except HTTPException:
         raise

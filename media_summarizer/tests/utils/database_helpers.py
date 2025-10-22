@@ -4,6 +4,7 @@ Database utilities for integration testing with DynamoDB.
 This module provides utilities for setting up and using DynamoDB tables
 for integration testing using LocalStack.
 """
+
 import pytest
 from typing import Dict, Any, List
 from uuid import uuid4
@@ -16,7 +17,7 @@ from media_summarizer.utils.database_async import (
     PODCASTS_TABLE,
     EPISODES_TABLE,
     CREDIT_TRANSACTIONS_TABLE,
-    PROCESSING_JOBS_TABLE
+    PROCESSING_JOBS_TABLE,
 )
 from media_summarizer.core.models import (
     User,
@@ -24,7 +25,7 @@ from media_summarizer.core.models import (
     Episode,
     CreditTransaction,
     ProcessingJob,
-    JobStatus
+    JobStatus,
 )
 
 
@@ -49,7 +50,7 @@ async def clear_all_tables(db_connection: DynamoDBConnection):
         PODCASTS_TABLE,
         EPISODES_TABLE,
         CREDIT_TRANSACTIONS_TABLE,
-        PROCESSING_JOBS_TABLE
+        PROCESSING_JOBS_TABLE,
     ]
 
     async with await db_connection.get_resource() as dynamodb:
@@ -59,11 +60,11 @@ async def clear_all_tables(db_connection: DynamoDBConnection):
             # Scan all items and delete them
             try:
                 response = await table.scan()
-                items = response.get('Items', [])
+                items = response.get("Items", [])
 
                 for item in items:
                     # Get the primary key for deletion
-                    key = {'id': item['id']}
+                    key = {"id": item["id"]}
                     await table.delete_item(Key=key)
             except Exception as e:
                 # Table might not exist, which is fine for tests
@@ -82,17 +83,17 @@ async def populate_test_data(db_connection: DynamoDBConnection):
         users_table = await dynamodb.Table(USERS_TABLE)
         test_users = [
             {
-                'id': 'test-user-id',
-                'email': 'user@example.com',
-                'credits': 100,
-                'created_at': datetime.now().isoformat()
+                "id": "test-user-id",
+                "email": "user@example.com",
+                "credits": 100,
+                "created_at": datetime.now().isoformat(),
             },
             {
-                'id': 'test-user-id-2',
-                'email': 'user2@example.com',
-                'credits': 50,
-                'created_at': datetime.now().isoformat()
-            }
+                "id": "test-user-id-2",
+                "email": "user2@example.com",
+                "credits": 50,
+                "created_at": datetime.now().isoformat(),
+            },
         ]
 
         for user_data in test_users:
@@ -102,10 +103,10 @@ async def populate_test_data(db_connection: DynamoDBConnection):
         podcasts_table = await dynamodb.Table(PODCASTS_TABLE)
         test_podcasts = [
             {
-                'id': 'test-podcast-id',
-                'title': 'Test Podcast',
-                'rss_url': 'https://example.com/podcast.rss',
-                'created_at': datetime.now().isoformat()
+                "id": "test-podcast-id",
+                "title": "Test Podcast",
+                "rss_url": "https://example.com/podcast.rss",
+                "created_at": datetime.now().isoformat(),
             }
         ]
 
@@ -116,12 +117,12 @@ async def populate_test_data(db_connection: DynamoDBConnection):
         episodes_table = await dynamodb.Table(EPISODES_TABLE)
         test_episodes = [
             {
-                'id': 'test-episode-id',
-                'podcast_id': 'test-podcast-id',
-                'title': 'Test Episode',
-                'audio_url': 'https://example.com/episode.mp3',
-                'duration': 3600,
-                'created_at': datetime.now().isoformat()
+                "id": "test-episode-id",
+                "podcast_id": "test-podcast-id",
+                "title": "Test Episode",
+                "audio_url": "https://example.com/episode.mp3",
+                "duration": 3600,
+                "created_at": datetime.now().isoformat(),
             }
         ]
 
@@ -132,13 +133,13 @@ async def populate_test_data(db_connection: DynamoDBConnection):
         jobs_table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
         test_jobs = [
             {
-                'id': 'test-job-id',
-                'user_id': 'test-user-id',
-                'user_email': 'user@example.com',
-                'episode_id': 'test-episode-id',
-                'status': 'completed',
-                'retry_count': 0,
-                'created_at': datetime.now().isoformat()
+                "id": "test-job-id",
+                "user_id": "test-user-id",
+                "user_email": "user@example.com",
+                "episode_id": "test-episode-id",
+                "status": "completed",
+                "retry_count": 0,
+                "created_at": datetime.now().isoformat(),
             }
         ]
 
@@ -149,12 +150,12 @@ async def populate_test_data(db_connection: DynamoDBConnection):
         transactions_table = await dynamodb.Table(CREDIT_TRANSACTIONS_TABLE)
         test_transactions = [
             {
-                'id': 'test-txn-id',
-                'user_id': 'test-user-id',
-                'amount': 100,
-                'type': 'purchase',
-                'description': 'Initial credit purchase',
-                'created_at': datetime.now().isoformat()
+                "id": "test-txn-id",
+                "user_id": "test-user-id",
+                "amount": 100,
+                "type": "purchase",
+                "description": "Initial credit purchase",
+                "created_at": datetime.now().isoformat(),
             }
         ]
 
@@ -162,7 +163,9 @@ async def populate_test_data(db_connection: DynamoDBConnection):
             await transactions_table.put_item(Item=transaction_data)
 
 
-def create_test_user(user_id: str = None, email: str = None, credits: int = 100) -> User:
+def create_test_user(
+    user_id: str = None, email: str = None, credits: int = 100
+) -> User:
     """
     Create a test user instance.
 
@@ -179,14 +182,12 @@ def create_test_user(user_id: str = None, email: str = None, credits: int = 100)
     if email is None:
         email = f"test-{user_id[:8]}@example.com"
 
-    return User(
-        id=user_id,
-        email=email,
-        credits=credits
-    )
+    return User(id=user_id, email=email, credits=credits)
 
 
-def create_test_podcast(podcast_id: str = None, title: str = None, rss_url: str = None) -> Podcast:
+def create_test_podcast(
+    podcast_id: str = None, title: str = None, rss_url: str = None
+) -> Podcast:
     """
     Create a test podcast instance.
 
@@ -205,15 +206,16 @@ def create_test_podcast(podcast_id: str = None, title: str = None, rss_url: str 
     if rss_url is None:
         rss_url = f"https://example.com/podcast-{podcast_id[:8]}.rss"
 
-    return Podcast(
-        id=podcast_id,
-        title=title,
-        rss_url=rss_url
-    )
+    return Podcast(id=podcast_id, title=title, rss_url=rss_url)
 
 
-def create_test_episode(episode_id: str = None, podcast_id: str = None,
-                       title: str = None, audio_url: str = None, duration: int = 3600) -> Episode:
+def create_test_episode(
+    episode_id: str = None,
+    podcast_id: str = None,
+    title: str = None,
+    audio_url: str = None,
+    duration: int = 3600,
+) -> Episode:
     """
     Create a test episode instance.
 
@@ -241,13 +243,17 @@ def create_test_episode(episode_id: str = None, podcast_id: str = None,
         podcast_id=podcast_id,
         title=title,
         audio_url=audio_url,
-        duration=duration
+        duration=duration,
     )
 
 
-def create_test_credit_transaction(transaction_id: str = None, user_id: str = None,
-                                 amount: int = 10, transaction_type: str = "purchase",
-                                 description: str = None) -> CreditTransaction:
+def create_test_credit_transaction(
+    transaction_id: str = None,
+    user_id: str = None,
+    amount: int = 10,
+    transaction_type: str = "purchase",
+    description: str = None,
+) -> CreditTransaction:
     """
     Create a test credit transaction instance.
 
@@ -273,12 +279,17 @@ def create_test_credit_transaction(transaction_id: str = None, user_id: str = No
         user_id=user_id,
         amount=amount,
         type=transaction_type,
-        description=description
+        description=description,
     )
 
 
-def create_test_processing_job(job_id: str = None, user_id: str = None, user_email: str = None,
-                             episode_id: str = None, status: JobStatus = JobStatus.PENDING) -> ProcessingJob:
+def create_test_processing_job(
+    job_id: str = None,
+    user_id: str = None,
+    user_email: str = None,
+    episode_id: str = None,
+    status: JobStatus = JobStatus.PENDING,
+) -> ProcessingJob:
     """
     Create a test processing job instance.
 
@@ -306,7 +317,7 @@ def create_test_processing_job(job_id: str = None, user_id: str = None, user_ema
         user_id=user_id,
         user_email=user_email,
         episode_id=episode_id,
-        status=status
+        status=status,
     )
 
 

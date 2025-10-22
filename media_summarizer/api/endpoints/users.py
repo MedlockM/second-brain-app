@@ -1,6 +1,7 @@
 """
 Endpoints pour la gestion des utilisateurs.
 """
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -14,11 +15,13 @@ router = APIRouter()
 
 class UserCreateRequest(BaseModel):
     """Modèle pour la création d'un utilisateur."""
+
     email: EmailStr
 
 
 class UserResponse(BaseModel):
     """Modèle pour la réponse utilisateur."""
+
     id: str
     email: str
     credits: int
@@ -31,22 +34,19 @@ class UserResponse(BaseModel):
         return cls(
             id=user.id,
             email=user.email,
-            credits=user.credits,
             created_at=user.created_at.isoformat(),
-            updated_at=user.updated_at.isoformat()
+            updated_at=user.updated_at.isoformat(),
         )
 
 
 class UserUpdateRequest(BaseModel):
     """Modèle pour la mise à jour d'un utilisateur."""
+
     email: Optional[EmailStr] = None
 
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_user(
-    user_data: UserCreateRequest,
-    db=Depends(get_db)
-):
+async def create_user(user_data: UserCreateRequest, db=Depends(get_db)):
     """
     Crée un nouveau utilisateur.
 
@@ -65,13 +65,13 @@ async def create_user(
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Un utilisateur avec cet email existe déjà"
+            detail="Un utilisateur avec cet email existe déjà",
         )
 
     # Créer le nouvel utilisateur
     new_user = User(
         email=user_data.email,
-        credits=0  # Nouveaux utilisateurs commencent avec 0 crédits
+        credits=0,  # Nouveaux utilisateurs commencent avec 0 crédits
     )
 
     try:
@@ -80,15 +80,12 @@ async def create_user(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de la création de l'utilisateur: {str(e)}"
+            detail=f"Erreur lors de la création de l'utilisateur: {str(e)}",
         )
 
 
 @router.get("/{user_id}", response_model=UserResponse)
-async def get_user(
-    user_id: str,
-    db=Depends(get_db)
-):
+async def get_user(user_id: str, db=Depends(get_db)):
     """
     Récupère un utilisateur par son ID.
 
@@ -105,18 +102,14 @@ async def get_user(
     user = await database_async.get_user_by_id(user_id)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Utilisateur non trouvé"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur non trouvé"
         )
 
     return UserResponse.from_user(user)
 
 
 @router.get("/email/{email}", response_model=UserResponse)
-async def get_user_by_email(
-    email: EmailStr,
-    db=Depends(get_db)
-):
+async def get_user_by_email(email: EmailStr, db=Depends(get_db)):
     """
     Récupère un utilisateur par son email.
 
@@ -133,19 +126,14 @@ async def get_user_by_email(
     user = await database_async.get_user_by_email(email)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Utilisateur non trouvé"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur non trouvé"
         )
 
     return UserResponse.from_user(user)
 
 
 @router.put("/{user_id}", response_model=UserResponse)
-async def update_user(
-    user_id: str,
-    user_data: UserUpdateRequest,
-    db=Depends(get_db)
-):
+async def update_user(user_id: str, user_data: UserUpdateRequest, db=Depends(get_db)):
     """
     Met à jour un utilisateur.
 
@@ -164,8 +152,7 @@ async def update_user(
     user = await database_async.get_user_by_id(user_id)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Utilisateur non trouvé"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur non trouvé"
         )
 
     # Vérifier si le nouvel email existe déjà (si fourni)
@@ -174,7 +161,7 @@ async def update_user(
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Un utilisateur avec cet email existe déjà"
+                detail="Un utilisateur avec cet email existe déjà",
             )
 
     # Mettre à jour les champs modifiés
@@ -190,17 +177,14 @@ async def update_user(
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Erreur lors de la mise à jour: {str(e)}"
+                detail=f"Erreur lors de la mise à jour: {str(e)}",
             )
 
     return UserResponse.from_user(user)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(
-    user_id: str,
-    db=Depends(get_db)
-):
+async def delete_user(user_id: str, db=Depends(get_db)):
     """
     Supprime un utilisateur.
 
@@ -214,6 +198,5 @@ async def delete_user(
     success = await database_async.delete_user(user_id)
     if not success:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Utilisateur non trouvé"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur non trouvé"
         )

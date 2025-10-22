@@ -8,8 +8,7 @@ This module contains business logic services for:
 - External API integrations
 """
 
-from .stripe_service import StripeService
+# Avoid importing heavy submodules at package import time to prevent unnecessary side-effects
+# (e.g., importing legacy Stripe service when only V2 is needed).
 
-__all__ = [
-    "StripeService",
-]
+__all__ = []

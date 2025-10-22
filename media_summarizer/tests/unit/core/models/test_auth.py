@@ -1,6 +1,7 @@
 """
 Unit tests for authentication models (post-magic-link migration).
 """
+
 import pytest
 from pydantic import ValidationError
 from datetime import datetime, timezone, timedelta
@@ -8,7 +9,7 @@ from media_summarizer.core.models.auth import (
     AuthToken,
     TokenType,
     TokenVerificationResponse,
-    AuthUser
+    AuthUser,
 )
 
 
@@ -40,41 +41,83 @@ class TestAuthToken:
         user_id = "test-user-123"
         email = "test@example.com"
         absolute = datetime.now(timezone.utc) + timedelta(days=5)
-        token = AuthToken.create_refresh_token(user_id, email, absolute_expires_at=absolute)
+        token = AuthToken.create_refresh_token(
+            user_id, email, absolute_expires_at=absolute
+        )
         assert token.token_type == TokenType.REFRESH_TOKEN
         assert token.expires_at == absolute
 
     def test_email_verification_token_creation(self):
         user_id = "test-user-123"
         email = "test@example.com"
-        token = AuthToken.create_email_verification_token(user_id, email, expires_in_hours=24)
+        token = AuthToken.create_email_verification_token(
+            user_id, email, expires_in_hours=24
+        )
         assert token.token_type == TokenType.EMAIL_VERIFICATION
         # within tolerance
-        assert abs((token.expires_at - (datetime.now(timezone.utc) + timedelta(hours=24))).total_seconds()) < 60
+        assert (
+            abs(
+                (
+                    token.expires_at
+                    - (datetime.now(timezone.utc) + timedelta(hours=24))
+                ).total_seconds()
+            )
+            < 60
+        )
 
     def test_email_validation_and_normalization(self):
         user_id = "test-user-123"
         expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         # normalization
-        t = AuthToken(user_id=user_id, email="  TEST@EXAMPLE.COM  ", token_type=TokenType.ACCESS_TOKEN, expires_at=expires_at)
+        t = AuthToken(
+            user_id=user_id,
+            email="  TEST@EXAMPLE.COM  ",
+            token_type=TokenType.ACCESS_TOKEN,
+            expires_at=expires_at,
+        )
         assert t.email == "test@example.com"
         # invalids
         with pytest.raises(ValidationError):
-            AuthToken(user_id=user_id, email="", token_type=TokenType.ACCESS_TOKEN, expires_at=expires_at)
+            AuthToken(
+                user_id=user_id,
+                email="",
+                token_type=TokenType.ACCESS_TOKEN,
+                expires_at=expires_at,
+            )
         with pytest.raises(ValidationError):
-            AuthToken(user_id=user_id, email="   ", token_type=TokenType.ACCESS_TOKEN, expires_at=expires_at)
+            AuthToken(
+                user_id=user_id,
+                email="   ",
+                token_type=TokenType.ACCESS_TOKEN,
+                expires_at=expires_at,
+            )
         with pytest.raises(ValidationError):
-            AuthToken(user_id=user_id, email="invalid-email", token_type=TokenType.ACCESS_TOKEN, expires_at=expires_at)
+            AuthToken(
+                user_id=user_id,
+                email="invalid-email",
+                token_type=TokenType.ACCESS_TOKEN,
+                expires_at=expires_at,
+            )
 
     def test_is_expired_and_is_valid(self):
         user_id = "test-user-123"
         email = "test@example.com"
         # not expired
-        t1 = AuthToken(user_id=user_id, email=email, token_type=TokenType.ACCESS_TOKEN, expires_at=datetime.now(timezone.utc) + timedelta(minutes=5))
+        t1 = AuthToken(
+            user_id=user_id,
+            email=email,
+            token_type=TokenType.ACCESS_TOKEN,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
         assert t1.is_expired() is False
         assert t1.is_valid() is True
         # expired
-        t2 = AuthToken(user_id=user_id, email=email, token_type=TokenType.ACCESS_TOKEN, expires_at=datetime.now(timezone.utc) - timedelta(minutes=1))
+        t2 = AuthToken(
+            user_id=user_id,
+            email=email,
+            token_type=TokenType.ACCESS_TOKEN,
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
         assert t2.is_expired() is True
         assert t2.is_valid() is False
         # used
@@ -119,28 +162,33 @@ class TestTokenVerificationResponse:
         access_token = "jwt-token-string"
         expires_in = 86400
         user_data = {"id": "user-123", "email": "test@example.com", "credits": 100}
-        resp = TokenVerificationResponse(access_token=access_token, expires_in=expires_in, user=user_data)
+        resp = TokenVerificationResponse(
+            access_token=access_token, expires_in=expires_in, user=user_data
+        )
         assert resp.access_token == access_token
         assert resp.token_type == "bearer"
         assert resp.expires_in == expires_in
         assert resp.user == user_data
 
     def test_custom_token_type(self):
-        resp = TokenVerificationResponse(access_token="t", expires_in=3600, user={}, token_type="custom")
+        resp = TokenVerificationResponse(
+            access_token="t", expires_in=3600, user={}, token_type="custom"
+        )
         assert resp.token_type == "custom"
 
 
 class TestAuthUser:
     def test_creation(self):
-        au = AuthUser(id="u1", email="test@example.com", credits=100)
+        au = AuthUser(id="u1", email="test@example.com")
         assert au.id == "u1"
         assert au.email == "test@example.com"
-        assert au.credits == 100
 
     def test_required(self):
         with pytest.raises(ValidationError):
-            AuthUser(email="e", credits=1)
+            AuthUser(email="e")
         with pytest.raises(ValidationError):
-            AuthUser(id="u", credits=1)
-        with pytest.raises(ValidationError):
-            AuthUser(id="u", email="e")
+            AuthUser(id="u")
+        # Now valid without legacy credits field
+        au2 = AuthUser(id="u", email="e")
+        assert au2.id == "u"
+        assert au2.email == "e"

@@ -56,7 +56,7 @@ Testing
   - Unit: pytest media_summarizer/tests/unit -v
   - Integration: pytest media_summarizer/tests/integration -v
   - E2E: pytest media_summarizer/tests/end_to_end -v -m e2e
-- Markers (defined in pytest.ini): unit, integration, component, workflow, e2e, requires_workers, requires_localstack, requires_database, requires_stripe, requires_whisper, requires_all_services, slow, fast, api, worker, adapter, core, database, ci_only, local_only, nightly, smoke
+- Markers (defined in pytest.ini): unit, integration, component, workflow, e2e, requires_workers, requires_localstack, requires_database, requires_stripe, requires_whisper, requires_all_services, slow, fast, api, worker, adapter, core, database, ci_only, local_only, nightly, smoke, forecast
   - Example: pytest -m "unit and not slow"
 - Single test
   - File: pytest media_summarizer/tests/unit/api/endpoints/test_health.py -q

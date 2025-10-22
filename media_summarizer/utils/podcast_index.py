@@ -18,8 +18,19 @@ logger = logging.getLogger(__name__)
 
 # API configuration
 PODCAST_INDEX_BASE_URL = "https://api.podcastindex.org/api/1.0"
-API_KEY = os.getenv("PODCASTINDEXORG_API_KEY")
-API_SECRET = os.getenv("PODCASTINDEXORG_API_SECRET")
+
+def _get_env_stripped(name: str) -> Optional[str]:
+    v = os.getenv(name)
+    if v is None:
+        return None
+    # Remove surrounding quotes and whitespace
+    v = v.strip()
+    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+        v = v[1:-1]
+    return v.strip()
+
+API_KEY = _get_env_stripped("PODCASTINDEXORG_API_KEY")
+API_SECRET = _get_env_stripped("PODCASTINDEXORG_API_SECRET")
 
 # HTTP client configuration (durcissement: timeouts explicites)
 PODCAST_INDEX_TIMEOUT_SECONDS = int(os.getenv("PODCAST_INDEX_TIMEOUT_SECONDS", "20"))
@@ -38,7 +49,8 @@ def _generate_headers() -> Dict[str, str]:
         if API_KEY == "test_key" and API_SECRET == "test_secret":
             return {
                 "User-Agent": "MediaSummarizer/1.0",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "Accept": "application/json",
             }
         raise ValueError("PODCASTINDEXORG_API_KEY and PODCASTINDEXORG_API_SECRET must be set")
 
@@ -51,8 +63,12 @@ def _generate_headers() -> Dict[str, str]:
     return {
         "X-Auth-Date": unix_time,
         "X-Auth-Key": API_KEY,
+        # Some clients/libraries/infra expect either Authorization or X-Auth-Hash; include both.
         "Authorization": authorization_hash,
-        "User-Agent": "MediaSummarizer/1.0"
+        "X-Auth-Hash": authorization_hash,
+        "User-Agent": "MediaSummarizer/1.0",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
     }
 
 

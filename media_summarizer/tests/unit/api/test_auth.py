@@ -1,6 +1,7 @@
 """
 Unit tests for authentication dependencies and endpoints.
 """
+
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from datetime import datetime, timezone, timedelta
@@ -14,7 +15,7 @@ from media_summarizer.api.dependencies.auth import (
     require_user_access,
     require_sufficient_credits,
     get_user_id_from_request,
-    validate_token_fresh
+    validate_token_fresh,
 )
 from media_summarizer.api.endpoints.auth import router
 from media_summarizer.core.models.auth import (
@@ -44,7 +45,10 @@ class TestGetCurrentUser:
         mock_user = User(id=user_id, email=email, credits=credits)
         mock_db = AsyncMock()
 
-        with patch('media_summarizer.utils.database_async.get_user_by_id', return_value=mock_user):
+        with patch(
+            "media_summarizer.utils.database_async.get_user_by_id",
+            return_value=mock_user,
+        ):
             auth_user = await get_current_user(token, mock_db)
 
             assert isinstance(auth_user, AuthUser)
@@ -105,7 +109,9 @@ class TestGetCurrentUser:
 
         mock_db = AsyncMock()
 
-        with patch('media_summarizer.utils.database_async.get_user_by_id', return_value=None):
+        with patch(
+            "media_summarizer.utils.database_async.get_user_by_id", return_value=None
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await get_current_user(token, mock_db)
 
@@ -127,7 +133,10 @@ class TestGetCurrentUser:
         mock_user = User(id=user_id, email=user_email, credits=100)
         mock_db = AsyncMock()
 
-        with patch('media_summarizer.utils.database_async.get_user_by_id', return_value=mock_user):
+        with patch(
+            "media_summarizer.utils.database_async.get_user_by_id",
+            return_value=mock_user,
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await get_current_user(token, mock_db)
 
@@ -166,7 +175,10 @@ class TestGetOptionalUser:
         mock_user = User(id=user_id, email=email, credits=credits)
         mock_db = AsyncMock()
 
-        with patch('media_summarizer.utils.database_async.get_user_by_id', return_value=mock_user):
+        with patch(
+            "media_summarizer.utils.database_async.get_user_by_id",
+            return_value=mock_user,
+        ):
             auth_user = await get_optional_user(token, mock_db)
 
             assert isinstance(auth_user, AuthUser)
@@ -246,8 +258,13 @@ class TestRequireSufficientCredits:
 
         mock_db = AsyncMock()
 
-        with patch('media_summarizer.utils.database_async.get_user_by_id', return_value=fresh_user):
-            result = await require_sufficient_credits(required_credits, auth_user, mock_db)
+        with patch(
+            "media_summarizer.utils.database_async.get_user_by_id",
+            return_value=fresh_user,
+        ):
+            result = await require_sufficient_credits(
+                required_credits, auth_user, mock_db
+            )
 
             assert result.credits == credits  # Should be updated with fresh data
 
@@ -264,7 +281,10 @@ class TestRequireSufficientCredits:
 
         mock_db = AsyncMock()
 
-        with patch('media_summarizer.utils.database_async.get_user_by_id', return_value=fresh_user):
+        with patch(
+            "media_summarizer.utils.database_async.get_user_by_id",
+            return_value=fresh_user,
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await require_sufficient_credits(required_credits, auth_user, mock_db)
 
@@ -280,7 +300,9 @@ class TestRequireSufficientCredits:
 
         mock_db = AsyncMock()
 
-        with patch('media_summarizer.utils.database_async.get_user_by_id', return_value=None):
+        with patch(
+            "media_summarizer.utils.database_async.get_user_by_id", return_value=None
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await require_sufficient_credits(required_credits, auth_user, mock_db)
 
@@ -361,7 +383,10 @@ class TestErrorHandling:
 
         mock_db = AsyncMock()
 
-        with patch('media_summarizer.utils.database_async.get_user_by_id', side_effect=Exception("Database error")):
+        with patch(
+            "media_summarizer.utils.database_async.get_user_by_id",
+            side_effect=Exception("Database error"),
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await get_current_user(token, mock_db)
 
@@ -375,7 +400,10 @@ class TestErrorHandling:
         auth_user = AuthUser(id=user_id, email="test@example.com", credits=100)
         mock_db = AsyncMock()
 
-        with patch('media_summarizer.utils.database_async.get_user_by_id', side_effect=Exception("Database error")):
+        with patch(
+            "media_summarizer.utils.database_async.get_user_by_id",
+            side_effect=Exception("Database error"),
+        ):
             with pytest.raises(Exception, match="Database error"):
                 await require_sufficient_credits(50, auth_user, mock_db)
 

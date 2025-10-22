@@ -17,10 +17,6 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
       - AWS_REGION=us-east-1
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
-      - PODCASTINDEXORG_API_KEY=${PODCASTINDEXORG_API_KEY:-}
-      - PODCASTINDEXORG_API_SECRET=${PODCASTINDEXORG_API_SECRET:-}
       # S3 Buckets
       - AUDIO_BUCKET=media-summarizer-audio
       - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
@@ -52,7 +48,7 @@ services:
       context: .
       dockerfile: infrastructure/docker/whisper.Dockerfile
       args:
-        - WHISPER_MODEL_SIZE=tiny # Use tiny model for development
+        - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-large} # From .env.dev; default to large for better accuracy
     volumes:
       - .:/app
     env_file:
@@ -63,7 +59,8 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
       - AWS_REGION=us-east-1
-      - WHISPER_MODEL_SIZE=tiny # Use tiny model for development
+      # Force small model at runtime; build preloads via arg but runtime uses this
+      - WHISPER_MODEL=small
       - ENVIRONMENT=development
       - SQS_MAX_MESSAGES=1
       - SQS_WAIT_TIME=1
@@ -142,7 +139,6 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
       - AWS_REGION=us-east-1
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # S3 Buckets
       - AUDIO_BUCKET=media-summarizer-audio
       - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
@@ -156,6 +152,7 @@ services:
       - TRANSCRIPTION_QUEUE=transcription-queue
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
+      - EPISODE_COMPLETED_EVENTS_QUEUE=episode-completed-events
     depends_on:
       localstack:
         condition: service_healthy
@@ -198,6 +195,40 @@ services:
       terraform:
         condition: service_completed_successfully
     command: python -m media_summarizer.workers.notification.email_worker
+
+  # Worker d'événements d'épisodes complétés (fan-out watchers)
+  episode-events-worker:
+    profiles: ["workers", "full"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    volumes:
+      - .:/app
+    env_file:
+      - .env.dev
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_REGION=us-east-1
+      # S3 Buckets
+      - AUDIO_BUCKET=media-summarizer-audio
+      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - SUMMARY_BUCKET=media-summarizer-summaries
+      # DynamoDB Tables
+      - USERS_TABLE=users
+      - PROCESSING_JOBS_TABLE=processing_jobs
+      - CREDIT_TRANSACTIONS_TABLE=credit_transactions
+      # SQS Queues
+      - EPISODE_COMPLETED_EVENTS_QUEUE=episode-completed-events
+      - NOTIFICATION_QUEUE=email-notification-queue
+    depends_on:
+      localstack:
+        condition: service_healthy
+      terraform:
+        condition: service_completed_successfully
+    command: python -m media_summarizer.workers.events.episode_completed_worker
 
   # LocalStack pour simuler les services AWS (incluant DynamoDB)
   localstack:

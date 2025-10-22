@@ -173,6 +173,50 @@ resource "aws_dynamodb_table" "follows" {
 
   tags = { Name = "follows", Environment = local.environment, Project = local.project }
 }
+
+# Episode watchers table
+resource "aws_dynamodb_table" "episode_watchers" {
+  name         = "episode_watchers"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "episode_guid"
+  range_key    = "user_id"
+
+  attribute {
+    name = "episode_guid"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+
+  tags = { Name = "episode_watchers", Environment = local.environment, Project = local.project }
+}
+
+# Feed forecasts (shared cache): PK (feed_id, month_key)
+resource "aws_dynamodb_table" "feed_forecasts" {
+  name         = "feed_forecasts"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "feed_id"
+  range_key    = "month_key"
+
+  attribute {
+    name = "feed_id"
+    type = "S"
+  }
+  attribute {
+    name = "month_key"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  tags = { Name = "feed_forecasts", Environment = local.environment, Project = local.project }
+}
+
 resource "aws_dynamodb_table" "users" {
   name         = "users"
   billing_mode = "PAY_PER_REQUEST"
@@ -227,6 +271,39 @@ resource "aws_dynamodb_table" "processing_jobs" {
   }
 
   tags = { Name = "processing_jobs", Environment = local.environment, Project = local.project }
+}
+
+# Episode idempotence: per-user, per-episode GUID reservation table
+resource "aws_dynamodb_table" "episode_idempotence" {
+  name         = "episode_idempotence"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "episode_guid"
+
+  attribute {
+    name = "episode_guid"
+    type = "S"
+  }
+
+  tags = { Name = "episode_idempotence", Environment = local.environment, Project = local.project }
+}
+
+# User episode submissions table: prevent per-user re-submissions
+resource "aws_dynamodb_table" "user_episode_submissions" {
+  name         = "user_episode_submissions"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+  range_key    = "episode_guid"
+
+  attribute {
+    name = "user_id"
+    type  = "S"
+  }
+  attribute {
+    name = "episode_guid"
+    type  = "S"
+  }
+
+  tags = { Name = "user_episode_submissions", Environment = local.environment, Project = local.project }
 }
 
 resource "aws_dynamodb_table" "credit_transactions" {
@@ -372,6 +449,17 @@ resource "aws_sqs_queue" "email_notification" {
   })
 }
 
+# Episode completed events (fan-out to watchers)
+resource "aws_sqs_queue" "episode_completed_dlq" { name = "episode-completed-dlq" }
+resource "aws_sqs_queue" "episode_completed" {
+  name = "episode-completed-events"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.episode_completed_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
 # -------------------- SES Email Identities --------------------
 resource "aws_ses_email_identity" "noreply_prod" {
   email = "noreply@media-summarizer.com"
@@ -397,6 +485,10 @@ output "dynamodb_tables" {
     aws_dynamodb_table.minute_buckets.name,
     aws_dynamodb_table.minute_usage.name,
     aws_dynamodb_table.follows.name,
+    aws_dynamodb_table.feed_forecasts.name,
+    aws_dynamodb_table.episode_idempotence.name,
+    aws_dynamodb_table.episode_watchers.name,
+    aws_dynamodb_table.user_episode_submissions.name,
   ]
 }
 
@@ -406,6 +498,7 @@ output "sqs_queues" {
     aws_sqs_queue.transcription.name,
     aws_sqs_queue.summarization.name,
     aws_sqs_queue.email_notification.name,
+    aws_sqs_queue.episode_completed.name,
   ]
 }
 

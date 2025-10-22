@@ -1,6 +1,27 @@
 """
-User model for the Media Summarizer application using DynamoDB.
+User model for the Media Summarizer application (minutes-based billing era).
+
+All legacy 'credits' fields and credit-manipulation methods have been REMOVED.
+Historique:
+- Ancienne version stockait un entier `credits` et des méthodes add/deduct/update.
+- Le système de facturation repose désormais sur les minute buckets (voir core.models.billing + utils.minute_db).
+
+Si du code externe attend encore `user.credits`, il faudra:
+1. Le mettre à jour pour utiliser une agrégation des minutes (ex: somme des buckets).
+2. Ou fournir un adaptateur temporaire ailleurs (ne pas réintroduire ici).
+
+Structure DynamoDB:
+- Partition key: id
+- GSI: email-index (présumé) pour requêtes par email
+
+Notes:
+- Aucun champ nul n'est écrit dans DynamoDB (DynamoDB n'accepte pas les nulls).
+- Les horodatages sont stockés en ISO8601 UTC.
+
+TODO (optionnel hors de ce modèle):
+- Script de migration: convertir users.credits existant en MinuteBucket(source_type='migration') avant suppression de la colonne dans la table.
 """
+
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator
@@ -8,115 +29,127 @@ import uuid
 
 
 class User(BaseModel):
-    """User model for storing user information and credits in DynamoDB."""
+    """
+    Minimal user domain model (post-credits).
+    """
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     email: str = Field(..., min_length=1)
-    credits: int = Field(default=0, ge=0)
+
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    # Optional auth-related fields
+    # Optional auth-related / profile fields
     password_hash: Optional[str] = None
     auth_provider: Optional[str] = None  # e.g., "local", "google", "apple"
-    provider_id: Optional[str] = None    # e.g., OIDC sub
+    provider_id: Optional[str] = None  # External provider subject / ID
     email_verified_at: Optional[datetime] = None
     name: Optional[str] = None
     avatar_url: Optional[str] = None
 
-    @field_validator('email')
-    @classmethod
-    def email_must_be_valid(cls, v):
-        """Validate that the email is not empty and has basic format."""
-        if not v.strip():
-            raise ValueError('Email must not be empty')
-        if '@' not in v:
-            raise ValueError('Email must contain @ symbol')
-        return v.lower().strip()
+    # Linked accounts: Spotify (link-account flow)
+    spotify_user_id: Optional[str] = None
+    spotify_access_token: Optional[str] = None
+    spotify_refresh_token: Optional[str] = None
+    spotify_token_expires_at: Optional[datetime] = None
+    spotify_scope: Optional[str] = None
 
-    @field_validator('credits')
+    @field_validator("email")
     @classmethod
-    def credits_must_be_non_negative(cls, v):
-        """Validate that credits is non-negative."""
-        if v < 0:
-            raise ValueError('Credits cannot be negative')
+    def email_must_be_valid(cls, v: str) -> str:
+        """Basic email sanity checks."""
+        if not v or not v.strip():
+            raise ValueError("Email must not be empty")
+        v = v.strip().lower()
+        if "@" not in v:
+            raise ValueError("Email must contain '@'")
         return v
 
-    def to_dynamodb_item(self) -> Dict[str, Any]:
-        """Convert the model to a DynamoDB item."""
-        item: Dict[str, Any] = {
-            'id': self.id,
-            'email': self.email,
-            'credits': self.credits,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
-        }
-        # Add optional fields only if present (DynamoDB doesn't accept nulls)
-        if self.password_hash is not None:
-            item['password_hash'] = self.password_hash
-        if self.auth_provider is not None:
-            item['auth_provider'] = self.auth_provider
-        if self.provider_id is not None:
-            item['provider_id'] = self.provider_id
-        if self.email_verified_at is not None:
-            item['email_verified_at'] = self.email_verified_at.isoformat()
-        if self.name is not None:
-            item['name'] = self.name
-        if self.avatar_url is not None:
-            item['avatar_url'] = self.avatar_url
-        return item
-
-    @classmethod
-    def from_dynamodb_item(cls, item: Dict[str, Any]) -> 'User':
-        """Create a User instance from a DynamoDB item."""
-        return cls(
-            id=item['id'],
-            email=item['email'],
-            credits=item['credits'],
-            created_at=datetime.fromisoformat(item['created_at']),
-            updated_at=datetime.fromisoformat(item['updated_at']),
-            password_hash=item.get('password_hash'),
-            auth_provider=item.get('auth_provider'),
-            provider_id=item.get('provider_id'),
-            email_verified_at=(datetime.fromisoformat(item['email_verified_at']) if item.get('email_verified_at') else None),
-            name=item.get('name'),
-            avatar_url=item.get('avatar_url')
-        )
-
-    def update_credits(self, amount: int) -> None:
-        """Update user credits and timestamp."""
-        self.credits += amount
-        self.updated_at = datetime.now(timezone.utc)
-
-        if self.credits < 0:
-            raise ValueError('Credits cannot be negative after update')
-
-    def deduct_credits(self, amount: int) -> None:
-        """Deduct credits from user account."""
-        if amount <= 0:
-            raise ValueError('Amount to deduct must be positive')
-
-        if self.credits < amount:
-            raise ValueError(f'Insufficient credits. Available: {self.credits}, Required: {amount}')
-
-        self.credits -= amount
-        self.updated_at = datetime.now(timezone.utc)
-
-    def add_credits(self, amount: int) -> None:
-        """Add credits to user account."""
-        if amount <= 0:
-            raise ValueError('Amount to add must be positive')
-
-        self.credits += amount
+    def touch(self) -> None:
+        """Update the updated_at timestamp."""
         self.updated_at = datetime.now(timezone.utc)
 
     def update(self, **kwargs):
-        """Update user attributes."""
+        """
+        Update mutable attributes (excluding id) then refresh updated_at.
+        Silent ignore of unknown attributes.
+        """
         for key, value in kwargs.items():
-            if hasattr(self, key) and key != 'id':  # Don't allow ID updates
+            if key == "id":
+                continue
+            if hasattr(self, key):
                 setattr(self, key, value)
-        self.updated_at = datetime.now(timezone.utc)
+        self.touch()
         return self
 
-    def __repr__(self):
-        return f"<User(id='{self.id}', email='{self.email}', credits={self.credits})>"
+    # ---------- DynamoDB Serialization ----------
+
+    def to_dynamodb_item(self) -> Dict[str, Any]:
+        """
+        Convert model to a DynamoDB-compatible item (no nulls).
+        """
+        item: Dict[str, Any] = {
+            "id": self.id,
+            "email": self.email,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+        if self.password_hash is not None:
+            item["password_hash"] = self.password_hash
+        if self.auth_provider is not None:
+            item["auth_provider"] = self.auth_provider
+        if self.provider_id is not None:
+            item["provider_id"] = self.provider_id
+        if self.email_verified_at is not None:
+            item["email_verified_at"] = self.email_verified_at.isoformat()
+        if self.name is not None:
+            item["name"] = self.name
+        if self.avatar_url is not None:
+            item["avatar_url"] = self.avatar_url
+        # Spotify linked account fields (only if present)
+        if self.spotify_user_id is not None:
+            item["spotify_user_id"] = self.spotify_user_id
+        if self.spotify_access_token is not None:
+            item["spotify_access_token"] = self.spotify_access_token
+        if self.spotify_refresh_token is not None:
+            item["spotify_refresh_token"] = self.spotify_refresh_token
+        if self.spotify_token_expires_at is not None:
+            item["spotify_token_expires_at"] = self.spotify_token_expires_at.isoformat()
+        if self.spotify_scope is not None:
+            item["spotify_scope"] = self.spotify_scope
+        return item
+
+    @classmethod
+    def from_dynamodb_item(cls, item: Dict[str, Any]) -> "User":
+        """
+        Rehydrate a User from a DynamoDB item.
+        Ignores any legacy 'credits' key if still present in table rows (transitional safety).
+        """
+        return cls(
+            id=item["id"],
+            email=item["email"],
+            created_at=datetime.fromisoformat(item["created_at"]),
+            updated_at=datetime.fromisoformat(item["updated_at"]),
+            password_hash=item.get("password_hash"),
+            auth_provider=item.get("auth_provider"),
+            provider_id=item.get("provider_id"),
+            email_verified_at=(
+                datetime.fromisoformat(item["email_verified_at"])
+                if item.get("email_verified_at")
+                else None
+            ),
+            name=item.get("name"),
+            avatar_url=item.get("avatar_url"),
+            spotify_user_id=item.get("spotify_user_id"),
+            spotify_access_token=item.get("spotify_access_token"),
+            spotify_refresh_token=item.get("spotify_refresh_token"),
+            spotify_token_expires_at=(
+                datetime.fromisoformat(item["spotify_token_expires_at"])
+                if item.get("spotify_token_expires_at")
+                else None
+            ),
+            spotify_scope=item.get("spotify_scope"),
+        )
+
+    def __repr__(self) -> str:  # pragma: no cover (representation)
+        return f"<User(id='{self.id}', email='{self.email}')>"

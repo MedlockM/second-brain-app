@@ -1,10 +1,19 @@
 """
 Authentication endpoints for local email/password with 30-day absolute refresh sessions.
 """
+
 import os
 import logging
 from datetime import timedelta, datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Response, Request
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+    BackgroundTasks,
+    Response,
+    Request,
+)
 
 from media_summarizer.core.models.auth import (
     RegisterRequest,
@@ -18,7 +27,13 @@ from media_summarizer.core.models.auth import (
 from pydantic import BaseModel, Field
 from media_summarizer.core.models import User
 from media_summarizer.utils import database_async
-from media_summarizer.utils.auth_utils import create_access_token, create_token_payload, verify_password, hash_password, JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+from media_summarizer.utils.auth_utils import (
+    create_access_token,
+    create_token_payload,
+    verify_password,
+    hash_password,
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
+)
 from media_summarizer.utils.database_async import get_db, DynamoDBConnection
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.utils.email_service import email_service
@@ -36,7 +51,9 @@ COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() in ("1", "true"
 COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").lower()  # lax|strict|none
 
 
-def _set_refresh_cookie(response: Response, token_value: str, absolute_expires_at: datetime) -> None:
+def _set_refresh_cookie(
+    response: Response, token_value: str, absolute_expires_at: datetime
+) -> None:
     max_age = int((absolute_expires_at - datetime.now(timezone.utc)).total_seconds())
     max_age = max(0, max_age)
     response.set_cookie(
@@ -65,16 +82,17 @@ async def register(
     request: RegisterRequest,
     response: Response,
     background_tasks: BackgroundTasks,
-    db: DynamoDBConnection = Depends(get_db)
+    db: DynamoDBConnection = Depends(get_db),
 ):
     email = request.email.lower().strip()
     existing = await database_async.get_user_by_email(email)
     if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use"
+        )
 
     user = User(
         email=email,
-        credits=100,
         password_hash=hash_password(request.password),
         auth_provider="local",
     )
@@ -82,81 +100,106 @@ async def register(
 
     # Create email verification token and send email in background
     try:
-        verification = AuthToken.create_email_verification_token(user_id=user.id, email=user.email)
+        verification = AuthToken.create_email_verification_token(
+            user_id=user.id, email=user.email
+        )
         await database_async.create_auth_token(verification)
-        background_tasks.add_task(email_service.send_email_verification, email=user.email, verification_token=verification.token)
+        background_tasks.add_task(
+            email_service.send_email_verification,
+            email=user.email,
+            verification_token=verification.token,
+        )
     except Exception:
         # Non-blocking: we continue registration even if email sending fails, but log it
         logger = logging.getLogger(__name__)
         logger.warning(f"Could not send verification email to {user.email}")
 
     # Create refresh token (absolute 30 days)
-    refresh = AuthToken.create_refresh_token(user_id=user.id, email=user.email, expires_in_days=REFRESH_TOKEN_EXPIRE_DAYS)
+    refresh = AuthToken.create_refresh_token(
+        user_id=user.id, email=user.email, expires_in_days=REFRESH_TOKEN_EXPIRE_DAYS
+    )
     refresh = await database_async.create_auth_token(refresh)
     _set_refresh_cookie(response, refresh.token, refresh.expires_at)
 
     # Access token (short-lived)
     access_minutes = max(1, int(JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
     access_token = create_access_token(
-        data=create_token_payload(user_id=user.id, email=user.email, additional_data={"credits": user.credits}),
+        data=create_token_payload(user_id=user.id, email=user.email),
         expires_delta=timedelta(minutes=access_minutes),
     )
 
-    return AuthUser(id=user.id, email=user.email, credits=user.credits)
+    return AuthUser(id=user.id, email=user.email)
 
 
 @router.post("/login", response_model=TokenVerificationResponse)
 async def login(
-    request: LoginRequest,
-    response: Response,
-    db: DynamoDBConnection = Depends(get_db)
+    request: LoginRequest, response: Response, db: DynamoDBConnection = Depends(get_db)
 ):
     email = request.email.lower().strip()
     user = await database_async.get_user_by_email(email)
-    if not user or not user.password_hash or not verify_password(request.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if (
+        not user
+        or not user.password_hash
+        or not verify_password(request.password, user.password_hash)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        )
 
     # Issue refresh token (absolute 30 days)
-    refresh = AuthToken.create_refresh_token(user_id=user.id, email=user.email, expires_in_days=REFRESH_TOKEN_EXPIRE_DAYS)
+    refresh = AuthToken.create_refresh_token(
+        user_id=user.id, email=user.email, expires_in_days=REFRESH_TOKEN_EXPIRE_DAYS
+    )
     refresh = await database_async.create_auth_token(refresh)
     _set_refresh_cookie(response, refresh.token, refresh.expires_at)
 
     # Access token
     access_minutes = max(1, int(JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
     access_token = create_access_token(
-        data=create_token_payload(user_id=user.id, email=user.email, additional_data={"credits": user.credits}),
+        data=create_token_payload(user_id=user.id, email=user.email),
         expires_delta=timedelta(minutes=access_minutes),
     )
     return TokenVerificationResponse(
         access_token=access_token,
         token_type="bearer",
         expires_in=access_minutes * 60,
-        user={"id": user.id, "email": user.email, "credits": user.credits},
+        user={"id": user.id, "email": user.email},
     )
 
 
 @router.post("/refresh", response_model=TokenVerificationResponse)
 async def refresh_token(
-    request: Request,
-    response: Response,
-    db: DynamoDBConnection = Depends(get_db)
+    request: Request, response: Response, db: DynamoDBConnection = Depends(get_db)
 ):
     token_value = request.cookies.get(REFRESH_COOKIE_NAME)
     if not token_value:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token"
+        )
 
     # Load token from DB
     auth_token = await database_async.get_auth_token_by_token(token_value)
     if not auth_token or auth_token.token_type != TokenType.REFRESH_TOKEN:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
 
-    if not auth_token.is_active or auth_token.is_expired() or auth_token.used_at is not None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Expired or used refresh token")
+    if (
+        not auth_token.is_active
+        or auth_token.is_expired()
+        or auth_token.used_at is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Expired or used refresh token",
+        )
 
     # Get user
     user = await database_async.get_user_by_id(auth_token.user_id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     # Rotate refresh: mark used + inactive, then create a new one with same absolute expiry
     auth_token.mark_as_used()
@@ -173,7 +216,7 @@ async def refresh_token(
     # New access token
     access_minutes = max(1, int(JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
     access_token = create_access_token(
-        data=create_token_payload(user_id=user.id, email=user.email, additional_data={"credits": user.credits}),
+        data=create_token_payload(user_id=user.id, email=user.email),
         expires_delta=timedelta(minutes=access_minutes),
     )
 
@@ -181,79 +224,19 @@ async def refresh_token(
         access_token=access_token,
         token_type="bearer",
         expires_in=access_minutes * 60,
-        user={"id": user.id, "email": user.email, "credits": user.credits},
+        user={"id": user.id, "email": user.email},
     )
 
 
 # ---------------- Magic Link compatibility endpoints ----------------
-from pydantic import EmailStr
-
-
-class MagicLinkRequest(BaseModel):
-    email: EmailStr = Field(..., description="User email")
-
-    @staticmethod
-    def normalize_email(email: str) -> str:
-        return email.strip().lower()
-
-
-@router.post("/request-magic-link", status_code=status.HTTP_200_OK)
-async def request_magic_link(
-    request: MagicLinkRequest,
-    background_tasks: BackgroundTasks,
-    db: DynamoDBConnection = Depends(get_db)
-):
-    """
-    Backward-compatible endpoint to request a magic link.
-
-    This maps to the current email verification flow. For existing users, re-issues a
-    verification token; for new users, creates the user and sends both magic link and a welcome email.
-    """
-    # Safe wrappers to prevent background task exceptions from bubbling up
-    async def _send_magic_link_safe(email: str, token: str):
-        try:
-            await email_service.send_magic_link_email(email=email, verification_token=token)
-        except Exception as exc:
-            logger.error(f"Background email send failed for {email}: {exc}")
-
-    async def _send_welcome_safe(email: str):
-        try:
-            await email_service.send_welcome_email(email=email)
-        except Exception as exc:
-            logger.error(f"Background welcome email failed for {email}: {exc}")
-
-    try:
-        email = MagicLinkRequest.normalize_email(str(request.email))
-        existing = await database_async.get_user_by_email(email)
-        new_user_created = False
-        if existing:
-            user = existing
-        else:
-            user = User(email=email, credits=100, auth_provider="local")
-            user = await database_async.create_user(user)
-            new_user_created = True
-
-        # Revoke any existing verification tokens and create a new one
-        await database_async.revoke_user_tokens(user.id, TokenType.EMAIL_VERIFICATION)
-        verification = AuthToken.create_email_verification_token(user_id=user.id, email=user.email)
-        await database_async.create_auth_token(verification)
-
-        # Send magic link (alias to email verification)
-        background_tasks.add_task(_send_magic_link_safe, user.email, verification.token)
-        if new_user_created:
-            background_tasks.add_task(_send_welcome_safe, user.email)
-
-        return {"message": "Magic link sent", "email": user.email}
-    except Exception as e:
-        logger.error(f"Failed to send magic link: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to send magic link")
+# Removed legacy request-magic-link endpoint (login by magic link abandoned).
 
 
 @router.post("/verify-token", response_model=TokenVerificationResponse)
 async def verify_token_endpoint(
     request: EmailVerificationRequest,
     response: Response,
-    db: DynamoDBConnection = Depends(get_db)
+    db: DynamoDBConnection = Depends(get_db),
 ):
     """
     Backward-compatible endpoint to verify a magic link token.
@@ -265,22 +248,36 @@ async def verify_token_endpoint(
 
     # Fetch token
     auth_token = await database_async.get_auth_token_by_token(token_string)
-    if not auth_token or auth_token.token_type not in (TokenType.EMAIL_VERIFICATION, TokenType.MAGIC_LINK):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid magic link token")
+    if not auth_token or auth_token.token_type not in (
+        TokenType.EMAIL_VERIFICATION,
+        TokenType.MAGIC_LINK,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid magic link token"
+        )
 
     # Provide specific error messages expected by tests
     if auth_token.used_at is not None or not auth_token.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Magic link token has already been used")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Magic link token has already been used",
+        )
     if auth_token.is_expired():
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Magic link token expired")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Magic link token expired"
+        )
 
     if auth_token.email != email:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid magic link token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid magic link token"
+        )
 
     # Fetch user
     user = await database_async.get_user_by_id(auth_token.user_id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     # Consume token
     auth_token.mark_as_used()
@@ -288,7 +285,7 @@ async def verify_token_endpoint(
 
     # Issue access token (24 hours for compatibility with tests)
     access_token = create_access_token(
-        data=create_token_payload(user_id=user.id, email=user.email, additional_data={"credits": user.credits}),
+        data=create_token_payload(user_id=user.id, email=user.email),
         expires_delta=timedelta(hours=24),
     )
 
@@ -296,12 +293,14 @@ async def verify_token_endpoint(
         access_token=access_token,
         token_type="bearer",
         expires_in=24 * 60 * 60,
-        user={"id": user.id, "email": user.email, "credits": user.credits},
+        user={"id": user.id, "email": user.email},
     )
 
 
 @router.post("/verify-email", status_code=status.HTTP_200_OK)
-async def verify_email(request: EmailVerificationRequest, db: DynamoDBConnection = Depends(get_db)):
+async def verify_email(
+    request: EmailVerificationRequest, db: DynamoDBConnection = Depends(get_db)
+):
     """
     Verify user's email using a single-use token.
     """
@@ -311,18 +310,29 @@ async def verify_email(request: EmailVerificationRequest, db: DynamoDBConnection
     # Fetch token
     auth_token = await database_async.get_auth_token_by_token(token_string)
     if not auth_token or auth_token.token_type != TokenType.EMAIL_VERIFICATION:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid verification token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid verification token",
+        )
 
     if not auth_token.is_valid():
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Verification token expired or used")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Verification token expired or used",
+        )
 
     if auth_token.email != email:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid verification token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid verification token",
+        )
 
     # Fetch user
     user = await database_async.get_user_by_id(auth_token.user_id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     # Mark token used and user verified
     auth_token.mark_as_used()
@@ -337,14 +347,16 @@ async def verify_email(request: EmailVerificationRequest, db: DynamoDBConnection
 @router.post("/resend-verification", status_code=status.HTTP_200_OK)
 async def resend_verification_email(
     current_user: AuthUser = Depends(get_current_user),
-    db: DynamoDBConnection = Depends(get_db)
+    db: DynamoDBConnection = Depends(get_db),
 ):
     """
     Resend the email verification link for the authenticated user if not verified.
     """
     user = await database_async.get_user_by_id(current_user.id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
 
     if getattr(user, "email_verified_at", None):
         return {"message": "Email already verified"}
@@ -352,12 +364,19 @@ async def resend_verification_email(
     # Revoke existing verification tokens and send a new one
     try:
         await database_async.revoke_user_tokens(user.id, TokenType.EMAIL_VERIFICATION)
-        verification = AuthToken.create_email_verification_token(user_id=user.id, email=user.email)
+        verification = AuthToken.create_email_verification_token(
+            user_id=user.id, email=user.email
+        )
         await database_async.create_auth_token(verification)
-        await email_service.send_email_verification(email=user.email, verification_token=verification.token)
+        await email_service.send_email_verification(
+            email=user.email, verification_token=verification.token
+        )
     except Exception as e:
         logger.warning(f"Could not resend verification email to {user.email}: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to resend verification email")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to resend verification email",
+        )
 
     return {"message": "Verification email sent"}
 
@@ -366,7 +385,7 @@ async def resend_verification_email(
 async def logout(
     response: Response,
     current_user: AuthUser = Depends(get_current_user),
-    db: DynamoDBConnection = Depends(get_db)
+    db: DynamoDBConnection = Depends(get_db),
 ):
     # Revoke refresh tokens for the user and clear cookie
     await database_async.revoke_user_tokens(current_user.id, TokenType.REFRESH_TOKEN)
@@ -375,13 +394,10 @@ async def logout(
 
 
 @router.get("/me", response_model=AuthUser)
-async def get_current_user_info(
-    current_user: AuthUser = Depends(get_current_user)
-):
+async def get_current_user_info(current_user: AuthUser = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
 
     return current_user

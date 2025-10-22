@@ -263,6 +263,7 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
                 email=email,
                 podcast_title=message_body.get("podcast_title"),
                 episode_title=message_body.get("episode_title"),
+                episode_guid=message_body.get("episode_guid"),
                 transcription_metadata=transcription_data["metadata"]
             )
 

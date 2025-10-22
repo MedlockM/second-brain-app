@@ -1,6 +1,7 @@
 """
 Authentication models for application sessions (local auth + refresh tokens).
 """
+
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator
@@ -11,6 +12,7 @@ from enum import Enum
 
 class TokenType(str, Enum):
     """Types of authentication tokens."""
+
     ACCESS_TOKEN = "access_token"
     REFRESH_TOKEN = "refresh_token"
     EMAIL_VERIFICATION = "email_verification"
@@ -27,29 +29,33 @@ class AuthToken(BaseModel):
     token: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     token_type: TokenType = Field(..., description="Type of token")
     expires_at: datetime = Field(..., description="When the token expires")
-    used_at: Optional[datetime] = Field(default=None, description="When the token was used")
+    used_at: Optional[datetime] = Field(
+        default=None, description="When the token was used"
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     is_active: bool = Field(default=True, description="Whether the token is active")
 
-    @field_validator('email')
+    @field_validator("email")
     @classmethod
     def email_must_be_valid(cls, v):
         """Validate that the email is not empty and has basic format."""
         if not v.strip():
-            raise ValueError('Email must not be empty')
-        if '@' not in v:
-            raise ValueError('Email must contain @ symbol')
+            raise ValueError("Email must not be empty")
+        if "@" not in v:
+            raise ValueError("Email must contain @ symbol")
         return v.lower().strip()
 
     @classmethod
-    def create_access_token(cls, user_id: str, email: str, expires_in_hours: int = 24) -> 'AuthToken':
+    def create_access_token(
+        cls, user_id: str, email: str, expires_in_hours: int = 24
+    ) -> "AuthToken":
         """Create a new access token."""
         expires_at = datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)
         return cls(
             user_id=user_id,
             email=email,
             token_type=TokenType.ACCESS_TOKEN,
-            expires_at=expires_at
+            expires_at=expires_at,
         )
 
     @classmethod
@@ -58,19 +64,21 @@ class AuthToken(BaseModel):
         user_id: str,
         email: str,
         expires_in_days: int = 30,
-        absolute_expires_at: Optional[datetime] = None
-    ) -> 'AuthToken':
+        absolute_expires_at: Optional[datetime] = None,
+    ) -> "AuthToken":
         """Create a new refresh token.
 
         If absolute_expires_at is provided, it will be used as the expires_at to enforce
         absolute session lifetime. Otherwise, expires_at is now + expires_in_days.
         """
-        expires_at = absolute_expires_at or (datetime.now(timezone.utc) + timedelta(days=expires_in_days))
+        expires_at = absolute_expires_at or (
+            datetime.now(timezone.utc) + timedelta(days=expires_in_days)
+        )
         return cls(
             user_id=user_id,
             email=email,
             token_type=TokenType.REFRESH_TOKEN,
-            expires_at=expires_at
+            expires_at=expires_at,
         )
 
     @classmethod
@@ -79,14 +87,14 @@ class AuthToken(BaseModel):
         user_id: str,
         email: str,
         expires_in_hours: int = 24,
-    ) -> 'AuthToken':
+    ) -> "AuthToken":
         """Create a new email verification token (single-use)."""
         expires_at = datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)
         return cls(
             user_id=user_id,
             email=email,
             token_type=TokenType.EMAIL_VERIFICATION,
-            expires_at=expires_at
+            expires_at=expires_at,
         )
 
     @classmethod
@@ -95,7 +103,7 @@ class AuthToken(BaseModel):
         user_id: str,
         email: str,
         expires_in_minutes: int = 15,
-    ) -> 'AuthToken':
+    ) -> "AuthToken":
         """Backward-compatible alias for creating a magic link token.
 
         Historically, tests used a "magic link" token. This maps to EMAIL_VERIFICATION
@@ -115,11 +123,7 @@ class AuthToken(BaseModel):
 
     def is_valid(self) -> bool:
         """Check if the token is valid (not expired, not used, and active)."""
-        return (
-            self.is_active
-            and not self.is_expired()
-            and self.used_at is None
-        )
+        return self.is_active and not self.is_expired() and self.used_at is None
 
     def mark_as_used(self) -> None:
         """Mark the token as used."""
@@ -133,36 +137,36 @@ class AuthToken(BaseModel):
     def to_dynamodb_item(self) -> Dict[str, Any]:
         """Convert the model to a DynamoDB item."""
         item = {
-            'id': self.id,
-            'user_id': self.user_id,
-            'email': self.email,
-            'token': self.token,
-            'token_type': self.token_type.value,
-            'expires_at': self.expires_at.isoformat(),
-            'created_at': self.created_at.isoformat(),
-            'is_active': self.is_active
+            "id": self.id,
+            "user_id": self.user_id,
+            "email": self.email,
+            "token": self.token,
+            "token_type": self.token_type.value,
+            "expires_at": self.expires_at.isoformat(),
+            "created_at": self.created_at.isoformat(),
+            "is_active": self.is_active,
         }
         if self.used_at:
-            item['used_at'] = self.used_at.isoformat()
+            item["used_at"] = self.used_at.isoformat()
         return item
 
     @classmethod
-    def from_dynamodb_item(cls, item: Dict[str, Any]) -> 'AuthToken':
+    def from_dynamodb_item(cls, item: Dict[str, Any]) -> "AuthToken":
         """Create an AuthToken instance from a DynamoDB item."""
         used_at = None
-        if 'used_at' in item and item['used_at']:
-            used_at = datetime.fromisoformat(item['used_at'])
+        if "used_at" in item and item["used_at"]:
+            used_at = datetime.fromisoformat(item["used_at"])
 
         return cls(
-            id=item['id'],
-            user_id=item['user_id'],
-            email=item['email'],
-            token=item['token'],
-            token_type=TokenType(item['token_type']),
-            expires_at=datetime.fromisoformat(item['expires_at']),
+            id=item["id"],
+            user_id=item["user_id"],
+            email=item["email"],
+            token=item["token"],
+            token_type=TokenType(item["token_type"]),
+            expires_at=datetime.fromisoformat(item["expires_at"]),
             used_at=used_at,
-            created_at=datetime.fromisoformat(item['created_at']),
-            is_active=item.get('is_active', True)
+            created_at=datetime.fromisoformat(item["created_at"]),
+            is_active=item.get("is_active", True),
         )
 
     def __repr__(self):
@@ -171,6 +175,7 @@ class AuthToken(BaseModel):
 
 class TokenVerificationResponse(BaseModel):
     """Response model for token verification."""
+
     access_token: str = Field(..., description="JWT access token")
     token_type: str = Field(default="bearer", description="Token type")
     expires_in: int = Field(..., description="Token expiration time in seconds")
@@ -179,51 +184,54 @@ class TokenVerificationResponse(BaseModel):
 
 class RegisterRequest(BaseModel):
     """Request model for local registration (email/password)."""
+
     email: str = Field(..., description="User email")
     password: str = Field(..., description="User password (hashed at server)")
 
-    @field_validator('email')
+    @field_validator("email")
     @classmethod
     def email_must_be_valid(cls, v):
         if not v.strip():
-            raise ValueError('Email must not be empty')
-        if '@' not in v:
-            raise ValueError('Email must contain @ symbol')
+            raise ValueError("Email must not be empty")
+        if "@" not in v:
+            raise ValueError("Email must contain @ symbol")
         return v.lower().strip()
 
 
 class LoginRequest(BaseModel):
     """Request model for local login (email/password)."""
+
     email: str = Field(..., description="User email")
     password: str = Field(..., description="User password")
 
-    @field_validator('email')
+    @field_validator("email")
     @classmethod
     def email_must_be_valid(cls, v):
         if not v.strip():
-            raise ValueError('Email must not be empty')
-        if '@' not in v:
-            raise ValueError('Email must contain @ symbol')
+            raise ValueError("Email must not be empty")
+        if "@" not in v:
+            raise ValueError("Email must contain @ symbol")
         return v.lower().strip()
 
 
 class AuthUser(BaseModel):
-    """Simplified user model for authentication responses."""
+    """Simplified user model for authentication responses (post-credits removal)."""
+
     id: str = Field(..., description="User ID")
     email: str = Field(..., description="User email")
-    credits: int = Field(..., description="User credits")
 
 
 class EmailVerificationRequest(BaseModel):
     """Request model for email verification."""
+
     token: str = Field(..., description="Verification token")
     email: str = Field(..., description="Email to verify")
 
-    @field_validator('email')
+    @field_validator("email")
     @classmethod
     def email_must_be_valid(cls, v):
         if not v.strip():
-            raise ValueError('Email must not be empty')
-        if '@' not in v:
-            raise ValueError('Email must contain @ symbol')
+            raise ValueError("Email must not be empty")
+        if "@" not in v:
+            raise ValueError("Email must contain @ symbol")
         return v.lower().strip()

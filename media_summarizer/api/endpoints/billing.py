@@ -117,20 +117,11 @@ async def get_billing_me(
             elif b.source_type == MinuteBucketSource.pack:
                 totals["packs"] += mr
 
-        # Follows reservations/forecast (soft)
-        follows = await minute_db.get_follows_by_user_id(current_user.id)
-        reserved = sum(int(f.reserved_minutes or 0) for f in follows)
-        forecast = sum(int(f.forecast_minutes or 0) for f in follows)
-
         resp = {
             "subscription": None,
             "minutes": {
                 "total_free": total_free,
                 "by_source": totals,
-            },
-            "reservations": {
-                "forecast_minutes": forecast,
-                "reserved_minutes": reserved,
             },
             "buckets_count": len(buckets),
         }
@@ -154,8 +145,86 @@ async def get_billing_history(
     request: Request,
     current_user=Depends(require_verified_email),
 ):
-    # Will be implemented later (invoices + pack purchases)
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Coming soon: billing history")
+    """Return billing history (subscriptions and minute pack purchases)."""
+    try:
+        from media_summarizer.utils import minute_db
+        from media_summarizer.core.models.billing import MinuteBucketSource
+        from datetime import datetime
+
+        # Load data
+        subs = await minute_db.get_subscriptions_by_user_id(current_user.id)
+        buckets = await minute_db.get_minute_buckets_by_user_id(current_user.id)
+
+        # Format subscriptions (high-level)
+        subscriptions = []
+        for s in subs:
+            subscriptions.append({
+                "id": s.id,
+                "tier": s.tier.value,
+                "status": s.status.value,
+                "minutes_per_period": s.minutes_per_period,
+                "cancel_at_period_end": s.cancel_at_period_end,
+                "current_period_start": s.current_period_start.isoformat() if s.current_period_start else None,
+                "current_period_end": s.current_period_end.isoformat() if s.current_period_end else None,
+                "created_at": s.created_at.isoformat(),
+                "updated_at": s.updated_at.isoformat(),
+            })
+
+        # Build event list from minute buckets (subscriptions and packs)
+        events = []
+        packs_count = 0
+        subs_periods_count = 0
+        for b in buckets:
+            base = {
+                "id": b.id,
+                "minutes_total": int(b.minutes_total or 0),
+                "minutes_remaining": int(b.minutes_remaining or 0),
+                "created_at": b.created_at.isoformat(),
+                "updated_at": b.updated_at.isoformat(),
+                "expires_at": b.expires_at.isoformat() if b.expires_at else None,
+                "source_ref": b.source_ref,
+            }
+            if b.source_type == MinuteBucketSource.pack:
+                packs_count += 1
+                events.append({
+                    **base,
+                    "type": "pack_purchase",
+                })
+            elif b.source_type == MinuteBucketSource.subscription:
+                subs_periods_count += 1
+                events.append({
+                    **base,
+                    "type": "subscription_bucket",
+                    "period_start": b.period_start.isoformat() if b.period_start else None,
+                    "period_end": b.period_end.isoformat() if b.period_end else None,
+                })
+            else:
+                # Include rollover/migration as generic bucket entries
+                events.append({
+                    **base,
+                    "type": b.source_type.value,
+                })
+
+        # Sort events by created_at desc
+        def _parse_dt(dt_str: str | None) -> float:
+            try:
+                return datetime.fromisoformat(dt_str).timestamp() if dt_str else 0.0
+            except Exception:
+                return 0.0
+        events.sort(key=lambda e: _parse_dt(e.get("created_at")), reverse=True)
+
+        return {
+            "subscriptions": subscriptions,
+            "events": events,
+            "counts": {
+                "total_buckets": len(buckets),
+                "pack_purchases": packs_count,
+                "subscription_periods": subs_periods_count,
+            },
+        }
+    except Exception as e:
+        logger.error(f"Failed to compute billing history for user {current_user.id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve billing history")
 
 
 @router.post("/payments/webhook")

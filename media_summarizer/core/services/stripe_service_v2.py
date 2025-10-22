@@ -242,13 +242,43 @@ class StripeServiceV2:
                 logger.warning("Subscription record missing; cannot credit minutes without user mapping")
                 return
 
-            # Create monthly bucket for the current period
+            # Current invoiced period
             period = invoice.get("lines", {}).get("data", [{}])[0].get("period", {})
             start = period.get("start")
             end = period.get("end")
             ps = datetime.fromtimestamp(start, tz=timezone.utc) if start else None
             pe = datetime.fromtimestamp(end, tz=timezone.utc) if end else None
 
+            # Rollover: credit leftover minutes from previous subscription period and set expiry to end of this period
+            try:
+                all_buckets = await minute_db.get_minute_buckets_by_user_id(sub.user_id)
+                prev_sub_buckets = [
+                    b for b in all_buckets
+                    if b.source_type == MinuteBucketSource.subscription
+                    and b.source_ref == subscription_id
+                    and b.period_end is not None
+                    and ps is not None
+                    and b.period_end < ps
+                ]
+                if prev_sub_buckets:
+                    # pick the most recent previous period
+                    prev = sorted(prev_sub_buckets, key=lambda b: b.period_end)[-1]
+                    leftover = int(prev.minutes_remaining or 0)
+                    if leftover > 0 and pe is not None:
+                        rollover_bucket = MinuteBucket(
+                            id=f"rollover_{subscription_id}_{int(ps.timestamp())}",
+                            user_id=sub.user_id,
+                            source_type=MinuteBucketSource.rollover,
+                            source_ref=subscription_id,
+                            minutes_total=leftover,
+                            minutes_remaining=leftover,
+                            expires_at=pe,
+                        )
+                        await minute_db.create_minute_bucket(rollover_bucket)
+            except Exception as rr:
+                logger.warning(f"Failed to process rollover for subscription {subscription_id}: {rr}")
+
+            # Create monthly bucket for the current period
             bucket = MinuteBucket(
                 id=f"sub_{subscription_id}_{end or int(datetime.now(timezone.utc).timestamp())}",
                 user_id=sub.user_id,

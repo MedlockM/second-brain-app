@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.skip("Legacy credits system removed (replaced by minutes)")
+
 """
 End-to-End tests for Authentication + Stripe Payment workflow.
 

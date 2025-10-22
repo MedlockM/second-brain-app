@@ -1,6 +1,7 @@
 """
 Processing job model for tracking podcast processing jobs using DynamoDB.
 """
+
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -10,6 +11,7 @@ from enum import Enum
 
 class JobStatus(str, Enum):
     """Enumeration of possible job statuses."""
+
     PENDING = "pending"
     RSS_RESOLVING = "rss_resolving"
     DOWNLOADING = "downloading"
@@ -33,11 +35,10 @@ class ProcessingJob(BaseModel):
     # Input data
     podcast_url: Optional[str] = None
     episode_url: Optional[str] = None
+    episode_guid: Optional[str] = None
     user_email: str = Field(..., min_length=1)
 
     # Processing metadata
-    credits_cost: int = Field(default=1, ge=0)
-    credits_deducted: bool = Field(default=False)
 
     # File locations
     audio_s3_key: Optional[str] = None
@@ -62,52 +63,62 @@ class ProcessingJob(BaseModel):
     summarization_duration: Optional[int] = None
     total_duration: Optional[int] = None
 
-    @field_validator('user_id')
+    @field_validator("user_id")
     @classmethod
     def user_id_must_not_be_empty(cls, v):
         """Validate that user_id is not empty."""
         if not v.strip():
-            raise ValueError('User ID must not be empty')
+            raise ValueError("User ID must not be empty")
         return v.strip()
 
-    @field_validator('user_email')
+    @field_validator("user_email")
     @classmethod
     def email_must_be_valid(cls, v):
         """Validate that the email is not empty and has basic format."""
         if not v.strip():
-            raise ValueError('Email must not be empty')
-        if '@' not in v:
-            raise ValueError('Email must contain @ symbol')
+            raise ValueError("Email must not be empty")
+        if "@" not in v:
+            raise ValueError("Email must contain @ symbol")
         return v.lower().strip()
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def retry_count_validation(self):
         """Validate retry count against max retries."""
         if self.retry_count > self.max_retries:
-            raise ValueError(f'Retry count ({self.retry_count}) cannot exceed max retries ({self.max_retries})')
+            raise ValueError(
+                f"Retry count ({self.retry_count}) cannot exceed max retries ({self.max_retries})"
+            )
         return self
 
     def to_dynamodb_item(self) -> Dict[str, Any]:
         """Convert the model to a DynamoDB item."""
         item = {
-            'id': self.id,
-            'user_id': self.user_id,
-            'job_status': self.status.value,
-            'user_email': self.user_email,
-            'credits_cost': self.credits_cost,
-            'credits_deducted': self.credits_deducted,
-            'retry_count': self.retry_count,
-            'max_retries': self.max_retries,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            "id": self.id,
+            "user_id": self.user_id,
+            "job_status": self.status.value,
+            "user_email": self.user_email,
+            "retry_count": self.retry_count,
+            "max_retries": self.max_retries,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
         }
 
         # Add optional fields if they exist
         optional_fields = [
-            'episode_id', 'podcast_id', 'podcast_url', 'episode_url',
-            'audio_s3_key', 'transcription_s3_key', 'summary_s3_key',
-            'error_message', 'error_step', 'download_duration',
-            'transcription_duration', 'summarization_duration', 'total_duration'
+            "episode_id",
+            "podcast_id",
+            "podcast_url",
+            "episode_url",
+            "episode_guid",
+            "audio_s3_key",
+            "transcription_s3_key",
+            "summary_s3_key",
+            "error_message",
+            "error_step",
+            "download_duration",
+            "transcription_duration",
+            "summarization_duration",
+            "total_duration",
         ]
 
         for field in optional_fields:
@@ -116,7 +127,7 @@ class ProcessingJob(BaseModel):
                 item[field] = value
 
         # Handle datetime fields
-        datetime_fields = ['started_at', 'completed_at']
+        datetime_fields = ["started_at", "completed_at"]
         for field in datetime_fields:
             value = getattr(self, field)
             if value is not None:
@@ -125,27 +136,31 @@ class ProcessingJob(BaseModel):
         return item
 
     @classmethod
-    def from_dynamodb_item(cls, item: Dict[str, Any]) -> 'ProcessingJob':
+    def from_dynamodb_item(cls, item: Dict[str, Any]) -> "ProcessingJob":
         """Create a ProcessingJob instance from a DynamoDB item."""
         # Convert datetime strings back to datetime objects
-        datetime_fields = ['created_at', 'updated_at', 'started_at', 'completed_at']
+        datetime_fields = ["created_at", "updated_at", "started_at", "completed_at"]
         for field in datetime_fields:
             if field in item and item[field]:
                 item[field] = datetime.fromisoformat(item[field])
 
         # Convert status string to enum
-        if 'job_status' in item:
-            item['status'] = JobStatus(item['job_status'])
+        if "job_status" in item:
+            item["status"] = JobStatus(item["job_status"])
             # Remove the DynamoDB field name so it doesn't interfere with model creation
-            del item['job_status']
+            del item["job_status"]
 
         return cls(**item)
 
-    def update_status(self, new_status: JobStatus, error_message: Optional[str] = None, error_step: Optional[str] = None) -> None:
+    def update_status(
+        self,
+        new_status: JobStatus,
+        error_message: Optional[str] = None,
+        error_step: Optional[str] = None,
+    ) -> None:
         """Update job status and timestamp."""
         old_status = self.status
         self.status = new_status
-        self.updated_at = datetime.now(timezone.utc)
 
         # Set started_at when moving from PENDING
         if old_status == JobStatus.PENDING and new_status != JobStatus.PENDING:
@@ -155,7 +170,9 @@ class ProcessingJob(BaseModel):
         if new_status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
             self.completed_at = datetime.now(timezone.utc)
             if self.started_at:
-                self.total_duration = int((self.completed_at - self.started_at).total_seconds())
+                self.total_duration = int(
+                    (self.completed_at - self.started_at).total_seconds()
+                )
 
         # Handle error information
         if new_status == JobStatus.FAILED:
@@ -228,23 +245,24 @@ class ProcessingJob(BaseModel):
 
     def set_processing_duration(self, step: str, duration: int) -> None:
         """Set the processing duration for a specific step."""
-        if step == 'download':
+        if step == "download":
             self.download_duration = duration
-        elif step == 'transcription':
+        elif step == "transcription":
             self.transcription_duration = duration
-        elif step == 'summarization':
+        elif step == "summarization":
             self.summarization_duration = duration
 
         self.updated_at = datetime.now(timezone.utc)
 
-    def deduct_credits(self) -> None:
-        """Mark credits as deducted."""
-        self.credits_deducted = True
         self.updated_at = datetime.now(timezone.utc)
 
     def is_terminal_state(self) -> bool:
         """Check if the job is in a terminal state."""
-        return self.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]
+        return self.status in [
+            JobStatus.COMPLETED,
+            JobStatus.FAILED,
+            JobStatus.CANCELLED,
+        ]
 
     def is_processing(self) -> bool:
         """Check if the job is currently being processed."""
@@ -253,7 +271,7 @@ class ProcessingJob(BaseModel):
             JobStatus.DOWNLOADING,
             JobStatus.TRANSCRIBING,
             JobStatus.SUMMARIZING,
-            JobStatus.NOTIFYING
+            JobStatus.NOTIFYING,
         ]
 
     def get_progress_percentage(self) -> int:
@@ -267,14 +285,14 @@ class ProcessingJob(BaseModel):
             JobStatus.NOTIFYING: 90,
             JobStatus.COMPLETED: 100,
             JobStatus.FAILED: 0,
-            JobStatus.CANCELLED: 0
+            JobStatus.CANCELLED: 0,
         }
         return progress_map.get(self.status, 0)
 
     def update(self, **kwargs):
         """Update job attributes."""
         for key, value in kwargs.items():
-            if hasattr(self, key) and key != 'id':  # Don't allow ID updates
+            if hasattr(self, key) and key != "id":  # Don't allow ID updates
                 setattr(self, key, value)
         self.updated_at = datetime.now(timezone.utc)
         return self

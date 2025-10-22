@@ -99,6 +99,38 @@ resource "aws_dynamodb_table" "auth_tokens_v1" {
   }
 }
 
+# Episode idempotence table (global episode GUID reservation)
+resource "aws_dynamodb_table" "episode_idempotence_v1" {
+  name         = "episode_idempotence"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "episode_guid"
+
+  attribute { name = "episode_guid" type = "S" }
+
+  tags = {
+    Name        = "episode_idempotence"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# User episode submissions table (per-user dedup of submissions)
+resource "aws_dynamodb_table" "user_episode_submissions_v1" {
+  name         = "user_episode_submissions"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+  range_key    = "episode_guid"
+
+  attribute { name = "user_id"     type = "S" }
+  attribute { name = "episode_guid" type = "S" }
+
+  tags = {
+    Name        = "user_episode_submissions"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 # Outputs
 output "users_table_name" {
   value       = aws_dynamodb_table.users_v2.name
@@ -114,4 +146,31 @@ output "processing_jobs_table_name" {
 output "auth_tokens_table_name" {
   value       = aws_dynamodb_table.auth_tokens_v1.name
   description = "Auth tokens table name"
+}
+
+# Episode watchers table (pending notifications fan-out)
+resource "aws_dynamodb_table" "episode_watchers_v1" {
+  name         = "episode_watchers"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "episode_guid"
+  range_key    = "user_id"
+
+  attribute { name = "episode_guid" type = "S" }
+  attribute { name = "user_id"      type = "S" }
+
+  tags = {
+    Name        = "episode_watchers"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+output "episode_idempotence_table_name" {
+  value       = aws_dynamodb_table.episode_idempotence_v1.name
+description = "Episode idempotence table name"
+}
+
+output "episode_watchers_table_name" {
+  value       = aws_dynamodb_table.episode_watchers_v1.name
+  description = "Episode watchers table name"
 }

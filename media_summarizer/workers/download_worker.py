@@ -130,6 +130,7 @@ async def process_message(message):
             "email": body.get("user_email") or body.get("email"),
             "episode_title": body.get("episode_title"),
             "podcast_title": body.get("podcast_title"),
+            "episode_guid": body.get("episode_guid"),
             "success": True,
             "metadata": {
                 "file_size_bytes": file_size

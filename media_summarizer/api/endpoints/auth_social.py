@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 
 from media_summarizer.core.models import User
-from media_summarizer.core.models.auth import AuthToken, TokenType
+from media_summarizer.core.models.auth import AuthToken, TokenType, AuthUser
 from media_summarizer.utils import database_async
 from media_summarizer.utils.database_async import get_db, DynamoDBConnection
 from media_summarizer.utils.auth_utils import (
@@ -29,6 +29,7 @@ from media_summarizer.utils.auth_utils import (
     create_token_payload,
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
 )
+from media_summarizer.api.dependencies.auth import get_current_user, RequireAuth
 
 # Reuse cookie helper from local auth module
 from media_summarizer.api.endpoints import auth as auth_local
@@ -41,6 +42,12 @@ COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN")
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
 COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").lower()  # lax|strict|none
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+
+# Spotify OAuth config (link-account)
+SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID")
+SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
+SPOTIFY_REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://localhost:8000/api/v1/auth/spotify/callback")
+SPOTIFY_SCOPES = "user-read-playback-position playlist-read-private"
 
 # Google OAuth config
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
@@ -77,6 +84,37 @@ def _set_state_cookie(response: Response, provider: str, state: str, ttl_seconds
 
 def _get_state_cookie(request: Request, provider: str) -> Optional[str]:
     return request.cookies.get(f"oauth_state_{provider}")
+
+
+def _set_user_cookie(response: Response, provider: str, user_id: str, ttl_seconds: int = 600) -> None:
+    response.set_cookie(
+        key=f"oauth_state_{provider}_uid",
+        value=user_id,
+        max_age=ttl_seconds,
+        expires=ttl_seconds,
+        domain=COOKIE_DOMAIN,
+        path="/",
+        secure=COOKIE_SECURE,
+        httponly=True,
+        samesite=COOKIE_SAMESITE,
+    )
+
+
+def _get_user_cookie(request: Request, provider: str) -> Optional[str]:
+    return request.cookies.get(f"oauth_state_{provider}_uid")
+
+
+def _clear_state_cookie(response: Response, provider: str) -> None:
+    try:
+        response.delete_cookie(
+            key=f"oauth_state_{provider}", domain=COOKIE_DOMAIN, path="/"
+        )
+        response.delete_cookie(
+            key=f"oauth_state_{provider}_uid", domain=COOKIE_DOMAIN, path="/"
+        )
+    except Exception:
+        # Non-fatal: cookie will expire naturally
+        pass
 
 
 async def _link_or_create_user(email: str, provider: str, provider_sub: str) -> User:
@@ -219,6 +257,172 @@ async def google_callback(
         logger.error(f"Google callback error: {e}")
         return _redirect_error("google", "server_error")
 
+
+# ------------------ Spotify (link account) ------------------
+
+@router.get("/spotify/login")
+async def spotify_login(response: Response, current_user: AuthUser = RequireAuth) -> RedirectResponse:
+    if not SPOTIFY_CLIENT_ID or not SPOTIFY_REDIRECT_URI:
+        raise HTTPException(status_code=500, detail="Spotify OAuth not configured")
+
+    state = secrets.token_urlsafe(16)
+    base = "https://accounts.spotify.com/authorize"
+
+    import urllib.parse as up
+
+    params = {
+        "response_type": "code",
+        "client_id": SPOTIFY_CLIENT_ID,
+        "redirect_uri": SPOTIFY_REDIRECT_URI,
+        "scope": SPOTIFY_SCOPES,
+        "state": state,
+    }
+    redirect = RedirectResponse(url=f"{base}?{up.urlencode(params)}")
+    _set_state_cookie(redirect, "spotify", state)
+    # Also bind the initiating user id to a short-lived httpOnly cookie (link-account)
+    _set_user_cookie(redirect, "spotify", current_user.id)
+    return redirect
+
+
+@router.get("/spotify/callback")
+async def spotify_callback(
+    request: Request,
+    response: Response,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    db: DynamoDBConnection = Depends(get_db),
+):
+    try:
+        expected_state = _get_state_cookie(request, "spotify")
+        user_id_from_cookie = _get_user_cookie(request, "spotify")
+        if not state or not expected_state or state != expected_state:
+            redirect = _redirect_error("spotify", "state_mismatch")
+            _clear_state_cookie(redirect, "spotify")
+            return redirect
+        if not user_id_from_cookie:
+            redirect = _redirect_error("spotify", "missing_user_context")
+            _clear_state_cookie(redirect, "spotify")
+            return redirect
+        if not code:
+            redirect = _redirect_error("spotify", "missing_code")
+            _clear_state_cookie(redirect, "spotify")
+            return redirect
+        if not (SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET and SPOTIFY_REDIRECT_URI):
+            redirect = _redirect_error("spotify", "server_config_error")
+            _clear_state_cookie(redirect, "spotify")
+            return redirect
+
+        token_url = "https://accounts.spotify.com/api/token"
+        # Build Basic auth header
+        import base64
+
+        basic = base64.b64encode(
+            f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}".encode("utf-8")
+        ).decode("utf-8")
+        headers = {
+            "Authorization": f"Basic {basic}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": SPOTIFY_REDIRECT_URI,
+        }
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            token_resp = await client.post(token_url, data=data, headers=headers)
+            token_resp.raise_for_status()
+            token_data = token_resp.json()
+
+            access_token = token_data.get("access_token")
+            refresh_token = token_data.get("refresh_token")
+            expires_in = token_data.get("expires_in")
+            scope = token_data.get("scope")  # space-delimited
+            if not access_token or not refresh_token or not expires_in:
+                redirect = _redirect_error("spotify", "token_exchange_failed")
+                _clear_state_cookie(redirect, "spotify")
+                return redirect
+
+            # Fetch profile to get spotify_user_id
+            me_resp = await client.get(
+                "https://api.spotify.com/v1/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            me_resp.raise_for_status()
+            me = me_resp.json()
+            spotify_user_id = me.get("id")
+            if not spotify_user_id:
+                redirect = _redirect_error("spotify", "profile_fetch_failed")
+                _clear_state_cookie(redirect, "spotify")
+                return redirect
+
+        # Persist on current user
+        from datetime import datetime, timezone, timedelta
+
+        user = await database_async.get_user_by_id(user_id_from_cookie)
+        if not user:
+            redirect = _redirect_error("spotify", "user_not_found")
+            _clear_state_cookie(redirect, "spotify")
+            return redirect
+
+        user.spotify_user_id = spotify_user_id
+        user.spotify_access_token = access_token
+        user.spotify_refresh_token = refresh_token
+        user.spotify_scope = scope
+        user.spotify_token_expires_at = datetime.now(timezone.utc) + timedelta(
+            seconds=int(expires_in)
+        )
+        await database_async.update_user(user)
+
+        redirect = _redirect_success("spotify")
+        _clear_state_cookie(redirect, "spotify")
+        return redirect
+
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            f"Spotify callback HTTP error: {getattr(e.response, 'status_code', 'unknown')}"
+        )
+        redirect = _redirect_error("spotify", "http_error")
+        _clear_state_cookie(redirect, "spotify")
+        return redirect
+    except Exception as e:
+        logger.error(f"Spotify callback error: {e}")
+        redirect = _redirect_error("spotify", "server_error")
+        _clear_state_cookie(redirect, "spotify")
+        return redirect
+
+
+# ------------------ Utility endpoints (Spotify link status/unlink) ------------------
+
+@router.get("/spotify/status")
+async def spotify_status(current_user: AuthUser = RequireAuth):
+    user = await database_async.get_user_by_id(current_user.id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    linked = bool(getattr(user, "spotify_refresh_token", None))
+    return {
+        "linked": linked,
+        "spotify_user_id": getattr(user, "spotify_user_id", None),
+        "scope": getattr(user, "spotify_scope", None),
+        "token_expires_at": getattr(user, "spotify_token_expires_at", None).isoformat()
+        if getattr(user, "spotify_token_expires_at", None)
+        else None,
+    }
+
+
+@router.delete("/spotify/unlink")
+async def spotify_unlink(current_user: AuthUser = RequireAuth):
+    user = await database_async.get_user_by_id(current_user.id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    # Clear stored Spotify link data
+    user.spotify_user_id = None
+    user.spotify_access_token = None
+    user.spotify_refresh_token = None
+    user.spotify_token_expires_at = None
+    user.spotify_scope = None
+    await database_async.update_user(user)
+    return {"status": "success", "linked": False}
 
 # ------------------ Apple OAuth ------------------
 

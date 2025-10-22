@@ -120,9 +120,32 @@ resource "aws_dynamodb_table" "follows" {
   }
 }
 
+# Feed forecasts (shared cache): PK (feed_id, month_key)
+resource "aws_dynamodb_table" "feed_forecasts" {
+  name         = "feed_forecasts"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "feed_id"
+  range_key    = "month_key"
+
+  attribute { name = "feed_id"  type = "S" }
+  attribute { name = "month_key" type = "S" }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
+  tags = {
+    Name        = "feed_forecasts"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 # Outputs
 output "subscriptions_table_name" { value = aws_dynamodb_table.subscriptions.name }
 output "minute_buckets_table_name" { value = aws_dynamodb_table.minute_buckets.name }
 output "minute_usage_table_name" { value = aws_dynamodb_table.minute_usage.name }
 output "follows_table_name" { value = aws_dynamodb_table.follows.name }
+output "feed_forecasts_table_name" { value = aws_dynamodb_table.feed_forecasts.name }
 

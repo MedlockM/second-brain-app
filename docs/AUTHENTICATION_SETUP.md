@@ -1,83 +1,144 @@
-# Authentication Setup Guide
+# Guide d’Authentification — Media Summarizer
 
-This document describes the current authentication system for Media Summarizer after removal of magic links.
+Objectif
+- Décrire les flux d’authentification supportés par l’API (OAuth Google/Apple + fallback email/mot de passe)
+- Documenter la configuration (variables d’environnement, cookies, CORS) et les bonnes pratiques de sécurité
+- Fournir des exemples d’enchaînement côté client (front) et des tests rapides (curl)
 
-Overview
-- Local authentication (email + password)
-- JWT access tokens for API calls (short-lived)
-- Refresh tokens stored as httpOnly cookies (30 days, expiration absolue)
-- Optional future: Social OAuth (Google/Apple) — see PLAN.md
+Composants & Endpoints
+- Auth sociale (OIDC)
+  - Google
+    - GET /api/v1/auth/google/login → redirige vers Google avec state
+    - GET /api/v1/auth/google/callback?code=...&state=... → échange code→tokens, vérifie id_token, relie/crée l’utilisateur, émet un refresh cookie httpOnly 30j, redirige FRONTEND_URL
+  - Apple
+    - GET /api/v1/auth/apple/login → redirige vers Apple
+    - GET /api/v1/auth/apple/callback?code=...&state=... → génère client_secret (ES256), échange code, vérifie id_token, relie/crée l’utilisateur, émet refresh cookie 30j, redirige FRONTEND_URL
+- Fallback local (email/mot de passe)
+  - POST /api/v1/auth/register → crée un utilisateur local + envoie un email de vérification
+  - POST /api/v1/auth/login → émet refresh cookie 30j + access token court (JWT) en réponse JSON
+  - POST /api/v1/auth/refresh → rotation du refresh (cookie remplacé, expiration absolue conservée) + access token court
+  - POST /api/v1/auth/logout → révoque les refresh tokens + supprime le cookie
+  - GET  /api/v1/auth/me → retourne l’utilisateur courant
+- Exigences d’accès API
+  - La plupart des routes sensibles nécessitent un access token (Authorization: Bearer <JWT>)
+  - Exemple strict: POST /api/v1/podcast-search/submit-episode → require_verified_email
 
-Architecture
+Cookies & Sessions
+- Refresh cookie (httpOnly)
+  - Nom: COOKIE_NAME_REFRESH (par défaut refresh_token)
+  - Durée: 30 jours (absolus), rotation à chaque /refresh
+  - Attributs en production: Secure=true, SameSite=lax (ou none si cross-site) et domain=COOKIE_DOMAIN
+- Access token (header Authorization: Bearer)
+  - Durée courte configurable (JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+  - Généré à /login et /refresh
 
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Frontend/     │    │   API Server     │    │   Database      │
-│   Client        │    │                  │    │                 │
-├─────────────────┤    ├──────────────────┤    ├─────────────────┤
-│ 1. Register /   │───▶│ POST /auth/      │    │ DynamoDB:       │
-│    Login        │    │ register, login  │    │ • users         │
-│                 │    │                  │    │ • auth_tokens   │
-│                 │    │                  │    │                 │
-│ 2. Access token │◀───│ Return access    │    │                 │
-│    + refresh    │    │ token + set      │    │                 │
-│    cookie       │    │ refresh cookie   │    │                 │
-│                 │    │ (httpOnly)       │    │                 │
-│ 3. Use access   │───▶│ Protected        │    │                 │
-│    token        │    │ endpoints        │    │                 │
-│                 │    │                  │    │                 │
-│ 4. Token expiry │───▶│ POST /auth/      │    │                 │
-│                 │    │ refresh (rotate) │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
+CORS & Redirections
+- CORS_ORIGINS doit contenir le(s) domaine(s) front autorisés
+- FRONTEND_URL utilisé pour construire les URLs de redirection après succès/erreur d’OAuth
 
-Environment Variables
-- JWT_SECRET_KEY or SECRET_KEY: clé de signature JWT
-- JWT_ACCESS_TOKEN_EXPIRE_MINUTES: durée de l’access token (par défaut 30)
-- REFRESH_TOKEN_EXPIRE_DAYS: durée du refresh token (par défaut 30, absolue)
-- COOKIE_NAME_REFRESH: nom du cookie (refresh_token)
-- COOKIE_SECURE: true en production (HTTPS requis)
-- COOKIE_SAMESITE: Lax/Strict/None
-- COOKIE_DOMAIN: domaine du cookie (optionnel en local)
+Sécurité & Bonnes Pratiques
+- Toujours activer:
+  - COOKIE_SECURE=true en production (HTTPS obligatoire)
+  - COOKIE_SAMESITE=lax (ou none si besoin cross-site sur HTTPS)
+  - COOKIE_DOMAIN configuré au domaine de l’app (ex: app.yourdomain.com)
+- OAuth
+  - Valider id_token (aud/iss/sub/email_verified) côté serveur
+  - Lier les comptes par email vérifié
+- Logs
+  - Éviter de logguer des secrets ou des tokens bruts
 
-Database Schema
-- users: id (PK), email (GSI email-index), credits, password_hash (optionnel), auth_provider/provider_id (optionnels)
-- auth_tokens: id (PK), token (GSI), user_id (GSI), token_type (RANGE sur user-type-index), expires_at, used_at, is_active
+Variables d’Environnement (extrait)
+- JWT & sessions
+  - JWT_SECRET_KEY
+  - JWT_ALGORITHM=HS256
+  - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
+  - REFRESH_TOKEN_EXPIRE_DAYS=30
+  - COOKIE_NAME_REFRESH=refresh_token
+  - COOKIE_SECURE=true (prod)
+  - COOKIE_SAMESITE=lax (ou none)
+  - COOKIE_DOMAIN=app.yourdomain.com
+- CORS / Frontend
+  - CORS_ORIGINS=https://app.yourdomain.com
+  - FRONTEND_URL=https://app.yourdomain.com
+- Google OAuth
+  - GOOGLE_CLIENT_ID
+  - GOOGLE_CLIENT_SECRET
+  - GOOGLE_REDIRECT_URI=https://api.yourdomain.com/api/v1/auth/google/callback
+- Apple OAuth
+  - APPLE_CLIENT_ID
+  - APPLE_TEAM_ID
+  - APPLE_KEY_ID
+  - APPLE_PRIVATE_KEY (PEM; peut être fourni en une ligne avec \n)
+  - APPLE_REDIRECT_URI=https://api.yourdomain.com/api/v1/auth/apple/callback
 
-API Endpoints
-- POST /api/v1/auth/register
-  - Body: { "email": "...", "password": "..." }
-  - Crée l’utilisateur, pose un refresh cookie (30j), renvoie un access token + infos user
-- POST /api/v1/auth/login
-  - Body: { "email": "...", "password": "..." }
-  - Vérifie les credentials, pose un refresh cookie (30j), renvoie un access token + infos user
-- POST /api/v1/auth/refresh
-  - Utilise le refresh cookie; rotate le refresh (même expiration absolue) et renvoie un nouvel access token
-- POST /api/v1/auth/logout
-  - Révoque les refresh tokens de l’utilisateur et efface le cookie
-- GET /api/v1/auth/me
-  - Renvoie l’utilisateur courant (JWT requis)
+Exemples — Flux côté client
+- Login Google (navigateur)
+  - 1) Ouvrir /api/v1/auth/google/login → redirection Google
+  - 2) Consentement utilisateur → redirection /auth/google/callback → refresh cookie posé → redirection FRONTEND_URL
+  - 3) Sur le front, appeler /api/v1/auth/me et afficher l’état connecté
 
-Security Notes
-- Access token court (ex. 30 min) pour réduire l’impact d’une fuite
-- Refresh token en cookie httpOnly, SameSite=Lax, Secure en prod
-- Rotation à chaque refresh; révoque l’ancien
-- Expiration absolue à 30 jours: la session n’est jamais prolongée au-delà de 30 jours
+- Login local (curl)
+  ```bash path=null start=null
+  curl -X POST http://localhost:8000/api/v1/auth/login \
+    -H 'Content-Type: application/json' \
+    -d '{"email": "user@example.com", "password": "your-pass"}' -i
+  # → Set-Cookie: refresh_token=...; HttpOnly; Path=/; Max-Age=... 
+  ```
 
-Frontend
-- Stocker l’access token de manière volatile (mémoire)
-- Ajouter un intercepteur HTTP: sur 401, appeler /auth/refresh puis rejouer la requête
-- Pas de “Remember me”: tout le monde est gardé connecté 30 jours par défaut
+- Refresh (curl)
+  ```bash path=null start=null
+  curl -X POST http://localhost:8000/api/v1/auth/refresh \
+    -H 'Content-Type: application/json' \
+    -H 'Cookie: refresh_token=<value>'
+  ```
 
-Email vérification (local auth)
-- À l’inscription (register), un email de vérification est envoyé à l’utilisateur avec un lien contenant token + email (exp. 24h par défaut)
-- Le frontend redirige l’utilisateur vers /api/v1/auth/verify-email en POST avec { token, email }
-- Si succès: email_verified_at est renseigné pour l’utilisateur
+- Appel d’une route protégée
+  ```bash path=null start=null
+  curl -X GET http://localhost:8000/api/v1/auth/me \
+    -H 'Authorization: Bearer <access_token>'
+  ```
 
-Migration
-- Les routes et emails de magic link ont été supprimés
-- Les anciennes tables “magic_links” ne sont plus utilisées (script LocalStack mis à jour)
+Gestion des Erreurs Courantes
+- 401 Invalid token / Missing refresh token → vérifier header Authorization ou cookie
+- 401 Email non vérifié → utiliser /api/v1/auth/verify-email après réception de l’email
+- 400 OAuth non configuré → vérifier GOOGLE_* ou APPLE_* dans l’environnement
 
-Tests
-- À mettre à jour: auth unit/integration tests pour les flux register/login/refresh/logout
+Tests & Validation
+- Tests d’intégration pour OAuth social: media_summarizer/tests/integration/test_auth_social_integration.py
+- E2E billing (minutes): media_summarizer/tests/end_to_end/test_minutes_billing_e2e.py
+
+Références Code
+- Auth locale: media_summarizer/api/endpoints/auth.py
+- OAuth social: media_summarizer/api/endpoints/auth_social.py
+- Dépendances/auth: media_summarizer/api/dependencies/auth.py
+- CORS & rate limiting: media_summarizer/api/main.py, media_summarizer/api/rate_limit.py
+
+---
+
+Spotify (Link Account)
+- Objectif: permettre à un utilisateur déjà connecté de lier son compte Spotify pour accéder aux données protégées par scopes (sans fournir de login via Spotify)
+- Scopes requis: user-read-playback-position, playlist-read-private
+- Flow: Authorization Code (sans PKCE)
+
+Endpoints
+- GET /api/v1/auth/spotify/login
+  - Prérequis: l’utilisateur doit être authentifié (Authorization: Bearer <access_token> de notre app)
+  - Action: redirige vers https://accounts.spotify.com/authorize avec state (cookie httpOnly 10 min)
+- GET /api/v1/auth/spotify/callback?code=...&state=...
+  - Échange code -> access_token + refresh_token + expires_in
+  - Appel /v1/me pour récupérer spotify_user_id
+  - Persiste dans User: spotify_user_id, spotify_access_token, spotify_refresh_token, spotify_token_expires_at, spotify_scope
+  - Redirige FRONTEND_URL/auth/callback-success?provider=spotify (ou .../callback-error?reason=...)
+
+Configuration
+- Variables d’environnement:
+  - SPOTIFY_CLIENT_ID
+  - SPOTIFY_CLIENT_SECRET
+  - SPOTIFY_REDIRECT_URI (ex: http://localhost:8000/api/v1/auth/spotify/callback)
+- FRONTEND_URL: base utilisée pour les redirections succès/erreur
+- Cookies: même politique que Google/Apple (httpOnly; Secure en prod; SameSite configurable)
+
+Notes
+- Aucun cookie de session de notre app n’est émis lors du callback Spotify (linking seulement)
+- Les jetons Spotify ne doivent pas être loggués ni exposés; rotation d’access_token à implémenter au moment d’appels Spotify si nécessaire (hors de cette section)
 

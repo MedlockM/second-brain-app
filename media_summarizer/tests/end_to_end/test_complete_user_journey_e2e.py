@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.skip("Legacy credits system removed (replaced by minutes)")
+
 """
 Complete User Journey End-to-End Test.
 

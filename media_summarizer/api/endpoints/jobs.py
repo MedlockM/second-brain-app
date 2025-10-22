@@ -1,6 +1,7 @@
 """
 Jobs API endpoints for tracking processing job status.
 """
+
 import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 class JobStatusResponse(BaseModel):
     """Response model for job status."""
+
     job_id: str
     status: str
     progress_percentage: int
@@ -28,14 +30,12 @@ class JobStatusResponse(BaseModel):
     error_step: Optional[str] = None
     podcast_title: Optional[str] = None
     episode_title: Optional[str] = None
-    credits_cost: int
     processing_durations: Optional[dict] = None
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(
-    job_id: str,
-    current_user: AuthUser = Depends(get_current_user)
+    job_id: str, current_user: AuthUser = Depends(get_current_user)
 ) -> JobStatusResponse:
     """
     Get the status of a processing job.
@@ -83,11 +83,12 @@ async def get_job_status(
             completed_at=job.completed_at.isoformat() if job.completed_at else None,
             error_message=job.error_message,
             error_step=job.error_step,
-            credits_cost=job.credits_cost,
-            processing_durations=processing_durations if processing_durations else None
+            processing_durations=processing_durations if processing_durations else None,
         )
 
-        logger.info(f"Retrieved job status for job {job_id}, status: {job.status.value}")
+        logger.info(
+            f"Retrieved job status for job {job_id}, status: {job.status.value}"
+        )
         return response
 
     except HTTPException:
@@ -99,8 +100,7 @@ async def get_job_status(
 
 @router.get("/user/{user_id}", response_model=list[JobStatusResponse])
 async def get_user_jobs(
-    user_id: str,
-    current_user: AuthUser = Depends(get_current_user)
+    user_id: str, current_user: AuthUser = Depends(get_current_user)
 ) -> list[JobStatusResponse]:
     """
     Get all jobs for a specific user.
@@ -118,7 +118,9 @@ async def get_user_jobs(
     try:
         # Check if the user is requesting their own jobs
         if user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Access denied to other user's jobs")
+            raise HTTPException(
+                status_code=403, detail="Access denied to other user's jobs"
+            )
 
         # Get all jobs for the user
         jobs = await database_async.get_processing_jobs_by_user_id(user_id)
@@ -147,8 +149,9 @@ async def get_user_jobs(
                 completed_at=job.completed_at.isoformat() if job.completed_at else None,
                 error_message=job.error_message,
                 error_step=job.error_step,
-                credits_cost=job.credits_cost,
-                processing_durations=processing_durations if processing_durations else None
+                processing_durations=processing_durations
+                if processing_durations
+                else None,
             )
             job_responses.append(response)
 

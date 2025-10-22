@@ -14,7 +14,7 @@ import logging
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 
-from media_summarizer.utils import ses, sqs, database_async
+from media_summarizer.utils import ses, sqs, database_async, episode_idempotence
 from media_summarizer.core.models import JobStatus
 
 # Configure logging
@@ -281,6 +281,15 @@ async def process_message(message: Dict[str, Any], retries: int = 0, ses_client:
             await send_error_notification(recipient, job_id, error_message, step)
             logger.info(f"Sent error notification for job {job_id} to {recipient}")
 
+            # Idempotence: mark failed only for canonical processing jobs (skip cache-only emails)
+            try:
+                job = await database_async.get_processing_job_by_id(job_id)
+                from_cache = body.get("from_cache", False)
+                if job and getattr(job, "episode_guid", None) and not from_cache:
+                    await episode_idempotence.mark_failed(job.episode_guid, job.id)
+            except Exception as e:
+                logger.error(f"Error marking idempotence failed: {str(e)}")
+
         elif notification_type == "completion":
             podcast_title = body.get("podcast_title")
             episode_title = body.get("episode_title")
@@ -294,6 +303,13 @@ async def process_message(message: Dict[str, Any], retries: int = 0, ses_client:
                 if job:
                     job.mark_completed()
                     await database_async.update_processing_job(job)
+                    # Idempotence: mark processed only for canonical processing jobs (skip cache-only emails)
+                    try:
+                        from_cache = body.get("from_cache", False)
+                        if getattr(job, "episode_guid", None) and not from_cache and getattr(job, "summary_s3_key", None):
+                            await episode_idempotence.mark_processed(job.episode_guid, job.id)
+                    except Exception as e2:
+                        logger.error(f"Error marking idempotence processed: {str(e2)}")
             except Exception as e:
                 logger.error(f"Error updating job status to completed: {str(e)}")
 

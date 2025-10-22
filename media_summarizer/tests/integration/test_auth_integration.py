@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.skip("Legacy magic-link endpoints removed (request-magic-link no longer available)")
+
 """
 Integration tests for authentication system.
 

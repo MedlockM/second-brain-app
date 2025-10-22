@@ -35,6 +35,7 @@ class SummarizationWorker:
 # Configuration
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
 NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-queue")
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get("EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events")
 
 
 # LLM timeout from env (seconds)
@@ -295,6 +296,23 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
                 minutes_used = max(1, int(len(transcription_text) / 800))
             from media_summarizer.core.services.minute_pool import finalize_usage
             await finalize_usage(job_id, minutes_used)
+
+            # Publish episode-completed event for watchers fan-out
+            try:
+                await sqs.send_message(
+                    queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
+                    message_body={
+                        "event_type": "episode_completed",
+                        "episode_guid": message_body.get("episode_guid"),
+                        "canonical_job_id": job_id,
+                        "summary_s3_key": summary_s3_key,
+                        "podcast_title": message_body.get("podcast_title"),
+                        "episode_title": message_body.get("episode_title"),
+                        "minutes_used": minutes_used,
+                    },
+                )
+            except Exception as ee:
+                logger.warning(f"Failed to publish episode-completed event for job {job_id}: {ee}")
         except Exception as e:
             logger.warning(f"Failed to finalize minute usage for job {job_id}: {e}")
 
@@ -316,6 +334,7 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
             email=email,
             podcast_title=message_body.get("podcast_title"),
             episode_title=message_body.get("episode_title"),
+            episode_guid=message_body.get("episode_guid"),
             summary_content=summary_result
         )
 

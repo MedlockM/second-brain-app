@@ -4,6 +4,7 @@ Authentication dependencies for the API.
 This module provides functions for user authentication and authorization
 using JWT access tokens (issued after local or social login).
 """
+
 import logging
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
@@ -21,13 +22,13 @@ logger = logging.getLogger(__name__)
 # OAuth2 scheme for token authentication
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/login",
-    auto_error=False  # Allow optional authentication
+    auto_error=False,  # Allow optional authentication
 )
 
 
 async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
-    db: DynamoDBConnection = Depends(get_db)
+    db: DynamoDBConnection = Depends(get_db),
 ) -> AuthUser:
     """
     Get the current authenticated user based on the provided JWT token.
@@ -94,11 +95,7 @@ async def get_current_user(
         logger.debug(f"Successfully authenticated user: {user.id}")
 
         # Return AuthUser object
-        return AuthUser(
-            id=user.id,
-            email=user.email,
-            credits=user.credits
-        )
+        return AuthUser(id=user.id, email=user.email)
 
     except HTTPException:
         # Re-raise HTTP exceptions as-is
@@ -114,7 +111,7 @@ async def get_current_user(
 
 async def get_optional_user(
     token: Optional[str] = Depends(oauth2_scheme),
-    db: DynamoDBConnection = Depends(get_db)
+    db: DynamoDBConnection = Depends(get_db),
 ) -> Optional[AuthUser]:
     """
     Get the current user if authenticated, or None if not.
@@ -142,8 +139,7 @@ async def get_optional_user(
 
 
 async def require_user_access(
-    resource_user_id: str,
-    current_user: AuthUser = Depends(get_current_user)
+    resource_user_id: str, current_user: AuthUser = Depends(get_current_user)
 ) -> AuthUser:
     """
     Require that the current user has access to a specific user's resources.
@@ -166,70 +162,36 @@ async def require_user_access(
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: You can only access your own resources"
+            detail="Access denied: You can only access your own resources",
         )
 
     return current_user
 
 
-async def require_sufficient_credits(
-    required_credits: int,
-    current_user: AuthUser = Depends(get_current_user),
-    db: DynamoDBConnection = Depends(get_db)
-) -> AuthUser:
-    """
-    Require that the current user has sufficient credits for an operation.
-
-    Args:
-        required_credits: Number of credits required for the operation
-        current_user: The current authenticated user
-        db: Database connection
-
-    Returns:
-        The current user if they have sufficient credits
-
-    Raises:
-        HTTPException: If the user doesn't have enough credits
-    """
-    # Get fresh user data to ensure credits are up-to-date
-    user = await database_async.get_user_by_id(current_user.id)
-    if not user:
-        logger.error(f"User {current_user.id} not found during credit check")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
-        )
-
-    if user.credits < required_credits:
-        logger.info(
-            f"User {user.id} has insufficient credits: {user.credits} < {required_credits}"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=f"Insufficient credits. You have {user.credits} credits but need {required_credits}."
-        )
-
-    # Update the current_user object with fresh credits
-    current_user.credits = user.credits
-    return current_user
+# require_sufficient_credits removed: legacy credits system deprecated (minutes-based billing in effect).
 
 
 async def require_verified_email(
     current_user: AuthUser = Depends(get_current_user),
-    db: DynamoDBConnection = Depends(get_db)
+    db: DynamoDBConnection = Depends(get_db),
 ) -> AuthUser:
     """
     Ensure the current user's email is verified before allowing sensitive actions.
     """
     user = await database_async.get_user_by_id(current_user.id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
     # Social providers are treated as verified (provider assures email verification)
     if getattr(user, "auth_provider", None) in ("google", "apple"):
         return current_user
 
     if not getattr(user, "email_verified_at", None):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified. Please verify your email to continue.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified. Please verify your email to continue.",
+        )
     return current_user
 
 
@@ -260,8 +222,7 @@ def get_user_id_from_request(request: Request) -> Optional[str]:
 
 
 async def validate_token_fresh(
-    current_user: AuthUser = Depends(get_current_user),
-    max_age_hours: int = 24
+    current_user: AuthUser = Depends(get_current_user), max_age_hours: int = 24
 ) -> AuthUser:
     """
     Validate that the current user's token is not too old.
