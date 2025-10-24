@@ -247,6 +247,69 @@ async def validate_token_fresh(
     return current_user
 
 
+async def get_current_user_flexible(
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: DynamoDBConnection = Depends(get_db),
+) -> AuthUser:
+    """
+    Get the current authenticated user from Bearer token OR refresh token cookie.
+    This is useful for endpoints that need to work with browser redirects.
+
+    Args:
+        request: FastAPI request object (to access cookies)
+        token: Optional Bearer token from Authorization header
+        db: Database connection
+
+    Returns:
+        AuthUser object containing user information
+
+    Raises:
+        HTTPException: If authentication fails
+    """
+    # Try Bearer token first
+    if token:
+        try:
+            return await get_current_user(token, db)
+        except HTTPException:
+            pass  # Fall through to try refresh token
+
+    # Try refresh token from cookie
+    from media_summarizer.api.endpoints.auth import REFRESH_COOKIE_NAME
+    from media_summarizer.core.models.auth import AuthToken
+
+    refresh_token_value = request.cookies.get(REFRESH_COOKIE_NAME)
+    if refresh_token_value:
+        try:
+            # Load refresh token from database
+            refresh_token = await database_async.get_auth_token_by_token(
+                refresh_token_value
+            )
+            if (
+                refresh_token
+                and refresh_token.token_type == "refresh"
+                and not refresh_token.is_expired()
+            ):
+                # Get user from database
+                user = await database_async.get_user_by_id(refresh_token.user_id)
+                if user:
+                    logger.debug(
+                        f"Authenticated user via refresh token cookie: {user.id}"
+                    )
+                    return AuthUser(id=user.id, email=user.email)
+        except Exception as e:
+            logger.warning(f"Failed to authenticate via refresh token: {e}")
+
+    # No valid authentication found
+    logger.warning("No valid authentication token (Bearer or refresh cookie) provided")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication token required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 # Convenience aliases for common authentication patterns
 RequireAuth = Depends(get_current_user)
 OptionalAuth = Depends(get_optional_user)
+RequireAuthFlexible = Depends(get_current_user_flexible)

@@ -12,6 +12,10 @@ services:
     env_file:
       - .env.dev
     environment:
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000
+      - FRONTEND_URL=http://localhost:5173
+      - COOKIE_DOMAIN=localhost
+      - COOKIE_SECURE=false
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
@@ -232,7 +236,7 @@ services:
 
   # LocalStack pour simuler les services AWS (incluant DynamoDB)
   localstack:
-    profiles: ["infrastructure", "api", "workers", "full"]
+    profiles: ["infrastructure", "api", "workers", "whisper", "full"]
     image: localstack/localstack:3.0
     ports:
       - "4566:4566"
@@ -257,7 +261,7 @@ services:
       start_period: 30s
 
   terraform:
-    profiles: ["infrastructure", "full"]
+    profiles: ["infrastructure", "api", "workers", "full"]
     image: hashicorp/terraform:1.6.6
     working_dir: /workspace
     volumes:
@@ -268,7 +272,12 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
       - TF_VAR_localstack_endpoint=http://localstack:4566
     entrypoint: []
-    command: ["/bin/sh", "-lc", "terraform init -upgrade && terraform validate && terraform plan -out=tfplan && terraform apply -auto-approve tfplan"]
+    command:
+      [
+        "/bin/sh",
+        "-lc",
+        "terraform init -upgrade && terraform validate && terraform plan -out=tfplan && terraform apply -auto-approve tfplan",
+      ]
     depends_on:
       localstack:
         condition: service_healthy

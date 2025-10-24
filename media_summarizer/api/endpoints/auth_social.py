@@ -10,6 +10,7 @@ Notes:
 - Apple id_token is validated against Apple's JWKS (RS256)
 - Client secrets and keys are read from environment variables
 """
+
 import os
 import logging
 import secrets
@@ -29,7 +30,11 @@ from media_summarizer.utils.auth_utils import (
     create_token_payload,
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
 )
-from media_summarizer.api.dependencies.auth import get_current_user, RequireAuth
+from media_summarizer.api.dependencies.auth import (
+    get_current_user,
+    RequireAuth,
+    RequireAuthFlexible,
+)
 
 # Reuse cookie helper from local auth module
 from media_summarizer.api.endpoints import auth as auth_local
@@ -46,7 +51,9 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 # Spotify OAuth config (link-account)
 SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
-SPOTIFY_REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://localhost:8000/api/v1/auth/spotify/callback")
+SPOTIFY_REDIRECT_URI = os.environ.get(
+    "SPOTIFY_REDIRECT_URI", "http://localhost:8000/api/v1/auth/spotify/callback"
+)
 SPOTIFY_SCOPES = "user-read-playback-position playlist-read-private"
 
 # Google OAuth config
@@ -68,7 +75,10 @@ APPLE_REDIRECT_URI = os.environ.get("APPLE_REDIRECT_URI") or os.environ.get(
 
 # Helpers
 
-def _set_state_cookie(response: Response, provider: str, state: str, ttl_seconds: int = 600) -> None:
+
+def _set_state_cookie(
+    response: Response, provider: str, state: str, ttl_seconds: int = 600
+) -> None:
     response.set_cookie(
         key=f"oauth_state_{provider}",
         value=state,
@@ -86,7 +96,9 @@ def _get_state_cookie(request: Request, provider: str) -> Optional[str]:
     return request.cookies.get(f"oauth_state_{provider}")
 
 
-def _set_user_cookie(response: Response, provider: str, user_id: str, ttl_seconds: int = 600) -> None:
+def _set_user_cookie(
+    response: Response, provider: str, user_id: str, ttl_seconds: int = 600
+) -> None:
     response.set_cookie(
         key=f"oauth_state_{provider}_uid",
         value=user_id,
@@ -161,6 +173,7 @@ def _redirect_error(provider: str, reason: str) -> RedirectResponse:
 
 # ------------------ Google OAuth ------------------
 
+
 @router.get("/google/login")
 async def google_login(response: Response) -> RedirectResponse:
     if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URI:
@@ -232,16 +245,25 @@ async def google_callback(
         aud = info.get("aud")
         iss = info.get("iss")
         email = info.get("email")
-        email_verified = str(info.get("email_verified", "false")).lower() in ("true", "1", "yes")
+        email_verified = str(info.get("email_verified", "false")).lower() in (
+            "true",
+            "1",
+            "yes",
+        )
         sub = info.get("sub")
 
-        if aud != GOOGLE_CLIENT_ID or iss not in ("accounts.google.com", "https://accounts.google.com"):
+        if aud != GOOGLE_CLIENT_ID or iss not in (
+            "accounts.google.com",
+            "https://accounts.google.com",
+        ):
             return _redirect_error("google", "invalid_audience_or_issuer")
         if not email or not email_verified or not sub:
             return _redirect_error("google", "invalid_claims")
 
         # Link or create user
-        user = await _link_or_create_user(email=email.lower().strip(), provider="google", provider_sub=sub)
+        user = await _link_or_create_user(
+            email=email.lower().strip(), provider="google", provider_sub=sub
+        )
 
         # Create refresh token and set cookie
         refresh = AuthToken.create_refresh_token(user_id=user.id, email=user.email)
@@ -260,8 +282,56 @@ async def google_callback(
 
 # ------------------ Spotify (link account) ------------------
 
+
+@router.get("/spotify/auth-url")
+async def spotify_auth_url(current_user: AuthUser = RequireAuth):
+    """
+    Get Spotify OAuth URL without redirecting.
+    Frontend can call this with Bearer token, get the URL, then redirect.
+    """
+    if not SPOTIFY_CLIENT_ID or not SPOTIFY_REDIRECT_URI:
+        raise HTTPException(status_code=500, detail="Spotify OAuth not configured")
+
+    state = secrets.token_urlsafe(16)
+    base = "https://accounts.spotify.com/authorize"
+
+    import urllib.parse as up
+
+    params = {
+        "response_type": "code",
+        "client_id": SPOTIFY_CLIENT_ID,
+        "redirect_uri": SPOTIFY_REDIRECT_URI,
+        "scope": SPOTIFY_SCOPES,
+        "state": state,
+    }
+
+    oauth_url = f"{base}?{up.urlencode(params)}"
+
+    # Store state and user_id in database for later verification
+    # We'll use a temporary auth token to store this
+    from media_summarizer.core.models.auth import AuthToken, TokenType
+    from datetime import datetime, timedelta, timezone
+
+    state_token = AuthToken(
+        user_id=current_user.id,
+        email=current_user.email,
+        token=state,
+        token_type=TokenType.MAGIC_LINK,  # Reuse MAGIC_LINK type for temporary state
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    await database_async.create_auth_token(state_token)
+
+    return {"url": oauth_url, "state": state}
+
+
 @router.get("/spotify/login")
-async def spotify_login(response: Response, current_user: AuthUser = RequireAuth) -> RedirectResponse:
+async def spotify_login(
+    response: Response, current_user: AuthUser = RequireAuthFlexible
+) -> RedirectResponse:
+    """
+    Redirect to Spotify OAuth (deprecated - use /spotify/auth-url instead).
+    Kept for backward compatibility.
+    """
     if not SPOTIFY_CLIENT_ID or not SPOTIFY_REDIRECT_URI:
         raise HTTPException(status_code=500, detail="Spotify OAuth not configured")
 
@@ -293,8 +363,16 @@ async def spotify_callback(
     db: DynamoDBConnection = Depends(get_db),
 ):
     try:
+        # Try to get state from cookie first (old method)
         expected_state = _get_state_cookie(request, "spotify")
         user_id_from_cookie = _get_user_cookie(request, "spotify")
+
+        # If no cookie, try to get from database (new method with /spotify/auth-url)
+        if not expected_state and state:
+            state_token = await database_async.get_auth_token_by_token(state)
+            if state_token and not state_token.is_expired():
+                expected_state = state
+                user_id_from_cookie = state_token.user_id
         if not state or not expected_state or state != expected_state:
             redirect = _redirect_error("spotify", "state_mismatch")
             _clear_state_cookie(redirect, "spotify")
@@ -394,6 +472,7 @@ async def spotify_callback(
 
 # ------------------ Utility endpoints (Spotify link status/unlink) ------------------
 
+
 @router.get("/spotify/status")
 async def spotify_status(current_user: AuthUser = RequireAuth):
     user = await database_async.get_user_by_id(current_user.id)
@@ -423,6 +502,7 @@ async def spotify_unlink(current_user: AuthUser = RequireAuth):
     user.spotify_scope = None
     await database_async.update_user(user)
     return {"status": "success", "linked": False}
+
 
 # ------------------ Apple OAuth ------------------
 
@@ -561,7 +641,9 @@ async def apple_callback(
         email = claims.get("email")
         email_verified_raw = claims.get("email_verified")
         email_verified = (
-            (str(email_verified_raw).lower() in ("true", "1", "yes")) if email_verified_raw is not None else True
+            (str(email_verified_raw).lower() in ("true", "1", "yes"))
+            if email_verified_raw is not None
+            else True
         )  # Apple may omit when using private relay; treat as verified
 
         if not sub or not email:
@@ -570,7 +652,9 @@ async def apple_callback(
             return _redirect_error("apple", "email_not_verified")
 
         # Link or create user
-        user = await _link_or_create_user(email=email.lower().strip(), provider="apple", provider_sub=sub)
+        user = await _link_or_create_user(
+            email=email.lower().strip(), provider="apple", provider_sub=sub
+        )
 
         # Create refresh token and set cookie
         refresh = AuthToken.create_refresh_token(user_id=user.id, email=user.email)
@@ -585,4 +669,3 @@ async def apple_callback(
     except Exception as e:
         logger.error(f"Apple callback error: {e}")
         return _redirect_error("apple", "server_error")
-
