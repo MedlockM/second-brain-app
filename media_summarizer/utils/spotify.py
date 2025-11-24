@@ -98,6 +98,29 @@ async def find_playlist_by_name(access_token: str, name: str) -> Optional[Dict[s
     return None
 
 
+async def playlist_contains_episodes(access_token: str, playlist_id: str) -> bool:
+    """
+    Check if a playlist contains at least one podcast episode.
+    Only fetches the first page of tracks to optimize performance.
+    """
+    url = f"{SPOTIFY_API_BASE}/playlists/{playlist_id}/tracks"
+    params = {"limit": 20}  # Check first 20 items (optimized from 50)
+    headers = {"Authorization": f"Bearer {access_token}"}
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            r = await client.get(url, headers=headers, params=params)
+            r.raise_for_status()
+            data = r.json()
+            for it in data.get("items", []):
+                track = it.get("track") or {}
+                if track and track.get("type") == "episode":
+                    return True
+            return False
+    except Exception as e:
+        logger.warning(f"Failed to check playlist {playlist_id} for episodes: {e}")
+        return False
+
+
 async def list_playlist_episode_items(access_token: str, playlist_id: str, *, limit: int = 100, max_pages: int = 10) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     url = f"{SPOTIFY_API_BASE}/playlists/{playlist_id}/tracks"

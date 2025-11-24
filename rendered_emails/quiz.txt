@@ -1,0 +1,26 @@
+Demo Podcast — Episode de démonstration
+
+Quiz (static view):
+
+Q1. Quelle est la capitale de la France ?
+- [*] Paris
+- [ ] Lyon
+- [ ] Marseille
+- [ ] Bordeaux
+
+Q2. Sélectionnez les langages typiquement utilisés côté frontend
+- [*] JavaScript
+- [*] CSS
+- [ ] Python
+- [*] HTML
+
+---
+Reveal Summary
+
+Main topics:
+- Démo quiz interactif
+Key points:
+- Email AMP + HTML interactif
+- Fallback universel
+Conclusion:
+Fin de la démo

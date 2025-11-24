@@ -95,7 +95,9 @@ async def send_completion_notification(
     job_id: str,
     podcast_title: Optional[str] = None,
     episode_title: Optional[str] = None,
-    summary_content: Optional[Dict[str, Any]] = None
+    summary_content: Optional[Dict[str, Any]] = None,
+    quiz: Optional[Dict[str, Any]] = None,
+    language: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Send a completion notification when a podcast processing job is finished.
@@ -111,6 +113,88 @@ async def send_completion_notification(
         Dict containing the response from SES
     """
     subject = "Your podcast summary is ready"
+    # If a quiz is present, render interactive/AMP email with quiz first
+    if quiz:
+        try:
+            from jinja2 import Environment, FileSystemLoader, select_autoescape
+            from media_summarizer.utils.mime_builder import build_multipart_amp_email
+
+            templates_dir = os.path.join(os.path.dirname(__file__), "..", "..", "email_templates", "quiz")
+            templates_dir = os.path.abspath(templates_dir)
+            env = Environment(
+                loader=FileSystemLoader(templates_dir),
+                autoescape=select_autoescape(["html", "xml"]),
+                trim_blocks=True,
+                lstrip_blocks=True,
+            )
+
+            ui_strings = {
+                "intro": "Answer the quiz below, then reveal the summary.",
+                "correct": "Correct",
+                "incorrect": "Incorrect",
+                "your_score": "Your Score",
+                "score_note": "Select answers for each question to update your score.",
+                "reveal_summary": "Reveal Summary",
+                "main_topics": "Main topics",
+                "key_points": "Key points",
+                "notable_quotes": "Notable quotes",
+                "conclusion": "Conclusion",
+                "prev": "Previous",
+                "next": "Next",
+                "final_note": "You can review your selections above.",
+                "compat_note": "Interactive behavior works best in iOS/Apple/Samsung Mail. Others will see the static version.",
+                "fallback_note": "Your email client does not support interactive content. Here is a static version of the quiz:",
+                "intro_text": "Quiz (static view):",
+            }
+
+            brand = {
+                "primary_start": "#2563eb",  # blue-600
+                "primary_end": "#9333ea",    # purple-600
+                "bg_from": "#eff6ff",       # blue-50
+                "bg_to": "#faf5ff",         # purple-50
+                "text": "#111827",          # gray-900
+                "muted": "#6b7280",         # gray-500/600 mid
+                "border": "#e5e7eb",        # gray-200
+                "correct_bg": "#dcfce7",    # green-100
+                "correct_text": "#166534",   # green-700
+                "incorrect_bg": "#fee2e2",  # red-100
+                "incorrect_text": "#991b1b", # red-800
+                "button_text": "#ffffff",
+            }
+
+            context = {
+                "podcast_title": podcast_title or "",
+                "episode_title": episode_title or "",
+                "quiz": quiz,
+                "summary": summary_content or {},
+                "ui_strings": ui_strings,
+                "brand": brand,
+            }
+
+            amp_html = env.get_template("quiz_amp.html.j2").render(**context)
+            interactive_html = env.get_template("quiz_interactive.html.j2").render(**context)
+            fallback_html = env.get_template("quiz_fallback.html.j2").render(**context)
+            text_part = env.get_template("quiz.txt.j2").render(**context)
+
+            # Compose multipart/alternative with AMP and HTML (interactive as primary HTML, with fallback below via noscript-like copy)
+            # For the HTML part, we can prefer the interactive version; some clients will ignore unsupported CSS.
+            html_combined = interactive_html
+
+            raw_message = build_multipart_amp_email(
+                subject=subject,
+                from_addr=os.environ.get("FROM_EMAIL", "noreply@example.com"),
+                to_addr=recipient,
+                text_part=text_part,
+                amp_part=amp_html,
+                html_part=html_combined,
+            )
+
+            await ses.send_raw_email(raw_message=raw_message)
+            logger.info(f"Sent quiz+summary AMP email for job {job_id} to {recipient}")
+            return {"MessageId": "raw-amp"}
+        except Exception as e:
+            logger.error(f"Failed to send AMP/interactive email, fallback to simple HTML: {e}")
+    # Fallback to simple HTML/text (legacy path)
 
     # Create the email body with summary content
     body_text = "Your podcast summary is ready!\n\n"
@@ -294,7 +378,9 @@ async def process_message(message: Dict[str, Any], retries: int = 0, ses_client:
             podcast_title = body.get("podcast_title")
             episode_title = body.get("episode_title")
             summary_content = body.get("summary_content")
-            await send_completion_notification(recipient, job_id, podcast_title, episode_title, summary_content)
+            quiz = body.get("quiz")
+            language = body.get("language")
+            await send_completion_notification(recipient, job_id, podcast_title, episode_title, summary_content, quiz=quiz, language=language)
             logger.info(f"Sent completion notification for job {job_id} to {recipient}")
 
             # Mark job as completed after successful email sending

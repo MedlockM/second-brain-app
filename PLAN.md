@@ -1214,6 +1214,59 @@ Ce plan couvre les 8 chantiers critiques pour une mise en production réussie. L
 
 ---
 
+## Chantier 10: Emails Quiz Interactifs (AMP + iOS/Samsung + Fallback)
+
+Objectif
+- Intégrer un quiz interactif généré par LLM dans l’email de complétion: quiz en premier, puis un bouton « Reveal Summary » qui dévoile le résumé dans le même email.
+- Maximiser la compatibilité: AMP4Email (Gmail), HTML interactif (iOS/Apple/Samsung Mail), fallback HTML statique + texte pour les autres (Outlook/Yahoo...).
+
+Décisions
+- Génération: nouveau worker `media_summarizer/workers/quiz/worker.py` qui consomme `QUIZ_QUEUE`, prend `transcript_s3_key` en entrée, produit un JSON `quiz` et envoie sur `email-notification-queue` (pas d’enregistrement de réponses, pas de webhooks).
+- Email: le `email_worker` rend 4 variantes (AMP, HTML interactif, HTML fallback, texte) via Jinja et envoie un MIME `multipart/alternative` (text/plain, text/x-amp-html, text/html) via `send_raw_email`.
+- AMP (Gmail): feedback correct/incorrect immédiat; score final calculé via amp-bind, affiché en fin d’email; « Reveal Summary » avec `amp-accordion`.
+- iOS/Apple/Samsung: pattern inputs+labels (sans position absolue) + feedback immédiat par option; page finale sans score agrégé (limitation CSS-only). « Reveal Summary » via checkbox CSS.
+- Fallback: HTML statique listant les bonnes réponses; texte brut équivalent.
+- Limites: pas de persistance des réponses; pas de hook/analytics pour l’instant.
+- i18n: la langue du quiz est passée au worker (défaut EN). Plus tard, un champ `user.preferred_language` guidera la langue; valeur par défaut à définir via i18n (à implémenter).
+
+Implémentation (V1)
+- Modèles: `media_summarizer/core/models/quiz.py` (Quiz, Question, Choice) avec cap 15 questions, validation simple.
+- Templates Jinja (repo):
+  - `media_summarizer/email_templates/quiz/quiz_amp.html.j2`
+  - `media_summarizer/email_templates/quiz/quiz_interactive.html.j2`
+  - `media_summarizer/email_templates/quiz/quiz_fallback.html.j2`
+  - `media_summarizer/email_templates/quiz/quiz.txt.j2`
+- MIME builder: `media_summarizer/utils/mime_builder.py` (construction multipart/alternative AMP pour SES).
+- Pipeline feature-flag: `ENABLE_QUIZ_EMAIL=true` fait dévier le `summarization_worker` vers `QUIZ_QUEUE`; sinon, l’email de complétion legacy reste inchangé.
+- Aucune position absolue dans le template iOS/Samsung; si un jour nécessaire, ajouter CSS ciblé Samsung (`#MessageViewBody`) pour forcer le fallback (selon Email on Acid).
+- Contrainte viewport: « 1 question + 4 options » doit tenir sans scroll; on limite la longueur des prompts/choices dans le prompting LLM et on tronque au rendu si besoin.
+- Taille email: viser < 100KB; pas de webfonts; images optionnelles.
+
+AMP Gmail — readiness
+- Tant que le domaine d’envoi n’est pas approuvé pour AMP, Gmail affichera la partie HTML classique. Étapes à planifier:
+  - SPF/DKIM/DMARC alignés; TLS; volume d’envoi raisonnable.
+  - Demande d’approbation Gmail Dynamic Email (adresse/domaine).
+  - Valider le document avec `amphtml-validator` (local ou via playground AMP) avant les tests.
+
+Tests (manuels pour V1)
+- Envoi réel de mails de test via SES (sandbox) vers boîtes Gmail, iOS Mail, Samsung Mail, Outlook, Yahoo.
+- Idéalement, utiliser Email on Acid / Litmus si disponible pour prévisualisations cross-clients.
+- Le copier/coller du code dans un email ne suffit pas pour AMP; préférer l’envoi réel.
+
+Variables d’environnement
+- `ENABLE_QUIZ_EMAIL=true|false` (défaut false)
+- `QUIZ_QUEUE=quiz-queue`
+- `TRANSCRIPT_BUCKET` (existant)
+- `DEFAULT_QUIZ_LANGUAGE=EN`
+- `LLM_API_URL`, `OPENAI_API_KEY`, `LLM_TIMEOUT_SECONDS`
+
+Points ouverts / prochaines étapes
+- i18n complète: introduire `user.preferred_language` (DB + API) et une valeur par défaut déterminée via i18n; alimenter worker quiz et templates.
+- R&D (timebox) sur un score agrégé CSS-only pour iOS/Samsung; si non concluant, proposer un lien « Voir mon score en ligne » (page web stateless).
+- Onboarding AMP: préparer les DNS et la demande d’approbation.
+
+---
+
 ## Statut d’avancement (2025-10-02)
 
 Cette section suit l’état réel du code et liste les TODO par phase. Les cases cochées indiquent ce qui est en place. Les éléments restants sont listés en TODO.

@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
 
 # Installation uv
 RUN pip install uv
+ENV UV_HTTP_TIMEOUT=180 PIP_DEFAULT_TIMEOUT=180
 
 WORKDIR /app
 

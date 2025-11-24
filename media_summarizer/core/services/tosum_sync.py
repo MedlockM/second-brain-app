@@ -39,8 +39,15 @@ SPOTIFY_LISTEN_THRESHOLD_PERCENT = float(
 
 def _normalize(s: str) -> str:
     import re
+    import unicodedata
 
     s = (s or "").lower()
+    # Normalize Unicode characters (NFD = decompose accents)
+    s = unicodedata.normalize("NFD", s)
+    # Remove combining characters (accents)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    # Normalize back to NFC
+    s = unicodedata.normalize("NFC", s)
     s = re.sub(r"[\W_]+", " ", s)  # remove punctuation
     s = re.sub(r"\s+", " ", s).strip()
     return s
@@ -70,6 +77,7 @@ def _best_match_episode(
     t_tokens = set(t_norm.split())
     best = None
     best_score = 0.0
+    top_candidates = []  # Track top 3 candidates for debugging
     for e in episodes:
         e_tokens = set(_normalize(e.get("title", "")).split())
         if not e_tokens or not t_tokens:
@@ -80,8 +88,23 @@ def _best_match_episode(
         if score > best_score:
             best_score = score
             best = e
+        # Track top candidates
+        if len(top_candidates) < 3:
+            top_candidates.append((score, e.get("title", "Unknown")))
+            top_candidates.sort(reverse=True, key=lambda x: x[0])
+        elif score > top_candidates[-1][0]:
+            top_candidates[-1] = (score, e.get("title", "Unknown"))
+            top_candidates.sort(reverse=True, key=lambda x: x[0])
+
     if best_score >= 0.6:
         return best
+
+    # Log debug info when no match found
+    logger.debug(
+        f"No match found for '{target_title}' (normalized: '{t_norm}'). "
+        f"Best score: {best_score:.3f}. Top candidates: "
+        f"{', '.join([f'{title} ({score:.3f})' for score, title in top_candidates[:3]])}"
+    )
     return None
 
 
@@ -162,11 +185,15 @@ async def run_tosum_sync_for_user(user) -> Dict[str, Any]:
             )
             feeds = search.get("feeds", [])
             if not feeds:
+                logger.warning(
+                    f"No feeds found for query: '{show_title or ep_title}' (episode: {ep_title})"
+                )
                 skipped_not_matched += 1
                 continue
             feed = feeds[0]
             feed_id = feed.get("id")
             if not feed_id:
+                logger.warning(f"Feed has no ID for query: '{show_title or ep_title}'")
                 skipped_not_matched += 1
                 continue
             eps = await podcast_index.get_episodes_by_feed_id(
@@ -176,6 +203,11 @@ async def run_tosum_sync_for_user(user) -> Dict[str, Any]:
             ep_items = eps.get("items", [])
             match = _best_match_episode(ep_items, ep_title)
             if not match:
+                logger.warning(
+                    f"No match found for episode '{ep_title}' in {len(ep_items)} episodes "
+                    f"from feed '{feed.get('title', 'Unknown')}' (feed_id={feed_id}). "
+                    f"Check DEBUG logs for matching details."
+                )
                 skipped_not_matched += 1
                 continue
 
@@ -192,6 +224,11 @@ async def run_tosum_sync_for_user(user) -> Dict[str, Any]:
                 continue
 
             # Submit using shared service (idempotence + watchers inside)
+            # Use episode image if available, otherwise fallback to feed image
+            episode_image_url = (
+                match.get("image") or match.get("feedImage") or feed.get("image", "")
+            )
+            logger.info(f"Submitting episode {guid} with image: {episode_image_url}")
             res = await submit_episode_for_user(
                 user=user,
                 episode_guid=guid,
@@ -199,6 +236,7 @@ async def run_tosum_sync_for_user(user) -> Dict[str, Any]:
                 feed_title=feed_title,
                 audio_url=audio_url,
                 duration_seconds=duration_sec or (match.get("duration") or 0),
+                episode_image=episode_image_url,
                 source="spotify",
             )
             submitted += 1

@@ -98,4 +98,88 @@ export class SpotifyService {
 
     return response.json();
   }
+
+  static async getPlaylists(token: string, signal?: AbortSignal): Promise<any[]> {
+    const response = await fetch(`${API_BASE_URL}/api/v1/spotify/playlists`, {
+      method: "GET",
+      headers: this.getAuthHeaders(token),
+      signal,
+    });
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: "Failed to get playlists" }));
+      throw new Error(
+        error.message || error.detail || "Failed to get playlists",
+      );
+    }
+
+    return response.json();
+  }
+
+  static async getSubscriptions(token: string): Promise<any[]> {
+    const response = await fetch(`${API_BASE_URL}/api/v1/spotify/subscriptions`, {
+      method: "GET",
+      headers: this.getAuthHeaders(token),
+    });
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: "Failed to get subscriptions" }));
+      throw new Error(
+        error.message || error.detail || "Failed to get subscriptions",
+      );
+    }
+
+    return response.json();
+  }
+
+  static async updateSubscription(
+    token: string,
+    playlistId: string,
+    enabled: boolean,
+  ): Promise<any> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/spotify/playlists/${playlistId}/subscription`,
+      {
+        method: "PUT",
+        headers: this.getAuthHeaders(token),
+        body: JSON.stringify({ enabled }),
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: "Failed to update subscription" }));
+      throw new Error(
+        error.message || error.detail || "Failed to update subscription",
+      );
+    }
+
+    return response.json();
+  }
+
+  static async syncPlaylist(token: string, playlistId: string): Promise<any> {
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/spotify/playlists/${playlistId}/sync`,
+      {
+        method: "POST",
+        headers: this.getAuthHeaders(token),
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: "Failed to sync playlist" }));
+      throw new Error(
+        error.message || error.detail || "Failed to sync playlist",
+      );
+    }
+
+    return response.json();
+  }
 }

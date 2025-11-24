@@ -1,6 +1,7 @@
 """
 Worker de téléchargement audio pour récupérer les fichiers MP3 des podcasts.
 """
+
 import asyncio
 import json
 import logging
@@ -12,7 +13,7 @@ import httpx
 from media_summarizer.utils import s3, sqs
 from media_summarizer.workers.base_worker import (
     process_message_with_retry,
-    get_sqs_receive_params
+    get_sqs_receive_params,
 )
 
 # Configuration du logging
@@ -22,25 +23,30 @@ logger = logging.getLogger(__name__)
 # Backward-compatibility helpers expected by some tests
 # Not used by the new utils-based implementation, but kept for patchability in tests
 
+
 def get_s3_client():
     import boto3
+
     return boto3.client(
-        's3',
+        "s3",
         region_name=os.environ.get("AWS_REGION", "us-east-1"),
-        endpoint_url=os.environ.get("AWS_ENDPOINT_URL")
+        endpoint_url=os.environ.get("AWS_ENDPOINT_URL"),
     )
 
 
 def get_sqs_client():
     import boto3
+
     return boto3.client(
-        'sqs',
+        "sqs",
         region_name=os.environ.get("AWS_REGION", "us-east-1"),
-        endpoint_url=os.environ.get("AWS_ENDPOINT_URL")
+        endpoint_url=os.environ.get("AWS_ENDPOINT_URL"),
     )
+
 
 # Configuration des buckets S3
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
+
 
 async def download_audio(url, output_path):
     """Télécharge un fichier audio depuis une URL."""
@@ -55,6 +61,7 @@ async def download_audio(url, output_path):
     except Exception as e:
         # Re-raise the exception to be handled by the caller
         raise e
+
 
 async def process_message(message):
     """Traite un message de la file SQS pour le téléchargement audio."""
@@ -95,6 +102,7 @@ async def process_message(message):
 
         # Update job status to downloading
         from media_summarizer.utils import database_async
+
         job = await database_async.get_processing_job_by_id(job_id)
         if job:
             job.mark_downloading()
@@ -131,16 +139,14 @@ async def process_message(message):
             "episode_title": body.get("episode_title"),
             "podcast_title": body.get("podcast_title"),
             "episode_guid": body.get("episode_guid"),
+            "episode_image": body.get("episode_image", ""),
             "success": True,
-            "metadata": {
-                "file_size_bytes": file_size
-            }
+            "metadata": {"file_size_bytes": file_size},
         }
 
         # Send message to transcription queue
         await sqs.send_message(
-            queue_name="transcription-queue",
-            message_body=next_message
+            queue_name="transcription-queue", message_body=next_message
         )
 
         logger.info(f"Téléchargement audio terminé pour le job {job_id}")
@@ -151,6 +157,7 @@ async def process_message(message):
         # Mark job as failed in database
         try:
             from media_summarizer.utils import database_async
+
             job = await database_async.get_processing_job_by_id(job_id)
             if job:
                 job.mark_failed(str(e), "audio_download")
@@ -167,8 +174,7 @@ async def process_message(message):
         }
 
         await sqs.send_message(
-            queue_name="email-notification-queue",
-            message_body=error_message
+            queue_name="email-notification-queue", message_body=error_message
         )
 
         # Re-raise l'exception pour que base_worker puisse gérer les retries
@@ -202,10 +208,11 @@ async def process_messages_batch(messages):
             try:
                 await sqs.delete_message(
                     queue_name="audio-download-queue",
-                    receipt_handle=message["ReceiptHandle"]
+                    receipt_handle=message["ReceiptHandle"],
                 )
             except Exception as e:
                 logger.error(f"Error deleting message: {str(e)}")
+
 
 async def poll_queue():
     """Interroge la file SQS pour les nouveaux messages avec traitement par batch."""
@@ -217,7 +224,7 @@ async def poll_queue():
                 queue_name=queue_name,
                 max_messages=5,  # Reduced for download worker
                 wait_time_seconds=20,
-                visibility_timeout=300  # 5 minutes pour download
+                visibility_timeout=300,  # 5 minutes pour download
             )
 
             if messages:
@@ -231,10 +238,12 @@ async def poll_queue():
             logger.error(f"Erreur lors de l'interrogation de la file: {str(e)}")
             await asyncio.sleep(5)
 
+
 async def main():
     """Fonction principale du worker."""
     logger.info("Démarrage du worker de téléchargement audio")
     await poll_queue()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

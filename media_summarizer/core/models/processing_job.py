@@ -36,6 +36,7 @@ class ProcessingJob(BaseModel):
     podcast_url: Optional[str] = None
     episode_url: Optional[str] = None
     episode_guid: Optional[str] = None
+    episode_image: Optional[str] = None
     user_email: str = Field(..., min_length=1)
 
     # Processing metadata
@@ -44,6 +45,10 @@ class ProcessingJob(BaseModel):
     audio_s3_key: Optional[str] = None
     transcription_s3_key: Optional[str] = None
     summary_s3_key: Optional[str] = None
+    quiz_s3_key: Optional[str] = None  # S3 key for generated quiz
+    
+    # Episode metadata
+    episode_date_published: Optional[int] = None  # Unix timestamp - when episode was published by podcast
 
     # Error handling
     error_message: Optional[str] = None
@@ -110,9 +115,12 @@ class ProcessingJob(BaseModel):
             "podcast_url",
             "episode_url",
             "episode_guid",
+            "episode_image",
             "audio_s3_key",
             "transcription_s3_key",
             "summary_s3_key",
+            "quiz_s3_key",
+            "episode_date_published",
             "error_message",
             "error_step",
             "download_duration",
@@ -241,6 +249,11 @@ class ProcessingJob(BaseModel):
     def set_summary_location(self, s3_key: str) -> None:
         """Set the S3 location of the summary."""
         self.summary_s3_key = s3_key
+        self.updated_at = datetime.now(timezone.utc)
+    
+    def set_quiz_location(self, s3_key: str) -> None:
+        """Set the S3 location of the quiz."""
+        self.quiz_s3_key = s3_key
         self.updated_at = datetime.now(timezone.utc)
 
     def set_processing_duration(self, step: str, duration: int) -> None:

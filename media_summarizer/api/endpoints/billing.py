@@ -6,6 +6,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Body
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import require_verified_email
@@ -225,6 +226,106 @@ async def get_billing_history(
     except Exception as e:
         logger.error(f"Failed to compute billing history for user {current_user.id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve billing history")
+
+
+@router.post("/billing/subscriptions/cancel")
+async def cancel_subscription(
+    request: Request,
+    current_user=Depends(require_verified_email),
+):
+    """Cancel the user's active subscription at the end of the current billing period."""
+    try:
+        from media_summarizer.utils import minute_db
+        import stripe
+        
+        # Get user's active subscription
+        subs = await minute_db.get_subscriptions_by_user_id(current_user.id)
+        active_sub = None
+        for s in subs:
+            if str(s.status) == "active" or s.status.value == "active":
+                active_sub = s
+                break
+        
+        if not active_sub:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active subscription found")
+        
+        if not active_sub.stripe_subscription_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid subscription state")
+        
+        # Cancel subscription at period end via Stripe
+        stripe.api_key = os.environ.get("STRIPE_API_KEY")
+        updated_subscription = stripe.Subscription.modify(
+            active_sub.stripe_subscription_id,
+            cancel_at_period_end=True
+        )
+        
+        # Update local record
+        active_sub.cancel_at_period_end = True
+        await minute_db.update_subscription(active_sub)
+        
+        return {
+            "status": "success",
+            "message": "Subscription will be cancelled at the end of the billing period",
+            "subscription": {
+                "id": active_sub.id,
+                "tier": active_sub.tier.value,
+                "cancel_at_period_end": True,
+                "current_period_end": active_sub.current_period_end.isoformat() if active_sub.current_period_end else None,
+            }
+        }
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe error during subscription cancellation: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to cancel subscription: {str(e)}")
+    except Exception as e:
+        logger.error(f"Failed to cancel subscription for user {current_user.id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to cancel subscription")
+
+
+@router.post("/billing/portal")
+async def create_customer_portal_session(
+    request: Request,
+    current_user=Depends(require_verified_email),
+):
+    """Create a Stripe Customer Portal session for managing payment methods."""
+    try:
+        from media_summarizer.utils import minute_db
+        import stripe
+        
+        # Get user's subscription to find their Stripe customer ID
+        subs = await minute_db.get_subscriptions_by_user_id(current_user.id)
+        customer_id = None
+        
+        # Look for any subscription with a customer ID
+        for s in subs:
+            if s.stripe_customer_id:
+                customer_id = s.stripe_customer_id
+                break
+        
+        if not customer_id:
+            # Try to find or create customer by email
+            stripe.api_key = os.environ.get("STRIPE_API_KEY")
+            customers = stripe.Customer.list(email=current_user.email, limit=1)
+            if customers.data:
+                customer_id = customers.data[0].id
+            else:
+                # Create new customer
+                customer = stripe.Customer.create(email=current_user.email)
+                customer_id = customer.id
+        
+        # Create portal session
+        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+        session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=f"{frontend_url}/dashboard",
+        )
+        
+        return {"url": session.url}
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe error during portal session creation: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to create portal session: {str(e)}")
+    except Exception as e:
+        logger.error(f"Failed to create portal session for user {current_user.id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create portal session")
 
 
 @router.post("/payments/webhook")

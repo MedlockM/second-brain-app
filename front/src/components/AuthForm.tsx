@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, Loader2, ArrowRight } from "lucide-react";
 import { AuthService } from "../services/authService";
 import { AuthError } from "../types/auth";
 
@@ -51,8 +51,13 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
   };
 
   return (
-    <div className="w-full max-w-md">
-      <div className="bg-white rounded-2xl shadow-xl p-8">
+    <div className="w-full max-w-md relative">
+      {/* Decorative Elements */}
+      <div className="absolute -top-20 -left-20 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob pointer-events-none"></div>
+      <div className="absolute -top-20 -right-20 w-72 h-72 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000 pointer-events-none"></div>
+      <div className="absolute -bottom-20 left-1/2 w-72 h-72 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000 pointer-events-none"></div>
+
+      <div className="bg-white rounded-2xl shadow-xl p-8 relative z-10">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             {mode === "login" ? "Welcome Back" : "Create Account"}
@@ -132,7 +137,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center"
+            className="group w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg font-semibold hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center shadow-lg transform hover:scale-105"
           >
             {loading ? (
               <>
@@ -140,7 +145,10 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
                 {mode === "login" ? "Signing In..." : "Creating Account..."}
               </>
             ) : (
-              <>{mode === "login" ? "Sign In" : "Create Account"}</>
+              <>
+                {mode === "login" ? "Sign In" : "Create Account"}
+                <ArrowRight size={20} className="ml-2 group-hover:translate-x-1 transition-transform" />
+              </>
             )}
           </button>
         </form>

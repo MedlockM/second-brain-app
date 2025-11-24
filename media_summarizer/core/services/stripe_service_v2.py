@@ -212,6 +212,11 @@ class StripeServiceV2:
             minutes = int(metadata.get("minutes")) if metadata.get("minutes") else None
             if not (user_id and minutes):
                 raise ValueError("Missing metadata for pack purchase")
+            
+            # Use PACK_EXPIRY_MONTHS env var (default 6 months as per PAYMENT_SYSTEM_V2.md)
+            pack_expiry_months = int(os.environ.get("PACK_EXPIRY_MONTHS", "6"))
+            expiry_days = pack_expiry_months * 30  # Approximate month as 30 days
+            
             bucket = MinuteBucket(
                 id=f"pack_{datetime.now(timezone.utc).timestamp()}_{minutes}",
                 user_id=user_id,
@@ -219,7 +224,7 @@ class StripeServiceV2:
                 source_ref=f"pack_{minutes}",
                 minutes_total=minutes,
                 minutes_remaining=minutes,
-                expires_at=datetime.now(timezone.utc) + timedelta(days=365),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=expiry_days),
             )
             await minute_db.create_minute_bucket(bucket)
         except Exception as e:
@@ -263,8 +268,10 @@ class StripeServiceV2:
                 if prev_sub_buckets:
                     # pick the most recent previous period
                     prev = sorted(prev_sub_buckets, key=lambda b: b.period_end)[-1]
+                    # Snapshot the leftover minutes BEFORE any potential consumption
                     leftover = int(prev.minutes_remaining or 0)
                     if leftover > 0 and pe is not None:
+                        # Create rollover bucket with snapshot
                         rollover_bucket = MinuteBucket(
                             id=f"rollover_{subscription_id}_{int(ps.timestamp())}",
                             user_id=sub.user_id,
@@ -275,6 +282,13 @@ class StripeServiceV2:
                             expires_at=pe,
                         )
                         await minute_db.create_minute_bucket(rollover_bucket)
+                        
+                        # Mark the previous bucket as fully consumed to prevent race condition
+                        # This ensures minutes can't be consumed from both the old bucket AND the rollover
+                        prev.minutes_remaining = 0
+                        prev.updated_at = datetime.now(timezone.utc)
+                        await minute_db.update_minute_bucket(prev)
+                        logger.info(f"Rolled over {leftover} minutes from bucket {prev.id} to {rollover_bucket.id}")
             except Exception as rr:
                 logger.warning(f"Failed to process rollover for subscription {subscription_id}: {rr}")
 

@@ -193,12 +193,47 @@ services:
       - TRANSCRIPTION_QUEUE=transcription-queue
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
+      # Quiz/AMP feature
+      - ENABLE_QUIZ_EMAIL=${ENABLE_QUIZ_EMAIL:-false}
+      - QUIZ_QUEUE=${QUIZ_QUEUE:-quiz-queue}
+      - DEFAULT_QUIZ_LANGUAGE=${DEFAULT_QUIZ_LANGUAGE:-EN}
     depends_on:
       localstack:
         condition: service_healthy
       terraform:
         condition: service_completed_successfully
     command: python -m media_summarizer.workers.notification.email_worker
+
+  # Worker de quiz (génération des questions via LLM)
+  quiz-worker:
+    profiles: ["workers", "full"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    volumes:
+      - .:/app
+    env_file:
+      - .env.dev
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_REGION=us-east-1
+      # Buckets
+      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      # Queues
+      - QUIZ_QUEUE=${QUIZ_QUEUE:-quiz-queue}
+      - NOTIFICATION_QUEUE=email-notification-queue
+      # LLM
+      - LLM_API_URL=${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
+      - DEFAULT_QUIZ_LANGUAGE=${DEFAULT_QUIZ_LANGUAGE:-EN}
+    depends_on:
+      localstack:
+        condition: service_healthy
+      terraform:
+        condition: service_completed_successfully
+    command: python -m media_summarizer.workers.quiz.worker
 
   # Worker d'événements d'épisodes complétés (fan-out watchers)
   episode-events-worker:
@@ -245,7 +280,7 @@ services:
       - DEBUG=1
       - EAGER_SERVICE_LOADING=1
       - SKIP_INFRA_DOWNLOADS=1
-      - PERSISTENCE=0
+      - PERSISTENCE=1
       - LAMBDA_EXECUTOR=local
       - EDGE_PORT=4566
       - DEFAULT_REGION=us-east-1
@@ -253,6 +288,7 @@ services:
       - PROVIDER_OVERRIDE_S3=v2
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./localstack-data:/var/lib/localstack
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4566/health"]
       interval: 10s

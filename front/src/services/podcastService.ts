@@ -15,6 +15,7 @@ export class PodcastService {
       query,
       page: page.toString(),
       page_size: pageSize.toString(),
+      clean: "true",
     });
 
     const response = await fetch(

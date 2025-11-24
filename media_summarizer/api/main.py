@@ -15,6 +15,8 @@ from media_summarizer.api.endpoints import health, users, podcast_search, podcas
 from media_summarizer.api.endpoints import auth
 from media_summarizer.api.endpoints import auth_social
 from media_summarizer.api.endpoints import spotify_sync
+from media_summarizer.api.endpoints import spotify_playlists
+from media_summarizer.api.endpoints import episodes
 
 
 @asynccontextmanager
@@ -125,8 +127,10 @@ app.include_router(podcasts.router, prefix="/api/v1", tags=["podcasts"])
 from media_summarizer.api.endpoints import billing
 
 app.include_router(billing.router, prefix="/api/v1", tags=["billing"])
-app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"]) 
+app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
 app.include_router(spotify_sync.router, prefix="/api/v1", tags=["spotify"])
+app.include_router(spotify_playlists.router, prefix="/api/v1", tags=["spotify"])
+app.include_router(episodes.router, prefix="/api/v1", tags=["episodes"])
 
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---
 from fastapi.openapi.utils import get_openapi
@@ -154,7 +158,11 @@ def custom_openapi():
         "securitySchemes", {}
     )
     # Add or update BearerAuth scheme
-    components["BearerAuth"] = {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
+    components["BearerAuth"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
 
     # For each operation that already has a security requirement, add BearerAuth
     for _path, methods in openapi_schema.get("paths", {}).items():

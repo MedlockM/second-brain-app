@@ -193,6 +193,25 @@ resource "aws_dynamodb_table" "episode_watchers" {
   tags = { Name = "episode_watchers", Environment = local.environment, Project = local.project }
 }
 
+# Spotify playlist follows
+resource "aws_dynamodb_table" "spotify_playlist_follows" {
+  name         = "spotify_playlist_follows"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+  range_key    = "playlist_id"
+
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "playlist_id"
+    type = "S"
+  }
+
+  tags = { Name = "spotify_playlist_follows", Environment = local.environment, Project = local.project }
+}
+
 # Feed forecasts (shared cache): PK (feed_id, month_key)
 resource "aws_dynamodb_table" "feed_forecasts" {
   name         = "feed_forecasts"
@@ -405,6 +424,12 @@ resource "aws_s3_bucket" "summaries" {
   tags          = { Name = "summaries", Environment = local.environment, Project = local.project }
 }
 
+resource "aws_s3_bucket" "quizzes" {
+  bucket        = "media-summarizer-quizzes"
+  force_destroy = true
+  tags          = { Name = "quizzes", Environment = local.environment, Project = local.project }
+}
+
 # -------------------- SQS Queues (+ DLQs) --------------------
 resource "aws_sqs_queue" "audio_download_dlq" {
   name = "audio-download-dlq"
@@ -449,6 +474,17 @@ resource "aws_sqs_queue" "email_notification" {
   })
 }
 
+# Quiz generation queue
+resource "aws_sqs_queue" "quiz_dlq" { name = "quiz-dlq" }
+resource "aws_sqs_queue" "quiz" {
+  name = "quiz-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.quiz_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
 # Episode completed events (fan-out to watchers)
 resource "aws_sqs_queue" "episode_completed_dlq" { name = "episode-completed-dlq" }
 resource "aws_sqs_queue" "episode_completed" {
@@ -485,6 +521,7 @@ output "dynamodb_tables" {
     aws_dynamodb_table.minute_buckets.name,
     aws_dynamodb_table.minute_usage.name,
     aws_dynamodb_table.follows.name,
+    aws_dynamodb_table.spotify_playlist_follows.name,
     aws_dynamodb_table.feed_forecasts.name,
     aws_dynamodb_table.episode_idempotence.name,
     aws_dynamodb_table.episode_watchers.name,
@@ -498,6 +535,7 @@ output "sqs_queues" {
     aws_sqs_queue.transcription.name,
     aws_sqs_queue.summarization.name,
     aws_sqs_queue.email_notification.name,
+    aws_sqs_queue.quiz.name,
     aws_sqs_queue.episode_completed.name,
   ]
 }
@@ -507,6 +545,7 @@ output "s3_buckets" {
     aws_s3_bucket.audio.id,
     aws_s3_bucket.transcripts.id,
     aws_s3_bucket.summaries.id,
+    aws_s3_bucket.quizzes.id,
   ]
 }
 

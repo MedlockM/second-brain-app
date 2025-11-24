@@ -6,21 +6,23 @@ Provides /api/v1/podcasts/submit to create a processing job directly from a podc
 """
 
 import logging
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.utils.database_async import get_db
-from media_summarizer.utils import database_async, sqs
+from media_summarizer.utils import database_async, sqs, podcast_index
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services import minute_pool
+from media_summarizer.api.rate_limit import limiter, get_limit_from_env
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 REQUIRED_MINUTES = 1
+SEARCH_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_SEARCH", "60/minute")
 
 
 class PodcastSubmitRequest(BaseModel):
@@ -31,6 +33,108 @@ class PodcastSubmitRequest(BaseModel):
 class PodcastSubmitResponse(BaseModel):
     job_id: str
     status: str
+
+
+class PodcastSearchResult(BaseModel):
+    """Podcast search result for frontend."""
+
+    id: str
+    title: str
+    author: str
+    description: str
+    image: str
+    feed_url: str
+    website: Optional[str] = None
+    categories: Optional[dict] = None
+    language: Optional[str] = None
+    episode_count: Optional[int] = None
+
+
+class PodcastSearchResponse(BaseModel):
+    """Response model for podcast search (frontend format)."""
+
+    results: List[PodcastSearchResult]
+    total: int
+    page: int
+    page_size: int
+
+
+@router.get("/podcasts/search", response_model=PodcastSearchResponse)
+@limiter.limit(SEARCH_LIMIT)
+async def search_podcasts(
+    request: Request,
+    query: str = Query(
+        ..., description="Search query for podcasts", min_length=1, max_length=500
+    ),
+    page: int = Query(1, description="Page number", ge=1),
+    page_size: int = Query(20, description="Results per page", ge=1, le=100),
+    clean: bool = Query(True, description="Filter out explicit content"),
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """
+    Recherche des podcasts par mot-clé via l'API Podcast Index (GET endpoint RESTful).
+
+    Args:
+        query: Terme de recherche
+        page: Numéro de page (non utilisé pour l'instant, mais prévu pour pagination future)
+        page_size: Nombre de résultats par page
+        clean: Filtrer le contenu explicite
+
+    Returns:
+        Liste des podcasts trouvés au format frontend
+
+    Raises:
+        HTTPException: Si la recherche échoue
+    """
+    try:
+        logger.info(f"Searching for podcasts with query: {query}")
+
+        # Recherche via l'API Podcast Index
+        search_result = await podcast_index.search_podcasts(
+            query=query, max_results=page_size, clean=clean
+        )
+
+        if not search_result.get("status") == "true":
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Erreur lors de la recherche dans Podcast Index",
+            )
+
+        # Formater les résultats pour le frontend
+        results = []
+        for feed_data in search_result.get("feeds", []):
+            formatted = podcast_index.format_podcast_for_response(feed_data)
+            if formatted:
+                results.append(
+                    PodcastSearchResult(
+                        id=str(formatted.get("id")),
+                        title=formatted.get("title", ""),
+                        author=formatted.get("author", ""),
+                        description=formatted.get("description", ""),
+                        image=formatted.get("image", ""),
+                        feed_url=formatted.get("feed_url", ""),
+                        website=formatted.get("link"),
+                        categories=formatted.get("categories"),
+                        language=formatted.get("language"),
+                        episode_count=formatted.get("episode_count"),
+                    )
+                )
+
+        return PodcastSearchResponse(
+            results=results,
+            total=len(results),
+            page=page,
+            page_size=page_size,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error searching podcasts: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de la recherche de podcasts: {str(e)}",
+        )
 
 
 @router.post("/podcasts/submit")

@@ -26,6 +26,7 @@ dependencies = [
     "stripe>=7.0.0",
     "docker>=6.1.0",
     "slowapi>=0.1.8",
+    "Jinja2>=3.1.3",
 ]
 
 [project.optional-dependencies]

@@ -3,6 +3,7 @@ Summarization worker for processing transcriptions and generating summaries usin
 
 Migrated to use the new utils for S3 and SQS operations instead of direct AWS libraries.
 """
+
 import json
 import logging
 import os
@@ -15,7 +16,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from media_summarizer.utils import s3, sqs
 from media_summarizer.workers.base_worker import (
     process_message_with_retry,
-    get_sqs_receive_params
+    get_sqs_receive_params,
 )
 import aiohttp
 import json as json_module
@@ -23,34 +24,46 @@ import json as json_module
 
 class LLMAPIError(Exception):
     """Exception raised when LLM API returns an error or refuses to process content."""
+
     pass
 
+
 logger = logging.getLogger(__name__)
+
 
 # Minimal class wrapper for backward-compatibility with tests that patch
 class SummarizationWorker:
     async def run(self):
         await poll_queue()
 
+
 # Configuration
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
 NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-queue")
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get("EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events")
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
+)
 
 
 # LLM timeout from env (seconds)
 LLM_TIMEOUT_SECONDS = int(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
 
+# LLM model to use (gpt-4-turbo has 128K context vs gpt-4's 8K)
+LLM_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini-2024-07-18")
+
+
 async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_title):
     """Call LLM API directly for summarization."""
     prompt = f"""
-    Please summarize the following podcast episode transcript:
+    Please summarize the following podcast episode transcript in the SAME LANGUAGE as the transcript itself.
 
     Podcast: {podcast_title}
     Episode: {episode_title}
 
     Transcript:
     {transcription}
+
+    IMPORTANT: Your summary MUST be written in the same language as the transcript above (French, English, Spanish, etc.).
 
     Please provide a structured summary with:
     - Main topics discussed
@@ -65,16 +78,14 @@ async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_t
     async with aiohttp.ClientSession(timeout=timeout) as session:
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         payload = {
-            "model": "gpt-4",
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
+            "model": LLM_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 1000,
-            "temperature": 0.7
+            "temperature": 0.7,
         }
 
         async with session.post(api_url, headers=headers, json=payload) as response:
@@ -86,9 +97,16 @@ async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_t
 
             # Check if the LLM response indicates an error or inability to process
             error_indicators = [
-                "cannot generate", "impossible to", "not possible to", "unable to",
-                "challenging to understand", "typographical errors", "clear and accurate transcript",
-                "incorrectly formatted", "translation error", "nonsensical"
+                "cannot generate",
+                "impossible to",
+                "not possible to",
+                "unable to",
+                "challenging to understand",
+                "typographical errors",
+                "clear and accurate transcript",
+                "incorrectly formatted",
+                "translation error",
+                "nonsensical",
             ]
 
             content_lower = content.lower()
@@ -102,14 +120,20 @@ async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_t
             except json_module.JSONDecodeError:
                 # If it's not JSON but also not an error, treat as plain text summary
                 if len(content.strip()) < 50:
-                    raise LLMAPIError(f"LLM response too short, likely an error: {content}")
+                    raise LLMAPIError(
+                        f"LLM response too short, likely an error: {content}"
+                    )
 
                 return {
                     "main_topics": ["Content summarized"],
-                    "key_points": [content[:500] + "..." if len(content) > 500 else content],
+                    "key_points": [
+                        content[:500] + "..." if len(content) > 500 else content
+                    ],
                     "notable_quotes": [],
-                    "conclusion": "Summary provided in plain text format"
+                    "conclusion": "Summary provided in plain text format",
                 }
+
+
 SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 
@@ -118,10 +142,11 @@ async def upload_summary(bucket: str, key: str, summary_data: Dict[str, Any]) ->
     """Upload a summary to S3 asynchronously using utils."""
     try:
         summary_json = json.dumps(summary_data, indent=2)
-        summary_bytes = summary_json.encode('utf-8')
+        summary_bytes = summary_json.encode("utf-8")
 
         # Use BytesIO to create a file-like object
         from io import BytesIO
+
         summary_file = BytesIO(summary_bytes)
 
         await s3.upload_file_object(
@@ -131,8 +156,8 @@ async def upload_summary(bucket: str, key: str, summary_data: Dict[str, Any]) ->
             content_type="application/json",
             metadata={
                 "content-type": "application/json",
-                "job-type": "podcast-summary"
-            }
+                "job-type": "podcast-summary",
+            },
         )
 
         logger.info(f"Successfully uploaded summary to s3://{bucket}/{key}")
@@ -149,7 +174,7 @@ async def download_transcription(bucket: str, key: str) -> str:
         content = await s3.download_file_to_memory(bucket=bucket, key=key)
 
         # Decode bytes to string
-        transcription_text = content.decode('utf-8')
+        transcription_text = content.decode("utf-8")
 
         logger.info(f"Successfully downloaded transcription from s3://{bucket}/{key}")
         return transcription_text
@@ -159,15 +184,16 @@ async def download_transcription(bucket: str, key: str) -> str:
         raise
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10)
-)
-async def generate_summary_with_retry(transcription_text: str, job_data: Dict[str, Any]) -> Dict[str, Any]:
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+async def generate_summary_with_retry(
+    transcription_text: str, job_data: Dict[str, Any]
+) -> Dict[str, Any]:
     """Generate summary with retry logic."""
     try:
         # Initialize the summarization service with environment variables
-        llm_api_url = os.environ.get("LLM_API_URL", "https://api.openai.com/v1/chat/completions")
+        llm_api_url = os.environ.get(
+            "LLM_API_URL", "https://api.openai.com/v1/chat/completions"
+        )
         llm_api_key = os.environ.get("OPENAI_API_KEY")
 
         if not llm_api_key:
@@ -178,7 +204,9 @@ async def generate_summary_with_retry(transcription_text: str, job_data: Dict[st
         episode_title = job_data.get("episode_title", "Unknown Episode")
 
         # Generate the summary using direct API call
-        summary_result = await call_llm_api(llm_api_url, llm_api_key, transcription_text, podcast_title, episode_title)
+        summary_result = await call_llm_api(
+            llm_api_url, llm_api_key, transcription_text, podcast_title, episode_title
+        )
 
         logger.info(f"Successfully generated summary for job {job_data.get('job_id')}")
         return summary_result
@@ -188,10 +216,7 @@ async def generate_summary_with_retry(transcription_text: str, job_data: Dict[st
 
 
 async def send_notification(
-    notification_type: str,
-    job_id: str,
-    email: str,
-    **kwargs
+    notification_type: str, job_id: str, email: str, **kwargs
 ) -> None:
     """Send notification message to the email queue using utils."""
     try:
@@ -199,12 +224,11 @@ async def send_notification(
             "notification_type": notification_type,
             "job_id": job_id,
             "email": email,
-            **kwargs
+            **kwargs,
         }
 
         await sqs.send_message(
-            queue_name=NOTIFICATION_QUEUE,
-            message_body=notification_data
+            queue_name=NOTIFICATION_QUEUE, message_body=notification_data
         )
 
         logger.info(f"Sent {notification_type} notification for job {job_id}")
@@ -223,7 +247,9 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
     """
     job_id = message_body.get("job_id")
     transcript_s3_key = message_body.get("transcript_s3_key")
-    transcript_bucket = message_body.get("transcript_bucket", "media-summarizer-transcriptions")
+    transcript_bucket = message_body.get(
+        "transcript_bucket", "media-summarizer-transcriptions"
+    )
     email = message_body.get("email")
 
     if not all([job_id, transcript_s3_key, email]):
@@ -231,7 +257,11 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
         raise ValueError("Missing required fields in summarization message")
 
     # Ensure all required fields are strings
-    if not isinstance(job_id, str) or not isinstance(transcript_s3_key, str) or not isinstance(email, str):
+    if (
+        not isinstance(job_id, str)
+        or not isinstance(transcript_s3_key, str)
+        or not isinstance(email, str)
+    ):
         logger.error(f"Invalid field types in message: {message_body}")
         raise ValueError("Invalid field types in summarization message")
 
@@ -239,6 +269,7 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
 
     # Update job status to summarizing
     from media_summarizer.utils import database_async
+
     job = await database_async.get_processing_job_by_id(job_id)
     if job:
         job.mark_summarizing()
@@ -249,7 +280,9 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
 
         # Download the transcription
         logger.info(f"Downloading transcription for job {job_id}")
-        transcription_text = await download_transcription(transcript_bucket, transcript_s3_key)
+        transcription_text = await download_transcription(
+            transcript_bucket, transcript_s3_key
+        )
 
         if not transcription_text or len(transcription_text.strip()) == 0:
             raise ValueError("Empty or invalid transcription content")
@@ -257,7 +290,9 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
         # Generate the summary
         logger.info(f"Generating summary for job {job_id}")
         start_time = time.time()
-        summary_result = await generate_summary_with_retry(transcription_text, message_body)
+        summary_result = await generate_summary_with_retry(
+            transcription_text, message_body
+        )
         summarization_duration = time.time() - start_time
 
         # Prepare summary data for storage
@@ -265,13 +300,14 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
             "job_id": job_id,
             "podcast_title": message_body.get("podcast_title", "Unknown Podcast"),
             "episode_title": message_body.get("episode_title", "Unknown Episode"),
+            "episode_image": message_body.get("episode_image", ""),
             "summary": summary_result,
             "transcription_length": len(transcription_text),
             "generated_at": datetime.now().isoformat(),
             "processing_metadata": {
                 "transcript_s3_key": transcript_s3_key,
-                "summary_s3_key": f"{job_id}.json"
-            }
+                "summary_s3_key": f"{job_id}.json",
+            },
         }
 
         # Upload summary to S3
@@ -282,12 +318,13 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
         # Update job with summary location and duration
         if job:
             job.set_summary_location(summary_s3_key)
-            job.set_processing_duration('summarization', int(summarization_duration))
+            job.set_processing_duration("summarization", int(summarization_duration))
             await database_async.update_processing_job(job)
 
         # Finalize minute usage based on audio duration if provided; fallback to heuristic
         try:
             from math import ceil
+
             provided_duration = message_body.get("audio_duration_seconds")
             if isinstance(provided_duration, (int, float)) and provided_duration > 0:
                 minutes_used = max(1, ceil(provided_duration / 60))
@@ -295,6 +332,7 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
                 # Fallback heuristic if duration missing
                 minutes_used = max(1, int(len(transcription_text) / 800))
             from media_summarizer.core.services.minute_pool import finalize_usage
+
             await finalize_usage(job_id, minutes_used)
 
             # Publish episode-completed event for watchers fan-out
@@ -312,7 +350,9 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
                     },
                 )
             except Exception as ee:
-                logger.warning(f"Failed to publish episode-completed event for job {job_id}: {ee}")
+                logger.warning(
+                    f"Failed to publish episode-completed event for job {job_id}: {ee}"
+                )
         except Exception as e:
             logger.warning(f"Failed to finalize minute usage for job {job_id}: {e}")
 
@@ -321,22 +361,52 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
             summary_url = await s3.generate_presigned_url(
                 bucket=SUMMARY_BUCKET,
                 key=summary_s3_key,
-                expiration=3600 * 24 * 7  # 7 days
+                expiration=3600 * 24 * 7,  # 7 days
             )
         except Exception as e:
             logger.warning(f"Failed to generate presigned URL: {str(e)}")
             summary_url = f"s3://{SUMMARY_BUCKET}/{summary_s3_key}"
 
-        # Send completion notification with summary content
-        await send_notification(
-            notification_type="completion",
-            job_id=job_id,
-            email=email,
-            podcast_title=message_body.get("podcast_title"),
-            episode_title=message_body.get("episode_title"),
-            episode_guid=message_body.get("episode_guid"),
-            summary_content=summary_result
-        )
+        # Send next step depending on feature flag
+        ENABLE_QUIZ_EMAIL = os.environ.get("ENABLE_QUIZ_EMAIL", "false").lower() == "true"
+        if ENABLE_QUIZ_EMAIL:
+            try:
+                await sqs.send_message(
+                    queue_name=os.environ.get("QUIZ_QUEUE", "quiz-queue"),
+                    message_body={
+                        "job_id": job_id,
+                        "email": email,
+                        "podcast_title": message_body.get("podcast_title"),
+                        "episode_title": message_body.get("episode_title"),
+                        "episode_guid": message_body.get("episode_guid"),
+                        "transcript_s3_key": transcript_s3_key,
+                        "summary_content": summary_result,
+                        "language": message_body.get("language"),
+                    },
+                )
+                logger.info(f"Queued quiz generation for job {job_id}")
+            except Exception as ee:
+                logger.warning(f"Failed to enqueue quiz job, fallback to direct email: {ee}")
+                await send_notification(
+                    notification_type="completion",
+                    job_id=job_id,
+                    email=email,
+                    podcast_title=message_body.get("podcast_title"),
+                    episode_title=message_body.get("episode_title"),
+                    episode_guid=message_body.get("episode_guid"),
+                    summary_content=summary_result,
+                )
+        else:
+            # Send completion notification with summary content (legacy path)
+            await send_notification(
+                notification_type="completion",
+                job_id=job_id,
+                email=email,
+                podcast_title=message_body.get("podcast_title"),
+                episode_title=message_body.get("episode_title"),
+                episode_guid=message_body.get("episode_guid"),
+                summary_content=summary_result,
+            )
 
         logger.info(f"Successfully completed summarization for job {job_id}")
 
@@ -353,7 +423,7 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
             job_id=job_id,
             email=email,
             error=f"Failed to generate summary: {str(e)}",
-            step="summarization"
+            step="summarization",
         )
         raise
 
@@ -370,12 +440,16 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
             job_id=job_id,
             email=email,
             error=f"Summarization failed: {str(e)}",
-            step="summarization"
+            step="summarization",
         )
         raise
 
 
-async def process_message(message: Dict[str, Any], llm_api_url: Optional[str] = None, llm_api_key: Optional[str] = None) -> None:
+async def process_message(
+    message: Dict[str, Any],
+    llm_api_url: Optional[str] = None,
+    llm_api_key: Optional[str] = None,
+) -> None:
     """
     Process an SQS message for summarization.
 
@@ -410,7 +484,7 @@ async def poll_queue() -> None:
                 queue_name=SUMMARIZATION_QUEUE,
                 max_messages=1,  # Process one at a time for LLM rate limiting
                 wait_time_seconds=20,  # Long polling
-                visibility_timeout=300  # 5 minutes for processing
+                visibility_timeout=300,  # 5 minutes for processing
             )
 
             if messages:
@@ -426,7 +500,7 @@ async def poll_queue() -> None:
                         if receipt_handle:
                             await sqs.delete_message(
                                 queue_name=SUMMARIZATION_QUEUE,
-                                receipt_handle=receipt_handle
+                                receipt_handle=receipt_handle,
                             )
 
                         logger.info("Successfully processed and deleted message")
@@ -457,7 +531,7 @@ if __name__ == "__main__":
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
     asyncio.run(main())

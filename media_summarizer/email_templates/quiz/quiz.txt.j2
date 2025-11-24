@@ -1,0 +1,32 @@
+{{ podcast_title }} — {{ episode_title }}
+
+{{ ui_strings.get('intro_text', 'Quiz (static view):') }}
+
+{% for q in quiz.questions %}
+Q{{ loop.index }}. {{ q.prompt }}
+{% for choice in q.choices %}- {% if choice.correct %}[*]{% else %}[ ]{% endif %} {{ choice.text }}
+{% endfor %}
+
+{% endfor %}
+---
+{{ ui_strings.get('reveal_summary', 'Reveal Summary') }}
+
+{% if summary and summary.main_topics %}
+{{ ui_strings.get('main_topics', 'Main topics') }}:
+{% for t in summary.main_topics %}- {{ t }}
+{% endfor %}
+{% endif %}
+{% if summary and summary.key_points %}
+{{ ui_strings.get('key_points', 'Key points') }}:
+{% for p in summary.key_points %}- {{ p }}
+{% endfor %}
+{% endif %}
+{% if summary and summary.notable_quotes %}
+{{ ui_strings.get('notable_quotes', 'Notable quotes') }}:
+{% for q in summary.notable_quotes %}- "{{ q }}"
+{% endfor %}
+{% endif %}
+{% if summary and summary.conclusion %}
+{{ ui_strings.get('conclusion', 'Conclusion') }}:
+{{ summary.conclusion }}
+{% endif %}

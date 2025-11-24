@@ -1,6 +1,7 @@
 """
 Endpoints pour la recherche et la sélection de podcasts via l'API Podcast Index.
 """
+
 import logging
 import os
 import json
@@ -13,7 +14,10 @@ from media_summarizer.utils.database_async import get_db
 from media_summarizer.utils import database_async, sqs, podcast_index
 from media_summarizer.core.services.episode_submission import submit_episode_for_user
 from media_summarizer.core.models import User, ProcessingJob
-from media_summarizer.api.dependencies.auth import get_current_user, require_verified_email
+from media_summarizer.api.dependencies.auth import (
+    get_current_user,
+    require_verified_email,
+)
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.api.rate_limit import limiter, get_limit_from_env
 from media_summarizer.api.models.podcast_models import (
@@ -26,7 +30,7 @@ from media_summarizer.api.models.podcast_models import (
     EpisodeSelectionRequest,
     EpisodeSelectionResponse,
     TrendingPodcastsRequest,
-    TrendingPodcastsResponse
+    TrendingPodcastsResponse,
 )
 
 router = APIRouter()
@@ -44,15 +48,9 @@ SUBMIT_EPISODE_LIMIT = get_limit_from_env("RATE_LIMIT_SUBMIT_EPISODE", "6/minute
 TRENDING_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_TRENDING", "60/minute")
 
 
-
-
-
 @router.post("/search", response_model=PodcastSearchResponse)
 @limiter.limit(SEARCH_LIMIT)
-async def search_podcasts(
-    payload: PodcastSearchRequest,
-    request: Request
-):
+async def search_podcasts(payload: PodcastSearchRequest, request: Request):
     """
     Recherche des podcasts par mot-clé via l'API Podcast Index.
 
@@ -71,15 +69,13 @@ async def search_podcasts(
 
         # Recherche via l'API Podcast Index
         search_result = await podcast_index.search_podcasts(
-            query=payload.query,
-            max_results=payload.max_results,
-            clean=payload.clean
+            query=payload.query, max_results=payload.max_results, clean=payload.clean
         )
 
         if not search_result.get("status") == "true":
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Erreur lors de la recherche dans Podcast Index"
+                detail="Erreur lors de la recherche dans Podcast Index",
             )
 
         # Formater les résultats
@@ -93,23 +89,20 @@ async def search_podcasts(
             status="success",
             podcasts=podcasts,
             count=len(podcasts),
-            query=payload.query
+            query=payload.query,
         )
 
     except Exception as e:
         logger.error(f"Error searching podcasts: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de la recherche de podcasts: {str(e)}"
+            detail=f"Erreur lors de la recherche de podcasts: {str(e)}",
         )
 
 
 @router.post("/episodes", response_model=EpisodesListResponse)
 @limiter.limit(EPISODES_LIMIT)
-async def get_podcast_episodes(
-    payload: EpisodesListRequest,
-    request: Request
-):
+async def get_podcast_episodes(payload: EpisodesListRequest, request: Request):
     """
     Récupère la liste des épisodes d'un podcast.
 
@@ -128,14 +121,13 @@ async def get_podcast_episodes(
 
         # Récupérer les épisodes directement
         episodes_result = await podcast_index.get_episodes_by_feed_id(
-            feed_id=payload.feed_id,
-            max_results=payload.max_results
+            feed_id=payload.feed_id, max_results=payload.max_results
         )
 
         if not episodes_result.get("status") == "true":
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Erreur lors de la récupération des épisodes"
+                detail="Erreur lors de la récupération des épisodes",
             )
 
         # Formater les épisodes
@@ -164,7 +156,7 @@ async def get_podcast_episodes(
         logger.error(f"Error getting episodes: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de la récupération des épisodes: {str(e)}"
+            detail=f"Erreur lors de la récupération des épisodes: {str(e)}",
         )
 
 
@@ -174,7 +166,7 @@ async def submit_episode_for_processing(
     payload: EpisodeSelectionRequest,
     request: Request,
     db=Depends(get_db),
-    current_user: AuthUser = Depends(require_verified_email)
+    current_user: AuthUser = Depends(require_verified_email),
 ):
     """
     Soumet un épisode spécifique pour traitement après sélection par l'utilisateur.
@@ -192,18 +184,20 @@ async def submit_episode_for_processing(
         HTTPException: Si l'utilisateur n'existe pas, n'a pas assez de crédits, ou si l'épisode n'existe pas
     """
     try:
-        logger.info(f"Processing episode submission for feed {payload.feed_id}, episode {payload.episode_guid}")
+        logger.info(
+            f"Processing episode submission for feed {payload.feed_id}, episode {payload.episode_guid}"
+        )
 
         # Récupérer les épisodes du feed pour trouver celui avec le GUID correspondant
         episodes_data = await podcast_index.get_episodes_by_feed_id(
             feed_id=payload.feed_id,
-            max_results=100  # Récupérer plus d'épisodes pour augmenter les chances de trouver le bon
+            max_results=100,  # Récupérer plus d'épisodes pour augmenter les chances de trouver le bon
         )
 
         if not episodes_data.get("status") == "true":
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Erreur lors de la récupération des épisodes"
+                detail="Erreur lors de la récupération des épisodes",
             )
 
         # Chercher l'épisode avec le GUID correspondant
@@ -223,25 +217,25 @@ async def submit_episode_for_processing(
 
         if not episode_info:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Épisode non trouvé"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Épisode non trouvé"
             )
         audio_url = episode_info.get("enclosureUrl")
 
         if not audio_url:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Aucun fichier audio trouvé pour cet épisode"
+                detail="Aucun fichier audio trouvé pour cet épisode",
             )
 
         # Validation stricte de l'URL audio
         try:
             from media_summarizer.core.validators import validate_audio_url
+
             await validate_audio_url(audio_url)
         except ValueError as ve:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"URL audio invalide: {str(ve)}"
+                detail=f"URL audio invalide: {str(ve)}",
             )
 
         # Récupérer l'utilisateur authentifié
@@ -249,12 +243,14 @@ async def submit_episode_for_processing(
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Utilisateur authentifié introuvable"
+                detail="Utilisateur authentifié introuvable",
             )
 
         # Préparer les titres pour logs/réponses/notifications
         episode_title = episode_info.get("title", "Episode inconnu")
         feed_title = episode_info.get("feedTitle", "Podcast inconnu")
+        episode_image = episode_info.get("image", "")
+        episode_date_published = episode_info.get("datePublished", 0)  # Unix timestamp - episode publication date
 
         # Déléguer la logique au service partagé (idempotence globale, facturation, notifications)
         result = await submit_episode_for_user(
@@ -264,6 +260,8 @@ async def submit_episode_for_processing(
             feed_title=feed_title,
             audio_url=audio_url,
             duration_seconds=duration_seconds,
+            episode_image=episode_image,
+            episode_date_published=episode_date_published,
         )
         return EpisodeSelectionResponse(**result)
 
@@ -273,7 +271,7 @@ async def submit_episode_for_processing(
         logger.error(f"Error submitting episode: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de la soumission de l'épisode: {str(e)}"
+            detail=f"Erreur lors de la soumission de l'épisode: {str(e)}",
         )
 
 
@@ -283,7 +281,7 @@ async def get_trending_podcasts(
     request: Request,
     max_results: int = 20,
     language: Optional[str] = None,
-    category: Optional[str] = None
+    category: Optional[str] = None,
 ):
     """
     Récupère les podcasts tendances.
@@ -304,33 +302,31 @@ async def get_trending_podcasts(
         logger.info("Getting trending podcasts")
 
         trending_result = await podcast_index.get_trending_podcasts(
-            max_results=max_results,
-            language=language,
-            category=category
+            max_results=max_results, language=language, category=category
         )
 
         if not trending_result.get("status") == "true":
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Erreur lors de la récupération des podcasts tendances"
+                detail="Erreur lors de la récupération des podcasts tendances",
             )
 
         # Formater les résultats
         podcasts = []
         for feed_data in trending_result.get("feeds", []):
-            formatted_podcast = podcast_index.format_trending_podcast_for_response(feed_data)
+            formatted_podcast = podcast_index.format_trending_podcast_for_response(
+                feed_data
+            )
             if formatted_podcast:
                 podcasts.append(PodcastInfo(**formatted_podcast))
 
         return TrendingPodcastsResponse(
-            status="success",
-            podcasts=podcasts,
-            count=len(podcasts)
+            status="success", podcasts=podcasts, count=len(podcasts)
         )
 
     except Exception as e:
         logger.error(f"Error getting trending podcasts: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de la récupération des podcasts tendances: {str(e)}"
+            detail=f"Erreur lors de la récupération des podcasts tendances: {str(e)}",
         )

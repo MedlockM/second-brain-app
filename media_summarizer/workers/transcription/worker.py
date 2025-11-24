@@ -3,6 +3,7 @@ Worker de transcription utilisant Whisper Large pour convertir l'audio en texte.
 
 Migrated to use the new utils for S3 and SQS operations instead of direct AWS libraries.
 """
+
 import asyncio
 import json
 import logging
@@ -15,17 +16,21 @@ from typing import Dict, Any
 import whisper
 
 from media_summarizer.utils import s3, sqs
+
 # Re-export commonly patched attributes for test compatibility
 from media_summarizer.utils.sqs import session as _aio_session  # type: ignore
 from media_summarizer.utils.sqs import AWS_ENDPOINT_URL as AWS_ENDPOINT_URL  # type: ignore
 from media_summarizer.utils.sqs import AWS_REGION as AWS_REGION  # type: ignore
 
+
 # Provide a compat shim exposing .client(...) to mirror aiobotocore session usage in tests
 class _SessionShim:
     def __init__(self, aio_session):
         self._s = aio_session
+
     def client(self, *args, **kwargs):
         return self._s.create_client(*args, **kwargs)
+
 
 session = _SessionShim(_aio_session)
 from media_summarizer.core.utils.whisper_async import transcribe_async
@@ -36,7 +41,9 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
-TRANSCRIPT_BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcriptions")
+TRANSCRIPT_BUCKET = os.environ.get(
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+)
 TRANSCRIPTION_QUEUE = os.environ.get("TRANSCRIPTION_QUEUE", "transcription-queue")
 SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
 NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-queue")
@@ -46,7 +53,9 @@ RETRY_BASE_DELAY = 0.01 if TEST_MODE else 1  # secondes
 
 # Heartbeat/visibility settings
 HEARTBEAT_INTERVAL = float(os.environ.get("HEARTBEAT_INTERVAL", "60"))
-TRANSCRIPTION_VISIBILITY_TIMEOUT = int(os.environ.get("TRANSCRIPTION_VISIBILITY_TIMEOUT", "1800"))
+TRANSCRIPTION_VISIBILITY_TIMEOUT = int(
+    os.environ.get("TRANSCRIPTION_VISIBILITY_TIMEOUT", "1800")
+)
 
 # Whisper model configuration
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "tiny" if TEST_MODE else "large")
@@ -62,11 +71,11 @@ async def download_audio_file(audio_s3_key: str, local_path: str) -> None:
     """
     try:
         await s3.download_file(
-            bucket=AUDIO_BUCKET,
-            key=audio_s3_key,
-            file_path=local_path
+            bucket=AUDIO_BUCKET, key=audio_s3_key, file_path=local_path
         )
-        logger.info(f"Downloaded audio file from s3://{AUDIO_BUCKET}/{audio_s3_key} to {local_path}")
+        logger.info(
+            f"Downloaded audio file from s3://{AUDIO_BUCKET}/{audio_s3_key} to {local_path}"
+        )
 
     except Exception as e:
         logger.error(f"Failed to download audio file: {str(e)}")
@@ -84,7 +93,8 @@ async def upload_transcription(transcript_s3_key: str, transcription_text: str) 
     try:
         # Create a file-like object from the transcription text
         from io import BytesIO
-        transcript_bytes = transcription_text.encode('utf-8')
+
+        transcript_bytes = transcription_text.encode("utf-8")
         transcript_file = BytesIO(transcript_bytes)
 
         await s3.upload_file_object(
@@ -94,11 +104,13 @@ async def upload_transcription(transcript_s3_key: str, transcription_text: str) 
             content_type="text/plain",
             metadata={
                 "content-type": "text/plain",
-                "job-type": "podcast-transcription"
-            }
+                "job-type": "podcast-transcription",
+            },
         )
 
-        logger.info(f"Uploaded transcription to s3://{TRANSCRIPT_BUCKET}/{transcript_s3_key}")
+        logger.info(
+            f"Uploaded transcription to s3://{TRANSCRIPT_BUCKET}/{transcript_s3_key}"
+        )
 
     except Exception as e:
         logger.error(f"Failed to upload transcription: {str(e)}")
@@ -106,10 +118,7 @@ async def upload_transcription(transcript_s3_key: str, transcription_text: str) 
 
 
 async def send_notification(
-    notification_type: str,
-    job_id: str,
-    email: str,
-    **kwargs
+    notification_type: str, job_id: str, email: str, **kwargs
 ) -> None:
     """Send notification message to the email queue using utils."""
     try:
@@ -117,12 +126,11 @@ async def send_notification(
             "notification_type": notification_type,
             "job_id": job_id,
             "email": email,
-            **kwargs
+            **kwargs,
         }
 
         await sqs.send_message(
-            queue_name=NOTIFICATION_QUEUE,
-            message_body=notification_data
+            queue_name=NOTIFICATION_QUEUE, message_body=notification_data
         )
 
         logger.info(f"Sent {notification_type} notification for job {job_id}")
@@ -133,10 +141,7 @@ async def send_notification(
 
 
 async def send_to_summarization_queue(
-    job_id: str,
-    transcript_s3_key: str,
-    email: str,
-    **kwargs
+    job_id: str, transcript_s3_key: str, email: str, **kwargs
 ) -> None:
     """Send message to summarization queue using utils."""
     try:
@@ -145,12 +150,11 @@ async def send_to_summarization_queue(
             "transcript_s3_key": transcript_s3_key,
             "transcript_bucket": TRANSCRIPT_BUCKET,
             "email": email,
-            **kwargs
+            **kwargs,
         }
 
         await sqs.send_message(
-            queue_name=SUMMARIZATION_QUEUE,
-            message_body=summarization_data
+            queue_name=SUMMARIZATION_QUEUE, message_body=summarization_data
         )
 
         logger.info(f"Sent job {job_id} to summarization queue")
@@ -177,7 +181,11 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
         raise ValueError("Missing required fields in transcription message")
 
     # Ensure all required fields are strings
-    if not isinstance(job_id, str) or not isinstance(audio_s3_key, str) or not isinstance(email, str):
+    if (
+        not isinstance(job_id, str)
+        or not isinstance(audio_s3_key, str)
+        or not isinstance(email, str)
+    ):
         logger.error(f"Invalid field types in message: {message_body}")
         raise ValueError("Invalid field types in transcription message")
 
@@ -185,6 +193,7 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
 
     # Update job status to transcribing
     from media_summarizer.utils import database_async
+
     job = await database_async.get_processing_job_by_id(job_id)
     if job:
         job.mark_transcribing()
@@ -205,17 +214,20 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
                 raise ValueError("Downloaded audio file is empty or missing")
 
             # Transcribe audio
-            logger.info(f"Starting transcription for job {job_id} using Whisper {WHISPER_MODEL}")
+            logger.info(
+                f"Starting transcription for job {job_id} using Whisper {WHISPER_MODEL}"
+            )
             start_time = time.time()
 
             # Use async transcription to avoid blocking
             transcription_result = await transcribe_async(
-                audio_path=str(local_audio_path),
-                model_name=WHISPER_MODEL
+                audio_path=str(local_audio_path), model_name=WHISPER_MODEL
             )
 
             transcription_duration = time.time() - start_time
-            logger.info(f"Transcription completed for job {job_id} in {transcription_duration:.2f} seconds")
+            logger.info(
+                f"Transcription completed for job {job_id} in {transcription_duration:.2f} seconds"
+            )
 
             # Extract transcription text
             if isinstance(transcription_result, dict):
@@ -241,8 +253,10 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
                     "segments_count": len(segments),
                     "audio_s3_key": audio_s3_key,
                     "model_used": WHISPER_MODEL,
-                    "transcribed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                }
+                    "transcribed_at": time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                    ),
+                },
             }
 
             # Upload transcription to S3
@@ -253,7 +267,9 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
             # Update job with transcription location and duration
             if job:
                 job.set_transcription_location(transcript_s3_key)
-                job.set_processing_duration('transcription', int(transcription_duration))
+                job.set_processing_duration(
+                    "transcription", int(transcription_duration)
+                )
                 await database_async.update_processing_job(job)
 
             # Send to summarization queue
@@ -264,7 +280,8 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
                 podcast_title=message_body.get("podcast_title"),
                 episode_title=message_body.get("episode_title"),
                 episode_guid=message_body.get("episode_guid"),
-                transcription_metadata=transcription_data["metadata"]
+                episode_image=message_body.get("episode_image", ""),
+                transcription_metadata=transcription_data["metadata"],
             )
 
             logger.info(f"Successfully completed transcription for job {job_id}")
@@ -283,7 +300,7 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
                 job_id=job_id,
                 email=email,
                 error=f"Transcription failed: {str(e)}",
-                step="transcription"
+                step="transcription",
             )
 
             raise
@@ -365,7 +382,7 @@ async def poll_queue() -> None:
                 queue_name=TRANSCRIPTION_QUEUE,
                 max_messages=1,  # Process one at a time for Whisper
                 wait_time_seconds=20,  # Long polling
-                visibility_timeout=TRANSCRIPTION_VISIBILITY_TIMEOUT
+                visibility_timeout=TRANSCRIPTION_VISIBILITY_TIMEOUT,
             )
 
             if messages:
@@ -381,7 +398,7 @@ async def poll_queue() -> None:
                         if receipt_handle:
                             await sqs.delete_message(
                                 queue_name=TRANSCRIPTION_QUEUE,
-                                receipt_handle=receipt_handle
+                                receipt_handle=receipt_handle,
                             )
 
                         logger.info("Successfully processed and deleted message")
@@ -416,7 +433,7 @@ if __name__ == "__main__":
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
     asyncio.run(main())

@@ -26,6 +26,7 @@ export class AuthService {
   ): Promise<TokenVerificationResponse> {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
       method: "POST",
+      credentials: "include",
       headers: this.getAuthHeaders(),
       body: JSON.stringify(data),
     });
@@ -43,6 +44,7 @@ export class AuthService {
   static async login(data: LoginRequest): Promise<TokenVerificationResponse> {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
       method: "POST",
+      credentials: "include",
       headers: this.getAuthHeaders(),
       body: JSON.stringify(data),
     });
@@ -60,6 +62,7 @@ export class AuthService {
   static async getCurrentUser(token: string): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
       method: "GET",
+      credentials: "include",
       headers: this.getAuthHeaders(token),
     });
 
@@ -73,6 +76,7 @@ export class AuthService {
   static async logout(token: string): Promise<void> {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
       method: "POST",
+      credentials: "include",
       headers: this.getAuthHeaders(token),
     });
 
@@ -106,5 +110,43 @@ export class AuthService {
   static clearToken(): void {
     localStorage.removeItem("access_token");
     localStorage.removeItem("token_expiry");
+  }
+
+  static async refresh(): Promise<TokenVerificationResponse> {
+    const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+      method: "POST",
+      credentials: "include", // Important: envoie les cookies (refresh token)
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      this.clearToken();
+      throw new Error("Failed to refresh token");
+    }
+
+    const data = await response.json();
+    this.saveToken(data.access_token, data.expires_in);
+    return data;
+  }
+
+  static async getValidToken(): Promise<string | null> {
+    const token = this.getToken();
+
+    // Si le token existe et n'est pas expiré, on le retourne
+    if (token) {
+      return token;
+    }
+
+    // Si le token est expiré ou n'existe pas, on essaie de le rafraîchir
+    try {
+      const response = await this.refresh();
+      return response.access_token;
+    } catch (error) {
+      console.error("Failed to refresh token:", error);
+      return null;
+    }
   }
 }

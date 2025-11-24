@@ -51,6 +51,12 @@ async def finalize_usage(job_id: str, minutes_used: int) -> bool:
     subs = [b for b in buckets if b.source_type == MinuteBucketSource.subscription]
     packs = [b for b in buckets if b.source_type == MinuteBucketSource.pack]
 
+    # Sort rollover by earliest expiration (as per PAYMENT_SYSTEM_V2.md line 24)
+    rollover.sort(key=lambda b: b.expires_at or datetime.max.replace(tzinfo=timezone.utc))
+    
+    # Sort subscriptions by period_end (consume oldest period first)
+    subs.sort(key=lambda b: b.period_end or datetime.max.replace(tzinfo=timezone.utc))
+    
     # Sort packs by earliest expiration
     packs.sort(key=lambda b: b.expires_at or datetime.max.replace(tzinfo=timezone.utc))
 

@@ -4,6 +4,7 @@ création de jobs, facturation minutes, et notifications.
 
 Conçu pour être appelé par les endpoints API et le futur sync Spotify.
 """
+
 from __future__ import annotations
 
 import os
@@ -11,9 +12,18 @@ import json
 from math import ceil
 from typing import Dict, Any
 
-from media_summarizer.utils import database_async, sqs, s3, episode_idempotence, episode_watchers
+from media_summarizer.utils import (
+    database_async,
+    sqs,
+    s3,
+    episode_idempotence,
+    episode_watchers,
+)
 from media_summarizer.core.models import ProcessingJob
-from media_summarizer.core.services.minute_pool import allocate_hold_for_job, finalize_usage
+from media_summarizer.core.services.minute_pool import (
+    allocate_hold_for_job,
+    finalize_usage,
+)
 
 
 async def submit_episode_for_user(
@@ -24,6 +34,8 @@ async def submit_episode_for_user(
     feed_title: str,
     audio_url: str,
     duration_seconds: int,
+    episode_image: str = "",
+    episode_date_published: int = 0,  # Unix timestamp - when episode was published by podcast
     source: str = "manual",
 ) -> Dict[str, Any]:
     """
@@ -42,6 +54,8 @@ async def submit_episode_for_user(
         podcast_url="",
         episode_url=audio_url,
         episode_guid=episode_guid,
+        episode_image=episode_image,
+        episode_date_published=episode_date_published,  # Store publication date (for display)
     )
 
     # Essayer de réserver globalement
@@ -49,16 +63,26 @@ async def submit_episode_for_user(
     if not reserved:
         # Déjà connu globalement
         existing = await episode_idempotence.already_processed(episode_guid)
-        if existing and existing.get("status") == "processed" and existing.get("job_id"):
+        if (
+            existing
+            and existing.get("status") == "processed"
+            and existing.get("job_id")
+        ):
             existing_job_id = existing.get("job_id")
-            existing_job = await database_async.get_processing_job_by_id(existing_job_id)
+            existing_job = await database_async.get_processing_job_by_id(
+                existing_job_id
+            )
 
             # Charger le résumé existant si possible
             summary_content = None
             if existing_job and getattr(existing_job, "summary_s3_key", None):
                 try:
-                    summary_bucket = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
-                    raw = await s3.download_file_to_memory(summary_bucket, existing_job.summary_s3_key)
+                    summary_bucket = os.environ.get(
+                        "SUMMARY_BUCKET", "media-summarizer-summaries"
+                    )
+                    raw = await s3.download_file_to_memory(
+                        summary_bucket, existing_job.summary_s3_key
+                    )
                     try:
                         parsed = json.loads(raw.decode("utf-8"))
                         summary_content = parsed.get("summary", parsed)
@@ -74,12 +98,15 @@ async def submit_episode_for_user(
                 podcast_url=getattr(existing_job, "podcast_url", ""),
                 episode_url=audio_url,
                 episode_guid=episode_guid,
+                episode_date_published=episode_date_published,
             )
             billing_job = await database_async.create_processing_job(billing_job)
 
             # Facturation: allouer puis finaliser avec la durée connue (fallback min 1)
             minutes_used = max(1, ceil((duration_seconds or 0) / 60))
-            await allocate_hold_for_job(user_id=user.id, job_id=billing_job.id, minutes_estimated=minutes_used)
+            await allocate_hold_for_job(
+                user_id=user.id, job_id=billing_job.id, minutes_estimated=minutes_used
+            )
             await finalize_usage(billing_job.id, minutes_used)
 
             # Envoi email (from_cache=True)
@@ -108,10 +135,18 @@ async def submit_episode_for_user(
 
         # Pas encore traité (réservé / en cours par un autre traitement)
         # Créer un job "watcher" pour cet utilisateur, allouer un hold estimatif et enregistrer le watcher.
-        minutes_estimated = ceil(duration_seconds / 60) if duration_seconds and duration_seconds > 0 else 0
+        minutes_estimated = (
+            ceil(duration_seconds / 60)
+            if duration_seconds and duration_seconds > 0
+            else 0
+        )
         watcher_job = await database_async.create_processing_job(job)
         try:
-            await allocate_hold_for_job(user_id=user.id, job_id=watcher_job.id, minutes_estimated=minutes_estimated)
+            await allocate_hold_for_job(
+                user_id=user.id,
+                job_id=watcher_job.id,
+                minutes_estimated=minutes_estimated,
+            )
         except Exception:
             # Allocation best-effort
             pass
@@ -144,9 +179,13 @@ async def submit_episode_for_user(
     created_job = await database_async.create_processing_job(job)
 
     # Allouer minutes (estimation si durée connue)
-    minutes_estimated = ceil(duration_seconds / 60) if duration_seconds and duration_seconds > 0 else 0
+    minutes_estimated = (
+        ceil(duration_seconds / 60) if duration_seconds and duration_seconds > 0 else 0
+    )
     try:
-        await allocate_hold_for_job(user_id=user.id, job_id=created_job.id, minutes_estimated=minutes_estimated)
+        await allocate_hold_for_job(
+            user_id=user.id, job_id=created_job.id, minutes_estimated=minutes_estimated
+        )
     except Exception:
         # Allocation best-effort
         pass
@@ -166,6 +205,7 @@ async def submit_episode_for_user(
             "podcast_title": feed_title,
             "audio_duration_seconds": duration_seconds,
             "episode_guid": episode_guid,
+            "episode_image": episode_image,
         },
     )
 

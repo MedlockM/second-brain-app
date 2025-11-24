@@ -14,7 +14,7 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
     "loading",
   );
   const [message, setMessage] = useState<string>(
-    "Finalisation de la connexion...",
+    "Finalizing connection...",
   );
   const [provider, setProvider] = useState<string>("");
 
@@ -45,7 +45,7 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
         // Success callback - exchange refresh token for access token
         if (window.location.pathname.includes("/auth/callback-success")) {
           console.log("[OAuthCallback] Success callback detected");
-          setMessage("Récupération de votre session...");
+          setMessage("Retrieving your session...");
 
           // The refresh token should be in an httpOnly cookie
           // We need to call the backend to exchange it for an access token
@@ -80,8 +80,13 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
           localStorage.setItem("token_expiry", expiryTime.toString());
           console.log("[OAuthCallback] Token saved to localStorage");
 
+          // If Spotify provider, set flag to show playlists page
+          if (callbackProvider === "spotify") {
+            localStorage.setItem("spotify_just_linked", "true");
+          }
+
           setStatus("success");
-          setMessage("Connexion réussie ! Redirection...");
+          setMessage("Connection successful! Redirecting...");
 
           // Redirect to dashboard immediately - don't wait
           console.log("[OAuthCallback] Calling onSuccess callback");
@@ -95,8 +100,8 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
         setStatus("error");
         setMessage(
           error instanceof Error
-            ? `Erreur : ${error.message}`
-            : "Une erreur est survenue lors de la connexion",
+            ? `Error: ${error.message}`
+            : "An error occurred during connection",
         );
       }
     };
@@ -106,14 +111,14 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
 
   const getErrorMessage = (reason: string): string => {
     const errorMessages: Record<string, string> = {
-      state_mismatch: "Erreur de sécurité : état invalide",
-      missing_code: "Code d'autorisation manquant",
-      no_id_token: "Token d'identification manquant",
-      invalid_audience_or_issuer: "Token invalide",
-      invalid_claims: "Informations d'identification invalides",
-      http_error: "Erreur de communication avec le serveur",
-      server_error: "Erreur serveur",
-      unknown_error: "Une erreur inconnue est survenue",
+      state_mismatch: "Security error: invalid state",
+      missing_code: "Missing authorization code",
+      no_id_token: "Missing identification token",
+      invalid_audience_or_issuer: "Invalid token",
+      invalid_claims: "Invalid credentials",
+      http_error: "Server communication error",
+      server_error: "Server error",
+      unknown_error: "An unknown error occurred",
     };
 
     return errorMessages[reason] || errorMessages.unknown_error;
@@ -134,7 +139,7 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-gray-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 md:p-12 max-w-md w-full">
         <div className="text-center space-y-6">
           {/* Icon */}
@@ -159,9 +164,9 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
           {/* Title */}
           <div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">
-              {status === "loading" && "Connexion en cours..."}
-              {status === "success" && "Connexion réussie !"}
-              {status === "error" && "Erreur de connexion"}
+              {status === "loading" && "Connecting..."}
+              {status === "success" && "Connection successful!"}
+              {status === "error" && "Connection error"}
             </h1>
             {provider && (
               <p className="text-sm text-gray-600">
@@ -179,7 +184,7 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
               onClick={handleRetry}
               className="w-full px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Retour à la connexion
+              Back to login
             </button>
           )}
 

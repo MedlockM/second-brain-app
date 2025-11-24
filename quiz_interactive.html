@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#111827;background:linear-gradient(135deg, #eff6ff, #faf5ff)}
+      .container{max-width:600px;margin:0 auto;padding:16px}
+      .header{background:linear-gradient(90deg, #2563eb, #9333ea);color:#fff;padding:16px;border-radius:10px;font-size:18px;font-weight:700;margin:0 0 12px}
+      .meta{font-size:13px;color:#6b7280;margin-bottom:12px}
+      input{display:none}
+      .page{display:none}
+      .page.active{display:block}
+      .question{font-size:16px;margin:12px 0;font-weight:600;color:#111827}
+      .choice{margin:8px 0}
+      .choice label{display:block;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}
+      .choice input:checked + label.correct{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,0.1), inset 0 0 0 9999px #dcfce7; color:#166534}
+      .choice input:checked + label.incorrect{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,0.1), inset 0 0 0 9999px #fee2e2; color:#991b1b}
+      .nav{display:flex;justify-content:space-between;margin-top:12px}
+      .btn{display:inline-block;background:linear-gradient(90deg, #2563eb, #9333ea);color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:8px;font-weight:600}
+      .footer{font-size:12px;color:#6b7280;margin-top:10px}
+      /* Pagination via radios */
+      
+      #p0:checked ~ .pages .page-0{display:block}
+      
+      #p1:checked ~ .pages .page-1{display:block}
+      
+      #p2:checked ~ .pages .page-2{display:block}
+      
+      #p3:checked ~ .pages .page-3{display:block}
+      
+      #p4:checked ~ .pages .page-4{display:block}
+      
+      #p5:checked ~ .pages .page-5{display:block}
+      
+      #p6:checked ~ .pages .page-6{display:block}
+      
+      /* Summary toggle */
+      #toggle-summary:checked ~ .summary{display:block}
+      .summary{display:none;border:1px solid #ddd;border-radius:6px;padding:12px;margin-top:12px}
+      /* iOS scroll/animation (optional) */
+      @media (max-device-width:600px){.page{animation:fadein 0.6s}}
+      @keyframes fadein{0%{opacity:0}100%{opacity:1}}
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">Speakeasy by /influx — Les jobs les plus fous qui existent encore (malgré l'IA)</div>
+      <div class="meta">Répondez au quiz ci-dessous, puis révélez le résumé.</div>
+
+      <form>
+        <!-- pagination radios -->
+        
+        <input type="radio" name="page" id="p0" checked>
+        
+        <input type="radio" name="page" id="p1" >
+        
+        <input type="radio" name="page" id="p2" >
+        
+        <input type="radio" name="page" id="p3" >
+        
+        <input type="radio" name="page" id="p4" >
+        
+        <input type="radio" name="page" id="p5" >
+        
+        <input type="radio" name="page" id="p6" >
+        
+
+        <div class="pages">
+          
+            
+            <div class="page page-0">
+              <div class="question">Q1. Quel outil Penny Lane recommande-t-il pour gérer les achats et dépenses?</div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q0" id="c0-0">
+                  
+                  <label for="c0-0" class="correct">Conta</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q0" id="c0-1">
+                  
+                  <label for="c0-1" class="incorrect">Service Now</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q0" id="c0-2">
+                  
+                  <label for="c0-2" class="incorrect">MAIF</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q0" id="c0-3">
+                  
+                  <label for="c0-3" class="incorrect">Banque Postale</label>
+                </div>
+              
+              <div class="nav">
+                <span></span>
+                <label class="btn" for="p1">Suivant</label>
+              </div>
+            </div>
+          
+            
+            <div class="page page-1">
+              <div class="question">Q2. Quel est le minimum mensuel pour épargner chez MAIF?</div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q1" id="c1-0">
+                  
+                  <label for="c1-0" class="incorrect">10 euros</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q1" id="c1-1">
+                  
+                  <label for="c1-1" class="correct">30 euros</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q1" id="c1-2">
+                  
+                  <label for="c1-2" class="incorrect">50 euros</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q1" id="c1-3">
+                  
+                  <label for="c1-3" class="incorrect">100 euros</label>
+                </div>
+              
+              <div class="nav">
+                <label class="btn" for="p0">Précédent</label>
+                <label class="btn" for="p2">Suivant</label>
+              </div>
+            </div>
+          
+            
+            <div class="page page-2">
+              <div class="question">Q3. Quelle plateforme utilise l'IA pour transformer l'activité des entreprises?</div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q2" id="c2-0">
+                  
+                  <label for="c2-0" class="incorrect">Conta</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q2" id="c2-1">
+                  
+                  <label for="c2-1" class="incorrect">MAIF</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q2" id="c2-2">
+                  
+                  <label for="c2-2" class="correct">Service Now</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q2" id="c2-3">
+                  
+                  <label for="c2-3" class="incorrect">Banque Postale</label>
+                </div>
+              
+              <div class="nav">
+                <label class="btn" for="p1">Précédent</label>
+                <label class="btn" for="p3">Suivant</label>
+              </div>
+            </div>
+          
+            
+            <div class="page page-3">
+              <div class="question">Q4. Quelle est la durée recommandée pour garder une épargne chez MAIF pour bénéficier d'avantages fiscaux?</div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q3" id="c3-0">
+                  
+                  <label for="c3-0" class="incorrect">3 ans</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q3" id="c3-1">
+                  
+                  <label for="c3-1" class="incorrect">5 ans</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q3" id="c3-2">
+                  
+                  <label for="c3-2" class="correct">8 ans</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q3" id="c3-3">
+                  
+                  <label for="c3-3" class="incorrect">10 ans</label>
+                </div>
+              
+              <div class="nav">
+                <label class="btn" for="p2">Précédent</label>
+                <label class="btn" for="p4">Suivant</label>
+              </div>
+            </div>
+          
+            
+            <div class="page page-4">
+              <div class="question">Q5. Quel pourcentage de l'épargne est sécurisé dans le plan proposé par MAIF?</div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q4" id="c4-0">
+                  
+                  <label for="c4-0" class="incorrect">30%</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q4" id="c4-1">
+                  
+                  <label for="c4-1" class="incorrect">40%</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q4" id="c4-2">
+                  
+                  <label for="c4-2" class="incorrect">50%</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q4" id="c4-3">
+                  
+                  <label for="c4-3" class="correct">60%</label>
+                </div>
+              
+              <div class="nav">
+                <label class="btn" for="p3">Précédent</label>
+                <label class="btn" for="p5">Suivant</label>
+              </div>
+            </div>
+          
+            
+            <div class="page page-5">
+              <div class="question">Q6. Quels frais MAIF ne facture-t-elle pas sur les versements d'assurance-vie?</div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q5" id="c5-0">
+                  
+                  <label for="c5-0" class="incorrect">Frais de gestion</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q5" id="c5-1">
+                  
+                  <label for="c5-1" class="correct">Frais sur les versements</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q5" id="c5-2">
+                  
+                  <label for="c5-2" class="incorrect">Frais d'entrée</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q5" id="c5-3">
+                  
+                  <label for="c5-3" class="incorrect">Frais de sortie</label>
+                </div>
+              
+              <div class="nav">
+                <label class="btn" for="p4">Précédent</label>
+                <label class="btn" for="p6">Suivant</label>
+              </div>
+            </div>
+          
+            
+            <div class="page page-6">
+              <div class="question">Q7. Quel métier spécialisé a été mentionné dans le podcast?</div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q6" id="c6-0">
+                  
+                  <label for="c6-0" class="correct">Ramasseur de poulet</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q6" id="c6-1">
+                  
+                  <label for="c6-1" class="incorrect">Gardien d'île déserte</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q6" id="c6-2">
+                  
+                  <label for="c6-2" class="incorrect">Nettoyeur de scène de crime</label>
+                </div>
+              
+                
+                <div class="choice">
+                  
+                    <input type="radio" name="q6" id="c6-3">
+                  
+                  <label for="c6-3" class="incorrect">Testeur d'odeurs</label>
+                </div>
+              
+              <div class="nav">
+                <label class="btn" for="p5">Précédent</label>
+                <span class="footer">Vous pouvez revoir vos sélections ci-dessus.</span>
+              </div>
+            </div>
+          
+        </div>
+
+        <!-- Reveal Summary -->
+        <div style="margin-top:14px">
+          <input type="checkbox" id="toggle-summary">
+          <label class="btn" for="toggle-summary">Révéler le résumé</label>
+          <div class="summary">
+            
+              <h4>Thèmes principaux</h4>
+              <ul>
+                <li>Jobs insolites</li><li>Intelligence artificielle</li><li>Avenir du travail</li>
+              </ul>
+            
+            
+              <h4>Points clés</h4>
+              <ul>
+                <li>Certains métiers étranges persistent</li><li>L'IA transforme le marché du travail</li>
+              </ul>
+            
+            
+            
+              <h4>Conclusion</h4>
+              <p>Même à l'ère de l'IA, des jobs surprenants continuent d'exister</p>
+            
+          </div>
+        </div>
+      </form>
+
+      <div class="footer">Le comportement interactif fonctionne mieux sur iOS/Apple/Samsung Mail.</div>
+    </div>
+  </body>
+</html>

@@ -89,10 +89,10 @@ media-summarizer/
 
 ## Stratégie de génération de commande à exécuter dans le terminal
 
-1. **Environnement**: Si l'environnement uv 'media-summarizer-project' n'est pas encore activé dans le terminal, active le une fois grâce à une ligne de commande source .venv/bin/activate
+1. **Exécution de commandes**: Toujours utiliser l'environnement uv à la racine quand il s'agit d'utiliser un environnement pour lancer une commande (ex: `uv run <command>`).
 2. **Installation de dépendances**: Toujours installer les dépendances dans l'environnement virtuel uv avec les commandes suivantes:
    ```bash
-   source .venv/bin/activate && uv pip install -e .  # Pour les dépendances principales
-   source .venv/bin/activate && uv pip install -e ".[dev]"  # Pour les dépendances de développement
+   uv pip install -e .  # Pour les dépendances principales
+   uv pip install -e ".[dev]"  # Pour les dépendances de développement
    ```
 3. **Ne jamais** installer des dépendances globalement ou en dehors de l'environnement virtuel uv

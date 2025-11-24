@@ -1,0 +1,136 @@
+<!doctype html>
+<html amp4email>
+  <head>
+    <meta charset="utf-8">
+    <script async src="https://cdn.ampproject.org/v0.js"></script>
+    <script async custom-element="amp-selector" src="https://cdn.ampproject.org/v0/amp-selector-0.1.js"></script>
+    <script async custom-element="amp-accordion" src="https://cdn.ampproject.org/v0/amp-accordion-0.1.js"></script>
+    <script async custom-element="amp-bind" src="https://cdn.ampproject.org/v0/amp-bind-0.1.js"></script>
+    <style amp4email-boilerplate>body{visibility:hidden}</style>
+    <style amp-custom>
+      body{font-family:Arial,Helvetica,sans-serif; color:{{ brand.text }}; background:linear-gradient(135deg, {{ brand.bg_from }}, {{ brand.bg_to }});} 
+      .container{max-width:600px;margin:0 auto;padding:16px}
+      .header{background:linear-gradient(90deg, {{ brand.primary_start }}, {{ brand.primary_end }});color:#fff;padding:16px;border-radius:10px;font-size:18px;font-weight:700;margin:0 0 12px}
+      .meta{font-size:13px;color:{{ brand.muted }};margin:10px 0 12px}
+      .card{background:#fff;border:1px solid {{ brand.border }};border-radius:10px;padding:12px}
+      .page{display:none}
+      .question{font-size:16px;margin:12px 0;font-weight:600;color:{{ brand.text }}}
+      amp-selector [option]{display:block;border:1px solid {{ brand.border }};border-radius:8px;padding:12px;margin:8px 0;background:#fff}
+      amp-selector [option][selected]{border-color:{{ brand.primary_start }};box-shadow:0 0 0 2px rgba(37,99,235,0.1)}
+      .badge{float:right;font-size:12px;padding:2px 6px;border-radius:4px}
+      .ok{background:{{ brand.correct_bg }};color:{{ brand.correct_text }}}
+      .ko{background:{{ brand.incorrect_bg }};color:{{ brand.incorrect_text }}}
+      .nav{display:flex;justify-content:space-between;margin-top:12px}
+      .btn{display:inline-block;background:linear-gradient(90deg, {{ brand.primary_start }}, {{ brand.primary_end }});color:{{ brand.button_text }};text-decoration:none;padding:10px 14px;border-radius:8px;font-weight:600}
+      .final{padding:12px;border:1px solid {{ brand.border }};border-radius:10px;margin-top:12px;background:#fff}
+      .summary-toggle{margin-top:14px}
+      .muted{color:{{ brand.muted }};font-size:12px}
+      .visible{display:block}
+      [hidden]{display:none}
+    </style>
+  </head>
+  <body>
+      <div class="container">
+      <div class="header">{{ podcast_title }} — {{ episode_title }}</div>
+      <div class="meta">{{ ui_strings.get('intro', 'Answer the quiz below, then reveal the summary.') }}</div>
+      <div class="card">
+
+      <amp-state id="st">
+        <script type="application/json">
+          {
+            "total": 0,
+            {% for q in quiz.questions %}"q{{ loop.index0 }}_score": 0{% if not loop.last %},{% endif %}{% endfor %}
+          }
+        </script>
+      </amp-state>
+
+      {% for q in quiz.questions %}
+      {% set qidx = loop.index0 %}
+      {% set correct_ids = [] %}
+      {% set all_ids = [] %}
+      {% for choice in q.choices %}
+        {% set _ = all_ids.append('a' ~ qidx ~ '-' ~ loop.index0) %}
+        {% if choice.correct %}{% set _ = correct_ids.append('a' ~ qidx ~ '-' ~ loop.index0) %}{% endif %}
+      {% endfor %}
+
+      <div class="page visible">
+        <div class="question">Q{{ qidx + 1 }}. {{ q.prompt }}</div>
+        <amp-selector id="sel-{{ qidx }}" {% if q.multiple %}multiple{% endif %}
+          on="select:AMP.setState({
+            st: {
+              {% set ok_expr_parts = [] %}
+              {% for cid in correct_ids %}
+                {% set _ = ok_expr_parts.append("(event.selectedOptions.indexOf('" ~ cid ~ "') != -1)") %}
+              {% endfor %}
+              {% for cid in all_ids %}
+                {% if cid not in correct_ids %}
+                  {% set _ = ok_expr_parts.append("(event.selectedOptions.indexOf('" ~ cid ~ "') == -1)") %}
+                {% endif %}
+              {% endfor %}
+              {% set ok_expr = ok_expr_parts | join(' && ') %}
+              {% set new_score_expr = '(' ~ ok_expr ~ ') ? 1 : 0' %}
+              {% for qi in range(quiz.questions|length) %}
+                {% if qi == qidx %}
+                  "q{{ qi }}_score": {{ new_score_expr }},{% else %}
+                  "q{{ qi }}_score": st.q{{ qi }}_score,{% endif %}
+              {% endfor %}
+              "total": (
+                {% for qi in range(quiz.questions|length) %}
+                  {% if qi == qidx %}{{ new_score_expr }}{% else %}st.q{{ qi }}_score{% endif %}{% if not loop.last %} + {% endif %}
+                {% endfor %}
+              )
+            }
+          })">
+          {% for choice in q.choices %}
+            {% set cid = 'a' ~ qidx ~ '-' ~ loop.index0 %}
+            <div option="{{ cid }}" class="choice{% if choice.correct %} is-correct{% endif %}">
+              {{ choice.text }}
+              <span class="badge ok" [hidden]="!(event.target.id == 'sel-{{ qidx }}' && event.selectedOptions && event.selectedOptions.indexOf('{{ cid }}') != -1) || !('{{ cid }}' == '{{ cid }}' && {{ 'true' if choice.correct else 'false' }})">{{ ui_strings.get('correct', 'Correct') }}</span>
+              <span class="badge ko" [hidden]="!(event.target.id == 'sel-{{ qidx }}' && event.selectedOptions && event.selectedOptions.indexOf('{{ cid }}') != -1) || {{ 'true' if choice.correct else 'false' }}">{{ ui_strings.get('incorrect', 'Incorrect') }}</span>
+            </div>
+          {% endfor %}
+        </amp-selector>
+      </div>
+      {% endfor %}
+
+      </div>
+
+      <div class="final">
+        <div><strong>{{ ui_strings.get('your_score', 'Your Score') }}:</strong> <span [text]="st.total"></span> / {{ quiz.questions|length }}</div>
+        <div class="muted">{{ ui_strings.get('score_note', 'Select answers for each question to update your score.') }}</div>
+      </div>
+
+      <div class="summary-toggle">
+        <amp-accordion>
+          <section>
+            <h4>{{ ui_strings.get('reveal_summary', 'Reveal Summary') }}</h4>
+            <div>
+              {% if summary and summary.main_topics %}
+                <h5>{{ ui_strings.get('main_topics', 'Main topics') }}</h5>
+                <ul>
+                  {% for t in summary.main_topics %}<li>{{ t }}</li>{% endfor %}
+                </ul>
+              {% endif %}
+              {% if summary and summary.key_points %}
+                <h5>{{ ui_strings.get('key_points', 'Key points') }}</h5>
+                <ul>
+                  {% for p in summary.key_points %}<li>{{ p }}</li>{% endfor %}
+                </ul>
+              {% endif %}
+              {% if summary and summary.notable_quotes %}
+                <h5>{{ ui_strings.get('notable_quotes', 'Notable quotes') }}</h5>
+                <ul>
+                  {% for q in summary.notable_quotes %}<li>“{{ q }}”</li>{% endfor %}
+                </ul>
+              {% endif %}
+              {% if summary and summary.conclusion %}
+                <h5>{{ ui_strings.get('conclusion', 'Conclusion') }}</h5>
+                <p>{{ summary.conclusion }}</p>
+              {% endif %}
+            </div>
+          </section>
+        </amp-accordion>
+      </div>
+    </div>
+  </body>
+</html>
