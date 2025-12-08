@@ -4,22 +4,22 @@ Summarization worker for processing transcriptions and generating summaries usin
 Migrated to use the new utils for S3 and SQS operations instead of direct AWS libraries.
 """
 
+import asyncio
 import json
+import json as json_module
 import logging
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
-import asyncio
+import aiohttp
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from media_summarizer.utils import s3, sqs
 from media_summarizer.workers.base_worker import (
-    process_message_with_retry,
     get_sqs_receive_params,
+    process_message_with_retry,
 )
-import aiohttp
-import json as json_module
 
 
 class LLMAPIError(Exception):
@@ -84,9 +84,12 @@ async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_t
         payload = {
             "model": LLM_MODEL,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1000,
-            "temperature": 0.7,
+            "max_completion_tokens": 1000,
         }
+
+        # Only add temperature for models that support it (not o1/o3/gpt-5 reasoning models)
+        if not any(x in LLM_MODEL.lower() for x in ["o1", "o3", "gpt-5"]):
+            payload["temperature"] = 0.7
 
         async with session.post(api_url, headers=headers, json=payload) as response:
             response.raise_for_status()
@@ -94,6 +97,11 @@ async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_t
 
             # Extract the content from the response
             content = result["choices"][0]["message"]["content"]
+
+            # Debug logging to see LLM response
+            logger.info(f"LLM model: {LLM_MODEL}")
+            logger.info(f"LLM response length: {len(content)} chars")
+            logger.info(f"LLM response (first 500 chars): {content[:500]}")
 
             # Check if the LLM response indicates an error or inability to process
             error_indicators = [
@@ -368,7 +376,9 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
             summary_url = f"s3://{SUMMARY_BUCKET}/{summary_s3_key}"
 
         # Send next step depending on feature flag
-        ENABLE_QUIZ_EMAIL = os.environ.get("ENABLE_QUIZ_EMAIL", "false").lower() == "true"
+        ENABLE_QUIZ_EMAIL = (
+            os.environ.get("ENABLE_QUIZ_EMAIL", "false").lower() == "true"
+        )
         if ENABLE_QUIZ_EMAIL:
             try:
                 await sqs.send_message(
@@ -386,7 +396,9 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
                 )
                 logger.info(f"Queued quiz generation for job {job_id}")
             except Exception as ee:
-                logger.warning(f"Failed to enqueue quiz job, fallback to direct email: {ee}")
+                logger.warning(
+                    f"Failed to enqueue quiz job, fallback to direct email: {ee}"
+                )
                 await send_notification(
                     notification_type="completion",
                     job_id=job_id,
@@ -409,40 +421,6 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
             )
 
         logger.info(f"Successfully completed summarization for job {job_id}")
-
-    except LLMAPIError as e:
-        logger.error(f"LLM API error for job {job_id}: {str(e)}")
-
-        # Mark job as failed in database
-        if job:
-            job.mark_failed(str(e), "summarization")
-            await database_async.update_processing_job(job)
-
-        await send_notification(
-            notification_type="error",
-            job_id=job_id,
-            email=email,
-            error=f"Failed to generate summary: {str(e)}",
-            step="summarization",
-        )
-        raise
-
-    except Exception as e:
-        logger.error(f"Summarization failed for job {job_id}: {str(e)}")
-
-        # Mark job as failed in database
-        if job:
-            job.mark_failed(str(e), "summarization")
-            await database_async.update_processing_job(job)
-
-        await send_notification(
-            notification_type="error",
-            job_id=job_id,
-            email=email,
-            error=f"Summarization failed: {str(e)}",
-            step="summarization",
-        )
-        raise
 
 
 async def process_message(
@@ -492,23 +470,14 @@ async def poll_queue() -> None:
 
                 # Process messages one by one
                 for message in messages:
-                    try:
-                        await process_message(message)
-
-                        # Delete message after successful processing
-                        receipt_handle = message.get("ReceiptHandle")
-                        if receipt_handle:
-                            await sqs.delete_message(
-                                queue_name=SUMMARIZATION_QUEUE,
-                                receipt_handle=receipt_handle,
-                            )
-
-                        logger.info("Successfully processed and deleted message")
-
-                    except Exception as e:
-                        logger.error(f"Failed to process message: {str(e)}")
-                        # Message will become visible again after visibility timeout
-                        # for retry by another worker instance
+                    # Use base_worker retry logic which handles retries, logging, and DLQ/Failure
+                    await process_message_with_retry(
+                        message=message,
+                        processor=process_message,
+                        queue_name=SUMMARIZATION_QUEUE,
+                        max_retries=3,
+                        worker_name="summarization"
+                    )
 
             # Small delay to prevent excessive API calls
             await asyncio.sleep(1)

@@ -14,7 +14,7 @@ from media_summarizer.api.dependencies.auth import RequireAuth
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models.spotify import SpotifyPlaylistFollow
 from media_summarizer.utils import database_async, spotify_follows_db
-from media_summarizer.utils.spotify import ensure_access_token, list_user_playlists, playlist_contains_episodes
+from media_summarizer.utils.spotify import ensure_access_token, list_user_playlists
 from media_summarizer.core.services.playlist_sync import run_playlist_sync_for_user
 
 router = APIRouter()
@@ -77,22 +77,7 @@ async def list_playlists(current_user: AuthUser = RequireAuth):
             if pl.get("owner", {}).get("id") == getattr(user, "spotify_user_id", None)
         ]
         
-        # Filter: only playlists containing podcast episodes (Parallelized)
-        logger.info(f"Filtering {len(owner_playlists)} owner playlists for podcast content...")
-        
-        import asyncio
-        
-        async def check_playlist(pl):
-            pl_id = pl.get("id", "")
-            if pl_id and await playlist_contains_episodes(access_token, pl_id):
-                return pl
-            return None
-
-        # Run checks in parallel
-        results = await asyncio.gather(*[check_playlist(pl) for pl in owner_playlists])
-        podcast_playlists = [pl for pl in results if pl is not None]
-        
-        logger.info(f"Found {len(podcast_playlists)} playlists with podcast episodes out of {len(owner_playlists)} total")
+        logger.info(f"Returning {len(owner_playlists)} owner playlists for user {current_user.id}")
         
         # Get follows
         follows = await spotify_follows_db.get_follows_by_user(current_user.id)
@@ -100,7 +85,7 @@ async def list_playlists(current_user: AuthUser = RequireAuth):
         
         # Merge
         result = []
-        for pl in podcast_playlists:
+        for pl in owner_playlists:
             pl_id = pl.get("id", "")
             follow = follows_map.get(pl_id)
             result.append(PlaylistResponse(
@@ -157,7 +142,7 @@ async def update_subscription(
 ):
     """
     Toggle playlist follow/tracking state.
-    If enabled=True, triggers immediate sync.
+    When enabled=True, the playlist will be synced on the next scheduled cron run.
     """
     try:
         user = await database_async.get_user_by_id(current_user.id)
@@ -176,21 +161,13 @@ async def update_subscription(
             follow.enabled = payload.enabled
             follow.updated_at = datetime.now(timezone.utc)
         
-        # If enabling, trigger sync immediately
-        if payload.enabled:
-            logger.info(f"Triggering sync for playlist {playlist_id} (user {current_user.id})")
-            sync_result = await run_playlist_sync_for_user(user, playlist_id)
-            
-            if sync_result.get("status") == "success":
-                follow.last_synced_at = datetime.now(timezone.utc)
-                logger.info(
-                    f"Playlist {playlist_id} synced: "
-                    f"submitted={sync_result.get('submitted')}, "
-                    f"skipped={sync_result.get('skipped')}"
-                )
-        
-        # Save follow state
+        # Save follow state (will be picked up by next cron run)
         follow = await spotify_follows_db.upsert_follow(follow)
+        
+        logger.info(
+            f"Playlist {playlist_id} tracking {'enabled' if payload.enabled else 'disabled'} "
+            f"for user {current_user.id}. Will be synced on next scheduled run."
+        )
         
         return SubscriptionResponse(
             playlist_id=follow.playlist_id,

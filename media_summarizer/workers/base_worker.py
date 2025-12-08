@@ -112,7 +112,21 @@ async def process_message_with_retry(
         # Retry strategy based on attempt count
         if receive_count >= max_retries:
             # After max attempts: delete to prevent infinite loop
-            # Release minutes hold if applicable
+            
+            # 1. Mark job as FAILED in DynamoDB
+            try:
+                if job_id and job_id != "unknown":
+                    job = await ProcessingJob.get(job_id)
+                    if job:
+                        await job.mark_failed(
+                            error_message=f"Max retries reached ({max_retries}). Last error: {str(e)}",
+                            error_step=worker_name
+                        )
+                        logger.info(f"[{worker_name}] Marked job {job_id} as FAILED in DynamoDB")
+            except Exception as db_err:
+                logger.error(f"[{worker_name}] Failed to mark job {job_id} as FAILED: {db_err}")
+
+            # 2. Release minutes hold if applicable
             try:
                 if job_id and job_id != "unknown":
                     from media_summarizer.core.services.minute_pool import release_hold
@@ -120,6 +134,17 @@ async def process_message_with_retry(
                     logger.info(f"[{worker_name}] Released minute hold on failure for job {job_id}: {released}")
             except Exception as refund_err:
                 logger.error(f"[{worker_name}] Failed to release minute hold on failure for job {job_id}: {refund_err}")
+
+            # 3. Send error notification to user
+            try:
+                if job_id and job_id != "unknown":
+                    await send_error_notification(
+                        job_id=job_id,
+                        error_message=f"Processing failed after {max_retries} attempts. Please try again later.",
+                        step=worker_name
+                    )
+            except Exception as notify_err:
+                logger.error(f"[{worker_name}] Failed to send error notification for job {job_id}: {notify_err}")
 
             # Technical errors are logged for monitoring/alerting
             logger.warning(

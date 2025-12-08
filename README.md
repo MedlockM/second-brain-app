@@ -231,6 +231,9 @@ Commandes utiles:
 # Lancer l’infra complète (incluant Terraform)
 docker-compose -f docker-compose.dev.yml --profile full up -d
 
+# Lancer le front
+ cd front && npm run dev  
+
 # Vérifier les logs Terraform
 docker-compose -f docker-compose.dev.yml logs terraform
 

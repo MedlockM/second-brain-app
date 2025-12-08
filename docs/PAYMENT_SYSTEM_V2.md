@@ -80,17 +80,13 @@ Objectif
 - DEFAULT_HOLD_MINUTES=60
 - PACK_EXPIRY_MONTHS=6
 
-9) Transition depuis “crédits”
-- Migration one‑shot proposée: 1 crédit = 1 minute → création d’un bucket “migration” par utilisateur (expiration longue ou nulle), puis mise à 0 de l’ancien champ credits.
-- Décommissionner: endpoints /credits/* et /payments/intent|confirm|refund remplacés par les routes billing + webhooks.
-
-10) Critères de validation
+9) Critères de validation
 - Achat d’un pack → bucket minutes créé (webhook) avec expiry.
-- Souscription S/M/L → bucket minutes créé sur invoice.payment_succeeded.
+- Souscription S/M/L → bucket minutes créé sur invoice.payment.succeeded.
 - Soumission épisode → hold placé, finalize sur durée réelle; si insuffisant, job en WAITING_FOR_MINUTES + notification.
 - Rollover de fin de période → bucket “rollover” créé et consommé en priorité.
 
-11) Tests locaux avec stripe listen (sans mock)
+10) Tests locaux avec stripe listen (sans mock)
 - Prérequis: `stripe` CLI installé, clés test dans .env.dev (STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET)
 - Démarrer l’API et LocalStack (si nécessaire), puis:
   ```bash

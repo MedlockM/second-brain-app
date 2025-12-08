@@ -68,50 +68,50 @@ async def process_message(message):
     body = {}
     job_id = "unknown"
 
+    # Handle both direct message body and SQS message format
+    if message is None:
+        raise ValueError("Message is None")
+
+    if "Body" in message:
+        # SQS message format
+        try:
+            body = json.loads(message["Body"])
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in message body: {str(e)}")
+    else:
+        # Direct message format (for testing)
+        body = message
+
+    # Check required fields
+    if "job_id" not in body:
+        raise ValueError("Missing required field: job_id")
+
+    job_id = body["job_id"]
+
+    if "audio_url" not in body:
+        raise ValueError("Missing required field: audio_url")
+
+    audio_url = body["audio_url"]
+
+    # Check if audio_url is empty
+    if not audio_url:
+        raise ValueError("empty audio URL provided")
+
+    logger.info(f"Téléchargement audio pour le job {job_id}")
+
+    # Update job status to downloading
+    from media_summarizer.utils import database_async
+
+    job = await database_async.get_processing_job_by_id(job_id)
+    if job:
+        job.mark_downloading()
+        await database_async.update_processing_job(job)
+
+    # Création d'un fichier temporaire pour le téléchargement
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+        temp_path = temp_file.name
+
     try:
-        # Handle both direct message body and SQS message format
-        if message is None:
-            raise ValueError("Message is None")
-
-        if "Body" in message:
-            # SQS message format
-            try:
-                body = json.loads(message["Body"])
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON in message body: {str(e)}")
-        else:
-            # Direct message format (for testing)
-            body = message
-
-        # Check required fields
-        if "job_id" not in body:
-            raise ValueError("Missing required field: job_id")
-
-        job_id = body["job_id"]
-
-        if "audio_url" not in body:
-            raise ValueError("Missing required field: audio_url")
-
-        audio_url = body["audio_url"]
-
-        # Check if audio_url is empty
-        if not audio_url:
-            raise ValueError("empty audio URL provided")
-
-        logger.info(f"Téléchargement audio pour le job {job_id}")
-
-        # Update job status to downloading
-        from media_summarizer.utils import database_async
-
-        job = await database_async.get_processing_job_by_id(job_id)
-        if job:
-            job.mark_downloading()
-            await database_async.update_processing_job(job)
-
-        # Création d'un fichier temporaire pour le téléchargement
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
-            temp_path = temp_file.name
-
         # Téléchargement du fichier audio
         await download_audio(audio_url, temp_path)
 
@@ -126,9 +126,6 @@ async def process_message(message):
         if job:
             job.set_audio_location(s3_key)
             await database_async.update_processing_job(job)
-
-        # Nettoyage du fichier temporaire
-        os.unlink(temp_path)
 
         # Envoi du message à la file de transcription
         next_message = {
@@ -151,44 +148,27 @@ async def process_message(message):
 
         logger.info(f"Téléchargement audio terminé pour le job {job_id}")
 
-    except Exception as e:
-        logger.error(f"Erreur lors du téléchargement audio: {str(e)}")
-
-        # Mark job as failed in database
-        try:
-            from media_summarizer.utils import database_async
-
-            job = await database_async.get_processing_job_by_id(job_id)
-            if job:
-                job.mark_failed(str(e), "audio_download")
-                await database_async.update_processing_job(job)
-        except Exception as db_error:
-            logger.error(f"Error updating job status to failed: {str(db_error)}")
-
-        # Envoi d'un message d'erreur
-        error_message = {
-            "job_id": body.get("job_id", job_id),
-            "error": str(e),
-            "step": "audio_download",
-            "success": False,
-        }
-
-        await sqs.send_message(
-            queue_name="email-notification-queue", message_body=error_message
-        )
-
-        # Re-raise l'exception pour que base_worker puisse gérer les retries
-        raise
+    finally:
+        # Nettoyage du fichier temporaire (always cleanup)
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 async def process_messages_batch(messages):
-    """Process multiple messages concurrently."""
+    """Process multiple messages concurrently using base_worker retry logic."""
     # Limit concurrency to avoid overwhelming the system
     semaphore = asyncio.Semaphore(3)  # Max 3 concurrent downloads
 
     async def process_with_semaphore(message):
         async with semaphore:
-            return await process_message(message)
+            # Use base_worker retry logic which handles retries, logging, and DLQ/Failure
+            return await process_message_with_retry(
+                message=message,
+                processor=process_message,
+                queue_name="audio-download-queue",
+                max_retries=3,
+                worker_name="download"
+            )
 
     tasks = []
     for message in messages:
@@ -196,22 +176,8 @@ async def process_messages_batch(messages):
         tasks.append(task)
 
     # Process messages concurrently
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Handle results and delete successful messages
-    for i, (message, result) in enumerate(zip(messages, results)):
-        if isinstance(result, Exception):
-            logger.error(f"Error processing message {i}: {str(result)}")
-            # Let the message become visible again for retry
-        else:
-            # Delete successful message
-            try:
-                await sqs.delete_message(
-                    queue_name="audio-download-queue",
-                    receipt_handle=message["ReceiptHandle"],
-                )
-            except Exception as e:
-                logger.error(f"Error deleting message: {str(e)}")
+    # We don't need to handle results manually as process_message_with_retry handles deletion/failure
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def poll_queue():

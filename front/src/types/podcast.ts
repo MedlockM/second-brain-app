@@ -17,3 +17,25 @@ export interface PodcastSearchResponse {
   page: number;
   page_size: number;
 }
+
+export interface PodcastEpisode {
+  id: number;
+  title: string;
+  description: string;
+  guid: string;
+  date_published: number;
+  enclosure_url: string;
+  duration?: number;
+  image: string;
+  feed_id?: number;
+  feed_title: string;
+  feed_image: string;
+}
+
+export interface PodcastEpisodesResponse {
+  status: string;
+  episodes: PodcastEpisode[];
+  count: number;
+  feed_id: number;
+  podcast_title: string;
+}

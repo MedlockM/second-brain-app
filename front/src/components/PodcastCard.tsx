@@ -3,11 +3,15 @@ import { ExternalLink, Mic } from 'lucide-react';
 
 interface PodcastCardProps {
   podcast: Podcast;
+  onClick?: (podcast: Podcast) => void;
 }
 
-export default function PodcastCard({ podcast }: PodcastCardProps) {
+export default function PodcastCard({ podcast, onClick }: PodcastCardProps) {
   return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
+    <div
+      className={`bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow ${onClick ? 'cursor-pointer' : ''}`}
+      onClick={() => onClick?.(podcast)}
+    >
       <div className="aspect-square relative bg-gray-100">
         {podcast.image ? (
           <img

@@ -2,7 +2,7 @@
 Processing job model for tracking podcast processing jobs using DynamoDB.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, field_validator, model_validator
 import uuid
@@ -61,6 +61,7 @@ class ProcessingJob(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    expire_at: Optional[int] = None  # TTL timestamp for DynamoDB auto-deletion
 
     # Processing durations (in seconds)
     download_duration: Optional[int] = None
@@ -107,6 +108,10 @@ class ProcessingJob(BaseModel):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
+        
+        # Add TTL if set
+        if self.expire_at:
+            item["expire_at"] = self.expire_at
 
         # Add optional fields if they exist
         optional_fields = [
@@ -157,6 +162,10 @@ class ProcessingJob(BaseModel):
             item["status"] = JobStatus(item["job_status"])
             # Remove the DynamoDB field name so it doesn't interfere with model creation
             del item["job_status"]
+            
+        # Handle expire_at (TTL) - convert Decimal to int if coming from boto3
+        if "expire_at" in item:
+            item["expire_at"] = int(item["expire_at"])
 
         return cls(**item)
 
@@ -186,6 +195,11 @@ class ProcessingJob(BaseModel):
         if new_status == JobStatus.FAILED:
             self.error_message = error_message
             self.error_step = error_step
+            
+        # Update TTL on status change (extend life)
+        # Keep jobs for 30 days after last update
+        self.expire_at = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+        self.updated_at = datetime.now(timezone.utc)
 
     def increment_retry(self) -> bool:
         """Increment retry count. Returns True if more retries are allowed."""
@@ -307,6 +321,9 @@ class ProcessingJob(BaseModel):
         for key, value in kwargs.items():
             if hasattr(self, key) and key != "id":  # Don't allow ID updates
                 setattr(self, key, value)
+        
+        # Update TTL on any update
+        self.expire_at = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
         self.updated_at = datetime.now(timezone.utc)
         return self
 

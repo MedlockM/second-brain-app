@@ -29,7 +29,19 @@ def _now_iso() -> str:
 
 
 async def has_user_already_submitted(user_id: str, episode_guid: str) -> bool:
-    """Return True if this user has already submitted this episode GUID."""
+    """
+    Return True if this user has already SUCCESSFULLY submitted this episode GUID,
+    OR if the previous submission failed after exhausting all retries.
+    
+    Returns False if:
+    - No previous submission exists
+    - Previous submission's job failed but can still be retried (retry_count < max_retries)
+    
+    This allows automatic retry for failed jobs, but blocks re-submission after max retries.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
@@ -43,7 +55,60 @@ async def has_user_already_submitted(user_id: str, episode_guid: str) -> bool:
                 "episode_guid": episode_guid,
             }
         )
-        return "Item" in resp
+        
+        if "Item" not in resp:
+            return False  # No previous submission
+        
+        # Check if the associated job completed successfully or failed permanently
+        item = resp["Item"]
+        job_id = item.get("job_id")
+        
+        if not job_id:
+            # No job_id recorded, be conservative and block
+            logger.warning(f"Submission found for user {user_id}, episode {episode_guid} but no job_id")
+            return True
+        
+        try:
+            job = await database_async.get_processing_job_by_id(job_id)
+            
+            if not job:
+                # Job not found, allow retry
+                logger.warning(f"Job {job_id} not found for submission, allowing retry")
+                return False
+            
+            # Block if job completed successfully (no error_step)
+            if job.job_status == "completed" and not getattr(job, "error_step", None):
+                logger.info(f"Episode {episode_guid} already successfully processed for user {user_id}")
+                return True
+            
+            # Block if job failed AND exhausted all retries
+            if getattr(job, "error_step", None):
+                retry_count = getattr(job, "retry_count", 0)
+                max_retries = getattr(job, "max_retries", 3)
+                
+                if retry_count >= max_retries:
+                    # Max retries exhausted, block re-submission
+                    logger.info(
+                        f"Episode {episode_guid} failed permanently for user {user_id} "
+                        f"(retries: {retry_count}/{max_retries}), blocking re-submission"
+                    )
+                    return True
+                else:
+                    # Still has retries left, allow retry
+                    logger.info(
+                        f"Episode {episode_guid} failed but can retry for user {user_id} "
+                        f"(retries: {retry_count}/{max_retries}), allowing retry"
+                    )
+                    return False
+            
+            # Job still processing, block to avoid duplicates
+            logger.info(f"Episode {episode_guid} still processing for user {user_id}")
+            return True
+                
+        except Exception as e:
+            # If we can't verify job status, be conservative and block
+            logger.error(f"Error checking job status for {job_id}: {e}")
+            return True
 
 
 async def mark_user_submission(

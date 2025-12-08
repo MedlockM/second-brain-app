@@ -41,8 +41,7 @@ async def _load_summary_content(summary_s3_key: Optional[str]) -> Optional[Dict[
         # Prefer the inner "summary" field if present
         return data.get("summary", data)
     except Exception as e:
-        logger.warning(f"Failed to load summary content {summary_s3_key}: {e}
-")
+        logger.warning(f"Failed to load summary content {summary_s3_key}: {e}")
         return None
 
 
@@ -87,6 +86,7 @@ async def process_event(message: Dict[str, Any]) -> None:
     podcast_title = body.get("podcast_title")
     episode_title = body.get("episode_title")
     summary_s3_key = body.get("summary_s3_key")
+    quiz_s3_key = body.get("quiz_s3_key")  # New field
 
     if not episode_guid:
         logger.error(f"Missing episode_guid in event: {body}")
@@ -104,21 +104,63 @@ async def process_event(message: Dict[str, Any]) -> None:
     # Fan-out
     for w in watchers:
         try:
-            ok = await finalize_usage(w.get("job_id"), minutes_used)
-            if not ok:
-                # Policy: spotify → email; manual → no email
-                if (w.get("source") or "").lower() == "spotify":
-                    await _notify_watcher_insufficient_minutes(watcher=w)
-                await episode_watchers.mark_watcher_failed(episode_guid, w.get("user_id"), reason="insufficient_minutes")
+            job_id = w.get("job_id")
+            
+            # Update processing job with S3 keys and status BEFORE sending email
+            try:
+                from media_summarizer.utils import database_async
+                
+                job = await database_async.get_processing_job_by_id(job_id)
+                if job:
+                    if summary_s3_key:
+                        job.set_summary_location(summary_s3_key)
+                    if quiz_s3_key:
+                        job.set_quiz_location(quiz_s3_key)
+                    
+                    job.mark_completed()
+                    await database_async.update_processing_job(job)
+                    logger.info(f"Updated processing job {job_id} with S3 keys")
+            except Exception as e:
+                logger.error(f"Failed to update processing job {job_id}: {e}")
+
+            # CRITICAL: Send email FIRST, before charging minutes
+            try:
+                await _notify_watcher_completion(
+                    watcher=w,
+                    podcast_title=podcast_title,
+                    episode_title=episode_title,
+                    summary_content=summary_content,
+                )
+                await episode_watchers.mark_watcher_emailed(episode_guid, w.get("user_id"))
+                logger.info(f"Successfully sent completion email to {w.get('email')} for episode {episode_guid}")
+            except Exception as email_error:
+                # If email sending fails, DO NOT charge minutes
+                logger.error(f"Failed to send email to {w.get('email')} for episode {episode_guid}: {email_error}")
+                await episode_watchers.mark_watcher_failed(
+                    episode_guid, 
+                    w.get("user_id"), 
+                    reason=f"email_failed: {str(email_error)}"
+                )
+                # Skip finalize_usage - user will not be charged
                 continue
 
-            await _notify_watcher_completion(
-                watcher=w,
-                podcast_title=podcast_title,
-                episode_title=episode_title,
-                summary_content=summary_content,
-            )
-            await episode_watchers.mark_watcher_emailed(episode_guid, w.get("user_id"))
+            # ONLY NOW: Finalize usage (charge minutes) AFTER successful email delivery
+            ok = await finalize_usage(job_id, minutes_used)
+            if not ok:
+                # Edge case: Email sent but billing failed
+                # Policy: spotify → send error email; manual → no email
+                logger.error(f"Email sent successfully but failed to finalize usage for job {job_id}")
+                if (w.get("source") or "").lower() == "spotify":
+                    await _notify_watcher_insufficient_minutes(watcher=w)
+                await episode_watchers.mark_watcher_failed(
+                    episode_guid, 
+                    w.get("user_id"), 
+                    reason="insufficient_minutes_after_email"
+                )
+                # TODO: Implement compensation mechanism (refund or manual review)
+                continue
+
+            logger.info(f"Successfully processed watcher {w.get('user_id')} for episode {episode_guid}: email sent + {minutes_used} minutes charged")
 
         except Exception as e:
             logger.error(f"Error processing watcher {w.get('user_id')} for {episode_guid}: {e}")

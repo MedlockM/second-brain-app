@@ -2,13 +2,7 @@
 User model for the Media Summarizer application (minutes-based billing era).
 
 All legacy 'credits' fields and credit-manipulation methods have been REMOVED.
-Historique:
-- Ancienne version stockait un entier `credits` et des méthodes add/deduct/update.
-- Le système de facturation repose désormais sur les minute buckets (voir core.models.billing + utils.minute_db).
-
-Si du code externe attend encore `user.credits`, il faudra:
-1. Le mettre à jour pour utiliser une agrégation des minutes (ex: somme des buckets).
-2. Ou fournir un adaptateur temporaire ailleurs (ne pas réintroduire ici).
+Le système de facturation repose sur les minute buckets (voir core.models.billing + utils.minute_db).
 
 Structure DynamoDB:
 - Partition key: id
@@ -17,9 +11,6 @@ Structure DynamoDB:
 Notes:
 - Aucun champ nul n'est écrit dans DynamoDB (DynamoDB n'accepte pas les nulls).
 - Les horodatages sont stockés en ISO8601 UTC.
-
-TODO (optionnel hors de ce modèle):
-- Script de migration: convertir users.credits existant en MinuteBucket(source_type='migration') avant suppression de la colonne dans la table.
 """
 
 from datetime import datetime, timezone

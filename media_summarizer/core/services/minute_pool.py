@@ -14,6 +14,39 @@ from media_summarizer.core.models.billing import MinuteUsage, MinuteUsageStatus,
 from media_summarizer.utils import minute_db
 
 
+async def get_total_available_minutes(user_id: str) -> int:
+    """
+    Calculate total available minutes for a user across all buckets.
+    """
+    buckets = await minute_db.get_minute_buckets_by_user_id(user_id)
+    total = 0
+    now = datetime.now(timezone.utc)
+    
+    for b in buckets:
+        # Skip expired buckets
+        if b.expires_at:
+            try:
+                # Handle both datetime objects and ISO strings
+                if isinstance(b.expires_at, str):
+                    exp = datetime.fromisoformat(b.expires_at)
+                elif isinstance(b.expires_at, datetime):
+                    exp = b.expires_at
+                else:
+                    # Unknown type, skip expiry check
+                    exp = None
+                
+                if exp and exp <= now:
+                    continue
+            except (ValueError, TypeError):
+                # If parsing fails, include the bucket (safer to include than exclude)
+                pass
+        
+        total += int(b.minutes_remaining or 0)
+        
+    return total
+
+
+
 async def allocate_hold_for_job(user_id: str, job_id: str, minutes_estimated: int = 0) -> MinuteUsage:
     usage = MinuteUsage(
         id=f"mu_{job_id}",
@@ -42,6 +75,10 @@ async def finalize_usage(job_id: str, minutes_used: int) -> bool:
     usage = await minute_db.get_minute_usage_by_job_id(job_id)
     if not usage:
         return False
+
+    # Idempotency check: if already finalized, do not deduct again
+    if usage.status == MinuteUsageStatus.finalized:
+        return True
 
     # Load buckets
     buckets = await minute_db.get_minute_buckets_by_user_id(usage.user_id)

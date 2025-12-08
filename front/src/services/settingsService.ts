@@ -1,5 +1,3 @@
-import { AuthService } from "./authService";
-
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 export interface SubscriptionInfo {
@@ -145,6 +143,58 @@ export class SettingsService {
                 .catch(() => ({ message: "Failed to create portal session" }));
             throw new Error(
                 error.message || error.detail || "Failed to create portal session",
+            );
+        }
+
+        return response.json();
+    }
+
+    static async createSubscriptionCheckout(
+        token: string,
+        tier: string,
+    ): Promise<{ url: string }> {
+        const response = await fetch(
+            `${API_BASE_URL}/api/v1/billing/subscriptions/checkout`,
+            {
+                method: "POST",
+                credentials: "include",
+                headers: this.getHeaders(token),
+                body: JSON.stringify({ tier }),
+            },
+        );
+
+        if (!response.ok) {
+            const error = await response
+                .json()
+                .catch(() => ({ message: "Failed to create subscription checkout" }));
+            throw new Error(
+                error.message || error.detail || "Failed to create subscription checkout",
+            );
+        }
+
+        return response.json();
+    }
+
+    static async createPackCheckout(
+        token: string,
+        minutes: number,
+    ): Promise<{ url: string }> {
+        const response = await fetch(
+            `${API_BASE_URL}/api/v1/billing/packs/checkout`,
+            {
+                method: "POST",
+                credentials: "include",
+                headers: this.getHeaders(token),
+                body: JSON.stringify({ minutes }),
+            },
+        );
+
+        if (!response.ok) {
+            const error = await response
+                .json()
+                .catch(() => ({ message: "Failed to create pack checkout" }));
+            throw new Error(
+                error.message || error.detail || "Failed to create pack checkout",
             );
         }
 

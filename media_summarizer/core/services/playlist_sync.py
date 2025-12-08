@@ -139,6 +139,7 @@ async def run_playlist_sync_for_user(user, playlist_id: str) -> Dict[str, Any]:
     skipped_missing = 0
     skipped_not_matched = 0
     skipped_already_submitted = 0
+    skipped_insufficient_credits = 0
     
     for ep in items:
         if submitted >= SPOTIFY_SYNC_MAX:
@@ -239,6 +240,17 @@ async def run_playlist_sync_for_user(user, playlist_id: str) -> Dict[str, Any]:
                 episode_image=episode_image_url,
                 source="spotify",
             )
+            
+            if res.get("status") == "skipped":
+                reason = res.get("reason", "unknown")
+                if reason == "insufficient_credits":
+                    logger.warning(f"Skipping episode {guid} due to insufficient credits.")
+                    skipped_insufficient_credits += 1
+                else:
+                    logger.info(f"Skipping episode {guid}: {reason}")
+                    skipped_already_submitted += 1
+                continue
+                
             submitted += 1
             results.append(res)
 
@@ -254,7 +266,7 @@ async def run_playlist_sync_for_user(user, playlist_id: str) -> Dict[str, Any]:
                 # Non-fatal; future scans may retry; global GUID idempotence protects
                 pass
         except Exception as e:
-            logger.warning(f"Failed syncing one episode: {e}")
+            logger.warning(f"Failed syncing episode '{ep_title}' from show '{show_title}': {e}", exc_info=True)
             # Treat as not matched/missing without raising
             skipped_not_matched += 1
 
@@ -269,6 +281,7 @@ async def run_playlist_sync_for_user(user, playlist_id: str) -> Dict[str, Any]:
             "missing_data": skipped_missing,
             "not_matched": skipped_not_matched,
             "already_submitted": skipped_already_submitted,
+            "insufficient_credits": skipped_insufficient_credits,
         },
         "results": results,
     }

@@ -2,6 +2,7 @@ import {
   RegisterRequest,
   LoginRequest,
   TokenVerificationResponse,
+  AuthUser,
 } from "../types/auth";
 
 // When VITE_API_URL is empty, use relative URLs (for Vite proxy)
@@ -21,9 +22,7 @@ export class AuthService {
     return headers;
   }
 
-  static async register(
-    data: RegisterRequest,
-  ): Promise<TokenVerificationResponse> {
+  static async register(data: RegisterRequest): Promise<AuthUser> {
     const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
       method: "POST",
       credentials: "include",
@@ -82,6 +81,21 @@ export class AuthService {
 
     if (!response.ok) {
       throw new Error("Logout failed");
+    }
+  }
+
+  static async resendVerificationEmail(token: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/resend-verification`, {
+      method: "POST",
+      credentials: "include",
+      headers: this.getAuthHeaders(token),
+    });
+
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: "Failed to resend verification email" }));
+      throw new Error(error.message || error.detail || "Failed to resend verification email");
     }
   }
 

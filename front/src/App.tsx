@@ -82,7 +82,7 @@ function App() {
   if (!token) {
     // Show pricing page
     if (showPricing) {
-      return <PricingPage onBack={handleBackToLanding} />;
+      return <PricingPage onBack={handleBackToLanding} token={token || undefined} onSignIn={handleGetStarted} />;
     }
 
     if (showAuthForm) {

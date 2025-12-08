@@ -11,6 +11,9 @@ import AccountSettings from "./AccountSettings";
 import SubscriptionManagement from "./SubscriptionManagement";
 import PaymentMethods from "./PaymentMethods";
 import PricingPage from "./PricingPage";
+import PodcastSearch from "./PodcastSearch";
+import MinutesDisplay from "./MinutesDisplay";
+import { MinutesProvider, useMinutes } from "../contexts/MinutesContext";
 
 interface DashboardProps {
   token: string;
@@ -18,6 +21,14 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ token, onLogout }: DashboardProps) {
+  return (
+    <MinutesProvider token={token}>
+      <DashboardContent token={token} onLogout={onLogout} />
+    </MinutesProvider>
+  );
+}
+
+function DashboardContent({ token, onLogout }: DashboardProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkingSpotify, setCheckingSpotify] = useState(false);
@@ -28,6 +39,9 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
   const [currentSettingsPage, setCurrentSettingsPage] = useState<
     "account" | "subscription" | "payment" | null
   >(null);
+
+  // Get minutes from context
+  const { availableMinutes, loadingMinutes } = useMinutes();
 
   useEffect(() => {
     loadUser();
@@ -98,7 +112,7 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
 
   // Show pricing page if requested
   if (showPricing) {
-    return <PricingPage onBack={() => setShowPricing(false)} />;
+    return <PricingPage onBack={() => setShowPricing(false)} token={token} />;
   }
 
   // Show settings pages if requested
@@ -147,34 +161,64 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
       <SpotifyPlaylists
         token={token}
         onBack={() => setShowSpotifyPlaylists(false)}
+        onShowPricing={() => {
+          setShowSpotifyPlaylists(false);
+          setShowPricing(true);
+        }}
       />
     );
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-950 dark:to-black relative">
-      {/* Header with logout */}
-      <nav className="absolute top-0 right-0 left-0 z-20">
+      {/* Header with modern navigation layout */}
+      <nav className="absolute top-0 right-0 left-0 z-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-end items-center h-16">
-            <div className="flex items-center space-x-4">
+          <div className="flex justify-between items-center h-16">
+            {/* Left: Logo/Brand */}
+            <div className="flex items-center space-x-8">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+                  <BookOpen className="h-5 w-5 text-white" />
+                </div>
+                <span className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                  PodQuiz
+                </span>
+              </div>
+
+              {/* Primary Action: My Summaries */}
+              <button
+                onClick={() => setShowMyEpisodes(true)}
+                className="hidden md:flex items-center space-x-2 px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              >
+                <BookOpen className="h-4 w-4" />
+                <span>My Summaries</span>
+              </button>
+            </div>
+
+            {/* Right: Secondary actions and user menu */}
+            <div className="flex items-center space-x-3">
+              {/* Minutes Display - More compact */}
+              <MinutesDisplay
+                minutes={availableMinutes}
+                loading={loadingMinutes}
+              />
+
+              {/* Pricing Button */}
               <button
                 onClick={() => setShowPricing(true)}
-                className="flex items-center space-x-2 px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                className="hidden sm:flex items-center space-x-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
               >
                 <DollarSign className="h-4 w-4" />
                 <span>Pricing</span>
               </button>
-              <button
-                onClick={() => setShowMyEpisodes(true)}
-                className="flex items-center space-x-2 px-4 py-2 text-sm font-semibold bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg shadow-sm hover:shadow-md transition"
-              >
-                <BookOpen className="h-4 w-4" />
-                <span>My Quizzes & Summaries</span>
-              </button>
+
+              {/* User Profile Dropdown */}
               {user && (
                 <AccountSettingsDropdown
                   onNavigate={(page) => setCurrentSettingsPage(page)}
+                  onShowPricing={() => setShowPricing(true)}
+                  onShowMySummaries={() => setShowMyEpisodes(true)}
                   onLogout={handleLogout}
                   userEmail={user.email}
                 />
@@ -185,13 +229,27 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
       </nav>
 
       {/* Main content - Spotify Integration */}
-      <div onClick={handleSpotifyClick} className="cursor-pointer">
+      <div className="w-full">
         {checkingSpotify ? (
           <div className="min-h-screen flex items-center justify-center">
             <Loader2 className="h-12 w-12 animate-spin text-green-600" />
           </div>
         ) : (
-          <SpotifyIntegrationHome />
+          <SpotifyIntegrationHome onConnect={handleSpotifyClick}>
+            <div className="flex flex-col items-center gap-8 w-full max-w-2xl animate-in fade-in slide-in-from-bottom-4 duration-700 delay-300 fill-mode-forwards">
+              <div className="flex items-center gap-4 w-full">
+                <div className="h-px bg-gray-300 dark:bg-gray-700 flex-1"></div>
+                <span className="text-gray-500 dark:text-gray-400 font-medium text-lg">
+                  OR
+                </span>
+                <div className="h-px bg-gray-300 dark:bg-gray-700 flex-1"></div>
+              </div>
+
+              <div className="w-full">
+                <PodcastSearch token={token} />
+              </div>
+            </div>
+          </SpotifyIntegrationHome>
         )}
       </div>
 

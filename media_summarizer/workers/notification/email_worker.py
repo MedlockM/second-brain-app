@@ -16,70 +16,133 @@ from datetime import datetime, timezone
 
 from media_summarizer.utils import ses, sqs, database_async, episode_idempotence
 from media_summarizer.core.models import JobStatus
+from media_summarizer.workers.notification.ops_alert import send_ops_alert
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# ... (imports existants)
 
-# Configuration
-DEFAULT_SENDER = os.environ.get("DEFAULT_EMAIL_SENDER", "noreply@media-summarizer.com")
-MAX_RETRIES = 3
-TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
-RETRY_DELAY = 0.01 if TEST_MODE else 2  # seconds
-EMAIL_QUEUE_NAME = "email-notification-queue"
+async def process_message(message: Dict[str, Any], retries: int = 0, ses_client: Optional[Any] = None) -> None:
+    """
+    Process an SQS message and send the appropriate email notification.
 
+    Args:
+        message: SQS message to process
+        retries: Number of retries attempted (used internally for retry logic)
+    """
+    try:
+        # Parse the message body
+        body = json.loads(message.get("Body", "{}"))
 
+        # Extract common fields
+        job_id = body.get("job_id")
+        recipient = body.get("email")
+        notification_type = body.get("notification_type")
 
+        if not job_id or not recipient:
+            logger.error(f"Missing required fields in message: {body}")
+            return
 
+        # Mark job as notifying before sending any email
+        # BUT only if it's not an error notification (failed jobs should stay failed)
+        job = None
+        try:
+            job = await database_async.get_processing_job_by_id(job_id)
+            if job and notification_type != "error":
+                job.mark_notifying()
+                await database_async.update_processing_job(job)
+        except Exception as e:
+            logger.error(f"Error updating job status to notifying: {str(e)}")
 
-async def send_error_notification(
+        # Send the appropriate notification based on type
+        if notification_type == "error":
+            error_message = body.get("error", "Unknown error")
+            step = body.get("step")
+            traceback_info = body.get("traceback")
+            
+            # 1. Send user-friendly error email
+            await send_error_notification(recipient, job_id, error_message, step)
+            logger.info(f"Sent error notification for job {job_id} to {recipient}")
+
+            # 2. Send Ops Alert (Technical details)
+            if job:
+                try:
+                    await send_ops_alert(
+                        job_id=job_id,
+                        user_email=recipient,
+                        error_step=step or "unknown",
+                        error_message=error_message,
+                        retry_count=job.retry_count,
+                        max_retries=job.max_retries,
+                        traceback_info=traceback_info
+                    )
+                except Exception as ops_e:
+                    logger.error(f"Failed to send ops alert for job {job_id}: {ops_e}")
+
+            # Idempotence: mark failed only for canonical processing jobs (skip cache-only emails)
+            try:
+                # Refresh job from DB just in case, or use existing 'job' object
+                # (using existing 'job' object is fine as we just updated it to notifying)
+                from_cache = body.get("from_cache", False)
+                if job and getattr(job, "episode_guid", None) and not from_cache:
+                    await episode_idempotence.mark_failed(job.episode_guid, job.id)
+            except Exception as e:
+                logger.error(f"Error marking idempotence failed: {str(e)}")
+
+        elif notification_type == "completion":
     recipient: str,
     job_id: str,
     error_message: str,
     step: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Send an error notification when a podcast processing job fails.
-
+    Send an error notification when a podcast processing job fails permanently.
+    This is only sent after all retries have been exhausted.
+    
     Args:
         recipient: Email address of the recipient
         job_id: ID of the processing job
-        error_message: Description of the error
-        step: Processing step where the error occurred (optional)
+        error_message: Description of the error (for internal logging only)
+        step: Processing step where the error occurred (for internal logging only)
 
     Returns:
         Dict containing the response from SES
     """
-    subject = "Error processing your podcast"
+    subject = "Unable to Process Your Podcast Episode"
 
-    # Create the email body
-    body_text = f"We encountered an error while processing your podcast (Job ID: {job_id}).\n\n"
+    # Create user-friendly email body (NO technical details)
+    body_text = """We're sorry, but we were unable to process your podcast episode.
 
-    if step:
-        body_text += f"The error occurred during the {step} step.\n\n"
+Our team has been notified and is working to resolve the issue.
 
-    body_text += f"Error details: {error_message}\n\n"
-    body_text += "Our team has been notified and will investigate the issue.\n\n"
-    body_text += "The Media Summarizer Team"
+We apologize for any inconvenience this may cause.
+
+Best regards,
+The Media Summarizer Team"""
 
     # Create HTML version
-    body_html = f"""
+    body_html = """
     <html>
-    <body>
-        <h2>Error Processing Your Podcast</h2>
-        <p>We encountered an error while processing your podcast (Job ID: <strong>{job_id}</strong>).</p>
-    """
-
-    if step:
-        body_html += f"<p>The error occurred during the <strong>{step}</strong> step.</p>"
-
-    body_html += f"""
-        <p>Error details: <em>{error_message}</em></p>
-        <p>Our team has been notified and will investigate the issue.</p>
-        <p>The Media Summarizer Team</p>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #e74c3c;">Unable to Process Your Podcast Episode</h2>
+            <p>We're sorry, but we were unable to process your podcast episode.</p>
+            <p>Our team has been notified and is working to resolve the issue.</p>
+            <p>We apologize for any inconvenience this may cause.</p>
+            <p style="margin-top: 30px;">Best regards,<br>The Media Summarizer Team</p>
+        </div>
     </body>
     </html>
     """
+
+    # Log technical details for debugging (not sent to user)
+    logger.error(
+        "Sending error notification to user after max retries",
+        extra={
+            "job_id": job_id,
+            "recipient": recipient,
+            "error_step": step,
+            "error_message": error_message
+        }
+    )
 
     return await ses.send_email(
         recipient=recipient,
@@ -362,12 +425,31 @@ async def process_message(message: Dict[str, Any], retries: int = 0, ses_client:
         if notification_type == "error":
             error_message = body.get("error", "Unknown error")
             step = body.get("step")
+            traceback_info = body.get("traceback")
+            
+            # 1. Send user-friendly error email
             await send_error_notification(recipient, job_id, error_message, step)
             logger.info(f"Sent error notification for job {job_id} to {recipient}")
 
+            # 2. Send Ops Alert (Technical details)
+            if job:
+                try:
+                    await send_ops_alert(
+                        job_id=job_id,
+                        user_email=recipient,
+                        error_step=step or "unknown",
+                        error_message=error_message,
+                        retry_count=job.retry_count,
+                        max_retries=job.max_retries,
+                        traceback_info=traceback_info
+                    )
+                except Exception as ops_e:
+                    logger.error(f"Failed to send ops alert for job {job_id}: {ops_e}")
+
             # Idempotence: mark failed only for canonical processing jobs (skip cache-only emails)
             try:
-                job = await database_async.get_processing_job_by_id(job_id)
+                # Refresh job from DB just in case, or use existing 'job' object
+                # (using existing 'job' object is fine as we just updated it to notifying)
                 from_cache = body.get("from_cache", False)
                 if job and getattr(job, "episode_guid", None) and not from_cache:
                     await episode_idempotence.mark_failed(job.episode_guid, job.id)
@@ -459,4 +541,8 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    from media_summarizer.utils.logging_config import configure_logging
+    # Configure logging with JSON formatter
+    configure_logging()
+
     asyncio.run(main())

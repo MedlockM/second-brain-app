@@ -207,19 +207,11 @@ subs.sort(key=lambda b: b.period_end or datetime.max.replace(tzinfo=timezone.utc
 
 ## 📋 Fonctionnalités manquantes (non critiques)
 
-### 1. Migration depuis "crédits"
-
-**Promesse**: Migration one-shot proposée (lignes 83-85 de `PAYMENT_SYSTEM_V2.md`)
-
-**Statut**: ❌ Non implémentée
-
-**Impact**: Faible si le système n'a pas encore d'utilisateurs avec des crédits. Critique si migration nécessaire.
-
-**Action**: À implémenter si des utilisateurs ont déjà des crédits dans l'ancien système.
+**Note**: La migration depuis crédits n'est pas nécessaire car le SaaS ne dispose pas encore d'utilisateurs. Tous les nouveaux utilisateurs utiliseront directement le système de minutes.
 
 ---
 
-### 2. Gestion des holds expirés
+### 1. Gestion des holds expirés
 
 **Promesse**: Les holds ont un `hold_expires_at` (TTL de 2 jours, ligne 24 de `minute_pool.py`)
 
@@ -235,7 +227,7 @@ subs.sort(key=lambda b: b.period_end or datetime.max.replace(tzinfo=timezone.utc
 
 ---
 
-### 3. Notification WAITING_FOR_MINUTES
+### 2. Notification WAITING_FOR_MINUTES
 
 **Promesse**: "Si insuffisant, job en WAITING_FOR_MINUTES + notification" (ligne 90 de `PAYMENT_SYSTEM_V2.md`)
 
@@ -261,9 +253,8 @@ subs.sort(key=lambda b: b.period_end or datetime.max.replace(tzinfo=timezone.utc
 
 ### Priorité MOYENNE (à planifier)
 
-3. Implémenter la migration depuis crédits (si applicable)
-4. Ajouter un worker pour nettoyer les holds expirés
-5. Améliorer le système de notification pour minutes insuffisantes
+1. Ajouter un worker pour nettoyer les holds expirés
+2. Améliorer le système de notification pour minutes insuffisantes
 
 ### Priorité BASSE (améliorations)
 

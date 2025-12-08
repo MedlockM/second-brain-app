@@ -23,6 +23,7 @@ from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services.minute_pool import (
     allocate_hold_for_job,
     finalize_usage,
+    get_total_available_minutes,
 )
 
 
@@ -47,6 +48,20 @@ async def submit_episode_for_user(
 
     Returns a dict compatible avec EpisodeSelectionResponse.
     """
+    # 0. Credit Check (Pre-flight)
+    # Estimate required minutes (min 1)
+    minutes_required = max(1, ceil((duration_seconds or 0) / 60))
+    available = await get_total_available_minutes(user.id)
+    
+    if available < minutes_required:
+        return {
+            "status": "skipped",
+            "reason": "insufficient_credits",
+            "message": f"Crédits insuffisants (Requis: {minutes_required}, Dispo: {available})",
+            "minutes_required": minutes_required,
+            "minutes_available": available,
+        }
+
     # Créer un job (tentatif) pour accompagner la réservation
     job = ProcessingJob(
         user_id=user.id,

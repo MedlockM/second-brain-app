@@ -3,6 +3,7 @@ import { Search, Loader2 } from 'lucide-react';
 import { PodcastService } from '../services/podcastService';
 import { Podcast } from '../types/podcast';
 import PodcastCard from './PodcastCard';
+import PodcastEpisodes from './PodcastEpisodes';
 
 interface PodcastSearchProps {
   token: string;
@@ -14,6 +15,7 @@ export default function PodcastSearch({ token }: PodcastSearchProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [selectedPodcast, setSelectedPodcast] = useState<Podcast | null>(null);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,6 +38,25 @@ export default function PodcastSearch({ token }: PodcastSearchProps) {
       setLoading(false);
     }
   };
+
+  const handlePodcastClick = (podcast: Podcast) => {
+    setSelectedPodcast(podcast);
+  };
+
+  const handleBackFromEpisodes = () => {
+    setSelectedPodcast(null);
+  };
+
+  // Show episodes page if a podcast is selected
+  if (selectedPodcast) {
+    return (
+      <PodcastEpisodes
+        podcast={selectedPodcast}
+        token={token}
+        onBack={handleBackFromEpisodes}
+      />
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -79,7 +100,11 @@ export default function PodcastSearch({ token }: PodcastSearchProps) {
       {podcasts.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {podcasts.map((podcast) => (
-            <PodcastCard key={podcast.id} podcast={podcast} />
+            <PodcastCard
+              key={podcast.id}
+              podcast={podcast}
+              onClick={handlePodcastClick}
+            />
           ))}
         </div>
       )}

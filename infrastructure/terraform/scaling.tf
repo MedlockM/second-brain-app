@@ -438,6 +438,16 @@ resource "aws_dynamodb_table" "processing_jobs" {
     projection_type = "ALL"
   }
 
+  # TTL configuration for auto-deletion
+  ttl {
+    attribute_name = "expire_at"
+    enabled        = true
+  }
+
+  # Enable Streams for archiving
+  stream_enabled   = true
+  stream_view_type = "OLD_IMAGE" # We need the deleted item to archive it
+
   tags = {
     Name        = "processing_jobs"
     Environment = var.environment

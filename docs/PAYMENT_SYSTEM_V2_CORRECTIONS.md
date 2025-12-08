@@ -128,9 +128,10 @@ Si vous souhaitez mettre à jour les packs existants, un script de migration peu
 - ✅ **Corrections appliquées** (expiration packs + ordre consommation)
 
 ### Priorité MOYENNE
-1. Implémenter la migration depuis crédits (si applicable)
-2. Ajouter un worker pour nettoyer les holds expirés
-3. Améliorer le système de notification pour minutes insuffisantes
+1. Ajouter un worker pour nettoyer les holds expirés
+2. Améliorer le système de notification pour minutes insuffisantes
+
+**Note**: La migration depuis crédits n'est pas nécessaire car le SaaS ne dispose pas encore d'utilisateurs.
 
 ### Priorité BASSE
 1. Ajouter des tests unitaires spécifiques pour l'ordre de consommation

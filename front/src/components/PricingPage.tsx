@@ -1,11 +1,11 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Sparkles } from "@/components/ui/sparkles";
 import { VerticalCutReveal } from "@/components/ui/vertical-cut-reveal";
 import { cn } from "@/lib/utils";
 import NumberFlow from "@number-flow/react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { SettingsService } from "../services/settingsService";
 
 // Monthly subscription plans
 const subscriptionPlans = [
@@ -182,38 +182,67 @@ const PricingSwitch = ({ onSwitch }: { onSwitch: (value: string) => void }) => {
 
 interface PricingPageProps {
     onBack: () => void;
+    token?: string;
+    onSignIn?: () => void;
 }
 
-export default function PricingPage({ onBack }: PricingPageProps) {
+export default function PricingPage({ onBack, token, onSignIn }: PricingPageProps) {
     const [showPacks, setShowPacks] = useState(false);
+    const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
     const togglePricingType = (value: string) =>
         setShowPacks(Number.parseInt(value) === 1);
 
     const currentPlans = showPacks ? minutePacks : subscriptionPlans;
 
-    return (
-        <div className="min-h-screen mx-auto relative bg-gradient-to-br from-blue-50 via-white to-purple-50 overflow-x-hidden">
-            {/* Background effects */}
-            <div className="absolute top-0 h-96 w-screen overflow-hidden opacity-20">
-                <div className="absolute bottom-0 left-0 right-0 top-0 bg-[linear-gradient(to_right,#4f46e520_1px,transparent_1px),linear-gradient(to_bottom,#4f46e520_1px,transparent_1px)] bg-[size:70px_80px]"></div>
-                <Sparkles
-                    density={400}
-                    direction="bottom"
-                    speed={0.5}
-                    color="#8b5cf6"
-                    className="absolute inset-x-0 bottom-0 h-full w-full"
-                />
-            </div>
+    const handleSubscribe = async (tier: string) => {
+        if (!token) {
+            // Redirect to sign in if not authenticated
+            if (onSignIn) {
+                onSignIn();
+            }
+            return;
+        }
 
-            {/* Gradient orbs */}
-            <div
-                className="absolute top-0 left-[10%] right-[10%] w-[80%] h-full z-0 opacity-20"
-                style={{
-                    backgroundImage: `radial-gradient(circle at center, #3b82f6 0%, transparent 70%)`,
-                    mixBlendMode: "normal",
-                }}
-            />
+        setLoadingPlan(tier);
+        try {
+            const { url } = await SettingsService.createSubscriptionCheckout(token, tier);
+            // Redirect to Stripe checkout
+            window.location.href = url;
+        } catch (error) {
+            console.error("Failed to create checkout session:", error);
+            alert(error instanceof Error ? error.message : "Failed to create checkout session");
+            setLoadingPlan(null);
+        }
+    };
+
+    const handleBuyPack = async (minutes: number) => {
+        if (!token) {
+            // Redirect to sign in if not authenticated
+            if (onSignIn) {
+                onSignIn();
+            }
+            return;
+        }
+
+        setLoadingPlan(`pack-${minutes}`);
+        try {
+            const { url } = await SettingsService.createPackCheckout(token, minutes);
+            // Redirect to Stripe checkout
+            window.location.href = url;
+        } catch (error) {
+            console.error("Failed to create checkout session:", error);
+            alert(error instanceof Error ? error.message : "Failed to create checkout session");
+            setLoadingPlan(null);
+        }
+    };
+
+    return (
+        <div className="min-h-screen mx-auto relative bg-white overflow-x-hidden">
+            {/* Background pattern - vertical blue lines */}
+            <div className="absolute inset-0 z-0">
+                <div className="absolute inset-0 bg-[linear-gradient(to_right,#3b82f620_1px,transparent_1px)] bg-[size:40px_100%]"></div>
+            </div>
 
             {/* Back button */}
             <button
@@ -264,9 +293,9 @@ export default function PricingPage({ onBack }: PricingPageProps) {
                         transition={{ duration: 0.5 }}
                     >
                         <Card
-                            className={`relative border-2 h-full ${plan.popular
-                                ? "bg-white border-blue-300 shadow-[0px_0px_40px_0px_rgba(59,130,246,0.3)] scale-105 z-20"
-                                : "bg-white border-gray-200 shadow-md z-10"
+                            className={`relative text-white h-full ${plan.popular
+                                ? "bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900 border-blue-700 shadow-[0px_0px_60px_0px_rgba(59,130,246,0.5)] scale-105 z-20"
+                                : "bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 border-gray-700 shadow-xl z-10"
                                 }`}
                         >
                             {plan.popular && (
@@ -277,10 +306,10 @@ export default function PricingPage({ onBack }: PricingPageProps) {
 
                             <CardHeader className="text-left">
                                 <div className="flex justify-between items-start">
-                                    <h3 className="text-2xl font-bold mb-2 text-gray-900">{plan.name}</h3>
+                                    <h3 className="text-2xl font-bold mb-2 text-white">{plan.name}</h3>
                                 </div>
                                 <div className="flex items-baseline gap-1">
-                                    <span className="text-4xl font-bold text-gray-900">
+                                    <span className="text-4xl font-bold text-white">
                                         €
                                         <NumberFlow
                                             value={plan.price}
@@ -288,30 +317,44 @@ export default function PricingPage({ onBack }: PricingPageProps) {
                                             className="text-4xl font-bold"
                                         />
                                     </span>
-                                    <span className="text-gray-600">
+                                    <span className="text-gray-300">
                                         {showPacks ? "" : "/month"}
                                     </span>
                                 </div>
-                                <p className="text-sm text-gray-600 mt-2">{plan.description}</p>
-                                <p className="text-lg font-semibold text-blue-600 mt-1">
+                                <p className="text-sm text-gray-400 mt-2">{plan.description}</p>
+                                <p className="text-lg font-semibold text-blue-300 mt-1">
                                     {plan.minutes} minutes
                                 </p>
                             </CardHeader>
 
                             <CardContent className="pt-0">
                                 <button
+                                    onClick={() => {
+                                        if (showPacks) {
+                                            handleBuyPack(plan.minutes);
+                                        } else {
+                                            // For subscriptions, we need the tier
+                                            const tier = (plan as typeof subscriptionPlans[0]).tier;
+                                            handleSubscribe(tier);
+                                        }
+                                    }}
+                                    disabled={loadingPlan !== null}
                                     className={cn(
-                                        "w-full mb-6 p-3 text-base rounded-xl font-semibold transition-all",
+                                        "w-full mb-6 p-3 text-base rounded-xl font-semibold transition-all flex items-center justify-center gap-2",
                                         plan.popular
-                                            ? "bg-gradient-to-t from-blue-600 to-blue-500 shadow-lg shadow-blue-200 border border-blue-400 text-white hover:shadow-xl hover:shadow-blue-300"
-                                            : "bg-gradient-to-t from-gray-100 to-gray-50 shadow-md border border-gray-300 text-gray-700 hover:bg-gray-100 hover:shadow-lg"
+                                            ? "bg-gradient-to-t from-blue-600 to-blue-500 shadow-lg shadow-blue-800 border border-blue-400 text-white hover:shadow-blue-700"
+                                            : "bg-gradient-to-t from-gray-700 to-gray-600 shadow-lg shadow-neutral-900 border border-gray-600 text-white hover:bg-gray-600",
+                                        loadingPlan !== null && "opacity-50 cursor-not-allowed"
                                     )}
                                 >
+                                    {loadingPlan === (showPacks ? `pack-${plan.minutes}` : (plan as typeof subscriptionPlans[0]).tier) && (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    )}
                                     {plan.buttonText}
                                 </button>
 
-                                <div className="space-y-3 pt-4 border-t border-gray-200">
-                                    <h4 className="font-semibold text-sm mb-3 text-gray-700">
+                                <div className="space-y-3 pt-4 border-t border-gray-700">
+                                    <h4 className="font-semibold text-sm mb-3 text-gray-300">
                                         What's included:
                                     </h4>
                                     <ul className="space-y-2">
@@ -322,9 +365,9 @@ export default function PricingPage({ onBack }: PricingPageProps) {
                                             >
                                                 <Check
                                                     size={16}
-                                                    className="text-green-500 mt-0.5 flex-shrink-0"
+                                                    className="text-green-400 mt-0.5 flex-shrink-0"
                                                 />
-                                                <span className="text-sm text-gray-600">{feature}</span>
+                                                <span className="text-sm text-gray-300">{feature}</span>
                                             </li>
                                         ))}
                                     </ul>

@@ -4,7 +4,7 @@
 # Ensure bash is used for recipes (needed for sourcing .env.dev)
 SHELL := bash
 
-.PHONY: help install dev test test-unit test-integration test-e2e test-all clean setup-dev setup-e2e coverage lint format docker-build docker-up docker-down
+.PHONY: help install dev test test-unit test-integration test-e2e test-all clean setup-dev setup-e2e coverage lint format docker-build docker-up docker-down lambda-build lambda-deploy lambda-redeploy lambda-invoke
 
 # Default target
 help: ## Show this help message
@@ -239,3 +239,30 @@ PYTHON := python
 UV := uv
 PYTEST := pytest
 DOCKER_COMPOSE := docker-compose -f docker-compose.dev.yml
+
+# Lambda (LocalStack) helpers
+lambda-build: ## Build Lambda package zip for LocalStack (spotify_sync_worker.zip)
+	@echo "📦 Building Lambda package..."
+	@python scripts/build_lambda_package.py
+	@echo "✅ Package created at infrastructure/terraform/localstack/spotify_sync_worker.zip"
+	@ls -lh infrastructure/terraform/localstack/spotify_sync_worker.zip || true
+
+lambda-deploy: ## Deploy Lambda to LocalStack using Terraform
+	@echo "🚀 Deploying Lambda to LocalStack..."
+	@$(DOCKER_COMPOSE) --profile infrastructure up -d localstack
+	@echo "⏳ Waiting for LocalStack to be ready..."
+	@timeout 120 bash -lc 'until curl -s http://localhost:4566/health | grep -q "running"; do sleep 3; echo "Waiting for LocalStack..."; done' || true
+	@$(DOCKER_COMPOSE) up --no-deps terraform
+	@echo "✅ Lambda deployed (and event source mapping updated)"
+
+lambda-redeploy: lambda-build lambda-deploy ## Rebuild and deploy Lambda to LocalStack
+	@echo "🔁 Rebuilt and redeployed Lambda to LocalStack"
+
+lambda-invoke: ## Invoke the Lambda via LocalStack with a sample SQS event
+	@echo "🧪 Invoking spotify-sync-worker with a sample payload..."
+	@aws --endpoint-url=http://localhost:4566 lambda invoke \
+	  --function-name spotify-sync-worker \
+	  --cli-binary-format raw-in-base64-out \
+	  --payload '{"Records":[{"body":"{\"user_id\":\"test-user-123\",\"playlist_ids\":[\"playlist_1\"],\"source\":\"manual\"}"}]}' \
+	  /dev/stdout | cat
+	@echo

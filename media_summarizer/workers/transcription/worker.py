@@ -16,6 +16,7 @@ from typing import Dict, Any
 import whisper
 
 from media_summarizer.utils import s3, sqs
+from media_summarizer.workers.base_worker import process_message_with_retry
 
 # Re-export commonly patched attributes for test compatibility
 from media_summarizer.utils.sqs import session as _aio_session  # type: ignore
@@ -201,109 +202,89 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
 
     # Create temporary directory for audio processing
     with tempfile.TemporaryDirectory() as temp_dir:
-        try:
-            # Download audio file
-            audio_filename = f"{job_id}_audio.mp3"
-            local_audio_path = Path(temp_dir) / audio_filename
+        # Download audio file
+        audio_filename = f"{job_id}_audio.mp3"
+        local_audio_path = Path(temp_dir) / audio_filename
 
-            logger.info(f"Downloading audio for job {job_id}")
-            await download_audio_file(audio_s3_key, str(local_audio_path))
+        logger.info(f"Downloading audio for job {job_id}")
+        await download_audio_file(audio_s3_key, str(local_audio_path))
 
-            # Verify audio file exists and has content
-            if not local_audio_path.exists() or local_audio_path.stat().st_size == 0:
-                raise ValueError("Downloaded audio file is empty or missing")
+        # Verify audio file exists and has content
+        if not local_audio_path.exists() or local_audio_path.stat().st_size == 0:
+            raise ValueError("Downloaded audio file is empty or missing")
 
-            # Transcribe audio
-            logger.info(
-                f"Starting transcription for job {job_id} using Whisper {WHISPER_MODEL}"
+        # Transcribe audio
+        logger.info(
+            f"Starting transcription for job {job_id} using Whisper {WHISPER_MODEL}"
+        )
+        start_time = time.time()
+
+        # Use async transcription to avoid blocking
+        transcription_result = await transcribe_async(
+            audio_path=str(local_audio_path), model_name=WHISPER_MODEL
+        )
+
+        transcription_duration = time.time() - start_time
+        logger.info(
+            f"Transcription completed for job {job_id} in {transcription_duration:.2f} seconds"
+        )
+
+        # Extract transcription text
+        if isinstance(transcription_result, dict):
+            transcription_text = transcription_result.get("text", "")
+            segments = transcription_result.get("segments", [])
+            language = transcription_result.get("language", "unknown")
+        else:
+            # Fallback for simple string result
+            transcription_text = str(transcription_result)
+            segments = []
+            language = "unknown"
+
+        if not transcription_text or len(transcription_text.strip()) == 0:
+            raise ValueError("Transcription resulted in empty text")
+
+        # Prepare transcription data with metadata
+        transcription_data = {
+            "job_id": job_id,
+            "transcription": transcription_text,
+            "metadata": {
+                "language": language,
+                "duration_seconds": transcription_duration,
+                "segments_count": len(segments),
+                "audio_s3_key": audio_s3_key,
+                "model_used": WHISPER_MODEL,
+                "transcribed_at": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                ),
+            },
+        }
+
+        # Upload transcription to S3
+        transcript_s3_key = f"{job_id}.txt"
+        logger.info(f"Uploading transcription for job {job_id}")
+        await upload_transcription(transcript_s3_key, transcription_text)
+
+        # Update job with transcription location and duration
+        if job:
+            job.set_transcription_location(transcript_s3_key)
+            job.set_processing_duration(
+                "transcription", int(transcription_duration)
             )
-            start_time = time.time()
+            await database_async.update_processing_job(job)
 
-            # Use async transcription to avoid blocking
-            transcription_result = await transcribe_async(
-                audio_path=str(local_audio_path), model_name=WHISPER_MODEL
-            )
+        # Send to summarization queue
+        await send_to_summarization_queue(
+            job_id=job_id,
+            transcript_s3_key=transcript_s3_key,
+            email=email,
+            podcast_title=message_body.get("podcast_title"),
+            episode_title=message_body.get("episode_title"),
+            episode_guid=message_body.get("episode_guid"),
+            episode_image=message_body.get("episode_image", ""),
+            transcription_metadata=transcription_data["metadata"],
+        )
 
-            transcription_duration = time.time() - start_time
-            logger.info(
-                f"Transcription completed for job {job_id} in {transcription_duration:.2f} seconds"
-            )
-
-            # Extract transcription text
-            if isinstance(transcription_result, dict):
-                transcription_text = transcription_result.get("text", "")
-                segments = transcription_result.get("segments", [])
-                language = transcription_result.get("language", "unknown")
-            else:
-                # Fallback for simple string result
-                transcription_text = str(transcription_result)
-                segments = []
-                language = "unknown"
-
-            if not transcription_text or len(transcription_text.strip()) == 0:
-                raise ValueError("Transcription resulted in empty text")
-
-            # Prepare transcription data with metadata
-            transcription_data = {
-                "job_id": job_id,
-                "transcription": transcription_text,
-                "metadata": {
-                    "language": language,
-                    "duration_seconds": transcription_duration,
-                    "segments_count": len(segments),
-                    "audio_s3_key": audio_s3_key,
-                    "model_used": WHISPER_MODEL,
-                    "transcribed_at": time.strftime(
-                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
-                    ),
-                },
-            }
-
-            # Upload transcription to S3
-            transcript_s3_key = f"{job_id}.txt"
-            logger.info(f"Uploading transcription for job {job_id}")
-            await upload_transcription(transcript_s3_key, transcription_text)
-
-            # Update job with transcription location and duration
-            if job:
-                job.set_transcription_location(transcript_s3_key)
-                job.set_processing_duration(
-                    "transcription", int(transcription_duration)
-                )
-                await database_async.update_processing_job(job)
-
-            # Send to summarization queue
-            await send_to_summarization_queue(
-                job_id=job_id,
-                transcript_s3_key=transcript_s3_key,
-                email=email,
-                podcast_title=message_body.get("podcast_title"),
-                episode_title=message_body.get("episode_title"),
-                episode_guid=message_body.get("episode_guid"),
-                episode_image=message_body.get("episode_image", ""),
-                transcription_metadata=transcription_data["metadata"],
-            )
-
-            logger.info(f"Successfully completed transcription for job {job_id}")
-
-        except Exception as e:
-            logger.error(f"Transcription failed for job {job_id}: {str(e)}")
-
-            # Mark job as failed in database
-            if job:
-                job.mark_failed(str(e), "transcription")
-                await database_async.update_processing_job(job)
-
-            # Send error notification
-            await send_notification(
-                notification_type="error",
-                job_id=job_id,
-                email=email,
-                error=f"Transcription failed: {str(e)}",
-                step="transcription",
-            )
-
-            raise
+        logger.info(f"Successfully completed transcription for job {job_id}")
 
 
 async def process_message(message: Dict[str, Any]) -> None:
@@ -353,9 +334,6 @@ async def process_message(message: Dict[str, Any]) -> None:
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse message body: {str(e)}")
         raise
-    except Exception as e:
-        logger.error(f"Error processing transcription message: {str(e)}")
-        raise
     finally:
         if heartbeat_task:
             heartbeat_task.cancel()
@@ -390,23 +368,14 @@ async def poll_queue() -> None:
 
                 # Process messages one by one
                 for message in messages:
-                    try:
-                        await process_message(message)
-
-                        # Delete message after successful processing
-                        receipt_handle = message.get("ReceiptHandle")
-                        if receipt_handle:
-                            await sqs.delete_message(
-                                queue_name=TRANSCRIPTION_QUEUE,
-                                receipt_handle=receipt_handle,
-                            )
-
-                        logger.info("Successfully processed and deleted message")
-
-                    except Exception as e:
-                        logger.error(f"Failed to process message: {str(e)}")
-                        # Message will become visible again after visibility timeout
-                        # for retry by another worker instance
+                    # Use base_worker retry logic which handles retries, logging, and DLQ/Failure
+                    await process_message_with_retry(
+                        message=message,
+                        processor=process_message,
+                        queue_name=TRANSCRIPTION_QUEUE,
+                        max_retries=3,
+                        worker_name="transcription"
+                    )
 
             # Small delay to prevent excessive API calls
             await asyncio.sleep(1)

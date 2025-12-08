@@ -3,23 +3,28 @@ Quiz generation worker: consumes messages with transcript_s3_key and metadata,
 produces a quiz JSON (no persistence of answers) and enqueues email completion
 with quiz content included.
 """
+
 from __future__ import annotations
 
-import os
 import json
 import logging
+import os
 from typing import Any, Dict, List
 
-from media_summarizer.utils import s3, sqs, database_async
+from media_summarizer.utils import database_async, s3, sqs
 
 logger = logging.getLogger(__name__)
 
 QUIZ_QUEUE = os.environ.get("QUIZ_QUEUE", "quiz-queue")
 NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-queue")
-TRANSCRIPT_BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcriptions")
+TRANSCRIPT_BUCKET = os.environ.get(
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+)
 QUIZ_BUCKET = os.environ.get("QUIZ_BUCKET", "media-summarizer-quizzes")
 DEFAULT_LANGUAGE = os.environ.get("DEFAULT_QUIZ_LANGUAGE", "EN")
-LLM_API_URL = os.environ.get("LLM_API_URL", "https://api.openai.com/v1/chat/completions")
+LLM_API_URL = os.environ.get(
+    "LLM_API_URL", "https://api.openai.com/v1/chat/completions"
+)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 LLM_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini-2024-07-18")
 
@@ -32,13 +37,13 @@ async def _download_transcript(key: str) -> str:
 async def _upload_quiz(job_id: str, quiz_data: Dict[str, Any]) -> str:
     """Upload quiz JSON to S3 and return the S3 key."""
     from io import BytesIO
-    
+
     quiz_s3_key = f"{job_id}.json"
     quiz_json = json.dumps(quiz_data, indent=2, ensure_ascii=False)
     quiz_bytes = quiz_json.encode("utf-8")
-    
+
     quiz_file = BytesIO(quiz_bytes)
-    
+
     await s3.upload_file_object(
         bucket=QUIZ_BUCKET,
         key=quiz_s3_key,
@@ -49,7 +54,7 @@ async def _upload_quiz(job_id: str, quiz_data: Dict[str, Any]) -> str:
             "job-type": "podcast-quiz",
         },
     )
-    
+
     logger.info(f"Quiz uploaded to s3://{QUIZ_BUCKET}/{quiz_s3_key}")
     return quiz_s3_key
 
@@ -124,29 +129,39 @@ async def _call_llm_for_quiz(transcript: str, language: str) -> Dict[str, Any]:
             ],
         }
 
-    prompt = _build_quiz_prompt(transcript, language, max_questions=15)  # Back to 15 questions
-    timeout = aiohttp.ClientTimeout(total=int(os.environ.get("LLM_TIMEOUT_SECONDS", "180")))
+    prompt = _build_quiz_prompt(
+        transcript, language, max_questions=15
+    )  # Back to 15 questions
+    timeout = aiohttp.ClientTimeout(
+        total=int(os.environ.get("LLM_TIMEOUT_SECONDS", "180"))
+    )
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        }
         # No max_tokens limit - let the model complete the full 15 questions naturally
         payload = {"model": LLM_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.5}
         async with session.post(LLM_API_URL, headers=headers, json=payload) as resp:
             resp.raise_for_status()
             data = await resp.json()
             content = data["choices"][0]["message"]["content"]
-            
+
             # Try to extract JSON from markdown code blocks if present
             import re
+
             # First try to remove markdown code block markers
-            if content.strip().startswith('```'):
+            if content.strip().startswith("```"):
                 # Remove opening ```json or ``` and closing ```
-                content = re.sub(r'^```(?:json)?\s*\n?', '', content.strip())
-                content = re.sub(r'\n?```\s*$', '', content.strip())
+                content = re.sub(r"^```(?:json)?\s*\n?", "", content.strip())
+                content = re.sub(r"\n?```\s*$", "", content.strip())
                 logger.info("Removed markdown code block markers")
-            
+
             try:
                 obj = json.loads(content)
-                logger.info(f"Successfully parsed quiz JSON with {len(obj.get('questions', []))} questions")
+                logger.info(
+                    f"Successfully parsed quiz JSON with {len(obj.get('questions', []))} questions"
+                )
             except Exception as e:
                 logger.error(f"Failed to parse quiz JSON: {e}")
                 logger.error(f"Content (first 500 chars): {content[:500]}")
@@ -187,11 +202,13 @@ async def process_message(message: Dict[str, Any]) -> None:
 
     transcript = await _download_transcript(transcript_s3_key)
     quiz = await _call_llm_for_quiz(transcript, language)
-    
+
     # Upload quiz to S3 for persistence
     quiz_s3_key = await _upload_quiz(job_id, quiz)
-    logger.info(f"Quiz generated and stored for job {job_id}: {len(quiz.get('questions', []))} questions")
-    
+    logger.info(
+        f"Quiz generated and stored for job {job_id}: {len(quiz.get('questions', []))} questions"
+    )
+
     # Update ProcessingJob with quiz_s3_key
     try:
         job = await database_async.get_processing_job_by_id(job_id)
@@ -219,9 +236,12 @@ async def process_message(message: Dict[str, Any]) -> None:
 
 async def poll_queue() -> None:
     import asyncio
+
     while True:
         try:
-            messages = await sqs.receive_messages(queue_name=QUIZ_QUEUE, max_messages=5, wait_time_seconds=20)
+            messages = await sqs.receive_messages(
+                queue_name=QUIZ_QUEUE, max_messages=5, wait_time_seconds=20
+            )
             if messages:
                 for m in messages:
                     try:
@@ -229,7 +249,9 @@ async def poll_queue() -> None:
                     finally:
                         rh = m.get("ReceiptHandle")
                         if rh:
-                            await sqs.delete_message(queue_name=QUIZ_QUEUE, receipt_handle=rh)
+                            await sqs.delete_message(
+                                queue_name=QUIZ_QUEUE, receipt_handle=rh
+                            )
             await asyncio.sleep(1)
         except Exception as e:
             logger.error(f"Quiz worker error: {e}")
@@ -244,6 +266,7 @@ async def main() -> None:
 if __name__ == "__main__":
     import asyncio
     import logging
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

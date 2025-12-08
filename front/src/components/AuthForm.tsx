@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mail, Lock, Eye, EyeOff, Loader2, ArrowRight } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, Loader2, ArrowRight, CheckCircle, ArrowLeft } from "lucide-react";
 import { AuthService } from "../services/authService";
 import { AuthError } from "../types/auth";
 
@@ -16,6 +16,8 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<AuthError | null>(null);
+  const [registrationComplete, setRegistrationComplete] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,13 +25,16 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
     setLoading(true);
 
     try {
-      const response =
-        mode === "login"
-          ? await AuthService.login({ email, password })
-          : await AuthService.register({ email, password });
-
-      AuthService.saveToken(response.access_token, response.expires_in);
-      onSuccess(response.access_token);
+      if (mode === "login") {
+        const response = await AuthService.login({ email, password });
+        AuthService.saveToken(response.access_token, response.expires_in);
+        onSuccess(response.access_token);
+      } else {
+        // Registration - email verification required
+        await AuthService.register({ email, password });
+        setRegisteredEmail(email);
+        setRegistrationComplete(true);
+      }
     } catch (err) {
       setError({
         message: err instanceof Error ? err.message : "An error occurred",
@@ -42,6 +47,15 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
   const toggleMode = () => {
     setMode(mode === "login" ? "register" : "login");
     setError(null);
+    setRegistrationComplete(false);
+  };
+
+  const handleBackToLogin = () => {
+    setMode("login");
+    setRegistrationComplete(false);
+    setEmail(registeredEmail);
+    setPassword("");
+    setError(null);
   };
 
   const handleOAuthLogin = (provider: "google" | "apple") => {
@@ -49,6 +63,65 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
     const API_BASE_URL = import.meta.env.VITE_API_URL || "";
     window.location.href = `${API_BASE_URL}/api/v1/auth/${provider}/login`;
   };
+
+  // Email verification confirmation screen
+  if (registrationComplete) {
+    return (
+      <div className="w-full max-w-md relative">
+        {/* Decorative Elements */}
+        <div className="absolute -top-20 -left-20 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob pointer-events-none"></div>
+        <div className="absolute -top-20 -right-20 w-72 h-72 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000 pointer-events-none"></div>
+        <div className="absolute -bottom-20 left-1/2 w-72 h-72 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000 pointer-events-none"></div>
+
+        <div className="bg-white rounded-2xl shadow-xl p-8 relative z-10">
+          <div className="text-center">
+            {/* Success Icon */}
+            <div className="mx-auto w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center mb-6">
+              <Mail className="h-8 w-8 text-white" />
+            </div>
+
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              Check your inbox
+            </h1>
+
+            <p className="text-gray-600 mb-6">
+              We've sent a verification link to
+            </p>
+
+            <p className="text-lg font-semibold text-gray-900 bg-gray-100 rounded-lg py-3 px-4 mb-6">
+              {registeredEmail}
+            </p>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="flex items-start">
+                <CheckCircle className="h-5 w-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
+                <p className="text-sm text-blue-800 text-left">
+                  Click the link in the email to verify your address and activate your account.
+                </p>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-6">
+              Didn't receive the email? Check your spam folder or try signing up again.
+            </p>
+
+            <button
+              type="button"
+              onClick={handleBackToLogin}
+              className="group w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg font-semibold hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 flex items-center justify-center shadow-lg transform hover:scale-105"
+            >
+              <ArrowLeft size={20} className="mr-2 group-hover:-translate-x-1 transition-transform" />
+              Back to Sign In
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 text-center text-sm text-gray-600">
+          <p>Secure authentication powered by your API</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-md relative">
@@ -131,6 +204,32 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3">
               <p className="text-sm text-red-800">{error.message}</p>
+              {error.message.toLowerCase().includes("email not verified") && (
+                <p className="text-sm text-red-700 mt-2">
+                  Didn't receive the email?{" "}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        setError(null);
+                        setLoading(true);
+                        // We need a token to resend, so we'll show the registration success page instead
+                        setRegisteredEmail(email);
+                        setRegistrationComplete(true);
+                      } catch (err) {
+                        setError({
+                          message: err instanceof Error ? err.message : "Failed to resend email",
+                        });
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                    className="text-red-900 font-semibold underline hover:text-red-700"
+                  >
+                    Click here to see instructions
+                  </button>
+                </p>
+              )}
             </div>
           )}
 

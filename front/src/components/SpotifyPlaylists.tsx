@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft, Loader2, Music, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Loader2, Music, CheckCircle, AlertCircle, RefreshCw, Wallet } from "lucide-react";
 import { SpotifyService } from "../services/spotifyService";
+import { BillingService } from "../services/billingService";
 
 interface SpotifyPlaylistsProps {
   token: string;
   onBack: () => void;
+  onShowPricing?: () => void;
 }
 
 interface Playlist {
@@ -18,12 +20,13 @@ interface Playlist {
   enabled: boolean;
 }
 
-export default function SpotifyPlaylists({ token, onBack }: SpotifyPlaylistsProps) {
+export default function SpotifyPlaylists({ token, onBack, onShowPricing }: SpotifyPlaylistsProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<"success" | "error">("success");
+  const [showPricingLink, setShowPricingLink] = useState(false);
   const [processingPlaylistId, setProcessingPlaylistId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,6 +57,26 @@ export default function SpotifyPlaylists({ token, onBack }: SpotifyPlaylistsProp
 
   const handleToggle = async (playlistId: string, currentState: boolean) => {
     const newState = !currentState;
+
+    // If enabling tracking, check if user has minutes available
+    if (newState) {
+      try {
+        const availableMinutes = await BillingService.getAvailableMinutes(token);
+
+        if (availableMinutes === 0) {
+          showToast(
+            "You don't have any minutes available. Please purchase a subscription or minute pack to start tracking playlists.",
+            "error",
+            true // Show link to pricing
+          );
+          return;
+        }
+      } catch (err) {
+        console.error("Failed to check available minutes:", err);
+        // Continue anyway if the check fails (don't block the user)
+      }
+    }
+
     setProcessingPlaylistId(playlistId);
 
     try {
@@ -81,10 +104,14 @@ export default function SpotifyPlaylists({ token, onBack }: SpotifyPlaylistsProp
     }
   };
 
-  const showToast = (message: string, type: "success" | "error") => {
+  const showToast = (message: string, type: "success" | "error", showPricing: boolean = false) => {
     setToastMessage(message);
     setToastType(type);
-    setTimeout(() => setToastMessage(null), 5000);
+    setShowPricingLink(showPricing);
+    setTimeout(() => {
+      setToastMessage(null);
+      setShowPricingLink(false);
+    }, 8000); // Longer timeout for pricing link messages
   };
 
   if (loading) {
@@ -92,7 +119,7 @@ export default function SpotifyPlaylists({ token, onBack }: SpotifyPlaylistsProp
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50">
         <Loader2 className="h-12 w-12 animate-spin text-blue-600 mb-4" />
         <p className="text-blue-800 font-medium animate-pulse">
-          Searching for your Spotify playlists containing podcast episodes...
+          Loading your Spotify playlists...
         </p>
       </div>
     );
@@ -140,7 +167,7 @@ export default function SpotifyPlaylists({ token, onBack }: SpotifyPlaylistsProp
             </h2>
             <div className="space-y-3 text-blue-800">
               <p className="text-sm">
-                <strong>Only playlists containing podcast episodes are displayed here.</strong> Music-only playlists are automatically filtered out.
+                <strong>All your playlists are displayed below.</strong> Enable tracking on playlists containing podcast episodes you want to summarize.
               </p>
               <p className="text-sm">
                 <strong>To get started:</strong>
@@ -169,11 +196,11 @@ export default function SpotifyPlaylists({ token, onBack }: SpotifyPlaylistsProp
           <div className="bg-white rounded-2xl shadow-lg p-12 text-center max-w-2xl mx-auto">
             <Music className="h-16 w-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 mb-3">
-              No podcast playlists found
+              No playlists found
             </h3>
             <div className="text-gray-600 space-y-4 text-left">
               <p>
-                We couldn't find any playlists containing podcast episodes in your Spotify account.
+                We couldn't find any playlists that you own in your Spotify account.
               </p>
               <div className="bg-gray-50 rounded-lg p-4">
                 <p className="font-semibold text-gray-900 mb-2">
@@ -181,7 +208,7 @@ export default function SpotifyPlaylists({ token, onBack }: SpotifyPlaylistsProp
                 </p>
                 <ol className="text-sm space-y-2 ml-4 list-decimal">
                   <li>Open Spotify and create a new playlist</li>
-                  <li>Add podcast episodes (not music tracks) to this playlist</li>
+                  <li>Add podcast episodes to this playlist</li>
                   <li>
                     <button
                       onClick={() => loadPlaylists()}
@@ -193,9 +220,6 @@ export default function SpotifyPlaylists({ token, onBack }: SpotifyPlaylistsProp
                   <li>Enable tracking for your new playlist</li>
                 </ol>
               </div>
-              <p className="text-sm text-center">
-                Your new playlist will appear here once it contains at least one podcast episode.
-              </p>
             </div>
           </div>
         ) : (
@@ -261,17 +285,33 @@ export default function SpotifyPlaylists({ token, onBack }: SpotifyPlaylistsProp
       {/* Toast notification */}
       {toastMessage && (
         <div className={`
-          fixed bottom-8 right-8 rounded-lg p-4 shadow-lg max-w-md z-30 flex items-start space-x-3
+          fixed bottom-8 right-8 rounded-lg p-4 shadow-lg max-w-md z-30
           ${toastType === "success" ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"}
         `}>
-          {toastType === "success" ? (
-            <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
-          ) : (
-            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-          )}
-          <p className={`text-sm ${toastType === "success" ? "text-green-800" : "text-red-800"}`}>
-            {toastMessage}
-          </p>
+          <div className="flex items-start space-x-3">
+            {toastType === "success" ? (
+              <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+            ) : (
+              <Wallet className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            )}
+            <div className="flex-1">
+              <p className={`text-sm ${toastType === "success" ? "text-green-800" : "text-red-800"}`}>
+                {toastMessage}
+              </p>
+              {showPricingLink && (
+                <button
+                  onClick={() => {
+                    if (onShowPricing) {
+                      onShowPricing();
+                    }
+                  }}
+                  className="mt-3 w-full px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm font-semibold rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all shadow-md hover:shadow-lg"
+                >
+                  View Pricing Plans
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

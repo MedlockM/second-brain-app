@@ -1,14 +1,18 @@
-import { User, Settings, CreditCard, LogOut } from "lucide-react";
+import { User, Settings, CreditCard, LogOut, BookOpen, DollarSign } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
 interface AccountSettingsDropdownProps {
     onNavigate: (page: "account" | "subscription" | "payment") => void;
+    onShowPricing: () => void;
+    onShowMySummaries: () => void;
     onLogout: () => void;
     userEmail: string;
 }
 
 export default function AccountSettingsDropdown({
     onNavigate,
+    onShowPricing,
+    onShowMySummaries,
     onLogout,
     userEmail,
 }: AccountSettingsDropdownProps) {
@@ -76,6 +80,31 @@ export default function AccountSettingsDropdown({
 
                     {/* Menu Items */}
                     <div className="py-2">
+                        {/* Mobile-only primary actions */}
+                        <button
+                            onClick={() => {
+                                setIsOpen(false);
+                                onShowMySummaries();
+                            }}
+                            className="w-full flex md:hidden items-center space-x-3 px-4 py-3 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                        >
+                            <BookOpen className="h-4 w-4" />
+                            <span>My Summaries</span>
+                        </button>
+
+                        <button
+                            onClick={() => {
+                                setIsOpen(false);
+                                onShowPricing();
+                            }}
+                            className="w-full flex sm:hidden items-center space-x-3 px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                            <DollarSign className="h-4 w-4" />
+                            <span>Pricing</span>
+                        </button>
+
+                        <div className="h-px bg-gray-200 dark:bg-gray-700 my-1 md:hidden"></div>
+
                         <button
                             onClick={() => handleNavigate("account")}
                             className="w-full flex items-center space-x-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"

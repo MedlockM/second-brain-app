@@ -146,6 +146,13 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
 
+    # Check if email is verified
+    if not getattr(user, "email_verified_at", None):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified. Please check your email for the verification link.",
+        )
+
     # Issue refresh token (absolute 30 days)
     refresh = AuthToken.create_refresh_token(
         user_id=user.id, email=user.email, expires_in_days=REFRESH_TOKEN_EXPIRE_DAYS

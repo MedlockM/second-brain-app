@@ -1,7 +1,15 @@
 "use client";
 import React, { useState, useEffect } from "react";
 
-export default function SpotifyIntegrationHome() {
+interface SpotifyIntegrationHomeProps {
+  onConnect?: () => void;
+  children?: React.ReactNode;
+}
+
+export default function SpotifyIntegrationHome({
+  onConnect,
+  children,
+}: SpotifyIntegrationHomeProps) {
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -16,7 +24,7 @@ export default function SpotifyIntegrationHome() {
   const iconSize = size.width < 480 ? 120 : size.width < 768 ? 160 : 200;
 
   return (
-    <section className="py-12 relative min-h-screen w-full overflow-hidden">
+    <section className="pt-24 pb-12 relative min-h-screen w-full overflow-hidden flex flex-col items-center justify-center">
       {/* Semi-circle glow background */}
       <div
         className="absolute inset-0 pointer-events-none"
@@ -43,28 +51,23 @@ export default function SpotifyIntegrationHome() {
       </div>
 
       <div
-        className="relative flex flex-col items-center text-center max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
+        className="relative flex flex-col items-center text-center max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full"
         style={{ zIndex: 10 }}
       >
-        <h1 className="my-6 text-5xl md:text-6xl lg:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">Integrations</h1>
+        <h1 className="my-6 text-5xl md:text-6xl lg:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
+          Integrations
+        </h1>
         <p className="mb-12 max-w-2xl text-gray-600 dark:text-gray-300 text-xl md:text-2xl px-4">
           Link your Spotify account to automatically receive quizzes and
           summaries of the podcast episodes you listen to
         </p>
 
-        <div
-          className="relative flex items-center justify-center"
-          style={{ minHeight: "400px" }}
-        >
+        <div className="flex flex-col items-center justify-center gap-8 w-full">
           {/* Large centered Spotify icon */}
           <div
-            className="absolute flex flex-col items-center group cursor-pointer"
-            style={{
-              left: "50%",
-              top: "50%",
-              transform: "translate(-50%, -50%)",
-              zIndex: 20,
-            }}
+            onClick={onConnect}
+            className="flex flex-col items-center group cursor-pointer relative"
+            style={{ zIndex: 20 }}
           >
             <div className="transition-transform hover:scale-110 duration-300">
               <svg
@@ -85,8 +88,11 @@ export default function SpotifyIntegrationHome() {
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-black"></div>
             </div>
           </div>
+
+          {children}
         </div>
       </div>
     </section>
   );
 }
+

@@ -165,6 +165,47 @@ async def update_minute_usage(usage: MinuteUsage) -> MinuteUsage:
         return usage
 
 
+async def scan_expired_holds(limit: int = 100) -> List[MinuteUsage]:
+    """
+    Scan minute_usage table for expired holds.
+    
+    Returns holds where:
+    - status = 'held'
+    - hold_expires_at < now
+    
+    Note: This uses a table scan which can be expensive. In production,
+    consider adding a GSI on (status, hold_expires_at) for better performance.
+    
+    Args:
+        limit: Maximum number of items to return
+        
+    Returns:
+        List of expired MinuteUsage objects
+    """
+    from datetime import datetime, timezone
+    from media_summarizer.core.models.billing import MinuteUsageStatus
+    
+    session = database_async.get_session()
+    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+        table = await dynamodb.Table(MINUTE_USAGE_TABLE)
+        
+        now_iso = datetime.now(timezone.utc).isoformat()
+        
+        try:
+            response = await table.scan(
+                FilterExpression=Attr('status').eq('held') & Attr('hold_expires_at').lt(now_iso),
+                Limit=limit
+            )
+            items = response.get('Items', [])
+            return [MinuteUsage.from_dynamodb_item(it) for it in items]
+        except ClientError as e:
+            # Log error but don't crash
+            import logging
+            logging.getLogger(__name__).error(f"Failed to scan expired holds: {e}")
+            return []
+
+
+
 # ---------- Follows ----------
 
 async def upsert_follow(follow: Follow) -> Follow:

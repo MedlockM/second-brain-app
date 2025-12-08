@@ -57,3 +57,34 @@ async def delete_follow(user_id: str, playlist_id: str) -> bool:
             return True
         except ClientError:
             return False
+
+
+async def get_all_enabled_follows() -> List[SpotifyPlaylistFollow]:
+    """
+    Get all enabled playlist follows across all users.
+    Uses table scan with filter - acceptable for moderate scale.
+    For large scale, consider adding a GSI on 'enabled' attribute.
+    """
+    session = database_async.get_session()
+    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+        table = await dynamodb.Table(TABLE_NAME)
+        
+        follows = []
+        scan_kwargs = {
+            'FilterExpression': 'enabled = :enabled',
+            'ExpressionAttributeValues': {':enabled': True}
+        }
+        
+        # Handle pagination
+        while True:
+            response = await table.scan(**scan_kwargs)
+            items = response.get('Items', [])
+            follows.extend([SpotifyPlaylistFollow.from_dynamodb_item(it) for it in items])
+            
+            # Check if there are more pages
+            last_key = response.get('LastEvaluatedKey')
+            if not last_key:
+                break
+            scan_kwargs['ExclusiveStartKey'] = last_key
+        
+        return follows
