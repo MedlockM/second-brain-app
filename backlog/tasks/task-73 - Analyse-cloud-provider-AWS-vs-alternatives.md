@@ -1,7 +1,7 @@
 ---
 id: task-73
 title: Analyse cloud provider (AWS vs alternatives)
-status: Done
+status: To Do
 assignee: []
 created_date: '2026-03-29 21:02'
 labels:
