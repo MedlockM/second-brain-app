@@ -1,9 +1,8 @@
 """
-Episodes API endpoints for retrieving user's completed episodes with summaries and quizzes.
+Episodes API endpoints for retrieving user's completed episodes with summaries.
 """
 
 import logging
-import asyncio
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
@@ -21,7 +20,7 @@ router = APIRouter(prefix="/episodes", tags=["episodes"])
 
 
 class EpisodeResponse(BaseModel):
-    """Response model for a single episode with summary and quiz."""
+    """Response model for a single episode with summary."""
 
     job_id: str = Field(..., description="Job ID")
     podcast_title: str = Field(..., description="Podcast title")
@@ -32,7 +31,6 @@ class EpisodeResponse(BaseModel):
     created_at: int = Field(..., description="Job submission timestamp (Unix timestamp) - for sorting")
     completed_at: Optional[int] = Field(None, description="Job completion timestamp (Unix timestamp)")
     summary: Dict[str, Any] = Field(..., description="Summary content")
-    quiz: Dict[str, Any] = Field(..., description="Quiz content")
 
 
 class MyEpisodesResponse(BaseModel):
@@ -48,13 +46,13 @@ async def get_my_episodes(
     current_user: AuthUser = Depends(get_current_user),
 ) -> MyEpisodesResponse:
     """
-    Get all completed episodes (with summaries and quizzes) for the authenticated user.
+    Get all completed episodes (with summaries) for the authenticated user.
 
     Args:
         current_user: The authenticated user
 
     Returns:
-        MyEpisodesResponse: List of all completed episodes with their summaries and quizzes
+        MyEpisodesResponse: List of all completed episodes with their summaries
 
     Raises:
         HTTPException: If there's an error retrieving episodes
@@ -65,45 +63,28 @@ async def get_my_episodes(
         # Get all jobs for the user
         jobs = await database_async.get_processing_jobs_by_user_id(current_user.id)
 
-        # Filter only jobs that have BOTH summary AND quiz in S3
+        # Filter only jobs that have a summary in S3
         jobs_with_content = [
-            job for job in jobs 
-            if job.summary_s3_key and job.quiz_s3_key
+            job for job in jobs
+            if job.summary_s3_key
         ]
 
         logger.info(
-            f"Found {len(jobs_with_content)} jobs with summaries and quizzes for user {current_user.id}"
+            f"Found {len(jobs_with_content)} jobs with summaries for user {current_user.id}"
         )
 
         episodes = []
         summary_bucket = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
-        quiz_bucket = os.environ.get("QUIZ_BUCKET", "media-summarizer-quizzes")
 
         for job in jobs_with_content:
             try:
-                # Download summary and quiz in parallel
-                summary_task = s3.download_file_to_memory(
+                # Download summary from S3
+                summary_content = await s3.download_file_to_memory(
                     bucket=summary_bucket, key=job.summary_s3_key
                 )
-                quiz_task = s3.download_file_to_memory(
-                    bucket=quiz_bucket, key=job.quiz_s3_key
-                )
-                
-                summary_content, quiz_content = await asyncio.gather(
-                    summary_task, quiz_task, return_exceptions=True
-                )
-                
-                # Handle potential errors from gather
-                if isinstance(summary_content, Exception):
-                    logger.error(f"Error downloading summary for job {job.id}: {summary_content}")
-                    continue
-                if isinstance(quiz_content, Exception):
-                    logger.error(f"Error downloading quiz for job {job.id}: {quiz_content}")
-                    continue
 
                 # Parse JSON
                 summary_data = json.loads(summary_content.decode("utf-8"))
-                quiz_data = json.loads(quiz_content.decode("utf-8"))
 
                 # Extract relevant fields
                 # created_at: when user submitted the job (for sorting)
@@ -118,7 +99,6 @@ async def get_my_episodes(
                     created_at=int(job.created_at.timestamp()),
                     completed_at=int(job.completed_at.timestamp()) if job.completed_at else None,
                     summary=summary_data.get("summary", {}),
-                    quiz=quiz_data,
                 )
 
                 episodes.append(episode_response)

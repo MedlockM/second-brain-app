@@ -470,12 +470,6 @@ resource "aws_s3_bucket" "summaries" {
   tags          = { Name = "summaries", Environment = local.environment, Project = local.project }
 }
 
-resource "aws_s3_bucket" "quizzes" {
-  bucket        = "media-summarizer-quizzes"
-  force_destroy = true
-  tags          = { Name = "quizzes", Environment = local.environment, Project = local.project }
-}
-
 # -------------------- SQS Queues (+ DLQs) --------------------
 resource "aws_sqs_queue" "audio_download_dlq" {
   name = "audio-download-dlq"
@@ -516,17 +510,6 @@ resource "aws_sqs_queue" "email_notification" {
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.email_notification_dlq.arn
-    maxReceiveCount     = 3
-  })
-}
-
-# Quiz generation queue
-resource "aws_sqs_queue" "quiz_dlq" { name = "quiz-dlq" }
-resource "aws_sqs_queue" "quiz" {
-  name = "quiz-queue"
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.quiz_dlq.arn
     maxReceiveCount     = 3
   })
 }
@@ -581,7 +564,6 @@ output "sqs_queues" {
     aws_sqs_queue.transcription.name,
     aws_sqs_queue.summarization.name,
     aws_sqs_queue.email_notification.name,
-    aws_sqs_queue.quiz.name,
     aws_sqs_queue.episode_completed.name,
     aws_sqs_queue.spotify_sync.name,
   ]
@@ -763,7 +745,6 @@ output "s3_buckets" {
     aws_s3_bucket.audio.id,
     aws_s3_bucket.transcripts.id,
     aws_s3_bucket.summaries.id,
-    aws_s3_bucket.quizzes.id,
   ]
 }
 

@@ -31,7 +31,6 @@ async def main():
     print(f"Audio S3 key        : {job.audio_s3_key or '(none)'}")
     print(f"Transcript S3 key   : {job.transcript_s3_key or '(none)'}")
     print(f"Summary S3 key      : {job.summary_s3_key or '(none)'}")
-    print(f"Quiz S3 key         : {job.quiz_s3_key or '(none)'}")
     print(f"Created at          : {job.created_at}")
     print(f"Completed at        : {job.completed_at or '(none)'}")
     print()
@@ -43,12 +42,7 @@ async def main():
         issues.append("❌ Pas de summary_s3_key")
     else:
         issues.append(f"✓ Summary S3 key présent: {job.summary_s3_key}")
-        
-    if not job.quiz_s3_key:
-        issues.append("❌ Pas de quiz_s3_key")
-    else:
-        issues.append(f"✓ Quiz S3 key présent: {job.quiz_s3_key}")
-    
+
     for issue in issues:
         print(issue)
 

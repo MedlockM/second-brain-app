@@ -45,7 +45,6 @@ class ProcessingJob(BaseModel):
     audio_s3_key: Optional[str] = None
     transcription_s3_key: Optional[str] = None
     summary_s3_key: Optional[str] = None
-    quiz_s3_key: Optional[str] = None  # S3 key for generated quiz
     
     # Episode metadata
     episode_date_published: Optional[int] = None  # Unix timestamp - when episode was published by podcast
@@ -124,7 +123,6 @@ class ProcessingJob(BaseModel):
             "audio_s3_key",
             "transcription_s3_key",
             "summary_s3_key",
-            "quiz_s3_key",
             "episode_date_published",
             "error_message",
             "error_step",
@@ -166,6 +164,9 @@ class ProcessingJob(BaseModel):
         # Handle expire_at (TTL) - convert Decimal to int if coming from boto3
         if "expire_at" in item:
             item["expire_at"] = int(item["expire_at"])
+
+        # Strip legacy fields that may exist in old DynamoDB records
+        item.pop("quiz_s3_key", None)
 
         return cls(**item)
 
@@ -263,11 +264,6 @@ class ProcessingJob(BaseModel):
     def set_summary_location(self, s3_key: str) -> None:
         """Set the S3 location of the summary."""
         self.summary_s3_key = s3_key
-        self.updated_at = datetime.now(timezone.utc)
-    
-    def set_quiz_location(self, s3_key: str) -> None:
-        """Set the S3 location of the quiz."""
-        self.quiz_s3_key = s3_key
         self.updated_at = datetime.now(timezone.utc)
 
     def set_processing_duration(self, step: str, duration: int) -> None:

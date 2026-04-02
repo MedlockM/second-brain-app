@@ -375,50 +375,16 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
             logger.warning(f"Failed to generate presigned URL: {str(e)}")
             summary_url = f"s3://{SUMMARY_BUCKET}/{summary_s3_key}"
 
-        # Send next step depending on feature flag
-        ENABLE_QUIZ_EMAIL = (
-            os.environ.get("ENABLE_QUIZ_EMAIL", "false").lower() == "true"
+        # Send completion notification with summary content
+        await send_notification(
+            notification_type="completion",
+            job_id=job_id,
+            email=email,
+            podcast_title=message_body.get("podcast_title"),
+            episode_title=message_body.get("episode_title"),
+            episode_guid=message_body.get("episode_guid"),
+            summary_content=summary_result,
         )
-        if ENABLE_QUIZ_EMAIL:
-            try:
-                await sqs.send_message(
-                    queue_name=os.environ.get("QUIZ_QUEUE", "quiz-queue"),
-                    message_body={
-                        "job_id": job_id,
-                        "email": email,
-                        "podcast_title": message_body.get("podcast_title"),
-                        "episode_title": message_body.get("episode_title"),
-                        "episode_guid": message_body.get("episode_guid"),
-                        "transcript_s3_key": transcript_s3_key,
-                        "summary_content": summary_result,
-                        "language": message_body.get("language"),
-                    },
-                )
-                logger.info(f"Queued quiz generation for job {job_id}")
-            except Exception as ee:
-                logger.warning(
-                    f"Failed to enqueue quiz job, fallback to direct email: {ee}"
-                )
-                await send_notification(
-                    notification_type="completion",
-                    job_id=job_id,
-                    email=email,
-                    podcast_title=message_body.get("podcast_title"),
-                    episode_title=message_body.get("episode_title"),
-                    episode_guid=message_body.get("episode_guid"),
-                    summary_content=summary_result,
-                )
-        else:
-            # Send completion notification with summary content (legacy path)
-            await send_notification(
-                notification_type="completion",
-                job_id=job_id,
-                email=email,
-                podcast_title=message_body.get("podcast_title"),
-                episode_title=message_body.get("episode_title"),
-                episode_guid=message_body.get("episode_guid"),
-                summary_content=summary_result,
-            )
 
         logger.info(f"Successfully completed summarization for job {job_id}")
 

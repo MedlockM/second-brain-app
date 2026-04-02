@@ -86,7 +86,6 @@ async def process_event(message: Dict[str, Any]) -> None:
     podcast_title = body.get("podcast_title")
     episode_title = body.get("episode_title")
     summary_s3_key = body.get("summary_s3_key")
-    quiz_s3_key = body.get("quiz_s3_key")  # New field
 
     if not episode_guid:
         logger.error(f"Missing episode_guid in event: {body}")
@@ -114,8 +113,6 @@ async def process_event(message: Dict[str, Any]) -> None:
                 if job:
                     if summary_s3_key:
                         job.set_summary_location(summary_s3_key)
-                    if quiz_s3_key:
-                        job.set_quiz_location(quiz_s3_key)
                     
                     job.mark_completed()
                     await database_async.update_processing_job(job)
