@@ -1,6 +1,6 @@
 """
 Benchmark pour tester différentes stratégies de normalisation.
-On teste avec des paires (titre Spotify, titre RSS) qui DEVRAIENT matcher.
+On teste avec des paires (titre source, titre RSS) qui DEVRAIENT matcher.
 """
 import re
 import unicodedata
@@ -44,7 +44,7 @@ def jaccard_similarity(s1: str, s2: str, normalize_fn: Callable[[str], str]) -> 
     return inter / union if union else 0.0
 
 
-# Cas de test : paires (spotify_title, rss_title) qui DEVRAIENT matcher
+# Cas de test : paires (source_title, rss_title) qui DEVRAIENT matcher
 # Plus des cas difficiles où les titres diffèrent légèrement
 test_cases = [
     # Cas 1: Titres identiques
@@ -127,7 +127,7 @@ def run_benchmark():
     for i, (s1, s2, category) in enumerate(test_cases, 1):
         print(f"\n{'─' * 100}")
         print(f"Cas {i}: {category}")
-        print(f"Spotify : {s1}")
+        print(f"Source  : {s1}")
         print(f"RSS     : {s2}")
         print()
         

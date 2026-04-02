@@ -7,7 +7,7 @@ interface SummaryCardProps {
 export default function SummaryCard({ summary }: SummaryCardProps) {
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString("fr-FR", {
+    return date.toLocaleDateString("en-US", {
       year: "numeric",
       month: "long",
       day: "numeric",
@@ -68,7 +68,7 @@ export default function SummaryCard({ summary }: SummaryCardProps) {
             summary.summary.main_topics.length > 0 && (
               <div className="mb-4">
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                  Sujets principaux :
+                  Main Topics:
                 </h4>
                 <div className="flex flex-wrap gap-2">
                   {summary.summary.main_topics.map((topic, index) => (
@@ -88,7 +88,7 @@ export default function SummaryCard({ summary }: SummaryCardProps) {
             summary.summary.key_points.length > 0 && (
               <div className="mb-4">
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                  Points clés :
+                  Key Points:
                 </h4>
                 <ul className="list-disc list-inside space-y-1">
                   {summary.summary.key_points.map((point, index) => (
@@ -105,7 +105,7 @@ export default function SummaryCard({ summary }: SummaryCardProps) {
             summary.summary.notable_quotes.length > 0 && (
               <div className="mb-4">
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                  Citations notables :
+                  Notable Quotes:
                 </h4>
                 <div className="space-y-2">
                   {summary.summary.notable_quotes.map((quote, index) => (
@@ -124,7 +124,7 @@ export default function SummaryCard({ summary }: SummaryCardProps) {
           {summary.summary.conclusion && (
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                Conclusion :
+                Conclusion:
               </h4>
               <p className="text-sm text-gray-700">
                 {renderConclusion(summary.summary.conclusion)}

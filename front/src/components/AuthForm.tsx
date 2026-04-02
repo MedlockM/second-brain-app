@@ -1,16 +1,34 @@
-import { useState } from "react";
-import { Mail, Lock, Eye, EyeOff, Loader2, ArrowRight, CheckCircle, ArrowLeft } from "lucide-react";
-import { AuthService } from "../services/authService";
+import { useEffect, useState } from "react";
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Loader2,
+  ArrowRight,
+  CheckCircle,
+  ArrowLeft,
+} from "lucide-react";
+import { AuthService, AUTH_ERROR_STORAGE_KEY } from "../services/authService";
 import { AuthError } from "../types/auth";
+import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
+import {
+  getEmailValidationError,
+  getPasswordValidationError,
+} from "../utils/validation";
 
 interface AuthFormProps {
   onSuccess: (token: string) => void;
+  initialMode?: FormMode;
 }
 
 type FormMode = "login" | "register";
 
-export default function AuthForm({ onSuccess }: AuthFormProps) {
-  const [mode, setMode] = useState<FormMode>("login");
+export default function AuthForm({
+  onSuccess,
+  initialMode = "login",
+}: AuthFormProps) {
+  const [mode, setMode] = useState<FormMode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -19,9 +37,40 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
   const [registrationComplete, setRegistrationComplete] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState("");
 
+  useEffect(() => {
+    const storedCode = sessionStorage.getItem(AUTH_ERROR_STORAGE_KEY);
+    if (!storedCode) {
+      return;
+    }
+    sessionStorage.removeItem(AUTH_ERROR_STORAGE_KEY);
+    setError({
+      message: getFriendlyErrorMessage({ code: storedCode }),
+      code: storedCode,
+    });
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    // Validate email before submission
+    const emailError = getEmailValidationError(email);
+    if (emailError) {
+      setError({
+        message: emailError,
+      });
+      return;
+    }
+
+    // Validate password
+    const passwordError = getPasswordValidationError(password, 6);
+    if (passwordError) {
+      setError({
+        message: passwordError,
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -37,7 +86,8 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
       }
     } catch (err) {
       setError({
-        message: err instanceof Error ? err.message : "An error occurred",
+        message: getFriendlyErrorMessage(err),
+        code: (err as { code?: string }).code,
       });
     } finally {
       setLoading(false);
@@ -96,13 +146,15 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
               <div className="flex items-start">
                 <CheckCircle className="h-5 w-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
                 <p className="text-sm text-blue-800 text-left">
-                  Click the link in the email to verify your address and activate your account.
+                  Click the link in the email to verify your address and
+                  activate your account.
                 </p>
               </div>
             </div>
 
             <p className="text-sm text-gray-500 mb-6">
-              Didn't receive the email? Check your spam folder or try signing up again.
+              Didn't receive the email? Check your spam folder or try signing up
+              again.
             </p>
 
             <button
@@ -110,7 +162,10 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
               onClick={handleBackToLogin}
               className="group w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg font-semibold hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 flex items-center justify-center shadow-lg transform hover:scale-105"
             >
-              <ArrowLeft size={20} className="mr-2 group-hover:-translate-x-1 transition-transform" />
+              <ArrowLeft
+                size={20}
+                className="mr-2 group-hover:-translate-x-1 transition-transform"
+              />
               Back to Sign In
             </button>
           </div>
@@ -142,7 +197,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} noValidate className="space-y-6">
           <div>
             <label
               htmlFor="email"
@@ -157,6 +212,8 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
               <input
                 id="email"
                 type="email"
+                name="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -180,6 +237,8 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
               <input
                 id="password"
                 type={showPassword ? "text" : "password"}
+                name="password"
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -204,7 +263,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3">
               <p className="text-sm text-red-800">{error.message}</p>
-              {error.message.toLowerCase().includes("email not verified") && (
+              {error.code === "EMAIL_NOT_VERIFIED" && (
                 <p className="text-sm text-red-700 mt-2">
                   Didn't receive the email?{" "}
                   <button
@@ -218,7 +277,9 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
                         setRegistrationComplete(true);
                       } catch (err) {
                         setError({
-                          message: err instanceof Error ? err.message : "Failed to resend email",
+                          message: getFriendlyErrorMessage(err, {
+                            fallback: "Failed to resend email",
+                          }),
                         });
                       } finally {
                         setLoading(false);
@@ -246,7 +307,10 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
             ) : (
               <>
                 {mode === "login" ? "Sign In" : "Create Account"}
-                <ArrowRight size={20} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                <ArrowRight
+                  size={20}
+                  className="ml-2 group-hover:translate-x-1 transition-transform"
+                />
               </>
             )}
           </button>

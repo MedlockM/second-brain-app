@@ -176,22 +176,9 @@ async def require_verified_email(
     db: DynamoDBConnection = Depends(get_db),
 ) -> AuthUser:
     """
-    Ensure the current user's email is verified before allowing sensitive actions.
+    Legacy compatibility dependency.
+    Email verification by mail has been removed; authenticated users are accepted.
     """
-    user = await database_async.get_user_by_id(current_user.id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
-        )
-    # Social providers are treated as verified (provider assures email verification)
-    if getattr(user, "auth_provider", None) in ("google", "apple"):
-        return current_user
-
-    if not getattr(user, "email_verified_at", None):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email not verified. Please verify your email to continue.",
-        )
     return current_user
 
 

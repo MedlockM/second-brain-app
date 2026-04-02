@@ -6,7 +6,6 @@ including support for test environments and E2E testing.
 """
 
 import os
-from typing import Optional
 
 
 class Settings:
@@ -35,12 +34,27 @@ class Settings:
         self.AUDIO_BUCKET = os.getenv("AUDIO_BUCKET", "media-files")
         self.TRANSCRIPT_BUCKET = os.getenv("TRANSCRIPT_BUCKET", "transcripts")
         self.SUMMARY_BUCKET = os.getenv("SUMMARY_BUCKET", "summaries")
+        self.QUIZ_BUCKET = os.getenv("QUIZ_BUCKET", "media-summarizer-quizzes")
+        self.NOTES_BUCKET = os.getenv("NOTES_BUCKET", "media-summarizer-notes")
 
         # SQS Queues
-        self.EMAIL_NOTIFICATION_QUEUE = os.getenv("EMAIL_NOTIFICATION_QUEUE", "email-notification-queue")
         self.DOWNLOAD_QUEUE = os.getenv("DOWNLOAD_QUEUE", "download-queue")
         self.TRANSCRIPTION_QUEUE = os.getenv("TRANSCRIPTION_QUEUE", "transcription-queue")
+        self.DEEPGRAM_TRANSCRIPTION_QUEUE = os.getenv(
+            "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
+        )
+        self.YOUTUBE_INGESTION_QUEUE = os.getenv(
+            "YOUTUBE_INGESTION_QUEUE", "youtube-ingestion-queue"
+        )
+        self.TIKTOK_INGESTION_QUEUE = os.getenv(
+            "TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue"
+        )
         self.SUMMARIZATION_QUEUE = os.getenv("SUMMARIZATION_QUEUE", "summarization-queue")
+        self.QUIZ_QUEUE = os.getenv("QUIZ_QUEUE", "quiz-queue")
+        self.NOTES_QUEUE = os.getenv("NOTES_QUEUE", "notes-queue")
+        self.ARTIFACT_TYPES_ALLOWED = os.getenv(
+            "ARTIFACT_TYPES_ALLOWED", "summary,quiz,notes"
+        )
 
         # Stripe Configuration
         self.STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
@@ -58,6 +72,29 @@ class Settings:
 
         # OpenAI Configuration
         self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+        # Deepgram Configuration
+        self.DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
+        self.DEEPGRAM_API_URL = os.getenv(
+            "DEEPGRAM_API_URL", "https://api.deepgram.com/v1/listen"
+        )
+        self.DEEPGRAM_MODEL = os.getenv("DEEPGRAM_MODEL", "nova-3")
+        self.DEEPGRAM_TIMEOUT_SECONDS = int(
+            os.getenv("DEEPGRAM_TIMEOUT_SECONDS", "300")
+        )
+        self.YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS = float(
+            os.getenv("YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS", "20")
+        )
+        self.YTDLP_TIMEOUT_SECONDS = float(
+            os.getenv("YTDLP_TIMEOUT_SECONDS", "30")
+        )
+        self.GETINSAVER_API_BASE_URL = os.getenv(
+            "GETINSAVER_API_BASE_URL", "https://getinsaver.com/api/v1"
+        )
+        self.GETINSAVER_API_KEY = os.getenv("GETINSAVER_API_KEY", "")
+        self.GETINSAVER_TIMEOUT_SECONDS = int(
+            os.getenv("GETINSAVER_TIMEOUT_SECONDS", "20")
+        )
 
         # Podcast Index Configuration
         self.PODCASTINDEXORG_API_KEY = os.getenv("PODCASTINDEXORG_API_KEY", "")

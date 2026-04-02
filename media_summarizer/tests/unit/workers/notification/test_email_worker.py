@@ -50,7 +50,7 @@ class TestSendErrorNotification:
             assert call_args[1]['recipient'] == recipient
             assert "error" in call_args[1]['subject'].lower()
             assert job_id in call_args[1]['body_text']
-            assert error_message in call_args[1]['body_text']
+            assert "Please try again later." in call_args[1]['body_text']
             assert step in call_args[1]['body_text']
             assert result["MessageId"] == "test-message-id"
 
@@ -73,7 +73,7 @@ class TestSendErrorNotification:
             call_args = mock_send.call_args
 
             assert call_args[1]['recipient'] == recipient
-            assert error_message in call_args[1]['body_text']
+            assert "Please try again later." in call_args[1]['body_text']
             assert result["MessageId"] == "test-message-id"
 
     @pytest.mark.asyncio
@@ -94,7 +94,7 @@ class TestSendErrorNotification:
             # Verify
             mock_send.assert_called_once()
             call_args = mock_send.call_args
-            assert long_error in call_args[1]['body_text']
+            assert "Please try again later." in call_args[1]['body_text']
 
 
 class TestSendCompletionNotification:

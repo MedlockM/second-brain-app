@@ -4,26 +4,50 @@ SQS utilities for message queue operations.
 This module provides async utility functions for interacting
 with Amazon SQS in the Media Summarizer application using aiobotocore.
 """
+from __future__ import annotations
+
 import json
 import logging
 import os
-from typing import Dict, Any, Optional, List, Union
+from typing import Any, Dict, List, Optional, Union
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+from media_summarizer.utils.logging_config import (
+    get_runtime_aws_endpoint_url,
+    log_event,
+)
+
 logger = logging.getLogger(__name__)
 
 # AWS configuration
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
+_IMPORT_TIME_AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
+AWS_ENDPOINT_URL = _IMPORT_TIME_AWS_ENDPOINT_URL
 
 # Import AWS session
 try:
     from aiobotocore.session import get_session
+
     session = get_session()
 except ImportError:
-    logger.error("aiobotocore is not installed. Please install it with 'pip install aiobotocore'.")
+    log_event(
+        logger,
+        logging.ERROR,
+        "external_call.failed",
+        "aiobotocore is not installed",
+        provider="sqs",
+        error_code="MISSING_DEPENDENCY",
+    )
     raise
+
+
+_QUEUE_URL_CACHE: Dict[str, str] = {}
+
+
+def _runtime_aws_endpoint_url() -> Optional[str]:
+    configured = AWS_ENDPOINT_URL
+    if configured == _IMPORT_TIME_AWS_ENDPOINT_URL:
+        configured = os.environ.get("AWS_ENDPOINT_URL", _IMPORT_TIME_AWS_ENDPOINT_URL)
+    return get_runtime_aws_endpoint_url(configured_value=configured, consumer="sqs")
 
 
 def get_queue_url(queue_name: str) -> str:
@@ -37,11 +61,12 @@ def get_queue_url(queue_name: str) -> str:
         Queue URL
     """
     # For local development with LocalStack
-    if AWS_ENDPOINT_URL:
+    runtime_endpoint = _runtime_aws_endpoint_url()
+    if runtime_endpoint:
         # Prefer host-style SQS endpoint (http://sqs.<region>.localhost:4566) for compatibility with SDKs
         try:
             from urllib.parse import urlparse
-            parsed = urlparse(AWS_ENDPOINT_URL)
+            parsed = urlparse(runtime_endpoint)
             host = parsed.hostname or "localhost"
             port = parsed.port or 4566
             scheme = parsed.scheme or "http"
@@ -49,12 +74,21 @@ def get_queue_url(queue_name: str) -> str:
                 return f"{scheme}://sqs.{AWS_REGION}.{host}:{port}/000000000000/{queue_name}"
             else:
                 # Fallback to path-style when using non-local hostnames
-                return f"{AWS_ENDPOINT_URL}/000000000000/{queue_name}"
+                return f"{runtime_endpoint}/000000000000/{queue_name}"
         except Exception:
-            return f"{AWS_ENDPOINT_URL}/000000000000/{queue_name}"
+            return f"{runtime_endpoint}/000000000000/{queue_name}"
 
-    # For production AWS, the SDK returns the full URL; here we return the name (caller should resolve)
-    return queue_name
+    # For AWS, resolve the full QueueUrl via the API (cached per process)
+    if queue_name in _QUEUE_URL_CACHE:
+        return _QUEUE_URL_CACHE[queue_name]
+
+    import boto3
+
+    sqs_client = boto3.client("sqs", region_name=AWS_REGION)
+    response = sqs_client.get_queue_url(QueueName=queue_name)
+    queue_url = response["QueueUrl"]
+    _QUEUE_URL_CACHE[queue_name] = queue_url
+    return queue_url
 
 
 async def send_message(
@@ -94,16 +128,33 @@ async def send_message(
         message_params["MessageAttributes"] = message_attributes
 
     try:
+        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
+            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.send_message(**message_params)
-            logger.info(f"Message sent to queue {queue_name}: {response['MessageId']}")
+            log_event(
+                logger,
+                logging.DEBUG,
+                "external_call.succeeded",
+                "SQS message sent",
+                provider="sqs",
+                queue=queue_name,
+            )
             return response
     except Exception as e:
-        logger.error(f"Error sending message to queue {queue_name}: {str(e)}")
+        log_event(
+            logger,
+            logging.ERROR,
+            "external_call.failed",
+            "Failed to send SQS message",
+            provider="sqs",
+            queue=queue_name,
+            error_type=type(e).__name__,
+            error_code="SQS_SEND_FAILED",
+        )
         raise
 
 
@@ -134,21 +185,31 @@ async def receive_messages(
         "QueueUrl": queue_url,
         "MaxNumberOfMessages": max_messages,
         "WaitTimeSeconds": wait_time_seconds,
-        "VisibilityTimeout": visibility_timeout
+        "VisibilityTimeout": visibility_timeout,
+        "AttributeNames": ["ApproximateReceiveCount"],
     }
 
     try:
+        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
+            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.receive_message(**receive_params)
             messages = response.get("Messages", [])
-            logger.info(f"Received {len(messages)} messages from queue {queue_name}")
             return messages
     except Exception as e:
-        logger.error(f"Error receiving messages from queue {queue_name}: {str(e)}")
+        log_event(
+            logger,
+            logging.ERROR,
+            "external_call.failed",
+            "Failed to receive SQS messages",
+            provider="sqs",
+            queue=queue_name,
+            error_type=type(e).__name__,
+            error_code="SQS_RECEIVE_FAILED",
+        )
         raise
 
 
@@ -174,16 +235,25 @@ async def delete_message(queue_name: str, receipt_handle: str) -> Dict[str, Any]
     }
 
     try:
+        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
+            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.delete_message(**delete_params)
-            logger.info(f"Message deleted from queue {queue_name}")
             return response
     except Exception as e:
-        logger.error(f"Error deleting message from queue {queue_name}: {str(e)}")
+        log_event(
+            logger,
+            logging.ERROR,
+            "external_call.failed",
+            "Failed to delete SQS message",
+            provider="sqs",
+            queue=queue_name,
+            error_type=type(e).__name__,
+            error_code="SQS_DELETE_FAILED",
+        )
         raise
 
 
@@ -207,16 +277,25 @@ async def purge_queue(queue_name: str) -> Dict[str, Any]:
     }
 
     try:
+        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
+            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.purge_queue(**purge_params)
-            logger.info(f"Queue {queue_name} purged")
             return response
     except Exception as e:
-        logger.error(f"Error purging queue {queue_name}: {str(e)}")
+        log_event(
+            logger,
+            logging.ERROR,
+            "external_call.failed",
+            "Failed to purge SQS queue",
+            provider="sqs",
+            queue=queue_name,
+            error_type=type(e).__name__,
+            error_code="SQS_PURGE_FAILED",
+        )
         raise
 
 
@@ -245,17 +324,26 @@ async def get_queue_attributes(
     }
 
     try:
+        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
+            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.get_queue_attributes(**attribute_params)
             attributes = response.get("Attributes", {})
-            logger.info(f"Retrieved attributes for queue {queue_name}")
             return attributes
     except Exception as e:
-        logger.error(f"Error getting attributes for queue {queue_name}: {str(e)}")
+        log_event(
+            logger,
+            logging.ERROR,
+            "external_call.failed",
+            "Failed to get SQS attributes",
+            provider="sqs",
+            queue=queue_name,
+            error_type=type(e).__name__,
+            error_code="SQS_ATTRIBUTES_FAILED",
+        )
         raise
 
 
@@ -295,21 +383,38 @@ async def send_messages_batch(
         entries.append(entry)
 
     try:
+        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
+            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.send_message_batch(
                 QueueUrl=queue_url,
                 Entries=entries
             )
-            successful = len(response.get("Successful", []))
-            failed = len(response.get("Failed", []))
-            logger.info(f"Batch sent to queue {queue_name}: {successful} successful, {failed} failed")
+            if response.get("Failed"):
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "external_call.failed",
+                    "Some SQS batch entries failed",
+                    provider="sqs",
+                    queue=queue_name,
+                    error_code="SQS_BATCH_PARTIAL_FAILURE",
+                )
             return response
     except Exception as e:
-        logger.error(f"Error sending batch messages to queue {queue_name}: {str(e)}")
+        log_event(
+            logger,
+            logging.ERROR,
+            "external_call.failed",
+            "Failed to send SQS batch",
+            provider="sqs",
+            queue=queue_name,
+            error_type=type(e).__name__,
+            error_code="SQS_BATCH_FAILED",
+        )
         raise
 
 
@@ -324,7 +429,7 @@ def get_sync_sqs_client():
     return boto3.client(
         'sqs',
         region_name=AWS_REGION,
-        endpoint_url=AWS_ENDPOINT_URL
+        endpoint_url=_runtime_aws_endpoint_url()
     )
 
 
@@ -355,16 +460,23 @@ async def change_message_visibility(
     }
 
     try:
+        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
+            endpoint_url=runtime_endpoint
         ) as sqs_client:
             response = await sqs_client.change_message_visibility(**params)
-            logger.info(
-                f"Changed message visibility for queue {queue_name} to {timeout_seconds}s"
-            )
             return response
     except Exception as e:
-        logger.error(f"Error changing message visibility for queue {queue_name}: {str(e)}")
+        log_event(
+            logger,
+            logging.ERROR,
+            "external_call.failed",
+            "Failed to change SQS message visibility",
+            provider="sqs",
+            queue=queue_name,
+            error_type=type(e).__name__,
+            error_code="SQS_VISIBILITY_FAILED",
+        )
         raise

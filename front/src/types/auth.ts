@@ -23,4 +23,6 @@ export interface TokenVerificationResponse {
 export interface AuthError {
   message: string;
   field?: string;
+  raw?: string;
+  code?: string;
 }

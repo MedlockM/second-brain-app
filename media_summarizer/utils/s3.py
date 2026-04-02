@@ -4,29 +4,80 @@ S3 utilities for file storage operations.
 This module provides async utility functions for interacting
 with Amazon S3 in the Media Summarizer application using aiobotocore.
 """
-import logging
-import os
-from typing import Dict, Any, Optional, BinaryIO, Union, List
-import mimetypes
+
+from __future__ import annotations
+
+import asyncio
 import base64
 import binascii
-import asyncio
+import logging
+import mimetypes
+import os
+from typing import Any, BinaryIO, Dict, List, Optional, Union
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+from media_summarizer.utils.logging_config import (
+    get_runtime_aws_endpoint_url,
+    log_event,
+)
+
 logger = logging.getLogger(__name__)
 
 # AWS configuration
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
+_IMPORT_TIME_AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
+AWS_ENDPOINT_URL = _IMPORT_TIME_AWS_ENDPOINT_URL
 
 # Import AWS session
 try:
     from aiobotocore.session import get_session
+
     session = get_session()
 except ImportError:
-    logger.error("aiobotocore is not installed. Please install it with 'pip install aiobotocore'.")
+    log_event(
+        logger,
+        logging.ERROR,
+        "external_call.failed",
+        "aiobotocore is not installed",
+        provider="s3",
+        error_code="MISSING_DEPENDENCY",
+    )
     raise
+
+
+def _runtime_aws_endpoint_url() -> Optional[str]:
+    configured = AWS_ENDPOINT_URL
+    if configured == _IMPORT_TIME_AWS_ENDPOINT_URL:
+        configured = os.environ.get("AWS_ENDPOINT_URL", _IMPORT_TIME_AWS_ENDPOINT_URL)
+    return get_runtime_aws_endpoint_url(configured_value=configured, consumer="s3")
+
+
+def _client_kwargs() -> Dict[str, Any]:
+    return {
+        "region_name": AWS_REGION,
+        "endpoint_url": _runtime_aws_endpoint_url(),
+    }
+
+
+def _raise_s3_error(
+    *,
+    operation: str,
+    exc: Exception,
+    bucket: Optional[str] = None,
+    key: Optional[str] = None,
+) -> None:
+    log_event(
+        logger,
+        logging.ERROR,
+        "external_call.failed",
+        f"S3 {operation} failed",
+        provider="s3",
+        error_code=operation.upper(),
+        bucket=bucket,
+        key=key,
+        error_type=type(exc).__name__,
+        exc_info=exc,
+    )
+    raise Exception(f"Error during S3 {operation}: {str(exc)}") from exc
 
 
 async def upload_file(
@@ -34,7 +85,7 @@ async def upload_file(
     key: str,
     file_path: str,
     metadata: Optional[Dict[str, str]] = None,
-    content_type: Optional[str] = None
+    content_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Upload a file to S3.
@@ -65,38 +116,46 @@ async def upload_file(
 
     try:
         # Fallback to boto3 for LocalStack to avoid known checksum issues in aiobotocore with S3 v3 provider
-        if AWS_ENDPOINT_URL:
+        endpoint_url = _runtime_aws_endpoint_url()
+        if endpoint_url:
             import boto3  # Local import to avoid heavy dependency at module import
-            with open(file_path, 'rb') as f:
+
+            with open(file_path, "rb") as f:
                 file_bytes = f.read()
 
             def _put_object_sync():
                 s3_client = boto3.client(
-                    's3',
+                    "s3",
                     region_name=AWS_REGION,
-                    endpoint_url=AWS_ENDPOINT_URL,
-                    aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID', 'test'),
-                    aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY', 'test'),
+                    endpoint_url=endpoint_url,
+                    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "test"),
+                    aws_secret_access_key=os.environ.get(
+                        "AWS_SECRET_ACCESS_KEY", "test"
+                    ),
                 )
                 return s3_client.put_object(
                     Bucket=bucket,
                     Key=key,
                     Body=file_bytes,
                     ContentType=content_type,
-                    **({"Metadata": metadata} if metadata else {})
+                    **({"Metadata": metadata} if metadata else {}),
                 )
 
             response = await asyncio.to_thread(_put_object_sync)
-            logger.info(f"File uploaded to S3 (boto3 fallback): s3://{bucket}/{key}")
+            log_event(
+                logger,
+                logging.DEBUG,
+                "external_call.succeeded",
+                "S3 upload completed via boto3 fallback",
+                provider="s3",
+                bucket=bucket,
+                key=key,
+            )
             return response
 
         # Default path: use aiobotocore
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
-            with open(file_path, 'rb') as f:
+        async with session.create_client("s3", **_client_kwargs()) as s3:
+            with open(file_path, "rb") as f:
                 # Read into memory to provide as raw bytes (workaround for LocalStack S3 v3 checksum handling)
                 file_bytes = f.read()
 
@@ -110,10 +169,17 @@ async def upload_file(
                     upload_params["Metadata"] = metadata
 
                 response = await s3.put_object(**upload_params)
-                logger.info(f"File uploaded to S3: s3://{bucket}/{key}")
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    "external_call.succeeded",
+                    "S3 upload completed",
+                    provider="s3",
+                    bucket=bucket,
+                    key=key,
+                )
                 return response
     except Exception as e:
-        logger.error(f"Error uploading file to S3: {str(e)}")
         # Do not auto-create buckets. Infra must be provisioned via Terraform.
         if "NoSuchBucket" in str(e):
             msg = (
@@ -121,7 +187,7 @@ async def upload_file(
                 f"Bucket required for key '{key}'."
             )
             raise RuntimeError(msg) from e
-        raise Exception(f"Error uploading file to S3: {str(e)}") from e
+        _raise_s3_error(operation="upload", exc=e, bucket=bucket, key=key)
 
 
 async def upload_file_object(
@@ -129,7 +195,7 @@ async def upload_file_object(
     key: str,
     file_obj: BinaryIO,
     content_type: Optional[str] = None,
-    metadata: Optional[Dict[str, str]] = None
+    metadata: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Upload a file-like object to S3.
@@ -151,26 +217,29 @@ async def upload_file_object(
         content_type = "application/octet-stream"
 
     try:
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
+        async with session.create_client("s3", **_client_kwargs()) as s3:
             upload_params = {
                 "Bucket": bucket,
                 "Key": key,
                 "Body": file_obj,
-                "ContentType": content_type
+                "ContentType": content_type,
             }
             if metadata:
                 upload_params["Metadata"] = metadata
 
             response = await s3.put_object(**upload_params)
-            logger.info(f"File object uploaded to S3: s3://{bucket}/{key}")
+            log_event(
+                logger,
+                logging.DEBUG,
+                "external_call.succeeded",
+                "S3 upload completed from file object",
+                provider="s3",
+                bucket=bucket,
+                key=key,
+            )
             return response
     except Exception as e:
-        logger.error(f"Error uploading file object to S3: {str(e)}")
-        raise Exception(f"Error uploading file object to S3: {str(e)}") from e
+        _raise_s3_error(operation="upload_object", exc=e, bucket=bucket, key=key)
 
 
 async def download_file(bucket: str, key: str, file_path: str) -> bool:
@@ -192,22 +261,25 @@ async def download_file(bucket: str, key: str, file_path: str) -> bool:
         # Create directory if it doesn't exist
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
+        async with session.create_client("s3", **_client_kwargs()) as s3:
             # Use get_object instead of download_fileobj for async compatibility
             response = await s3.get_object(Bucket=bucket, Key=key)
-            with open(file_path, 'wb') as f:
-                content = await response['Body'].read()
+            with open(file_path, "wb") as f:
+                content = await response["Body"].read()
                 f.write(content)
 
-        logger.info(f"File downloaded from S3: s3://{bucket}/{key} -> {file_path}")
+        log_event(
+            logger,
+            logging.DEBUG,
+            "external_call.succeeded",
+            "S3 download completed",
+            provider="s3",
+            bucket=bucket,
+            key=key,
+        )
         return True
     except Exception as e:
-        logger.error(f"Error downloading file from S3: {str(e)}")
-        raise Exception(f"Error downloading file from S3: {str(e)}") from e
+        _raise_s3_error(operation="download", exc=e, bucket=bucket, key=key)
 
 
 async def download_file_to_memory(bucket: str, key: str) -> bytes:
@@ -225,18 +297,21 @@ async def download_file_to_memory(bucket: str, key: str) -> bytes:
         Exception: If there's an error downloading the file
     """
     try:
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
+        async with session.create_client("s3", **_client_kwargs()) as s3:
             response = await s3.get_object(Bucket=bucket, Key=key)
-            content = await response['Body'].read()
-            logger.info(f"File downloaded to memory from S3: s3://{bucket}/{key}")
+            content = await response["Body"].read()
+            log_event(
+                logger,
+                logging.DEBUG,
+                "external_call.succeeded",
+                "S3 in-memory download completed",
+                provider="s3",
+                bucket=bucket,
+                key=key,
+            )
             return content
     except Exception as e:
-        logger.error(f"Error downloading file to memory from S3: {str(e)}")
-        raise Exception(f"Error downloading file to memory from S3: {str(e)}") from e
+        _raise_s3_error(operation="download_memory", exc=e, bucket=bucket, key=key)
 
 
 async def get_object(bucket: str, key: str) -> Dict[str, Any]:
@@ -254,17 +329,20 @@ async def get_object(bucket: str, key: str) -> Dict[str, Any]:
         Exception: If there's an error getting the object
     """
     try:
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
+        async with session.create_client("s3", **_client_kwargs()) as s3:
             response = await s3.get_object(Bucket=bucket, Key=key)
-            logger.info(f"Object retrieved from S3: s3://{bucket}/{key}")
+            log_event(
+                logger,
+                logging.DEBUG,
+                "external_call.succeeded",
+                "S3 object fetch completed",
+                provider="s3",
+                bucket=bucket,
+                key=key,
+            )
             return response
     except Exception as e:
-        logger.error(f"Error getting object from S3: {str(e)}")
-        raise Exception(f"Error getting object from S3: {str(e)}") from e
+        _raise_s3_error(operation="get_object", exc=e, bucket=bucket, key=key)
 
 
 async def delete_object(bucket: str, key: str) -> Dict[str, Any]:
@@ -282,17 +360,20 @@ async def delete_object(bucket: str, key: str) -> Dict[str, Any]:
         Exception: If there's an error deleting the object
     """
     try:
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
+        async with session.create_client("s3", **_client_kwargs()) as s3:
             response = await s3.delete_object(Bucket=bucket, Key=key)
-            logger.info(f"Object deleted from S3: s3://{bucket}/{key}")
+            log_event(
+                logger,
+                logging.DEBUG,
+                "external_call.succeeded",
+                "S3 object deleted",
+                provider="s3",
+                bucket=bucket,
+                key=key,
+            )
             return response
     except Exception as e:
-        logger.error(f"Error deleting object from S3: {str(e)}")
-        raise Exception(f"Error deleting object from S3: {str(e)}") from e
+        _raise_s3_error(operation="delete_object", exc=e, bucket=bucket, key=key)
 
 
 async def object_exists(bucket: str, key: str) -> bool:
@@ -307,35 +388,29 @@ async def object_exists(bucket: str, key: str) -> bool:
         True if the object exists, False otherwise
     """
     from botocore.exceptions import ClientError
+
     try:
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
+        async with session.create_client("s3", **_client_kwargs()) as s3:
             await s3.head_object(Bucket=bucket, Key=key)
             return True
     except ClientError as e:
-        if e.response.get('Error', {}).get('Code') == '404':
+        if e.response.get("Error", {}).get("Code") == "404":
             return False
         raise
     except Exception as e:
         # Some tests or callers may raise generic exceptions with a response attribute
         code = None
         try:
-            code = getattr(e, 'response', {}).get('Error', {}).get('Code')
+            code = getattr(e, "response", {}).get("Error", {}).get("Code")
         except Exception:
             code = None
-        if code in ('404', 'NoSuchKey', 'NotFound'):
+        if code in ("404", "NoSuchKey", "NotFound"):
             return False
         raise
 
 
 async def generate_presigned_url(
-    bucket: str,
-    key: str,
-    expiration: int = 3600,
-    http_method: str = 'GET'
+    bucket: str, key: str, expiration: int = 3600, http_method: str = "GET"
 ) -> str:
     """
     Generate a presigned URL for an S3 object.
@@ -353,28 +428,34 @@ async def generate_presigned_url(
         Exception: If there's an error generating the URL
     """
     try:
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
-            # Note: generate_presigned_url is synchronous, don't await it
-            response = s3.generate_presigned_url(
-                http_method.lower() + '_object',
-                Params={'Bucket': bucket, 'Key': key},
-                ExpiresIn=expiration
+        async with session.create_client("s3", **_client_kwargs()) as s3:
+            # Assume the client provides an async generate_presigned_url and await it
+            response = await s3.generate_presigned_url(
+                http_method.lower() + "_object",
+                Params={"Bucket": bucket, "Key": key},
+                ExpiresIn=expiration,
             )
-            logger.info(f"Presigned URL generated for s3://{bucket}/{key}")
+            log_event(
+                logger,
+                logging.DEBUG,
+                "external_call.succeeded",
+                "S3 presigned URL generated",
+                provider="s3",
+                bucket=bucket,
+                key=key,
+            )
             return response
     except Exception as e:
-        logger.error(f"Error generating presigned URL: {str(e)}")
-        raise Exception(f"Error generating presigned URL: {str(e)}") from e
+        _raise_s3_error(
+            operation="generate_presigned_url",
+            exc=e,
+            bucket=bucket,
+            key=key,
+        )
 
 
 async def list_objects(
-    bucket: str,
-    prefix: Optional[str] = None,
-    max_keys: int = 1000
+    bucket: str, prefix: Optional[str] = None, max_keys: int = 1000
 ) -> List[Dict[str, Any]]:
     """
     List objects in an S3 bucket.
@@ -391,25 +472,15 @@ async def list_objects(
         Exception: If there's an error listing objects
     """
     try:
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
-            list_params = {
-                'Bucket': bucket,
-                'MaxKeys': max_keys
-            }
+        async with session.create_client("s3", **_client_kwargs()) as s3:
+            list_params = {"Bucket": bucket, "MaxKeys": max_keys}
             if prefix:
-                list_params['Prefix'] = prefix
+                list_params["Prefix"] = prefix
 
             response = await s3.list_objects_v2(**list_params)
-            objects = response.get('Contents', [])
-            logger.info(f"Listed {len(objects)} objects from s3://{bucket}")
-            return objects
+            return response.get("Contents", [])
     except Exception as e:
-        logger.error(f"Error listing objects from S3: {str(e)}")
-        raise Exception(f"Error listing objects from S3: {str(e)}") from e
+        _raise_s3_error(operation="list_objects", exc=e, bucket=bucket)
 
 
 async def get_object_metadata(bucket: str, key: str) -> Dict[str, Any]:
@@ -427,17 +498,20 @@ async def get_object_metadata(bucket: str, key: str) -> Dict[str, Any]:
         Exception: If there's an error getting metadata
     """
     try:
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
+        async with session.create_client("s3", **_client_kwargs()) as s3:
             response = await s3.head_object(Bucket=bucket, Key=key)
-            logger.info(f"Retrieved metadata for s3://{bucket}/{key}")
+            log_event(
+                logger,
+                logging.DEBUG,
+                "external_call.succeeded",
+                "S3 metadata fetch completed",
+                provider="s3",
+                bucket=bucket,
+                key=key,
+            )
             return response
     except Exception as e:
-        logger.error(f"Error getting object metadata: {str(e)}")
-        raise Exception(f"Error getting object metadata: {str(e)}") from e
+        _raise_s3_error(operation="get_metadata", exc=e, bucket=bucket, key=key)
 
 
 async def copy_object(
@@ -445,7 +519,7 @@ async def copy_object(
     source_key: str,
     dest_bucket: str,
     dest_key: str,
-    metadata: Optional[Dict[str, str]] = None
+    metadata: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Copy an object from one S3 location to another.
@@ -464,28 +538,31 @@ async def copy_object(
         Exception: If there's an error copying the object
     """
     try:
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
-            copy_source = {'Bucket': source_bucket, 'Key': source_key}
+        async with session.create_client("s3", **_client_kwargs()) as s3:
+            copy_source = {"Bucket": source_bucket, "Key": source_key}
             copy_params = {
-                'CopySource': copy_source,
-                'Bucket': dest_bucket,
-                'Key': dest_key
+                "CopySource": copy_source,
+                "Bucket": dest_bucket,
+                "Key": dest_key,
             }
 
             if metadata:
-                copy_params['Metadata'] = metadata
-                copy_params['MetadataDirective'] = 'REPLACE'
+                copy_params["Metadata"] = metadata
+                copy_params["MetadataDirective"] = "REPLACE"
 
             response = await s3.copy_object(**copy_params)
-            logger.info(f"Object copied from s3://{source_bucket}/{source_key} to s3://{dest_bucket}/{dest_key}")
+            log_event(
+                logger,
+                logging.DEBUG,
+                "external_call.succeeded",
+                "S3 object copy completed",
+                provider="s3",
+                bucket=dest_bucket,
+                key=dest_key,
+            )
             return response
     except Exception as e:
-        logger.error(f"Error copying object: {str(e)}")
-        raise Exception(f"Error copying object: {str(e)}") from e
+        _raise_s3_error(operation="copy_object", exc=e, bucket=dest_bucket, key=dest_key)
 
 
 async def upload_multipart_file(
@@ -494,7 +571,7 @@ async def upload_multipart_file(
     file_path: str,
     part_size: int = 8 * 1024 * 1024,  # 8MB
     metadata: Optional[Dict[str, str]] = None,
-    content_type: Optional[str] = None
+    content_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Upload a large file to S3 using multipart upload.
@@ -522,28 +599,24 @@ async def upload_multipart_file(
             content_type = "application/octet-stream"
 
     try:
-        async with session.create_client(
-            's3',
-            region_name=AWS_REGION,
-            endpoint_url=AWS_ENDPOINT_URL
-        ) as s3:
+        async with session.create_client("s3", **_client_kwargs()) as s3:
             # Initiate multipart upload
             create_params: Dict[str, Any] = {
-                'Bucket': bucket,
-                'Key': key,
-                'ContentType': content_type
+                "Bucket": bucket,
+                "Key": key,
+                "ContentType": content_type,
             }
             if metadata:
-                create_params['Metadata'] = metadata
+                create_params["Metadata"] = metadata
 
             multipart = await s3.create_multipart_upload(**create_params)
-            upload_id = multipart['UploadId']
+            upload_id = multipart["UploadId"]
 
             parts = []
             part_number = 1
 
             try:
-                with open(file_path, 'rb') as f:
+                with open(file_path, "rb") as f:
                     while True:
                         data = f.read(part_size)
                         if not data:
@@ -554,13 +627,12 @@ async def upload_multipart_file(
                             Key=key,
                             PartNumber=part_number,
                             UploadId=upload_id,
-                            Body=data
+                            Body=data,
                         )
 
-                        parts.append({
-                            'ETag': part_response['ETag'],
-                            'PartNumber': part_number
-                        })
+                        parts.append(
+                            {"ETag": part_response["ETag"], "PartNumber": part_number}
+                        )
 
                         part_number += 1
 
@@ -569,20 +641,27 @@ async def upload_multipart_file(
                     Bucket=bucket,
                     Key=key,
                     UploadId=upload_id,
-                    MultipartUpload={'Parts': parts}
+                    MultipartUpload={"Parts": parts},
                 )
 
-                logger.info(f"Multipart file uploaded to S3: s3://{bucket}/{key} ({len(parts)} parts)")
+                log_event(
+                    logger,
+                    logging.DEBUG,
+                    "external_call.succeeded",
+                    "S3 multipart upload completed",
+                    provider="s3",
+                    bucket=bucket,
+                    key=key,
+                )
                 return response
 
             except Exception as inner_e:
                 # Abort multipart upload on error
                 await s3.abort_multipart_upload(
-                    Bucket=bucket,
-                    Key=key,
-                    UploadId=upload_id
+                    Bucket=bucket, Key=key, UploadId=upload_id
                 )
-                raise Exception(f"Error during multipart upload: {str(inner_e)}") from inner_e
+                raise Exception(
+                    f"Error during multipart upload: {str(inner_e)}"
+                ) from inner_e
     except Exception as e:
-        logger.error(f"Error uploading multipart file to S3: {str(e)}")
-        raise Exception(f"Error uploading multipart file to S3: {str(e)}") from e
+        _raise_s3_error(operation="multipart_upload", exc=e, bucket=bucket, key=key)

@@ -494,6 +494,84 @@ resource "aws_sqs_queue" "transcription" {
   })
 }
 
+resource "aws_sqs_queue" "podcastindex_resolution_dlq" {
+  name = "podcastindex-resolution-dlq"
+}
+
+resource "aws_sqs_queue" "podcastindex_resolution" {
+  name = "podcastindex-resolution-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.podcastindex_resolution_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+resource "aws_sqs_queue" "deepgram_transcription_dlq" {
+  name = "deepgram-transcription-dlq"
+}
+
+resource "aws_sqs_queue" "deepgram_transcription" {
+  name = "deepgram-transcription-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.deepgram_transcription_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+resource "aws_sqs_queue" "article_extraction_dlq" {
+  name = "article-extraction-dlq"
+}
+
+resource "aws_sqs_queue" "article_extraction" {
+  name = "article-extraction-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.article_extraction_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+resource "aws_sqs_queue" "x_ingestion_dlq" {
+  name = "x-ingestion-dlq"
+}
+
+resource "aws_sqs_queue" "x_ingestion" {
+  name = "x-ingestion-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.x_ingestion_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+resource "aws_sqs_queue" "youtube_ingestion_dlq" {
+  name = "youtube-ingestion-dlq"
+}
+
+resource "aws_sqs_queue" "youtube_ingestion" {
+  name = "youtube-ingestion-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.youtube_ingestion_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+resource "aws_sqs_queue" "tiktok_ingestion_dlq" {
+  name = "tiktok-ingestion-dlq"
+}
+
+resource "aws_sqs_queue" "tiktok_ingestion" {
+  name = "tiktok-ingestion-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.tiktok_ingestion_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
 resource "aws_sqs_queue" "summarization_dlq" { name = "summarization-dlq" }
 resource "aws_sqs_queue" "summarization" {
   name = "summarization-queue"
@@ -562,6 +640,12 @@ output "sqs_queues" {
   value = [
     aws_sqs_queue.audio_download.name,
     aws_sqs_queue.transcription.name,
+    aws_sqs_queue.podcastindex_resolution.name,
+    aws_sqs_queue.deepgram_transcription.name,
+    aws_sqs_queue.article_extraction.name,
+    aws_sqs_queue.x_ingestion.name,
+    aws_sqs_queue.youtube_ingestion.name,
+    aws_sqs_queue.tiktok_ingestion.name,
     aws_sqs_queue.summarization.name,
     aws_sqs_queue.email_notification.name,
     aws_sqs_queue.episode_completed.name,

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, CheckCircle, XCircle } from "lucide-react";
+import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
+import { createHttpError, parseErrorResponse } from "../lib/httpError";
 
 // When VITE_API_URL is empty, use relative URLs (for Vite proxy)
 // Otherwise use the full URL (for production)
@@ -13,9 +15,7 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
   const [status, setStatus] = useState<"loading" | "success" | "error">(
     "loading",
   );
-  const [message, setMessage] = useState<string>(
-    "Finalizing connection...",
-  );
+  const [message, setMessage] = useState<string>("Finalizing connection...");
   const [provider, setProvider] = useState<string>("");
 
   useEffect(() => {
@@ -64,9 +64,12 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
           );
 
           if (!response.ok) {
-            const errorText = await response.text();
-            console.error("[OAuthCallback] Refresh failed:", errorText);
-            throw new Error("Failed to exchange refresh token");
+            const { message, code } = await parseErrorResponse(
+              response,
+              "Failed to exchange refresh token",
+            );
+            console.error("[OAuthCallback] Refresh failed:", message);
+            throw createHttpError(message, response.status, code);
           }
 
           const data = await response.json();
@@ -79,11 +82,6 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
           const expiryTime = Date.now() + expiresIn * 1000;
           localStorage.setItem("token_expiry", expiryTime.toString());
           console.log("[OAuthCallback] Token saved to localStorage");
-
-          // If Spotify provider, set flag to show playlists page
-          if (callbackProvider === "spotify") {
-            localStorage.setItem("spotify_just_linked", "true");
-          }
 
           setStatus("success");
           setMessage("Connection successful! Redirecting...");
@@ -99,9 +97,9 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
         console.error("[OAuthCallback] Error:", error);
         setStatus("error");
         setMessage(
-          error instanceof Error
-            ? `Error: ${error.message}`
-            : "An error occurred during connection",
+          `Error: ${getFriendlyErrorMessage(error, {
+            fallback: "An error occurred during connection",
+          })}`,
         );
       }
     };
@@ -128,7 +126,6 @@ export default function OAuthCallback({ onSuccess }: OAuthCallbackProps) {
     const providers: Record<string, string> = {
       google: "Google",
       apple: "Apple",
-      spotify: "Spotify",
     };
     return providers[provider] || provider;
   };

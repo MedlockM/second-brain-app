@@ -69,12 +69,10 @@ front/
 │   │   ├── AuthForm.tsx
 │   │   ├── Dashboard.tsx
 │   │   ├── PodcastCard.tsx
-│   │   ├── PodcastSearch.tsx
-│   │   └── SpotifySync.tsx
+│   │   └── PodcastSearch.tsx
 │   ├── services/        # Services API
 │   │   ├── authService.ts
-│   │   ├── podcastService.ts
-│   │   └── spotifyService.ts
+│   │   └── podcastService.ts
 │   ├── types/           # Définitions TypeScript
 │   ├── App.tsx          # Composant principal
 │   ├── main.tsx         # Point d'entrée
@@ -96,12 +94,6 @@ front/
 ### Recherche de Podcasts
 - Recherche dans le catalogue
 - Affichage des résultats avec pagination
-
-### Intégration Spotify
-- Connexion du compte Spotify
-- Vérification du statut de connexion
-- Synchronisation avec la playlist Tosum
-- Déconnexion du compte Spotify
 
 ## 🛠️ Scripts disponibles
 
@@ -133,13 +125,6 @@ npm run typecheck
 ### Podcasts
 - `GET /api/v1/podcasts/search` - Rechercher des podcasts
 
-### Spotify
-- `GET /api/v1/auth/spotify/status` - Vérifier le statut de connexion Spotify
-- `GET /api/v1/auth/spotify/login` - Initier la connexion Spotify (redirection OAuth)
-- `GET /api/v1/auth/spotify/callback` - Callback OAuth Spotify
-- `DELETE /api/v1/auth/spotify/unlink` - Dissocier le compte Spotify
-- `POST /api/v1/spotify/sync-tosum` - Synchroniser la playlist Tosum
-
 ## 🐛 Résolution de problèmes
 
 ### L'API n'est pas accessible
@@ -165,12 +150,6 @@ Si vous rencontrez des erreurs CORS, vérifiez que :
 1. Le backend inclut votre origin dans `CORS_ORIGINS`
 2. L'URL du frontend correspond à celle configurée
 3. Les cookies sont autorisés (`allow_credentials: true`)
-
-### Problèmes de connexion Spotify
-
-1. Vérifier que les variables d'environnement Spotify sont configurées dans le backend
-2. Vérifier que l'URL de callback est correctement enregistrée dans Spotify Developer Dashboard
-3. Consulter les logs du backend pour les erreurs OAuth
 
 ## 📝 Variables d'environnement
 

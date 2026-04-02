@@ -79,7 +79,7 @@ class TestBasicHealthCheck:
 
         # Verify
         assert response.status_code == 503
-        assert "Service unhealthy" in response.json()["detail"]
+        assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
     @pytest.mark.asyncio
     async def test_health_check_connection_timeout(self, client_with_db_override, mock_db):
@@ -94,7 +94,7 @@ class TestBasicHealthCheck:
 
         # Verify
         assert response.status_code == 503
-        assert "Service unhealthy" in response.json()["detail"]
+        assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
 
 class TestDetailedHealthCheck:
@@ -142,14 +142,7 @@ class TestDetailedHealthCheck:
 
         # Verify
         assert response.status_code == 503
-        data = response.json()["detail"]
-        assert data["status"] == "unhealthy"
-
-        # Check database component
-        db_component = data["components"]["database"]
-        assert db_component["status"] == "unhealthy"
-        assert db_component["type"] == "DynamoDB"
-        assert "error" in db_component
+        assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
     @pytest.mark.asyncio
     async def test_detailed_health_check_degraded_service(self, client_with_db_override, mock_db):
@@ -164,8 +157,7 @@ class TestDetailedHealthCheck:
 
         # Verify
         assert response.status_code == 503
-        data = response.json()["detail"]
-        assert data["status"] == "unhealthy"
+        assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
     @pytest.mark.asyncio
     async def test_detailed_health_check_empty_tables(self, client_with_db_override, mock_db):
@@ -247,8 +239,7 @@ class TestHealthCheckIntegration:
 
         # Verify
         assert response.status_code == 503
-        assert "Service unhealthy" in response.json()["detail"]
-        assert "Failed to create DynamoDB client" in response.json()["detail"]
+        assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
     @pytest.mark.asyncio
     async def test_detailed_health_check_client_creation_error(self, client_with_db_override, mock_db):
@@ -261,12 +252,7 @@ class TestHealthCheckIntegration:
 
         # Verify
         assert response.status_code == 503
-        data = response.json()["detail"]
-        assert data["status"] == "unhealthy"
-
-        db_component = data["components"]["database"]
-        assert db_component["status"] == "unhealthy"
-        assert "Failed to create DynamoDB client" in db_component["error"]
+        assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
 
 class TestHealthCheckEdgeCases:
@@ -328,5 +314,4 @@ class TestHealthCheckEdgeCases:
 
         # Verify
         assert response.status_code == 503
-        assert "Service unhealthy" in response.json()["detail"]
-        assert "Context manager error" in response.json()["detail"]
+        assert response.json()["error"]["code"] == "INTERNAL_ERROR"

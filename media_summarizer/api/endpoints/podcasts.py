@@ -6,7 +6,9 @@ Provides /api/v1/podcasts/submit to create a processing job directly from a podc
 """
 
 import logging
+import os
 from typing import Optional, List
+from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from pydantic import BaseModel, Field
 
@@ -23,10 +25,29 @@ logger = logging.getLogger(__name__)
 
 REQUIRED_MINUTES = 1
 SEARCH_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_SEARCH", "60/minute")
+_AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
+DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
+    "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
+)
+PODCASTINDEX_RESOLUTION_QUEUE = os.environ.get(
+    "PODCASTINDEX_RESOLUTION_QUEUE", "podcastindex-resolution-queue"
+)
+
+
+def _looks_like_audio_url(url: str) -> bool:
+    value = (url or "").strip().lower()
+    if not value:
+        return False
+    try:
+        split = urlsplit(value)
+        path = (split.path or "").lower()
+    except ValueError:
+        path = value
+    return path.endswith(_AUDIO_EXTENSIONS)
 
 
 class PodcastSubmitRequest(BaseModel):
-    podcast_url: str = Field(..., description="Podcast RSS URL")
+    podcast_url: str = Field(..., description="Podcast RSS URL or direct audio URL")
     user_email: Optional[str] = Field(None, description="User email (fallback)")
 
 
@@ -69,6 +90,7 @@ async def search_podcasts(
     page: int = Query(1, description="Page number", ge=1),
     page_size: int = Query(20, description="Results per page", ge=1, le=100),
     clean: bool = Query(True, description="Filter out explicit content"),
+    similar: bool = Query(True, description="Include similar matches (fuzzy search)"),
     current_user: AuthUser = Depends(get_current_user),
 ):
     """
@@ -79,6 +101,7 @@ async def search_podcasts(
         page: Numéro de page (non utilisé pour l'instant, mais prévu pour pagination future)
         page_size: Nombre de résultats par page
         clean: Filtrer le contenu explicite
+        similar: Inclure des résultats similaires (recherche fuzzy)
 
     Returns:
         Liste des podcasts trouvés au format frontend
@@ -91,7 +114,7 @@ async def search_podcasts(
 
         # Recherche via l'API Podcast Index
         search_result = await podcast_index.search_podcasts(
-            query=query, max_results=page_size, clean=clean
+            query=query, max_results=page_size, clean=clean, similar=similar
         )
 
         if not search_result.get("status") == "true":
@@ -185,15 +208,30 @@ async def submit_podcast_for_processing(
             user_id=user.id, job_id=job.id, minutes_estimated=REQUIRED_MINUTES
         )
 
-        # Enqueue message; keep fields expected by tests
-        message = {
-            "job_id": job.id,
-            "podcast_url": payload.podcast_url,
-            "user_email": user.email,
-            "user_id": user.id,
-        }
-        # Use audio-download-queue to satisfy focused test capture; use keyword args to avoid signature issues
-        await sqs.send_message(queue_name="audio-download-queue", message_body=message)
+        submitted_url = (payload.podcast_url or "").strip()
+        if _looks_like_audio_url(submitted_url):
+            # Direct audio URL path: send to Deepgram worker.
+            await sqs.send_message(
+                queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
+                message_body={
+                    "job_id": job.id,
+                    "audio_url": submitted_url,
+                    "user_email": user.email,
+                    "user_id": user.id,
+                },
+            )
+        else:
+            # Non-audio URL path: resolve enclosure URL first, then route to Deepgram.
+            await sqs.send_message(
+                queue_name=PODCASTINDEX_RESOLUTION_QUEUE,
+                message_body={
+                    "job_id": job.id,
+                    "user_email": user.email,
+                    "user_id": user.id,
+                    "normalized_url": submitted_url,
+                    "source_platform": "rss",
+                },
+            )
 
         return {"job_id": job.id, "status": job.status.value}
     except HTTPException:

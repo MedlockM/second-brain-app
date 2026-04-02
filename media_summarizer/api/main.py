@@ -1,6 +1,9 @@
+import logging
 import os
+import time
+import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
@@ -11,12 +14,35 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from media_summarizer.api.endpoints import health, users, podcast_search, podcasts, jobs
+from media_summarizer.api.endpoints import (
+    artifacts,
+    health,
+    jobs,
+    media,
+    podcast_search,
+    podcasts,
+    users,
+)
 from media_summarizer.api.endpoints import auth
 from media_summarizer.api.endpoints import auth_social
-from media_summarizer.api.endpoints import spotify_sync
-from media_summarizer.api.endpoints import spotify_playlists
 from media_summarizer.api.endpoints import episodes
+from media_summarizer.api.error_handling import (
+    general_exception_handler,
+    http_exception_handler,
+    validation_exception_handler,
+)
+from media_summarizer.utils.logging_config import (
+    bind_log_context,
+    get_slow_request_threshold_ms,
+    log_event,
+    reset_log_context,
+    setup_logging,
+)
+
+APP_VERSION = "0.1.0"
+
+setup_logging("api", version=APP_VERSION)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -44,7 +70,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Media Summarizer API",
     description="API pour le service de résumé automatique de podcasts",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -66,36 +92,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    started = time.perf_counter()
+    token = bind_log_context(
+        request_id=request_id,
+        path=str(request.url.path),
+        method=request.method,
+    )
+    response = None
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        if (
+            response is not None
+            and response.status_code < status.HTTP_500_INTERNAL_SERVER_ERROR
+            and duration_ms >= get_slow_request_threshold_ms()
+        ):
+            log_event(
+                logger,
+                logging.WARNING,
+                "api.request_slow",
+                "Slow API request",
+                duration_ms=duration_ms,
+                status=response.status_code,
+            )
+        reset_log_context(token)
+
 
 # Gestionnaire d'exceptions global
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    errors = []
-    for error in exc.errors():
-        error_dict = {}
-        for key, value in error.items():
-            if key == "ctx" and isinstance(value, dict) and "error" in value:
-                # Convert Exception objects to strings
-                error_dict[key] = {
-                    k: str(v) if isinstance(v, Exception) else v
-                    for k, v in value.items()
-                }
-            else:
-                error_dict[key] = value
-        errors.append(error_dict)
-
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": errors, "body": exc.body},
-    )
-
-
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": str(exc)},
-    )
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(Exception, general_exception_handler)
 
 
 @app.get("/")
@@ -119,6 +152,8 @@ async def payment_cancel():
 
 # Inclusion des routes API
 app.include_router(health.router, prefix="/api/v1/health", tags=["health"])
+app.include_router(media.router, prefix="/api", tags=["media"])
+app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(auth_social.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(
@@ -130,8 +165,6 @@ from media_summarizer.api.endpoints import billing
 
 app.include_router(billing.router, prefix="/api/v1", tags=["billing"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
-app.include_router(spotify_sync.router, prefix="/api/v1", tags=["spotify"])
-app.include_router(spotify_playlists.router, prefix="/api/v1", tags=["spotify"])
 app.include_router(episodes.router, prefix="/api/v1", tags=["episodes"])
 
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---

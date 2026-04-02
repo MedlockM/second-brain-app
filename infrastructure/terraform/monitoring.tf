@@ -89,11 +89,11 @@ resource "aws_cloudwatch_dashboard" "jobs_monitoring" {
         height = 6
         properties = {
           metrics = [
-            [ "MediaSummarizer/Jobs", "JobFailureCount", "WorkerType", "rss", { "stat": "Sum", "label": "RSS" } ],
-            [ "...", "download", { "stat": "Sum", "label": "Download" } ],
-            [ "...", "whisper", { "stat": "Sum", "label": "Whisper" } ],
-            [ "...", "summarization", { "stat": "Sum", "label": "Summarization" } ],
-            [ "...", "email", { "stat": "Sum", "label": "Email" } ]
+            [ "MediaSummarizer/Jobs", "JobFailureCount", "WorkerType", "rss", { "stat": "Sum", "label": "PodcastIndex Resolution" } ],
+            [ "...", "youtube", { "stat": "Sum", "label": "YouTube" } ],
+            [ "...", "tiktok", { "stat": "Sum", "label": "TikTok" } ],
+            [ "...", "deepgram", { "stat": "Sum", "label": "Deepgram" } ],
+            [ "...", "summarization", { "stat": "Sum", "label": "Summarization" } ]
           ]
           view    = "timeSeries"
           stacked = false
@@ -114,7 +114,7 @@ resource "aws_cloudwatch_dashboard" "jobs_monitoring" {
         width  = 12
         height = 6
         properties = {
-          query   = "SOURCE '/ecs/${var.project_name}-rss-worker' | SOURCE '/ecs/${var.project_name}-download-worker' | SOURCE '/ecs/${var.project_name}-whisper-worker' | SOURCE '/ecs/${var.project_name}-summarization-worker' | SOURCE '/ecs/${var.project_name}-email-worker' | fields @timestamp, job_id, error_message, error_step | filter message = \"Job processing failed\" | sort @timestamp desc | limit 20"
+          query   = "SOURCE '/ecs/${var.project_name}-rss-worker' | SOURCE '/ecs/${var.project_name}-youtube-worker' | SOURCE '/ecs/${var.project_name}-tiktok-worker' | SOURCE '/ecs/${var.project_name}-deepgram-worker' | SOURCE '/ecs/${var.project_name}-summarization-worker' | fields @timestamp, job_id, error_message, error_step | filter message = \"Job processing failed\" | sort @timestamp desc | limit 20"
           region  = var.aws_region
           title   = "Recent Job Failures"
           view    = "table"
@@ -128,9 +128,12 @@ resource "aws_cloudwatch_dashboard" "jobs_monitoring" {
         height = 6
         properties = {
           metrics = [
-            [ "AWS/SQS", "ApproximateNumberOfVisibleMessages", "QueueName", "${var.project_name}-audio-download-queue", { "stat": "Average", "period": 60 } ],
-            [ "...", "${var.project_name}-transcription-queue", { "stat": "Average", "period": 60 } ],
-            [ "...", "${var.project_name}-summarization-queue", { "stat": "Average", "period": 60 } ]
+            [ "AWS/SQS", "ApproximateNumberOfVisibleMessages", "QueueName", "podcastindex-resolution-queue", { "stat": "Average", "period": 60 } ],
+            [ "...", "x-ingestion-queue", { "stat": "Average", "period": 60 } ],
+            [ "...", "youtube-ingestion-queue", { "stat": "Average", "period": 60 } ],
+            [ "...", "tiktok-ingestion-queue", { "stat": "Average", "period": 60 } ],
+            [ "...", "deepgram-transcription-queue", { "stat": "Average", "period": 60 } ],
+            [ "...", "summarization-queue", { "stat": "Average", "period": 60 } ]
           ]
           view    = "timeSeries"
           stacked = false

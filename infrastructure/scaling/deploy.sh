@@ -149,6 +149,7 @@ deploy_terraform() {
         -var="vpc_id=${VPC_ID:-$(get_default_vpc)}" \
         -var="subnet_ids=[$(get_public_subnets)]" \
         -var="openai_api_key=${OPENAI_API_KEY}" \
+        -var="deepgram_api_key=${DEEPGRAM_API_KEY}" \
         -out=tfplan
 
     # Apply if plan is successful
@@ -231,6 +232,7 @@ show_usage() {
     echo ""
     echo "Environment variables:"
     echo "  OPENAI_API_KEY          OpenAI API key (required)"
+    echo "  DEEPGRAM_API_KEY        Deepgram API key (required)"
     echo "  VPC_ID                  VPC ID for deployment"
     echo "  SUBNET_IDS              Comma-separated list of subnet IDs"
     echo ""
@@ -291,6 +293,11 @@ if [ -z "$OPENAI_API_KEY" ] && [ "$DESTROY" = false ]; then
     exit 1
 fi
 
+if [ -z "$DEEPGRAM_API_KEY" ] && [ "$DESTROY" = false ]; then
+    log_error "DEEPGRAM_API_KEY environment variable is required."
+    exit 1
+fi
+
 # Main execution
 main() {
     log_info "Starting Media Summarizer scaling infrastructure deployment..."
@@ -308,6 +315,7 @@ main() {
             -var="vpc_id=${VPC_ID:-$(get_default_vpc)}" \
             -var="subnet_ids=[$(get_public_subnets)]" \
             -var="openai_api_key=dummy" \
+            -var="deepgram_api_key=dummy" \
             -auto-approve
         log_info "Infrastructure destroyed."
         exit 0

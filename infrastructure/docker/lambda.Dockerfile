@@ -1,5 +1,5 @@
-# Lambda Dockerfile for Spotify Sync functions
-# This image can be used for both dispatcher and worker Lambda functions
+# Lambda Dockerfile for utility/background Lambda functions
+# This image can be reused for handlers under media_summarizer.workers.*
 # It packages all dependencies needed for the Lambda runtime
 
 FROM public.ecr.aws/lambda/python:3.11
@@ -31,6 +31,6 @@ RUN uv pip install --system --no-cache-dir \
 # Copy application code
 COPY media_summarizer/ ./media_summarizer/
 
-# Set the handler - this will be overridden per function in Terraform
-# Default to dispatcher
-CMD ["media_summarizer.workers.spotify_sync.dispatcher.lambda_handler"]
+# Set the handler - this can be overridden per function in Terraform
+# Default to the cleanup job archiver handler.
+CMD ["media_summarizer.workers.cleanup.job_archiver.lambda_handler"]

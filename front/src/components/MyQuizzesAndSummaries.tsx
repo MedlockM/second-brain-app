@@ -1,7 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { ArrowLeft, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { EpisodesService, Episode } from "../services/episodesService";
+import { PodcastService, Job } from "../services/podcastService";
 import EpisodeCard from "./EpisodeCard";
+import { useMinutes } from "../contexts/MinutesContext";
+import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 
 interface MyQuizzesAndSummariesProps {
   token: string;
@@ -17,75 +20,185 @@ interface PodcastGroup {
   episodes: Episode[];
 }
 
+/**
+ * Some backends may attach extra optional fields to Job objects (feed_id, podcast_id, podcast_image).
+ * We don't want to change the canonical `Job` interface, so model the extended shape as an intersection
+ * with Partial<> to avoid TypeScript incompatibility issues.
+ */
+type ExtendedJob = Job &
+  Partial<{
+    feed_id: number;
+    podcast_id: string;
+    podcast_image: string;
+    episode_image: string;
+  }>;
+
+
+
 export default function MyQuizzesAndSummaries({
   token,
   onBack,
 }: MyQuizzesAndSummariesProps) {
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [allJobs, setAllJobs] = useState<ExtendedJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("recent");
   const [selectedPodcast, setSelectedPodcast] = useState<string | null>(null);
+  const { refreshMinutes } = useMinutes();
 
-  useEffect(() => {
-    loadEpisodes();
-  }, [token]);
+  // We'll track initial load so poll errors don't spam the UI after the first successful load.
+  const initialLoadRef = useRef(true);
 
-  const loadEpisodes = async () => {
+  // Fetch active jobs and episodes
+  const loadData = useCallback(async (showErrors = false) => {
     try {
-      setLoading(true);
       setError(null);
-      const response = await EpisodesService.getMyEpisodes(token);
-      setEpisodes(response.episodes);
+      if (!token) {
+        console.warn("MyQuizzesAndSummaries: No token provided");
+        setLoading(false);
+        return;
+      }
+
+      const [episodesResp, jobsResp] = await Promise.all([
+        EpisodesService.getMyEpisodes(token),
+        PodcastService.getUserJobs(token),
+      ]);
+
+      setEpisodes(episodesResp.episodes || []);
+
+      // Store all jobs (both active and completed)
+      const jobs = jobsResp.jobs || [];
+      console.log('Jobs fetched:', jobs);
+      const activeJobsList = jobs.filter((j) => j.status !== "completed" && j.status !== "failed");
+      console.log('Active jobs:', activeJobsList);
+      setAllJobs(jobs as ExtendedJob[]);
+
+      if (activeJobsList.length > 0) {
+        refreshMinutes();
+      }
     } catch (err) {
-      console.error("Failed to load episodes:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to load episodes"
-      );
+      console.error("Failed to load data:", err);
+      const status = (err as { status?: number }).status;
+      const code = (err as { code?: string }).code;
+      const isSessionExpired =
+        status === 401 || code === "SESSION_EXPIRED";
+      if (initialLoadRef.current || showErrors || isSessionExpired) {
+        setError(getFriendlyErrorMessage(err));
+      }
     } finally {
       setLoading(false);
+      initialLoadRef.current = false;
     }
-  };
+  }, [token, refreshMinutes]);
 
-  // Group episodes by podcast
+  const didInitRef = useRef(false);
+
+  useEffect(() => {
+    if (!token || didInitRef.current) return;
+
+    didInitRef.current = true;
+    setLoading(true);
+    loadData();
+  }, [token, loadData]);
+
+  // Separate active and completed/failed jobs
+  const activeJobs = useMemo(
+    () => allJobs.filter((j) => j.status !== "completed" && j.status !== "failed"),
+    [allJobs]
+  );
+
+
+
+  // Build a pseudo-episode for each active job and compute combined list
+  const combinedEpisodes = useMemo(() => {
+    const pseudoFromJob = activeJobs.map((job) => {
+      const j = job;
+      // Use feed_id if available to group by podcast; otherwise fall back to job.podcast_id (if present) or podcast title
+      const podcastId = j.feed_id ? String(j.feed_id) : j.podcast_id || "";
+
+      const createdAt =
+        // job.created_at comes from the backend as an ISO string in PodcastService.Job
+        // Convert to unix timestamp (seconds) as EpisodesService.Episode expects.
+        j.created_at ? Math.floor(new Date(j.created_at).getTime() / 1000) : 0;
+
+      const pseudo: Episode & {
+        // additional runtime-only fields to render processing state
+        status?: Job["status"];
+        progress?: number;
+        isJob?: boolean;
+      } = {
+        job_id: j.job_id,
+        podcast_title: j.podcast_title || "Unknown Podcast",
+        podcast_id: podcastId,
+        episode_title: j.episode_title || "Processing...",
+        episode_image: j.episode_image || j.podcast_image || "",
+        episode_date_published: j.episode_date_published || 0,
+        created_at: createdAt,
+        summary: {
+          main_topics: [],
+          key_points: [],
+          notable_quotes: [],
+          conclusion: "",
+        },
+        quiz: {
+          id: "",
+          language: "",
+          questions: [],
+        },
+        // runtime-only
+        status: j.status,
+        progress: j.progress,
+        isJob: true,
+      };
+
+      return pseudo as Episode;
+    });
+
+    // Combine pseudo episodes (jobs) with real episodes (from EpisodesService)
+    // and sort by created_at DESC so recent items appear first.
+    const combined = [...pseudoFromJob, ...episodes];
+    combined.sort((a, b) => b.created_at - a.created_at);
+    return combined;
+  }, [episodes, activeJobs]);
+
+  // Group combined episodes by podcast for the "By Podcast" view
   const podcastGroups = useMemo(() => {
     const groups: Record<string, PodcastGroup> = {};
 
-    episodes.forEach((episode) => {
-      const key = episode.podcast_id || episode.podcast_title;
+    combinedEpisodes.forEach((item) => {
+      const key = item.podcast_id || item.podcast_title || "Processing";
 
       if (!groups[key]) {
         groups[key] = {
           podcast_id: key,
-          podcast_title: episode.podcast_title,
-          podcast_image: episode.episode_image,
+          podcast_title: item.podcast_title,
+          podcast_image: item.episode_image,
           episodes: [],
         };
       }
-      groups[key].episodes.push(episode);
+      groups[key].episodes.push(item);
     });
 
-    // Sort episodes within each group by created_at DESC
-    Object.values(groups).forEach((group) => {
-      group.episodes.sort((a, b) => b.created_at - a.created_at);
-    });
-
-    return Object.values(groups).sort((a, b) =>
-      a.podcast_title.localeCompare(b.podcast_title)
+    // Sort episodes in each group by created_at desc
+    Object.values(groups).forEach((g) =>
+      g.episodes.sort((a, b) => b.created_at - a.created_at),
     );
-  }, [episodes]);
 
-  // Get filtered episodes for selected podcast
+    // Return sorted list of groups by title
+    return Object.values(groups).sort((a, b) =>
+      a.podcast_title.localeCompare(b.podcast_title),
+    );
+  }, [combinedEpisodes]);
+
   const filteredEpisodes = useMemo(() => {
     if (!selectedPodcast) return [];
-
-    const group = podcastGroups.find(
-      (g) => g.podcast_id === selectedPodcast
-    );
-
+    const group = podcastGroups.find((g) => g.podcast_id === selectedPodcast);
     return group ? group.episodes : [];
   }, [selectedPodcast, podcastGroups]);
 
+
+  // UI
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       {/* Header */}
@@ -94,7 +207,9 @@ export default function MyQuizzesAndSummaries({
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
               <button
-                onClick={selectedPodcast ? () => setSelectedPodcast(null) : onBack}
+                onClick={
+                  selectedPodcast ? () => setSelectedPodcast(null) : onBack
+                }
                 className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <ArrowLeft className="h-4 w-4" />
@@ -102,31 +217,32 @@ export default function MyQuizzesAndSummaries({
               </button>
               <h1 className="text-xl font-bold text-gray-900">
                 {selectedPodcast
-                  ? podcastGroups.find((g) => g.podcast_id === selectedPodcast)?.podcast_title
+                  ? podcastGroups.find((g) => g.podcast_id === selectedPodcast)
+                    ?.podcast_title
                   : "My Quizzes & Summaries"}
               </h1>
             </div>
 
             <div className="flex items-center space-x-3">
-              {/* Refresh Button */}
               <button
-                onClick={loadEpisodes}
+                onClick={loadData}
                 disabled={loading}
                 className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Refresh episodes"
               >
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                />
                 <span>Refresh</span>
               </button>
 
-              {/* View Toggle */}
-              {!selectedPodcast && episodes.length > 0 && (
+              {!selectedPodcast && (episodes.length > 0 || podcastGroups.length > 1) && (
                 <div className="flex items-center space-x-2 bg-gray-100 p-1 rounded-lg">
                   <button
                     onClick={() => setViewMode("recent")}
                     className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${viewMode === "recent"
-                        ? "bg-white text-gray-900 shadow-sm"
-                        : "text-gray-600 hover:text-gray-900"
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
                       }`}
                   >
                     Recent
@@ -134,8 +250,8 @@ export default function MyQuizzesAndSummaries({
                   <button
                     onClick={() => setViewMode("by-podcast")}
                     className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${viewMode === "by-podcast"
-                        ? "bg-white text-gray-900 shadow-sm"
-                        : "text-gray-600 hover:text-gray-900"
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
                       }`}
                   >
                     By Podcast
@@ -165,7 +281,7 @@ export default function MyQuizzesAndSummaries({
               </h3>
               <p className="text-sm text-red-700">{error}</p>
               <button
-                onClick={loadEpisodes}
+                onClick={() => loadData(true)}
                 className="mt-3 text-sm text-red-700 underline hover:text-red-900"
               >
                 Retry
@@ -174,7 +290,7 @@ export default function MyQuizzesAndSummaries({
           </div>
         )}
 
-        {!loading && !error && episodes.length === 0 && (
+        {!loading && !error && activeJobs.length === 0 && episodes.length === 0 && (
           <div className="text-center py-12">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
               <svg
@@ -206,30 +322,44 @@ export default function MyQuizzesAndSummaries({
           </div>
         )}
 
-        {!loading && !error && episodes.length > 0 && (
+        {!loading && !error && combinedEpisodes.length > 0 && (
           <>
-            {/* Recent View */}
             {viewMode === "recent" && !selectedPodcast && (
               <div>
                 <div className="mb-6">
                   <p className="text-sm text-gray-600">
-                    {episodes.length} episode{episodes.length > 1 ? "s" : ""} found
+                    {combinedEpisodes.length} item
+                    {combinedEpisodes.length > 1 ? "s" : ""} found
+                    {activeJobs.length > 0 && (
+                      <span className="ml-2 text-blue-600">
+                        ({activeJobs.length} in progress)
+                      </span>
+                    )}
                   </p>
                 </div>
                 <div className="space-y-6">
-                  {episodes.map((episode) => (
-                    <EpisodeCard key={episode.job_id} episode={episode} />
-                  ))}
+                  {combinedEpisodes.map((episode) => {
+                    const anyEp = episode as any;
+                    const status: 'processing' | 'completed' | 'failed' = anyEp.status === 'failed'
+                      ? 'failed'
+                      : anyEp.status && anyEp.status !== 'completed'
+                        ? 'processing'
+                        : 'completed';
+                    const progress = typeof anyEp.progress === 'number' ? anyEp.progress : 0;
+                    return (
+                      <EpisodeCard key={episode.job_id} episode={episode} status={status} progress={progress} />
+                    );
+                  })}
                 </div>
               </div>
             )}
 
-            {/* By Podcast View - Podcast List */}
             {viewMode === "by-podcast" && !selectedPodcast && (
               <div>
                 <div className="mb-6">
                   <p className="text-sm text-gray-600">
-                    {podcastGroups.length} podcast{podcastGroups.length > 1 ? "s" : ""}
+                    {podcastGroups.length} podcast
+                    {podcastGroups.length > 1 ? "s" : ""}
                   </p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -261,7 +391,8 @@ export default function MyQuizzesAndSummaries({
                             {group.podcast_title}
                           </h3>
                           <p className="text-sm text-gray-600">
-                            {group.episodes.length} episode{group.episodes.length > 1 ? "s" : ""}
+                            {group.episodes.length} episode
+                            {group.episodes.length > 1 ? "s" : ""}
                           </p>
                         </div>
                       </div>
@@ -271,18 +402,27 @@ export default function MyQuizzesAndSummaries({
               </div>
             )}
 
-            {/* By Podcast View - Episode List */}
             {selectedPodcast && (
               <div>
                 <div className="mb-6">
                   <p className="text-sm text-gray-600">
-                    {filteredEpisodes.length} episode{filteredEpisodes.length > 1 ? "s" : ""}
+                    {filteredEpisodes.length} episode
+                    {filteredEpisodes.length > 1 ? "s" : ""}
                   </p>
                 </div>
                 <div className="space-y-6">
-                  {filteredEpisodes.map((episode) => (
-                    <EpisodeCard key={episode.job_id} episode={episode} />
-                  ))}
+                  {filteredEpisodes.map((episode) => {
+                    const anyEp = episode as any;
+                    const status: 'processing' | 'completed' | 'failed' = anyEp.status === 'failed'
+                      ? 'failed'
+                      : anyEp.status && anyEp.status !== 'completed'
+                        ? 'processing'
+                        : 'completed';
+                    const progress = typeof anyEp.progress === 'number' ? anyEp.progress : 0;
+                    return (
+                      <EpisodeCard key={episode.job_id} episode={episode} status={status} progress={progress} />
+                    );
+                  })}
                 </div>
               </div>
             )}

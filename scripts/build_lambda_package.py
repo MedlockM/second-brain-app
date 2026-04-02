@@ -8,14 +8,14 @@ are not bundled (the Lambda in LocalStack tests uses modules provided by the
 runtime and the app code itself).
 
 Default output:
-  infrastructure/terraform/localstack/spotify_sync_worker.zip
+  infrastructure/terraform/localstack/lambda_package.zip
 
 Examples:
   # Build with default output path
   python scripts/build_lambda_package.py
 
   # Build to a custom path
-  python scripts/build_lambda_package.py --output /tmp/spotify_sync_worker.zip
+  python scripts/build_lambda_package.py --output /tmp/lambda_package.zip
 
   # Increase verbosity
   python scripts/build_lambda_package.py -v
@@ -59,7 +59,7 @@ def default_output_path(project_root: Path) -> Path:
         / "infrastructure"
         / "terraform"
         / "localstack"
-        / "spotify_sync_worker.zip"
+        / "lambda_package.zip"
     )
 
 
@@ -149,11 +149,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--output",
         type=Path,
         default=None,
-        help="Output zip path (default: infrastructure/terraform/localstack/spotify_sync_worker.zip)",
+        help="Output zip path (default: infrastructure/terraform/localstack/lambda_package.zip)",
     )
     parser.add_argument(
         "--module",
-        default="media_summarizer.workers.spotify_sync.worker",
+        default="media_summarizer.workers.cleanup.job_archiver",
         help="Lambda handler module to validate import (default: %(default)s)",
     )
     parser.add_argument(

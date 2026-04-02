@@ -89,7 +89,7 @@ class TestRegisterEndpoint:
             payload = {"email": "existing@example.com", "password": "x"}
             resp = client.post("/api/v1/auth/register", json=payload)
             assert resp.status_code == 400
-            assert "already" in resp.json()["detail"].lower()
+            assert resp.json()["error"]["code"] == "EMAIL_ALREADY_EXISTS"
 
 
 class TestLoginEndpoint:

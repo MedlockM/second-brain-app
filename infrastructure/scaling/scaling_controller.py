@@ -24,25 +24,35 @@ AWS_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 
 # Queue configurations with their priorities
 QUEUE_CONFIGS = {
-    "audio-download-queue": {
+    "podcastindex-resolution-queue": {
         "priority": 1,
-        "task_definition": os.environ.get("DOWNLOAD_TASK_DEFINITION_ARN"),
-        "worker_type": "download"
+        "task_definition": os.environ.get("RSS_TASK_DEFINITION_ARN"),
+        "worker_type": "rss"
     },
-    "transcription-queue": {
+    "x-ingestion-queue": {
         "priority": 2,
-        "task_definition": os.environ.get("WHISPER_TASK_DEFINITION_ARN"),
-        "worker_type": "whisper"
+        "task_definition": os.environ.get("X_TASK_DEFINITION_ARN"),
+        "worker_type": "x"
+    },
+    "youtube-ingestion-queue": {
+        "priority": 3,
+        "task_definition": os.environ.get("YOUTUBE_TASK_DEFINITION_ARN"),
+        "worker_type": "youtube"
+    },
+    "tiktok-ingestion-queue": {
+        "priority": 4,
+        "task_definition": os.environ.get("TIKTOK_TASK_DEFINITION_ARN"),
+        "worker_type": "tiktok"
+    },
+    "deepgram-transcription-queue": {
+        "priority": 5,
+        "task_definition": os.environ.get("DEEPGRAM_TASK_DEFINITION_ARN"),
+        "worker_type": "deepgram"
     },
     "summarization-queue": {
-        "priority": 3,
+        "priority": 6,
         "task_definition": os.environ.get("SUMMARIZATION_TASK_DEFINITION_ARN"),
         "worker_type": "summarization"
-    },
-    "email-notification-queue": {
-        "priority": 4,
-        "task_definition": os.environ.get("EMAIL_TASK_DEFINITION_ARN"),
-        "worker_type": "email"
     }
 }
 

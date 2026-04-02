@@ -4,14 +4,18 @@ Podcast Index utilities for podcast search and retrieval operations.
 This module provides simple, stateless utility functions for interacting
 with the Podcast Index API in the Media Summarizer application.
 """
+
 import hashlib
 import hmac
+import json
 import logging
-import time
-from typing import Dict, Any, List, Optional
-import httpx
 import os
+import time
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
+
+import httpx
+from media_summarizer.utils.podcastindex_limiter import acquire_podcastindex_slot
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -19,15 +23,19 @@ logger = logging.getLogger(__name__)
 # API configuration
 PODCAST_INDEX_BASE_URL = "https://api.podcastindex.org/api/1.0"
 
+
 def _get_env_stripped(name: str) -> Optional[str]:
     v = os.getenv(name)
     if v is None:
         return None
     # Remove surrounding quotes and whitespace
     v = v.strip()
-    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+    if (v.startswith('"') and v.endswith('"')) or (
+        v.startswith("'") and v.endswith("'")
+    ):
         v = v[1:-1]
     return v.strip()
+
 
 API_KEY = _get_env_stripped("PODCASTINDEXORG_API_KEY")
 API_SECRET = _get_env_stripped("PODCASTINDEXORG_API_SECRET")
@@ -52,7 +60,9 @@ def _generate_headers() -> Dict[str, str]:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             }
-        raise ValueError("PODCASTINDEXORG_API_KEY and PODCASTINDEXORG_API_SECRET must be set")
+        raise ValueError(
+            "PODCASTINDEXORG_API_KEY and PODCASTINDEXORG_API_SECRET must be set"
+        )
 
     unix_time = str(int(time.time()))
 
@@ -72,11 +82,34 @@ def _generate_headers() -> Dict[str, str]:
     }
 
 
+async def _rate_limited_get(
+    *,
+    url: str,
+    headers: Dict[str, str],
+    params: Dict[str, Any],
+    http_client: Optional[httpx.AsyncClient] = None,
+) -> httpx.Response:
+    wait_seconds = await acquire_podcastindex_slot()
+    if wait_seconds > 0:
+        logger.debug(
+            "PodcastIndex limiter wait applied: %.3fs for %s",
+            wait_seconds,
+            url,
+        )
+
+    if http_client:
+        return await http_client.get(url, headers=headers, params=params)
+
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+        return await client.get(url, headers=headers, params=params)
+
+
 async def search_podcasts(
     query: str,
     max_results: int = 10,
     clean: bool = True,
-    http_client: Optional[httpx.AsyncClient] = None
+    similar: bool = False,
+    http_client: Optional[httpx.AsyncClient] = None,
 ) -> Dict[str, Any]:
     """
     Search for podcasts by term using Podcast Index API.
@@ -85,6 +118,7 @@ async def search_podcasts(
         query: Search query string
         max_results: Maximum number of results to return (default: 10, max: 1000)
         clean: Whether to clean the results (remove explicit content, etc.)
+        similar: Whether to include similar matches (fuzzy search)
         http_client: Optional HTTP client for dependency injection
 
     Returns:
@@ -95,21 +129,21 @@ async def search_podcasts(
     """
     try:
         headers = _generate_headers()
-        params = {
-            "q": query,
-            "max": min(max_results, 1000)
-        }
+        params = {"q": query, "max": min(max_results, 1000)}
 
         if clean:
             params["clean"] = "true"
+        if similar:
+            params["similar"] = "true"
 
         url = f"{PODCAST_INDEX_BASE_URL}/search/byterm"
 
-        if http_client:
-            response = await http_client.get(url, headers=headers, params=params)
-        else:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-                response = await client.get(url, headers=headers, params=params)
+        response = await _rate_limited_get(
+            url=url,
+            headers=headers,
+            params=params,
+            http_client=http_client,
+        )
 
         response.raise_for_status()
         data = response.json()
@@ -118,7 +152,9 @@ async def search_podcasts(
         return data
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error searching podcasts: {e.response.status_code} - {e.response.text}")
+        logger.error(
+            f"HTTP error searching podcasts: {e.response.status_code} - {e.response.text}"
+        )
         raise Exception(f"Failed to search podcasts: {e.response.status_code}")
     except Exception as e:
         logger.error(f"Error searching podcasts: {str(e)}")
@@ -126,8 +162,7 @@ async def search_podcasts(
 
 
 async def get_podcast_by_feed_url(
-    feed_url: str,
-    http_client: Optional[httpx.AsyncClient] = None
+    feed_url: str, http_client: Optional[httpx.AsyncClient] = None
 ) -> Dict[str, Any]:
     """
     Get podcast information by RSS feed URL.
@@ -148,11 +183,12 @@ async def get_podcast_by_feed_url(
 
         url = f"{PODCAST_INDEX_BASE_URL}/podcasts/byfeedurl"
 
-        if http_client:
-            response = await http_client.get(url, headers=headers, params=params)
-        else:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-                response = await client.get(url, headers=headers, params=params)
+        response = await _rate_limited_get(
+            url=url,
+            headers=headers,
+            params=params,
+            http_client=http_client,
+        )
 
         response.raise_for_status()
         data = response.json()
@@ -161,10 +197,103 @@ async def get_podcast_by_feed_url(
         return data
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error getting podcast by feed URL: {e.response.status_code} - {e.response.text}")
+        logger.error(
+            f"HTTP error getting podcast by feed URL: {e.response.status_code} - {e.response.text}"
+        )
         raise Exception(f"Failed to get podcast by feed URL: {e.response.status_code}")
     except Exception as e:
         logger.error(f"Error getting podcast by feed URL: {str(e)}")
+        raise
+
+async def get_podcast_by_feed_id(
+    feed_id: int, http_client: Optional[httpx.AsyncClient] = None
+) -> Dict[str, Any]:
+    """
+    Get podcast information by feed ID.
+
+    Args:
+        feed_id: Podcast Index feed ID
+        http_client: Optional HTTP client for dependency injection
+
+    Returns:
+        Dict containing podcast information
+
+    Raises:
+        Exception: If the API request fails
+    """
+    try:
+        headers = _generate_headers()
+        params = {"id": feed_id}
+
+        url = f"{PODCAST_INDEX_BASE_URL}/podcasts/byfeedid"
+
+        response = await _rate_limited_get(
+            url=url,
+            headers=headers,
+            params=params,
+            http_client=http_client,
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        logger.info(f"Retrieved podcast info for feed ID: {feed_id}")
+        return data
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"HTTP error getting podcast by feed ID: {e.response.status_code} - {e.response.text}"
+        )
+        raise Exception(f"Failed to get podcast by feed ID: {e.response.status_code}")
+    except Exception as e:
+        logger.error(f"Error getting podcast by feed ID: {str(e)}")
+        raise
+
+
+async def get_podcast_by_itunes_id(
+    itunes_id: int | str,
+    http_client: Optional[httpx.AsyncClient] = None,
+) -> Dict[str, Any]:
+    """
+    Get podcast information by Apple Podcasts iTunes show ID.
+
+    Args:
+        itunes_id: Apple Podcasts iTunes show ID
+        http_client: Optional HTTP client for dependency injection
+
+    Returns:
+        Dict containing podcast information
+
+    Raises:
+        Exception: If the API request fails
+    """
+    try:
+        headers = _generate_headers()
+        params = {"id": str(itunes_id).strip()}
+        url = f"{PODCAST_INDEX_BASE_URL}/podcasts/byitunesid"
+
+        response = await _rate_limited_get(
+            url=url,
+            headers=headers,
+            params=params,
+            http_client=http_client,
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        logger.info("Retrieved podcast info for iTunes ID: %s", params["id"])
+        return data
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "HTTP error getting podcast by iTunes ID: %s - %s",
+            e.response.status_code,
+            e.response.text,
+        )
+        raise Exception(f"Failed to get podcast by iTunes ID: {e.response.status_code}")
+    except Exception as e:
+        logger.error("Error getting podcast by iTunes ID: %s", str(e))
         raise
 
 
@@ -172,7 +301,7 @@ async def get_episodes_by_feed_id(
     feed_id: int,
     max_results: int = 10,
     since: Optional[int] = None,
-    http_client: Optional[httpx.AsyncClient] = None
+    http_client: Optional[httpx.AsyncClient] = None,
 ) -> Dict[str, Any]:
     """
     Get episodes for a podcast by feed ID.
@@ -191,30 +320,47 @@ async def get_episodes_by_feed_id(
     """
     try:
         headers = _generate_headers()
-        params = {
-            "id": feed_id,
-            "max": min(max_results, 1000)
-        }
+        params = {"id": feed_id, "max": min(max_results, 1000)}
 
         if since:
             params["since"] = since
 
         url = f"{PODCAST_INDEX_BASE_URL}/episodes/byfeedid"
 
-        if http_client:
-            response = await http_client.get(url, headers=headers, params=params)
-        else:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-                response = await client.get(url, headers=headers, params=params)
+        response = await _rate_limited_get(
+            url=url,
+            headers=headers,
+            params=params,
+            http_client=http_client,
+        )
 
         response.raise_for_status()
         data = response.json()
+
+        # Temporary debug log: dump raw PodcastIndex response for this feed id.
+        # This helps diagnose missing feedTitle values during debugging.
+        try:
+            # Limit size to avoid extremely large logs in case of large responses
+            raw_dump = json.dumps(data, ensure_ascii=False)
+            if len(raw_dump) > 20000:
+                raw_dump = raw_dump[:20000] + "...(truncated)"
+            logger.debug(
+                "PodcastIndex raw response for feed_id=%s: %s", feed_id, raw_dump
+            )
+        except Exception as e:
+            logger.debug(
+                "Failed to JSON-dump PodcastIndex response for feed_id=%s: %s",
+                feed_id,
+                str(e),
+            )
 
         logger.info(f"Retrieved {data.get('count', 0)} episodes for feed ID: {feed_id}")
         return data
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error getting episodes by feed ID: {e.response.status_code} - {e.response.text}")
+        logger.error(
+            f"HTTP error getting episodes by feed ID: {e.response.status_code} - {e.response.text}"
+        )
         raise Exception(f"Failed to get episodes by feed ID: {e.response.status_code}")
     except Exception as e:
         logger.error(f"Error getting episodes by feed ID: {str(e)}")
@@ -225,7 +371,7 @@ async def get_episodes_by_feed_url(
     feed_url: str,
     max_results: int = 10,
     since: Optional[int] = None,
-    http_client: Optional[httpx.AsyncClient] = None
+    http_client: Optional[httpx.AsyncClient] = None,
 ) -> Dict[str, Any]:
     """
     Get episodes for a podcast by feed URL.
@@ -244,30 +390,32 @@ async def get_episodes_by_feed_url(
     """
     try:
         headers = _generate_headers()
-        params = {
-            "url": feed_url,
-            "max": min(max_results, 1000)
-        }
+        params = {"url": feed_url, "max": min(max_results, 1000)}
 
         if since:
             params["since"] = since
 
         url = f"{PODCAST_INDEX_BASE_URL}/episodes/byfeedurl"
 
-        if http_client:
-            response = await http_client.get(url, headers=headers, params=params)
-        else:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers, params=params)
+        response = await _rate_limited_get(
+            url=url,
+            headers=headers,
+            params=params,
+            http_client=http_client,
+        )
 
         response.raise_for_status()
         data = response.json()
 
-        logger.info(f"Retrieved {data.get('count', 0)} episodes for feed URL: {feed_url}")
+        logger.info(
+            f"Retrieved {data.get('count', 0)} episodes for feed URL: {feed_url}"
+        )
         return data
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error getting episodes by feed URL: {e.response.status_code} - {e.response.text}")
+        logger.error(
+            f"HTTP error getting episodes by feed URL: {e.response.status_code} - {e.response.text}"
+        )
         raise Exception(f"Failed to get episodes by feed URL: {e.response.status_code}")
     except Exception as e:
         logger.error(f"Error getting episodes by feed URL: {str(e)}")
@@ -275,8 +423,7 @@ async def get_episodes_by_feed_url(
 
 
 async def get_episode_by_id(
-    episode_id: int,
-    http_client: Optional[httpx.AsyncClient] = None
+    episode_id: int, http_client: Optional[httpx.AsyncClient] = None
 ) -> Dict[str, Any]:
     """
     Get a specific episode by ID.
@@ -297,11 +444,12 @@ async def get_episode_by_id(
 
         url = f"{PODCAST_INDEX_BASE_URL}/episodes/byid"
 
-        if http_client:
-            response = await http_client.get(url, headers=headers, params=params)
-        else:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers, params=params)
+        response = await _rate_limited_get(
+            url=url,
+            headers=headers,
+            params=params,
+            http_client=http_client,
+        )
 
         response.raise_for_status()
         data = response.json()
@@ -310,7 +458,9 @@ async def get_episode_by_id(
         return data
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error getting episode by ID: {e.response.status_code} - {e.response.text}")
+        logger.error(
+            f"HTTP error getting episode by ID: {e.response.status_code} - {e.response.text}"
+        )
         raise Exception(f"Failed to get episode by ID: {e.response.status_code}")
     except Exception as e:
         logger.error(f"Error getting episode by ID: {str(e)}")
@@ -321,7 +471,7 @@ async def search_episodes(
     query: str,
     max_results: int = 10,
     feed_id: Optional[int] = None,
-    http_client: Optional[httpx.AsyncClient] = None
+    http_client: Optional[httpx.AsyncClient] = None,
 ) -> Dict[str, Any]:
     """
     Search for episodes by term.
@@ -340,21 +490,19 @@ async def search_episodes(
     """
     try:
         headers = _generate_headers()
-        params = {
-            "q": query,
-            "max": min(max_results, 1000)
-        }
+        params = {"q": query, "max": min(max_results, 1000)}
 
         if feed_id:
             params["feedid"] = feed_id
 
         url = f"{PODCAST_INDEX_BASE_URL}/search/byterm"
 
-        if http_client:
-            response = await http_client.get(url, headers=headers, params=params)
-        else:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers, params=params)
+        response = await _rate_limited_get(
+            url=url,
+            headers=headers,
+            params=params,
+            http_client=http_client,
+        )
 
         response.raise_for_status()
         data = response.json()
@@ -363,7 +511,9 @@ async def search_episodes(
         return data
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error searching episodes: {e.response.status_code} - {e.response.text}")
+        logger.error(
+            f"HTTP error searching episodes: {e.response.status_code} - {e.response.text}"
+        )
         raise Exception(f"Failed to search episodes: {e.response.status_code}")
     except Exception as e:
         logger.error(f"Error searching episodes: {str(e)}")
@@ -374,7 +524,7 @@ async def get_trending_podcasts(
     max_results: int = 10,
     language: Optional[str] = None,
     category: Optional[str] = None,
-    http_client: Optional[httpx.AsyncClient] = None
+    http_client: Optional[httpx.AsyncClient] = None,
 ) -> Dict[str, Any]:
     """
     Get trending podcasts.
@@ -393,9 +543,7 @@ async def get_trending_podcasts(
     """
     try:
         headers = _generate_headers()
-        params = {
-            "max": min(max_results, 1000)
-        }
+        params = {"max": min(max_results, 1000)}
 
         if language:
             params["lang"] = language
@@ -404,11 +552,12 @@ async def get_trending_podcasts(
 
         url = f"{PODCAST_INDEX_BASE_URL}/podcasts/trending"
 
-        if http_client:
-            response = await http_client.get(url, headers=headers, params=params)
-        else:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-                response = await client.get(url, headers=headers, params=params)
+        response = await _rate_limited_get(
+            url=url,
+            headers=headers,
+            params=params,
+            http_client=http_client,
+        )
 
         response.raise_for_status()
         data = response.json()
@@ -417,7 +566,9 @@ async def get_trending_podcasts(
         return data
 
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error getting trending podcasts: {e.response.status_code} - {e.response.text}")
+        logger.error(
+            f"HTTP error getting trending podcasts: {e.response.status_code} - {e.response.text}"
+        )
         raise Exception(f"Failed to get trending podcasts: {e.response.status_code}")
     except Exception as e:
         logger.error(f"Error getting trending podcasts: {str(e)}")
@@ -448,7 +599,7 @@ def format_podcast_for_response(feed_data: Dict[str, Any]) -> Dict[str, Any]:
         "last_update_time": feed_data.get("lastUpdateTime", 0),
         "explicit": feed_data.get("explicit", False),
         "itunes_id": feed_data.get("itunesId"),
-        "podcast_guid": feed_data.get("podcastGuid", "")
+        "podcast_guid": feed_data.get("podcastGuid", ""),
     }
 
 
@@ -476,7 +627,7 @@ def format_trending_podcast_for_response(feed_data: Dict[str, Any]) -> Dict[str,
         "last_update_time": feed_data.get("newestItemPublishTime", 0),
         "explicit": False,  # Les données trending n'incluent pas cette info
         "itunes_id": feed_data.get("itunesId"),
-        "podcast_guid": feed_data.get("podcastGuid")
+        "podcast_guid": feed_data.get("podcastGuid"),
     }
 
 
@@ -506,5 +657,5 @@ def format_episode_for_response(episode_data: Dict[str, Any]) -> Dict[str, Any]:
         "image": episode_data.get("image", ""),
         "link": episode_data.get("link", ""),
         "feed_id": episode_data.get("feedId"),
-        "feed_title": episode_data.get("feedTitle", "")
+        "feed_title": episode_data.get("feedTitle", ""),
     }

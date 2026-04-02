@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { ArrowLeft, CreditCard, Loader2, AlertCircle, Calendar } from "lucide-react";
 import { SettingsService, SubscriptionInfo } from "../services/settingsService";
+import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 
 interface SubscriptionManagementProps {
     token: string;
@@ -31,9 +32,7 @@ export default function SubscriptionManagement({
             const info = await SettingsService.getSubscriptionInfo(token);
             setSubscriptionInfo(info);
         } catch (err) {
-            setError(
-                err instanceof Error ? err.message : "Failed to load subscription info",
-            );
+            setError(getFriendlyErrorMessage(err));
         } finally {
             setIsLoading(false);
         }
@@ -50,11 +49,7 @@ export default function SubscriptionManagement({
             // Reload subscription info to show updated status
             await loadSubscriptionInfo();
         } catch (err) {
-            setError(
-                err instanceof Error
-                    ? err.message
-                    : "Failed to cancel subscription",
-            );
+            setError(getFriendlyErrorMessage(err));
         } finally {
             setIsCancelling(false);
         }

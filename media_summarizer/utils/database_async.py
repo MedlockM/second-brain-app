@@ -5,24 +5,30 @@ This module provides simple, stateless utility functions for interacting
 with DynamoDB tables in the Media Summarizer application using async operations.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Dict, Any, Optional, List
-from botocore.exceptions import ClientError
-import aioboto3
-from boto3.dynamodb.conditions import Key, Attr
 import os
+from typing import Any, Dict, List, Optional
+
+import aioboto3
+from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 
 from media_summarizer.core.models import User, ProcessingJob, JobStatus
 from media_summarizer.core.models.auth import AuthToken, TokenType
+from media_summarizer.utils.logging_config import (
+    get_runtime_aws_endpoint_url,
+    log_event,
+)
 # Removed CreditTransaction import (legacy credits system fully deprecated)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # AWS configuration
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
+_IMPORT_TIME_AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
+AWS_ENDPOINT_URL = _IMPORT_TIME_AWS_ENDPOINT_URL
 
 # Table names (can be overridden by environment variables for testing)
 USERS_TABLE = os.environ.get("USERS_TABLE", "users")
@@ -37,6 +43,61 @@ STRIPE_EVENTS_TABLE = os.environ.get("STRIPE_EVENTS_TABLE", "stripe_events")
 
 # Session aioboto3 for async operations (created lazily)
 _session = None
+
+
+def _runtime_aws_endpoint_url() -> Optional[str]:
+    configured = AWS_ENDPOINT_URL
+    if configured == _IMPORT_TIME_AWS_ENDPOINT_URL:
+        configured = os.environ.get("AWS_ENDPOINT_URL", _IMPORT_TIME_AWS_ENDPOINT_URL)
+    return get_runtime_aws_endpoint_url(
+        configured_value=configured,
+        consumer="dynamodb",
+    )
+
+
+def _dynamodb_client_kwargs() -> Dict[str, Any]:
+    return {
+        "endpoint_url": _runtime_aws_endpoint_url(),
+        "region_name": AWS_REGION,
+    }
+
+
+def _log_dynamodb_success(
+    operation: str,
+    *,
+    table: str,
+    **fields: Any,
+) -> None:
+    log_event(
+        logger,
+        logging.DEBUG,
+        "external_call.succeeded",
+        f"DynamoDB {operation} completed",
+        provider="dynamodb",
+        table=table,
+        **fields,
+    )
+
+
+def _log_dynamodb_error(
+    operation: str,
+    exc: Exception,
+    *,
+    table: str,
+    **fields: Any,
+) -> None:
+    log_event(
+        logger,
+        logging.ERROR,
+        "external_call.failed",
+        f"DynamoDB {operation} failed",
+        provider="dynamodb",
+        table=table,
+        error_code=operation.upper(),
+        error_type=type(exc).__name__,
+        exc_info=exc,
+        **fields,
+    )
 
 
 def get_session():
@@ -61,7 +122,7 @@ class DynamoDBConnection:
     """Async DynamoDB connection manager."""
 
     def __init__(self):
-        self.endpoint_url = AWS_ENDPOINT_URL
+        self.endpoint_url = _runtime_aws_endpoint_url()
         self.region_name = AWS_REGION
 
     async def get_client(self):
@@ -91,14 +152,13 @@ async def table_exists(table_name: str) -> bool:
     """Check if a table exists."""
     try:
         session = get_session()
-        client = session.client(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        )
+        client = session.client("dynamodb", **_dynamodb_client_kwargs())
         await client.describe_table(TableName=table_name)
         return True
     except ClientError as e:
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
             return False
+        _log_dynamodb_error("describe_table", e, table=table_name)
         raise
 
 
@@ -106,21 +166,19 @@ async def table_exists(table_name: str) -> bool:
 async def create_user(user: User) -> User:
     """Create a new user in DynamoDB."""
     session = get_session()
-    async with session.resource(
-        "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-    ) as dynamodb:
+    async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
         table = await dynamodb.Table(USERS_TABLE)
         try:
             await table.put_item(
                 Item=user.to_dynamodb_item(),
                 ConditionExpression="attribute_not_exists(id)",
             )
-            logger.info(f"User created: {user.id}")
+            _log_dynamodb_success("create_user", table=USERS_TABLE, user_id=user.id)
             return user
         except ClientError as e:
             if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
                 raise ValueError(f"User with ID {user.id} already exists")
-            logger.error(f"Error creating user: {str(e)}")
+            _log_dynamodb_error("create_user", e, table=USERS_TABLE, user_id=user.id)
             raise
 
 
@@ -128,9 +186,7 @@ async def get_user_by_id(user_id: str) -> Optional[User]:
     """Get a user by ID."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(USERS_TABLE)
 
             response = await table.get_item(Key={"id": user_id})
@@ -138,16 +194,14 @@ async def get_user_by_id(user_id: str) -> Optional[User]:
                 return User.from_dynamodb_item(response["Item"])
             return None
     except ClientError as e:
-        logger.error(f"Error getting user by ID {user_id}: {str(e)}")
+        _log_dynamodb_error("get_user_by_id", e, table=USERS_TABLE, user_id=user_id)
         raise
 
 
 async def get_user_by_email(email: str) -> Optional[User]:
     """Get a user by email."""
     session = get_session()
-    async with session.resource(
-        "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-    ) as dynamodb:
+    async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
         table = await dynamodb.Table(USERS_TABLE)
         try:
             response = await table.query(
@@ -158,7 +212,12 @@ async def get_user_by_email(email: str) -> Optional[User]:
                 return User.from_dynamodb_item(items[0])
             return None
         except ClientError as e:
-            logger.error(f"Error getting user by email {email}: {str(e)}")
+            _log_dynamodb_error(
+                "get_user_by_email",
+                e,
+                table=USERS_TABLE,
+                email=email,
+            )
             raise
 
 
@@ -166,16 +225,14 @@ async def update_user(user: User) -> User:
     """Update a user in DynamoDB."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(USERS_TABLE)
 
             await table.put_item(Item=user.to_dynamodb_item())
-            logger.info(f"User updated: {user.id}")
+            _log_dynamodb_success("update_user", table=USERS_TABLE, user_id=user.id)
             return user
     except ClientError as e:
-        logger.error(f"Error updating user {user.id}: {str(e)}")
+        _log_dynamodb_error("update_user", e, table=USERS_TABLE, user_id=user.id)
         raise
 
 
@@ -183,16 +240,14 @@ async def delete_user(user_id: str) -> bool:
     """Delete a user from DynamoDB."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(USERS_TABLE)
 
             await table.delete_item(Key={"id": user_id})
-            logger.info(f"User deleted: {user_id}")
+            _log_dynamodb_success("delete_user", table=USERS_TABLE, user_id=user_id)
             return True
     except ClientError as e:
-        logger.error(f"Error deleting user {user_id}: {str(e)}")
+        _log_dynamodb_error("delete_user", e, table=USERS_TABLE, user_id=user_id)
         raise
 
 
@@ -206,21 +261,28 @@ async def delete_user(user_id: str) -> bool:
 async def create_processing_job(job: ProcessingJob) -> ProcessingJob:
     """Create a new processing job in DynamoDB."""
     session = get_session()
-    async with session.resource(
-        "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-    ) as dynamodb:
+    async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
         table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
         try:
             await table.put_item(
                 Item=job.to_dynamodb_item(),
                 ConditionExpression="attribute_not_exists(id)",
             )
-            logger.info(f"Processing job created: {job.id}")
+            _log_dynamodb_success(
+                "create_processing_job",
+                table=PROCESSING_JOBS_TABLE,
+                job_id=job.id,
+            )
             return job
         except ClientError as e:
             if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
                 raise ValueError(f"Processing job with ID {job.id} already exists")
-            logger.error(f"Error creating processing job: {str(e)}")
+            _log_dynamodb_error(
+                "create_processing_job",
+                e,
+                table=PROCESSING_JOBS_TABLE,
+                job_id=job.id,
+            )
             raise
 
 
@@ -228,9 +290,7 @@ async def get_processing_job_by_id(job_id: str) -> Optional[ProcessingJob]:
     """Get a processing job by ID."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
 
             response = await table.get_item(Key={"id": job_id})
@@ -238,7 +298,12 @@ async def get_processing_job_by_id(job_id: str) -> Optional[ProcessingJob]:
                 return ProcessingJob.from_dynamodb_item(response["Item"])
             return None
     except ClientError as e:
-        logger.error(f"Error getting processing job by ID {job_id}: {str(e)}")
+        _log_dynamodb_error(
+            "get_processing_job_by_id",
+            e,
+            table=PROCESSING_JOBS_TABLE,
+            job_id=job_id,
+        )
         raise
 
 
@@ -246,9 +311,7 @@ async def get_processing_jobs_by_user_id(user_id: str) -> List[ProcessingJob]:
     """Get all processing jobs for a user."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
 
             response = await table.query(
@@ -258,7 +321,12 @@ async def get_processing_jobs_by_user_id(user_id: str) -> List[ProcessingJob]:
             items = response.get("Items", [])
             return [ProcessingJob.from_dynamodb_item(item) for item in items]
     except ClientError as e:
-        logger.error(f"Error getting processing jobs by user ID {user_id}: {str(e)}")
+        _log_dynamodb_error(
+            "get_processing_jobs_by_user_id",
+            e,
+            table=PROCESSING_JOBS_TABLE,
+            user_id=user_id,
+        )
         raise
 
 
@@ -266,9 +334,7 @@ async def get_processing_jobs_by_status(status: JobStatus) -> List[ProcessingJob
     """Get all processing jobs with a specific status."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
 
             response = await table.query(
@@ -278,7 +344,12 @@ async def get_processing_jobs_by_status(status: JobStatus) -> List[ProcessingJob
             items = response.get("Items", [])
             return [ProcessingJob.from_dynamodb_item(item) for item in items]
     except ClientError as e:
-        logger.error(f"Error getting processing jobs by status {status}: {str(e)}")
+        _log_dynamodb_error(
+            "get_processing_jobs_by_status",
+            e,
+            table=PROCESSING_JOBS_TABLE,
+            status=status.value,
+        )
         raise
 
 
@@ -286,16 +357,23 @@ async def update_processing_job(job: ProcessingJob) -> ProcessingJob:
     """Update a processing job in DynamoDB."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
 
             await table.put_item(Item=job.to_dynamodb_item())
-            logger.info(f"Processing job updated: {job.id}")
+            _log_dynamodb_success(
+                "update_processing_job",
+                table=PROCESSING_JOBS_TABLE,
+                job_id=job.id,
+            )
             return job
     except ClientError as e:
-        logger.error(f"Error updating processing job {job.id}: {str(e)}")
+        _log_dynamodb_error(
+            "update_processing_job",
+            e,
+            table=PROCESSING_JOBS_TABLE,
+            job_id=job.id,
+        )
         raise
 
 
@@ -303,16 +381,23 @@ async def delete_processing_job(job_id: str) -> bool:
     """Delete a processing job from DynamoDB."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
 
             await table.delete_item(Key={"id": job_id})
-            logger.info(f"Processing job deleted: {job_id}")
+            _log_dynamodb_success(
+                "delete_processing_job",
+                table=PROCESSING_JOBS_TABLE,
+                job_id=job_id,
+            )
             return True
     except ClientError as e:
-        logger.error(f"Error deleting processing job {job_id}: {str(e)}")
+        _log_dynamodb_error(
+            "delete_processing_job",
+            e,
+            table=PROCESSING_JOBS_TABLE,
+            job_id=job_id,
+        )
         raise
 
 
@@ -320,21 +405,28 @@ async def delete_processing_job(job_id: str) -> bool:
 async def create_auth_token(token: AuthToken) -> AuthToken:
     """Create a new auth token in DynamoDB."""
     session = get_session()
-    async with session.resource(
-        "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-    ) as dynamodb:
+    async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
         table = await dynamodb.Table(AUTH_TOKENS_TABLE)
         try:
             await table.put_item(
                 Item=token.to_dynamodb_item(),
                 ConditionExpression="attribute_not_exists(id)",
             )
-            logger.info(f"Auth token created: {token.id}")
+            _log_dynamodb_success(
+                "create_auth_token",
+                table=AUTH_TOKENS_TABLE,
+                token_id=token.id,
+            )
             return token
         except ClientError as e:
             if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
                 raise ValueError(f"Auth token with ID {token.id} already exists")
-            logger.error(f"Error creating auth token: {str(e)}")
+            _log_dynamodb_error(
+                "create_auth_token",
+                e,
+                table=AUTH_TOKENS_TABLE,
+                token_id=token.id,
+            )
             raise
 
 
@@ -342,9 +434,7 @@ async def get_auth_token_by_token(token_string: str) -> Optional[AuthToken]:
     """Get an auth token by its token string."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(AUTH_TOKENS_TABLE)
 
             response = await table.query(
@@ -356,7 +446,11 @@ async def get_auth_token_by_token(token_string: str) -> Optional[AuthToken]:
                 return AuthToken.from_dynamodb_item(items[0])
             return None
     except ClientError as e:
-        logger.error(f"Error getting auth token by token string: {str(e)}")
+        _log_dynamodb_error(
+            "get_auth_token_by_token",
+            e,
+            table=AUTH_TOKENS_TABLE,
+        )
         raise
 
 
@@ -364,9 +458,7 @@ async def get_auth_token_by_id(token_id: str) -> Optional[AuthToken]:
     """Get an auth token by ID."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(AUTH_TOKENS_TABLE)
 
             response = await table.get_item(Key={"id": token_id})
@@ -374,7 +466,12 @@ async def get_auth_token_by_id(token_id: str) -> Optional[AuthToken]:
                 return AuthToken.from_dynamodb_item(response["Item"])
             return None
     except ClientError as e:
-        logger.error(f"Error getting auth token by ID {token_id}: {str(e)}")
+        _log_dynamodb_error(
+            "get_auth_token_by_id",
+            e,
+            table=AUTH_TOKENS_TABLE,
+            token_id=token_id,
+        )
         raise
 
 
@@ -384,9 +481,7 @@ async def get_auth_tokens_by_user_id(
     """Get all auth tokens for a user, optionally filtered by type."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(AUTH_TOKENS_TABLE)
 
             if token_type:
@@ -404,7 +499,13 @@ async def get_auth_tokens_by_user_id(
             items = response.get("Items", [])
             return [AuthToken.from_dynamodb_item(item) for item in items]
     except ClientError as e:
-        logger.error(f"Error getting auth tokens by user ID {user_id}: {str(e)}")
+        _log_dynamodb_error(
+            "get_auth_tokens_by_user_id",
+            e,
+            table=AUTH_TOKENS_TABLE,
+            user_id=user_id,
+            token_type=token_type.value if token_type else None,
+        )
         raise
 
 
@@ -412,16 +513,23 @@ async def update_auth_token(token: AuthToken) -> AuthToken:
     """Update an auth token in DynamoDB."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(AUTH_TOKENS_TABLE)
 
             await table.put_item(Item=token.to_dynamodb_item())
-            logger.info(f"Auth token updated: {token.id}")
+            _log_dynamodb_success(
+                "update_auth_token",
+                table=AUTH_TOKENS_TABLE,
+                token_id=token.id,
+            )
             return token
     except ClientError as e:
-        logger.error(f"Error updating auth token {token.id}: {str(e)}")
+        _log_dynamodb_error(
+            "update_auth_token",
+            e,
+            table=AUTH_TOKENS_TABLE,
+            token_id=token.id,
+        )
         raise
 
 
@@ -429,16 +537,23 @@ async def delete_auth_token(token_id: str) -> bool:
     """Delete an auth token from DynamoDB."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(AUTH_TOKENS_TABLE)
 
             await table.delete_item(Key={"id": token_id})
-            logger.info(f"Auth token deleted: {token_id}")
+            _log_dynamodb_success(
+                "delete_auth_token",
+                table=AUTH_TOKENS_TABLE,
+                token_id=token_id,
+            )
             return True
     except ClientError as e:
-        logger.error(f"Error deleting auth token {token_id}: {str(e)}")
+        _log_dynamodb_error(
+            "delete_auth_token",
+            e,
+            table=AUTH_TOKENS_TABLE,
+            token_id=token_id,
+        )
         raise
 
 
@@ -456,10 +571,20 @@ async def revoke_user_tokens(
                 await update_auth_token(token)
                 revoked_count += 1
 
-        logger.info(f"Revoked {revoked_count} tokens for user {user_id}")
+        _log_dynamodb_success(
+            "revoke_user_tokens",
+            table=AUTH_TOKENS_TABLE,
+            user_id=user_id,
+            count=revoked_count,
+        )
         return revoked_count
     except Exception as e:
-        logger.error(f"Error revoking tokens for user {user_id}: {str(e)}")
+        _log_dynamodb_error(
+            "revoke_user_tokens",
+            e,
+            table=AUTH_TOKENS_TABLE,
+            user_id=user_id,
+        )
         raise
 
 
@@ -467,9 +592,7 @@ async def cleanup_expired_tokens() -> int:
     """Clean up expired tokens from the database."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(AUTH_TOKENS_TABLE)
 
             # Scan for expired tokens
@@ -483,10 +606,14 @@ async def cleanup_expired_tokens() -> int:
                     await delete_auth_token(token.id)
                     deleted_count += 1
 
-            logger.info(f"Cleaned up {deleted_count} expired tokens")
+            _log_dynamodb_success(
+                "cleanup_expired_tokens",
+                table=AUTH_TOKENS_TABLE,
+                count=deleted_count,
+            )
             return deleted_count
     except ClientError as e:
-        logger.error(f"Error cleaning up expired tokens: {str(e)}")
+        _log_dynamodb_error("cleanup_expired_tokens", e, table=AUTH_TOKENS_TABLE)
         raise
 
 
@@ -495,14 +622,17 @@ async def has_stripe_event(event_id: str) -> bool:
     """Return True if the Stripe event has already been recorded (processed)."""
     try:
         session = get_session()
-        async with session.resource(
-            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-        ) as dynamodb:
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(STRIPE_EVENTS_TABLE)
             response = await table.get_item(Key={"id": event_id})
             return "Item" in response
     except ClientError as e:
-        logger.error(f"Error checking stripe event {event_id}: {str(e)}")
+        _log_dynamodb_error(
+            "has_stripe_event",
+            e,
+            table=STRIPE_EVENTS_TABLE,
+            event_id=event_id,
+        )
         raise
 
 
@@ -511,9 +641,7 @@ async def record_stripe_event(event_id: str) -> bool:
     from datetime import datetime, timezone
 
     session = get_session()
-    async with session.resource(
-        "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
-    ) as dynamodb:
+    async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
         table = await dynamodb.Table(STRIPE_EVENTS_TABLE)
         try:
             await table.put_item(
@@ -523,11 +651,24 @@ async def record_stripe_event(event_id: str) -> bool:
                 },
                 ConditionExpression="attribute_not_exists(id)",
             )
-            logger.info(f"Recorded Stripe event {event_id} for idempotency")
+            _log_dynamodb_success(
+                "record_stripe_event",
+                table=STRIPE_EVENTS_TABLE,
+                event_id=event_id,
+            )
             return True
         except ClientError as e:
             if e.response["Error"].get("Code") == "ConditionalCheckFailedException":
-                logger.info(f"Stripe event {event_id} already recorded")
+                _log_dynamodb_success(
+                    "record_stripe_event_duplicate",
+                    table=STRIPE_EVENTS_TABLE,
+                    event_id=event_id,
+                )
                 return False
-            logger.error(f"Error recording stripe event {event_id}: {str(e)}")
+            _log_dynamodb_error(
+                "record_stripe_event",
+                e,
+                table=STRIPE_EVENTS_TABLE,
+                event_id=event_id,
+            )
             raise

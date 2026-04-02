@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ArrowLeft, CreditCard, Loader2, ExternalLink } from "lucide-react";
 import { SettingsService } from "../services/settingsService";
+import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 
 interface PaymentMethodsProps {
     token: string;
@@ -20,11 +21,7 @@ export default function PaymentMethods({ token, onBack }: PaymentMethodsProps) {
             // Redirect to Stripe Customer Portal
             window.location.href = url;
         } catch (err) {
-            setError(
-                err instanceof Error
-                    ? err.message
-                    : "Failed to open payment portal",
-            );
+            setError(getFriendlyErrorMessage(err));
             setIsLoading(false);
         }
     };

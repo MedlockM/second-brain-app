@@ -34,7 +34,7 @@ def test_unverified_user_blocked_on_billing_checkout(monkeypatch):
         "/api/v1/billing/packs/checkout", json={"minutes": 300}
     )
     assert resp.status_code == 403
-    assert "Email not verified" in resp.json()["detail"]
+    assert resp.json()["error"]["code"] == "EMAIL_NOT_VERIFIED"
 
     # Cleanup overrides
     app.dependency_overrides.clear()
@@ -60,7 +60,7 @@ def test_unverified_user_blocked_on_submit_episode(monkeypatch):
     body = {"feed_id": "feed_123", "episode_guid": "guid_123"}
     resp = client.post("/api/v1/podcast-search/submit-episode", json=body)
     assert resp.status_code == 403
-    assert "Email not verified" in resp.json()["detail"]
+    assert resp.json()["error"]["code"] == "EMAIL_NOT_VERIFIED"
 
     # Cleanup overrides
     app.dependency_overrides.clear()

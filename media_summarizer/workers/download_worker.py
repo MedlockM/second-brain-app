@@ -46,6 +46,13 @@ def get_sqs_client():
 
 # Configuration des buckets S3
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
+DOWNLOAD_QUEUE = os.environ.get("AUDIO_DOWNLOAD_QUEUE", "audio-download-queue")
+DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
+    "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
+)
+EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+)
 
 
 async def download_audio(url, output_path):
@@ -64,7 +71,10 @@ async def download_audio(url, output_path):
 
 
 async def process_message(message):
-    """Traite un message de la file SQS pour le téléchargement audio."""
+    """Traite un message de la file SQS pour le téléchargement audio.
+
+    Publie un événement episode_completion_status(status=failure) en cas d'erreur pour débloquer les watchers.
+    """
     body = {}
     job_id = "unknown"
 
@@ -131,23 +141,43 @@ async def process_message(message):
         next_message = {
             "job_id": job_id,
             "audio_s3_key": s3_key,
+            "audio_url": audio_url,
             "user_id": body.get("user_id"),
-            "email": body.get("user_email") or body.get("email"),
             "episode_title": body.get("episode_title"),
             "podcast_title": body.get("podcast_title"),
-            "episode_guid": body.get("episode_guid"),
+            "media_key": body.get("media_key"),
+            "normalized_url": body.get("normalized_url"),
             "episode_image": body.get("episode_image", ""),
+            "audio_duration_seconds": body.get("audio_duration_seconds"),
             "success": True,
             "metadata": {"file_size_bytes": file_size},
         }
 
-        # Send message to transcription queue
+        # Send message to Deepgram transcription queue
         await sqs.send_message(
-            queue_name="transcription-queue", message_body=next_message
+            queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE, message_body=next_message
         )
 
         logger.info(f"Téléchargement audio terminé pour le job {job_id}")
 
+    except Exception as e:
+        logger.error(f"Download worker failed for job {job_id}: {e}", exc_info=True)
+        # Publish failure event to unblock watchers
+        try:
+            await sqs.send_message(
+                queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+                message_body={
+                    "event_type": "episode_completion_status",
+                    "status": "failure",
+                    "media_key": body.get("media_key"),
+                    "canonical_job_id": job_id,
+                    "reason": f"download_failed: {str(e)}",
+                },
+            )
+        except Exception as ee:
+            logger.warning(f"Failed to publish failure event for job {job_id}: {ee}")
+        # Re-raise to trigger retry/DLQ logic
+        raise
     finally:
         # Nettoyage du fichier temporaire (always cleanup)
         if os.path.exists(temp_path):
@@ -165,7 +195,7 @@ async def process_messages_batch(messages):
             return await process_message_with_retry(
                 message=message,
                 processor=process_message,
-                queue_name="audio-download-queue",
+                queue_name=DOWNLOAD_QUEUE,
                 max_retries=3,
                 worker_name="download"
             )
@@ -182,7 +212,7 @@ async def process_messages_batch(messages):
 
 async def poll_queue():
     """Interroge la file SQS pour les nouveaux messages avec traitement par batch."""
-    queue_name = "audio-download-queue"
+    queue_name = DOWNLOAD_QUEUE
 
     while True:
         try:

@@ -14,17 +14,20 @@ GSIs expected:
 
 Note: Table creation and index management are handled outside this module (infra scripts/terraform).
 """
+
 from __future__ import annotations
+
 import os
 from typing import Any, Dict, List, Optional
-from boto3.dynamodb.conditions import Key, Attr
+
+from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
 from media_summarizer.core.models.billing import (
-    Subscription,
+    Follow,
     MinuteBucket,
     MinuteUsage,
-    Follow,
+    Subscription,
 )
 from media_summarizer.utils import database_async
 
@@ -38,48 +41,68 @@ FEED_FORECASTS_TABLE = os.environ.get("FEED_FORECASTS_TABLE", "feed_forecasts")
 
 # ---------- Subscriptions ----------
 
+
 async def create_subscription(subscription: Subscription) -> Subscription:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(SUBSCRIPTIONS_TABLE)
         await table.put_item(
             Item=subscription.to_dynamodb_item(),
-            ConditionExpression='attribute_not_exists(id)'
+            ConditionExpression="attribute_not_exists(id)",
         )
         return subscription
 
 
 async def get_subscriptions_by_user_id(user_id: str) -> List[Subscription]:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(SUBSCRIPTIONS_TABLE)
         response = await table.query(
-            IndexName='user-index',
-            KeyConditionExpression=Key('user_id').eq(user_id)
+            IndexName="user-index", KeyConditionExpression=Key("user_id").eq(user_id)
         )
-        items = response.get('Items', [])
+        items = response.get("Items", [])
         return [Subscription.from_dynamodb_item(it) for it in items]
 
 
 async def update_subscription(subscription: Subscription) -> Subscription:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(SUBSCRIPTIONS_TABLE)
         await table.put_item(Item=subscription.to_dynamodb_item())
         return subscription
 
 
-async def get_subscription_by_stripe_id(stripe_subscription_id: str) -> Optional[Subscription]:
+async def get_subscription_by_stripe_id(
+    stripe_subscription_id: str,
+) -> Optional[Subscription]:
     """Fetch a subscription by stripe_subscription_id using GSI 'stripe-index'."""
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(SUBSCRIPTIONS_TABLE)
         try:
             response = await table.query(
-                IndexName='stripe-index',
-                KeyConditionExpression=Key('stripe_subscription_id').eq(stripe_subscription_id)
+                IndexName="stripe-index",
+                KeyConditionExpression=Key("stripe_subscription_id").eq(
+                    stripe_subscription_id
+                ),
             )
-            items = response.get('Items', [])
+            items = response.get("Items", [])
             if not items:
                 return None
             return Subscription.from_dynamodb_item(items[0])
@@ -90,33 +113,43 @@ async def get_subscription_by_stripe_id(stripe_subscription_id: str) -> Optional
 
 # ---------- Minute Buckets ----------
 
+
 async def create_minute_bucket(bucket: MinuteBucket) -> MinuteBucket:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
         await table.put_item(
             Item=bucket.to_dynamodb_item(),
-            ConditionExpression='attribute_not_exists(id)'
+            ConditionExpression="attribute_not_exists(id)",
         )
         return bucket
 
 
 async def get_minute_buckets_by_user_id(user_id: str) -> List[MinuteBucket]:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
         response = await table.query(
-            IndexName='user-index',
-            KeyConditionExpression=Key('user_id').eq(user_id)
+            IndexName="user-index", KeyConditionExpression=Key("user_id").eq(user_id)
         )
-        items = response.get('Items', [])
+        items = response.get("Items", [])
         # Fallback scan for LocalStack eventual GSI consistency during tests
-        if not items and (database_async.AWS_ENDPOINT_URL or '').startswith('http://localhost:4566'):
+        if not items and (database_async.AWS_ENDPOINT_URL or "").startswith(
+            "http://localhost:4566"
+        ):
             try:
                 scan_resp = await table.scan(
-                    FilterExpression=Attr('user_id').eq(user_id)
+                    FilterExpression=Attr("user_id").eq(user_id)
                 )
-                items = scan_resp.get('Items', [])
+                items = scan_resp.get("Items", [])
             except Exception:
                 pass
         return [MinuteBucket.from_dynamodb_item(it) for it in items]
@@ -124,34 +157,62 @@ async def get_minute_buckets_by_user_id(user_id: str) -> List[MinuteBucket]:
 
 async def update_minute_bucket(bucket: MinuteBucket) -> MinuteBucket:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
         await table.put_item(Item=bucket.to_dynamodb_item())
         return bucket
 
 
+async def delete_minute_bucket(bucket_id: str) -> bool:
+    """Delete a minute bucket by its ID."""
+    session = database_async.get_session()
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
+        try:
+            await table.delete_item(Key={"id": bucket_id})
+            return True
+        except ClientError:
+            return False
+
+
 # ---------- Minute Usage (holds/finalize/release) ----------
+
 
 async def create_minute_usage(usage: MinuteUsage) -> MinuteUsage:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(MINUTE_USAGE_TABLE)
         await table.put_item(
             Item=usage.to_dynamodb_item(),
-            ConditionExpression='attribute_not_exists(id)'
+            ConditionExpression="attribute_not_exists(id)",
         )
         return usage
 
 
 async def get_minute_usage_by_job_id(job_id: str) -> Optional[MinuteUsage]:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(MINUTE_USAGE_TABLE)
         response = await table.query(
-            IndexName='job-index',
-            KeyConditionExpression=Key('job_id').eq(job_id)
+            IndexName="job-index", KeyConditionExpression=Key("job_id").eq(job_id)
         )
-        items = response.get('Items', [])
+        items = response.get("Items", [])
         if not items:
             return None
         return MinuteUsage.from_dynamodb_item(items[0])
@@ -159,7 +220,11 @@ async def get_minute_usage_by_job_id(job_id: str) -> Optional[MinuteUsage]:
 
 async def update_minute_usage(usage: MinuteUsage) -> MinuteUsage:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(MINUTE_USAGE_TABLE)
         await table.put_item(Item=usage.to_dynamodb_item())
         return usage
@@ -168,49 +233,60 @@ async def update_minute_usage(usage: MinuteUsage) -> MinuteUsage:
 async def scan_expired_holds(limit: int = 100) -> List[MinuteUsage]:
     """
     Scan minute_usage table for expired holds.
-    
+
     Returns holds where:
     - status = 'held'
     - hold_expires_at < now
-    
+
     Note: This uses a table scan which can be expensive. In production,
     consider adding a GSI on (status, hold_expires_at) for better performance.
-    
+
     Args:
         limit: Maximum number of items to return
-        
+
     Returns:
         List of expired MinuteUsage objects
     """
     from datetime import datetime, timezone
+
     from media_summarizer.core.models.billing import MinuteUsageStatus
-    
+
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(MINUTE_USAGE_TABLE)
-        
+
         now_iso = datetime.now(timezone.utc).isoformat()
-        
+
         try:
             response = await table.scan(
-                FilterExpression=Attr('status').eq('held') & Attr('hold_expires_at').lt(now_iso),
-                Limit=limit
+                FilterExpression=Attr("status").eq("held")
+                & Attr("hold_expires_at").lt(now_iso),
+                Limit=limit,
             )
-            items = response.get('Items', [])
+            items = response.get("Items", [])
             return [MinuteUsage.from_dynamodb_item(it) for it in items]
         except ClientError as e:
             # Log error but don't crash
             import logging
+
             logging.getLogger(__name__).error(f"Failed to scan expired holds: {e}")
             return []
 
 
-
 # ---------- Follows ----------
+
 
 async def upsert_follow(follow: Follow) -> Follow:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(FOLLOWS_TABLE)
         await table.put_item(Item=follow.to_dynamodb_item())
         return follow
@@ -218,45 +294,62 @@ async def upsert_follow(follow: Follow) -> Follow:
 
 async def get_follows_by_user_id(user_id: str) -> List[Follow]:
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(FOLLOWS_TABLE)
         # Table is modeled with partition key user_id (and range feed_id)
-        response = await table.query(
-            KeyConditionExpression=Key('user_id').eq(user_id)
-        )
-        items = response.get('Items', [])
+        response = await table.query(KeyConditionExpression=Key("user_id").eq(user_id))
+        items = response.get("Items", [])
         return [Follow.from_dynamodb_item(it) for it in items]
 
 
 # ---------- Feed Forecasts (shared cache) ----------
 
+
 async def get_feed_forecast(feed_id: str, month_key: str) -> Optional[Dict[str, Any]]:
     """Return forecast cache row for (feed_id, month_key) or None."""
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(FEED_FORECASTS_TABLE)
         try:
-            resp = await table.get_item(Key={"feed_id": str(feed_id), "month_key": month_key})
-            item = resp.get('Item')
+            resp = await table.get_item(
+                Key={"feed_id": str(feed_id), "month_key": month_key}
+            )
+            item = resp.get("Item")
             return item or None
         except ClientError:
             return None
 
 
-async def upsert_feed_forecast(feed_id: str, month_key: str, forecast: Dict[str, Any]) -> bool:
+async def upsert_feed_forecast(
+    feed_id: str, month_key: str, forecast: Dict[str, Any]
+) -> bool:
     """Upsert forecast cache for (feed_id, month_key). 'forecast' should contain keys minutes_per_month, basis, coverage_months, computed_at, expires_at.
     Returns True on success, False if table missing."""
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(FEED_FORECASTS_TABLE)
         try:
             from datetime import datetime, timezone
+
             now_iso = datetime.now(timezone.utc).isoformat()
             exp_iso = forecast.get("expires_at")
             ttl_value = None
             try:
                 if exp_iso:
                     from datetime import datetime
+
                     ttl_value = int(datetime.fromisoformat(exp_iso).timestamp())
             except Exception:
                 ttl_value = None
@@ -282,11 +375,14 @@ async def upsert_feed_forecast(feed_id: str, month_key: str, forecast: Dict[str,
 async def delete_follow(user_id: str, feed_id: str) -> bool:
     """Delete a follow item by (user_id, feed_id)."""
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
         table = await dynamodb.Table(FOLLOWS_TABLE)
         try:
             await table.delete_item(Key={"user_id": user_id, "feed_id": feed_id})
             return True
         except ClientError:
             return False
-

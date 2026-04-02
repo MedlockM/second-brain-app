@@ -10,13 +10,11 @@ infrastructure operations.
 from . import database_async
 from . import s3
 from . import sqs
-from . import ses
 from . import podcast_index
 
 __all__ = [
     "database_async",
     "s3",
     "sqs",
-    "ses",
     "podcast_index"
 ]

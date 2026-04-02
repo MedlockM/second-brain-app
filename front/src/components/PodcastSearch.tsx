@@ -1,21 +1,28 @@
-import { useState } from 'react';
-import { Search, Loader2 } from 'lucide-react';
-import { PodcastService } from '../services/podcastService';
-import { Podcast } from '../types/podcast';
-import PodcastCard from './PodcastCard';
-import PodcastEpisodes from './PodcastEpisodes';
+import { useState } from "react";
+import { Search, Loader2 } from "lucide-react";
+import { PodcastService } from "../services/podcastService";
+import { Podcast } from "../types/podcast";
+import PodcastCard from "./PodcastCard";
+import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 
 interface PodcastSearchProps {
   token: string;
+  onJobSubmitted?: (jobId: string) => void;
+  onPodcastSelect?: (podcast: Podcast) => void;
+  selectedPodcast?: Podcast | null;
 }
 
-export default function PodcastSearch({ token }: PodcastSearchProps) {
-  const [query, setQuery] = useState('');
+export default function PodcastSearch({
+  token,
+  onJobSubmitted,
+  onPodcastSelect,
+  selectedPodcast,
+}: PodcastSearchProps) {
+  const [query, setQuery] = useState("");
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
-  const [selectedPodcast, setSelectedPodcast] = useState<Podcast | null>(null);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +39,7 @@ export default function PodcastSearch({ token }: PodcastSearchProps) {
       const response = await PodcastService.searchPodcasts(query, token);
       setPodcasts(response.results);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to search podcasts');
+      setError(getFriendlyErrorMessage(err));
       setPodcasts([]);
     } finally {
       setLoading(false);
@@ -40,22 +47,14 @@ export default function PodcastSearch({ token }: PodcastSearchProps) {
   };
 
   const handlePodcastClick = (podcast: Podcast) => {
-    setSelectedPodcast(podcast);
+    if (onPodcastSelect) {
+      onPodcastSelect(podcast);
+    }
   };
 
-  const handleBackFromEpisodes = () => {
-    setSelectedPodcast(null);
-  };
-
-  // Show episodes page if a podcast is selected
+  // If a podcast is selected, don't render the search (parent handles PodcastEpisodes)
   if (selectedPodcast) {
-    return (
-      <PodcastEpisodes
-        podcast={selectedPodcast}
-        token={token}
-        onBack={handleBackFromEpisodes}
-      />
-    );
+    return null;
   }
 
   return (
@@ -68,7 +67,7 @@ export default function PodcastSearch({ token }: PodcastSearchProps) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search for podcasts..."
-              className="w-full px-6 py-4 pr-14 text-lg border border-gray-300 rounded-full shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              className="w-full px-6 py-4 pr-14 text-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-full shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
             />
             <button
               type="submit"
@@ -86,14 +85,16 @@ export default function PodcastSearch({ token }: PodcastSearchProps) {
       </div>
 
       {error && (
-        <div className="max-w-3xl mx-auto bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-sm text-red-800">{error}</p>
+        <div className="max-w-3xl mx-auto bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <p className="text-sm text-red-800 dark:text-red-400">{error}</p>
         </div>
       )}
 
       {hasSearched && !loading && podcasts.length === 0 && !error && (
         <div className="text-center py-12">
-          <p className="text-gray-500 text-lg">No podcasts found for "{query}"</p>
+          <p className="text-gray-500 dark:text-gray-400 text-lg">
+            No podcasts found for "{query}"
+          </p>
         </div>
       )}
 

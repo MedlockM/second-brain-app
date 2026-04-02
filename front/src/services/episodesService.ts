@@ -1,3 +1,5 @@
+import { createHttpError, parseErrorResponse } from "../lib/httpError";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 export interface Summary {
@@ -57,10 +59,11 @@ export const EpisodesService = {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(
-        errorData.detail || `Failed to fetch episodes: ${response.statusText}`
+      const { message, code } = await parseErrorResponse(
+        response,
+        `Failed to fetch episodes: ${response.statusText}`,
       );
+      throw createHttpError(message, response.status, code);
     }
 
     return response.json();

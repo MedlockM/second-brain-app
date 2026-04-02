@@ -110,6 +110,27 @@ class TestSearchPodcasts:
         assert result == expected_data
 
     @pytest.mark.asyncio
+    async def test_search_podcasts_with_similar(self, mock_http_client, mock_httpx_response):
+        """Test podcast search with similar (fuzzy) flag."""
+        expected_data = {'status': 'true', 'count': 0, 'feeds': []}
+        mock_httpx_response.json.return_value = expected_data
+        mock_http_client.get.return_value = mock_httpx_response
+
+        with patch('media_summarizer.utils.podcast_index._generate_headers', return_value={'auth': 'test'}):
+            result = await podcast_index.search_podcasts(
+                query="test podcast",
+                max_results=5,
+                clean=True,
+                similar=True,
+                http_client=mock_http_client
+            )
+
+        mock_http_client.get.assert_called_once()
+        call_params = mock_http_client.get.call_args[1]['params']
+        assert call_params['similar'] == 'true'
+        assert result == expected_data
+
+    @pytest.mark.asyncio
     async def test_search_podcasts_without_client(self, mock_httpx_response):
         """Test podcast search without provided HTTP client."""
         expected_data = {'status': 'true', 'count': 0, 'feeds': []}

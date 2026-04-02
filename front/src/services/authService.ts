@@ -4,10 +4,12 @@ import {
   TokenVerificationResponse,
   AuthUser,
 } from "../types/auth";
+import { createHttpError, parseErrorResponse } from "../lib/httpError";
 
 // When VITE_API_URL is empty, use relative URLs (for Vite proxy)
 // Otherwise use the full URL (for production)
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+export const AUTH_ERROR_STORAGE_KEY = "auth_error_code";
 
 export class AuthService {
   private static getAuthHeaders(token?: string): HeadersInit {
@@ -31,10 +33,11 @@ export class AuthService {
     });
 
     if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ message: "Registration failed" }));
-      throw new Error(error.message || error.detail || "Registration failed");
+      const { message, code } = await parseErrorResponse(
+        response,
+        "Registration failed",
+      );
+      throw createHttpError(message, response.status, code);
     }
 
     return response.json();
@@ -49,10 +52,8 @@ export class AuthService {
     });
 
     if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ message: "Login failed" }));
-      throw new Error(error.message || error.detail || "Login failed");
+      const { message, code } = await parseErrorResponse(response, "Login failed");
+      throw createHttpError(message, response.status, code);
     }
 
     return response.json();
@@ -66,7 +67,11 @@ export class AuthService {
     });
 
     if (!response.ok) {
-      throw new Error("Failed to fetch user info");
+      const { message, code } = await parseErrorResponse(
+        response,
+        "Failed to fetch user info",
+      );
+      throw createHttpError(message, response.status, code);
     }
 
     return response.json();
@@ -80,7 +85,8 @@ export class AuthService {
     });
 
     if (!response.ok) {
-      throw new Error("Logout failed");
+      const { message, code } = await parseErrorResponse(response, "Logout failed");
+      throw createHttpError(message, response.status, code);
     }
   }
 
@@ -92,10 +98,11 @@ export class AuthService {
     });
 
     if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ message: "Failed to resend verification email" }));
-      throw new Error(error.message || error.detail || "Failed to resend verification email");
+      const { message, code } = await parseErrorResponse(
+        response,
+        "Failed to resend verification email",
+      );
+      throw createHttpError(message, response.status, code);
     }
   }
 
@@ -138,7 +145,14 @@ export class AuthService {
 
     if (!response.ok) {
       this.clearToken();
-      throw new Error("Failed to refresh token");
+      const { message, code } = await parseErrorResponse(
+        response,
+        "Failed to refresh token",
+      );
+      if (response.status === 401 || code === "SESSION_EXPIRED") {
+        sessionStorage.setItem(AUTH_ERROR_STORAGE_KEY, code || "SESSION_EXPIRED");
+      }
+      throw createHttpError(message, response.status, code);
     }
 
     const data = await response.json();
@@ -147,20 +161,28 @@ export class AuthService {
   }
 
   static async getValidToken(): Promise<string | null> {
-    const token = this.getToken();
+    const storedToken = localStorage.getItem("access_token");
+    const storedExpiry = localStorage.getItem("token_expiry");
 
-    // Si le token existe et n'est pas expiré, on le retourne
-    if (token) {
-      return token;
-    }
-
-    // Si le token est expiré ou n'existe pas, on essaie de le rafraîchir
-    try {
-      const response = await this.refresh();
-      return response.access_token;
-    } catch (error) {
-      console.error("Failed to refresh token:", error);
+    if (!storedToken || !storedExpiry) {
+      if (storedToken || storedExpiry) {
+        this.clearToken();
+      }
       return null;
     }
+
+    const expiryTime = parseInt(storedExpiry, 10);
+    if (Number.isNaN(expiryTime) || Date.now() > expiryTime) {
+      this.clearToken();
+      try {
+        const response = await this.refresh();
+        return response.access_token;
+      } catch (error) {
+        console.error("Failed to refresh token:", error);
+        return null;
+      }
+    }
+
+    return storedToken;
   }
 }

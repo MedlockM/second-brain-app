@@ -100,7 +100,7 @@ class TestCreditBalance:
             response = client.get("/api/v1/users/nonexistent/credits")
 
             assert response.status_code == 404
-            assert "Utilisateur non trouvé" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "USER_NOT_FOUND"
 
 
 class TestCreditPurchase:
@@ -129,7 +129,7 @@ class TestCreditPurchase:
                     })
 
                     assert response.status_code == 400
-                    assert "Direct Stripe purchases are no longer supported" in response.json()["detail"]
+                    assert response.json()["error"]["code"] == "BAD_REQUEST"
 
     @pytest.mark.asyncio
     async def test_purchase_credits_user_not_found(self, client, mock_db):
@@ -144,7 +144,7 @@ class TestCreditPurchase:
             })
 
             assert response.status_code == 404
-            assert "Utilisateur non trouvé" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "USER_NOT_FOUND"
 
     @pytest.mark.asyncio
     async def test_purchase_credits_invalid_amount(self, client):
@@ -211,7 +211,7 @@ class TestCreditDeduction:
             })
 
             assert response.status_code == 400
-            assert "Crédits insuffisants" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "PAYMENT_REQUIRED"
 
     @pytest.mark.asyncio
     async def test_deduct_credits_user_not_found(self, client, mock_db):
@@ -225,7 +225,7 @@ class TestCreditDeduction:
             })
 
             assert response.status_code == 404
-            assert "Utilisateur non trouvé" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "USER_NOT_FOUND"
 
 
 class TestCreditRefund:
@@ -272,7 +272,7 @@ class TestCreditRefund:
             })
 
             assert response.status_code == 404
-            assert "Utilisateur non trouvé" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "USER_NOT_FOUND"
 
 
 class TestCreditTransactions:
@@ -306,7 +306,7 @@ class TestCreditTransactions:
             response = client.get("/api/v1/users/nonexistent/credits/transactions")
 
             assert response.status_code == 404
-            assert "Utilisateur non trouvé" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "USER_NOT_FOUND"
 
     @pytest.mark.asyncio
     async def test_get_credit_transaction_success(self, client, mock_db, sample_transaction):
@@ -331,7 +331,7 @@ class TestCreditTransactions:
             response = client.get("/api/v1/credits/transactions/txn123")
 
             assert response.status_code == 404
-            assert "Transaction non trouvée" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "NOT_FOUND"
 
 
 class TestModelValidation:

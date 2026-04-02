@@ -12,7 +12,7 @@ def test_resend_verification_requires_auth():
     resp = client.post("/api/v1/auth/resend-verification")
     assert resp.status_code == 401
     body = resp.json()
-    assert "detail" in body
+    assert body["error"]["code"] == "SESSION_EXPIRED"
 
 
 def test_verify_email_invalid_token():
@@ -23,5 +23,4 @@ def test_verify_email_invalid_token():
         resp = client.post("/api/v1/auth/verify-email", json=payload)
         assert resp.status_code == 401
         body = resp.json()
-        assert "detail" in body
-
+        assert body["error"]["code"] == "INVALID_VERIFICATION_TOKEN"

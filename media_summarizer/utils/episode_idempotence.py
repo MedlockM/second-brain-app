@@ -1,48 +1,71 @@
 """
-Episode idempotence utilities using DynamoDB.
+Media idempotence utilities using DynamoDB.
 
-Provides a global per-episode GUID reservation to ensure idempotent submissions
-across sources (UI, Spotify sync, etc.), while still allowing per-user billing.
-
-Table schema (EPISODE_IDEMPOTENCE_TABLE, default "episode_idempotence"):
-- PK: episode_guid (S)
-- Attributes: status (reserved|processed|failed), job_id (canonical first-processor), created_at, updated_at
+Canonical schema (MEDIA_IDEMPOTENCE_TABLE, default "media_idempotence"):
+- PK: media_key (S)
+- Attributes: status (reserved|processed|failed), job_id, created_at, updated_at
 """
 from __future__ import annotations
 
-import os
 import logging
+import os
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 from botocore.exceptions import ClientError
 
 from media_summarizer.utils import database_async
 
 logger = logging.getLogger(__name__)
 
-EPISODE_IDEMPOTENCE_TABLE = os.environ.get("EPISODE_IDEMPOTENCE_TABLE", "episode_idempotence")
-
-
-# NOTE: Do not return Table outside of the aioboto3 resource context.
-# Always open a new resource context per operation to avoid closed-session errors.
+MEDIA_IDEMPOTENCE_TABLE = os.environ.get("MEDIA_IDEMPOTENCE_TABLE", "media_idempotence")
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def reserve_or_skip(episode_guid: str, job_id: Optional[str] = None) -> bool:
-    """Try to reserve an episode GUID globally. Returns True if reserved, False if duplicate.
+def _resolve_identity_key(media_key: Optional[str]) -> str:
+    key = (media_key or "").strip()
+    if not key:
+        raise ValueError("media_key is required")
+    return key
 
-    This uses a conditional put on (episode_guid) to prevent duplicates across all users.
+
+async def _get_item(*, table_name: str, key_attr: str, key_value: str) -> Optional[Dict[str, Any]]:
+    session = database_async.get_session()
+    async with session.resource(
+        "dynamodb",
+        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        resp = await table.get_item(
+            Key={key_attr: key_value},
+            ConsistentRead=True,
+        )
+        return resp.get("Item")
+
+
+async def reserve_or_skip(
+    media_key: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> bool:
     """
-    item = {
-        "episode_guid": episode_guid,
+    Reserve media identity key globally.
+
+    Returns True if reserved, False if duplicate.
+    """
+    identity_key = _resolve_identity_key(media_key)
+
+    item: Dict[str, Any] = {
+        "media_key": identity_key,
         "status": "reserved",
         "job_id": job_id or "",
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
+
     try:
         session = database_async.get_session()
         async with session.resource(
@@ -50,43 +73,43 @@ async def reserve_or_skip(episode_guid: str, job_id: Optional[str] = None) -> bo
             endpoint_url=database_async.AWS_ENDPOINT_URL,
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
-            table = await dynamodb.Table(EPISODE_IDEMPOTENCE_TABLE)
+            table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)
             await table.put_item(
                 Item=item,
-                ConditionExpression="attribute_not_exists(episode_guid)",
+                ConditionExpression="attribute_not_exists(media_key)",
             )
-        logger.info(f"Reserved episode GUID {episode_guid} (job_id={job_id})")
+        logger.info("Reserved media key %s (job_id=%s)", identity_key, job_id)
         return True
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
-            logger.info(f"Duplicate submission detected for guid {episode_guid}")
+            logger.info("Duplicate submission detected for media_key=%s", identity_key)
             return False
-        logger.error(f"Error reserving idempotence row: {e}")
+        logger.error("Error reserving media idempotence row: %s", e)
         raise
 
 
-async def already_processed(episode_guid: str) -> Optional[Dict[str, Any]]:
-    """Return existing idempotence row if present, else None."""
+async def already_processed(
+    media_key: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Return existing idempotence row from canonical media table."""
+    identity_key = _resolve_identity_key(media_key)
     try:
-        session = database_async.get_session()
-        async with session.resource(
-            "dynamodb",
-            endpoint_url=database_async.AWS_ENDPOINT_URL,
-            region_name=database_async.AWS_REGION,
-        ) as dynamodb:
-            table = await dynamodb.Table(EPISODE_IDEMPOTENCE_TABLE)
-            resp = await table.get_item(
-                Key={"episode_guid": episode_guid},
-                ConsistentRead=True,
-            )
-            return resp.get("Item")
+        item = await _get_item(
+            table_name=MEDIA_IDEMPOTENCE_TABLE,
+            key_attr="media_key",
+            key_value=identity_key,
+        )
+        return item
     except ClientError as e:
-        logger.error(f"Error checking idempotence row: {e}")
+        logger.error("Error checking media idempotence row: %s", e)
         raise
 
 
-async def mark_processed(episode_guid: str, job_id: str) -> None:
-    """Mark GUID as processed. Only sets job_id if not already set to preserve canonical first-processor."""
+async def mark_processed(
+    media_key: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> None:
+    identity_key = _resolve_identity_key(media_key)
     try:
         session = database_async.get_session()
         async with session.resource(
@@ -94,72 +117,69 @@ async def mark_processed(episode_guid: str, job_id: str) -> None:
             endpoint_url=database_async.AWS_ENDPOINT_URL,
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
-            table = await dynamodb.Table(EPISODE_IDEMPOTENCE_TABLE)
-            # Try to set job_id only if not set
-            try:
-                await table.update_item(
-                    Key={"episode_guid": episode_guid},
-                    UpdateExpression="SET #st = :s, job_id = if_not_exists(job_id, :j), updated_at = :u",
-                    ExpressionAttributeNames={"#st": "status"},
-                    ExpressionAttributeValues={
-                        ":s": "processed",
-                        ":j": job_id,
-                        ":u": _now_iso(),
-                    },
-                    ConditionExpression="attribute_exists(episode_guid)",
-                )
-            except ClientError as e:
-                # Fallback for environments not supporting if_not_exists in UpdateExpression
-                if e.response.get("Error", {}).get("Code") == "ValidationException":
-                    await table.update_item(
-                        Key={"episode_guid": episode_guid},
-                        UpdateExpression="SET #st = :s, updated_at = :u",
-                        ExpressionAttributeNames={"#st": "status"},
-                        ExpressionAttributeValues={
-                            ":s": "processed",
-                            ":u": _now_iso(),
-                        },
-                        ConditionExpression="attribute_exists(episode_guid)",
-                    )
-                else:
-                    raise
-        logger.info(f"Marked processed for guid {episode_guid} (job {job_id})")
-    except ClientError as e:
-        logger.error(f"Error marking processed: {e}")
-        raise
-
-
-async def mark_failed(episode_guid: str, job_id: Optional[str] = None) -> None:
-    try:
-        session = database_async.get_session()
-        async with session.resource(
-            "dynamodb",
-            endpoint_url=database_async.AWS_ENDPOINT_URL,
-            region_name=database_async.AWS_REGION,
-        ) as dynamodb:
-            table = await dynamodb.Table(EPISODE_IDEMPOTENCE_TABLE)
+            table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)
+            expr_values: Dict[str, Any] = {
+                ":s": "processed",
+                ":u": _now_iso(),
+                ":j": job_id or "",
+            }
             await table.update_item(
-                Key={"episode_guid": episode_guid},
-                UpdateExpression="SET #st = :s, updated_at = :u" + (", job_id = if_not_exists(job_id, :j)" if job_id else ""),
+                Key={"media_key": identity_key},
+                UpdateExpression=(
+                    "SET #st = :s, updated_at = :u, "
+                    "job_id = if_not_exists(job_id, :j)"
+                ),
+                ExpressionAttributeNames={"#st": "status"},
+                ExpressionAttributeValues=expr_values,
+                ConditionExpression="attribute_exists(media_key)",
+            )
+        logger.info("Marked processed for media_key=%s (job=%s)", identity_key, job_id)
+    except ClientError as e:
+        logger.error("Error marking media idempotence processed: %s", e)
+        raise
+
+
+async def mark_failed(
+    media_key: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> None:
+    identity_key = _resolve_identity_key(media_key)
+    try:
+        session = database_async.get_session()
+        async with session.resource(
+            "dynamodb",
+            endpoint_url=database_async.AWS_ENDPOINT_URL,
+            region_name=database_async.AWS_REGION,
+        ) as dynamodb:
+            table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)
+            await table.update_item(
+                Key={"media_key": identity_key},
+                UpdateExpression=(
+                    "SET #st = :s, updated_at = :u, "
+                    "job_id = if_not_exists(job_id, :j)"
+                ),
                 ExpressionAttributeNames={"#st": "status"},
                 ExpressionAttributeValues={
                     ":s": "failed",
                     ":u": _now_iso(),
-                    **({":j": job_id} if job_id else {}),
+                    ":j": job_id or "",
                 },
-                ConditionExpression="attribute_exists(episode_guid)",
+                ConditionExpression="attribute_exists(media_key)",
             )
-        logger.info(f"Marked failed for guid {episode_guid} (job {job_id})")
+        logger.info("Marked failed for media_key=%s (job=%s)", identity_key, job_id)
     except ClientError as e:
-        logger.error(f"Error marking failed: {e}")
+        logger.error("Error marking media idempotence failed: %s", e)
         raise
 
 
-async def release_reservation(episode_guid: str, job_id: Optional[str] = None) -> None:
-    """Release a reservation if we fail before the job is persisted or enqueued.
-
-    We guard the delete with a condition on status='reserved' and optional job_id match.
+async def release_reservation(
+    media_key: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> None:
     """
+    Release a reservation if the canonical processing fails before orchestration.
+    """
+    identity_key = _resolve_identity_key(media_key)
     try:
         session = database_async.get_session()
         async with session.resource(
@@ -167,7 +187,7 @@ async def release_reservation(episode_guid: str, job_id: Optional[str] = None) -
             endpoint_url=database_async.AWS_ENDPOINT_URL,
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
-            table = await dynamodb.Table(EPISODE_IDEMPOTENCE_TABLE)
+            table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)
             condition = "#st = :reserved"
             expr_names = {"#st": "status"}
             expr_values = {":reserved": "reserved"}
@@ -176,18 +196,18 @@ async def release_reservation(episode_guid: str, job_id: Optional[str] = None) -
                 expr_values[":j"] = job_id
 
             await table.delete_item(
-                Key={"episode_guid": episode_guid},
+                Key={"media_key": identity_key},
                 ConditionExpression=condition,
                 ExpressionAttributeNames=expr_names,
                 ExpressionAttributeValues=expr_values,
             )
-        logger.info(f"Released reservation for guid {episode_guid} (job {job_id})")
+        logger.info("Released reservation for media_key=%s (job=%s)", identity_key, job_id)
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
-            # Nothing to release or not in reserved state; ignore
             logger.info(
-                f"No reservation to release or state changed for guid {episode_guid}"
+                "No reservation to release or state changed for media_key=%s",
+                identity_key,
             )
             return
-        logger.error(f"Error releasing reservation: {e}")
+        logger.error("Error releasing media idempotence reservation: %s", e)
         raise

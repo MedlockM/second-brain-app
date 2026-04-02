@@ -17,7 +17,7 @@ Le système de scaling horizontal de Media Summarizer utilise des workers Fargat
 2. **Workers Fargate Éphémères** (`ephemeral_worker.py`)
    - Traite un seul message SQS puis se termine
    - Gère automatiquement le lease renewal
-   - Supporte tous les types de workers (RSS, Download, Whisper, Summarization, Email)
+   - Supporte les workers RSS, Download, Deepgram, Summarization
 
 3. **CloudWatch Alarms**
    - Monitore `ApproximateNumberOfVisibleMessages` pour chaque queue
@@ -67,9 +67,8 @@ Message ajouté → CloudWatch Alarm → Lambda Scaling → Fargate Task → Mes
 CLUSTER_NAME=media-summarizer-cluster
 RSS_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/media-summarizer-rss-worker
 DOWNLOAD_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/media-summarizer-download-worker
-WHISPER_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/media-summarizer-whisper-worker
+DEEPGRAM_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/media-summarizer-deepgram-worker
 SUMMARIZATION_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/media-summarizer-summarization-worker
-EMAIL_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/media-summarizer-email-worker
 SUBNET_IDS=subnet-xxx,subnet-yyy
 SECURITY_GROUP_IDS=sg-xxx
 MAX_PARALLEL_WORKERS=15
@@ -78,7 +77,7 @@ AWS_DEFAULT_REGION=us-east-1
 
 #### Workers Éphémères
 ```bash
-WORKER_TYPE=rss|download|whisper|summarization|email
+WORKER_TYPE=rss|download|deepgram|summarization
 QUEUE_URL=https://sqs.region.amazonaws.com/account/queue-name
 QUEUE_NAME=queue-name
 EPHEMERAL_MODE=true
@@ -93,9 +92,8 @@ Les queues sont traitées par ordre de priorité :
 
 1. `rss-resolution-queue` (priorité 1)
 2. `audio-download-queue` (priorité 2)
-3. `transcription-queue` (priorité 3)
+3. `deepgram-transcription-queue` (priorité 3)
 4. `summarization-queue` (priorité 4)
-5. `email-notification-queue` (priorité 5)
 
 ## Déploiement
 
@@ -106,6 +104,7 @@ Les queues sont traitées par ordre de priorité :
 3. **Docker**
 4. **Variables d'environnement requises :**
    - `OPENAI_API_KEY`
+   - `DEEPGRAM_API_KEY`
    - `VPC_ID` (optionnel, utilise le VPC par défaut)
    - `SUBNET_IDS` (optionnel, utilise les subnets publics)
 
@@ -252,11 +251,10 @@ aws sqs send-message \
 
 2. **Workers Fargate**
    ```
-   /ecs/media-summarizer-rss-worker
-   /ecs/media-summarizer-download-worker
-   /ecs/media-summarizer-whisper-worker
-   /ecs/media-summarizer-summarization-worker
-   /ecs/media-summarizer-email-worker
+/ecs/media-summarizer-rss-worker
+/ecs/media-summarizer-download-worker
+/ecs/media-summarizer-deepgram-worker
+/ecs/media-summarizer-summarization-worker
    ```
 
 ### Commandes de Debug
@@ -291,12 +289,11 @@ aws cloudwatch get-metric-statistics \
 1. **Taille des Tâches**
    - RSS Worker : 256 CPU, 512 MB
    - Download Worker : 512 CPU, 1024 MB  
-   - Whisper Worker : 1024 CPU, 2048 MB
+   - Deepgram Worker : 1024 CPU, 2048 MB
    - Summarization Worker : 512 CPU, 1024 MB
-   - Email Worker : 256 CPU, 512 MB
 
 2. **Timeouts**
-   - Whisper : 30 minutes (transcriptions longues)
+   - Deepgram : 30 minutes (transcriptions longues)
    - Autres : 5 minutes
 
 3. **Batch Processing**

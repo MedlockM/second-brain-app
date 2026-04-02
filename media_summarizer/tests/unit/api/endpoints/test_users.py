@@ -81,7 +81,7 @@ class TestUserCreation:
             })
 
             assert response.status_code == 409
-            assert "Un utilisateur avec cet email existe déjà" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "EMAIL_ALREADY_EXISTS"
 
     @pytest.mark.asyncio
     async def test_create_user_invalid_email(self, client):
@@ -112,7 +112,7 @@ class TestUserCreation:
                 })
 
                 assert response.status_code == 500
-                assert "Erreur lors de la création de l'utilisateur" in response.json()["detail"]
+                assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
 
 class TestUserRetrieval:
@@ -141,7 +141,7 @@ class TestUserRetrieval:
             response = client.get("/api/v1/users/nonexistent")
 
             assert response.status_code == 404
-            assert "Utilisateur non trouvé" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "USER_NOT_FOUND"
 
     @pytest.mark.asyncio
     async def test_get_user_by_email_success(self, client, mock_db, sample_user):
@@ -166,7 +166,7 @@ class TestUserRetrieval:
             response = client.get("/api/v1/users/email/nonexistent@example.com")
 
             assert response.status_code == 404
-            assert "Utilisateur non trouvé" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "USER_NOT_FOUND"
 
     @pytest.mark.asyncio
     async def test_get_user_by_email_invalid_format(self, client):
@@ -215,7 +215,7 @@ class TestUserUpdate:
             })
 
             assert response.status_code == 404
-            assert "Utilisateur non trouvé" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "USER_NOT_FOUND"
 
     @pytest.mark.asyncio
     async def test_update_user_email_conflict(self, client, mock_db, sample_user):
@@ -236,7 +236,7 @@ class TestUserUpdate:
                 })
 
                 assert response.status_code == 409
-                assert "Un utilisateur avec cet email existe déjà" in response.json()["detail"]
+                assert response.json()["error"]["code"] == "EMAIL_ALREADY_EXISTS"
 
     @pytest.mark.asyncio
     async def test_update_user_no_changes(self, client, mock_db, sample_user):
@@ -274,7 +274,7 @@ class TestUserUpdate:
                     })
 
                     assert response.status_code == 500
-                    assert "Erreur lors de la mise à jour" in response.json()["detail"]
+                    assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
 
 class TestUserDeletion:
@@ -300,7 +300,7 @@ class TestUserDeletion:
             response = client.delete("/api/v1/users/nonexistent")
 
             assert response.status_code == 404
-            assert "Utilisateur non trouvé" in response.json()["detail"]
+            assert response.json()["error"]["code"] == "USER_NOT_FOUND"
 
 
 class TestModelValidation:

@@ -1,5 +1,5 @@
 """
-Script de diagnostic pour investiguer pourquoi un épisode Spotify ne match pas dans le flux RSS.
+Script de diagnostic pour investiguer pourquoi un épisode source ne match pas dans le flux RSS.
 """
 import asyncio
 import os

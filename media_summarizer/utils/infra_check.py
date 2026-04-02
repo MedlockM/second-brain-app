@@ -21,11 +21,19 @@ AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
 
 def required_s3_buckets_from_env() -> List[str]:
     """Return the list of required S3 bucket names from environment variables."""
+    allowed_artifact_types = {
+        chunk.strip().lower()
+        for chunk in os.environ.get("ARTIFACT_TYPES_ALLOWED", "summary,quiz,notes").split(",")
+        if chunk.strip()
+    }
     buckets = [
-        os.environ.get("AUDIO_BUCKET", ""),
-        os.environ.get("TRANSCRIPT_BUCKET", ""),
-        os.environ.get("SUMMARY_BUCKET", ""),
+        os.environ.get("AUDIO_BUCKET", "media-summarizer-audio"),
+        os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"),
+        os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries"),
+        os.environ.get("QUIZ_BUCKET", "media-summarizer-quizzes"),
     ]
+    if "notes" in allowed_artifact_types:
+        buckets.append(os.environ.get("NOTES_BUCKET", "media-summarizer-notes"))
     # Filter out empty values and duplicates while preserving order
     seen = set()
     result: List[str] = []
@@ -79,4 +87,3 @@ if __name__ == "__main__":
         raise SystemExit(1)
     print("S3 preflight check OK")
     raise SystemExit(0)
-

@@ -16,6 +16,12 @@ import asyncio
 
 from media_summarizer.utils import sqs, database_async
 from media_summarizer.core.models.processing_job import ProcessingJob
+from media_summarizer.utils.logging_config import (
+    bind_log_context,
+    log_event,
+    reset_log_context,
+)
+from media_summarizer.utils.user_facing_errors import get_user_facing_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +40,7 @@ async def process_message_with_retry(
     - Automatic retry with counter
     - Structured logging with context
     - Conditional deletion based on attempt count
-    - Fallback to DLQ in production, deletion in development
+    - Let SQS redrive to DLQ after max attempts
 
     Args:
         message: SQS message to process
@@ -62,19 +68,13 @@ async def process_message_with_retry(
         body = {"job_id": "unknown"}
 
     job_id = body.get("job_id", "unknown")
+    context_token = bind_log_context(
+        job_id=job_id if job_id != "unknown" else None,
+        queue=queue_name,
+        attempt=receive_count,
+    )
 
     try:
-        # Structured logging with context
-        logger.info(
-            f"[{worker_name}] Processing message",
-            extra={
-                "job_id": job_id,
-                "attempt": receive_count,
-                "max_attempts": max_retries,
-                "worker": worker_name
-            }
-        )
-
         # Process the message
         await processor(message)
 
@@ -83,100 +83,123 @@ async def process_message_with_retry(
             queue_name=queue_name,
             receipt_handle=receipt_handle
         )
-
-        logger.info(
-            f"[{worker_name}] Message processed successfully",
-            extra={
-                "job_id": job_id,
-                "attempt": receive_count,
-                "worker": worker_name
-            }
+        log_event(
+            logger,
+            logging.DEBUG,
+            "worker.message_completed",
+            "Worker message processed successfully",
+            worker=worker_name,
         )
 
         return True
 
     except Exception as e:
-        # Structured error logging
-        logger.error(
-            f"[{worker_name}] Message processing failed",
-            extra={
-                "job_id": job_id,
-                "attempt": receive_count,
-                "max_attempts": max_retries,
-                "error": str(e),
-                "error_type": type(e).__name__,
-                "worker": worker_name
-            }
-        )
-
         # Retry strategy based on attempt count
         if receive_count >= max_retries:
-            # After max attempts: delete to prevent infinite loop
-            
+            # After max attempts: let SQS redrive to DLQ (do not delete)
+
+            user_error_message = get_user_facing_error_message(str(e))
+
             # 1. Mark job as FAILED in DynamoDB
             try:
                 if job_id and job_id != "unknown":
                     job = await ProcessingJob.get(job_id)
                     if job:
                         await job.mark_failed(
-                            error_message=f"Max retries reached ({max_retries}). Last error: {str(e)}",
+                            error_message=user_error_message,
                             error_step=worker_name
                         )
-                        logger.info(f"[{worker_name}] Marked job {job_id} as FAILED in DynamoDB")
+                        log_event(
+                            logger,
+                            logging.DEBUG,
+                            "external_call.succeeded",
+                            "Marked processing job as failed",
+                            worker=worker_name,
+                            provider="dynamodb",
+                        )
             except Exception as db_err:
-                logger.error(f"[{worker_name}] Failed to mark job {job_id} as FAILED: {db_err}")
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    "external_call.failed",
+                    "Failed to mark job as failed",
+                    worker=worker_name,
+                    provider="dynamodb",
+                    error_type=type(db_err).__name__,
+                    exc_info=db_err,
+                )
 
             # 2. Release minutes hold if applicable
             try:
                 if job_id and job_id != "unknown":
                     from media_summarizer.core.services.minute_pool import release_hold
                     released = await release_hold(job_id)
-                    logger.info(f"[{worker_name}] Released minute hold on failure for job {job_id}: {released}")
+                    log_event(
+                        logger,
+                        logging.DEBUG,
+                        "external_call.succeeded",
+                        "Released minute hold after worker failure",
+                        worker=worker_name,
+                        released=released,
+                    )
             except Exception as refund_err:
-                logger.error(f"[{worker_name}] Failed to release minute hold on failure for job {job_id}: {refund_err}")
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    "external_call.failed",
+                    "Failed to release minute hold after worker failure",
+                    worker=worker_name,
+                    error_type=type(refund_err).__name__,
+                    exc_info=refund_err,
+                )
 
             # 3. Send error notification to user
             try:
                 if job_id and job_id != "unknown":
                     await send_error_notification(
                         job_id=job_id,
-                        error_message=f"Processing failed after {max_retries} attempts. Please try again later.",
+                        error_message=user_error_message,
                         step=worker_name
                     )
             except Exception as notify_err:
-                logger.error(f"[{worker_name}] Failed to send error notification for job {job_id}: {notify_err}")
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    "notification.failed",
+                    "Failed to emit worker failure notification",
+                    worker=worker_name,
+                    error_type=type(notify_err).__name__,
+                    exc_info=notify_err,
+                )
 
             # Technical errors are logged for monitoring/alerting
-            logger.warning(
-                f"[{worker_name}] Technical error after {receive_count} attempts, removing from queue",
-                extra={
-                    "job_id": job_id,
-                    "final_error": str(e),
-                    "worker": worker_name,
-                    "alert_ops": True  # Flag for monitoring systems
-                }
-            )
-
-            # Delete message to prevent infinite loop
-            await sqs.delete_message(
-                queue_name=queue_name,
-                receipt_handle=receipt_handle
+            log_event(
+                logger,
+                logging.ERROR,
+                "worker.failed",
+                "Worker message failed after max retries",
+                worker=worker_name,
+                error_type=type(e).__name__,
+                exc_info=e,
             )
 
             return False
         else:
             # Less than max attempts: let SQS handle retry
-            logger.info(
-                f"[{worker_name}] Technical error, will retry automatically",
-                extra={
-                    "job_id": job_id,
-                    "attempt": receive_count,
-                    "next_attempt": receive_count + 1,
-                    "worker": worker_name
-                }
+            log_event(
+                logger,
+                logging.WARNING,
+                "worker.retry_scheduled",
+                "Worker message failed and will be retried by SQS",
+                worker=worker_name,
+                error_type=type(e).__name__,
+                next_attempt=receive_count + 1,
+                exc_info=e,
             )
             # Don't delete message - it will return after visibility timeout
             return False
+    finally:
+        reset_log_context(context_token)
 
 
 def get_sqs_receive_params(visibility_timeout: int = 120) -> Dict[str, Any]:
@@ -206,27 +229,32 @@ async def send_error_notification(
     step: str
 ) -> None:
     """
-    Send error notification to email queue with consistent format.
+    Legacy compatibility hook for failure notifications.
+    Mailing has been removed from the processing pipeline; keep a structured log only.
 
     Args:
         job_id: Job identifier
         error_message: Error description
         step: Processing step where error occurred
     """
+    user_error_message = get_user_facing_error_message(error_message)
+
     notification_body = {
         "job_id": job_id,
-        "error": error_message,
+        "error": user_error_message,
         "step": step,
         "success": False,
         "notification_type": "error",
         "timestamp": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
     }
 
-    try:
-        await sqs.send_message(
-            queue_name="email-notification-queue",
-            message_body=notification_body
-        )
-        logger.info(f"Error notification sent for job {job_id}")
-    except Exception as e:
-        logger.error(f"Failed to send error notification for job {job_id}: {str(e)}")
+    log_event(
+        logger,
+        logging.WARNING,
+        "notification.skipped",
+        "Email notifications are disabled; skipping worker failure notification",
+        job_id=job_id,
+        error_code=step,
+        detail=user_error_message,
+        notification_payload=notification_body,
+    )

@@ -1,7 +1,11 @@
 import { useState, useEffect } from "react";
 import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
-import { SummariesService, MySummariesResponse } from "../services/summariesService";
+import {
+  SummariesService,
+  MySummariesResponse,
+} from "../services/summariesService";
 import SummaryCard from "./SummaryCard";
+import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 
 interface MySummariesProps {
   token: string;
@@ -25,9 +29,7 @@ export default function MySummaries({ token, onBack }: MySummariesProps) {
       setData(summariesData);
     } catch (err) {
       console.error("Failed to load summaries:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to load summaries"
-      );
+      setError(getFriendlyErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -44,10 +46,10 @@ export default function MySummaries({ token, onBack }: MySummariesProps) {
               className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <ArrowLeft className="h-4 w-4" />
-              <span>Retour</span>
+              <span>Back</span>
             </button>
             <h1 className="ml-4 text-xl font-bold text-gray-900">
-              Mes Résumés
+              My Summaries
             </h1>
           </div>
         </div>
@@ -58,7 +60,7 @@ export default function MySummaries({ token, onBack }: MySummariesProps) {
         {loading && (
           <div className="flex flex-col items-center justify-center py-12">
             <Loader2 className="h-12 w-12 animate-spin text-blue-600 mb-4" />
-            <p className="text-gray-600">Chargement de vos résumés...</p>
+            <p className="text-gray-600">Loading your summaries...</p>
           </div>
         )}
 
@@ -67,14 +69,14 @@ export default function MySummaries({ token, onBack }: MySummariesProps) {
             <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
             <div>
               <h3 className="text-sm font-semibold text-red-800 mb-1">
-                Erreur de chargement
+                Loading error
               </h3>
               <p className="text-sm text-red-700">{error}</p>
               <button
                 onClick={loadSummaries}
                 className="mt-3 text-sm text-red-700 underline hover:text-red-900"
               >
-                Réessayer
+                Retry
               </button>
             </div>
           </div>
@@ -100,24 +102,23 @@ export default function MySummaries({ token, onBack }: MySummariesProps) {
                   </svg>
                 </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  Aucun résumé disponible
+                  No summaries available
                 </h3>
                 <p className="text-gray-600 mb-6">
-                  Vous n'avez pas encore de résumés d'épisodes générés.
+                  You don't have any generated episode summaries yet.
                 </p>
                 <button
                   onClick={onBack}
                   className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  Rechercher des podcasts
+                  Search for podcasts
                 </button>
               </div>
             ) : (
               <>
                 <div className="mb-6">
                   <p className="text-sm text-gray-600">
-                    {data.count} résumé{data.count > 1 ? "s" : ""} trouvé
-                    {data.count > 1 ? "s" : ""}
+                    {data.count} summar{data.count > 1 ? "ies" : "y"} found
                   </p>
                 </div>
                 <div className="space-y-6">

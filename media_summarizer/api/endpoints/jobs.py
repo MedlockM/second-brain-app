@@ -4,12 +4,13 @@ Jobs API endpoints for tracking processing job status.
 
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from media_summarizer.utils import database_async
-from media_summarizer.api.dependencies.auth import get_current_user, AuthUser
+from media_summarizer.api.dependencies.auth import AuthUser, get_current_user
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.utils import database_async
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,31 @@ class JobStatusResponse(BaseModel):
     error_step: Optional[str] = None
     podcast_title: Optional[str] = None
     episode_title: Optional[str] = None
+    episode_image: Optional[str] = None
+    episode_date_published: Optional[int] = None
+    summary_url: Optional[str] = None
+    quiz_s3_key: Optional[str] = None
     processing_durations: Optional[dict] = None
+
+
+@router.get("/me", response_model=list[JobStatusResponse])
+async def get_my_jobs(
+    current_user: AuthUser = Depends(get_current_user),
+) -> list[JobStatusResponse]:
+    """
+    Get all jobs for the current user.
+    """
+    return await get_user_jobs(user_id=current_user.id, current_user=current_user)
+
+
+@router.get("/", response_model=list[JobStatusResponse])
+async def list_jobs(
+    current_user: AuthUser = Depends(get_current_user),
+) -> list[JobStatusResponse]:
+    """
+    Get all jobs for the current user.
+    """
+    return await get_user_jobs(user_id=current_user.id, current_user=current_user)
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)
@@ -83,6 +108,12 @@ async def get_job_status(
             completed_at=job.completed_at.isoformat() if job.completed_at else None,
             error_message=job.error_message,
             error_step=job.error_step,
+            podcast_title=job.podcast_title,
+            episode_title=job.episode_title,
+            episode_image=job.episode_image,
+            episode_date_published=job.episode_date_published,
+            summary_url=job.summary_url,
+            quiz_s3_key=job.quiz_s3_key,
             processing_durations=processing_durations if processing_durations else None,
         )
 
@@ -149,6 +180,12 @@ async def get_user_jobs(
                 completed_at=job.completed_at.isoformat() if job.completed_at else None,
                 error_message=job.error_message,
                 error_step=job.error_step,
+                podcast_title=job.podcast_title,
+                episode_title=job.episode_title,
+                episode_image=job.episode_image,
+                episode_date_published=job.episode_date_published,
+                summary_url=job.summary_url,
+                quiz_s3_key=job.quiz_s3_key,
                 processing_durations=processing_durations
                 if processing_durations
                 else None,

@@ -49,7 +49,7 @@ class LambdaLocalStackClient:
         Create a deployment package for a Lambda function.
         
         Args:
-            worker_module: Python module path (e.g., 'media_summarizer.workers.spotify_sync.worker')
+            worker_module: Python module path (e.g., 'media_summarizer.workers.cleanup.job_archiver')
             function_name: Name for the Lambda function
             
         Returns:
@@ -106,7 +106,7 @@ class LambdaLocalStackClient:
         
         Args:
             function_name: Name of the Lambda function
-            handler: Handler function (e.g., 'media_summarizer.workers.spotify_sync.worker.lambda_handler')
+            handler: Handler function (e.g., 'media_summarizer.workers.cleanup.job_archiver.lambda_handler')
             zip_path: Path to the deployment package
             environment_vars: Environment variables for the function
             
@@ -283,57 +283,6 @@ class LambdaLocalStackClient:
 def lambda_localstack_client():
     """Create a Lambda LocalStack client fixture."""
     return LambdaLocalStackClient()
-
-
-@pytest.fixture
-def deployed_spotify_sync_lambda(lambda_localstack_client):
-    """Deploy the Spotify Sync Lambda function for testing."""
-    function_name = "test-spotify-sync-worker"
-    handler = "media_summarizer.workers.spotify_sync.worker.lambda_handler"
-    
-    # Create deployment package
-    zip_path = lambda_localstack_client.create_lambda_package(
-        "media_summarizer.workers.spotify_sync.worker",
-        function_name
-    )
-    
-    # Environment variables
-    env_vars = {
-        "AWS_ENDPOINT_URL": AWS_ENDPOINT_URL,
-        "AWS_REGION": AWS_REGION,
-        "USERS_TABLE": "users",
-        "SPOTIFY_FOLLOWS_TABLE": "spotify_playlist_follows",
-        "PROCESSING_JOBS_TABLE": "processing_jobs",
-        "AUDIO_DOWNLOAD_QUEUE": "audio-download-queue"
-    }
-    
-    # Deploy function
-    response = lambda_localstack_client.deploy_lambda_function(
-        function_name, handler, zip_path, env_vars
-    )
-    
-    yield {
-        "function_name": function_name,
-        "handler": handler,
-        "response": response
-    }
-    
-    # Cleanup
-    lambda_localstack_client.cleanup_lambda_function(function_name)
-    
-    # Clean up zip file
-    if os.path.exists(zip_path):
-        os.remove(zip_path)
-
-
-# Helper functions for testing
-def create_test_spotify_sync_message(user_id: str, playlist_ids: List[str]) -> Dict[str, Any]:
-    """Create a test message for Spotify sync."""
-    return {
-        "user_id": user_id,
-        "playlist_ids": playlist_ids,
-        "source": "test"
-    }
 
 
 def assert_lambda_success(response: Dict[str, Any]):

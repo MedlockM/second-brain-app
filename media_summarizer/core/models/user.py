@@ -38,13 +38,6 @@ class User(BaseModel):
     name: Optional[str] = None
     avatar_url: Optional[str] = None
 
-    # Linked accounts: Spotify (link-account flow)
-    spotify_user_id: Optional[str] = None
-    spotify_access_token: Optional[str] = None
-    spotify_refresh_token: Optional[str] = None
-    spotify_token_expires_at: Optional[datetime] = None
-    spotify_scope: Optional[str] = None
-
     @field_validator("email")
     @classmethod
     def email_must_be_valid(cls, v: str) -> str:
@@ -97,17 +90,6 @@ class User(BaseModel):
             item["name"] = self.name
         if self.avatar_url is not None:
             item["avatar_url"] = self.avatar_url
-        # Spotify linked account fields (only if present)
-        if self.spotify_user_id is not None:
-            item["spotify_user_id"] = self.spotify_user_id
-        if self.spotify_access_token is not None:
-            item["spotify_access_token"] = self.spotify_access_token
-        if self.spotify_refresh_token is not None:
-            item["spotify_refresh_token"] = self.spotify_refresh_token
-        if self.spotify_token_expires_at is not None:
-            item["spotify_token_expires_at"] = self.spotify_token_expires_at.isoformat()
-        if self.spotify_scope is not None:
-            item["spotify_scope"] = self.spotify_scope
         return item
 
     @classmethod
@@ -131,15 +113,6 @@ class User(BaseModel):
             ),
             name=item.get("name"),
             avatar_url=item.get("avatar_url"),
-            spotify_user_id=item.get("spotify_user_id"),
-            spotify_access_token=item.get("spotify_access_token"),
-            spotify_refresh_token=item.get("spotify_refresh_token"),
-            spotify_token_expires_at=(
-                datetime.fromisoformat(item["spotify_token_expires_at"])
-                if item.get("spotify_token_expires_at")
-                else None
-            ),
-            spotify_scope=item.get("spotify_scope"),
         )
 
     def __repr__(self) -> str:  # pragma: no cover (representation)

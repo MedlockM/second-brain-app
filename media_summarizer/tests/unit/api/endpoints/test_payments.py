@@ -90,7 +90,7 @@ class TestGetCreditPackages(TestPaymentEndpoints):
         response = self.client.get("/api/v1/payments/packages")
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "Failed to retrieve credit packages" in response.json()["detail"]
+        assert response.json()["error"]["code"] == "INTERNAL_ERROR"
 
 
 class TestCreatePaymentIntent(TestPaymentEndpoints):
@@ -169,7 +169,7 @@ class TestCreatePaymentIntent(TestPaymentEndpoints):
         })
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid package" in response.json()["detail"]
+        assert response.json()["error"]["code"] == "BAD_REQUEST"
 
     @patch('media_summarizer.api.endpoints.payments.StripeService')
     async def test_create_payment_intent_stripe_error(self, mock_stripe_service_class):
@@ -184,7 +184,7 @@ class TestCreatePaymentIntent(TestPaymentEndpoints):
         })
 
         assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
-        assert "Payment processing error" in response.json()["detail"]
+        assert response.json()["error"]["code"] == "PAYMENT_REQUIRED"
 
     def test_create_payment_intent_unauthenticated(self):
         """Test payment intent creation without authentication."""
@@ -279,7 +279,7 @@ class TestConfirmPayment(TestPaymentEndpoints):
         })
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "does not belong to current user" in response.json()["detail"]
+        assert response.json()["error"]["code"] == "NOT_AUTHORIZED"
 
     def test_confirm_payment_invalid_id_format(self):
         """Test payment confirmation with invalid payment intent ID format."""
@@ -583,7 +583,7 @@ class TestCheckoutSession(TestPaymentEndpoints):
             json={"credits": 50}
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Missing price ID" in response.json()["detail"]
+        assert response.json()["error"]["code"] == "BAD_REQUEST"
 
     @patch('media_summarizer.api.endpoints.payments.StripeService')
     async def test_create_checkout_session_stripe_error(self, mock_stripe_service_class):

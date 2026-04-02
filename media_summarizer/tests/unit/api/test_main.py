@@ -40,8 +40,8 @@ def test_validation_exception_handler(client):
     )
     assert response.status_code == 422
     data = response.json()
-    assert "detail" in data
-    assert "body" in data
+    assert "error" in data
+    assert data["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_general_exception_handler():

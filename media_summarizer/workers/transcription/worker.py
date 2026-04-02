@@ -7,6 +7,7 @@ Migrated to use the new utils for S3 and SQS operations instead of direct AWS li
 import asyncio
 import json
 import logging
+from math import ceil
 import os
 from pathlib import Path
 import tempfile
@@ -42,12 +43,13 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
+EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+)
 TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
 )
 TRANSCRIPTION_QUEUE = os.environ.get("TRANSCRIPTION_QUEUE", "transcription-queue")
-SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
-NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-queue")
 MAX_RETRIES = 3
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 RETRY_BASE_DELAY = 0.01 if TEST_MODE else 1  # secondes
@@ -118,53 +120,6 @@ async def upload_transcription(transcript_s3_key: str, transcription_text: str) 
         raise
 
 
-async def send_notification(
-    notification_type: str, job_id: str, email: str, **kwargs
-) -> None:
-    """Send notification message to the email queue using utils."""
-    try:
-        notification_data = {
-            "notification_type": notification_type,
-            "job_id": job_id,
-            "email": email,
-            **kwargs,
-        }
-
-        await sqs.send_message(
-            queue_name=NOTIFICATION_QUEUE, message_body=notification_data
-        )
-
-        logger.info(f"Sent {notification_type} notification for job {job_id}")
-
-    except Exception as e:
-        logger.error(f"Failed to send notification: {str(e)}")
-        raise
-
-
-async def send_to_summarization_queue(
-    job_id: str, transcript_s3_key: str, email: str, **kwargs
-) -> None:
-    """Send message to summarization queue using utils."""
-    try:
-        summarization_data = {
-            "job_id": job_id,
-            "transcript_s3_key": transcript_s3_key,
-            "transcript_bucket": TRANSCRIPT_BUCKET,
-            "email": email,
-            **kwargs,
-        }
-
-        await sqs.send_message(
-            queue_name=SUMMARIZATION_QUEUE, message_body=summarization_data
-        )
-
-        logger.info(f"Sent job {job_id} to summarization queue")
-
-    except Exception as e:
-        logger.error(f"Failed to send to summarization queue: {str(e)}")
-        raise
-
-
 async def process_transcription_message(message_body: Dict[str, Any]) -> None:
     """
     Process a single transcription message.
@@ -175,18 +130,13 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
     job_id = message_body.get("job_id")
     # Accept both key variants used across tests
     audio_s3_key = message_body.get("audio_s3_key") or message_body.get("s3_audio_key")
-    email = message_body.get("email")
 
-    if not all([job_id, audio_s3_key, email]):
+    if not all([job_id, audio_s3_key]):
         logger.error(f"Missing required fields in message: {message_body}")
         raise ValueError("Missing required fields in transcription message")
 
     # Ensure all required fields are strings
-    if (
-        not isinstance(job_id, str)
-        or not isinstance(audio_s3_key, str)
-        or not isinstance(email, str)
-    ):
+    if not isinstance(job_id, str) or not isinstance(audio_s3_key, str):
         logger.error(f"Invalid field types in message: {message_body}")
         raise ValueError("Invalid field types in transcription message")
 
@@ -243,45 +193,56 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
         if not transcription_text or len(transcription_text.strip()) == 0:
             raise ValueError("Transcription resulted in empty text")
 
-        # Prepare transcription data with metadata
-        transcription_data = {
-            "job_id": job_id,
-            "transcription": transcription_text,
-            "metadata": {
-                "language": language,
-                "duration_seconds": transcription_duration,
-                "segments_count": len(segments),
-                "audio_s3_key": audio_s3_key,
-                "model_used": WHISPER_MODEL,
-                "transcribed_at": time.strftime(
-                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
-                ),
-            },
-        }
-
         # Upload transcription to S3
         transcript_s3_key = f"{job_id}.txt"
         logger.info(f"Uploading transcription for job {job_id}")
         await upload_transcription(transcript_s3_key, transcription_text)
 
+        transcription_metadata = {
+            "provider": "whisper",
+            "language": language,
+            "duration_seconds": transcription_duration,
+            "segments_count": len(segments),
+            "audio_s3_key": audio_s3_key,
+            "model_used": WHISPER_MODEL,
+            "transcribed_at": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+            ),
+        }
+
         # Update job with transcription location and duration
         if job:
             job.set_transcription_location(transcript_s3_key)
+            job.set_transcription_metadata(transcription_metadata)
             job.set_processing_duration(
                 "transcription", int(transcription_duration)
             )
             await database_async.update_processing_job(job)
 
-        # Send to summarization queue
-        await send_to_summarization_queue(
-            job_id=job_id,
-            transcript_s3_key=transcript_s3_key,
-            email=email,
-            podcast_title=message_body.get("podcast_title"),
-            episode_title=message_body.get("episode_title"),
-            episode_guid=message_body.get("episode_guid"),
-            episode_image=message_body.get("episode_image", ""),
-            transcription_metadata=transcription_data["metadata"],
+        # Publish completion event directly: automatic pipeline ends at transcription.
+        audio_duration_seconds_raw = message_body.get("audio_duration_seconds")
+        try:
+            audio_duration_seconds = int(float(audio_duration_seconds_raw))
+        except (TypeError, ValueError):
+            audio_duration_seconds = 0
+
+        minutes_used = (
+            max(1, ceil(audio_duration_seconds / 60))
+            if audio_duration_seconds > 0
+            else 1
+        )
+
+        await sqs.send_message(
+            queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+            message_body={
+                "event_type": "episode_completion_status",
+                "status": "success",
+                "media_key": message_body.get("media_key"),
+                "canonical_job_id": job_id,
+                "minutes_used": minutes_used,
+                "transcription_s3_key": transcript_s3_key,
+                "transcription_metadata": transcription_metadata,
+            },
         )
 
         logger.info(f"Successfully completed transcription for job {job_id}")
@@ -333,6 +294,31 @@ async def process_message(message: Dict[str, Any]) -> None:
         # After success, delete message (done by poller loop) and exit
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse message body: {str(e)}")
+        raise
+    except Exception as e:
+        # Publish a failure event so watchers are unblocked
+        try:
+            # body may be undefined if parsing failed; guard accordingly
+            try:
+                b = body if isinstance(body, dict) else {}
+            except Exception:
+                b = {}
+            media_key = b.get("media_key")
+            job_id = b.get("job_id")
+            if job_id:
+                await sqs.send_message(
+                    queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+                    message_body={
+                        "event_type": "episode_completion_status",
+                        "status": "failure",
+                        "media_key": media_key,
+                        "canonical_job_id": job_id,
+                        "reason": f"transcription_failed: {str(e)}",
+                    },
+                )
+        except Exception as ee:
+            logger.warning(f"Failed to publish failure event (transcription) for job {job_id}: {ee}")
+        # Re-raise so retry/DLQ logic applies
         raise
     finally:
         if heartbeat_task:

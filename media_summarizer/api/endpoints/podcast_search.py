@@ -2,36 +2,36 @@
 Endpoints pour la recherche et la sélection de podcasts via l'API Podcast Index.
 """
 
+import json
 import logging
 import os
-import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import EmailStr
 
-from media_summarizer.utils.database_async import get_db
-from media_summarizer.utils import database_async, sqs, podcast_index
-from media_summarizer.core.services.episode_submission import submit_episode_for_user
-from media_summarizer.core.models import User, ProcessingJob
 from media_summarizer.api.dependencies.auth import (
     get_current_user,
     require_verified_email,
 )
-from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.api.rate_limit import limiter, get_limit_from_env
 from media_summarizer.api.models.podcast_models import (
-    PodcastSearchRequest,
-    PodcastSearchResponse,
-    PodcastInfo,
-    EpisodesListRequest,
-    EpisodesListResponse,
     EpisodeInfo,
     EpisodeSelectionRequest,
     EpisodeSelectionResponse,
+    EpisodesListRequest,
+    EpisodesListResponse,
+    PodcastInfo,
+    PodcastSearchRequest,
+    PodcastSearchResponse,
     TrendingPodcastsRequest,
     TrendingPodcastsResponse,
 )
+from media_summarizer.api.rate_limit import get_limit_from_env, limiter
+from media_summarizer.core.models import ProcessingJob, User
+from media_summarizer.core.models.auth import AuthUser
+from media_summarizer.core.services.episode_submission import submit_episode_for_user
+from media_summarizer.utils import database_async, podcast_index, sqs
+from media_summarizer.utils.database_async import get_db
 
 router = APIRouter()
 
@@ -69,7 +69,10 @@ async def search_podcasts(payload: PodcastSearchRequest, request: Request):
 
         # Recherche via l'API Podcast Index
         search_result = await podcast_index.search_podcasts(
-            query=payload.query, max_results=payload.max_results, clean=payload.clean
+            query=payload.query,
+            max_results=payload.max_results,
+            clean=payload.clean,
+            similar=payload.similar,
         )
 
         if not search_result.get("status") == "true":
@@ -246,11 +249,42 @@ async def submit_episode_for_processing(
                 detail="Utilisateur authentifié introuvable",
             )
 
+        # Récupérer les détails du podcast pour avoir le titre correct (absent de l'épisode parfois)
+        try:
+            feed_data = await podcast_index.get_podcast_by_feed_id(payload.feed_id)
+            feed_title = feed_data.get("feed", {}).get("title", "Podcast inconnu")
+        except Exception as e:
+            logger.warning(
+                f"Failed to fetch podcast details for {payload.feed_id}: {e}"
+            )
+            feed_title = episode_info.get("feedTitle", "Podcast inconnu")
+
         # Préparer les titres pour logs/réponses/notifications
         episode_title = episode_info.get("title", "Episode inconnu")
-        feed_title = episode_info.get("feedTitle", "Podcast inconnu")
         episode_image = episode_info.get("image", "")
-        episode_date_published = episode_info.get("datePublished", 0)  # Unix timestamp - episode publication date
+
+        # Ensure date_published is an integer
+        try:
+            episode_date_published = int(episode_info.get("datePublished", 0))
+        except (ValueError, TypeError):
+            episode_date_published = 0
+
+        # DEBUG LOGGING
+        raw_feed_title = (
+            feed_data.get("feed", {}).get("title") if "feed_data" in locals() else "N/A"
+        )
+        logger.info(f"DEBUG: raw_feed_title from API: '{raw_feed_title}'")
+
+        # Ensure feed_title is string and not None
+        if not feed_title:
+            feed_title = "Podcast inconnu"
+
+        # Ensure episode_title is string and not None
+        if not episode_title:
+            episode_title = "Episode inconnu"
+
+        logger.info(f"DEBUG: Final feed_title: '{feed_title}'")
+        logger.info(f"DEBUG: Final episode_title: '{episode_title}'")
 
         # Déléguer la logique au service partagé (idempotence globale, facturation, notifications)
         result = await submit_episode_for_user(
@@ -263,6 +297,19 @@ async def submit_episode_for_processing(
             episode_image=episode_image,
             episode_date_published=episode_date_published,
         )
+
+        # Gérer le cas où l'utilisateur n'a pas assez de minutes
+        if (
+            result.get("status") == "skipped"
+            and result.get("reason") == "insufficient_credits"
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=result.get(
+                    "message", "Crédits insuffisants pour traiter cet épisode."
+                ),
+            )
+
         return EpisodeSelectionResponse(**result)
 
     except HTTPException:

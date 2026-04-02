@@ -33,6 +33,7 @@ docker --version
 
 # Variables d'environnement requises
 export OPENAI_API_KEY="sk-..."
+export DEEPGRAM_API_KEY="dg_..."
 export AWS_DEFAULT_REGION="us-east-1"
 ```
 
@@ -101,15 +102,15 @@ python scripts/test_ephemeral_local.py --no-cleanup
 # Envoyer un message test
 aws sqs send-message \
   --endpoint-url http://localhost:4566 \
-  --queue-url http://localhost:4566/000000000000/audio-download-queue \
+  --queue-url http://localhost:4566/000000000000/deepgram-transcription-queue \
   --message-body '{"job_id":"test-123","audio_url":"https://example.com/audio.mp3"}'
 
 # Lancer un worker éphémère manuellement
 docker run --rm \
   --network media-summarizer-project_default \
-  -e WORKER_TYPE=download \
-  -e QUEUE_URL=http://localstack:4566/000000000000/audio-download-queue \
-  -e QUEUE_NAME=audio-download-queue \
+  -e WORKER_TYPE=deepgram \
+  -e QUEUE_URL=http://localstack:4566/000000000000/deepgram-transcription-queue \
+  -e QUEUE_NAME=deepgram-transcription-queue \
   -e EPHEMERAL_MODE=true \
   -e AWS_ENDPOINT_URL=http://localstack:4566 \
   -e AWS_ACCESS_KEY_ID=test \
@@ -124,10 +125,9 @@ docker run --rm \
 ```bash
 CLUSTER_NAME=media-summarizer-cluster
 RSS_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/...
-DOWNLOAD_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/...
-WHISPER_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/...
+YOUTUBE_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/...
+DEEPGRAM_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/...
 SUMMARIZATION_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/...
-EMAIL_TASK_DEFINITION_ARN=arn:aws:ecs:region:account:task-definition/...
 SUBNET_IDS=subnet-xxx,subnet-yyy
 SECURITY_GROUP_IDS=sg-xxx
 MAX_PARALLEL_WORKERS=15
@@ -136,7 +136,7 @@ MAX_PARALLEL_WORKERS=15
 ### Variables d'Environnement - Workers
 
 ```bash
-WORKER_TYPE=rss|download|whisper|summarization|email
+WORKER_TYPE=rss|youtube|deepgram|summarization|download
 QUEUE_URL=https://sqs.region.amazonaws.com/account/queue-name
 EPHEMERAL_MODE=true
 MAX_PROCESSING_TIME=3600
@@ -149,10 +149,10 @@ VISIBILITY_TIMEOUT=300
 | Worker Type     | CPU   | Memory | Timeout |
 |----------------|-------|--------|---------|
 | RSS            | 256   | 512MB  | 5min    |
+| YouTube        | 512   | 1024MB | 5min    |
 | Download       | 512   | 1024MB | 15min   |
-| Whisper        | 1024  | 2048MB | 30min   |
+| Deepgram       | 1024  | 2048MB | 30min   |
 | Summarization  | 512   | 1024MB | 5min    |
-| Email          | 256   | 512MB  | 5min    |
 
 ## Tests de Production
 
@@ -175,8 +175,8 @@ aws lambda invoke \
 
 # Ajout de message de test
 aws sqs send-message \
-  --queue-url $(terraform output -raw queue_urls | jq -r .rss_resolution) \
-  --message-body '{"job_id":"prod-test-123","podcast_url":"https://feeds.megaphone.fm/the-daily"}'
+  --queue-url $(terraform output -raw queue_urls | jq -r .deepgram_transcription) \
+  --message-body '{"job_id":"prod-test-123","audio_url":"https://cdn.example.com/episode.mp3"}'
 
 # Vérifier les workers lancés
 aws ecs list-tasks --cluster media-summarizer-cluster
@@ -270,7 +270,7 @@ aws logs tail /aws/lambda/media-summarizer-scaling-controller --follow
 
 # Workers Fargate
 aws logs tail /ecs/media-summarizer-rss-worker --follow
-aws logs tail /ecs/media-summarizer-whisper-worker --follow
+aws logs tail /ecs/media-summarizer-deepgram-worker --follow
 
 # Tous les logs ECS
 aws logs describe-log-groups --log-group-name-prefix /ecs/media-summarizer
@@ -291,7 +291,7 @@ aws ecs describe-tasks \
   --tasks $(aws ecs list-tasks --cluster media-summarizer-cluster --query 'taskArns[0]' --output text)
 
 # Messages dans les queues
-for queue in audio-download-queue transcription-queue summarization-queue email-notification-queue; do
+for queue in podcastindex-resolution-queue youtube-ingestion-queue deepgram-transcription-queue summarization-queue; do
   echo "=== $queue ==="
   aws sqs get-queue-attributes \
     --queue-url $(aws sqs get-queue-url --queue-name $queue --query QueueUrl --output text) \

@@ -17,6 +17,8 @@ JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY") or os.environ.get("SECRET_KEY"
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 # Prefer minutes; fallback to 30 minutes if unset (security-first default)
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+# Optional seconds override (useful for short-lived dev tokens)
+JWT_ACCESS_TOKEN_EXPIRE_SECONDS = int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_SECONDS", "0"))
 
 # Backward-compat constants (for existing imports in tests)
 SECRET_KEY = JWT_SECRET_KEY
@@ -26,6 +28,32 @@ try:
     ACCESS_TOKEN_EXPIRE_HOURS = int(os.environ.get("ACCESS_TOKEN_EXPIRE_HOURS")) if os.environ.get("ACCESS_TOKEN_EXPIRE_HOURS") else max(1, (JWT_ACCESS_TOKEN_EXPIRE_MINUTES + 59) // 60)
 except Exception:
     ACCESS_TOKEN_EXPIRE_HOURS = 24
+
+# Refresh token lifetime (defaults to days, but can be overridden in minutes/seconds for dev)
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
+REFRESH_TOKEN_EXPIRE_MINUTES = int(os.environ.get("REFRESH_TOKEN_EXPIRE_MINUTES", "0"))
+REFRESH_TOKEN_EXPIRE_SECONDS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_SECONDS", "0"))
+
+
+def get_access_token_expires_seconds() -> int:
+    if JWT_ACCESS_TOKEN_EXPIRE_SECONDS > 0:
+        return JWT_ACCESS_TOKEN_EXPIRE_SECONDS
+    return max(1, JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+
+
+def get_access_token_expires_timedelta() -> timedelta:
+    if JWT_ACCESS_TOKEN_EXPIRE_SECONDS > 0:
+        return timedelta(seconds=JWT_ACCESS_TOKEN_EXPIRE_SECONDS)
+    return timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+
+
+def get_refresh_token_expires_at(now: Optional[datetime] = None) -> datetime:
+    now = now or datetime.now(timezone.utc)
+    if REFRESH_TOKEN_EXPIRE_SECONDS > 0:
+        return now + timedelta(seconds=REFRESH_TOKEN_EXPIRE_SECONDS)
+    if REFRESH_TOKEN_EXPIRE_MINUTES > 0:
+        return now + timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
+    return now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
 # Password hashing context (for future use if needed)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -47,7 +75,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + get_access_token_expires_timedelta()
 
     to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc)})
 

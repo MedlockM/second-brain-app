@@ -55,6 +55,12 @@ variable "openai_api_key" {
   sensitive   = true
 }
 
+variable "deepgram_api_key" {
+  description = "Deepgram API key for transcription"
+  type        = string
+  sensitive   = true
+}
+
 # Data sources
 data "aws_caller_identity" "current" {}
 
@@ -170,9 +176,11 @@ resource "aws_iam_policy" "ecs_task_policy" {
         Resource = [
           aws_sqs_queue.rss_resolution.arn,
           aws_sqs_queue.audio_download.arn,
+          aws_sqs_queue.youtube_ingestion.arn,
+          aws_sqs_queue.tiktok_ingestion.arn,
+          aws_sqs_queue.deepgram_transcription.arn,
           aws_sqs_queue.transcription.arn,
-          aws_sqs_queue.summarization.arn,
-          aws_sqs_queue.email_notification.arn
+          aws_sqs_queue.summarization.arn
         ]
       },
       {
@@ -217,14 +225,6 @@ resource "aws_iam_policy" "ecs_task_policy" {
       {
         Effect = "Allow"
         Action = [
-          "ses:SendEmail",
-          "ses:SendRawEmail"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"
@@ -248,7 +248,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_policy" {
 
 # CloudWatch Log Groups
 resource "aws_cloudwatch_log_group" "workers" {
-  for_each = toset(["rss", "download", "whisper", "summarization", "email"])
+  for_each = toset(["rss", "x", "youtube", "tiktok", "download", "deepgram", "whisper", "summarization"])
 
   name              = "/ecs/${var.project_name}-${each.key}-worker"
   retention_in_days = 7
@@ -262,13 +262,13 @@ resource "aws_cloudwatch_log_group" "workers" {
 
 # SQS Queues
 resource "aws_sqs_queue" "rss_resolution" {
-  name                      = "rss-resolution-queue"
+  name                      = "podcastindex-resolution-queue"
   visibility_timeout_seconds = 300
   message_retention_seconds = 1209600 # 14 days
   max_receive_count         = 3
 
   tags = {
-    Name        = "rss-resolution-queue"
+    Name        = "podcastindex-resolution-queue"
     Environment = var.environment
     Project     = var.project_name
   }
@@ -330,6 +330,118 @@ resource "aws_sqs_queue" "transcription" {
   }
 }
 
+# Dead-letter queue for Deepgram transcription
+resource "aws_sqs_queue" "deepgram_transcription_dlq" {
+  name = "deepgram-transcription-dlq"
+
+  tags = {
+    Name        = "deepgram-transcription-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "deepgram_transcription" {
+  name                       = "deepgram-transcription-queue"
+  visibility_timeout_seconds = 1800
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.deepgram_transcription_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "deepgram-transcription-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# Dead-letter queue for X ingestion
+resource "aws_sqs_queue" "x_ingestion_dlq" {
+  name = "x-ingestion-dlq"
+
+  tags = {
+    Name        = "x-ingestion-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "x_ingestion" {
+  name                       = "x-ingestion-queue"
+  visibility_timeout_seconds = 300
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.x_ingestion_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "x-ingestion-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# Dead-letter queue for YouTube ingestion
+resource "aws_sqs_queue" "youtube_ingestion_dlq" {
+  name = "youtube-ingestion-dlq"
+
+  tags = {
+    Name        = "youtube-ingestion-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "youtube_ingestion" {
+  name                       = "youtube-ingestion-queue"
+  visibility_timeout_seconds = 300
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.youtube_ingestion_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "youtube-ingestion-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# Dead-letter queue for TikTok ingestion
+resource "aws_sqs_queue" "tiktok_ingestion_dlq" {
+  name = "tiktok-ingestion-dlq"
+
+  tags = {
+    Name        = "tiktok-ingestion-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "tiktok_ingestion" {
+  name                       = "tiktok-ingestion-queue"
+  visibility_timeout_seconds = 300
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.tiktok_ingestion_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "tiktok-ingestion-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 # Dead-letter queue for summarization
 resource "aws_sqs_queue" "summarization_dlq" {
   name = "summarization-dlq"
@@ -353,34 +465,6 @@ resource "aws_sqs_queue" "summarization" {
 
   tags = {
     Name        = "summarization-queue"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-# Dead-letter queue for email notifications
-resource "aws_sqs_queue" "email_notification_dlq" {
-  name = "email-notification-dlq"
-
-  tags = {
-    Name        = "email-notification-dlq"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-resource "aws_sqs_queue" "email_notification" {
-  name                       = "email-notification-queue"
-  visibility_timeout_seconds = 300
-  message_retention_seconds  = 1209600
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.email_notification_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = {
-    Name        = "email-notification-queue"
     Environment = var.environment
     Project     = var.project_name
   }
@@ -481,10 +565,13 @@ resource "aws_dynamodb_table" "users" {
 resource "aws_ecs_task_definition" "ephemeral_worker" {
   for_each = {
     rss           = { cpu = 256, memory = 512 }
+    x             = { cpu = 256, memory = 512 }
+    youtube       = { cpu = 512, memory = 1024 }
+    tiktok        = { cpu = 512, memory = 1024 }
     download      = { cpu = 512, memory = 1024 }
+    deepgram      = { cpu = 1024, memory = 2048 }
     whisper       = { cpu = 1024, memory = 2048 }
     summarization = { cpu = 512, memory = 1024 }
-    email         = { cpu = 256, memory = 512 }
   }
 
   family                   = "${var.project_name}-${each.key}-worker"
@@ -515,7 +602,7 @@ resource "aws_ecs_task_definition" "ephemeral_worker" {
         },
         {
           name  = "MAX_PROCESSING_TIME"
-          value = each.key == "whisper" ? "3600" : "900"
+          value = contains(["whisper", "deepgram"], each.key) ? "3600" : "900"
         },
         {
           name  = "HEARTBEAT_INTERVAL"
@@ -523,7 +610,7 @@ resource "aws_ecs_task_definition" "ephemeral_worker" {
         },
         {
           name  = "VISIBILITY_TIMEOUT"
-          value = each.key == "whisper" ? "1800" : "300"
+          value = contains(["whisper", "deepgram"], each.key) ? "1800" : "300"
         }
       ]
 
@@ -531,6 +618,11 @@ resource "aws_ecs_task_definition" "ephemeral_worker" {
         {
           name      = "OPENAI_API_KEY"
           valueFrom = aws_secretsmanager_secret.openai_api_key.arn
+        }
+      ] : each.key == "deepgram" ? [
+        {
+          name      = "DEEPGRAM_API_KEY"
+          valueFrom = aws_secretsmanager_secret.deepgram_api_key.arn
         }
       ] : []
 
@@ -569,6 +661,23 @@ resource "aws_secretsmanager_secret" "openai_api_key" {
 resource "aws_secretsmanager_secret_version" "openai_api_key" {
   secret_id     = aws_secretsmanager_secret.openai_api_key.id
   secret_string = var.openai_api_key
+}
+
+# Secrets Manager for Deepgram API Key
+resource "aws_secretsmanager_secret" "deepgram_api_key" {
+  name        = "${var.project_name}-deepgram-api-key"
+  description = "Deepgram API key for Media Summarizer"
+
+  tags = {
+    Name        = "${var.project_name}-deepgram-api-key"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "deepgram_api_key" {
+  secret_id     = aws_secretsmanager_secret.deepgram_api_key.id
+  secret_string = var.deepgram_api_key
 }
 
 # IAM Role for Lambda Scaling Controller
@@ -630,9 +739,12 @@ resource "aws_iam_policy" "lambda_scaling" {
         Resource = [
           aws_sqs_queue.rss_resolution.arn,
           aws_sqs_queue.audio_download.arn,
+          aws_sqs_queue.x_ingestion.arn,
+          aws_sqs_queue.youtube_ingestion.arn,
+          aws_sqs_queue.tiktok_ingestion.arn,
+          aws_sqs_queue.deepgram_transcription.arn,
           aws_sqs_queue.transcription.arn,
-          aws_sqs_queue.summarization.arn,
-          aws_sqs_queue.email_notification.arn
+          aws_sqs_queue.summarization.arn
         ]
       },
       {
@@ -686,10 +798,13 @@ resource "aws_lambda_function" "scaling_controller" {
     variables = {
       CLUSTER_NAME                    = aws_ecs_cluster.main.name
       RSS_TASK_DEFINITION_ARN         = aws_ecs_task_definition.ephemeral_worker["rss"].arn
+      X_TASK_DEFINITION_ARN           = aws_ecs_task_definition.ephemeral_worker["x"].arn
+      YOUTUBE_TASK_DEFINITION_ARN     = aws_ecs_task_definition.ephemeral_worker["youtube"].arn
+      TIKTOK_TASK_DEFINITION_ARN      = aws_ecs_task_definition.ephemeral_worker["tiktok"].arn
       DOWNLOAD_TASK_DEFINITION_ARN    = aws_ecs_task_definition.ephemeral_worker["download"].arn
+      DEEPGRAM_TASK_DEFINITION_ARN    = aws_ecs_task_definition.ephemeral_worker["deepgram"].arn
       WHISPER_TASK_DEFINITION_ARN     = aws_ecs_task_definition.ephemeral_worker["whisper"].arn
       SUMMARIZATION_TASK_DEFINITION_ARN = aws_ecs_task_definition.ephemeral_worker["summarization"].arn
-      EMAIL_TASK_DEFINITION_ARN       = aws_ecs_task_definition.ephemeral_worker["email"].arn
       SUBNET_IDS                      = join(",", var.subnet_ids)
       SECURITY_GROUP_IDS              = aws_security_group.fargate_tasks.id
       MAX_PARALLEL_WORKERS            = var.max_parallel_workers
@@ -724,11 +839,12 @@ resource "aws_cloudwatch_log_group" "lambda_scaling" {
 # CloudWatch Alarms for queue monitoring
 resource "aws_cloudwatch_metric_alarm" "queue_messages" {
   for_each = {
-    "rss-resolution"     = aws_sqs_queue.rss_resolution.name
-    "audio-download"     = aws_sqs_queue.audio_download.name
-    "transcription"      = aws_sqs_queue.transcription.name
-    "summarization"      = aws_sqs_queue.summarization.name
-    "email-notification" = aws_sqs_queue.email_notification.name
+    "podcastindex-resolution" = aws_sqs_queue.rss_resolution.name
+    "x-ingestion"             = aws_sqs_queue.x_ingestion.name
+    "youtube-ingestion"       = aws_sqs_queue.youtube_ingestion.name
+    "tiktok-ingestion"        = aws_sqs_queue.tiktok_ingestion.name
+    "deepgram-transcription"  = aws_sqs_queue.deepgram_transcription.name
+    "summarization"           = aws_sqs_queue.summarization.name
   }
 
   alarm_name          = "${var.project_name}-${each.key}-queue-messages"
@@ -853,11 +969,15 @@ output "sns_topic_arn" {
 output "queue_urls" {
   description = "URLs of the SQS queues"
   value = {
+    podcastindex_resolution = aws_sqs_queue.rss_resolution.url
     rss_resolution     = aws_sqs_queue.rss_resolution.url
     audio_download     = aws_sqs_queue.audio_download.url
     transcription      = aws_sqs_queue.transcription.url
+    x_ingestion        = aws_sqs_queue.x_ingestion.url
+    youtube_ingestion  = aws_sqs_queue.youtube_ingestion.url
+    tiktok_ingestion   = aws_sqs_queue.tiktok_ingestion.url
+    deepgram_transcription = aws_sqs_queue.deepgram_transcription.url
     summarization      = aws_sqs_queue.summarization.url
-    email_notification = aws_sqs_queue.email_notification.url
   }
 }
 

@@ -46,10 +46,11 @@ class ScalingTestSuite:
 
         # Queue names
         self.queue_names = [
-            "audio-download-queue",
-            "transcription-queue",
+            "podcastindex-resolution-queue",
+            "youtube-ingestion-queue",
+            "tiktok-ingestion-queue",
+            "deepgram-transcription-queue",
             "summarization-queue",
-            "email-notification-queue"
         ]
 
         # Get queue URLs
@@ -179,11 +180,11 @@ class ScalingTestSuite:
         # Wait for queues to be empty
         await asyncio.sleep(60)  # SQS purge can take up to 60 seconds
 
-        # Send test messages to download queue
+        # Send test messages to Deepgram queue
         test_messages = [
             {
                 "job_id": f"test-job-{i}",
-                "podcast_url": f"https://example.com/podcast-{i}.rss",
+                "audio_url": f"https://example.com/audio-{i}.mp3",
                 "user_id": "test-user",
                 "email": "test@example.com"
             }
@@ -191,14 +192,16 @@ class ScalingTestSuite:
         ]
 
         for message in test_messages:
-            if not self.send_test_message("audio-download-queue", message):
+            if not self.send_test_message("deepgram-transcription-queue", message):
                 logger.error("Failed to send test message")
                 return False
 
         # Verify messages are in queue
         await asyncio.sleep(5)
-        message_count = self.get_queue_message_count(self.queue_urls["audio-download-queue"])
-        logger.info(f"Messages in download queue: {message_count}")
+        message_count = self.get_queue_message_count(
+            self.queue_urls["deepgram-transcription-queue"]
+        )
+        logger.info(f"Messages in Deepgram queue: {message_count}")
 
         if message_count != len(test_messages):
             logger.error(f"Expected {len(test_messages)} messages, found {message_count}")
@@ -208,7 +211,7 @@ class ScalingTestSuite:
         scaling_result = self.invoke_scaling_controller({
             "action": "scale",
             "source": "test",
-            "queues": ["audio-download-queue"]
+            "queues": ["deepgram-transcription-queue"]
         })
 
         if not scaling_result["success"]:
@@ -218,8 +221,8 @@ class ScalingTestSuite:
         logger.info(f"Scaling controller response: {scaling_result['response']}")
 
         # Wait for tasks to be launched
-        if not await self.wait_for_tasks("rss", 3, timeout=120):
-            logger.error("Expected RSS tasks were not launched within timeout")
+        if not await self.wait_for_tasks("deepgram", 3, timeout=120):
+            logger.error("Expected Deepgram tasks were not launched within timeout")
             return False
 
         logger.info("Basic scaling test passed!")
@@ -239,7 +242,7 @@ class ScalingTestSuite:
         test_messages = [
             {
                 "job_id": f"test-job-limit-{i}",
-                "podcast_url": f"https://example.com/podcast-{i}.rss",
+                "audio_url": f"https://example.com/audio-{i}.mp3",
                 "user_id": "test-user",
                 "email": "test@example.com"
             }
@@ -247,7 +250,7 @@ class ScalingTestSuite:
         ]
 
         for message in test_messages:
-            if not self.send_test_message("audio-download-queue", message):
+            if not self.send_test_message("deepgram-transcription-queue", message):
                 logger.error("Failed to send test message")
                 return False
 
@@ -265,7 +268,7 @@ class ScalingTestSuite:
         await asyncio.sleep(30)
         total_tasks = sum(
             self.get_running_tasks_count(worker_type)
-            for worker_type in ["rss", "download", "whisper", "summarization", "email"]
+            for worker_type in ["rss", "youtube", "deepgram", "summarization"]
         )
 
         if total_tasks > 15:
@@ -287,9 +290,20 @@ class ScalingTestSuite:
 
         # Send messages to multiple queues
         test_data = {
-            "audio-download-queue": [
-                {"job_id": f"download-job-{i}", "audio_url": f"https://example.com/audio-{i}.mp3"}
+            "podcastindex-resolution-queue": [
+                {
+                    "job_id": f"resolve-job-{i}",
+                    "normalized_url": f"https://example.com/feed-{i}.xml",
+                    "source_platform": "rss",
+                }
                 for i in range(3)
+            ],
+            "youtube-ingestion-queue": [
+                {
+                    "job_id": f"youtube-job-{i}",
+                    "normalized_url": f"https://youtube.com/watch?v=test{i}",
+                }
+                for i in range(2)
             ],
             "summarization-queue": [
                 {"job_id": f"summary-job-{i}", "transcript": f"Test transcript {i}"}
@@ -317,13 +331,15 @@ class ScalingTestSuite:
         await asyncio.sleep(30)
 
         rss_tasks = self.get_running_tasks_count("rss")
-        download_tasks = self.get_running_tasks_count("download")
+        youtube_tasks = self.get_running_tasks_count("youtube")
         summary_tasks = self.get_running_tasks_count("summarization")
 
-        logger.info(f"Tasks launched - RSS: {rss_tasks}, Download: {download_tasks}, Summary: {summary_tasks}")
+        logger.info(
+            f"Tasks launched - PodcastIndex/RSS: {rss_tasks}, YouTube: {youtube_tasks}, Summary: {summary_tasks}"
+        )
 
         # We expect at least some tasks for each queue type
-        if rss_tasks == 0 or download_tasks == 0 or summary_tasks == 0:
+        if rss_tasks == 0 or youtube_tasks == 0 or summary_tasks == 0:
             logger.error("Not all queue types have workers launched")
             return False
 
@@ -343,7 +359,7 @@ class ScalingTestSuite:
         # Get initial task count
         initial_task_count = sum(
             self.get_running_tasks_count(worker_type)
-            for worker_type in ["rss", "download", "whisper", "summarization", "email"]
+            for worker_type in ["rss", "youtube", "deepgram", "summarization"]
         )
 
         # Invoke scaling controller with empty queues
@@ -360,7 +376,7 @@ class ScalingTestSuite:
         await asyncio.sleep(30)
         final_task_count = sum(
             self.get_running_tasks_count(worker_type)
-            for worker_type in ["rss", "download", "whisper", "summarization", "email"]
+            for worker_type in ["rss", "deepgram", "summarization"]
         )
 
         if final_task_count > initial_task_count:

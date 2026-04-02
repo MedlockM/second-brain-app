@@ -1,3 +1,5 @@
+import { createHttpError, parseErrorResponse } from "../lib/httpError";
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 export interface SubscriptionInfo {
@@ -56,30 +58,11 @@ export class SettingsService {
         });
 
         if (!response.ok) {
-            const error = await response
-                .json()
-                .catch(() => ({ message: "Failed to update email" }));
-            throw new Error(error.message || error.detail || "Failed to update email");
-        }
-    }
-
-    static async unlinkSpotify(token: string): Promise<void> {
-        const response = await fetch(
-            `${API_BASE_URL}/api/v1/auth/spotify/unlink`,
-            {
-                method: "DELETE",
-                credentials: "include",
-                headers: this.getHeaders(token),
-            },
-        );
-
-        if (!response.ok) {
-            const error = await response
-                .json()
-                .catch(() => ({ message: "Failed to unlink Spotify" }));
-            throw new Error(
-                error.message || error.detail || "Failed to unlink Spotify",
+            const { message, code } = await parseErrorResponse(
+                response,
+                "Failed to update email",
             );
+            throw createHttpError(message, response.status, code);
         }
     }
 
@@ -93,12 +76,11 @@ export class SettingsService {
         });
 
         if (!response.ok) {
-            const error = await response
-                .json()
-                .catch(() => ({ message: "Failed to get subscription info" }));
-            throw new Error(
-                error.message || error.detail || "Failed to get subscription info",
+            const { message, code } = await parseErrorResponse(
+                response,
+                "Failed to get subscription info",
             );
+            throw createHttpError(message, response.status, code);
         }
 
         return response.json();
@@ -117,12 +99,11 @@ export class SettingsService {
         );
 
         if (!response.ok) {
-            const error = await response
-                .json()
-                .catch(() => ({ message: "Failed to cancel subscription" }));
-            throw new Error(
-                error.message || error.detail || "Failed to cancel subscription",
+            const { message, code } = await parseErrorResponse(
+                response,
+                "Failed to cancel subscription",
             );
+            throw createHttpError(message, response.status, code);
         }
 
         return response.json();
@@ -138,12 +119,11 @@ export class SettingsService {
         });
 
         if (!response.ok) {
-            const error = await response
-                .json()
-                .catch(() => ({ message: "Failed to create portal session" }));
-            throw new Error(
-                error.message || error.detail || "Failed to create portal session",
+            const { message, code } = await parseErrorResponse(
+                response,
+                "Failed to create portal session",
             );
+            throw createHttpError(message, response.status, code);
         }
 
         return response.json();
@@ -164,12 +144,11 @@ export class SettingsService {
         );
 
         if (!response.ok) {
-            const error = await response
-                .json()
-                .catch(() => ({ message: "Failed to create subscription checkout" }));
-            throw new Error(
-                error.message || error.detail || "Failed to create subscription checkout",
+            const { message, code } = await parseErrorResponse(
+                response,
+                "Failed to create subscription checkout",
             );
+            throw createHttpError(message, response.status, code);
         }
 
         return response.json();
@@ -190,12 +169,11 @@ export class SettingsService {
         );
 
         if (!response.ok) {
-            const error = await response
-                .json()
-                .catch(() => ({ message: "Failed to create pack checkout" }));
-            throw new Error(
-                error.message || error.detail || "Failed to create pack checkout",
+            const { message, code } = await parseErrorResponse(
+                response,
+                "Failed to create pack checkout",
             );
+            throw createHttpError(message, response.status, code);
         }
 
         return response.json();

@@ -1,23 +1,43 @@
-FROM python:3.11-slim
+# Optimized Worker Dockerfile
+# Key optimizations:
+# 1. Multi-stage build for better layer caching
+# 2. uv native pyproject.toml support (fast, no duplication)
+# 3. No editable install (useless in containers)
 
-# Installation des dépendances système
-RUN apt-get update && apt-get install -y \
+# Stage 1: Base image with system dependencies
+FROM python:3.11-slim AS base
+
+# Install system dependencies (rarely changes - good cache layer)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Installation uv
-RUN pip install uv
+# Install uv package manager
+RUN pip install --no-cache-dir uv
 ENV UV_HTTP_TIMEOUT=180 PIP_DEFAULT_TIMEOUT=180
 
 WORKDIR /app
 
-# Copie des fichiers de projet
+# Stage 2: Dependencies (cached unless pyproject.toml changes)
+FROM base AS dependencies
+
+# Copy only pyproject.toml first (better cache)
 COPY pyproject.toml ./
 
-# Installation des dépendances
-RUN uv pip install --system -e .
+# Install dependencies using uv's native pyproject.toml support
+# -r pyproject.toml installs dependencies WITHOUT the project itself
+RUN uv pip install --system -r pyproject.toml
 
-# Copie du code source
-COPY . .
+# Stage 3: Final image with source code
+FROM dependencies AS final
 
-# La commande sera spécifiée dans docker-compose
+WORKDIR /app
+
+# Copy source code (changes frequently, but deps are cached above)
+COPY media_summarizer/ ./media_summarizer/
+
+# Set Python path so the module is importable
+ENV PYTHONPATH=/app
+
+# No default command - specified in docker-compose

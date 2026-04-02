@@ -1,10 +1,9 @@
-# Lambda Zip Builder Dockerfile
-# This container builds an optimized Lambda deployment package (zip) with all dependencies
-# Key optimization: Prunes unused botocore service models to reduce size from ~21MB to ~8MB
+# Lambda Zip Builder Dockerfile - Optimized with caching
+# Key optimization: Use multi-stage build to cache pip install layer
 #
-# The zip file is output to /output/spotify_sync_lambda.zip
+# The zip file is output to /output/lambda_package.zip
 
-FROM python:3.11-slim
+FROM python:3.11-slim AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,24 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-# Script to build the Lambda zip
-COPY <<'EOF' /build-lambda.sh
-#!/bin/bash
-set -e
-
-echo "📦 Building optimized Lambda zip package..."
-echo ""
-
-BUILD_DIR=/tmp/lambda_build
-mkdir -p $BUILD_DIR
-
-# Step 1: Copy application code
-echo "📁 Step 1: Copying application code..."
-cp -r /app/media_summarizer $BUILD_DIR/
-
-# Step 2: Install all dependencies
-echo "📥 Step 2: Installing dependencies..."
-pip install --quiet --target $BUILD_DIR \
+# Stage 1: Install dependencies (cached unless requirements change)
+# This layer is cached and reused across builds
+RUN pip install --no-cache-dir --target /deps \
     aioboto3>=12.0.0 \
     boto3>=1.34.0 \
     httpx>=0.25.0 \
@@ -39,77 +23,69 @@ pip install --quiet --target $BUILD_DIR \
     python-dotenv>=1.0.0 \
     tenacity>=8.2.0
 
-# Step 3: Clean up unnecessary files
-echo "🧹 Step 3: Cleaning up unnecessary files..."
-cd $BUILD_DIR
+# Clean up dependencies (do this once in cached layer)
+RUN cd /deps && \
+    find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    find . -type d -name "*.dist-info" -exec rm -rf {} + 2>/dev/null || true && \
+    find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true && \
+    find . -type f -name "*.pyc" -delete 2>/dev/null || true && \
+    find . -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
+    find . -type d -name "test" -exec rm -rf {} + 2>/dev/null || true && \
+    find . -type d -name "examples" -exec rm -rf {} + 2>/dev/null || true && \
+    rm -rf pydantic/v1 2>/dev/null || true
 
-# Remove Python cache and metadata
-find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-find . -type d -name "*.dist-info" -exec rm -rf {} + 2>/dev/null || true
-find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
-find . -type f -name "*.pyc" -delete 2>/dev/null || true
+# Prune unused botocore service models (reduces ~17MB to ~3MB)
+RUN if [ -d "/deps/botocore/data" ]; then \
+    cd /deps/botocore/data && \
+    for dir in */; do \
+        service="${dir%/}"; \
+        case "$service" in \
+            dynamodb|sqs|sts|iam|lambda|events|logs|endpoints|partitions|_retry|sdk-default-configuration) ;; \
+            *) rm -rf "$service" 2>/dev/null || true ;; \
+        esac; \
+    done; \
+    fi
 
-# Remove test directories and examples (but NOT docs - botocore.docs is required at runtime)
-find . -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
-find . -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
-find . -type d -name "examples" -exec rm -rf {} + 2>/dev/null || true
-# Note: Do NOT delete "docs" directories - botocore/docs is required by boto3
+# Stage 2: Final assembly (only this runs when code changes)
+FROM python:3.11-slim AS assembler
 
-# Remove pydantic v1 compatibility layer (not needed, saves ~500KB)
-rm -rf pydantic/v1 2>/dev/null || true
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    zip \
+    && rm -rf /var/lib/apt/lists/*
 
-# Step 4: Prune unused botocore service models (THE BIG OPTIMIZATION)
-# This reduces botocore from ~17MB to ~3MB
-echo "✂️  Step 4: Pruning unused botocore service models..."
-echo "   (Keeping only: dynamodb, sqs, sts, iam, lambda, events, logs)"
+WORKDIR /build
 
-if [ -d "$BUILD_DIR/botocore/data" ]; then
-    cd $BUILD_DIR/botocore/data
+# Copy pre-built, cleaned dependencies from builder stage (cached)
+COPY --from=builder /deps /build/
 
-    # Count before
-    BEFORE_COUNT=$(ls -d */ 2>/dev/null | wc -l)
+# Script to assemble final zip (runs at container start)
+COPY <<'EOF' /assemble.sh
+#!/bin/bash
+set -e
 
-    # Keep only essential services for this Lambda
-    # - dynamodb: For reading/writing to DynamoDB tables
-    # - sqs: For sending messages to queues
-    # - sts: For STS AssumeRole (required by boto3)
-    # - iam: For IAM operations (required by Lambda)
-    # - lambda: For Lambda invocations if needed
-    # - events: For EventBridge
-    # - logs: For CloudWatch Logs
-    for dir in */; do
-        service="${dir%/}"
-        case "$service" in
-            dynamodb|sqs|sts|iam|lambda|events|logs|endpoints|partitions|_retry|sdk-default-configuration)
-                # Keep these essential services
-                ;;
-            *)
-                rm -rf "$service" 2>/dev/null || true
-                ;;
-        esac
-    done
+echo "📦 Assembling Lambda zip package..."
 
-    # Count after
-    AFTER_COUNT=$(ls -d */ 2>/dev/null | wc -l)
-    echo "   Removed $((BEFORE_COUNT - AFTER_COUNT)) unused service models (kept $AFTER_COUNT)"
+# Copy application code from mounted volume
+if [ -d "/app/media_summarizer" ]; then
+    cp -r /app/media_summarizer /build/
+    # Clean pycache from app code
+    find /build/media_summarizer -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+else
+    echo "⚠️  Warning: /app/media_summarizer not found"
 fi
 
-# Step 5: Create the zip
-echo "📦 Step 5: Creating zip archive..."
-cd $BUILD_DIR
-zip -q -r /output/spotify_sync_lambda.zip .
+# Create the zip
+cd /build
+zip -q -r /output/lambda_package.zip .
 
-# Step 6: Show results
-ZIP_SIZE=$(du -h /output/spotify_sync_lambda.zip | cut -f1)
+# Show results
+ZIP_SIZE=$(du -h /output/lambda_package.zip | cut -f1)
 echo ""
 echo "✅ Lambda package built successfully!"
-echo ""
 echo "📊 Package size: $ZIP_SIZE"
-echo "   (Optimized from ~21MB by pruning unused botocore models)"
-echo ""
-echo "📍 Output: /output/spotify_sync_lambda.zip"
+echo "📍 Output: /output/lambda_package.zip"
 EOF
 
-RUN chmod +x /build-lambda.sh
+RUN chmod +x /assemble.sh
 
-ENTRYPOINT ["/build-lambda.sh"]
+ENTRYPOINT ["/assemble.sh"]

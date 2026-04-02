@@ -177,7 +177,7 @@ class TestBaseWorker:
             
             assert queue_name == "email-notification-queue"
             assert message_body['job_id'] == "test-error-789"
-            assert message_body['error'] == "Test error message"
+            assert message_body['error'] == "Error"
             assert message_body['step'] == "rss-resolution"
             assert message_body['success'] is False
 

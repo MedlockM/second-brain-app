@@ -12,6 +12,7 @@ class PodcastSearchRequest(BaseModel):
     query: str = Field(..., description="Search query for podcasts", min_length=1, max_length=500)
     max_results: int = Field(default=10, description="Maximum number of results", ge=1, le=100)
     clean: bool = Field(default=True, description="Filter out explicit content")
+    similar: bool = Field(default=False, description="Include similar matches (fuzzy search)")
 
 
 class PodcastInfo(BaseModel):
