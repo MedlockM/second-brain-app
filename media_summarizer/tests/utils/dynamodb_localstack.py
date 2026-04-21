@@ -98,6 +98,35 @@ class DynamoDBLocalStackClient:
                     "ReadCapacityUnits": 5,
                     "WriteCapacityUnits": 5
                 }
+            },
+            "user_folders": {
+                "TableName": "user_folders",
+                "KeySchema": [
+                    {"AttributeName": "id", "KeyType": "HASH"}
+                ],
+                "AttributeDefinitions": [
+                    {"AttributeName": "id", "AttributeType": "S"},
+                    {"AttributeName": "user_id", "AttributeType": "S"}
+                ],
+                "GlobalSecondaryIndexes": [
+                    {
+                        "IndexName": "user-index",
+                        "KeySchema": [
+                            {"AttributeName": "user_id", "KeyType": "HASH"}
+                        ],
+                        "Projection": {
+                            "ProjectionType": "ALL"
+                        },
+                        "ProvisionedThroughput": {
+                            "ReadCapacityUnits": 5,
+                            "WriteCapacityUnits": 5
+                        }
+                    }
+                ],
+                "ProvisionedThroughput": {
+                    "ReadCapacityUnits": 5,
+                    "WriteCapacityUnits": 5
+                }
             }
         }
 

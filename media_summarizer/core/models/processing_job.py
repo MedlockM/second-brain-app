@@ -45,6 +45,10 @@ class ProcessingJob(BaseModel):
     audio_s3_key: Optional[str] = None
     transcription_s3_key: Optional[str] = None
     summary_s3_key: Optional[str] = None
+    quiz_s3_key: Optional[str] = None  # S3 key for generated quiz
+
+    # Organization
+    folder_id: Optional[str] = None  # Folder this media belongs to (user_folders table)
 
     # Media metadata
     media_date_published: Optional[int] = None  # Unix timestamp - when content was published
@@ -123,6 +127,8 @@ class ProcessingJob(BaseModel):
             "audio_s3_key",
             "transcription_s3_key",
             "summary_s3_key",
+            "quiz_s3_key",
+            "folder_id",
             "media_date_published",
             "error_message",
             "error_step",
@@ -164,9 +170,6 @@ class ProcessingJob(BaseModel):
         # Handle expire_at (TTL) - convert Decimal to int if coming from boto3
         if "expire_at" in item:
             item["expire_at"] = int(item["expire_at"])
-
-        # Strip legacy fields that may exist in old DynamoDB records
-        item.pop("quiz_s3_key", None)
 
         return cls(**item)
 
