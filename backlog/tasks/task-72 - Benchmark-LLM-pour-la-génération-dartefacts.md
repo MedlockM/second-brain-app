@@ -1,9 +1,10 @@
 ---
 id: task-72
 title: Benchmark LLM pour la génération d'artefacts
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-03-29 21:01'
+updated_date: '2026-04-21 22:37'
 labels:
   - benchmark
   - llm
