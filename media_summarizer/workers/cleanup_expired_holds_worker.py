@@ -116,23 +116,11 @@ async def cleanup_expired_holds() -> dict:
 
 
 async def main() -> None:
-    """Point d'entrée principal du worker."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    logger.info("=" * 80)
-    logger.info("Expired Holds Cleanup Worker")
-    logger.info(f"DRY_RUN: {DRY_RUN}")
-    logger.info(f"BATCH_SIZE: {BATCH_SIZE}")
-    logger.info("=" * 80)
-    
+    from media_summarizer.utils.logging_config import log_event, setup_logging
+    setup_logging("worker-cleanup-holds")
+    log_event(logger, logging.INFO, "worker.started", "Expired holds cleanup worker started", dry_run=DRY_RUN, batch_size=BATCH_SIZE)
     stats = await cleanup_expired_holds()
-    
-    logger.info("=" * 80)
-    logger.info(f"Final stats: {stats}")
-    logger.info("=" * 80)
+    log_event(logger, logging.INFO, "worker.completed", "Expired holds cleanup finished", **stats)
 
 
 if __name__ == "__main__":

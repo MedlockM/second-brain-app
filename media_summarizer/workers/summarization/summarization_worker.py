@@ -388,6 +388,10 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
 
         logger.info(f"Successfully completed summarization for job {job_id}")
 
+    except Exception as e:
+        logger.error(f"Summarization failed for job {job_id}: {e}", exc_info=True)
+        raise
+
 
 async def process_message(
     message: Dict[str, Any],
@@ -463,10 +467,6 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
+    from media_summarizer.utils.logging_config import setup_logging as _setup_logging
+    _setup_logging("worker-summarization")
     asyncio.run(main())

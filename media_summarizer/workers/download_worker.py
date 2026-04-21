@@ -11,13 +11,12 @@ from pathlib import Path
 
 import httpx
 from media_summarizer.utils import s3, sqs
+from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context, setup_logging
 from media_summarizer.workers.base_worker import (
     process_message_with_retry,
     get_sqs_receive_params,
 )
 
-# Configuration du logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Backward-compatibility helpers expected by some tests
@@ -107,7 +106,7 @@ async def process_message(message):
     if not audio_url:
         raise ValueError("empty audio URL provided")
 
-    logger.info(f"Téléchargement audio pour le job {job_id}")
+    log_event(logger, logging.INFO, "worker.download.started", "Audio download started", job_id=job_id, source_platform="audio")
 
     # Update job status to downloading
     from media_summarizer.utils import database_async
@@ -158,10 +157,10 @@ async def process_message(message):
             queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE, message_body=next_message
         )
 
-        logger.info(f"Téléchargement audio terminé pour le job {job_id}")
+        log_event(logger, logging.INFO, "worker.download.completed", "Audio download completed", job_id=job_id, transcript_source="deepgram")
 
     except Exception as e:
-        logger.error(f"Download worker failed for job {job_id}: {e}", exc_info=True)
+        log_event(logger, logging.ERROR, "worker.download.failed", "Audio download failed", job_id=job_id, error_type=type(e).__name__, error_code="DOWNLOAD_FAILED", exc_info=e)
         # Publish failure event to unblock watchers
         try:
             await sqs.send_message(
@@ -175,7 +174,7 @@ async def process_message(message):
                 },
             )
         except Exception as ee:
-            logger.warning(f"Failed to publish failure event for job {job_id}: {ee}")
+            log_event(logger, logging.WARNING, "external_call.failed", "Failed to publish failure event", job_id=job_id, error_type=type(ee).__name__, provider="sqs")
         # Re-raise to trigger retry/DLQ logic
         raise
     finally:
@@ -224,20 +223,20 @@ async def poll_queue():
             )
 
             if messages:
-                logger.info(f"Processing {len(messages)} download messages")
+                log_event(logger, logging.INFO, "worker.batch_received", "Processing download messages", queue=DOWNLOAD_QUEUE, message_count=len(messages))
                 await process_messages_batch(messages)
             else:
                 # Short sleep when no messages
                 await asyncio.sleep(1)
 
         except Exception as e:
-            logger.error(f"Erreur lors de l'interrogation de la file: {str(e)}")
+            log_event(logger, logging.ERROR, "worker.poll_error", "Download queue polling error", queue=DOWNLOAD_QUEUE, error_type=type(e).__name__, error_code="POLL_ERROR")
             await asyncio.sleep(5)
 
 
 async def main():
-    """Fonction principale du worker."""
-    logger.info("Démarrage du worker de téléchargement audio")
+    setup_logging("worker-download")
+    log_event(logger, logging.INFO, "worker.started", "Download worker started", queue=DOWNLOAD_QUEUE)
     await poll_queue()
 
 

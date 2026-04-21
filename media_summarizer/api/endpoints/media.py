@@ -1,0 +1,252 @@
+from __future__ import annotations
+
+import logging
+import os
+from typing import Optional
+from urllib.parse import urlsplit
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
+
+from media_summarizer.api.dependencies.auth import get_current_user
+from media_summarizer.core.models.auth import AuthUser
+from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.services import minute_pool
+from media_summarizer.utils import database_async, sqs
+from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+_AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
+_YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com"}
+_TIKTOK_HOSTS = {"tiktok.com", "www.tiktok.com", "vm.tiktok.com"}
+_INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com"}
+
+DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get("DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue")
+YOUTUBE_INGESTION_QUEUE = os.environ.get("YOUTUBE_INGESTION_QUEUE", "youtube-ingestion-queue")
+TIKTOK_INGESTION_QUEUE = os.environ.get("TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue")
+INSTAGRAM_INGESTION_QUEUE = os.environ.get("INSTAGRAM_INGESTION_QUEUE", "instagram-ingestion-queue")
+PODCASTINDEX_RESOLUTION_QUEUE = os.environ.get("PODCASTINDEX_RESOLUTION_QUEUE", "podcastindex-resolution-queue")
+ARTICLE_EXTRACTION_QUEUE = os.environ.get("ARTICLE_EXTRACTION_QUEUE", "article-extraction-queue")
+
+REQUIRED_MINUTES = 1
+
+
+def _detect_platform(url: str) -> tuple[str, str]:
+    """Return (source_platform, resolver_key) for a given URL."""
+    try:
+        split = urlsplit(url)
+        host = (split.netloc or "").lower().removeprefix("www.")
+        path = (split.path or "").lower()
+    except ValueError:
+        return "unknown", "unknown"
+
+    if host in _YOUTUBE_HOSTS:
+        return "youtube", "youtube"
+    if host in _TIKTOK_HOSTS:
+        return "tiktok", "tiktok"
+    if host in _INSTAGRAM_HOSTS:
+        return "instagram", "getinsaver"
+    if path.endswith(_AUDIO_EXTENSIONS):
+        return "audio", "deepgram"
+    return "web", "article"
+
+
+class IngestUrlRequest(BaseModel):
+    url: str = Field(..., description="URL to ingest (podcast RSS, YouTube, TikTok, Instagram, article, or direct audio)")
+
+
+class IngestUrlResponse(BaseModel):
+    media_item_id: str
+    status: str
+    source_platform: str
+
+
+class MediaItemResponse(BaseModel):
+    media_item_id: str
+    status: str
+    source_platform: Optional[str] = None
+    error_message: Optional[str] = None
+    progress: int
+
+
+@router.post("/media/ingest-url", response_model=IngestUrlResponse, status_code=status.HTTP_202_ACCEPTED)
+async def ingest_url(
+    payload: IngestUrlRequest,
+    request: Request,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    url = (payload.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="url is required")
+
+    source_platform, resolver_key = _detect_platform(url)
+    token = bind_log_context(
+        user_id=current_user.id,
+        source_platform=source_platform,
+        resolver_key=resolver_key,
+    )
+    try:
+        log_event(
+            logger,
+            logging.INFO,
+            "media.ingest.started",
+            "Media ingest URL received",
+            source_platform=source_platform,
+            resolver_key=resolver_key,
+        )
+
+        user = await database_async.get_user_by_id(current_user.id)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+        job = ProcessingJob(user_id=user.id, user_email=user.email, podcast_url=url)
+        job = await database_async.create_processing_job(job)
+
+        await minute_pool.allocate_hold_for_job(
+            user_id=user.id,
+            job_id=job.id,
+            minutes_estimated=REQUIRED_MINUTES,
+        )
+
+        base_payload = {
+            "job_id": job.id,
+            "user_id": user.id,
+            "source_platform": source_platform,
+            "normalized_url": url,
+        }
+
+        if source_platform == "youtube":
+            await sqs.send_message(queue_name=YOUTUBE_INGESTION_QUEUE, message_body=base_payload)
+        elif source_platform == "tiktok":
+            await sqs.send_message(queue_name=TIKTOK_INGESTION_QUEUE, message_body=base_payload)
+        elif source_platform == "instagram":
+            await sqs.send_message(queue_name=INSTAGRAM_INGESTION_QUEUE, message_body=base_payload)
+        elif source_platform == "audio":
+            await sqs.send_message(
+                queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
+                message_body={**base_payload, "audio_url": url},
+            )
+        elif source_platform == "web":
+            await sqs.send_message(queue_name=ARTICLE_EXTRACTION_QUEUE, message_body=base_payload)
+        else:
+            await sqs.send_message(
+                queue_name=PODCASTINDEX_RESOLUTION_QUEUE,
+                message_body=base_payload,
+            )
+
+        log_event(
+            logger,
+            logging.INFO,
+            "media.ingest.created",
+            "Media item created and queued",
+            media_item_id=job.id,
+            source_platform=source_platform,
+            resolver_key=resolver_key,
+            queue=(
+                YOUTUBE_INGESTION_QUEUE if source_platform == "youtube"
+                else TIKTOK_INGESTION_QUEUE if source_platform == "tiktok"
+                else INSTAGRAM_INGESTION_QUEUE if source_platform == "instagram"
+                else DEEPGRAM_TRANSCRIPTION_QUEUE if source_platform == "audio"
+                else ARTICLE_EXTRACTION_QUEUE if source_platform == "web"
+                else PODCASTINDEX_RESOLUTION_QUEUE
+            ),
+        )
+
+        return IngestUrlResponse(
+            media_item_id=job.id,
+            status=job.status.value,
+            source_platform=source_platform,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.ingest.failed",
+            "Media ingest failed",
+            source_platform=source_platform,
+            resolver_key=resolver_key,
+            error_type=type(exc).__name__,
+            error_code="INGEST_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to ingest URL",
+        )
+    finally:
+        reset_log_context(token)
+
+
+@router.get("/media/{media_item_id}", response_model=MediaItemResponse)
+async def get_media_item(
+    media_item_id: str,
+    request: Request,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    token = bind_log_context(user_id=current_user.id, media_item_id=media_item_id)
+    try:
+        job = await database_async.get_processing_job_by_id(media_item_id)
+
+        if job is None:
+            log_event(
+                logger,
+                logging.WARNING,
+                "media.get.not_found",
+                "Media item not found",
+                media_item_id=media_item_id,
+                error_code="MEDIA_NOT_FOUND",
+            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found")
+
+        if job.user_id != current_user.id:
+            log_event(
+                logger,
+                logging.WARNING,
+                "media.get.forbidden",
+                "Access denied to media item",
+                media_item_id=media_item_id,
+                error_code="ACCESS_DENIED",
+            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+        log_event(
+            logger,
+            logging.INFO,
+            "media.get.succeeded",
+            "Media item retrieved",
+            media_item_id=media_item_id,
+            status=job.status.value,
+        )
+
+        return MediaItemResponse(
+            media_item_id=job.id,
+            status=job.status.value,
+            source_platform=None,
+            error_message=job.error_message,
+            progress=job.get_progress_percentage(),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.get.failed",
+            "Failed to retrieve media item",
+            media_item_id=media_item_id,
+            error_type=type(exc).__name__,
+            error_code="GET_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve media item",
+        )
+    finally:
+        reset_log_context(token)

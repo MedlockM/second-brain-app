@@ -196,5 +196,6 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    from media_summarizer.utils.logging_config import setup_logging as _setup_logging
+    _setup_logging("worker-episode-completed")
     asyncio.run(main())
