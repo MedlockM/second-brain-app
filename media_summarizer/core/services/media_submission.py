@@ -1,8 +1,8 @@
 """
-Service partagé de soumission d'épisodes avec idempotence globale (GUID PodcastIndex),
-création de jobs, facturation minutes, et notifications.
+Shared media submission service with global idempotence (media key),
+job creation, minutes billing, and notifications.
 
-Conçu pour être appelé par les endpoints API et le futur sync Spotify.
+Designed to be called by API endpoints and future sync integrations.
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from media_summarizer.utils import (
     database_async,
     sqs,
     s3,
-    episode_idempotence,
-    episode_watchers,
+    media_idempotence,
+    media_watchers,
 )
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services.minute_pool import (
@@ -27,57 +27,57 @@ from media_summarizer.core.services.minute_pool import (
 )
 
 
-async def submit_episode_for_user(
+async def submit_media_for_user(
     *,
     user: Any,
-    episode_guid: str,
-    episode_title: str,
-    feed_title: str,
+    media_key: str,
+    media_title: str,
+    source_title: str,
     audio_url: str,
     duration_seconds: int,
-    episode_image: str = "",
-    episode_date_published: int = 0,  # Unix timestamp - when episode was published by podcast
+    media_image: str = "",
+    media_date_published: int = 0,  # Unix timestamp - when content was published
     source: str = "manual",
 ) -> Dict[str, Any]:
     """
-    Soumet un épisode pour un utilisateur avec idempotence globale.
+    Submit a media item for a user with global idempotence.
 
-    - Si GUID nouveau: crée un job canonique, réserve GUID, alloue minutes, envoie le message download.
-    - Si GUID déjà traité: crée un job de facturation/notification, facture les minutes, envoie l'email avec résumé existant.
-    - Si GUID réservé/en cours: renvoie un statut "pending" (Option B: watchers à brancher ultérieurement).
+    - If key is new: create a canonical job, reserve key, allocate minutes, enqueue download.
+    - If key already processed: create a billing/notification job, charge minutes, send email with cached summary.
+    - If key reserved/in progress: return "pending" status (watchers fan-out).
 
-    Returns a dict compatible avec EpisodeSelectionResponse.
+    Returns a dict compatible with MediaItemSelectionResponse.
     """
     # 0. Credit Check (Pre-flight)
     # Estimate required minutes (min 1)
     minutes_required = max(1, ceil((duration_seconds or 0) / 60))
     available = await get_total_available_minutes(user.id)
-    
+
     if available < minutes_required:
         return {
             "status": "skipped",
             "reason": "insufficient_credits",
-            "message": f"Crédits insuffisants (Requis: {minutes_required}, Dispo: {available})",
+            "message": f"Insufficient credits (Required: {minutes_required}, Available: {available})",
             "minutes_required": minutes_required,
             "minutes_available": available,
         }
 
-    # Créer un job (tentatif) pour accompagner la réservation
+    # Create a tentative job to accompany the reservation
     job = ProcessingJob(
         user_id=user.id,
         user_email=user.email,
-        podcast_url="",
-        episode_url=audio_url,
-        episode_guid=episode_guid,
-        episode_image=episode_image,
-        episode_date_published=episode_date_published,  # Store publication date (for display)
+        source_url="",
+        media_url=audio_url,
+        media_key=media_key,
+        media_image=media_image,
+        media_date_published=media_date_published,
     )
 
-    # Essayer de réserver globalement
-    reserved = await episode_idempotence.reserve_or_skip(episode_guid, job.id)
+    # Try to reserve globally
+    reserved = await media_idempotence.reserve_or_skip(media_key, job.id)
     if not reserved:
-        # Déjà connu globalement
-        existing = await episode_idempotence.already_processed(episode_guid)
+        # Already known globally
+        existing = await media_idempotence.already_processed(media_key)
         if (
             existing
             and existing.get("status") == "processed"
@@ -88,7 +88,7 @@ async def submit_episode_for_user(
                 existing_job_id
             )
 
-            # Charger le résumé existant si possible
+            # Load existing summary if available
             summary_content = None
             if existing_job and getattr(existing_job, "summary_s3_key", None):
                 try:
@@ -106,50 +106,56 @@ async def submit_episode_for_user(
                 except Exception:
                     summary_content = None
 
-            # Créer un job de facturation/notification pour l'utilisateur
+            # Create a billing/notification job for this user
             billing_job = ProcessingJob(
                 user_id=user.id,
                 user_email=user.email,
-                podcast_url=getattr(existing_job, "podcast_url", ""),
-                episode_url=audio_url,
-                episode_guid=episode_guid,
-                episode_date_published=episode_date_published,
+                source_url=getattr(existing_job, "source_url", ""),
+                media_url=audio_url,
+                media_key=media_key,
+                media_date_published=media_date_published,
             )
             billing_job = await database_async.create_processing_job(billing_job)
 
-            # Facturation: allouer puis finaliser avec la durée connue (fallback min 1)
+            # Billing: allocate then finalize with known duration (fallback min 1)
             minutes_used = max(1, ceil((duration_seconds or 0) / 60))
             await allocate_hold_for_job(
                 user_id=user.id, job_id=billing_job.id, minutes_estimated=minutes_used
             )
             await finalize_usage(billing_job.id, minutes_used)
 
-            # Envoi email (from_cache=True)
+            # Send email (from_cache=True)
             await sqs.send_message(
                 queue_name="email-notification-queue",
                 message_body={
                     "notification_type": "completion",
                     "job_id": billing_job.id,
                     "email": user.email,
-                    "podcast_title": feed_title,
-                    "episode_title": episode_title,
+                    "source_title": source_title,
+                    "media_title": media_title,
                     "summary_content": summary_content,
                     "from_cache": True,
+                    # Deprecated aliases for backward compatibility
+                    "podcast_title": source_title,
+                    "episode_title": media_title,
                 },
             )
 
             return {
                 "job_id": billing_job.id,
                 "status": "completed",
-                "message": "Résumé existant détecté — email de complétion envoyé (minutes facturées)",
+                "message": "Existing summary detected -- completion email sent (minutes charged)",
                 "minutes_hold_estimated": minutes_used,
                 "estimated_processing_time": "0",
-                "episode_title": episode_title,
-                "podcast_title": feed_title,
+                "media_title": media_title,
+                "source_title": source_title,
+                # Deprecated aliases
+                "episode_title": media_title,
+                "podcast_title": source_title,
             }
 
-        # Pas encore traité (réservé / en cours par un autre traitement)
-        # Créer un job "watcher" pour cet utilisateur, allouer un hold estimatif et enregistrer le watcher.
+        # Not yet processed (reserved / in progress by another job)
+        # Create a "watcher" job for this user, allocate an estimated hold, and register the watcher.
         minutes_estimated = (
             ceil(duration_seconds / 60)
             if duration_seconds and duration_seconds > 0
@@ -166,8 +172,8 @@ async def submit_episode_for_user(
             # Allocation best-effort
             pass
         try:
-            await episode_watchers.add_watcher(
-                episode_guid=episode_guid,
+            await media_watchers.add_watcher(
+                media_key=media_key,
                 user_id=user.id,
                 email=user.email,
                 job_id=watcher_job.id,
@@ -175,25 +181,26 @@ async def submit_episode_for_user(
                 source=source,
             )
         except Exception:
-            # Si l'ajout échoue (conditionnel), on continue quand même
+            # If the add fails (conditional), continue anyway
             pass
 
         return {
             "job_id": watcher_job.id,
             "status": "pending",
-            "message": "Épisode déjà soumis — traitement en cours ou réservé (vous serez notifié)",
+            "message": "Media already submitted -- processing in progress or reserved (you will be notified)",
             "minutes_hold_estimated": minutes_estimated,
-            "estimated_processing_time": "quelques minutes",
-            "episode_title": episode_title,
-            "podcast_title": feed_title,
+            "estimated_processing_time": "a few minutes",
+            "media_title": media_title,
+            "source_title": source_title,
+            # Deprecated aliases
+            "episode_title": media_title,
+            "podcast_title": source_title,
         }
 
-    # Nouveau traitement canonique: persister le job et orchestrer
-    # Renseigner le podcast_url si connu via episode_info côté appelant
-    # (L'appelant pourra remplir podcast_url en amont si disponible)
+    # New canonical processing: persist the job and orchestrate
     created_job = await database_async.create_processing_job(job)
 
-    # Allouer minutes (estimation si durée connue)
+    # Allocate minutes (estimate if duration known)
     minutes_estimated = (
         ceil(duration_seconds / 60) if duration_seconds and duration_seconds > 0 else 0
     )
@@ -205,10 +212,10 @@ async def submit_episode_for_user(
         # Allocation best-effort
         pass
 
-    # Persister mise à jour
+    # Persist update
     await database_async.update_processing_job(created_job)
 
-    # Envoi du message download
+    # Enqueue download message
     await sqs.send_message(
         queue_name="audio-download-queue",
         message_body={
@@ -216,20 +223,28 @@ async def submit_episode_for_user(
             "user_id": user.id,
             "user_email": user.email,
             "audio_url": audio_url,
-            "episode_title": episode_title,
-            "podcast_title": feed_title,
+            "media_title": media_title,
+            "source_title": source_title,
             "audio_duration_seconds": duration_seconds,
-            "episode_guid": episode_guid,
-            "episode_image": episode_image,
+            "media_key": media_key,
+            "media_image": media_image,
+            # Deprecated aliases for downstream workers that may still read old keys
+            "episode_title": media_title,
+            "podcast_title": source_title,
+            "episode_guid": media_key,
+            "episode_image": media_image,
         },
     )
 
     return {
         "job_id": created_job.id,
         "status": created_job.status.value,
-        "message": "Épisode soumis avec succès pour traitement",
+        "message": "Media submitted successfully for processing",
         "minutes_hold_estimated": minutes_estimated,
         "estimated_processing_time": "5-10 minutes",
-        "episode_title": episode_title,
-        "podcast_title": feed_title,
+        "media_title": media_title,
+        "source_title": source_title,
+        # Deprecated aliases
+        "episode_title": media_title,
+        "podcast_title": source_title,
     }

@@ -1,5 +1,5 @@
 """
-Processing job model for tracking podcast processing jobs using DynamoDB.
+Processing job model for tracking media processing jobs using DynamoDB.
 """
 
 from datetime import datetime, timezone, timedelta
@@ -24,19 +24,19 @@ class JobStatus(str, Enum):
 
 
 class ProcessingJob(BaseModel):
-    """Processing job model for tracking podcast processing workflows in DynamoDB."""
+    """Processing job model for tracking media processing workflows in DynamoDB."""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str = Field(..., min_length=1)
-    episode_id: Optional[str] = None
-    podcast_id: Optional[str] = None
+    media_item_id: Optional[str] = None
+    source_id: Optional[str] = None
     status: JobStatus = Field(default=JobStatus.PENDING)
 
     # Input data
-    podcast_url: Optional[str] = None
-    episode_url: Optional[str] = None
-    episode_guid: Optional[str] = None
-    episode_image: Optional[str] = None
+    source_url: Optional[str] = None  # e.g. podcast RSS feed URL
+    media_url: Optional[str] = None  # direct audio/video URL
+    media_key: Optional[str] = None  # globally unique key (e.g. episode GUID)
+    media_image: Optional[str] = None
     user_email: str = Field(..., min_length=1)
 
     # Processing metadata
@@ -45,9 +45,9 @@ class ProcessingJob(BaseModel):
     audio_s3_key: Optional[str] = None
     transcription_s3_key: Optional[str] = None
     summary_s3_key: Optional[str] = None
-    
-    # Episode metadata
-    episode_date_published: Optional[int] = None  # Unix timestamp - when episode was published by podcast
+
+    # Media metadata
+    media_date_published: Optional[int] = None  # Unix timestamp - when content was published
 
     # Error handling
     error_message: Optional[str] = None
@@ -114,16 +114,16 @@ class ProcessingJob(BaseModel):
 
         # Add optional fields if they exist
         optional_fields = [
-            "episode_id",
-            "podcast_id",
-            "podcast_url",
-            "episode_url",
-            "episode_guid",
-            "episode_image",
+            "media_item_id",
+            "source_id",
+            "source_url",
+            "media_url",
+            "media_key",
+            "media_image",
             "audio_s3_key",
             "transcription_s3_key",
             "summary_s3_key",
-            "episode_date_published",
+            "media_date_published",
             "error_message",
             "error_step",
             "download_duration",
@@ -245,10 +245,10 @@ class ProcessingJob(BaseModel):
         """Mark the job as cancelled."""
         self.update_status(JobStatus.CANCELLED)
 
-    def set_episode_info(self, episode_id: str, podcast_id: str) -> None:
-        """Set episode and podcast information."""
-        self.episode_id = episode_id
-        self.podcast_id = podcast_id
+    def set_media_info(self, media_item_id: str, source_id: str) -> None:
+        """Set media item and source information."""
+        self.media_item_id = media_item_id
+        self.source_id = source_id
         self.updated_at = datetime.now(timezone.utc)
 
     def set_audio_location(self, s3_key: str) -> None:
