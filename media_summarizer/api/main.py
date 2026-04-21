@@ -153,7 +153,7 @@ async def payment_cancel():
 
 # Inclusion des routes API
 app.include_router(health.router, prefix="/api/v1/health", tags=["health"])
-app.include_router(media.router, prefix="/api", tags=["media"])
+app.include_router(media.router, prefix="/api/media", tags=["media"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(auth_social.router, prefix="/api/v1/auth", tags=["authentication"])
@@ -168,7 +168,6 @@ app.include_router(billing.router, prefix="/api/v1", tags=["billing"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
 app.include_router(episodes.router, prefix="/api/v1", tags=["episodes"])
 app.include_router(folders.router, prefix="/api/folders", tags=["folders"])
-app.include_router(media.router, prefix="/api/media", tags=["media"])
 
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---
 from fastapi.openapi.utils import get_openapi

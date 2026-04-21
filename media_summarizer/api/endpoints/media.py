@@ -97,7 +97,7 @@ class PatchMediaResponse(BaseModel):
 
 # ---------- Endpoints ----------
 
-@router.post("/media/ingest-url", response_model=IngestUrlResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post("/ingest-url", response_model=IngestUrlResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_url(
     payload: IngestUrlRequest,
     request: Request,
@@ -127,7 +127,7 @@ async def ingest_url(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-        job = ProcessingJob(user_id=user.id, user_email=user.email, podcast_url=url)
+        job = ProcessingJob(user_id=user.id, user_email=user.email, source_url=url)
         job = await database_async.create_processing_job(job)
 
         await minute_pool.allocate_hold_for_job(
@@ -208,7 +208,7 @@ async def ingest_url(
         reset_log_context(token)
 
 
-@router.get("/media/{media_item_id}", response_model=MediaItemResponse)
+@router.get("/{media_item_id}", response_model=MediaItemResponse)
 async def get_media_item(
     media_item_id: str,
     request: Request,
