@@ -12,7 +12,7 @@ import aioboto3
 from boto3.dynamodb.conditions import Key, Attr
 import os
 
-from media_summarizer.core.models import User, ProcessingJob, JobStatus
+from media_summarizer.core.models import User, ProcessingJob, JobStatus, Folder
 from media_summarizer.core.models.auth import AuthToken, TokenType
 # Removed CreditTransaction import (legacy credits system fully deprecated)
 
@@ -34,6 +34,7 @@ CREDIT_TRANSACTIONS_TABLE = os.environ.get(
 PROCESSING_JOBS_TABLE = os.environ.get("PROCESSING_JOBS_TABLE", "processing_jobs")
 AUTH_TOKENS_TABLE = os.environ.get("AUTH_TOKENS_TABLE", "auth_tokens")
 STRIPE_EVENTS_TABLE = os.environ.get("STRIPE_EVENTS_TABLE", "stripe_events")
+USER_FOLDERS_TABLE = os.environ.get("USER_FOLDERS_TABLE", "user_folders")
 
 # Session aioboto3 for async operations (created lazily)
 _session = None
@@ -531,3 +532,109 @@ async def record_stripe_event(event_id: str) -> bool:
                 return False
             logger.error(f"Error recording stripe event {event_id}: {str(e)}")
             raise
+
+
+# ---------- Folder operations ----------
+
+async def create_folder(folder: Folder) -> Folder:
+    """Create a new folder in DynamoDB."""
+    session = get_session()
+    async with session.resource(
+        "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
+    ) as dynamodb:
+        table = await dynamodb.Table(USER_FOLDERS_TABLE)
+        try:
+            await table.put_item(
+                Item=folder.to_dynamodb_item(),
+                ConditionExpression="attribute_not_exists(id)",
+            )
+            logger.info(f"Folder created: {folder.id} for user {folder.user_id}")
+            return folder
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                raise ValueError(f"Folder with ID {folder.id} already exists")
+            logger.error(f"Error creating folder: {str(e)}")
+            raise
+
+
+async def get_folder_by_id(folder_id: str) -> Optional[Folder]:
+    """Get a folder by ID."""
+    try:
+        session = get_session()
+        async with session.resource(
+            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
+        ) as dynamodb:
+            table = await dynamodb.Table(USER_FOLDERS_TABLE)
+            response = await table.get_item(Key={"id": folder_id})
+            if "Item" in response:
+                return Folder.from_dynamodb_item(response["Item"])
+            return None
+    except ClientError as e:
+        logger.error(f"Error getting folder by ID {folder_id}: {str(e)}")
+        raise
+
+
+async def get_folders_by_user_id(user_id: str) -> List[Folder]:
+    """Get all folders for a user."""
+    try:
+        session = get_session()
+        async with session.resource(
+            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
+        ) as dynamodb:
+            table = await dynamodb.Table(USER_FOLDERS_TABLE)
+            response = await table.query(
+                IndexName="user-index",
+                KeyConditionExpression=Key("user_id").eq(user_id),
+            )
+            items = response.get("Items", [])
+            return [Folder.from_dynamodb_item(item) for item in items]
+    except ClientError as e:
+        logger.error(f"Error getting folders for user {user_id}: {str(e)}")
+        raise
+
+
+async def update_folder(folder: Folder) -> Folder:
+    """Update a folder in DynamoDB."""
+    try:
+        session = get_session()
+        async with session.resource(
+            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
+        ) as dynamodb:
+            table = await dynamodb.Table(USER_FOLDERS_TABLE)
+            await table.put_item(Item=folder.to_dynamodb_item())
+            logger.info(f"Folder updated: {folder.id}")
+            return folder
+    except ClientError as e:
+        logger.error(f"Error updating folder {folder.id}: {str(e)}")
+        raise
+
+
+async def delete_folder(folder_id: str) -> bool:
+    """Delete a folder from DynamoDB."""
+    try:
+        session = get_session()
+        async with session.resource(
+            "dynamodb", endpoint_url=AWS_ENDPOINT_URL, region_name=AWS_REGION
+        ) as dynamodb:
+            table = await dynamodb.Table(USER_FOLDERS_TABLE)
+            await table.delete_item(Key={"id": folder_id})
+            logger.info(f"Folder deleted: {folder_id}")
+            return True
+    except ClientError as e:
+        logger.error(f"Error deleting folder {folder_id}: {str(e)}")
+        raise
+
+
+async def get_processing_jobs_by_folder_id(
+    user_id: str, folder_id: str
+) -> List[ProcessingJob]:
+    """Get all processing jobs in a specific folder for a user."""
+    try:
+        # We query by user first, then filter by folder_id
+        jobs = await get_processing_jobs_by_user_id(user_id)
+        return [job for job in jobs if getattr(job, "folder_id", None) == folder_id]
+    except Exception as e:
+        logger.error(
+            f"Error getting jobs by folder {folder_id} for user {user_id}: {str(e)}"
+        )
+        raise

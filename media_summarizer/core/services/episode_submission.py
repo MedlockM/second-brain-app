@@ -38,6 +38,7 @@ async def submit_episode_for_user(
     episode_image: str = "",
     episode_date_published: int = 0,  # Unix timestamp - when episode was published by podcast
     source: str = "manual",
+    folder_id: str | None = None,  # Optional folder to assign the media to
 ) -> Dict[str, Any]:
     """
     Soumet un épisode pour un utilisateur avec idempotence globale.
@@ -62,6 +63,14 @@ async def submit_episode_for_user(
             "minutes_available": available,
         }
 
+    # Resolve folder_id: if provided, use it; otherwise leave None (assigned later or via default)
+    resolved_folder_id = folder_id
+    if resolved_folder_id is None:
+        # Auto-assign to default "Uncategorized" folder
+        from media_summarizer.core.services.folder_service import ensure_default_folder
+        default_folder = await ensure_default_folder(user.id)
+        resolved_folder_id = default_folder.id
+
     # Créer un job (tentatif) pour accompagner la réservation
     job = ProcessingJob(
         user_id=user.id,
@@ -71,6 +80,7 @@ async def submit_episode_for_user(
         episode_guid=episode_guid,
         episode_image=episode_image,
         episode_date_published=episode_date_published,  # Store publication date (for display)
+        folder_id=resolved_folder_id,
     )
 
     # Essayer de réserver globalement
@@ -114,6 +124,7 @@ async def submit_episode_for_user(
                 episode_url=audio_url,
                 episode_guid=episode_guid,
                 episode_date_published=episode_date_published,
+                folder_id=resolved_folder_id,
             )
             billing_job = await database_async.create_processing_job(billing_job)
 

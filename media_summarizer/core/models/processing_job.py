@@ -47,6 +47,9 @@ class ProcessingJob(BaseModel):
     summary_s3_key: Optional[str] = None
     quiz_s3_key: Optional[str] = None  # S3 key for generated quiz
     
+    # Organization
+    folder_id: Optional[str] = None  # Folder this media belongs to (user_folders table)
+
     # Episode metadata
     episode_date_published: Optional[int] = None  # Unix timestamp - when episode was published by podcast
 
@@ -126,6 +129,7 @@ class ProcessingJob(BaseModel):
             "summary_s3_key",
             "quiz_s3_key",
             "episode_date_published",
+            "folder_id",
             "error_message",
             "error_step",
             "download_duration",

@@ -17,6 +17,8 @@ from media_summarizer.api.endpoints import auth_social
 from media_summarizer.api.endpoints import spotify_sync
 from media_summarizer.api.endpoints import spotify_playlists
 from media_summarizer.api.endpoints import episodes
+from media_summarizer.api.endpoints import folders
+from media_summarizer.api.endpoints import media
 
 
 @asynccontextmanager
@@ -133,6 +135,8 @@ app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
 app.include_router(spotify_sync.router, prefix="/api/v1", tags=["spotify"])
 app.include_router(spotify_playlists.router, prefix="/api/v1", tags=["spotify"])
 app.include_router(episodes.router, prefix="/api/v1", tags=["episodes"])
+app.include_router(folders.router, prefix="/api/folders", tags=["folders"])
+app.include_router(media.router, prefix="/api/media", tags=["media"])
 
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---
 from fastapi.openapi.utils import get_openapi

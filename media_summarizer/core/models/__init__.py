@@ -24,6 +24,7 @@ from .billing import (
     MinuteUsageStatus,
     Follow,
 )
+from .folder import Folder, UNCATEGORIZED_FOLDER_NAME, MAX_FOLDER_DEPTH
 
 # Export all models
 __all__ = [
@@ -45,4 +46,7 @@ __all__ = [
     "MinuteUsage",
     "MinuteUsageStatus",
     "Follow",
+    "Folder",
+    "UNCATEGORIZED_FOLDER_NAME",
+    "MAX_FOLDER_DEPTH",
 ]
