@@ -1,8 +1,11 @@
 """
-Utilities to manage episode watchers for pending episodes (Approach 2: event fan-out).
+Utilities to manage media watchers for pending media items (event fan-out).
 
-Schema (DynamoDB): episode_watchers
-- PK: episode_guid (S)
+NOTE: The underlying DynamoDB table still uses legacy column name "episode_guid"
+as the partition key. The Python API uses "media_key" as the media-agnostic name.
+
+Schema (DynamoDB): episode_watchers (legacy table name)
+- PK: episode_guid (S) [legacy column name, maps to media_key]
 - SK: user_id (S)
 - Attributes: job_id (S), email (S), status (pending|emailed|failed), minutes_estimated (N), source (manual|spotify), created_at (ISO)
 """
@@ -15,7 +18,13 @@ from botocore.exceptions import ClientError
 
 from media_summarizer.utils import database_async
 
-EPISODE_WATCHERS_TABLE = os.environ.get("EPISODE_WATCHERS_TABLE", "episode_watchers")
+MEDIA_WATCHERS_TABLE = os.environ.get(
+    "MEDIA_WATCHERS_TABLE",
+    os.environ.get("EPISODE_WATCHERS_TABLE", "episode_watchers"),
+)
+
+# Legacy DynamoDB column name for the partition key
+_PK_COLUMN = "episode_guid"
 
 
 def _now_iso() -> str:
@@ -24,7 +33,7 @@ def _now_iso() -> str:
 
 async def add_watcher(
     *,
-    episode_guid: str,
+    media_key: str,
     user_id: str,
     email: str,
     job_id: str,
@@ -37,11 +46,11 @@ async def add_watcher(
         endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
-        table = await dynamodb.Table(EPISODE_WATCHERS_TABLE)
+        table = await dynamodb.Table(MEDIA_WATCHERS_TABLE)
         try:
             await table.put_item(
                 Item={
-                    "episode_guid": episode_guid,
+                    _PK_COLUMN: media_key,
                     "user_id": user_id,
                     "email": email,
                     "job_id": job_id,
@@ -50,7 +59,7 @@ async def add_watcher(
                     "source": source,
                     "created_at": _now_iso(),
                 },
-                ConditionExpression="attribute_not_exists(episode_guid) AND attribute_not_exists(user_id)",
+                ConditionExpression=f"attribute_not_exists({_PK_COLUMN}) AND attribute_not_exists(user_id)",
             )
             return True
         except ClientError as e:
@@ -60,45 +69,45 @@ async def add_watcher(
             raise
 
 
-async def list_watchers(episode_guid: str) -> List[Dict[str, Any]]:
+async def list_watchers(media_key: str) -> List[Dict[str, Any]]:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
         endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
-        table = await dynamodb.Table(EPISODE_WATCHERS_TABLE)
+        table = await dynamodb.Table(MEDIA_WATCHERS_TABLE)
         # Partition key query
         resp = await table.query(
-            KeyConditionExpression=database_async.Key("episode_guid").eq(episode_guid)
+            KeyConditionExpression=database_async.Key(_PK_COLUMN).eq(media_key)
         )
         return resp.get("Items", [])
 
 
-async def mark_watcher_emailed(episode_guid: str, user_id: str) -> None:
+async def mark_watcher_emailed(media_key: str, user_id: str) -> None:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
         endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
-        table = await dynamodb.Table(EPISODE_WATCHERS_TABLE)
+        table = await dynamodb.Table(MEDIA_WATCHERS_TABLE)
         await table.update_item(
-            Key={"episode_guid": episode_guid, "user_id": user_id},
+            Key={_PK_COLUMN: media_key, "user_id": user_id},
             UpdateExpression="SET #st = :s, updated_at = :u",
             ExpressionAttributeNames={"#st": "status"},
             ExpressionAttributeValues={":s": "emailed", ":u": _now_iso()},
         )
 
 
-async def mark_watcher_failed(episode_guid: str, user_id: str, reason: Optional[str] = None) -> None:
+async def mark_watcher_failed(media_key: str, user_id: str, reason: Optional[str] = None) -> None:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
         endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
-        table = await dynamodb.Table(EPISODE_WATCHERS_TABLE)
+        table = await dynamodb.Table(MEDIA_WATCHERS_TABLE)
         update = "SET #st = :s, updated_at = :u"
         expr_names = {"#st": "status"}
         expr_vals = {":s": "failed", ":u": _now_iso()}
@@ -106,7 +115,7 @@ async def mark_watcher_failed(episode_guid: str, user_id: str, reason: Optional[
             update += ", failure_reason = :r"
             expr_vals[":r"] = reason
         await table.update_item(
-            Key={"episode_guid": episode_guid, "user_id": user_id},
+            Key={_PK_COLUMN: media_key, "user_id": user_id},
             UpdateExpression=update,
             ExpressionAttributeNames=expr_names,
             ExpressionAttributeValues=expr_vals,
