@@ -18,25 +18,28 @@ logger = logging.getLogger(__name__)
 SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
 NOTES_QUEUE = os.environ.get("NOTES_QUEUE", "notes-queue")
 QUIZ_QUEUE = os.environ.get("QUIZ_QUEUE", "quiz-queue")
+FLASHCARDS_QUEUE = os.environ.get("FLASHCARDS_QUEUE", "flashcards-queue")
 
 _ARTIFACT_TYPE_TO_QUEUE = {
     "summary": SUMMARIZATION_QUEUE,
     "notes": NOTES_QUEUE,
     "quiz": QUIZ_QUEUE,
+    "flashcards": FLASHCARDS_QUEUE,
 }
 _ARTIFACT_TYPE_TO_S3_KEY_ATTR = {
     "summary": "summary_s3_key",
     "notes": None,
     "quiz": None,
+    "flashcards": None,
 }
 
 _ALLOWED_ARTIFACT_TYPES = frozenset(
-    t.strip() for t in os.environ.get("ARTIFACT_TYPES_ALLOWED", "summary,notes,quiz").split(",")
+    t.strip() for t in os.environ.get("ARTIFACT_TYPES_ALLOWED", "summary,notes,quiz,flashcards").split(",")
 )
 
 
 class ArtifactCreateRequest(BaseModel):
-    artifact_type: str = Field(..., description="Type of artifact: summary, notes, quiz")
+    artifact_type: str = Field(..., description="Type of artifact: summary, notes, quiz, flashcards")
 
 
 class ArtifactResponse(BaseModel):

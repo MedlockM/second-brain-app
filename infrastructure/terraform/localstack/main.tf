@@ -451,6 +451,64 @@ resource "aws_dynamodb_table" "stripe_events" {
   tags = { Name = "stripe_events", Environment = local.environment, Project = local.project }
 }
 
+# Media artifacts table (canonical artifact records + request pointers)
+resource "aws_dynamodb_table" "media_artifacts" {
+  name         = "media_artifacts"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "artifact_id"
+
+  attribute {
+    name = "artifact_id"
+    type = "S"
+  }
+  attribute {
+    name = "media_item_id"
+    type = "S"
+  }
+  attribute {
+    name = "request_fingerprint"
+    type = "S"
+  }
+  attribute {
+    name = "generation_fingerprint"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "media-item-index"
+    hash_key        = "media_item_id"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "request-fingerprint-index"
+    hash_key        = "request_fingerprint"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "generation-fingerprint-index"
+    hash_key        = "generation_fingerprint"
+    projection_type = "ALL"
+  }
+
+  tags = { Name = "media_artifacts", Environment = local.environment, Project = local.project }
+}
+
+# Artifact idempotence table (generation locks)
+resource "aws_dynamodb_table" "artifact_idempotence" {
+  name         = "artifact_idempotence"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "generation_fingerprint"
+
+  attribute {
+    name = "generation_fingerprint"
+    type = "S"
+  }
+
+  tags = { Name = "artifact_idempotence", Environment = local.environment, Project = local.project }
+}
+
 # -------------------- S3 Buckets --------------------
 resource "aws_s3_bucket" "audio" {
   bucket        = "media-summarizer-audio"
@@ -468,6 +526,12 @@ resource "aws_s3_bucket" "summaries" {
   bucket        = "media-summarizer-summaries"
   force_destroy = true
   tags          = { Name = "summaries", Environment = local.environment, Project = local.project }
+}
+
+resource "aws_s3_bucket" "flashcards" {
+  bucket        = "media-summarizer-flashcards"
+  force_destroy = true
+  tags          = { Name = "flashcards", Environment = local.environment, Project = local.project }
 }
 
 # -------------------- SQS Queues (+ DLQs) --------------------
@@ -582,6 +646,17 @@ resource "aws_sqs_queue" "summarization" {
   })
 }
 
+# Flashcards artifact generation queue
+resource "aws_sqs_queue" "flashcards_dlq" { name = "flashcards-dlq" }
+resource "aws_sqs_queue" "flashcards" {
+  name = "flashcards-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.flashcards_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
 resource "aws_sqs_queue" "email_notification_dlq" { name = "email-notification-dlq" }
 resource "aws_sqs_queue" "email_notification" {
   name = "email-notification-queue"
@@ -633,6 +708,8 @@ output "dynamodb_tables" {
     aws_dynamodb_table.episode_idempotence.name,
     aws_dynamodb_table.episode_watchers.name,
     aws_dynamodb_table.user_episode_submissions.name,
+    aws_dynamodb_table.media_artifacts.name,
+    aws_dynamodb_table.artifact_idempotence.name,
   ]
 }
 
@@ -647,6 +724,7 @@ output "sqs_queues" {
     aws_sqs_queue.youtube_ingestion.name,
     aws_sqs_queue.tiktok_ingestion.name,
     aws_sqs_queue.summarization.name,
+    aws_sqs_queue.flashcards.name,
     aws_sqs_queue.email_notification.name,
     aws_sqs_queue.episode_completed.name,
     aws_sqs_queue.spotify_sync.name,
@@ -829,6 +907,7 @@ output "s3_buckets" {
     aws_s3_bucket.audio.id,
     aws_s3_bucket.transcripts.id,
     aws_s3_bucket.summaries.id,
+    aws_s3_bucket.flashcards.id,
   ]
 }
 

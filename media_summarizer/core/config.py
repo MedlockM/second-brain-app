@@ -36,6 +36,7 @@ class Settings:
         self.SUMMARY_BUCKET = os.getenv("SUMMARY_BUCKET", "summaries")
         self.QUIZ_BUCKET = os.getenv("QUIZ_BUCKET", "media-summarizer-quizzes")
         self.NOTES_BUCKET = os.getenv("NOTES_BUCKET", "media-summarizer-notes")
+        self.FLASHCARDS_BUCKET = os.getenv("FLASHCARDS_BUCKET", "media-summarizer-flashcards")
 
         # SQS Queues
         self.DOWNLOAD_QUEUE = os.getenv("DOWNLOAD_QUEUE", "download-queue")
@@ -52,8 +53,9 @@ class Settings:
         self.SUMMARIZATION_QUEUE = os.getenv("SUMMARIZATION_QUEUE", "summarization-queue")
         self.QUIZ_QUEUE = os.getenv("QUIZ_QUEUE", "quiz-queue")
         self.NOTES_QUEUE = os.getenv("NOTES_QUEUE", "notes-queue")
+        self.FLASHCARDS_QUEUE = os.getenv("FLASHCARDS_QUEUE", "flashcards-queue")
         self.ARTIFACT_TYPES_ALLOWED = os.getenv(
-            "ARTIFACT_TYPES_ALLOWED", "summary,quiz,notes"
+            "ARTIFACT_TYPES_ALLOWED", "summary,quiz,notes,flashcards"
         )
 
         # Stripe Configuration
