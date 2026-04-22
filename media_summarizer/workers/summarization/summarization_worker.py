@@ -43,6 +43,10 @@ NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-qu
 EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
+FLASHCARDS_QUEUE = os.environ.get("FLASHCARDS_QUEUE", "flashcards-queue")
+FLASHCARDS_AUTO_GENERATE = os.environ.get(
+    "FLASHCARDS_AUTO_GENERATE", "true"
+).lower() == "true"
 
 
 # LLM timeout from env (seconds)
@@ -361,6 +365,25 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
                 logger.warning(
                     f"Failed to publish episode-completed event for job {job_id}: {ee}"
                 )
+
+            # Auto-trigger flashcards generation after transcript completion
+            if FLASHCARDS_AUTO_GENERATE:
+                try:
+                    from media_summarizer.core.services.artifact_service import (
+                        request_artifact_generation,
+                    )
+                    from media_summarizer.core.models.media_artifact import MediaArtifactType
+
+                    await request_artifact_generation(
+                        media_item_id=job_id,
+                        job=job,
+                        artifact_type=MediaArtifactType.FLASHCARDS,
+                    )
+                    logger.info(f"Auto-triggered flashcards generation for job {job_id}")
+                except Exception as fc_err:
+                    logger.warning(
+                        f"Failed to auto-trigger flashcards for job {job_id}: {fc_err}"
+                    )
         except Exception as e:
             logger.warning(f"Failed to finalize minute usage for job {job_id}: {e}")
 
