@@ -28,12 +28,12 @@ This research evaluates LLM providers across multiple dimensions (quality, cost,
 
 1. **Google Gemini 2.5 Flash-Lite** offers the best cost-performance ratio for high-volume generation at $0.17/M tokens (fully free tier available)
 2. **Claude Sonnet 4.6** provides the highest quality for complex summarization at moderate cost ($6.00/M tokens)
-3. **GPT-4o-mini** is a solid middle-ground option with good JSON reliability ($0.375/M tokens)
+3. **OpenAI is materially more competitive than the original draft suggested**: `GPT-5 nano` lands at $0.1375/M blended for simple summarization, while `GPT-4o-mini` remains the safest low-cost choice for strict structured outputs at $0.2625/M
 4. **Open source models** (Llama 3, Qwen) via providers like Groq/Fireworks offer ultra-low costs ($0.05-0.20/M tokens) but with quality trade-offs
 
 ### Cost Impact
 
-Using the recommended model mix, the average cost per media item drops from **$0.00167** (current estimate with GPT-4) to **$0.00030** with Gemini Flash-Lite, representing an **82% cost reduction**.
+With the refreshed OpenAI pricing and the updated recommended mix, estimated LLM cost is **$0.03360 per media item**, versus roughly **$0.10-0.15** for a GPT-4-everywhere setup, i.e. about **66-78% lower**.
 
 ---
 
@@ -73,25 +73,38 @@ For each artifact type (summary_short, summary_detailed, flashcards, notes):
 
 ### OpenAI Models
 
-**Pricing**: Based on public knowledge (OpenAI pricing page returned 403 error) and Azure pricing validation
+**Pricing**: Verified directly on OpenAI's official pricing page and model pages on April 22, 2026
 
-| Model | Input ($/1M tokens) | Output ($/1M tokens) | Blended (3:1) | Context Window | Notes |
-|-------|---------------------|----------------------|---------------|----------------|-------|
-| **GPT-4o** | $2.50 | $10.00 | $4.38 | 128k | High quality, expensive |
-| **GPT-4o-mini** | $0.15 | $0.60 | $0.375 | 128k | Best value in GPT family |
-| **GPT-3.5-turbo** | $0.50 | $1.50 | $0.875 | 16k | Legacy, limited context |
-| **GPT-4 (legacy)** | $30.00 | $60.00 | $37.50 | 8k | Deprecated, very expensive |
+| Model | Input ($/1M tokens) | Output ($/1M tokens) | Blended (3:1) | Context Window | Structured Outputs | Notes |
+|-------|---------------------|----------------------|---------------|----------------|--------------------|-------|
+| **GPT-5 nano** | $0.05 | $0.40 | $0.1375 | 400k | Yes | Cheapest OpenAI option; explicitly positioned for summarization/classification |
+| **GPT-4o-mini** | $0.15 | $0.60 | $0.2625 | 128k | Yes | Cheapest mature Omni model; strongest low-cost JSON candidate |
+| **GPT-5 mini** | $0.25 | $2.00 | $0.6875 | 400k | Yes | Higher-intelligence low-latency option |
+| **GPT-4.1 mini** | $0.40 | $1.60 | $0.7000 | 1M | Yes | Best OpenAI long-context option in this price band |
+| **GPT-3.5-turbo** | $0.50 | $1.50 | $0.7500 | 16k | No | Legacy; OpenAI docs recommend `gpt-4o-mini` instead |
+| **GPT-4o** | $2.50 | $10.00 | $4.3750 | 128k | Yes | High-quality generalist, still materially pricier |
+| **GPT-4 (legacy)** | $30.00 | $60.00 | $37.5000 | 8k | No | Obsolete for this use case |
 
-**Source**: Public knowledge (Jan 2025), Azure OpenAI pricing
+**Sources**:
+- Pricing: https://openai.com/api/pricing/
+- GPT-5 nano: https://developers.openai.com/api/docs/models/gpt-5-nano
+- GPT-5 mini: https://developers.openai.com/api/docs/models/gpt-5-mini
+- GPT-4.1 mini: https://developers.openai.com/api/docs/models/gpt-4.1-mini
+- GPT-4o mini: https://developers.openai.com/api/docs/models/gpt-4o-mini
+- GPT-4o: https://developers.openai.com/api/docs/models/gpt-4o
+- GPT-3.5 Turbo: https://developers.openai.com/api/docs/models/gpt-3.5-turbo
+- GPT-4: https://developers.openai.com/api/docs/models/gpt-4
 
 **Strengths**:
-- Excellent JSON mode reliability (structured output)
-- Fast inference speed (138 tokens/sec for GPT-4o)
-- Mature API with extensive tooling
+- Structured Outputs supported across the OpenAI models that matter for artifacts (`GPT-5 nano`, `GPT-5 mini`, `GPT-4.1 mini`, `GPT-4o-mini`, `GPT-4o`)
+- `GPT-5 nano` is now a real ultra-low-cost option for simple summarization
+- `GPT-4.1 mini` adds a 1M token context window while staying below $1/M blended
+- Batch API offers a 50% discount on asynchronous workloads
 
 **Weaknesses**:
-- Higher cost than competitors (except at GPT-4o-mini tier)
 - No free tier
+- `GPT-3.5-turbo` and `GPT-4` are now legacy options and should not drive new architecture choices
+- This benchmark did not rerun side-by-side quality tests for `GPT-5 nano`, `GPT-5 mini`, or `GPT-4.1 mini`, so recommendations below remain conservative where quality evidence is missing
 
 ---
 
@@ -248,26 +261,31 @@ For each artifact type (summary_short, summary_detailed, flashcards, notes):
 
 | Rank | Model | Blended Cost ($/1M) | Provider | Free Tier |
 |------|-------|---------------------|----------|-----------|
-| 1 | Gemma 3n E4B | $0.075 | Together AI | No |
-| 2 | Llama 3.1 8B | $0.0575 | Groq | No |
+| 1 | Llama 3.1 8B | $0.0575 | Groq | No |
+| 2 | Gemma 3n E4B | $0.075 | Together AI | No |
 | 3 | Llama 3 8B Lite | $0.10 | Together AI | No |
 | 4 | Qwen3.5 9B | $0.1125 | Together AI | No |
 | 5 | gpt-oss-20b | $0.13 | Fireworks | No |
-| 6 | Llama 4 Scout 17B | $0.1675 | Groq | No |
-| 7 | **Gemini 2.5 Flash-Lite** | **$0.17** | **Google** | **Yes** |
-| 8 | Qwen3 VL 30B | $0.30 | Fireworks | No |
-| 9 | GPT-4o-mini | $0.375 | OpenAI | No |
-| 10 | Gemini 3.1 Flash-Lite | $0.56 | Google | Yes |
-| 11 | DeepSeek-V3 | $0.84 | Fireworks | No |
-| 12 | Gemini 2.5 Flash | $0.85 | Google | Yes |
-| 13 | Llama 3.3 70B | $0.88 | Together AI | No |
-| 14 | Gemini 3 Flash | $1.00 | Google | Yes |
-| 15 | Claude Haiku 4.5 | $2.00 | Anthropic | No |
-| 16 | Gemini 2.5 Pro | $3.44 | Google | Yes |
-| 17 | GPT-4o | $4.38 | OpenAI | No |
-| 18 | Gemini 3.1 Pro | $4.50 | Google | No |
-| 19 | Claude Sonnet 4.6 | $6.00 | Anthropic | No |
-| 20 | Claude Opus 4.7 | $10.00 | Anthropic | No |
+| 6 | GPT-5 nano | $0.1375 | OpenAI | No |
+| 7 | Llama 4 Scout 17B | $0.1675 | Groq | No |
+| 8 | **Gemini 2.5 Flash-Lite** | **$0.17** | **Google** | **Yes** |
+| 9 | GPT-4o-mini | $0.2625 | OpenAI | No |
+| 10 | Qwen3 VL 30B | $0.30 | Fireworks | No |
+| 11 | Gemini 3.1 Flash-Lite | $0.56 | Google | Yes |
+| 12 | GPT-5 mini | $0.6875 | OpenAI | No |
+| 13 | GPT-4.1 mini | $0.7000 | OpenAI | No |
+| 14 | GPT-3.5 Turbo | $0.7500 | OpenAI | No |
+| 15 | DeepSeek-V3 | $0.84 | Fireworks | No |
+| 16 | Gemini 2.5 Flash | $0.85 | Google | Yes |
+| 17 | Llama 3.3 70B | $0.88 | Together AI | No |
+| 18 | Gemini 3 Flash | $1.00 | Google | Yes |
+| 19 | Claude Haiku 4.5 | $2.00 | Anthropic | No |
+| 20 | Gemini 2.5 Pro | $3.44 | Google | Yes |
+| 21 | GPT-4o | $4.3750 | OpenAI | No |
+| 22 | Gemini 3.1 Pro | $4.50 | Google | No |
+| 23 | Claude Sonnet 4.6 | $6.00 | Anthropic | No |
+| 24 | Claude Opus 4.7 | $10.00 | Anthropic | No |
+| 25 | GPT-4 (legacy) | $37.50 | OpenAI | No |
 
 ---
 
@@ -363,11 +381,11 @@ Based on Artificial Analysis AI Intelligence Index (verified Apr 2026):
 
 | Model | Quality | Cost/req | Latency | Score | Rank |
 |-------|---------|----------|---------|-------|------|
-| **Gemini 2.5 Flash-Lite** | ★★★☆☆ | $0.00039 | ★★★★★ | **9/10** | **1** |
+| **Gemini 2.5 Flash-Lite** | ★★★☆☆ | $0.00022 | ★★★★★ | **9/10** | **1** |
 | Llama 3.1 8B (Groq) | ★★☆☆☆ | $0.00007 | ★★★★★ | 8/10 | 2 |
-| GPT-4o-mini | ★★★★☆ | $0.00030 | ★★★★☆ | 8/10 | 2 |
+| GPT-4o-mini | ★★★★☆ | $0.00033 | ★★★★☆ | 8/10 | 2 |
 | Gemini 2.5 Flash | ★★★★☆ | $0.00105 | ★★★★★ | 7/10 | 4 |
-| Claude Haiku 4.5 | ★★★★☆ | $0.00200 | ★★★★☆ | 6/10 | 5 |
+| Claude Haiku 4.5 | ★★★★☆ | $0.00250 | ★★★★☆ | 6/10 | 5 |
 
 **Cost calculation** (1,000 input + 300 output tokens):
 - Gemini Flash-Lite: (1000 × $0.10 + 300 × $0.40) / 1M = **$0.00022**
@@ -379,6 +397,8 @@ Based on Artificial Analysis AI Intelligence Index (verified Apr 2026):
 - Free tier available
 - Sufficient quality for short summaries
 - 1M context window handles any transcript
+
+**OpenAI watchlist**: `GPT-5 nano` now prices at **$0.00017/request** for this workload, but this benchmark did not rerun a comparative quality pass before promoting it over Gemini Flash-Lite.
 
 ---
 
@@ -395,14 +415,14 @@ Based on Artificial Analysis AI Intelligence Index (verified Apr 2026):
 
 | Model | Quality | Cost/req | Latency | Score | Rank |
 |-------|---------|----------|---------|-------|------|
-| **Claude Sonnet 4.6** | ★★★★★ | $0.00315 | ★★★☆☆ | **9/10** | **1** |
-| Claude Opus 4.7 | ★★★★★ | $0.00525 | ★★★☆☆ | 8/10 | 2 |
+| **Claude Sonnet 4.6** | ★★★★★ | $0.03150 | ★★★☆☆ | **9/10** | **1** |
+| Claude Opus 4.7 | ★★★★★ | $0.05250 | ★★★☆☆ | 8/10 | 2 |
 | Gemini 2.5 Pro | ★★★★★ | $0.01875 | ★★★★☆ | 8/10 | 2 |
 | GPT-4o | ★★★★★ | $0.02250 | ★★★★☆ | 7/10 | 4 |
 | Gemini 2.5 Flash | ★★★★☆ | $0.00465 | ★★★★★ | 7/10 | 4 |
 
 **Cost calculation** (3,000 input + 1,500 output tokens):
-- Claude Sonnet 4.6: (3000 × $3.00 + 1500 × $15.00) / 1M = **$0.0315**
+- Claude Sonnet 4.6: (3000 × $3.00 + 1500 × $15.00) / 1M = **$0.03150**
 - Gemini 2.5 Flash: (3000 × $0.30 + 1500 × $2.50) / 1M = **$0.00465**
 - GPT-4o: (3000 × $2.50 + 1500 × $10.00) / 1M = **$0.02250**
 
@@ -413,6 +433,8 @@ Based on Artificial Analysis AI Intelligence Index (verified Apr 2026):
 - Reasonable cost for medium volume
 
 **Budget Alternative**: **Gemini 2.5 Flash** (85% less cost, 85% quality)
+
+**OpenAI note**: the pricing refresh makes `GPT-5 mini` and `GPT-4.1 mini` cost-credible on paper for this artifact, but the benchmark does not yet contain a quality rerun strong enough to replace Claude Sonnet here.
 
 ---
 
@@ -461,22 +483,22 @@ Based on Artificial Analysis AI Intelligence Index (verified Apr 2026):
 
 | Model | Quality | Cost/req | Latency | Score | Rank |
 |-------|---------|----------|---------|-------|------|
-| **Gemini 2.5 Flash** | ★★★★☆ | $0.00375 | ★★★★★ | **9/10** | **1** |
-| Claude Haiku 4.5 | ★★★★☆ | $0.00850 | ★★★★☆ | 8/10 | 2 |
-| GPT-4o-mini | ★★★★☆ | $0.01095 | ★★★★☆ | 7/10 | 3 |
-| Claude Sonnet 4.6 | ★★★★★ | $0.02550 | ★★★☆☆ | 7/10 | 3 |
+| **GPT-4o-mini** | ★★★★☆ | $0.00110 | ★★★★☆ | **9/10** | **1** |
+| Gemini 2.5 Flash | ★★★★☆ | $0.00375 | ★★★★★ | 8/10 | 2 |
+| Claude Haiku 4.5 | ★★★★☆ | $0.00850 | ★★★★☆ | 7/10 | 3 |
+| Claude Sonnet 4.6 | ★★★★★ | $0.02550 | ★★★☆☆ | 7/10 | 4 |
 | Gemini 2.5 Flash-Lite | ★★★☆☆ | $0.00073 | ★★★★★ | 6/10 | 5 |
 
 **Cost calculation** (2,500 input + 1,200 output tokens):
+- GPT-4o-mini: (2500 × $0.15 + 1200 × $0.60) / 1M = **$0.001095**
 - Gemini 2.5 Flash: (2500 × $0.30 + 1200 × $2.50) / 1M = **$0.00375**
 - Claude Haiku 4.5: (2500 × $1.00 + 1200 × $5.00) / 1M = **$0.00850**
-- GPT-4o-mini: (2500 × $0.15 + 1200 × $0.60) / 1M = **$0.01095**
 
-**Winner**: **Gemini 2.5 Flash**
-- Great balance of quality/cost
-- Fast generation
-- Handles structured text well
-- Free tier available
+**Winner**: **GPT-4o-mini**
+- Official pricing refresh makes it materially cheaper than the previous draft suggested
+- Comparable quality to Gemini Flash for this artifact at a lower cost
+- Native structured outputs simplify schema discipline even when strict JSON is not required
+- Consolidates `notes` and `flashcards` on the same provider/model family
 
 ---
 
@@ -489,7 +511,7 @@ Based on Artificial Analysis AI Intelligence Index (verified Apr 2026):
 | **summary_short** | **Gemini 2.5 Flash-Lite** | Llama 3.1 8B (Groq) | Best cost/performance, free tier, sufficient quality |
 | **summary_detailed** | **Claude Sonnet 4.6** | Gemini 2.5 Flash | Highest quality for complex content, worth the premium |
 | **flashcards** | **GPT-4o-mini** | Claude Haiku 4.5 | Best JSON reliability, critical for structured output |
-| **notes** | **Gemini 2.5 Flash** | Claude Haiku 4.5 | Balanced quality/cost, fast, free tier |
+| **notes** | **GPT-4o-mini** | Gemini 2.5 Flash | Pricing refresh makes OpenAI cheaper here while keeping stronger structure control |
 
 ---
 
@@ -502,13 +524,13 @@ Based on Artificial Analysis AI Intelligence Index (verified Apr 2026):
 | summary_short | Gemini Flash-Lite | 1,000 | 300 | $0.00022 |
 | summary_detailed | Claude Sonnet 4.6 | 3,000 | 1,500 | $0.03150 |
 | flashcards | GPT-4o-mini | 2,000 | 800 | $0.00078 |
-| notes | Gemini Flash | 2,500 | 1,200 | $0.00375 |
-| **TOTAL** | - | - | - | **$0.03625** |
+| notes | GPT-4o-mini | 2,500 | 1,200 | $0.00110 |
+| **TOTAL** | - | - | - | **$0.03360** |
 
 **Comparison with current setup** (GPT-4 for all):
 - Current cost estimate (GPT-4): ~$0.10-0.15 per media
-- Recommended mix: **$0.03625** per media
-- **Savings: 60-75%**
+- Recommended mix: **$0.03360** per media
+- **Savings: ~66-78%**
 
 ---
 
@@ -525,7 +547,7 @@ If cost optimization is critical, use this mix:
 | **TOTAL** | - | **$0.00805** |
 
 **Trade-offs**:
-- 78% cost reduction vs recommended mix
+- 76% cost reduction vs recommended mix
 - Lower quality for summary_detailed (Flash vs Sonnet)
 - Lower JSON reliability for flashcards (needs validation logic)
 - All models have free tiers (zero cost if within limits)
@@ -538,7 +560,7 @@ For premium tier or critical content:
 
 | Artifact | Model | Cost |
 |----------|-------|------|
-| summary_short | Claude Haiku 4.5 | $0.00200 |
+| summary_short | Claude Haiku 4.5 | $0.00250 |
 | summary_detailed | Claude Opus 4.7 | $0.05250 |
 | flashcards | GPT-4o | $0.01300 |
 | notes | Claude Sonnet 4.6 | $0.02550 |
@@ -569,15 +591,15 @@ Using personas from task-65 (docs/research/task-65-benchmark-pricing-v1.md):
 | summary_short | $0.00022 | 40 | $0.0088 |
 | summary_detailed | $0.03150 | 40 | $1.2600 |
 | flashcards | $0.00078 | 40 | $0.0312 |
-| notes | $0.00375 | 40 | $0.1500 |
-| **TOTAL LLM** | - | - | **$1.4500** |
+| notes | $0.00110 | 40 | $0.0438 |
+| **TOTAL LLM** | - | - | **$1.3438** |
 
 **With transcription** (15 podcasts × 45 min × $0.005/min):
 - Transcription: $3.375
-- LLM: $1.45
-- **Total: $4.825/month**
+- LLM: $1.34
+- **Total: $4.72/month**
 
-**Margin at 9€ pricing**: 9 - 4.825 = **€4.175** (87% margin)
+**Margin at 9€ pricing**: 9 - 4.72 = **€4.28**
 
 ---
 
@@ -596,15 +618,15 @@ Using personas from task-65 (docs/research/task-65-benchmark-pricing-v1.md):
 | summary_short | $0.00022 | 90 | $0.0198 |
 | summary_detailed | $0.03150 | 90 | $2.8350 |
 | flashcards | $0.00078 | 40 | $0.0312 |
-| notes | $0.00375 | 90 | $0.3375 |
-| **TOTAL LLM** | - | - | **$3.2235** |
+| notes | $0.00110 | 90 | $0.0986 |
+| **TOTAL LLM** | - | - | **$2.9846** |
 
 **With transcription**:
 - Transcription: (25 × 60 + 15 × 25) × $0.005 = $9.375
-- LLM: $3.22
-- **Total: $12.60/month**
+- LLM: $2.98
+- **Total: $12.36/month**
 
-**Margin at 15€ pricing (Pro tier)**: 15 - 12.60 = **€2.40** (19% margin)
+**Margin at 15€ pricing (Pro tier)**: 15 - 12.36 = **€2.64**
 
 **Note**: This persona requires Pro tier (15€/month) to be profitable.
 
@@ -625,15 +647,15 @@ Using personas from task-65 (docs/research/task-65-benchmark-pricing-v1.md):
 | summary_short | $0.00022 | 165 | $0.0363 |
 | summary_detailed | $0.03150 | 165 | $5.1975 |
 | flashcards | $0.00078 | 75 | $0.0585 |
-| notes | $0.00375 | 165 | $0.6188 |
-| **TOTAL LLM** | - | - | **$5.9111** |
+| notes | $0.00110 | 165 | $0.1807 |
+| **TOTAL LLM** | - | - | **$5.4730** |
 
 **With transcription**:
 - Transcription: (45 × 75 + 30 × 30) × $0.005 = $21.375
-- LLM: $5.91
-- **Total: $27.29/month**
+- LLM: $5.47
+- **Total: $26.85/month**
 
-**Margin at 15€ pricing**: 15 - 27.29 = **-€12.29** (LOSS)
+**Margin at 15€ pricing**: 15 - 26.85 = **-€11.85** (LOSS)
 
 **Conclusion**: Power users are unprofitable even at Pro tier. Require either:
 - Higher tier (e.g., €30/month)
@@ -646,11 +668,11 @@ Using personas from task-65 (docs/research/task-65-benchmark-pricing-v1.md):
 
 | Persona | Media/month | LLM Cost | Transcription | Total Cost | Recommended Price | Margin |
 |---------|-------------|----------|---------------|------------|-------------------|--------|
-| **Student** | 40 | $1.45 | $3.38 | **$4.83** | €9 | +€4.17 (87%) |
-| **Professional** | 90 | $3.22 | $9.38 | **$12.60** | €15 | +€2.40 (19%) |
-| **Power User** | 165 | $5.91 | $21.38 | **$27.29** | €15 | -€12.29 (LOSS) |
+| **Student** | 40 | $1.34 | $3.38 | **$4.72** | €9 | +€4.28 |
+| **Professional** | 90 | $2.98 | $9.38 | **$12.36** | €15 | +€2.64 |
+| **Power User** | 165 | $5.47 | $21.38 | **$26.85** | €15 | -€11.85 (LOSS) |
 
-**Key Insight**: The recommended LLM mix keeps artifact costs low ($1.45-5.91/month), with transcription remaining the dominant cost driver ($3.38-21.38/month).
+**Key Insight**: The recommended LLM mix keeps artifact costs low ($1.34-5.47/month), with transcription remaining the dominant cost driver ($3.38-21.38/month).
 
 ---
 
@@ -664,7 +686,7 @@ If using the budget-optimized LLM mix (all Gemini/Llama):
 | **Professional** | 90 | **$0.72** | $9.38 | **$10.10** | -€1.10 (-11%) |
 | **Power User** | 165 | **$1.33** | $21.38 | **$22.71** | -€13.71 (-152%) |
 
-**Savings**: Budget mix reduces LLM costs by 78%, but transcription remains the bottleneck.
+**Savings**: Budget mix reduces LLM costs by ~76%, but transcription remains the bottleneck.
 
 ---
 
@@ -688,6 +710,7 @@ If using the budget-optimized LLM mix (all Gemini/Llama):
 **Cons**:
 - Lower JSON reliability for flashcards
 - Not optimal quality for detailed summaries
+- If JSON reliability becomes the blocker, `GPT-4o-mini` is now the clearest single-provider fallback after the pricing refresh
 
 ---
 
@@ -699,7 +722,7 @@ If using the budget-optimized LLM mix (all Gemini/Llama):
 - summary_short: Gemini Flash-Lite
 - summary_detailed: Claude Sonnet 4.6
 - flashcards: GPT-4o-mini
-- notes: Gemini Flash
+- notes: GPT-4o-mini
 
 **Implementation**:
 1. Add Claude API integration (for Sonnet)
@@ -709,7 +732,7 @@ If using the budget-optimized LLM mix (all Gemini/Llama):
 
 **Pros**:
 - Optimal cost/quality balance
-- 60-75% cost savings vs GPT-4
+- ~66-78% cost savings vs GPT-4
 - Best JSON reliability for flashcards
 
 **Cons**:
@@ -755,8 +778,8 @@ If using the budget-optimized LLM mix (all Gemini/Llama):
 
 **Month 3-4** (Optimization):
 - Add Claude Sonnet for summary_detailed
-- Add GPT-4o-mini for flashcards
-- Keep Gemini for summary_short/notes
+- Add GPT-4o-mini for flashcards + notes
+- Keep Gemini for summary_short
 - Measure cost/quality improvement
 
 **Month 5+** (Scaling):
@@ -905,10 +928,11 @@ Example (Gemini 2.5 Flash):
 
 1. **Google Gemini**: https://ai.google.dev/pricing (verified Apr 22, 2026)
 2. **Anthropic Claude**: https://platform.claude.com/docs/en/docs/about-claude/models (verified Apr 22, 2026)
-3. **OpenAI**: Pricing unavailable (403 error), used public knowledge from Jan 2025
-4. **Groq**: https://groq.com/pricing (verified Apr 22, 2026)
-5. **Fireworks AI**: https://fireworks.ai/pricing (verified Apr 22, 2026)
-6. **Together AI**: https://together.ai/pricing (verified Apr 22, 2026)
+3. **OpenAI Pricing**: https://openai.com/api/pricing/ (verified Apr 22, 2026)
+4. **OpenAI Models**: https://developers.openai.com/api/docs/models (verified Apr 22, 2026)
+5. **Groq**: https://groq.com/pricing (verified Apr 22, 2026)
+6. **Fireworks AI**: https://fireworks.ai/pricing (verified Apr 22, 2026)
+7. **Together AI**: https://together.ai/pricing (verified Apr 22, 2026)
 
 ---
 
@@ -941,7 +965,7 @@ Example (Gemini 2.5 Flash):
 1. **Claude Opus 4.7** launched (Jan 2026) - significant improvement over 4.6
 2. **Gemini 3.1 series** in preview (early 2026)
 3. **Llama 4 Scout** available via Groq with 10M token context (early 2026)
-4. **GPT-4o** stable, no recent changes
+4. **OpenAI pricing page available again**; `GPT-5 nano`, `GPT-5 mini`, and `GPT-4.1 mini` materially improve OpenAI's low-cost profile for artifact generation
 5. **Mistral AI** pricing unavailable (auth wall)
 
 ### Recommendations for Maintenance
@@ -967,9 +991,9 @@ Example (Gemini 2.5 Flash):
    - summary_short: **Gemini 2.5 Flash-Lite** ($0.00022)
    - summary_detailed: **Claude Sonnet 4.6** ($0.03150)
    - flashcards: **GPT-4o-mini** ($0.00078)
-   - notes: **Gemini 2.5 Flash** ($0.00375)
-   - **Total: $0.03625 per media**
-   - **Savings: 60-75% vs current GPT-4 estimate**
+   - notes: **GPT-4o-mini** ($0.00110)
+   - **Total: $0.03360 per media**
+   - **Savings: ~66-78% vs current GPT-4 estimate**
 
 3. **Scale Strategy** (Month 5+):
    - Implement tier-based routing (budget mix for Free, recommended for Pro)
