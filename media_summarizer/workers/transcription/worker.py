@@ -36,9 +36,9 @@ class _SessionShim:
 
 session = _SessionShim(_aio_session)
 from media_summarizer.core.utils.whisper_async import transcribe_async
+from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
-# Configuration du logging
-logging.basicConfig(level=logging.INFO)
+# Logger instance - actual setup deferred to main() via setup_logging()
 logger = logging.getLogger(__name__)
 
 # Configuration
@@ -122,7 +122,10 @@ async def upload_transcription(transcript_s3_key: str, transcription_text: str) 
 
 async def process_transcription_message(message_body: Dict[str, Any]) -> None:
     """
-    Process a single transcription message.
+    Process a single transcription message using Whisper (legacy path).
+
+    Note: This is the Whisper transcription path, NOT the canonical Deepgram path.
+    The canonical share-first pipeline uses Deepgram for audio transcription.
 
     Args:
         message_body: The message body containing job information
@@ -132,120 +135,147 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
     audio_s3_key = message_body.get("audio_s3_key") or message_body.get("s3_audio_key")
 
     if not all([job_id, audio_s3_key]):
-        logger.error(f"Missing required fields in message: {message_body}")
+        log_event(
+            logger,
+            logging.ERROR,
+            "worker.invalid_message",
+            "Missing required fields in Whisper transcription message",
+            queue=TRANSCRIPTION_QUEUE,
+            error_code="MISSING_FIELDS",
+        )
         raise ValueError("Missing required fields in transcription message")
 
     # Ensure all required fields are strings
     if not isinstance(job_id, str) or not isinstance(audio_s3_key, str):
-        logger.error(f"Invalid field types in message: {message_body}")
+        log_event(
+            logger,
+            logging.ERROR,
+            "worker.invalid_message",
+            "Invalid field types in Whisper transcription message",
+            queue=TRANSCRIPTION_QUEUE,
+            error_code="INVALID_FIELD_TYPES",
+        )
         raise ValueError("Invalid field types in transcription message")
 
-    logger.info(f"Starting transcription for job {job_id}")
-
-    # Update job status to transcribing
-    from media_summarizer.utils import database_async
-
-    job = await database_async.get_processing_job_by_id(job_id)
-    if job:
-        job.mark_transcribing()
-        await database_async.update_processing_job(job)
-
-    # Create temporary directory for audio processing
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Download audio file
-        audio_filename = f"{job_id}_audio.mp3"
-        local_audio_path = Path(temp_dir) / audio_filename
-
-        logger.info(f"Downloading audio for job {job_id}")
-        await download_audio_file(audio_s3_key, str(local_audio_path))
-
-        # Verify audio file exists and has content
-        if not local_audio_path.exists() or local_audio_path.stat().st_size == 0:
-            raise ValueError("Downloaded audio file is empty or missing")
-
-        # Transcribe audio
-        logger.info(
-            f"Starting transcription for job {job_id} using Whisper {WHISPER_MODEL}"
-        )
-        start_time = time.time()
-
-        # Use async transcription to avoid blocking
-        transcription_result = await transcribe_async(
-            audio_path=str(local_audio_path), model_name=WHISPER_MODEL
+    context_token = bind_log_context(job_id=job_id, transcript_source="whisper")
+    try:
+        log_event(
+            logger,
+            logging.INFO,
+            "worker.transcription.started",
+            "Whisper transcription started (legacy path)",
+            job_id=job_id,
+            transcript_source="whisper",
+            provider="whisper",
         )
 
-        transcription_duration = time.time() - start_time
-        logger.info(
-            f"Transcription completed for job {job_id} in {transcription_duration:.2f} seconds"
-        )
+        # Update job status to transcribing
+        from media_summarizer.utils import database_async
 
-        # Extract transcription text
-        if isinstance(transcription_result, dict):
-            transcription_text = transcription_result.get("text", "")
-            segments = transcription_result.get("segments", [])
-            language = transcription_result.get("language", "unknown")
-        else:
-            # Fallback for simple string result
-            transcription_text = str(transcription_result)
-            segments = []
-            language = "unknown"
-
-        if not transcription_text or len(transcription_text.strip()) == 0:
-            raise ValueError("Transcription resulted in empty text")
-
-        # Upload transcription to S3
-        transcript_s3_key = f"{job_id}.txt"
-        logger.info(f"Uploading transcription for job {job_id}")
-        await upload_transcription(transcript_s3_key, transcription_text)
-
-        transcription_metadata = {
-            "provider": "whisper",
-            "language": language,
-            "duration_seconds": transcription_duration,
-            "segments_count": len(segments),
-            "audio_s3_key": audio_s3_key,
-            "model_used": WHISPER_MODEL,
-            "transcribed_at": time.strftime(
-                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
-            ),
-        }
-
-        # Update job with transcription location and duration
+        job = await database_async.get_processing_job_by_id(job_id)
         if job:
-            job.set_transcription_location(transcript_s3_key)
-            job.set_transcription_metadata(transcription_metadata)
-            job.set_processing_duration(
-                "transcription", int(transcription_duration)
-            )
+            job.mark_transcribing()
             await database_async.update_processing_job(job)
 
-        # Publish completion event directly: automatic pipeline ends at transcription.
-        audio_duration_seconds_raw = message_body.get("audio_duration_seconds")
-        try:
-            audio_duration_seconds = int(float(audio_duration_seconds_raw))
-        except (TypeError, ValueError):
-            audio_duration_seconds = 0
+        # Create temporary directory for audio processing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Download audio file
+            audio_filename = f"{job_id}_audio.mp3"
+            local_audio_path = Path(temp_dir) / audio_filename
 
-        minutes_used = (
-            max(1, ceil(audio_duration_seconds / 60))
-            if audio_duration_seconds > 0
-            else 1
-        )
+            await download_audio_file(audio_s3_key, str(local_audio_path))
 
-        await sqs.send_message(
-            queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
-            message_body={
-                "event_type": "episode_completion_status",
-                "status": "success",
-                "media_key": message_body.get("media_key"),
-                "canonical_job_id": job_id,
-                "minutes_used": minutes_used,
-                "transcription_s3_key": transcript_s3_key,
-                "transcription_metadata": transcription_metadata,
-            },
-        )
+            # Verify audio file exists and has content
+            if not local_audio_path.exists() or local_audio_path.stat().st_size == 0:
+                raise ValueError("Downloaded audio file is empty or missing")
 
-        logger.info(f"Successfully completed transcription for job {job_id}")
+            start_time = time.time()
+
+            # Use async transcription to avoid blocking
+            transcription_result = await transcribe_async(
+                audio_path=str(local_audio_path), model_name=WHISPER_MODEL
+            )
+
+            transcription_duration = time.time() - start_time
+            duration_ms = int(transcription_duration * 1000)
+
+            # Extract transcription text
+            if isinstance(transcription_result, dict):
+                transcription_text = transcription_result.get("text", "")
+                segments = transcription_result.get("segments", [])
+                language = transcription_result.get("language", "unknown")
+            else:
+                # Fallback for simple string result
+                transcription_text = str(transcription_result)
+                segments = []
+                language = "unknown"
+
+            if not transcription_text or len(transcription_text.strip()) == 0:
+                raise ValueError("Transcription resulted in empty text")
+
+            # Upload transcription to S3
+            transcript_s3_key = f"{job_id}.txt"
+            await upload_transcription(transcript_s3_key, transcription_text)
+
+            transcription_metadata = {
+                "provider": "whisper",
+                "language": language,
+                "duration_seconds": transcription_duration,
+                "segments_count": len(segments),
+                "audio_s3_key": audio_s3_key,
+                "model_used": WHISPER_MODEL,
+                "transcribed_at": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                ),
+            }
+
+            # Update job with transcription location and duration
+            if job:
+                job.set_transcription_location(transcript_s3_key)
+                job.set_transcription_metadata(transcription_metadata)
+                job.set_processing_duration(
+                    "transcription", int(transcription_duration)
+                )
+                await database_async.update_processing_job(job)
+
+            # Publish completion event directly: automatic pipeline ends at transcription.
+            audio_duration_seconds_raw = message_body.get("audio_duration_seconds")
+            try:
+                audio_duration_seconds = int(float(audio_duration_seconds_raw))
+            except (TypeError, ValueError):
+                audio_duration_seconds = 0
+
+            minutes_used = (
+                max(1, ceil(audio_duration_seconds / 60))
+                if audio_duration_seconds > 0
+                else 1
+            )
+
+            await sqs.send_message(
+                queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+                message_body={
+                    "event_type": "episode_completion_status",
+                    "status": "success",
+                    "media_key": message_body.get("media_key"),
+                    "canonical_job_id": job_id,
+                    "minutes_used": minutes_used,
+                    "transcription_s3_key": transcript_s3_key,
+                    "transcription_metadata": transcription_metadata,
+                },
+            )
+
+            log_event(
+                logger,
+                logging.INFO,
+                "worker.transcription.completed",
+                "Whisper transcription completed (legacy path)",
+                job_id=job_id,
+                transcript_source="whisper",
+                provider="whisper",
+                duration_ms=duration_ms,
+            )
+    finally:
+        reset_log_context(context_token)
 
 
 async def process_message(message: Dict[str, Any]) -> None:
@@ -385,10 +415,6 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
+    from media_summarizer.utils.logging_config import setup_logging
+    setup_logging("worker-transcription-whisper")
     asyncio.run(main())

@@ -18,8 +18,7 @@ import uvicorn
 
 # Import direct de whisper - pas besoin d'async wrapper pour E2E
 
-# Configuration du logging
-logging.basicConfig(level=logging.INFO)
+# Logger instance - setup happens at server start via uvicorn or setup_logging()
 logger = logging.getLogger(__name__)
 
 # Initialisation du modèle Whisper
@@ -274,6 +273,9 @@ async def start_server(host: str = "0.0.0.0", port: int = 8080):
     await server.serve()
 
 if __name__ == "__main__":
+    from media_summarizer.utils.logging_config import setup_logging
+    setup_logging("whisper-http-server")
+
     # Configuration du serveur depuis les variables d'environnement
     host = os.environ.get("WHISPER_HOST", "0.0.0.0")
     port = int(os.environ.get("WHISPER_PORT", "8080"))

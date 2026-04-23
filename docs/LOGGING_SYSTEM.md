@@ -39,10 +39,10 @@ Every log record conforms to this schema. Fields absent from context are seriali
 | `source_platform` | string | `youtube`, `tiktok`, `instagram`, `audio`, `web`, `rss` |
 | `resolver_key` | string | Active resolver: `youtube`, `tiktok`, `getinsaver`, `deepgram`, `article` |
 | `provider` | string | External provider: `deepgram`, `dynamodb`, `s3`, `sqs`, `openai` |
-| `transcript_source` | string | `deepgram` (canonical active path) |
+| `transcript_source` | string | `deepgram` (canonical active path), `whisper` (legacy path) |
 | `fallback_strategy` | string | Strategy level used when primary path unavailable |
 | `artifact_id` | string | Artifact identifier |
-| `artifact_type` | string | `summary`, `notes`, `quiz` |
+| `artifact_type` | string | `summary`, `notes`, `quiz`, `flashcards` |
 | `queue` | string | SQS queue name |
 | `attempt` | int | SQS delivery attempt count |
 | `duration_ms` | int | Elapsed time in milliseconds |
