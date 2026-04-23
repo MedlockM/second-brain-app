@@ -80,6 +80,7 @@ From `docs/research/task-65-benchmark-pricing-v1.md`:
 - Standard tier (9€/50 media) is the target for MVP
 - Free tier (5 media) is for acquisition (to be added post-MVP)
 - Pro tier (150 media) is for power users (to be added post-MVP)
+- OpenAI pricing refresh in task-65 does **not** change the quota tiers here, because the retained artifact cost baseline is still Gemini 2.5 Flash-Lite
 - Cost per media: ~$0.072 (mix of 40% podcasts/video, 50% articles, 10% OCR)
 - Media processing cost breakdown:
   - Transcription (audio/video): $0.175 per 35min media

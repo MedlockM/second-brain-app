@@ -1,6 +1,6 @@
 # Task 65: Benchmark Coûts Unitaires + Proposition Pricing V1
 
-**Date**: 2026-04-21  
+**Date**: 2026-04-22  
 **Status**: Research Complete  
 **Contrainte validée**: Maximum **9€/mois**
 
@@ -123,16 +123,25 @@ D'après `project_v1_scope.md`:
 
 ### 2. Génération d'artefacts (LLM)
 
-#### OpenAI (fournisseur actuel: GPT-4)
-**Source**: Pricing non accessible via WebFetch (403 error), données basées sur documentation publique connue.
+#### OpenAI
+**Sources officielles vérifiées le 22 avril 2026**:
+- Pricing principal: https://openai.com/api/pricing/
+- Modèle `gpt-4o-mini`: https://developers.openai.com/api/docs/models/gpt-4o-mini
+- Modèle `gpt-4o`: https://developers.openai.com/api/docs/models/gpt-4o
+- Modèle `gpt-3.5-turbo`: https://developers.openai.com/api/docs/models/gpt-3.5-turbo
 
-Pricing OpenAI (Janvier 2025, données publiques):
+**Remarque**: la page de pricing OpenAI met désormais en avant la famille **GPT-5.4**. Les pages modèle OpenAI exposent encore les tarifs token de `gpt-4o-mini`, `gpt-4o` et `gpt-3.5-turbo`, ce qui reste utile pour comparer les options encore disponibles.
 
-| Modèle | Input ($/1M tokens) | Output ($/1M tokens) |
-|--------|---------------------|----------------------|
-| GPT-4o | $2.50 | $10.00 |
-| GPT-4o-mini | $0.15 | $0.60 |
-| GPT-3.5-turbo | $0.50 | $1.50 |
+| Modèle | Input ($/1M tokens) | Output ($/1M tokens) | Contexte / note |
+|--------|---------------------|----------------------|-----------------|
+| GPT-5.4 | $2.50 | $15.00 | Modèle flagship actuel |
+| GPT-5.4 mini | $0.75 | $4.50 | Mini haut de gamme |
+| GPT-5.4 nano | $0.20 | $1.25 | Option GPT-5.4 la moins chère |
+| GPT-4o | $2.50 | $10.00 | Omni polyvalent |
+| GPT-4o-mini | $0.15 | $0.60 | Toujours l'option OpenAI la moins chère documentée pour ce workload |
+| GPT-3.5-turbo | $0.50 | $1.50 | Legacy ; OpenAI recommande `gpt-4o-mini` à la place |
+
+**Batch API**: OpenAI affiche **50% de réduction** sur les inputs/outputs pour les workloads asynchrones batch.
 
 #### Anthropic Claude
 **Source**: https://claude.com/pricing
@@ -169,9 +178,15 @@ Pas de pricing API détaillé accessible. Le site montre principalement Le Chat 
 |--------|-------|--------|------------------------------------------------|
 | **Gemini 2.5 Flash-Lite** | $0.10/M | $0.40/M | **$0.00130** |
 | **GPT-4o-mini** | $0.15/M | $0.60/M | **$0.00195** |
+| **GPT-5.4 nano** | $0.20/M | $1.25/M | **$0.00395** |
 | **Gemini 2.5 Flash** | $0.30/M | $2.50/M | **$0.00780** |
 | **Claude Haiku 4.5** | $1.00/M | $5.00/M | **$0.01600** |
-| **Gemini 3 Flash** | $0.50/M | $3.00/M | **$0.00950** |
+| **GPT-5.4 mini** | $0.75/M | $4.50/M | **$0.01425** |
+
+**Lecture**:
+- `GPT-4o-mini` reste l'option OpenAI la plus économique documentée pour un workload artefact-heavy classique.
+- `GPT-5.4 nano` est plus récent, mais moins avantageux que `GPT-4o-mini` sur ce profil de requête à sortie relativement longue.
+- Gemini 2.5 Flash-Lite reste le meilleur prix absolu pour la génération d'artefacts à grand volume.
 
 **Hypothèse de longueur d'artefacts**:
 
@@ -891,7 +906,10 @@ Récapitulatif des coûts unitaires:
 2. **LLM**:
    - Anthropic Claude: https://claude.com/pricing
    - Google Gemini: https://ai.google.dev/pricing
-   - OpenAI: https://openai.com/api/pricing/ (403 error, données publiques connues)
+   - OpenAI pricing: https://openai.com/api/pricing/
+   - OpenAI `gpt-4o-mini`: https://developers.openai.com/api/docs/models/gpt-4o-mini
+   - OpenAI `gpt-4o`: https://developers.openai.com/api/docs/models/gpt-4o
+   - OpenAI `gpt-3.5-turbo`: https://developers.openai.com/api/docs/models/gpt-3.5-turbo
 
 3. **OCR**:
    - AWS Textract: https://aws.amazon.com/textract/pricing/
@@ -917,7 +935,7 @@ Récapitulatif des coûts unitaires:
 
 1. **Transcription**: Migrer vers **AssemblyAI Universal-2** ($0.0025/min) ou **Rev.ai Whisper** ($0.005/min) au lieu de Deepgram ($0.0065/min) = **50-60% d'économie**
 
-2. **LLM**: Utiliser systématiquement **Gemini 2.5 Flash-Lite** (free tier) tant que possible, puis **GPT-4o-mini** ($0.15 input, $0.60 output) = **90% d'économie vs GPT-4o**
+2. **LLM**: Utiliser systématiquement **Gemini 2.5 Flash-Lite** (free tier) tant que possible, puis **GPT-4o-mini** en fallback OpenAI documenté ($0.15 input, $0.60 output). La page de pricing OpenAI met désormais en avant **GPT-5.4**, mais pour ce workload `GPT-4o-mini` reste moins cher que `GPT-5.4 nano` en coût standard. Le **Batch API** OpenAI permet en plus **50% de réduction** sur les traitements asynchrones.
 
 3. **OCR**: Utiliser **Google Cloud Vision** avec free tier (1,000 images/mois) = premiers 1,000 OCR/mois gratuits
 
@@ -962,5 +980,5 @@ Cette analyse exhaustive démontre que:
 ---
 
 **Document généré par**: Agent de recherche backlog media-summarizer  
-**Date**: 2026-04-21  
+**Date**: 2026-04-22  
 **Durée de recherche**: ~2h (recherche web exhaustive + modélisation)
