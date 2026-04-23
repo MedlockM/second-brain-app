@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 from media_summarizer.utils import sqs, s3
 from media_summarizer.utils import media_watchers
 from media_summarizer.core.services.minute_pool import finalize_usage
+from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +178,13 @@ async def process_event(message: Dict[str, Any]) -> None:
 
 
 async def poll_queue() -> None:
-    logger.info("Starting media-completed-events consumer")
+    log_event(
+        logger,
+        logging.INFO,
+        "worker.started",
+        "Starting media-completed-events consumer",
+        queue=MEDIA_COMPLETED_EVENTS_QUEUE,
+    )
     while True:
         try:
             messages = await sqs.receive_messages(

@@ -16,6 +16,7 @@ import aiohttp
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from media_summarizer.utils import s3, sqs
+from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
     process_message_with_retry,
