@@ -16,25 +16,31 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
+SUMMARY_SHORT_QUEUE = os.environ.get("SUMMARY_SHORT_QUEUE", "summary-short-queue")
+SUMMARY_DETAILED_QUEUE = os.environ.get("SUMMARY_DETAILED_QUEUE", "summary-detailed-queue")
 NOTES_QUEUE = os.environ.get("NOTES_QUEUE", "notes-queue")
 QUIZ_QUEUE = os.environ.get("QUIZ_QUEUE", "quiz-queue")
 FLASHCARDS_QUEUE = os.environ.get("FLASHCARDS_QUEUE", "flashcards-queue")
 
 _ARTIFACT_TYPE_TO_QUEUE = {
-    "summary": SUMMARIZATION_QUEUE,
+    "summary": SUMMARIZATION_QUEUE,  # Legacy, kept for backward compatibility
+    "summary_short": SUMMARY_SHORT_QUEUE,
+    "summary_detailed": SUMMARY_DETAILED_QUEUE,
     "notes": NOTES_QUEUE,
     "quiz": QUIZ_QUEUE,
     "flashcards": FLASHCARDS_QUEUE,
 }
 _ARTIFACT_TYPE_TO_S3_KEY_ATTR = {
-    "summary": "summary_s3_key",
+    "summary": "summary_s3_key",  # Legacy
+    "summary_short": None,
+    "summary_detailed": None,
     "notes": None,
     "quiz": None,
     "flashcards": None,
 }
 
 _ALLOWED_ARTIFACT_TYPES = frozenset(
-    t.strip() for t in os.environ.get("ARTIFACT_TYPES_ALLOWED", "summary,notes,quiz,flashcards").split(",")
+    t.strip() for t in os.environ.get("ARTIFACT_TYPES_ALLOWED", "summary,summary_short,summary_detailed,notes,quiz,flashcards").split(",")
 )
 
 

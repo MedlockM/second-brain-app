@@ -34,6 +34,8 @@ class Settings:
         self.AUDIO_BUCKET = os.getenv("AUDIO_BUCKET", "media-files")
         self.TRANSCRIPT_BUCKET = os.getenv("TRANSCRIPT_BUCKET", "transcripts")
         self.SUMMARY_BUCKET = os.getenv("SUMMARY_BUCKET", "summaries")
+        self.SUMMARY_SHORT_BUCKET = os.getenv("SUMMARY_SHORT_BUCKET", "media-summarizer-summaries-short")
+        self.SUMMARY_DETAILED_BUCKET = os.getenv("SUMMARY_DETAILED_BUCKET", "media-summarizer-summaries-detailed")
         self.QUIZ_BUCKET = os.getenv("QUIZ_BUCKET", "media-summarizer-quizzes")
         self.NOTES_BUCKET = os.getenv("NOTES_BUCKET", "media-summarizer-notes")
         self.FLASHCARDS_BUCKET = os.getenv("FLASHCARDS_BUCKET", "media-summarizer-flashcards")
@@ -51,11 +53,13 @@ class Settings:
             "TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue"
         )
         self.SUMMARIZATION_QUEUE = os.getenv("SUMMARIZATION_QUEUE", "summarization-queue")
+        self.SUMMARY_SHORT_QUEUE = os.getenv("SUMMARY_SHORT_QUEUE", "summary-short-queue")
+        self.SUMMARY_DETAILED_QUEUE = os.getenv("SUMMARY_DETAILED_QUEUE", "summary-detailed-queue")
         self.QUIZ_QUEUE = os.getenv("QUIZ_QUEUE", "quiz-queue")
         self.NOTES_QUEUE = os.getenv("NOTES_QUEUE", "notes-queue")
         self.FLASHCARDS_QUEUE = os.getenv("FLASHCARDS_QUEUE", "flashcards-queue")
         self.ARTIFACT_TYPES_ALLOWED = os.getenv(
-            "ARTIFACT_TYPES_ALLOWED", "summary,quiz,notes,flashcards"
+            "ARTIFACT_TYPES_ALLOWED", "summary,summary_short,summary_detailed,quiz,notes,flashcards"
         )
 
         # Stripe Configuration
