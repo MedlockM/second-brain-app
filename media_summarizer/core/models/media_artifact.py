@@ -21,7 +21,9 @@ def _new_artifact_id() -> str:
 
 
 class MediaArtifactType(str, Enum):
-    SUMMARY = "summary"
+    SUMMARY = "summary"  # Legacy, kept for backward compatibility
+    SUMMARY_SHORT = "summary_short"
+    SUMMARY_DETAILED = "summary_detailed"
     QUIZ = "quiz"
     NOTES = "notes"
     FLASHCARDS = "flashcards"

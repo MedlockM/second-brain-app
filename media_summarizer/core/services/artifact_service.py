@@ -34,14 +34,23 @@ TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
 )
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
+SUMMARY_SHORT_BUCKET = os.environ.get("SUMMARY_SHORT_BUCKET", "media-summarizer-summaries-short")
+SUMMARY_DETAILED_BUCKET = os.environ.get("SUMMARY_DETAILED_BUCKET", "media-summarizer-summaries-detailed")
 QUIZ_BUCKET = os.environ.get("QUIZ_BUCKET", "media-summarizer-quizzes")
 NOTES_BUCKET = os.environ.get("NOTES_BUCKET", "media-summarizer-notes")
 FLASHCARDS_BUCKET = os.environ.get("FLASHCARDS_BUCKET", "media-summarizer-flashcards")
 SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
+SUMMARY_SHORT_QUEUE = os.environ.get("SUMMARY_SHORT_QUEUE", "summary-short-queue")
+SUMMARY_DETAILED_QUEUE = os.environ.get("SUMMARY_DETAILED_QUEUE", "summary-detailed-queue")
 QUIZ_QUEUE = os.environ.get("QUIZ_QUEUE", "quiz-queue")
 NOTES_QUEUE = os.environ.get("NOTES_QUEUE", "notes-queue")
 FLASHCARDS_QUEUE = os.environ.get("FLASHCARDS_QUEUE", "flashcards-queue")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini-2024-07-18")
+# Summary models - configurable per task-72 benchmark recommendations
+# Short summary: Gemini Flash-Lite recommended, GPT-4o-mini fallback
+# Detailed summary: Claude Sonnet 4.6 recommended, GPT-4o-mini fallback
+SUMMARY_SHORT_MODEL = os.environ.get("SUMMARY_SHORT_LLM_MODEL", OPENAI_MODEL)
+SUMMARY_DETAILED_MODEL = os.environ.get("SUMMARY_DETAILED_LLM_MODEL", OPENAI_MODEL)
 NOTES_MODEL = os.environ.get("NOTES_LLM_MODEL", OPENAI_MODEL)
 FLASHCARDS_MODEL = os.environ.get("FLASHCARDS_LLM_MODEL", OPENAI_MODEL)
 
@@ -55,7 +64,9 @@ TERMINAL_PENDING_STATUSES = {
     MediaArtifactStatus.GENERATING,
 }
 REQUESTABLE_ARTIFACT_TYPES = {
-    MediaArtifactType.SUMMARY,
+    MediaArtifactType.SUMMARY,  # Legacy, kept for backward compatibility
+    MediaArtifactType.SUMMARY_SHORT,
+    MediaArtifactType.SUMMARY_DETAILED,
     MediaArtifactType.QUIZ,
     MediaArtifactType.NOTES,
     MediaArtifactType.FLASHCARDS,
@@ -143,6 +154,14 @@ def get_generator_version(artifact_type: MediaArtifactType) -> str:
             "SUMMARY_ARTIFACT_GENERATOR_VERSION",
             f"summary:{OPENAI_MODEL}:prompt-v1",
         ),
+        MediaArtifactType.SUMMARY_SHORT: os.environ.get(
+            "SUMMARY_SHORT_ARTIFACT_GENERATOR_VERSION",
+            f"summary_short:{SUMMARY_SHORT_MODEL}:prompt-v1",
+        ),
+        MediaArtifactType.SUMMARY_DETAILED: os.environ.get(
+            "SUMMARY_DETAILED_ARTIFACT_GENERATOR_VERSION",
+            f"summary_detailed:{SUMMARY_DETAILED_MODEL}:prompt-v1",
+        ),
         MediaArtifactType.QUIZ: os.environ.get(
             "QUIZ_ARTIFACT_GENERATOR_VERSION",
             f"quiz:{OPENAI_MODEL}:prompt-v1",
@@ -181,6 +200,8 @@ def build_generation_fingerprint(
 def get_artifact_bucket(artifact_type: MediaArtifactType) -> str:
     buckets = {
         MediaArtifactType.SUMMARY: SUMMARY_BUCKET,
+        MediaArtifactType.SUMMARY_SHORT: SUMMARY_SHORT_BUCKET,
+        MediaArtifactType.SUMMARY_DETAILED: SUMMARY_DETAILED_BUCKET,
         MediaArtifactType.QUIZ: QUIZ_BUCKET,
         MediaArtifactType.NOTES: NOTES_BUCKET,
         MediaArtifactType.FLASHCARDS: FLASHCARDS_BUCKET,
@@ -191,6 +212,8 @@ def get_artifact_bucket(artifact_type: MediaArtifactType) -> str:
 def get_artifact_queue(artifact_type: MediaArtifactType) -> str:
     queues = {
         MediaArtifactType.SUMMARY: SUMMARIZATION_QUEUE,
+        MediaArtifactType.SUMMARY_SHORT: SUMMARY_SHORT_QUEUE,
+        MediaArtifactType.SUMMARY_DETAILED: SUMMARY_DETAILED_QUEUE,
         MediaArtifactType.QUIZ: QUIZ_QUEUE,
         MediaArtifactType.NOTES: NOTES_QUEUE,
         MediaArtifactType.FLASHCARDS: FLASHCARDS_QUEUE,
@@ -207,7 +230,7 @@ def build_artifact_storage_key(
 
 
 def _allowed_artifact_types() -> set[MediaArtifactType]:
-    raw = os.environ.get("ARTIFACT_TYPES_ALLOWED", "summary,quiz,notes,flashcards")
+    raw = os.environ.get("ARTIFACT_TYPES_ALLOWED", "summary,summary_short,summary_detailed,quiz,notes,flashcards")
     allowed = set()
     for chunk in raw.split(","):
         value = chunk.strip()
@@ -219,6 +242,8 @@ def _allowed_artifact_types() -> set[MediaArtifactType]:
             logger.warning("Ignoring unknown artifact type in ARTIFACT_TYPES_ALLOWED: %s", value)
     return allowed or {
         MediaArtifactType.SUMMARY,
+        MediaArtifactType.SUMMARY_SHORT,
+        MediaArtifactType.SUMMARY_DETAILED,
         MediaArtifactType.QUIZ,
         MediaArtifactType.NOTES,
         MediaArtifactType.FLASHCARDS,
