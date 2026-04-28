@@ -1,10 +1,10 @@
 ---
 id: task-70
 title: Benchmark + implémentation OCR pour images et PDF scannés
-status: In Progress
+status: To Do
 assignee: []
 created_date: '2026-03-29 21:01'
-updated_date: '2026-04-28 12:00'
+updated_date: '2026-04-28 16:04'
 labels:
   - ingestion
   - ocr

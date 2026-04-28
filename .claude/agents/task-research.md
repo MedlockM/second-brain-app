@@ -30,14 +30,14 @@ Le `README.md` du dossier `docs/research/task-XX-<short-description>/` DOIT comm
 
 ```markdown
 ---
-benchmark_validated: false
+owner_decision: pending   # pending | ok | abandoned
 ---
 
 # Benchmark : [titre du sujet]
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — accept / reject / accept with modifications)_
+**Decision**: _(à remplir par l'owner après relecture — texte libre décrivant la décision finale : accept recommandation X, reject parce que Y, accept with modifications Z…)_
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---
@@ -49,12 +49,10 @@ benchmark_validated: false
 ## [Suite du benchmark : tableau comparatif, analyse, sources...]
 ```
 
-## Gate de validation owner
+## Règles pour l'agent de recherche
 
-Si la tâche a le label `benchmark` :
-- **Ne marque JAMAIS la tâche comme Done**, même si le benchmark est complet
-- **Ne mets JAMAIS `benchmark_validated: true`** — c'est l'owner qui l'inscrit manuellement après relecture
-- Laisse la tâche en status `To Do` avec ta note d'implémentation
-- Le prochain dispatch skippera automatiquement cette tâche tant que `benchmark_validated: true` n'est pas présent dans le front-matter du README
+- **Ne marque JAMAIS la tâche backlog comme Done** — l'owner le fait indirectement via `owner_decision`.
+- **Mets toujours `owner_decision: pending`** dans le README que tu produis. C'est l'owner qui le fait basculer à `ok` (benchmark accepté) ou `abandoned` (benchmark rejeté, tâche abandonnée).
+- Laisse la tâche en status `To Do`.
 
-**Pourquoi** : une recommandation de benchmark doit être validée par l'owner avant qu'un agent d'implémentation ne prenne le relais. Sans ce gate, l'implémentation pourrait partir dans une direction que l'owner aurait rejetée.
+**Pourquoi** : le champ `owner_decision` dans le README est la source de vérité pour la phase 0 du dispatcher, qui synchronisera automatiquement le backlog au prochain run (benchmark → Done si `ok`, tâches archivées si `abandoned`).

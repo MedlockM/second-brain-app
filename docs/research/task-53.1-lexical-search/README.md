@@ -1,11 +1,11 @@
 ---
-benchmark_validated: false
+owner_decision: ok
 ---
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — accept / reject / accept with modifications)_
-**Validated at**: _(date ISO à remplir par l'owner)_
+**Decision**: Proceed with **Typesense Cloud** for MVP.
+**Validated at**: 2026-04-28
 
 ---
 

@@ -3,10 +3,10 @@ id: task-35
 title: >-
   Define and implement media-processing quotas instead of artifact-generation
   quotas
-status: Done
+status: To Do
 assignee: []
 created_date: '2026-02-24 11:03'
-updated_date: '2026-04-22 14:07'
+updated_date: '2026-04-28 16:04'
 labels:
   - quota
   - pricing

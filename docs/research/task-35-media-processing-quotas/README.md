@@ -1,5 +1,5 @@
 ---
-benchmark_validated: false
+owner_decision: pending
 ---
 
 ## Owner Validation

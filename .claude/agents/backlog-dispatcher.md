@@ -17,6 +17,25 @@ Tu recevras dans ton prompt : le nombre max de tâches à dispatcher, la branche
 - Les worktrees sont gérées automatiquement par `isolation: worktree` dans les agent definitions — ne crée pas les worktrees manuellement
 - Concentre-toi uniquement sur : sélection des tâches, dispatch des agents, merge des résultats, mise à jour des statuts
 
+## Phase 0 : Synchronisation des décisions owner sur benchmarks
+
+Avant la sélection, scanne tous les READMEs de recherche pour appliquer les décisions de l'owner enregistrées dans `owner_decision` :
+
+1. Liste tous les `docs/research/task-*/README.md` (Glob)
+2. Pour chacun, extrais :
+   - L'ID de la tâche benchmark depuis le nom du dossier (pattern `task-XX-*` ou `task-XX.Y-*`)
+   - La valeur de `owner_decision` dans le front-matter YAML (les lignes entre les deux `---` au début du fichier)
+3. Cas `owner_decision: ok` :
+   - Récupère la tâche benchmark via `mcp__backlog__task_view`. Si son statut n'est pas déjà `Done`, passe-le à `Done` via `mcp__backlog__task_edit`.
+   - Ne touche PAS aux tâches d'implémentation qui en dépendent — elles deviennent automatiquement dispatchables à la Phase 1 grâce à la dépendance résolue.
+4. Cas `owner_decision: abandoned` :
+   - Récupère la tâche benchmark. Si elle n'est pas déjà archivée : `mcp__backlog__task_archive`.
+   - Liste toutes les tâches (tous statuts) et archive celles qui déclarent cette tâche benchmark comme dépendance (`dependencies: [task-XX]`), quelle que soit leur priorité ou statut.
+5. Cas `owner_decision: pending` ou champ absent : skip, rien à faire.
+6. Log chaque action effectuée (ex: "Phase 0: task-35 marked Done (owner_decision: ok)", "Phase 0: task-60 and task-99 archived (owner_decision: abandoned)").
+
+**Pourquoi** : l'owner exprime sa décision directement dans le README du benchmark. Le dispatcher synchronise le backlog automatiquement au prochain run — pas d'action manuelle sur les statuts.
+
 ## Phase 1 : Sélection des tâches
 
 Utilise les outils MCP backlog pour lister les tâches :
@@ -28,18 +47,7 @@ Critères de sélection :
 - `dispatchable` != false dans le front-matter
 - Aucune dépendance non résolue (les dépendances doivent toutes être "Done")
 - Pas de tâche mobile si le prompt ne mentionne pas de repo mobile
-- **Gate benchmark** (voir section ci-dessous)
-
-### Gate benchmark : ne jamais implémenter un benchmark non validé
-
-Pour chaque tâche candidate avec le label `benchmark` :
-1. Cherche un sous-dossier matchant le pattern `docs/research/task-XX-*/` (le dossier contient un suffixe descriptif, ex: `task-70-ocr-benchmark`). Utilise `ls docs/research/ | grep "^task-XX-"` ou `Glob docs/research/task-XX-*/README.md`.
-2. Si **un README correspondant existe**, lis son front-matter YAML (les lignes entre les deux `---` au début du fichier) et extrais la valeur de `benchmark_validated` :
-   - Si `benchmark_validated: true` → la tâche est dispatchable vers l'agent d'implémentation approprié
-   - Si absent, `false`, ou toute autre valeur → **skip cette tâche** avec la raison : "task-XX skipped: benchmark awaiting owner validation (benchmark_validated != true in <README path>)"
-3. Si **aucun README correspondant n'existe** : la tâche est dispatchable vers `task-research` (phase benchmark uniquement). L'agent de recherche créera le dossier avec un suffixe descriptif.
-
-**Pourquoi** : une tâche avec label `benchmark` a deux phases (recherche → implémentation). L'owner DOIT relire la recommandation dans le README et inscrire sa décision en passant `benchmark_validated` à `true` dans le front-matter du README. Sans ce gate, un agent peut implémenter une solution que l'owner aurait rejetée.
+- **Pas de benchmark déjà produit en attente** : si un dossier `docs/research/task-XX-*/` existe avec un README.md dont `owner_decision == pending`, skip la tâche `task-XX` avec la raison "task-XX skipped: benchmark produced, owner decision pending in <README path>". La tâche redeviendra dispatchable (via Phase 0) quand l'owner aura mis `ok` ou `abandoned`.
 
 Tri : par priorité (high > medium > low) puis par numéro de tâche croissant.
 Limite au nombre max indiqué dans le prompt.

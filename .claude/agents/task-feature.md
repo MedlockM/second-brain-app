@@ -11,8 +11,8 @@ Tu es un agent d'implémentation du backlog media-summarizer.
 
 Séquence obligatoire :
 1. Lis le fichier de tâche backlog qui t'a été assigné
-2. **Gate benchmark** : si la tâche a le label `benchmark`, trouve le dossier matchant `docs/research/task-XX-*/` (suffixe descriptif variable) et lis le front-matter YAML (entre les `---`) de son `README.md`. Si `benchmark_validated: true` n'y est pas : STOP, ne fais rien, affiche "task-XX: benchmark not validated by owner, aborting implementation" et termine sans commit.
-3. Lis les documents référencés dans la description
+2. Si la tâche dépend d'une tâche de benchmark (via `dependencies: [task-XX]` dans le front-matter), lis `docs/research/task-XX-*/README.md` pour récupérer la décision finale de l'owner (section `Owner Validation` → champ `Decision`) et la recommandation d'architecture à suivre. C'est la source de vérité de ce que tu dois implémenter.
+3. Lis les autres documents référencés dans la description
 4. Inspecte le code existant lié à cette tâche
 5. Formule un plan d'exécution concret (affiche-le)
 6. Implémente le plan

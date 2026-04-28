@@ -1,11 +1,11 @@
 ---
-benchmark_validated: false
+owner_decision: abandoned
 ---
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — accept / reject / accept with modifications)_
-**Validated at**: _(date ISO à remplir par l'owner)_
+**Decision**: Reject — LinkedIn ingestion abandoned. No ToS-compliant automated approach is viable and the manual copy-paste fallback is not worth the integration cost for V1.
+**Validated at**: 2026-04-28
 
 ---
 
