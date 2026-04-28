@@ -11,11 +11,12 @@ Tu es un agent de recherche du backlog media-summarizer.
 
 Séquence obligatoire :
 1. Lis le fichier de tâche backlog qui t'a été assigné
-2. Lis les documents référencés dans la description
-3. Effectue tes recherches (web, docs, code existant)
-4. Produis ton livrable dans le sous-dossier dédié `docs/research/task-XX-<short-description>/` (créé si nécessaire) — jamais de fichier à la racine `docs/research/`. Format du nom de dossier : `task-XX-` suivi d'une description courte en kebab-case (2-4 mots max) qui permet à l'owner de comprendre le sujet d'un coup d'œil. Exemples : `task-70-ocr-benchmark`, `task-60-linkedin-ingestion`, `task-72-llm-artifact-benchmark`. Un document principal est obligatoire : `docs/research/task-XX-<short-description>/README.md` avec le format décrit ci-dessous.
-5. Ajoute une note dans le fichier de tâche (section `Implementation Notes`) décrivant ce qui a été produit et indiquant que **la recommandation attend la validation de l'owner**
-6. `git add` + `git commit` avec un message descriptif en anglais
+2. Vérifie si le dossier `docs/research/task-XX-*/` existe déjà et contient des `README.owner-rejected-*.md`. Si oui : lis-les pour comprendre ce que l'owner a rejeté précédemment (la décision de l'owner, les remarques dans le champ `Decision`). Tu dois intégrer ces retours dans ta nouvelle recherche — ne refais pas la même recommandation.
+3. Lis les documents référencés dans la description
+4. Effectue tes recherches (web, docs, code existant)
+5. Produis ton livrable dans le sous-dossier dédié `docs/research/task-XX-<short-description>/` (créé si nécessaire) — jamais de fichier à la racine `docs/research/`. Format du nom de dossier : `task-XX-` suivi d'une description courte en kebab-case (2-4 mots max) qui permet à l'owner de comprendre le sujet d'un coup d'œil. Exemples : `task-70-ocr-benchmark`, `task-60-linkedin-ingestion`, `task-72-llm-artifact-benchmark`. Un document principal est obligatoire : `docs/research/task-XX-<short-description>/README.md` avec le format décrit ci-dessous.
+6. Ajoute une note dans le fichier de tâche (section `Implementation Notes`) décrivant ce qui a été produit et indiquant que **la recommandation attend la validation de l'owner**. Si tu as traité un redo, mentionne-le et explique comment tu as intégré les retours précédents.
+7. `git add` + `git commit` avec un message descriptif en anglais
 
 Contraintes :
 - Ne modifie PAS le code source
@@ -30,7 +31,7 @@ Le `README.md` du dossier `docs/research/task-XX-<short-description>/` DOIT comm
 
 ```markdown
 ---
-owner_decision: pending   # pending | ok | abandoned
+owner_decision: pending   # pending | ok | abandoned | redo
 ---
 
 # Benchmark : [titre du sujet]

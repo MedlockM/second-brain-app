@@ -31,8 +31,13 @@ Avant la sélection, scanne tous les READMEs de recherche pour appliquer les dé
 4. Cas `owner_decision: abandoned` :
    - Récupère la tâche benchmark. Si elle n'est pas déjà archivée : `mcp__backlog__task_archive`.
    - Liste toutes les tâches (tous statuts) et archive celles qui déclarent cette tâche benchmark comme dépendance (`dependencies: [task-XX]`), quelle que soit leur priorité ou statut.
-5. Cas `owner_decision: pending` ou champ absent : skip, rien à faire.
-6. Log chaque action effectuée (ex: "Phase 0: task-35 marked Done (owner_decision: ok)", "Phase 0: task-60 and task-99 archived (owner_decision: abandoned)").
+5. Cas `owner_decision: redo` :
+   - Archive le README actuel en le renommant : `git mv docs/research/task-XX-<desc>/README.md docs/research/task-XX-<desc>/README.owner-rejected-<ISO-date>.md` (ex: `README.owner-rejected-2026-04-28.md`).
+   - Récupère la tâche benchmark. Si son statut est `Done`, repasse-le à `To Do` via `mcp__backlog__task_edit`.
+   - Ne touche PAS aux tâches d'implémentation qui en dépendent — elles restent bloquées par la dépendance non résolue.
+   - La tâche benchmark redevient sélectionnable en Phase 1 (plus de `README.md` actif dans le dossier). Au prochain dispatch, `task-research` relancera la recherche en s'appuyant sur les remarques de l'owner contenues dans le(s) fichier(s) `README.owner-rejected-*.md`.
+6. Cas `owner_decision: pending` ou champ absent : skip, rien à faire.
+7. Log chaque action effectuée (ex: "Phase 0: task-35 marked Done (owner_decision: ok)", "Phase 0: task-60 and task-99 archived (owner_decision: abandoned)", "Phase 0: task-70 README archived and task reopened (owner_decision: redo)").
 
 **Pourquoi** : l'owner exprime sa décision directement dans le README du benchmark. Le dispatcher synchronise le backlog automatiquement au prochain run — pas d'action manuelle sur les statuts.
 
