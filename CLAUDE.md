@@ -34,6 +34,8 @@ When in doubt, ask the owner before creating the task(s).
 
 Just create one task with a clear scope and acceptance criteria. No benchmark overhead.
 
+See `docs/BENCHMARK_OWNER_WORKFLOW.md` for the owner-facing reference of the decision values (`pending`, `ok`, `abandoned`, `redo`, `more`) and the full workflow table.
+
 ## Benchmark lifecycle (summary for task creation context)
 
 This lifecycle is enforced by the dispatcher in `.claude/agents/backlog-dispatcher.md` and the `task-research` agent. Summary for awareness when creating tasks:

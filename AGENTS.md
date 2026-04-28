@@ -67,4 +67,4 @@ The owner signals their decision through the `owner_decision` field in the front
 
 **Only the main `README.md` is authoritative.** Complement files and archived rejections are consultation material. Owner writes feedback/consignes in the `Decision` field of the main README's `Owner Validation` section.
 
-Full details (Phase 0 / Phase 1 dispatcher logic, mode detection by the research agent) are documented in `CLAUDE.md` and `.claude/agents/`.
+See `docs/BENCHMARK_OWNER_WORKFLOW.md` for the owner-facing decision table and full workflow. Internal implementation details (Phase 0 / Phase 1 dispatcher logic, mode detection by the research agent) are in `CLAUDE.md` and `.claude/agents/`.
