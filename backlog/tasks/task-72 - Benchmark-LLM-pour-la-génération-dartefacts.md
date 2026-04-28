@@ -2,9 +2,10 @@
 id: task-72
 title: Benchmark LLM pour la génération d'artefacts
 status: Done
-assignee: []
+assignee:
+  - Codex
 created_date: '2026-03-29 21:01'
-updated_date: '2026-04-22 12:48'
+updated_date: '2026-04-28 10:24'
 labels:
   - benchmark
   - llm
@@ -48,9 +49,21 @@ Pour chaque type d'artefact (summary_short, summary_detailed, flashcards, notes)
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Benchmark documenté couvrant au moins 5 fournisseurs LLM
-- [ ] #2 Comparaison par type d'artefact (summary_short, summary_detailed, flashcards, notes)
-- [ ] #3 Critères : qualité, coût, latence, contexte, fiabilité JSON
-- [ ] #4 Recommandation par type d'artefact avec justification
-- [ ] #5 Estimation du coût mensuel par persona
+- [x] #1 Benchmark documenté couvrant au moins 5 fournisseurs LLM
+- [x] #2 Comparaison par type d'artefact (summary_short, summary_detailed, flashcards, notes)
+- [x] #3 Critères : qualité, coût, latence, contexte, fiabilité JSON
+- [x] #4 Recommandation par type d'artefact avec justification
+- [x] #5 Estimation du coût mensuel par persona
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Refresh docs/research/task-72-llm-artifact-benchmark.md after user request: verify current OpenAI pricing/model docs from official OpenAI sources, update OpenAI inventory and blended/request costs, rerun the artifact recommendation matrix as a desk-research quality pass, remove stale caveats about not rerunning quality comparison, update persona/monthly totals and source dates, then review the markdown for consistency. No automated tests are needed because this is a research-document update.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Refreshed docs/research/task-72-llm-artifact-benchmark.md on 2026-04-28 after user request. Updated OpenAI pricing/model inventory from official OpenAI pricing and model docs, added GPT-5.5/GPT-5.4/GPT-5.4 mini/GPT-5.4 nano, recalculated blended and per-artifact costs, replaced stale 'quality pass not rerun' caveats with a documented desk-research comparative pass, and updated recommendations/persona costs/implementation rollout. Verification: git diff --check passed; no automated tests run because this is a research document update.
+<!-- SECTION:NOTES:END -->
