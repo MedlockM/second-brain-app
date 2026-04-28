@@ -49,6 +49,7 @@ class ProcessingJob(BaseModel):
 
     # Organization
     folder_id: Optional[str] = None  # Folder this media belongs to (user_folders table)
+    tag_ids: List[str] = Field(default_factory=list)  # User tag IDs associated with this media
 
     # Media metadata
     media_date_published: Optional[int] = None  # Unix timestamp - when content was published
@@ -99,6 +100,10 @@ class ProcessingJob(BaseModel):
             )
         return self
 
+    def touch(self) -> None:
+        """Update the updated_at timestamp."""
+        self.updated_at = datetime.now(timezone.utc)
+
     def to_dynamodb_item(self) -> Dict[str, Any]:
         """Convert the model to a DynamoDB item."""
         item = {
@@ -142,6 +147,10 @@ class ProcessingJob(BaseModel):
             value = getattr(self, field)
             if value is not None:
                 item[field] = value
+
+        # Handle list fields (store only when non-empty)
+        if self.tag_ids:
+            item["tag_ids"] = self.tag_ids
 
         # Handle datetime fields
         datetime_fields = ["started_at", "completed_at"]

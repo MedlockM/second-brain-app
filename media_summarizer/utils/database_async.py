@@ -15,7 +15,7 @@ import aioboto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from media_summarizer.core.models import User, ProcessingJob, JobStatus, Folder
+from media_summarizer.core.models import User, ProcessingJob, JobStatus, Folder, Tag
 from media_summarizer.core.models.auth import AuthToken, TokenType
 from media_summarizer.utils.logging_config import (
     get_runtime_aws_endpoint_url,
@@ -41,6 +41,7 @@ PROCESSING_JOBS_TABLE = os.environ.get("PROCESSING_JOBS_TABLE", "processing_jobs
 AUTH_TOKENS_TABLE = os.environ.get("AUTH_TOKENS_TABLE", "auth_tokens")
 STRIPE_EVENTS_TABLE = os.environ.get("STRIPE_EVENTS_TABLE", "stripe_events")
 USER_FOLDERS_TABLE = os.environ.get("USER_FOLDERS_TABLE", "user_folders")
+USER_TAGS_TABLE = os.environ.get("USER_TAGS_TABLE", "user_tags")
 
 # Session aioboto3 for async operations (created lazily)
 _session = None
@@ -809,5 +810,124 @@ async def get_processing_jobs_by_folder_id(
             table=PROCESSING_JOBS_TABLE,
             folder_id=folder_id,
             user_id=user_id,
+        )
+        raise
+
+
+# ---------- Tag operations ----------
+
+async def create_tag(tag: Tag) -> Tag:
+    """Create a new tag in DynamoDB."""
+    session = get_session()
+    async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+        table = await dynamodb.Table(USER_TAGS_TABLE)
+        try:
+            await table.put_item(
+                Item=tag.to_dynamodb_item(),
+                ConditionExpression="attribute_not_exists(id)",
+            )
+            _log_dynamodb_success(
+                "create_tag",
+                table=USER_TAGS_TABLE,
+                tag_id=tag.id,
+                user_id=tag.user_id,
+            )
+            return tag
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                raise ValueError(f"Tag with ID {tag.id} already exists")
+            _log_dynamodb_error(
+                "create_tag",
+                e,
+                table=USER_TAGS_TABLE,
+                tag_id=tag.id,
+            )
+            raise
+
+
+async def get_tag_by_id(tag_id: str) -> Optional[Tag]:
+    """Get a tag by ID."""
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(USER_TAGS_TABLE)
+            response = await table.get_item(Key={"id": tag_id})
+            if "Item" in response:
+                return Tag.from_dynamodb_item(response["Item"])
+            return None
+    except ClientError as e:
+        _log_dynamodb_error(
+            "get_tag_by_id",
+            e,
+            table=USER_TAGS_TABLE,
+            tag_id=tag_id,
+        )
+        raise
+
+
+async def get_tags_by_user_id(user_id: str) -> List[Tag]:
+    """Get all tags for a user."""
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(USER_TAGS_TABLE)
+            response = await table.query(
+                IndexName="user-index",
+                KeyConditionExpression=Key("user_id").eq(user_id),
+            )
+            items = response.get("Items", [])
+            return [Tag.from_dynamodb_item(item) for item in items]
+    except ClientError as e:
+        _log_dynamodb_error(
+            "get_tags_by_user_id",
+            e,
+            table=USER_TAGS_TABLE,
+            user_id=user_id,
+        )
+        raise
+
+
+async def update_tag(tag: Tag) -> Tag:
+    """Update a tag in DynamoDB."""
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(USER_TAGS_TABLE)
+            await table.put_item(Item=tag.to_dynamodb_item())
+            _log_dynamodb_success(
+                "update_tag",
+                table=USER_TAGS_TABLE,
+                tag_id=tag.id,
+            )
+            return tag
+    except ClientError as e:
+        _log_dynamodb_error(
+            "update_tag",
+            e,
+            table=USER_TAGS_TABLE,
+            tag_id=tag.id,
+        )
+        raise
+
+
+async def delete_tag(tag_id: str) -> bool:
+    """Delete a tag from DynamoDB."""
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(USER_TAGS_TABLE)
+            await table.delete_item(Key={"id": tag_id})
+            _log_dynamodb_success(
+                "delete_tag",
+                table=USER_TAGS_TABLE,
+                tag_id=tag_id,
+            )
+            return True
+    except ClientError as e:
+        _log_dynamodb_error(
+            "delete_tag",
+            e,
+            table=USER_TAGS_TABLE,
+            tag_id=tag_id,
         )
         raise

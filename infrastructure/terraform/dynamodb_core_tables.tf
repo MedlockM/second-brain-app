@@ -174,3 +174,57 @@ output "episode_watchers_table_name" {
   value       = aws_dynamodb_table.episode_watchers_v1.name
   description = "Episode watchers table name"
 }
+
+# User tags table (private per-user tags for media labeling)
+resource "aws_dynamodb_table" "user_tags_v1" {
+  name         = "user_tags"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute { name = "id"      type = "S" }
+  attribute { name = "user_id" type = "S" }
+
+  global_secondary_index {
+    name            = "user-index"
+    hash_key        = "user_id"
+    projection_type = "ALL"
+  }
+
+  tags = {
+    Name        = "user_tags"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+output "user_tags_table_name" {
+  value       = aws_dynamodb_table.user_tags_v1.name
+  description = "User tags table name"
+}
+
+# User folders table (hierarchical media organization)
+resource "aws_dynamodb_table" "user_folders_v1" {
+  name         = "user_folders"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute { name = "id"      type = "S" }
+  attribute { name = "user_id" type = "S" }
+
+  global_secondary_index {
+    name            = "user-index"
+    hash_key        = "user_id"
+    projection_type = "ALL"
+  }
+
+  tags = {
+    Name        = "user_folders"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+output "user_folders_table_name" {
+  value       = aws_dynamodb_table.user_folders_v1.name
+  description = "User folders table name"
+}

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -20,6 +20,7 @@ from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services import minute_pool
 from media_summarizer.core.services import folder_service
+from media_summarizer.core.services import tag_service
 from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
@@ -63,6 +64,9 @@ def _detect_platform(url: str) -> tuple[str, str]:
 
 class IngestUrlRequest(BaseModel):
     url: str = Field(..., description="URL to ingest (podcast RSS, YouTube, TikTok, Instagram, article, or direct audio)")
+    tag_ids: Optional[List[str]] = Field(
+        None, description="Optional list of tag IDs to associate with the media item at ingestion time"
+    )
 
 
 class IngestUrlResponse(BaseModel):
@@ -93,6 +97,21 @@ class PatchMediaResponse(BaseModel):
     media_id: str
     folder_id: str
     previous_folder_id: Optional[str] = None
+
+
+# ---------- Tag assignment models ----------
+
+class PatchMediaTagsRequest(BaseModel):
+    tag_ids: List[str] = Field(
+        ..., description="List of tag IDs to assign to the media item (replaces existing)"
+    )
+
+
+class PatchMediaTagsResponse(BaseModel):
+    status: str = "success"
+    media_id: str
+    tag_ids: List[str]
+    previous_tag_ids: List[str]
 
 
 # ---------- Endpoints ----------
@@ -128,6 +147,28 @@ async def ingest_url(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
         job = ProcessingJob(user_id=user.id, user_email=user.email, source_url=url)
+
+        # Associate tags at ingestion time if provided
+        if payload.tag_ids:
+            from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
+
+            unique_tag_ids = list(dict.fromkeys(payload.tag_ids))
+            if len(unique_tag_ids) > MAX_TAGS_PER_MEDIA:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot assign more than {MAX_TAGS_PER_MEDIA} tags",
+                )
+            # Validate tags belong to user
+            user_tags = await database_async.get_tags_by_user_id(user.id)
+            user_tag_ids = {t.id for t in user_tags}
+            invalid_ids = [tid for tid in unique_tag_ids if tid not in user_tag_ids]
+            if invalid_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
+                )
+            job.tag_ids = unique_tag_ids
+
         job = await database_async.create_processing_job(job)
 
         await minute_pool.allocate_hold_for_job(
@@ -304,4 +345,33 @@ async def patch_media(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update media item",
+        )
+
+
+@router.patch("/{media_id}/tags", response_model=PatchMediaTagsResponse)
+async def patch_media_tags(
+    media_id: str,
+    payload: PatchMediaTagsRequest,
+    current_user: AuthUser = Depends(get_current_user),
+) -> PatchMediaTagsResponse:
+    """Associate or dissociate tags on a media item (replaces existing tag list)."""
+    try:
+        result = await tag_service.set_media_tags(
+            user_id=current_user.id,
+            media_id=media_id,
+            tag_ids=payload.tag_ids,
+        )
+        return PatchMediaTagsResponse(
+            status="success",
+            media_id=result["media_id"],
+            tag_ids=result["tag_ids"],
+            previous_tag_ids=result["previous_tag_ids"],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error setting tags on media {media_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update media tags",
         )

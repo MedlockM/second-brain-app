@@ -28,6 +28,7 @@ from media_summarizer.api.endpoints import auth
 from media_summarizer.api.endpoints import auth_social
 from media_summarizer.api.endpoints import episodes
 from media_summarizer.api.endpoints import folders
+from media_summarizer.api.endpoints import tags
 from media_summarizer.api.error_handling import (
     general_exception_handler,
     http_exception_handler,
@@ -170,6 +171,7 @@ app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
 app.include_router(episodes.router, prefix="/api/v1", tags=["episodes"])
 app.include_router(folders.router, prefix="/api/folders", tags=["folders"])
 app.include_router(review.router, prefix="/api", tags=["review"])
+app.include_router(tags.router, prefix="/api/tags", tags=["tags"])
 
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---
 from fastapi.openapi.utils import get_openapi

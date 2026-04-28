@@ -26,6 +26,7 @@ from .billing import (
 )
 from .folder import Folder, UNCATEGORIZED_FOLDER_NAME, MAX_FOLDER_DEPTH
 from .review_schedule import ReviewScheduleRecord, CardState, UserReviewSettings
+from .tag import Tag
 
 # Export all models
 __all__ = [
@@ -53,4 +54,5 @@ __all__ = [
     "ReviewScheduleRecord",
     "CardState",
     "UserReviewSettings",
+    "Tag",
 ]

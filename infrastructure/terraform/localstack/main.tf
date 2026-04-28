@@ -542,6 +542,54 @@ resource "aws_dynamodb_table" "user_review_settings" {
   tags = { Name = "user_review_settings", Environment = local.environment, Project = local.project }
 }
 
+# User tags table (private per-user tags for media labeling)
+resource "aws_dynamodb_table" "user_tags" {
+  name         = "user_tags"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "user-index"
+    hash_key        = "user_id"
+    projection_type = "ALL"
+  }
+
+  tags = { Name = "user_tags", Environment = local.environment, Project = local.project }
+}
+
+# User folders table (hierarchical media organization)
+resource "aws_dynamodb_table" "user_folders" {
+  name         = "user_folders"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "user-index"
+    hash_key        = "user_id"
+    projection_type = "ALL"
+  }
+
+  tags = { Name = "user_folders", Environment = local.environment, Project = local.project }
+}
+
 # -------------------- S3 Buckets --------------------
 resource "aws_s3_bucket" "audio" {
   bucket        = "media-summarizer-audio"
@@ -745,6 +793,8 @@ output "dynamodb_tables" {
     aws_dynamodb_table.artifact_idempotence.name,
     aws_dynamodb_table.review_schedule.name,
     aws_dynamodb_table.user_review_settings.name,
+    aws_dynamodb_table.user_tags.name,
+    aws_dynamodb_table.user_folders.name,
   ]
 }
 
