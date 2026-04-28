@@ -509,6 +509,39 @@ resource "aws_dynamodb_table" "artifact_idempotence" {
   tags = { Name = "artifact_idempotence", Environment = local.environment, Project = local.project }
 }
 
+# Review schedule table (FSRS spaced repetition)
+resource "aws_dynamodb_table" "review_schedule" {
+  name         = "review_schedule"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+  range_key    = "card_id"
+
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "card_id"
+    type = "S"
+  }
+
+  tags = { Name = "review_schedule", Environment = local.environment, Project = local.project }
+}
+
+# User review settings table (FSRS preferences)
+resource "aws_dynamodb_table" "user_review_settings" {
+  name         = "user_review_settings"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+
+  tags = { Name = "user_review_settings", Environment = local.environment, Project = local.project }
+}
+
 # -------------------- S3 Buckets --------------------
 resource "aws_s3_bucket" "audio" {
   bucket        = "media-summarizer-audio"
@@ -710,6 +743,8 @@ output "dynamodb_tables" {
     aws_dynamodb_table.user_episode_submissions.name,
     aws_dynamodb_table.media_artifacts.name,
     aws_dynamodb_table.artifact_idempotence.name,
+    aws_dynamodb_table.review_schedule.name,
+    aws_dynamodb_table.user_review_settings.name,
   ]
 }
 

@@ -25,6 +25,7 @@ from .billing import (
     Follow,
 )
 from .folder import Folder, UNCATEGORIZED_FOLDER_NAME, MAX_FOLDER_DEPTH
+from .review_schedule import ReviewScheduleRecord, CardState, UserReviewSettings
 
 # Export all models
 __all__ = [
@@ -49,4 +50,7 @@ __all__ = [
     "Folder",
     "UNCATEGORIZED_FOLDER_NAME",
     "MAX_FOLDER_DEPTH",
+    "ReviewScheduleRecord",
+    "CardState",
+    "UserReviewSettings",
 ]
