@@ -2,11 +2,15 @@
 Media API endpoints.
 
 Provides operations on media items (processing jobs from the user's perspective).
-Supports URL ingestion, status retrieval, and folder assignment via PATCH.
+Supports URL ingestion, shared content ingestion (manual paste), status retrieval,
+and folder assignment via PATCH.
 """
 
 from __future__ import annotations
 
+import hashlib
+import io
+import json
 import logging
 import os
 from typing import Optional
@@ -17,10 +21,16 @@ from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.models import ProcessingJob, JobStatus
+from media_summarizer.core.resolvers.linkedin import (
+    LinkedInResolver,
+    LinkedInResolverError,
+    is_linkedin_url,
+    validate_linkedin_url,
+)
 from media_summarizer.core.services import minute_pool
 from media_summarizer.core.services import folder_service
-from media_summarizer.utils import database_async, sqs
+from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
 router = APIRouter()
@@ -30,6 +40,7 @@ _AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
 _YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com"}
 _TIKTOK_HOSTS = {"tiktok.com", "www.tiktok.com", "vm.tiktok.com"}
 _INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com"}
+_LINKEDIN_HOSTS = {"linkedin.com", "www.linkedin.com"}
 
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get("DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue")
 YOUTUBE_INGESTION_QUEUE = os.environ.get("YOUTUBE_INGESTION_QUEUE", "youtube-ingestion-queue")
@@ -56,6 +67,8 @@ def _detect_platform(url: str) -> tuple[str, str]:
         return "tiktok", "tiktok"
     if host in _INSTAGRAM_HOSTS:
         return "instagram", "getinsaver"
+    if host in _LINKEDIN_HOSTS and ("/feed/update/" in path or path.startswith("/posts/")):
+        return "linkedin", "linkedin"
     if path.endswith(_AUDIO_EXTENSIONS):
         return "audio", "deepgram"
     return "web", "article"
@@ -77,6 +90,43 @@ class MediaItemResponse(BaseModel):
     source_platform: Optional[str] = None
     error_message: Optional[str] = None
     progress: int
+
+
+# ---------- Shared content ingestion models ----------
+
+class IngestSharedContentRequest(BaseModel):
+    """Request body for manual text paste ingestion (e.g., LinkedIn posts)."""
+
+    text: str = Field(
+        ...,
+        min_length=20,
+        description="Full text content pasted by the user (minimum 20 characters)",
+    )
+    source_url: Optional[str] = Field(
+        None,
+        description="Original URL of the content (e.g., LinkedIn post URL)",
+    )
+    source_platform: str = Field(
+        "linkedin",
+        description="Platform identifier (linkedin, other)",
+    )
+    title: Optional[str] = Field(
+        None,
+        description="Optional title for the content",
+    )
+    author: Optional[str] = Field(
+        None,
+        description="Optional author name",
+    )
+
+
+class IngestSharedContentResponse(BaseModel):
+    """Response for shared content ingestion."""
+
+    media_item_id: str
+    status: str
+    source_platform: str
+    media_key: str
 
 
 # ---------- Folder assignment models ----------
@@ -143,7 +193,29 @@ async def ingest_url(
             "normalized_url": url,
         }
 
-        if source_platform == "youtube":
+        if source_platform == "linkedin":
+            # LinkedIn requires manual paste (ToS compliance).
+            # Return early with guidance to use ingest-shared-content endpoint.
+            log_event(
+                logger,
+                logging.INFO,
+                "media.ingest.linkedin_redirect",
+                "LinkedIn URL detected, manual paste required",
+                media_item_id=job.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error_code": "linkedin_manual_paste_required",
+                    "message": (
+                        "LinkedIn posts cannot be automatically extracted due to ToS restrictions. "
+                        "Please use POST /api/media/ingest-shared-content with the post text."
+                    ),
+                    "source_url": url,
+                    "redirect_endpoint": "/api/media/ingest-shared-content",
+                },
+            )
+        elif source_platform == "youtube":
             await sqs.send_message(queue_name=YOUTUBE_INGESTION_QUEUE, message_body=base_payload)
         elif source_platform == "tiktok":
             await sqs.send_message(queue_name=TIKTOK_INGESTION_QUEUE, message_body=base_payload)
@@ -203,6 +275,167 @@ async def ingest_url(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to ingest URL",
+        )
+    finally:
+        reset_log_context(token)
+
+
+@router.post(
+    "/ingest-shared-content",
+    response_model=IngestSharedContentResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def ingest_shared_content(
+    payload: IngestSharedContentRequest,
+    request: Request,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Ingest manually pasted text content (e.g., LinkedIn posts).
+
+    This endpoint supports the V1 fallback UX where users copy-paste content
+    from platforms that prohibit automated scraping (notably LinkedIn).
+
+    The text is stored as a transcript and routed directly to the summarization
+    pipeline (skipping download and transcription steps).
+    """
+    source_platform = (payload.source_platform or "linkedin").strip().lower()
+    token = bind_log_context(
+        user_id=current_user.id,
+        source_platform=source_platform,
+        resolver_key="shared_content",
+    )
+    try:
+        log_event(
+            logger,
+            logging.INFO,
+            "media.ingest_shared.started",
+            "Shared content ingestion started",
+            source_platform=source_platform,
+        )
+
+        text = (payload.text or "").strip()
+        if len(text) < 20:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Text content must be at least 20 characters",
+            )
+
+        # Validate LinkedIn URL if provided
+        source_url = (payload.source_url or "").strip()
+        if source_url and source_platform == "linkedin":
+            try:
+                validate_linkedin_url(source_url)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid LinkedIn URL: {e}",
+                )
+
+        # Generate stable media_key from content hash for deduplication
+        normalized_text = " ".join(text.split()).strip().lower()
+        content_hash = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
+        media_key = f"{source_platform}:{content_hash}"
+
+        user = await database_async.get_user_by_id(current_user.id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+            )
+
+        # Create processing job
+        job = ProcessingJob(
+            user_id=user.id,
+            user_email=user.email,
+            source_url=source_url or None,
+            media_key=media_key,
+        )
+        job = await database_async.create_processing_job(job)
+
+        # Allocate minutes hold (text-based content = 1 minute minimum)
+        await minute_pool.allocate_hold_for_job(
+            user_id=user.id,
+            job_id=job.id,
+            minutes_estimated=REQUIRED_MINUTES,
+        )
+
+        # Store text as transcript in S3 (skip download + transcription steps)
+        transcript_bucket = os.environ.get(
+            "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+        )
+        transcript_key = f"transcripts/{job.id}.json"
+        transcript_payload = json.dumps(
+            {
+                "text": text,
+                "source_platform": source_platform,
+                "source_url": source_url,
+                "author": payload.author,
+                "title": payload.title,
+                "media_key": media_key,
+            },
+            ensure_ascii=False,
+        )
+        await s3.upload_file_object(
+            bucket=transcript_bucket,
+            key=transcript_key,
+            file_obj=io.BytesIO(transcript_payload.encode("utf-8")),
+            content_type="application/json",
+        )
+
+        # Update job with transcript location and advance status
+        job.set_transcription_location(transcript_key)
+        job.update_status(
+            new_status=JobStatus.SUMMARIZING,
+        )
+        await database_async.update_processing_job(job)
+
+        # Enqueue directly to summarization (skip download + transcription)
+        summary_queue = os.environ.get("SUMMARY_SHORT_QUEUE", "summary-short-queue")
+        await sqs.send_message(
+            queue_name=summary_queue,
+            message_body={
+                "job_id": job.id,
+                "user_id": user.id,
+                "source_platform": source_platform,
+                "media_key": media_key,
+                "transcript_s3_key": transcript_key,
+                "media_title": payload.title or f"LinkedIn post ({content_hash[:8]})",
+                "source_title": payload.author or source_platform.capitalize(),
+            },
+        )
+
+        log_event(
+            logger,
+            logging.INFO,
+            "media.ingest_shared.created",
+            "Shared content ingested and queued for summarization",
+            media_item_id=job.id,
+            source_platform=source_platform,
+            media_key=media_key,
+        )
+
+        return IngestSharedContentResponse(
+            media_item_id=job.id,
+            status=job.status.value,
+            source_platform=source_platform,
+            media_key=media_key,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.ingest_shared.failed",
+            "Shared content ingestion failed",
+            source_platform=source_platform,
+            error_type=type(exc).__name__,
+            error_code="INGEST_SHARED_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to ingest shared content",
         )
     finally:
         reset_log_context(token)
