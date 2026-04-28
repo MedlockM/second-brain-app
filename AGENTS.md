@@ -55,4 +55,16 @@ When creating a new task in the backlog, split it in two when the work requires 
 
 When the task is a bug fix, refactor, or well-understood feature with no open technology/architecture question, create a single task — do NOT create a dummy benchmark task.
 
-The benchmark lifecycle (owner validation, automatic status sync by the dispatcher) is documented in `CLAUDE.md`.
+## Benchmark lifecycle
+
+The owner signals their decision through the `owner_decision` field in the front-matter of the main `README.md` of the research directory. Five values are supported:
+
+- `pending` — default, owner has not reviewed yet. Dispatcher does nothing.
+- `ok` — benchmark accepted. Dispatcher marks the benchmark task `Done`, which unblocks the implementation task via its dependency.
+- `abandoned` — benchmark rejected and task abandoned. Dispatcher archives the benchmark task and every task that depends on it.
+- `redo` — benchmark unsatisfactory, needs a new pass. Dispatcher archives the current README as `README.owner-rejected-<date>.md`, reopens the benchmark task, and the research agent produces a new recommendation that integrates the owner's feedback from the archived README(s).
+- `more` — benchmark needs complementary information before the owner can decide. Dispatcher extracts the owner's consignes into a `complement-request-<date>.md`, resets the main README to `pending`, and reopens the benchmark task. The research agent produces a `complement-response-<date>.md` at the next run without touching the main README.
+
+**Only the main `README.md` is authoritative.** Complement files and archived rejections are consultation material. Owner writes feedback/consignes in the `Decision` field of the main README's `Owner Validation` section.
+
+Full details (Phase 0 / Phase 1 dispatcher logic, mode detection by the research agent) are documented in `CLAUDE.md` and `.claude/agents/`.

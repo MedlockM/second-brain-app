@@ -36,8 +36,14 @@ Avant la sélection, scanne tous les READMEs de recherche pour appliquer les dé
    - Récupère la tâche benchmark. Si son statut est `Done`, repasse-le à `To Do` via `mcp__backlog__task_edit`.
    - Ne touche PAS aux tâches d'implémentation qui en dépendent — elles restent bloquées par la dépendance non résolue.
    - La tâche benchmark redevient sélectionnable en Phase 1 (plus de `README.md` actif dans le dossier). Au prochain dispatch, `task-research` relancera la recherche en s'appuyant sur les remarques de l'owner contenues dans le(s) fichier(s) `README.owner-rejected-*.md`.
-6. Cas `owner_decision: pending` ou champ absent : skip, rien à faire.
-7. Log chaque action effectuée (ex: "Phase 0: task-35 marked Done (owner_decision: ok)", "Phase 0: task-60 and task-99 archived (owner_decision: abandoned)", "Phase 0: task-70 README archived and task reopened (owner_decision: redo)").
+6. Cas `owner_decision: more` :
+   - Crée un fichier `docs/research/task-XX-<desc>/complement-request-<ISO-date>.md` contenant le texte du champ `**Decision**:` extrait du README (les consignes de l'owner sur ce qu'il veut comme information complémentaire).
+   - Dans le README principal, remets `owner_decision` à `pending` (le reste du README reste intact, y compris les champs `**Decision**:` et `**Validated at**:` que l'owner avait remplis — ils servent d'historique).
+   - Récupère la tâche benchmark. Si son statut est `Done`, repasse-le à `To Do` via `mcp__backlog__task_edit`.
+   - Ne touche PAS aux tâches d'implémentation qui en dépendent — elles restent bloquées.
+   - La tâche benchmark redevient sélectionnable en Phase 1 grâce à la règle "skip pending SAUF si le dossier contient un `complement-request-*.md` sans `complement-response-*.md` correspondant". Au prochain dispatch, `task-research` produira un `complement-response-<ISO-date>.md` en suivant les consignes du `complement-request-*.md` le plus récent.
+7. Cas `owner_decision: pending` ou champ absent : skip, rien à faire.
+8. Log chaque action effectuée (ex: "Phase 0: task-35 marked Done (owner_decision: ok)", "Phase 0: task-60 and task-99 archived (owner_decision: abandoned)", "Phase 0: task-70 README archived and task reopened (owner_decision: redo)", "Phase 0: task-65 complement requested and task reopened (owner_decision: more)").
 
 **Pourquoi** : l'owner exprime sa décision directement dans le README du benchmark. Le dispatcher synchronise le backlog automatiquement au prochain run — pas d'action manuelle sur les statuts.
 
@@ -52,7 +58,7 @@ Critères de sélection :
 - `dispatchable` != false dans le front-matter
 - Aucune dépendance non résolue (les dépendances doivent toutes être "Done")
 - Pas de tâche mobile si le prompt ne mentionne pas de repo mobile
-- **Pas de benchmark déjà produit en attente** : si un dossier `docs/research/task-XX-*/` existe avec un README.md dont `owner_decision == pending`, skip la tâche `task-XX` avec la raison "task-XX skipped: benchmark produced, owner decision pending in <README path>". La tâche redeviendra dispatchable (via Phase 0) quand l'owner aura mis `ok` ou `abandoned`.
+- **Pas de benchmark déjà produit en attente** : si un dossier `docs/research/task-XX-*/` existe avec un README.md dont `owner_decision == pending`, skip la tâche `task-XX` avec la raison "task-XX skipped: benchmark produced, owner decision pending in <README path>". **Exception** : si le dossier contient au moins un fichier `complement-request-*.md` dont il n'existe pas encore de `complement-response-*.md` correspondant (matching sur la date dans le nom), alors la tâche reste dispatchable — `task-research` sera relancé pour produire le complément demandé. La tâche redeviendra dispatchable (via Phase 0) quand l'owner aura mis `ok`, `abandoned`, `redo` ou `more`.
 
 Tri : par priorité (high > medium > low) puis par numéro de tâche croissant.
 Limite au nombre max indiqué dans le prompt.
