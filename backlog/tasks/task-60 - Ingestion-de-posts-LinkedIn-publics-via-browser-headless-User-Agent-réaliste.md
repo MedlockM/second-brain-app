@@ -1,10 +1,10 @@
 ---
 id: task-60
 title: Ingestion de posts LinkedIn publics via browser headless / User-Agent réaliste
-status: Done
+status: To Do
 assignee: []
 created_date: '2026-03-19 10:37'
-updated_date: '2026-04-28 12:00'
+updated_date: '2026-04-28 16:35'
 labels:
   - ingestion
   - linkedin
@@ -61,5 +61,5 @@ Pour chaque approche : robustesse, coût, maintenance, risques ToS, qualité du 
 <!-- SECTION:NOTES:BEGIN -->
 Dispatch 2026-04-23: Phase benchmark (AC#1) complétée par agent-task-60. Documents créés: docs/research/task-60/BENCHMARK_UPDATE_2026-04-23.md et README.md. Recommandation: Fallback UX (copier-coller manuel) pour V1 - zéro risque ToS. L'implémentation (AC#2-5) reste à faire. Commit direct sur second-brain-project.
 
-Dispatch 2026-04-28: Implémentation AC#2-5 complétée par agent-task-60. Créé core/resolvers/linkedin.py (LinkedInResolver avec URL validation, error enums, content hashing), tests/unit/core/resolvers/test_linkedin.py (34 unit tests), docs/research/task-60/LINKEDIN_INTEGRATION.md. Modifié api/endpoints/media.py (détection LinkedIn dans _detect_platform, POST /api/media/ingest-shared-content). Merged dans second-brain-project (conflit résolu dans media.py imports).
+Dispatch 2026-04-28: Implémentation AC#2-5 lancée par agent-task-60, puis **annulée** (revert de026516) : l'agent a considéré que la recommandation du benchmark BENCHMARK_UPDATE_2026-04-23 était validée, alors que l'owner ne l'avait pas encore relue. Le benchmark reste à valider par l'owner avant toute implémentation. L'implémentation précédente incluait core/resolvers/linkedin.py, des tests unitaires, et un endpoint POST /api/media/ingest-shared-content — tout a été retiré.
 <!-- SECTION:NOTES:END -->
