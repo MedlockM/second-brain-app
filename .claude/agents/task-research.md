@@ -13,7 +13,7 @@ Séquence obligatoire :
 1. Lis le fichier de tâche backlog qui t'a été assigné
 2. Lis les documents référencés dans la description
 3. Effectue tes recherches (web, docs, code existant)
-4. Produis ton livrable dans le sous-dossier dédié `docs/research/task-XX/` (créé si nécessaire) — jamais de fichier à la racine `docs/research/`. Un document principal est obligatoire : `docs/research/task-XX/README.md` avec le format décrit ci-dessous.
+4. Produis ton livrable dans le sous-dossier dédié `docs/research/task-XX-<short-description>/` (créé si nécessaire) — jamais de fichier à la racine `docs/research/`. Format du nom de dossier : `task-XX-` suivi d'une description courte en kebab-case (2-4 mots max) qui permet à l'owner de comprendre le sujet d'un coup d'œil. Exemples : `task-70-ocr-benchmark`, `task-60-linkedin-ingestion`, `task-72-llm-artifact-benchmark`. Un document principal est obligatoire : `docs/research/task-XX-<short-description>/README.md` avec le format décrit ci-dessous.
 5. Ajoute une note dans le fichier de tâche (section `Implementation Notes`) décrivant ce qui a été produit et indiquant que **la recommandation attend la validation de l'owner**
 6. `git add` + `git commit` avec un message descriptif en anglais
 
@@ -26,7 +26,7 @@ Contraintes :
 
 ## Format obligatoire du README.md (tâches avec label `benchmark`)
 
-Le `README.md` du dossier `docs/research/task-XX/` DOIT commencer par un front-matter YAML et une section "Owner Validation" :
+Le `README.md` du dossier `docs/research/task-XX-<short-description>/` DOIT commencer par un front-matter YAML et une section "Owner Validation" :
 
 ```markdown
 ---

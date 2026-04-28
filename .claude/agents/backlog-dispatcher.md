@@ -33,11 +33,11 @@ Critères de sélection :
 ### Gate benchmark : ne jamais implémenter un benchmark non validé
 
 Pour chaque tâche candidate avec le label `benchmark` :
-1. Vérifie si `docs/research/task-XX/README.md` existe (convention : sous-dossier obligatoire)
-2. Si **le README existe**, lis son front-matter YAML (les lignes entre les deux `---` au début du fichier) et extrais la valeur de `benchmark_validated` :
+1. Cherche un sous-dossier matchant le pattern `docs/research/task-XX-*/` (le dossier contient un suffixe descriptif, ex: `task-70-ocr-benchmark`). Utilise `ls docs/research/ | grep "^task-XX-"` ou `Glob docs/research/task-XX-*/README.md`.
+2. Si **un README correspondant existe**, lis son front-matter YAML (les lignes entre les deux `---` au début du fichier) et extrais la valeur de `benchmark_validated` :
    - Si `benchmark_validated: true` → la tâche est dispatchable vers l'agent d'implémentation approprié
-   - Si absent, `false`, ou toute autre valeur → **skip cette tâche** avec la raison : "task-XX skipped: benchmark awaiting owner validation (benchmark_validated != true in docs/research/task-XX/README.md)"
-3. Si **le README n'existe pas** : la tâche est dispatchable vers `task-research` (phase benchmark uniquement)
+   - Si absent, `false`, ou toute autre valeur → **skip cette tâche** avec la raison : "task-XX skipped: benchmark awaiting owner validation (benchmark_validated != true in <README path>)"
+3. Si **aucun README correspondant n'existe** : la tâche est dispatchable vers `task-research` (phase benchmark uniquement). L'agent de recherche créera le dossier avec un suffixe descriptif.
 
 **Pourquoi** : une tâche avec label `benchmark` a deux phases (recherche → implémentation). L'owner DOIT relire la recommandation dans le README et inscrire sa décision en passant `benchmark_validated` à `true` dans le front-matter du README. Sans ce gate, un agent peut implémenter une solution que l'owner aurait rejetée.
 
