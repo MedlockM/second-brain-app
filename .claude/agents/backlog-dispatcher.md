@@ -33,14 +33,13 @@ Critères de sélection :
 ### Gate benchmark : ne jamais implémenter un benchmark non validé
 
 Pour chaque tâche candidate avec le label `benchmark` :
-1. Vérifie si un document de recherche existe déjà dans `docs/research/task-XX/` (convention : toujours un sous-dossier, jamais un fichier à la racine)
-2. Si **le sous-dossier `docs/research/task-XX/` existe et contient au moins un fichier** mais que le front-matter ne contient pas `benchmark_validated: true` :
-   - **Skip cette tâche** — elle ne doit pas être redispatced tant que l'owner n'a pas validé
-   - Log la raison : "task-XX skipped: benchmark exists but awaiting owner validation (benchmark_validated != true)"
-3. Si **aucun benchmark n'existe encore** : la tâche est dispatchable vers `task-research` (phase benchmark uniquement)
-4. Si `benchmark_validated: true` dans le front-matter : la tâche est dispatchable vers l'agent d'implémentation approprié
+1. Vérifie si `docs/research/task-XX/README.md` existe (convention : sous-dossier obligatoire)
+2. Si **le README existe**, lis son front-matter YAML (les lignes entre les deux `---` au début du fichier) et extrais la valeur de `benchmark_validated` :
+   - Si `benchmark_validated: true` → la tâche est dispatchable vers l'agent d'implémentation approprié
+   - Si absent, `false`, ou toute autre valeur → **skip cette tâche** avec la raison : "task-XX skipped: benchmark awaiting owner validation (benchmark_validated != true in docs/research/task-XX/README.md)"
+3. Si **le README n'existe pas** : la tâche est dispatchable vers `task-research` (phase benchmark uniquement)
 
-**Pourquoi** : une tâche avec label `benchmark` a deux phases (recherche → implémentation). L'owner DOIT relire la recommandation du benchmark et inscrire sa décision avant toute implémentation. Sans ce gate, un agent peut implémenter une solution que l'owner aurait rejetée.
+**Pourquoi** : une tâche avec label `benchmark` a deux phases (recherche → implémentation). L'owner DOIT relire la recommandation dans le README et inscrire sa décision en passant `benchmark_validated` à `true` dans le front-matter du README. Sans ce gate, un agent peut implémenter une solution que l'owner aurait rejetée.
 
 Tri : par priorité (high > medium > low) puis par numéro de tâche croissant.
 Limite au nombre max indiqué dans le prompt.

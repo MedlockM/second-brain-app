@@ -1,3 +1,15 @@
+---
+benchmark_validated: false
+---
+
+## Owner Validation
+
+**Status**: ⏳ Pending owner review
+**Decision**: _(à remplir par l'owner après relecture — accept / reject / accept with modifications)_
+**Validated at**: _(date ISO à remplir par l'owner)_
+
+---
+
 # Task-60 Research: LinkedIn Post Ingestion
 
 **Task ID:** task-60  
