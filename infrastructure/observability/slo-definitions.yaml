@@ -1,0 +1,156 @@
+# Service Level Objectives for the Media Summarizer Share-First Pipeline
+#
+# These SLOs cover the end-to-end path:
+#   URL ingestion -> URL classification -> resolver -> transcription -> artifact generation
+#
+# Measurement approach:
+#   - All metrics are derived from structured JSON log events emitted by the application.
+#   - CloudWatch Metric Filters extract counts and latencies from the log groups.
+#   - SLI = measured ratio over a rolling window.
+#   - Burn-rate alerts fire when the error budget is being consumed too quickly.
+
+service: media-summarizer
+version: "1.0"
+evaluation_window: 28d  # 4-week rolling window
+
+slos:
+
+  # --------------------------------------------------------------------------
+  # Stage 1: Ingestion (POST /api/media/ingest-url)
+  # --------------------------------------------------------------------------
+  - name: ingestion_success_rate
+    description: >
+      Proportion of ingest-url requests that successfully create a processing
+      job and enqueue a resolver message (event media.ingest.created), excluding
+      client errors (4xx).
+    sli:
+      good_event: media.ingest.created
+      total_event: media.ingest.started
+      # 4xx responses (validation errors, auth failures) are excluded from total
+    target: 99.5%
+    burn_rate_thresholds:
+      - window: 5m
+        factor: 14.4   # 2% budget consumed in 5 min -> page
+      - window: 1h
+        factor: 6.0    # 5% budget consumed in 1h -> page
+      - window: 6h
+        factor: 3.0    # ticket
+
+  # --------------------------------------------------------------------------
+  # Stage 2: Resolver Success (per platform)
+  # --------------------------------------------------------------------------
+  - name: resolver_success_rate
+    description: >
+      Proportion of resolver worker invocations that complete successfully,
+      measured per source_platform (youtube, tiktok, instagram, article, podcast).
+      A resolver is considered successful when it produces audio or transcript
+      output and enqueues the next stage.
+    sli:
+      good_event: worker.message_completed  # with resolver_key dimension
+      bad_event: worker.failed              # with resolver_key dimension
+      # Retries (worker.retry_scheduled) do not count as bad until exhausted
+    dimensions:
+      - resolver_key: [youtube, tiktok, getinsaver, article, deepgram, rss]
+    target: 97.0%
+    burn_rate_thresholds:
+      - window: 15m
+        factor: 10.0
+      - window: 1h
+        factor: 5.0
+
+  # --------------------------------------------------------------------------
+  # Stage 3: Transcription Latency (Deepgram)
+  # --------------------------------------------------------------------------
+  - name: transcription_latency_p95
+    description: >
+      95th percentile latency for Deepgram transcription, measured from
+      worker.transcription.started to worker.transcription.completed.
+      Target applies to media under 60 minutes of audio.
+    sli:
+      latency_event: worker.transcription.completed
+      latency_field: duration_ms
+      percentile: p95
+    target: 120000  # 120 seconds (2 min) for p95
+    unit: milliseconds
+    burn_rate_thresholds:
+      - window: 15m
+        factor: 8.0
+      - window: 1h
+        factor: 4.0
+
+  - name: transcription_success_rate
+    description: >
+      Proportion of transcription jobs that complete without error.
+    sli:
+      good_event: worker.transcription.completed
+      bad_event: worker.transcription.failed
+    target: 98.0%
+    burn_rate_thresholds:
+      - window: 15m
+        factor: 10.0
+      - window: 1h
+        factor: 5.0
+
+  # --------------------------------------------------------------------------
+  # Stage 4: Artifact Generation
+  # --------------------------------------------------------------------------
+  - name: artifact_generation_success_rate
+    description: >
+      Proportion of artifact generation requests that produce a READY artifact
+      within the expected time window. Covers summary_short, summary_detailed,
+      notes, and flashcards.
+    sli:
+      good_event: artifact.generation.completed
+      bad_event: artifact.generation.failed
+      dimensions:
+        - artifact_type: [summary_short, summary_detailed, notes, flashcards]
+    target: 95.0%
+    burn_rate_thresholds:
+      - window: 15m
+        factor: 8.0
+      - window: 1h
+        factor: 4.0
+
+  - name: artifact_generation_latency_p95
+    description: >
+      95th percentile latency for artifact generation (LLM call + storage).
+    sli:
+      latency_event: artifact.generation.completed
+      latency_field: duration_ms
+      percentile: p95
+    target: 30000  # 30 seconds for p95
+    unit: milliseconds
+
+  # --------------------------------------------------------------------------
+  # End-to-End
+  # --------------------------------------------------------------------------
+  - name: end_to_end_success_rate
+    description: >
+      Proportion of ingested URLs that reach at least one READY artifact
+      within 10 minutes. This is the "user happiness" SLO.
+    sli:
+      # Measured by correlating media.ingest.created job_ids with at least one
+      # artifact.generation.completed within 10 minutes.
+      good_event: media.completed  # emitted by media_completed_worker
+      total_event: media.ingest.created
+    target: 92.0%
+    measurement_note: >
+      This SLO requires a batch job or CloudWatch Insights query to correlate
+      events across job lifecycle. It cannot be computed from simple metric
+      filters alone. See runbook for query template.
+
+# --------------------------------------------------------------------------
+# Error Budget Policy
+# --------------------------------------------------------------------------
+error_budget_policy:
+  page_on_call:
+    condition: "burn_rate exceeds threshold for two consecutive evaluation windows"
+    action: "Notify on-call via SNS -> PagerDuty/email"
+    response_time: 15m
+  ticket:
+    condition: "burn_rate exceeds ticket-level threshold"
+    action: "Create ops ticket for next business day"
+    response_time: 24h
+  freeze:
+    condition: "Monthly error budget exhausted (< 0% remaining)"
+    action: "Halt non-critical deployments until budget recovers"
