@@ -742,5 +742,5 @@ results = client.index('transcripts').search('kubernetes', {
 
 ---
 
-**Decision:** Proceed with **Meilisearch Cloud** for MVP, with Typesense Cloud as fallback option.  
+**Decision validated by owner:** Proceed with **Typesense Cloud** for MVP.  
 **Next Steps:** Task-53.2 (if exists) to implement search indexing pipeline and API.

@@ -982,3 +982,5 @@ Cette analyse exhaustive démontre que:
 **Document généré par**: Agent de recherche backlog media-summarizer  
 **Date**: 2026-04-22  
 **Durée de recherche**: ~2h (recherche web exhaustive + modélisation)
+
+Decision validated by owner : no decision fixed for now. Decision about this topic will be taken when everything else will be implemented.
