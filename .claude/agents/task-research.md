@@ -38,7 +38,7 @@ owner_decision: pending   # pending | ok | abandoned | redo
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — texte libre décrivant la décision finale : accept recommandation X, reject parce que Y, accept with modifications Z…)_
+**Decision**: _(à remplir par l'owner après relecture — texte libre décrivant la décision finale : accept recommandation X, reject parce que Y, accept with modifications Z, OU, si redo, les consignes précises de correction à intégrer au prochain passage)_
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---

@@ -42,7 +42,7 @@ This lifecycle is enforced by the dispatcher in `.claude/agents/backlog-dispatch
 2. Owner reviews the README and edits the front-matter with one of four values:
    - `owner_decision: ok` + fills the `Decision` and `Validated at` fields under `Owner Validation` → at the next dispatch, Phase 0 marks the benchmark task `Done`, which unblocks the implementation task via its dependency.
    - `owner_decision: abandoned` → Phase 0 archives the benchmark task and every task that depends on it (including the implementation task).
-   - `owner_decision: redo` + remarks in the `Decision` field explaining what was unsatisfactory → Phase 0 archives the current README as `README.owner-rejected-<date>.md`, reopens the benchmark task to `To Do`, and the next dispatch relaunches `task-research` on it. The research agent reads the archived README(s) to integrate the owner's feedback into a new recommendation.
+   - `owner_decision: redo` + precise feedback in the `Decision` field (what was unsatisfactory, which alternatives to re-evaluate, which additional criteria to consider) → Phase 0 archives the current README as `README.owner-rejected-<date>.md`, reopens the benchmark task to `To Do`, and the next dispatch relaunches `task-research` on it. The research agent reads the archived README(s) to pick up the owner's feedback and produce a new recommendation that takes it into account.
    - `owner_decision: pending` → no-op (default after the research agent finishes; the owner has not reviewed yet).
 3. Implementation task dispatched after its benchmark dependency resolves. The implementer reads the owner's `Decision` from the README to know what to build.
 
