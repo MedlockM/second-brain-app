@@ -250,9 +250,11 @@ async def submit_episode_for_processing(
             )
 
         # Récupérer les détails du podcast pour avoir le titre correct (absent de l'épisode parfois)
+        feed_rss_url = ""
         try:
             feed_data = await podcast_index.get_podcast_by_feed_id(payload.feed_id)
             feed_title = feed_data.get("feed", {}).get("title", "Podcast inconnu")
+            feed_rss_url = feed_data.get("feed", {}).get("url", "")
         except Exception as e:
             logger.warning(
                 f"Failed to fetch podcast details for {payload.feed_id}: {e}"
@@ -296,6 +298,7 @@ async def submit_episode_for_processing(
             duration_seconds=duration_seconds,
             episode_image=episode_image,
             episode_date_published=episode_date_published,
+            feed_url=feed_rss_url,
         )
 
         # Gérer le cas où l'utilisateur n'a pas assez de minutes

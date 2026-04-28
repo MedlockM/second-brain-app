@@ -1,5 +1,9 @@
 """
 Worker de téléchargement audio pour récupérer les fichiers MP3 des podcasts.
+
+Before downloading audio, this worker checks for a pre-existing transcript
+in the RSS feed using the Podcasting 2.0 <podcast:transcript> standard.
+If a usable transcript is found, it skips audio download and Deepgram entirely.
 """
 
 import asyncio
@@ -7,11 +11,15 @@ import json
 import logging
 import os
 import tempfile
+import time
+from io import BytesIO
+from math import ceil
 from pathlib import Path
 
 import httpx
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context, setup_logging
+from media_summarizer.utils.rss_transcript import fetch_rss_transcript
 from media_summarizer.workers.base_worker import (
     process_message_with_retry,
     get_sqs_receive_params,
@@ -45,6 +53,9 @@ def get_sqs_client():
 
 # Configuration des buckets S3
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
+TRANSCRIPT_BUCKET = os.environ.get(
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+)
 DOWNLOAD_QUEUE = os.environ.get("AUDIO_DOWNLOAD_QUEUE", "audio-download-queue")
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
@@ -106,8 +117,6 @@ async def process_message(message):
     if not audio_url:
         raise ValueError("empty audio URL provided")
 
-    log_event(logger, logging.INFO, "worker.download.started", "Audio download started", job_id=job_id, source_platform="audio")
-
     # Update job status to downloading
     from media_summarizer.utils import database_async
 
@@ -115,6 +124,114 @@ async def process_message(message):
     if job:
         job.mark_downloading()
         await database_async.update_processing_job(job)
+
+    # --- Podcasting 2.0 RSS Transcript Check ---
+    # Before downloading audio, attempt to retrieve a pre-existing transcript
+    # from the RSS feed via the <podcast:transcript> tag (AC #1).
+    feed_url = body.get("feed_url")
+    episode_guid = body.get("episode_guid") or body.get("media_key")
+
+    if feed_url and episode_guid:
+        try:
+            rss_transcript = await fetch_rss_transcript(
+                feed_url=feed_url,
+                episode_guid=episode_guid,
+            )
+        except Exception as e:
+            logger.warning(
+                "RSS transcript fetch failed for job %s, falling back to audio: %s",
+                job_id,
+                str(e),
+            )
+            rss_transcript = None
+
+        if rss_transcript:
+            # Transcript found from RSS -- skip audio download and Deepgram (AC #2 fallback not needed)
+            log_event(
+                logger,
+                logging.INFO,
+                "worker.download.rss_transcript_found",
+                "RSS transcript found via Podcasting 2.0 -- skipping audio download",
+                job_id=job_id,
+                transcript_source="rss_feed",
+            )
+
+            # Upload transcript to S3
+            transcript_s3_key = f"{job_id}.txt"
+            transcript_bytes = rss_transcript.encode("utf-8")
+            await s3.upload_file_object(
+                bucket=TRANSCRIPT_BUCKET,
+                key=transcript_s3_key,
+                file_obj=BytesIO(transcript_bytes),
+                content_type="text/plain",
+                metadata={
+                    "content-type": "text/plain",
+                    "job-type": "podcast-transcription",
+                    "transcript-source": "rss-podcasting-2.0",
+                },
+            )
+
+            # Update job status
+            if job:
+                job.mark_transcribing()
+                job.set_transcription_location(transcript_s3_key)
+                job.set_processing_duration("transcription", 0)
+                await database_async.update_processing_job(job)
+
+            # Publish completion event (same schema as Whisper/Deepgram workers)
+            audio_duration_seconds_raw = body.get("audio_duration_seconds")
+            try:
+                audio_duration_seconds = int(float(audio_duration_seconds_raw))
+            except (TypeError, ValueError):
+                audio_duration_seconds = 0
+
+            minutes_used = (
+                max(1, ceil(audio_duration_seconds / 60))
+                if audio_duration_seconds > 0
+                else 1
+            )
+
+            await sqs.send_message(
+                queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+                message_body={
+                    "event_type": "episode_completion_status",
+                    "status": "success",
+                    "media_key": body.get("media_key"),
+                    "canonical_job_id": job_id,
+                    "minutes_used": minutes_used,
+                    "transcription_s3_key": transcript_s3_key,
+                    "transcription_metadata": {
+                        "provider": "rss_feed",
+                        "source": "podcasting_2.0",
+                        "feed_url": feed_url,
+                        "episode_guid": episode_guid,
+                        "transcribed_at": time.strftime(
+                            "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                        ),
+                    },
+                },
+            )
+
+            log_event(
+                logger,
+                logging.INFO,
+                "worker.download.completed_via_rss",
+                "Job completed via RSS transcript (no audio download needed)",
+                job_id=job_id,
+                transcript_source="rss_feed",
+            )
+            return
+    else:
+        log_event(
+            logger,
+            logging.DEBUG,
+            "worker.download.no_feed_info",
+            "No feed_url/episode_guid in message -- skipping RSS transcript check",
+            job_id=job_id,
+        )
+
+    # --- Fallback: Audio Download + Deepgram Transcription (AC #2) ---
+    log_event(logger, logging.INFO, "worker.download.started", "Audio download started", job_id=job_id, source_platform="audio")
 
     # Création d'un fichier temporaire pour le téléchargement
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:

@@ -222,6 +222,7 @@ async def submit_podcast_for_processing(
             )
         else:
             # Non-audio URL path: resolve enclosure URL first, then route to Deepgram.
+            # Pass feed_url so the resolution worker can provide it for RSS transcript lookup.
             await sqs.send_message(
                 queue_name=PODCASTINDEX_RESOLUTION_QUEUE,
                 message_body={
@@ -229,6 +230,7 @@ async def submit_podcast_for_processing(
                     "user_email": user.email,
                     "user_id": user.id,
                     "normalized_url": submitted_url,
+                    "feed_url": submitted_url,
                     "source_platform": "rss",
                 },
             )

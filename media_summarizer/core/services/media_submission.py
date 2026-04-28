@@ -39,6 +39,7 @@ async def submit_media_for_user(
     media_date_published: int = 0,  # Unix timestamp - when content was published
     source: str = "manual",
     folder_id: str | None = None,  # Optional folder to assign the media to
+    feed_url: str = "",  # RSS feed URL for Podcasting 2.0 transcript lookup
 ) -> Dict[str, Any]:
     """
     Submit a media item for a user with global idempotence.
@@ -239,10 +240,12 @@ async def submit_media_for_user(
             "audio_duration_seconds": duration_seconds,
             "media_key": media_key,
             "media_image": media_image,
+            # RSS feed URL for Podcasting 2.0 transcript lookup
+            "feed_url": feed_url,
+            "episode_guid": media_key,
             # Deprecated aliases for downstream workers that may still read old keys
             "episode_title": media_title,
             "podcast_title": source_title,
-            "episode_guid": media_key,
             "episode_image": media_image,
         },
     )
