@@ -33,8 +33,8 @@ Critères de sélection :
 ### Gate benchmark : ne jamais implémenter un benchmark non validé
 
 Pour chaque tâche candidate avec le label `benchmark` :
-1. Vérifie si un document de recherche existe déjà : `ls docs/research/task-XX*` ou cherche dans `docs/research/task-XX/`
-2. Si **un benchmark existe** mais que le front-matter ne contient pas `benchmark_validated: true` :
+1. Vérifie si un document de recherche existe déjà dans `docs/research/task-XX/` (convention : toujours un sous-dossier, jamais un fichier à la racine)
+2. Si **le sous-dossier `docs/research/task-XX/` existe et contient au moins un fichier** mais que le front-matter ne contient pas `benchmark_validated: true` :
    - **Skip cette tâche** — elle ne doit pas être redispatced tant que l'owner n'a pas validé
    - Log la raison : "task-XX skipped: benchmark exists but awaiting owner validation (benchmark_validated != true)"
 3. Si **aucun benchmark n'existe encore** : la tâche est dispatchable vers `task-research` (phase benchmark uniquement)

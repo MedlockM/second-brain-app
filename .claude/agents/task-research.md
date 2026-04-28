@@ -13,7 +13,7 @@ Séquence obligatoire :
 1. Lis le fichier de tâche backlog qui t'a été assigné
 2. Lis les documents référencés dans la description
 3. Effectue tes recherches (web, docs, code existant)
-4. Produis un document markdown dans `docs/research/`
+4. Produis ton livrable dans le sous-dossier dédié `docs/research/task-XX/` (créé si nécessaire) — jamais de fichier à la racine `docs/research/`. Un document principal est obligatoire : `docs/research/task-XX/README.md` résumant la recommandation finale et la structure du dossier.
 5. Ajoute une note dans le fichier de tâche (section `Implementation Notes`) décrivant ce qui a été produit et indiquant que **la recommandation attend la validation de l'owner**
 6. `git add` + `git commit` avec un message descriptif en anglais
 
