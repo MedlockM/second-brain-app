@@ -159,7 +159,7 @@ async def ingest_url(
         else:
             await sqs.send_message(
                 queue_name=PODCASTINDEX_RESOLUTION_QUEUE,
-                message_body=base_payload,
+                message_body={**base_payload, "feed_url": url},
             )
 
         log_event(
