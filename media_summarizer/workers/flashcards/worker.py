@@ -28,7 +28,8 @@ from media_summarizer.core.services.artifact_service import (
     fail_artifact_generation,
     mark_artifact_generating,
 )
-from media_summarizer.utils import s3, sqs
+from media_summarizer.core.services import fsrs_service
+from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -254,6 +255,31 @@ async def process_message(message: Dict[str, Any]) -> None:
                 },
             },
         )
+
+        # Initialize FSRS review schedule cards for spaced repetition
+        media_item_id = body.get("media_item_id")
+        if media_item_id:
+            try:
+                job = await database_async.get_processing_job_by_id(media_item_id)
+                if job:
+                    await fsrs_service.initialize_cards_for_flashcards(
+                        user_id=job.user_id,
+                        media_item_id=media_item_id,
+                        artifact_id=artifact_id,
+                        flashcards=flashcards,
+                    )
+            except Exception as fsrs_exc:
+                # Non-fatal: flashcard generation succeeded, FSRS init is best-effort
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "worker.fsrs_init_failed",
+                    "Failed to initialize FSRS cards (non-fatal)",
+                    artifact_id=artifact_id,
+                    media_item_id=media_item_id,
+                    error_type=type(fsrs_exc).__name__,
+                    detail=str(fsrs_exc)[:200],
+                )
     except FlashcardsValidationError as exc:
         await fail_artifact_generation(
             artifact_id=artifact_id,
