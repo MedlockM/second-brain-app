@@ -46,6 +46,7 @@ AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
 EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
 )
+SEARCH_INDEXING_QUEUE = os.environ.get("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
 )
@@ -263,6 +264,22 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
                     "transcription_metadata": transcription_metadata,
                 },
             )
+
+            # Emit search indexing message for async transcript indexing
+            try:
+                await sqs.send_message(
+                    queue_name=SEARCH_INDEXING_QUEUE,
+                    message_body={
+                        "media_item_id": job_id,
+                        "user_id": message_body.get("user_id"),
+                        "transcription_s3_key": transcript_s3_key,
+                        "title": message_body.get("episode_title") or message_body.get("media_title"),
+                        "source_platform": "audio",
+                        "created_at": int(time.time()),
+                    },
+                )
+            except Exception as search_err:
+                logger.warning(f"Failed to emit search indexing message for job {job_id}: {search_err}")
 
             log_event(
                 logger,

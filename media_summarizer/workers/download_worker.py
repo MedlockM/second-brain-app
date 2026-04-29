@@ -63,6 +63,7 @@ DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
 EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
 )
+SEARCH_INDEXING_QUEUE = os.environ.get("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 
 
 async def download_audio(url, output_path):
@@ -211,6 +212,22 @@ async def process_message(message):
                     },
                 },
             )
+
+            # Emit search indexing message for async transcript indexing
+            try:
+                await sqs.send_message(
+                    queue_name=SEARCH_INDEXING_QUEUE,
+                    message_body={
+                        "media_item_id": job_id,
+                        "user_id": body.get("user_id"),
+                        "transcription_s3_key": transcript_s3_key,
+                        "title": body.get("episode_title") or body.get("media_title"),
+                        "source_platform": "audio",
+                        "created_at": int(time.time()),
+                    },
+                )
+            except Exception as search_err:
+                logger.warning(f"Failed to emit search indexing message for job {job_id}: {search_err}")
 
             log_event(
                 logger,

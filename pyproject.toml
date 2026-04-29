@@ -32,6 +32,7 @@ dependencies = [
     "youtube-transcript-api",
     "yt-dlp",
     "fsrs>=1.0.0",
+    "typesense>=0.21.0,<3.0.0",
 ]
 
 [project.optional-dependencies]
