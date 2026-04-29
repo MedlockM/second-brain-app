@@ -23,6 +23,10 @@ from media_summarizer.core.services import folder_service
 from media_summarizer.core.services import tag_service
 from media_summarizer.core.services import media_search_service
 from media_summarizer.core.services.media_search_service import SearchFilters
+from media_summarizer.core.services.raw_content_service import (
+    get_raw_content,
+    RawContentNotAvailableError,
+)
 from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
@@ -484,3 +488,121 @@ async def patch_media_tags(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update media tags",
         )
+
+
+# ---------- Raw Content models ----------
+
+class RawContentResponse(BaseModel):
+    status: str = "success"
+    media_item_id: str
+    content: str = Field(..., description="Formatted raw content (transcript, extracted text, OCR)")
+    content_type: str = Field(..., description="MIME type of the content (text/plain)")
+    media_type: Optional[str] = Field(None, description="Type of media (podcast, article, video, audio)")
+    source_format: Optional[str] = Field(
+        None,
+        description="Detected source format (deepgram_json, plain_text, article_text, social_post, ocr)",
+    )
+
+
+# ---------- Raw Content endpoint ----------
+
+@router.get("/{media_item_id}/raw-content", response_model=RawContentResponse)
+async def get_media_raw_content(
+    media_item_id: str,
+    request: Request,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Retrieve the raw content (transcript, extracted text, or OCR result) for a media item.
+
+    Returns the formatted source content regardless of media type:
+    - Audio/Video/Podcast: formatted transcript (Deepgram or Whisper)
+    - Articles: extracted text (trafilatura)
+    - Social posts: raw text of the post
+    - Images/PDFs: OCR result
+
+    The response format is consistent: plain text with paragraphs.
+    """
+    token = bind_log_context(user_id=current_user.id, media_item_id=media_item_id)
+    try:
+        job = await database_async.get_processing_job_by_id(media_item_id)
+
+        if job is None:
+            log_event(
+                logger,
+                logging.WARNING,
+                "media.raw_content.not_found",
+                "Media item not found",
+                media_item_id=media_item_id,
+                error_code="MEDIA_NOT_FOUND",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Media item not found",
+            )
+
+        if job.user_id != current_user.id:
+            log_event(
+                logger,
+                logging.WARNING,
+                "media.raw_content.forbidden",
+                "Access denied to media item raw content",
+                media_item_id=media_item_id,
+                error_code="ACCESS_DENIED",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied",
+            )
+
+        raw = await get_raw_content(job)
+
+        log_event(
+            logger,
+            logging.INFO,
+            "media.raw_content.succeeded",
+            "Raw content retrieved",
+            media_item_id=media_item_id,
+            source_format=raw.source_format,
+            content_length=len(raw.content),
+        )
+
+        return RawContentResponse(
+            status="success",
+            media_item_id=media_item_id,
+            content=raw.content,
+            content_type=raw.content_type,
+            media_type=raw.media_type,
+            source_format=raw.source_format,
+        )
+
+    except RawContentNotAvailableError as exc:
+        log_event(
+            logger,
+            logging.INFO,
+            "media.raw_content.not_available",
+            "Raw content not yet available",
+            media_item_id=media_item_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.raw_content.failed",
+            "Failed to retrieve raw content",
+            media_item_id=media_item_id,
+            error_type=type(exc).__name__,
+            error_code="RAW_CONTENT_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve raw content",
+        )
+    finally:
+        reset_log_context(token)
