@@ -1,7 +1,7 @@
 ---
 id: task-85
 title: Implement lexical transcript search per validated benchmark (task-53.1)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-28 16:05'
 labels:

@@ -1,7 +1,7 @@
 ---
 id: task-74
 title: 'Recherche sur métadonnées (titre, tags, source, dossier)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-03-29 21:02'
 updated_date: '2026-03-29 21:18'

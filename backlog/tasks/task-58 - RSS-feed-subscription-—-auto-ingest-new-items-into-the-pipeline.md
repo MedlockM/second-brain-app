@@ -1,7 +1,7 @@
 ---
 id: task-58
 title: RSS feed subscription — auto-ingest new items into the pipeline
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-03-18 16:13'
 updated_date: '2026-03-29 21:19'
