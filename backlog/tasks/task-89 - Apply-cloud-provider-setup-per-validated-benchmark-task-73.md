@@ -1,7 +1,7 @@
 ---
 id: task-89
 title: Apply cloud provider setup per validated benchmark (task-73)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-28 16:05'
 labels:
@@ -23,7 +23,7 @@ Scope covers: provisioning the chosen provider's resources (or adapting existing
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cloud provider choice and topology match the recommendation validated in docs/research/task-73-*/README.md
-- [ ] #2 Runtime configuration and deployment scripts are updated to target the chosen provider
-- [ ] #3 Operational runbooks reference the new provider-specific procedures where applicable
+- [x] #1 Cloud provider choice and topology match the recommendation validated in docs/research/task-73-*/README.md
+- [x] #2 Runtime configuration and deployment scripts are updated to target the chosen provider
+- [x] #3 Operational runbooks reference the new provider-specific procedures where applicable
 <!-- AC:END -->
