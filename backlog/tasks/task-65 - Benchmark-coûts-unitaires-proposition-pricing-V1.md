@@ -62,3 +62,36 @@ Le benchmark doit être exhaustif et basé sur des données réelles (documentat
 - [ ] #4 Comparaison avec les concurrents (Readwise, Snipd, Podcastle, etc.)
 - [ ] #5 Recommandation argumentée respectant la contrainte de 9€/mois max
 <!-- AC:END -->
+
+## Implementation Notes
+
+### Research Output (2026-04-29, REDO)
+
+**Mode:** REDO - Owner rejected previous benchmark with specific feedback on pricing strategy.
+
+**Deliverable:** `/home/marc-medlock/Documents/Perso/dev/media-summarizer-project/docs/research/task-65-pricing-v1-benchmark/README.md` (updated)
+
+**Owner's requirements integrated:**
+1. Free month with no quotas → Calculated average cost per user: **2.82€/month** (based on realistic usage distribution: 50% casual, 35% moderate, 15% intensive)
+2. Tier 5€ with 30% margin → Quota recommendation: **15 podcasts/videos + 40 articles + 8 OCR items** (63 total medias/month) → Actual margin: **41.6%** ✓
+3. Tier 10€ theoretically unlimited → Profitability analysis shows **>20% margin maintained** up to:
+   - **Audio-heavy users** (70% podcasts): 70 total medias = 49 podcasts + 18 articles + 3 OCR
+   - **Balanced users** (40% podcasts): 125 total medias = 50 podcasts + 62 articles + 13 OCR
+   - **Text-heavy users** (25% podcasts): 200 total medias = 50 podcasts + 130 articles + 20 OCR
+4. Transcription cost base: **0.0030€/min** as specified by owner
+
+**Key differences from previous analysis:**
+- Used owner's transcription cost (0.0030€/min) instead of previous 0.0045€/min → 33% cost reduction on audio/video processing
+- Focused on precise quota calculations for 30% margin target (5€ tier) rather than general profitability ranges
+- Detailed breakeven analysis for 10€ tier by user profile (audio-heavy, balanced, text-heavy) to identify unprofitability thresholds
+- Provided specific media count limits (not just general recommendations) for each tier
+- Calculated exact free trial month cost (2.82€ average) with user distribution assumptions
+
+**Recommendation:** 
+- **5€ Standard tier:** 15 podcasts + 40 articles + 8 OCR (41.6% margin)
+- **10€ Premium tier:** Soft limit at 150 medias/month to maintain >20% margin for realistic intensive usage
+- **Free trial:** 1 month, recommend limiting to 30 medias OR requiring credit card to reduce cost risk (avg 2.82€/user)
+
+**Status:** Awaiting owner validation. Recommendation is marked `owner_decision: pending` in the README front-matter.
+
+**Next steps:** Owner will review the README and update `owner_decision` field with one of: `ok`, `abandoned`, `redo`, or `more`.
