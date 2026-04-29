@@ -1,10 +1,11 @@
 ---
 id: task-65
 title: Benchmark coûts unitaires + proposition pricing V1
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - Codex
 created_date: '2026-03-27 15:50'
-updated_date: '2026-04-21 21:52'
+updated_date: '2026-04-29 14:30'
 labels:
   - product
   - pricing
@@ -55,43 +56,57 @@ Le benchmark doit être exhaustif et basé sur des données réelles (documentat
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Coûts unitaires documentés pour chaque service (transcription, LLM, OCR, stockage, compute)
-- [ ] #2 Profils d'utilisation modélisés pour chaque persona avec coût mensuel estimé
-- [ ] #3 Au moins 3 options de pricing analysées avec avantages/inconvénients
+- [x] #1 Coûts unitaires documentés pour chaque service (transcription, LLM, OCR, stockage, compute)
+- [x] #2 Profils d'utilisation modélisés pour chaque persona avec coût mensuel estimé
+- [x] #3 Au moins 3 options de pricing analysées avec avantages/inconvénients
 
-- [ ] #4 Comparaison avec les concurrents (Readwise, Snipd, Podcastle, etc.)
-- [ ] #5 Recommandation argumentée respectant la contrainte de 9€/mois max
+- [x] #4 Comparaison avec les concurrents (Readwise, Snipd, Podcastle, etc.)
+- [x] #5 Recommandation argumentée respectant la contrainte de 9€/mois max
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Reprise REDO du benchmark pricing V1 sur `docs/research/task-65-pricing-v1-benchmark/README.md`.
+
+Plan:
+1. Relire le contexte projet (`README.md`, contrat API canonique) et les benchmarks ouverts indiquant les choix de modèles par type de média.
+2. Identifier précisément les nouveaux modèles LLM retenus pour podcasts/vidéos, articles/liens, PDF/OCR et artefacts.
+3. Vérifier les tarifs fournisseurs actuels sur sources officielles lorsque le coût LLM/pricing dépend d'informations externes.
+4. Mettre à jour le benchmark task-65 avec les hypothèses de modèles, les coûts unitaires recalculés, les impacts sur quotas/marges et la recommandation, en conservant `owner_decision: pending`.
+5. Relire le README modifié pour cohérence et consigner les changements dans la tâche.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
-### Research Output (2026-04-29, REDO)
+<!-- SECTION:NOTES:BEGIN -->
+### Research Output (2026-04-29, REDO refresh with task-72 LLM routing)
 
-**Mode:** REDO - Owner rejected previous benchmark with specific feedback on pricing strategy.
+**Mode:** REDO refresh - Owner requested recalculation with the newly selected LLM models.
 
 **Deliverable:** `/home/marc-medlock/Documents/Perso/dev/media-summarizer-project/docs/research/task-65-pricing-v1-benchmark/README.md` (updated)
 
-**Owner's requirements integrated:**
-1. Free month with no quotas → Calculated average cost per user: **2.82€/month** (based on realistic usage distribution: 50% casual, 35% moderate, 15% intensive)
-2. Tier 5€ with 30% margin → Quota recommendation: **15 podcasts/videos + 40 articles + 8 OCR items** (63 total medias/month) → Actual margin: **41.6%** ✓
-3. Tier 10€ theoretically unlimited → Profitability analysis shows **>20% margin maintained** up to:
-   - **Audio-heavy users** (70% podcasts): 70 total medias = 49 podcasts + 18 articles + 3 OCR
-   - **Balanced users** (40% podcasts): 125 total medias = 50 podcasts + 62 articles + 13 OCR
-   - **Text-heavy users** (25% podcasts): 200 total medias = 50 podcasts + 130 articles + 20 OCR
-4. Transcription cost base: **0.0030€/min** as specified by owner
+**Owner/task-72 decisions integrated:**
+1. Transcription cost base remains **0.0030 EUR/min** of processed audio/video.
+2. LLM routing from task-72 owner validation:
+   - `summary_short`: `gpt-5-nano-2025-08-07`
+   - `summary_detailed`, `flashcards`, `notes`: `gpt-5.4-nano-2026-03-17`
+3. V1 artifact cost now includes `notes` in addition to `summary_short`, `summary_detailed`, and `flashcards`.
 
-**Key differences from previous analysis:**
-- Used owner's transcription cost (0.0030€/min) instead of previous 0.0045€/min → 33% cost reduction on audio/video processing
-- Focused on precise quota calculations for 30% margin target (5€ tier) rather than general profitability ranges
-- Detailed breakeven analysis for 10€ tier by user profile (audio-heavy, balanced, text-heavy) to identify unprofitability thresholds
-- Provided specific media count limits (not just general recommendations) for each tier
-- Calculated exact free trial month cost (2.82€ average) with user distribution assumptions
+**Updated calculations:**
+- LLM V1 complete cost: **0.0052 EUR/media**.
+- Free trial month average cost: **2.99 EUR/user**.
+- Recommended 5 EUR Standard quota: **15 audio/video + 50 articles/texts + 10 OCR**, expected cost **3.20 EUR**, margin **36.1%**.
+- 10 EUR Premium is **not recommended as true unlimited** without fair-use protections.
+- Premium drops below 20% margin around:
+  - Audio-heavy: **73 medias/month** (51 audio + 18 articles + 4 OCR)
+  - Balanced: **122 medias/month** (49 audio + 61 articles + 12 OCR)
+  - Text-heavy: **185 medias/month** (47 audio + 120 articles + 18 OCR)
+- Defendable Premium fair-use guard: **45 audio/video + 100 articles + 20 OCR**, cost **7.76 EUR**, margin **22.4%**.
 
-**Recommendation:** 
-- **5€ Standard tier:** 15 podcasts + 40 articles + 8 OCR (41.6% margin)
-- **10€ Premium tier:** Soft limit at 150 medias/month to maintain >20% margin for realistic intensive usage
-- **Free trial:** 1 month, recommend limiting to 30 medias OR requiring credit card to reduce cost risk (avg 2.82€/user)
+**Recommendation:** Launch with free trial + 5 EUR Standard first; add 10 EUR Premium only with fair-use wording and cost monitoring.
 
 **Status:** Awaiting owner validation. Recommendation is marked `owner_decision: pending` in the README front-matter.
 
-**Next steps:** Owner will review the README and update `owner_decision` field with one of: `ok`, `abandoned`, `redo`, or `more`.
+**Next steps:** Owner reviews the README and updates `owner_decision` with one of: `ok`, `abandoned`, `redo`, or `more`.
+<!-- SECTION:NOTES:END -->

@@ -1,13 +1,13 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark: Cloud Provider Analysis (AWS vs Alternatives)
 
 ## Owner Validation
 
-**Decision**: _(to be filled by owner after review — text describing the final decision: accept recommendation, reject with reasons, accept with modifications, OR if redo, precise correction instructions for next pass)_
-**Validated at**: _(ISO date to be filled by owner)_
+**Decision**: stay with AWS
+**Validated at**: 2026-04-29
 
 ---
 
