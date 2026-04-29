@@ -4,7 +4,7 @@ title: Benchmark document parsing services for user-uploaded files
 status: To Do
 assignee: []
 created_date: '2026-04-29 17:14'
-updated_date: '2026-04-29 17:17'
+updated_date: '2026-04-29'
 labels:
   - benchmark
 dependencies: []
@@ -86,3 +86,75 @@ Evaluated 8 document parsing solutions (5 SaaS APIs + 3 self-hosted/open source)
 All sources cited with URLs to official documentation and verified repositories. Benchmark data from Marker's public GitHub benchmark (https://github.com/VikParuchuri/marker).
 
 **Recommendation awaits owner validation**. Front-matter set to `owner_decision: pending`.
+
+---
+
+**2026-04-29** (research agent, complement mode):
+
+Complement response delivered at `/home/marc-medlock/Documents/Perso/dev/media-summarizer-project/docs/research/task-90-document-parser-benchmark/complement-response-2026-04-29.md`.
+
+**Owner request**: Strategies to optimize parsing costs based on document type (DOCX, PPTX, native PDF, scanned PDF, PNG scans, etc.) to avoid routing all files to expensive OCR-capable parsers when unnecessary.
+
+**Key findings:**
+
+Cost optimization strategies differ significantly by tool architecture:
+
+1. **Native multi-tier APIs** (AWS Textract, Azure Document Intelligence, Unstructured.io):
+   - Explicit API-level routing between cheap (text extraction) and expensive (OCR + layout analysis) tiers
+   - AWS Textract: DetectDocumentText ($1.50/1k pages) vs. AnalyzeDocument Tables ($15/1k) vs. Forms ($50/1k)
+   - Azure: Read API ($1.50-3/1k) vs. Layout API ($10-30/1k)
+   - Unstructured.io: `strategy="fast"` (pdfminer) vs. `"ocr_only"` (Tesseract) vs. `"hi_res"` (detectron2)
+   - **Cost savings potential**: 50-90% via intelligent tier selection
+
+2. **Unified parsers** (LlamaParse, Marker, Docling):
+   - LlamaParse: Variable credit consumption (1+ credits/page), tier parameter for cost control
+   - Marker/Docling: Internal auto-detection, no explicit routing API
+   - **Optimization approach**: Pre-classify documents upstream, use tier parameters when available
+
+3. **Lightweight local tools** (PyMuPDF):
+   - Manual pre-screening via heuristic-based text detection
+   - Pattern: Attempt text extraction → evaluate results (char count) → route to OCR if failed
+   - **Cost savings**: 100% on simple PDFs (zero API cost)
+
+**Recommended architecture**: Two-stage routing with pre-processing detection + tiered parser selection:
+
+- **Tier 0**: File type classification (MIME type, extension)
+- **Tier 1**: Complexity detection for PDFs (text density heuristic via PyMuPDF sampling)
+- **Tier 2**: Parser routing table mapping (file_type, complexity) → optimal parser tier
+
+**Implementation pattern for PyMuPDF pre-screening**:
+```python
+def detect_pdf_complexity(pdf_path):
+    doc = fitz.open(pdf_path)
+    sample_pages = min(3, len(doc))
+    total_chars = sum(len(doc[i].get_text().strip()) for i in range(sample_pages))
+    avg_chars_per_page = total_chars / sample_pages
+    
+    if avg_chars_per_page > 100: return 'simple'  # PyMuPDF route
+    elif avg_chars_per_page > 20: return 'moderate'  # Cheap tier route
+    else: return 'complex'  # OCR tier route
+```
+
+**Cost impact projection** (1,000 docs/month, LlamaParse + PyMuPDF stack):
+- Baseline (no routing): 4,000 credits = $5/month
+- With routing (30% simple → PyMuPDF, 50% moderate → basic tier, 20% complex → advanced): 1,800 credits = $2.25/month
+- **Savings**: 55%
+
+**Phase 1 recommendations** (immediate):
+- Implement PyMuPDF pre-screening for simple PDFs (30-50% savings expected)
+- Add file type routing (DOCX/PPTX/XLSX → LlamaParse, simple PDFs → PyMuPDF first)
+- Cache complexity classifications per document hash
+
+**Phase 2 recommendations** (if costs exceed budget):
+- Evaluate Unstructured.io ($0.03/page flat) for high volume (>10k docs/month)
+- Consider Azure Document Intelligence for Office format support + tiered pricing
+- Hybrid multi-parser architecture (PyMuPDF free + Azure Read API $0.003/page + LlamaParse for complex)
+
+**Additional considerations**:
+- Quality vs. cost trade-offs: Progressive retry logic (start cheap, retry with premium if LLM detects poor quality)
+- Edge cases: PDFs with mixed text/scanned images, password-protected files, very large files (>100 pages)
+- Performance monitoring: Track parser choice, cost, quality score, retry count per document type
+
+All strategies documented with code examples, cost projections, and sources (AWS, Azure, Unstructured.io, LlamaParse, Marker, Docling, PyMuPDF official documentation).
+
+**Recommendation awaits owner validation**. Main README remains unchanged (no front-matter update in complement mode).
