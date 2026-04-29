@@ -58,6 +58,9 @@ class Settings:
         self.QUIZ_QUEUE = os.getenv("QUIZ_QUEUE", "quiz-queue")
         self.NOTES_QUEUE = os.getenv("NOTES_QUEUE", "notes-queue")
         self.FLASHCARDS_QUEUE = os.getenv("FLASHCARDS_QUEUE", "flashcards-queue")
+        self.NEWSLETTER_INGESTION_QUEUE = os.getenv(
+            "NEWSLETTER_INGESTION_QUEUE", "newsletter-ingestion-queue"
+        )
         self.ARTIFACT_TYPES_ALLOWED = os.getenv(
             "ARTIFACT_TYPES_ALLOWED", "summary,summary_short,summary_detailed,quiz,notes,flashcards"
         )
