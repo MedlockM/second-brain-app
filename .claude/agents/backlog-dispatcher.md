@@ -30,7 +30,8 @@ Avant la sélection, scanne tous les READMEs de recherche pour appliquer les dé
    - Ne touche PAS aux tâches d'implémentation qui en dépendent — elles deviennent automatiquement dispatchables à la Phase 1 grâce à la dépendance résolue.
 4. Cas `owner_decision: abandoned` :
    - Récupère la tâche benchmark. Si elle n'est pas déjà archivée : `mcp__backlog__task_archive`.
-   - Liste toutes les tâches (tous statuts) et archive celles qui déclarent cette tâche benchmark comme dépendance (`dependencies: [task-XX]`), quelle que soit leur priorité ou statut.
+   - Identifie la tâche d'implémentation directement associée (celle créée en paire avec le benchmark, reconnaissable par son titre contenant "per validated benchmark (task-XX)" ou par le fait qu'elle ne dépend QUE de ce benchmark). Archive-la via `mcp__backlog__task_archive`.
+   - Pour les AUTRES tâches qui listent cette tâche benchmark dans leurs dépendances : retire la dépendance de leur liste via `mcp__backlog__task_edit` (met à jour le champ `dependencies` sans le benchmark archivé). Ne les archive PAS — elles restent dans le backlog et deviennent potentiellement dispatchables si elles n'ont plus d'autres dépendances non résolues.
 5. Cas `owner_decision: redo` :
    - Archive le README actuel en le renommant : `git mv docs/research/task-XX-<desc>/README.md docs/research/task-XX-<desc>/README.owner-rejected-<ISO-date>.md` (ex: `README.owner-rejected-2026-04-28.md`).
    - Récupère la tâche benchmark. Si son statut est `Done`, repasse-le à `To Do` via `mcp__backlog__task_edit`.

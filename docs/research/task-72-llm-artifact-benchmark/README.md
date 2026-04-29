@@ -1,11 +1,11 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — accept / reject / accept with modifications)_
-**Validated at**: _(date ISO à remplir par l'owner)_
+**Decision**: summary_short : gpt-5-nano-2025-08-07, all other artefacts : gpt-5.4-nano-2026-03-17
+**Validated at**: 2026-04-29
 
 ---
 

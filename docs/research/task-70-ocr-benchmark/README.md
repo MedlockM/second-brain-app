@@ -4,7 +4,7 @@ owner_decision: pending
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — accept / reject / accept with modifications)_
+**Decision**: on attend de voir la recommandation de l'agent qui s'occupe de challenger l'infra prévue
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---
@@ -1343,4 +1343,3 @@ Assuming **Professional Persona** (50 docs/month, 150 pages):
 **Document Version**: 1.0  
 **Last Updated**: 2026-04-28  
 **Author**: Claude Agent (Research Task-70)
-Final decision validated by owner : aws textract

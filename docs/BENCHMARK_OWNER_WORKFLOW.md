@@ -31,7 +31,7 @@ owner_decision: ok
 |---|---|---|---|
 | `pending` | Défaut après production du benchmark. L'owner n'a pas encore relu. | Rien. | Rien (tâche skippée par Phase 1, sauf si un `complement-request-*.md` est ouvert). |
 | `ok` | Benchmark accepté tel quel (ou avec modifications mineures décrites dans `Decision`). | Marque la tâche benchmark `Done` → débloque la tâche d'implémentation liée via sa dépendance. | Rien. |
-| `abandoned` | Benchmark rejeté, la tâche n'est plus à mener. | Archive la tâche benchmark ET toutes les tâches qui en dépendent (la tâche d'implémentation liée disparaît du backlog). | Rien. |
+| `abandoned` | Benchmark rejeté, la tâche n'est plus à mener. | Archive la tâche benchmark ET sa tâche d'implémentation directement associée. Pour les autres tâches ayant une dépendance sur ce benchmark : retire la dépendance (sans les archiver). | Rien. |
 | `redo` | Benchmark insatisfaisant, à refaire entièrement. Consignes de correction obligatoires dans `Decision`. | Renomme le README courant en `README.owner-rejected-<date>.md`, repasse la tâche benchmark à `To Do`. | Mode **redo** : relit tous les `README.owner-rejected-*.md` pour comprendre les rejets précédents, puis produit un nouveau `README.md` qui intègre les feedbacks. |
 | `more` | Benchmark de base OK mais il manque de l'information pour trancher. Consignes précises sur ce qu'il faut ajouter dans `Decision`. | Extrait les consignes dans `complement-request-<date>.md`, remet `owner_decision` à `pending` dans le README (Decision/Validated at gardés pour trace), repasse la tâche benchmark à `To Do`. | Mode **complement** : lit le `complement-request-<date>.md` le plus récent non traité, produit un `complement-response-<date>.md` qui y répond, sans toucher au README principal. |
 

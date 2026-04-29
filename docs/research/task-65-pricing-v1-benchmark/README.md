@@ -1,11 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: redo
 ---
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — accept / reject / accept with modifications)_
-**Validated at**: _(date ISO à remplir par l'owner)_
+**Decision**: il faut refaire les calculs. Ma stratégie sera de livrer l'application avec tel pricing : un mois gratuit sans quotas suivi soit d'un tier à 5€ avec des quotas adaptés par type de media pour faire une marge de 30% soit d'un tier à 10€ théoriquement sans quota (si on trouve qu'on peut marger bien malgré une utilisation intensive mais réaliste de l'user). En plus de calculer les quotas pour le tier à 5€ il faut vérifier quel sera le coût moyen par user pour le mois gratuit ainsi que à partir de quelle combinaison de nombre de medias par type est ce que l'user qui a souscrit au tier de 10€ ne sera plus rentable en dessous de 20%.
+Concernant le pricing de la transcription on va prendre une base de 
+**Validated at**: 2026-04-29
 
 ---
 
