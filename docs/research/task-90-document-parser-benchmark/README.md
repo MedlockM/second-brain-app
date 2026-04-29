@@ -1,5 +1,5 @@
 ---
-owner_decision: more
+owner_decision: pending
 ---
 
 # Benchmark: Document Parsing Services for User-Uploaded Files

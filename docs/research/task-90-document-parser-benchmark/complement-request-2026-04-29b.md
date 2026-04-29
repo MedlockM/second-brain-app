@@ -1,0 +1,1 @@
+bien que j'aime la solution llamaparse free tier + fallback gratuit il faut quand meme que le fallback soit capable de traiter beaucoup de  différents formats de fichiers en input. Propose une nouvelle solution
