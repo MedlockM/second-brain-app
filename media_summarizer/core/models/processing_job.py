@@ -39,6 +39,11 @@ class ProcessingJob(BaseModel):
     media_image: Optional[str] = None
     user_email: str = Field(..., min_length=1)
 
+    # Searchable metadata
+    title: Optional[str] = None  # Display title of the media item
+    source_platform: Optional[str] = None  # e.g. youtube, spotify, tiktok, web, audio
+    media_type: Optional[str] = None  # e.g. podcast, article, video, audio
+
     # Processing metadata
 
     # File locations
@@ -129,6 +134,9 @@ class ProcessingJob(BaseModel):
             "media_url",
             "media_key",
             "media_image",
+            "title",
+            "source_platform",
+            "media_type",
             "audio_s3_key",
             "transcription_s3_key",
             "summary_s3_key",

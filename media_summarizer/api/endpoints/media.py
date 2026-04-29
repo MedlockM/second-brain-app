@@ -21,6 +21,8 @@ from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services import minute_pool
 from media_summarizer.core.services import folder_service
 from media_summarizer.core.services import tag_service
+from media_summarizer.core.services import media_search_service
+from media_summarizer.core.services.media_search_service import SearchFilters
 from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
@@ -114,7 +116,98 @@ class PatchMediaTagsResponse(BaseModel):
     previous_tag_ids: List[str]
 
 
+# ---------- Search / List models ----------
+
+class MediaSearchItem(BaseModel):
+    media_item_id: str
+    title: Optional[str] = None
+    source_platform: Optional[str] = None
+    media_type: Optional[str] = None
+    status: str
+    folder_id: Optional[str] = None
+    tag_ids: List[str] = Field(default_factory=list)
+    source_url: Optional[str] = None
+    media_image: Optional[str] = None
+    created_at: str
+    updated_at: str
+    completed_at: Optional[str] = None
+    progress: int
+    error_message: Optional[str] = None
+
+
+class MediaSearchResponse(BaseModel):
+    status: str = "success"
+    items: List[MediaSearchItem]
+    total: int = Field(..., description="Total number of items matching filters")
+    next_cursor: Optional[str] = Field(None, description="Cursor for next page")
+    has_more: bool = Field(..., description="Whether more items are available")
+
+
 # ---------- Endpoints ----------
+
+@router.get("", response_model=MediaSearchResponse)
+async def search_media(
+    q: Optional[str] = None,
+    tags: Optional[str] = None,
+    folder_id: Optional[str] = None,
+    source: Optional[str] = None,
+    type: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    cursor: Optional[str] = None,
+    limit: int = 20,
+    current_user: AuthUser = Depends(get_current_user),
+) -> MediaSearchResponse:
+    """Search and list user's media items with metadata filters.
+
+    Query Parameters:
+        q: Text search on title (case-insensitive substring match)
+        tags: Comma-separated tag IDs to filter by (any match)
+        folder_id: Filter by folder (includes sub-folders)
+        source: Filter by source platform (youtube, tiktok, web, audio, etc.)
+        type: Filter by media type (video, article, podcast, audio)
+        status_filter: Filter by job status (pending, completed, failed, etc.)
+        cursor: Pagination cursor from previous response
+        limit: Page size (1-100, default 20)
+    """
+    try:
+        # Parse comma-separated tags
+        tag_list: Optional[List[str]] = None
+        if tags:
+            tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+
+        filters = SearchFilters(
+            q=q,
+            tags=tag_list,
+            folder_id=folder_id,
+            source=source,
+            media_type=type,
+            status=status_filter,
+        )
+
+        result = await media_search_service.search_media(
+            user_id=current_user.id,
+            filters=filters,
+            cursor=cursor,
+            limit=limit,
+        )
+
+        items = [MediaSearchItem(**item) for item in result.items]
+
+        return MediaSearchResponse(
+            status="success",
+            items=items,
+            total=result.total_filtered,
+            next_cursor=result.next_cursor,
+            has_more=result.has_more,
+        )
+
+    except Exception as e:
+        logger.error(f"Error searching media for user {current_user.id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to search media items",
+        )
+
 
 @router.post("/ingest-url", response_model=IngestUrlResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_url(
@@ -146,7 +239,23 @@ async def ingest_url(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-        job = ProcessingJob(user_id=user.id, user_email=user.email, source_url=url)
+        # Derive media_type from source_platform
+        _platform_to_media_type = {
+            "youtube": "video",
+            "tiktok": "video",
+            "instagram": "video",
+            "audio": "audio",
+            "web": "article",
+        }
+        detected_media_type = _platform_to_media_type.get(source_platform, "podcast")
+
+        job = ProcessingJob(
+            user_id=user.id,
+            user_email=user.email,
+            source_url=url,
+            source_platform=source_platform,
+            media_type=detected_media_type,
+        )
 
         # Associate tags at ingestion time if provided
         if payload.tag_ids:
