@@ -102,6 +102,17 @@ class Settings:
             os.getenv("GETINSAVER_TIMEOUT_SECONDS", "20")
         )
 
+        # Document Parsing Configuration
+        self.LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY", "")
+        self.LLAMAPARSE_TIMEOUT_SECONDS = int(os.getenv("LLAMAPARSE_TIMEOUT_SECONDS", "120"))
+        self.UNSTRUCTURED_API_KEY = os.getenv("UNSTRUCTURED_API_KEY", "")
+        self.UNSTRUCTURED_API_URL = os.getenv(
+            "UNSTRUCTURED_API_URL", "https://api.unstructuredapp.io"
+        )
+        self.UNSTRUCTURED_TIMEOUT_SECONDS = int(os.getenv("UNSTRUCTURED_TIMEOUT_SECONDS", "120"))
+        self.DOCUMENT_BUCKET = os.getenv("DOCUMENT_BUCKET", "media-summarizer-documents")
+        self.DOCUMENT_PARSING_QUEUE = os.getenv("DOCUMENT_PARSING_QUEUE", "document-parsing-queue")
+
         # Podcast Index Configuration
         self.PODCASTINDEXORG_API_KEY = os.getenv("PODCASTINDEXORG_API_KEY", "")
         self.PODCASTINDEXORG_API_SECRET = os.getenv("PODCASTINDEXORG_API_SECRET", "")

@@ -1,0 +1,380 @@
+"""
+Document parsing ingestion worker.
+
+Polls the document-parsing-queue, downloads the uploaded file from S3,
+parses it via LlamaParse (primary) with fallback to Unstructured API,
+uploads the resulting markdown to the transcript bucket, and emits a
+completion event to continue the downstream LLM pipeline.
+
+Owner decision (task-90): LlamaParse free tier API cloud -> fallback Unstructured API.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import tempfile
+import time
+from io import BytesIO
+from math import ceil
+from pathlib import Path
+from typing import Any, Dict
+
+from media_summarizer.core.ports.document_parser import (
+    DocumentFormat,
+    DocumentParserPort,
+    ParseError,
+    ParseErrorCode,
+    ParseResult,
+)
+from media_summarizer.infrastructure.resolvers.llamaparse_resolver import (
+    LlamaParseResolver,
+)
+from media_summarizer.infrastructure.resolvers.unstructured_resolver import (
+    UnstructuredResolver,
+)
+from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.logging_config import (
+    bind_log_context,
+    log_event,
+    reset_log_context,
+    setup_logging,
+)
+from media_summarizer.workers.base_worker import process_message_with_retry
+
+logger = logging.getLogger(__name__)
+
+# Configuration
+DOCUMENT_BUCKET = os.environ.get("DOCUMENT_BUCKET", "media-summarizer-documents")
+TRANSCRIPT_BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcriptions")
+DOCUMENT_PARSING_QUEUE = os.environ.get("DOCUMENT_PARSING_QUEUE", "document-parsing-queue")
+EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+)
+SEARCH_INDEXING_QUEUE = os.environ.get("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
+
+# Visibility timeout: document parsing can take up to 2-3 minutes
+DOCUMENT_PARSING_VISIBILITY_TIMEOUT = int(
+    os.environ.get("DOCUMENT_PARSING_VISIBILITY_TIMEOUT", "600")
+)
+
+# Resolvers (instantiated at module level for reuse across messages)
+_llamaparse: DocumentParserPort = LlamaParseResolver()
+_unstructured: DocumentParserPort = UnstructuredResolver()
+
+
+def _detect_format(file_name: str) -> DocumentFormat | None:
+    """Detect the document format from the file name extension."""
+    ext = Path(file_name).suffix.lstrip(".")
+    return DocumentFormat.from_extension(ext)
+
+
+async def parse_document_with_fallback(
+    file_path: str,
+    file_name: str,
+    document_format: DocumentFormat,
+) -> ParseResult | ParseError:
+    """
+    Attempt parsing with LlamaParse, falling back to Unstructured on failure.
+
+    Fallback triggers:
+    - LlamaParse returns a retryable error (rate limit, timeout, network)
+    - LlamaParse returns an API error
+
+    Does NOT fallback if:
+    - The format itself is unsupported (both services support all our formats)
+    - LlamaParse returns a non-retryable auth error and Unstructured also has
+      no key configured (both would fail)
+    """
+    # Primary: LlamaParse
+    primary_result = await _llamaparse.parse(file_path, file_name, document_format)
+
+    if isinstance(primary_result, ParseResult):
+        log_event(
+            logger,
+            logging.INFO,
+            "document_parsing.primary_success",
+            "Document parsed successfully with LlamaParse",
+            provider="llamaparse",
+            page_count=primary_result.page_count,
+        )
+        return primary_result
+
+    # Primary failed -- log and attempt fallback
+    assert isinstance(primary_result, ParseError)
+    log_event(
+        logger,
+        logging.WARNING,
+        "document_parsing.primary_failed",
+        "LlamaParse failed, attempting Unstructured fallback",
+        provider="llamaparse",
+        error_code=primary_result.code.value,
+        error_message=primary_result.message,
+    )
+
+    # Fallback: Unstructured API
+    fallback_result = await _unstructured.parse(file_path, file_name, document_format)
+
+    if isinstance(fallback_result, ParseResult):
+        log_event(
+            logger,
+            logging.INFO,
+            "document_parsing.fallback_success",
+            "Document parsed successfully with Unstructured (fallback)",
+            provider="unstructured",
+            page_count=fallback_result.page_count,
+        )
+        return fallback_result
+
+    # Both failed
+    assert isinstance(fallback_result, ParseError)
+    log_event(
+        logger,
+        logging.ERROR,
+        "document_parsing.all_failed",
+        "Both LlamaParse and Unstructured failed to parse document",
+        primary_error=primary_result.message,
+        fallback_error=fallback_result.message,
+    )
+
+    # Return the fallback error (most recent) with context about both failures
+    return ParseError(
+        code=fallback_result.code,
+        message=(
+            f"All parsers failed. "
+            f"LlamaParse: {primary_result.message}. "
+            f"Unstructured: {fallback_result.message}"
+        ),
+        provider="llamaparse+unstructured",
+        retryable=primary_result.retryable or fallback_result.retryable,
+    )
+
+
+async def process_document_parsing_message(message_body: Dict[str, Any]) -> None:
+    """
+    Process a single document parsing message.
+
+    Expected message schema:
+    {
+        "job_id": str,
+        "user_id": str,
+        "document_s3_key": str,
+        "file_name": str,
+        "media_key": str,
+        "media_title": str (optional),
+    }
+    """
+    job_id = message_body.get("job_id")
+    user_id = message_body.get("user_id")
+    document_s3_key = message_body.get("document_s3_key")
+    file_name = message_body.get("file_name", "")
+    media_key = message_body.get("media_key")
+    media_title = message_body.get("media_title", file_name)
+
+    if not all([job_id, document_s3_key, file_name]):
+        raise ValueError(
+            f"Missing required fields in document parsing message: "
+            f"job_id={job_id}, document_s3_key={document_s3_key}, file_name={file_name}"
+        )
+
+    context_token = bind_log_context(job_id=job_id, source_platform="document")
+    try:
+        log_event(
+            logger,
+            logging.INFO,
+            "worker.document_parsing.started",
+            "Document parsing started",
+            job_id=job_id,
+            file_name=file_name,
+        )
+
+        # Detect format
+        document_format = _detect_format(file_name)
+        if document_format is None:
+            ext = Path(file_name).suffix
+            raise ValueError(
+                f"Unsupported document format: '{ext}'. "
+                f"Supported: {', '.join(sorted(DocumentFormat.supported_extensions()))}"
+            )
+
+        # Update job status to transcribing (document parsing is analogous)
+        job = await database_async.get_processing_job_by_id(job_id)
+        if job:
+            job.mark_transcribing()
+            await database_async.update_processing_job(job)
+
+        # Download document from S3
+        with tempfile.TemporaryDirectory() as temp_dir:
+            local_path = os.path.join(temp_dir, file_name)
+            await s3.download_file(
+                bucket=DOCUMENT_BUCKET,
+                key=document_s3_key,
+                file_path=local_path,
+            )
+
+            if not os.path.exists(local_path) or os.path.getsize(local_path) == 0:
+                raise ValueError("Downloaded document file is empty or missing")
+
+            # Parse with fallback
+            start_time = time.time()
+            result = await parse_document_with_fallback(
+                file_path=local_path,
+                file_name=file_name,
+                document_format=document_format,
+            )
+            parse_duration = time.time() - start_time
+
+        # Handle result
+        if isinstance(result, ParseError):
+            error_msg = f"Document parsing failed: {result.message}"
+            if job:
+                job.mark_failed(error_message=error_msg, error_step="document_parsing")
+                await database_async.update_processing_job(job)
+            raise RuntimeError(error_msg)
+
+        # Success: upload markdown to transcript bucket
+        assert isinstance(result, ParseResult)
+        transcript_s3_key = f"{job_id}.md"
+        markdown_bytes = result.markdown_content.encode("utf-8")
+
+        await s3.upload_file_object(
+            bucket=TRANSCRIPT_BUCKET,
+            key=transcript_s3_key,
+            file_obj=BytesIO(markdown_bytes),
+            content_type="text/markdown",
+            metadata={
+                "content-type": "text/markdown",
+                "job-type": "document-parsing",
+                "parser-provider": result.provider,
+                "page-count": str(result.page_count),
+            },
+        )
+
+        # Update job metadata
+        if job:
+            job.set_transcription_location(transcript_s3_key)
+            job.set_processing_duration("transcription", int(parse_duration))
+            job.title = media_title
+            job.source_platform = "document"
+            job.media_type = "document"
+            await database_async.update_processing_job(job)
+
+        # Emit completion event for downstream pipeline
+        await sqs.send_message(
+            queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+            message_body={
+                "event_type": "episode_completion_status",
+                "status": "success",
+                "media_key": media_key,
+                "canonical_job_id": job_id,
+                "minutes_used": 1,  # Documents use 1 minute credit per parse
+                "transcription_s3_key": transcript_s3_key,
+                "transcription_metadata": {
+                    "provider": result.provider,
+                    "source": "document_upload",
+                    "page_count": result.page_count,
+                    "parse_duration_seconds": int(parse_duration),
+                    "parsed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                },
+            },
+        )
+
+        # Emit search indexing event
+        try:
+            await sqs.send_message(
+                queue_name=SEARCH_INDEXING_QUEUE,
+                message_body={
+                    "media_item_id": job_id,
+                    "user_id": user_id,
+                    "transcription_s3_key": transcript_s3_key,
+                    "title": media_title,
+                    "source_platform": "document",
+                    "created_at": int(time.time()),
+                },
+            )
+        except Exception as search_err:
+            logger.warning(
+                "Failed to emit search indexing message for job %s: %s",
+                job_id,
+                search_err,
+            )
+
+        log_event(
+            logger,
+            logging.INFO,
+            "worker.document_parsing.completed",
+            "Document parsing completed",
+            job_id=job_id,
+            provider=result.provider,
+            page_count=result.page_count,
+            duration_seconds=int(parse_duration),
+        )
+
+    finally:
+        reset_log_context(context_token)
+
+
+async def process_message(message: Dict[str, Any]) -> None:
+    """
+    Process an SQS message for document parsing.
+
+    Handles both direct message body (testing) and SQS format (production).
+    """
+    if message is None:
+        raise ValueError("Message is None")
+
+    if "Body" in message:
+        try:
+            body = json.loads(message["Body"])
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in message body: {str(e)}")
+    else:
+        body = message
+
+    await process_document_parsing_message(body)
+
+
+async def poll_queue() -> None:
+    """Poll the SQS queue for document parsing messages."""
+    logger.info("Starting document parsing worker - polling queue")
+
+    while True:
+        try:
+            messages = await sqs.receive_messages(
+                queue_name=DOCUMENT_PARSING_QUEUE,
+                max_messages=1,
+                wait_time_seconds=20,
+                visibility_timeout=DOCUMENT_PARSING_VISIBILITY_TIMEOUT,
+            )
+
+            if messages:
+                for message in messages:
+                    await process_message_with_retry(
+                        message=message,
+                        processor=process_message,
+                        queue_name=DOCUMENT_PARSING_QUEUE,
+                        max_retries=3,
+                        worker_name="document_parsing",
+                    )
+
+            await asyncio.sleep(1)
+
+        except Exception as e:
+            logger.error("Error polling document parsing queue: %s", str(e))
+            await asyncio.sleep(5)
+
+
+async def main() -> None:
+    """Main entry point for the document parsing worker."""
+    logger.info("Starting document parsing worker")
+    logger.info("Document bucket: %s", DOCUMENT_BUCKET)
+    logger.info("Transcript bucket: %s", TRANSCRIPT_BUCKET)
+    logger.info("Queue: %s", DOCUMENT_PARSING_QUEUE)
+    await poll_queue()
+
+
+if __name__ == "__main__":
+    setup_logging("worker-document-parsing")
+    asyncio.run(main())
