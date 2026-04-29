@@ -15,7 +15,7 @@ import aioboto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from media_summarizer.core.models import User, ProcessingJob, JobStatus, Folder, Tag
+from media_summarizer.core.models import User, ProcessingJob, JobStatus, Folder, Tag, UserRssFeed
 from media_summarizer.core.models.auth import AuthToken, TokenType
 from media_summarizer.utils.logging_config import (
     get_runtime_aws_endpoint_url,
@@ -42,6 +42,7 @@ AUTH_TOKENS_TABLE = os.environ.get("AUTH_TOKENS_TABLE", "auth_tokens")
 STRIPE_EVENTS_TABLE = os.environ.get("STRIPE_EVENTS_TABLE", "stripe_events")
 USER_FOLDERS_TABLE = os.environ.get("USER_FOLDERS_TABLE", "user_folders")
 USER_TAGS_TABLE = os.environ.get("USER_TAGS_TABLE", "user_tags")
+USER_RSS_FEEDS_TABLE = os.environ.get("USER_RSS_FEEDS_TABLE", "user_rss_feeds")
 
 # Session aioboto3 for async operations (created lazily)
 _session = None
@@ -929,5 +930,162 @@ async def delete_tag(tag_id: str) -> bool:
             e,
             table=USER_TAGS_TABLE,
             tag_id=tag_id,
+        )
+        raise
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RSS Feed operations
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def create_rss_feed(feed: UserRssFeed) -> UserRssFeed:
+    """Create a new RSS feed subscription in DynamoDB."""
+    session = get_session()
+    async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+        table = await dynamodb.Table(USER_RSS_FEEDS_TABLE)
+        try:
+            await table.put_item(
+                Item=feed.to_dynamodb_item(),
+                ConditionExpression="attribute_not_exists(id)",
+            )
+            _log_dynamodb_success(
+                "create_rss_feed",
+                table=USER_RSS_FEEDS_TABLE,
+                feed_id=feed.id,
+                user_id=feed.user_id,
+            )
+            return feed
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                raise ValueError(f"RSS feed with ID {feed.id} already exists")
+            _log_dynamodb_error(
+                "create_rss_feed",
+                e,
+                table=USER_RSS_FEEDS_TABLE,
+                feed_id=feed.id,
+            )
+            raise
+
+
+async def get_rss_feed_by_id(feed_id: str) -> Optional[UserRssFeed]:
+    """Get an RSS feed subscription by ID."""
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(USER_RSS_FEEDS_TABLE)
+            response = await table.get_item(Key={"id": feed_id})
+            if "Item" in response:
+                return UserRssFeed.from_dynamodb_item(response["Item"])
+            return None
+    except ClientError as e:
+        _log_dynamodb_error(
+            "get_rss_feed_by_id",
+            e,
+            table=USER_RSS_FEEDS_TABLE,
+            feed_id=feed_id,
+        )
+        raise
+
+
+async def get_rss_feeds_by_user_id(user_id: str) -> List[UserRssFeed]:
+    """Get all RSS feed subscriptions for a user."""
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(USER_RSS_FEEDS_TABLE)
+            response = await table.query(
+                IndexName="user-index",
+                KeyConditionExpression=Key("user_id").eq(user_id),
+            )
+            items = response.get("Items", [])
+            return [UserRssFeed.from_dynamodb_item(item) for item in items]
+    except ClientError as e:
+        _log_dynamodb_error(
+            "get_rss_feeds_by_user_id",
+            e,
+            table=USER_RSS_FEEDS_TABLE,
+            user_id=user_id,
+        )
+        raise
+
+
+async def get_active_rss_feeds() -> List[UserRssFeed]:
+    """Get all active RSS feed subscriptions (for polling worker).
+
+    Uses a GSI on status to efficiently retrieve only active feeds.
+    Falls back to a full scan with filter if the index does not exist.
+    """
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(USER_RSS_FEEDS_TABLE)
+            try:
+                response = await table.query(
+                    IndexName="status-index",
+                    KeyConditionExpression=Key("status").eq("active"),
+                )
+            except ClientError as idx_err:
+                if idx_err.response["Error"]["Code"] == "ValidationException":
+                    # Fallback: scan with filter
+                    from boto3.dynamodb.conditions import Attr
+                    response = await table.scan(
+                        FilterExpression=Attr("status").eq("active"),
+                    )
+                else:
+                    raise
+            items = response.get("Items", [])
+            return [UserRssFeed.from_dynamodb_item(item) for item in items]
+    except ClientError as e:
+        _log_dynamodb_error(
+            "get_active_rss_feeds",
+            e,
+            table=USER_RSS_FEEDS_TABLE,
+        )
+        raise
+
+
+async def update_rss_feed(feed: UserRssFeed) -> UserRssFeed:
+    """Update an RSS feed subscription in DynamoDB."""
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(USER_RSS_FEEDS_TABLE)
+            await table.put_item(Item=feed.to_dynamodb_item())
+            _log_dynamodb_success(
+                "update_rss_feed",
+                table=USER_RSS_FEEDS_TABLE,
+                feed_id=feed.id,
+            )
+            return feed
+    except ClientError as e:
+        _log_dynamodb_error(
+            "update_rss_feed",
+            e,
+            table=USER_RSS_FEEDS_TABLE,
+            feed_id=feed.id,
+        )
+        raise
+
+
+async def delete_rss_feed(feed_id: str) -> bool:
+    """Delete an RSS feed subscription from DynamoDB."""
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(USER_RSS_FEEDS_TABLE)
+            await table.delete_item(Key={"id": feed_id})
+            _log_dynamodb_success(
+                "delete_rss_feed",
+                table=USER_RSS_FEEDS_TABLE,
+                feed_id=feed_id,
+            )
+            return True
+    except ClientError as e:
+        _log_dynamodb_error(
+            "delete_rss_feed",
+            e,
+            table=USER_RSS_FEEDS_TABLE,
+            feed_id=feed_id,
         )
         raise
