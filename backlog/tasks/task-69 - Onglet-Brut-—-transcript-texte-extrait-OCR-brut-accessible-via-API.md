@@ -11,7 +11,6 @@ labels:
   - v1
 dependencies:
   - task-33
-  - task-60
   - task-70
 priority: high
 ---
