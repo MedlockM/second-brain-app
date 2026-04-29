@@ -590,6 +590,39 @@ resource "aws_dynamodb_table" "user_folders" {
   tags = { Name = "user_folders", Environment = local.environment, Project = local.project }
 }
 
+# User digests table (daily/weekly in-app digests)
+resource "aws_dynamodb_table" "user_digests" {
+  name         = "user_digests"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+  range_key    = "digest_key"
+
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "digest_key"
+    type = "S"
+  }
+
+  tags = { Name = "user_digests", Environment = local.environment, Project = local.project }
+}
+
+# User digest settings table (per-user digest preferences)
+resource "aws_dynamodb_table" "user_digest_settings" {
+  name         = "user_digest_settings"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "user_id"
+
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+
+  tags = { Name = "user_digest_settings", Environment = local.environment, Project = local.project }
+}
+
 # -------------------- S3 Buckets --------------------
 resource "aws_s3_bucket" "audio" {
   bucket        = "media-summarizer-audio"
@@ -795,6 +828,8 @@ output "dynamodb_tables" {
     aws_dynamodb_table.user_review_settings.name,
     aws_dynamodb_table.user_tags.name,
     aws_dynamodb_table.user_folders.name,
+    aws_dynamodb_table.user_digests.name,
+    aws_dynamodb_table.user_digest_settings.name,
   ]
 }
 
@@ -812,8 +847,20 @@ output "sqs_queues" {
     aws_sqs_queue.flashcards.name,
     aws_sqs_queue.email_notification.name,
     aws_sqs_queue.episode_completed.name,
+    aws_sqs_queue.push_notification.name,
     aws_sqs_queue.spotify_sync.name,
   ]
+}
+
+# Push notification queue (for weekly digest notifications)
+resource "aws_sqs_queue" "push_notification_dlq" { name = "push-notification-dlq" }
+resource "aws_sqs_queue" "push_notification" {
+  name = "push-notification-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.push_notification_dlq.arn
+    maxReceiveCount     = 3
+  })
 }
 
 # Spotify Sync Queue

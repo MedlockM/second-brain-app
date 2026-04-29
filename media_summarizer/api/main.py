@@ -16,6 +16,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from media_summarizer.api.endpoints import (
     artifacts,
+    digest,
     health,
     jobs,
     media,
@@ -178,6 +179,7 @@ app.include_router(review.router, prefix="/api", tags=["review"])
 app.include_router(tags.router, prefix="/api/tags", tags=["tags"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(feeds.router, prefix="/api/feeds", tags=["feeds"])
+app.include_router(digest.router, prefix="/api", tags=["digest"])
 
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---
 from fastapi.openapi.utils import get_openapi

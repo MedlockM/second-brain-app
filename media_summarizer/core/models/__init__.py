@@ -28,6 +28,13 @@ from .folder import Folder, UNCATEGORIZED_FOLDER_NAME, MAX_FOLDER_DEPTH
 from .review_schedule import ReviewScheduleRecord, CardState, UserReviewSettings
 from .rss_feed import UserRssFeed, FeedStatus
 from .tag import Tag
+from .digest import (
+    DigestRecord,
+    DigestType,
+    DigestStatus,
+    DigestMediaItem,
+    UserDigestSettings,
+)
 
 # Export all models
 __all__ = [
@@ -58,4 +65,9 @@ __all__ = [
     "UserRssFeed",
     "FeedStatus",
     "Tag",
+    "DigestRecord",
+    "DigestType",
+    "DigestStatus",
+    "DigestMediaItem",
+    "UserDigestSettings",
 ]
