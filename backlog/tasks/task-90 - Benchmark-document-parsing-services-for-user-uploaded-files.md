@@ -37,3 +37,52 @@ Livrable : `docs/research/task-90-document-parser-benchmark/README.md` avec tabl
 
 - [ ] #6 Recommandation finale argumentée avec trade-offs explicites
 <!-- AC:END -->
+
+## Implementation Notes
+
+**2026-04-29** (research agent, initial mode):
+
+Research completed and delivered at `/home/marc-medlock/Documents/Perso/dev/media-summarizer-project/docs/research/task-90-document-parser-benchmark/README.md`.
+
+**Summary of findings:**
+
+Evaluated 8 document parsing solutions (5 SaaS APIs + 3 self-hosted/open source):
+- **SaaS**: LlamaParse, Unstructured.io, AWS Textract, Google Document AI, Azure Document Intelligence
+- **Self-hosted**: Marker, Docling, PyMuPDF
+
+**Recommendation**: LlamaParse (SaaS) as primary parser + PyMuPDF (self-hosted) as fallback for simple PDFs.
+
+**Rationale**:
+- Cost-effective: Free tier (10k credits/month) sufficient for MVP; Starter tier ($50/month) covers growth phase
+- Best accuracy: 95.67% on complex documents (per Marker benchmark comparing LlamaParse vs competitors)
+- Format coverage: 130+ formats including all user upload scenarios (PDF, DOCX, XLSX, PPTX, images)
+- Zero infrastructure: Fully managed SaaS removes deployment overhead for solo dev
+- Markdown output: Native markdown generation ideal for LLM pipeline downstream
+- Risk mitigation: PyMuPDF fallback prevents vendor lock-in and handles simple PDFs at zero cost
+
+**Cost projection (1,000 docs/month, avg 2 pages/doc)**:
+- Phase 1 (MVP): $0 (free tier)
+- Phase 2 (growth): $50/month (Starter tier)
+- Phase 3 (scale, >10k docs/month): Consider migrating to Unstructured.io flat $0.03/page rate
+
+**Comparison matrix includes**:
+- Detailed cost analysis per solution with projections
+- Format support by solution (PDF, Office, images, specialized formats)
+- Feature comparison (OCR, table extraction, layout detection, metadata, chunking, markdown output)
+- Quality benchmarks (Marker's public benchmark: LlamaParse vs Marker vs Docling vs Mathpix)
+- Latency data where publicly available
+
+**Trade-offs accepted**:
+- Vendor lock-in risk (mitigated by PyMuPDF fallback and abstracted parser interface)
+- Credit limits at scale (clear upgrade path to Unstructured.io if volume exceeds LlamaParse economics)
+- Table extraction on very complex tables may require manual verification
+
+**Alternative paths documented**:
+- Zero budget: PyMuPDF + Unstructured.io open source (self-host)
+- High volume (>10k docs/month): Unstructured.io SaaS
+- Offline/air-gapped: Marker or Docling (self-host)
+- Cloud-native: AWS/GCP/Azure Document AI + PyMuPDF fallback
+
+All sources cited with URLs to official documentation and verified repositories. Benchmark data from Marker's public GitHub benchmark (https://github.com/VikParuchuri/marker).
+
+**Recommendation awaits owner validation**. Front-matter set to `owner_decision: pending`.
