@@ -2,28 +2,30 @@
 Media API endpoints.
 
 Provides operations on media items (processing jobs from the user's perspective).
-Supports URL ingestion, status retrieval, and folder assignment via PATCH.
+Supports URL ingestion, file upload (document parsing), status retrieval, and folder assignment via PATCH.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import uuid
 from typing import List, Optional
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, status
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.ports.document_parser import DocumentFormat
 from media_summarizer.core.services import minute_pool
 from media_summarizer.core.services import folder_service
 from media_summarizer.core.services import tag_service
 from media_summarizer.core.services import media_search_service
 from media_summarizer.core.services.media_search_service import SearchFilters
-from media_summarizer.utils import database_async, sqs
+from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
 router = APIRouter()
@@ -40,6 +42,11 @@ TIKTOK_INGESTION_QUEUE = os.environ.get("TIKTOK_INGESTION_QUEUE", "tiktok-ingest
 INSTAGRAM_INGESTION_QUEUE = os.environ.get("INSTAGRAM_INGESTION_QUEUE", "instagram-ingestion-queue")
 PODCASTINDEX_RESOLUTION_QUEUE = os.environ.get("PODCASTINDEX_RESOLUTION_QUEUE", "podcastindex-resolution-queue")
 ARTICLE_EXTRACTION_QUEUE = os.environ.get("ARTICLE_EXTRACTION_QUEUE", "article-extraction-queue")
+DOCUMENT_PARSING_QUEUE = os.environ.get("DOCUMENT_PARSING_QUEUE", "document-parsing-queue")
+DOCUMENT_BUCKET = os.environ.get("DOCUMENT_BUCKET", "media-summarizer-documents")
+
+# Max upload size: 50MB
+MAX_UPLOAD_SIZE_BYTES = int(os.environ.get("MAX_UPLOAD_SIZE_BYTES", str(50 * 1024 * 1024)))
 
 REQUIRED_MINUTES = 1
 
@@ -75,6 +82,13 @@ class IngestUrlResponse(BaseModel):
     media_item_id: str
     status: str
     source_platform: str
+
+
+class UploadDocumentResponse(BaseModel):
+    media_item_id: str
+    status: str
+    source_platform: str = "document"
+    file_name: str
 
 
 class MediaItemResponse(BaseModel):
@@ -353,6 +367,134 @@ async def ingest_url(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to ingest URL",
+        )
+    finally:
+        reset_log_context(token)
+
+
+@router.post("/upload", response_model=UploadDocumentResponse, status_code=status.HTTP_202_ACCEPTED)
+async def upload_document(
+    file: UploadFile = File(...),
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """
+    Upload a document file for parsing and ingestion.
+
+    Supported formats: PDF, DOCX, PPTX, XLSX, JPG, JPEG, PNG, TIFF, BMP, HEIF.
+    The document will be parsed using LlamaParse (primary) with fallback to
+    Unstructured API, then fed into the downstream LLM pipeline.
+
+    Returns 202 Accepted with the media_item_id to poll for status.
+    """
+    file_name = file.filename or "document"
+    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+
+    token = bind_log_context(user_id=current_user.id, source_platform="document")
+    try:
+        # Validate file extension
+        if not ext or ext not in DocumentFormat.supported_extensions():
+            supported = ", ".join(sorted(DocumentFormat.supported_extensions()))
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported file format: '.{ext}'. Supported formats: {supported}",
+            )
+
+        # Read file content (with size check)
+        content = await file.read()
+        if len(content) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty",
+            )
+        if len(content) > MAX_UPLOAD_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large. Maximum size: {MAX_UPLOAD_SIZE_BYTES // (1024*1024)}MB",
+            )
+
+        user = await database_async.get_user_by_id(current_user.id)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+        # Create processing job
+        job = ProcessingJob(
+            user_id=user.id,
+            user_email=user.email,
+            source_url="",
+            source_platform="document",
+            media_type="document",
+            title=file_name,
+        )
+        job = await database_async.create_processing_job(job)
+
+        # Allocate 1 minute credit for document parsing
+        await minute_pool.allocate_hold_for_job(
+            user_id=user.id,
+            job_id=job.id,
+            minutes_estimated=REQUIRED_MINUTES,
+        )
+
+        # Upload document to S3
+        document_s3_key = f"{job.id}/{file_name}"
+        from io import BytesIO
+
+        await s3.upload_file_object(
+            bucket=DOCUMENT_BUCKET,
+            key=document_s3_key,
+            file_obj=BytesIO(content),
+            content_type=file.content_type or "application/octet-stream",
+            metadata={"original-filename": file_name},
+        )
+
+        # Generate a media_key for idempotence (based on user + filename + size)
+        media_key = f"doc:{user.id}:{file_name}:{len(content)}"
+
+        # Enqueue document parsing message
+        await sqs.send_message(
+            queue_name=DOCUMENT_PARSING_QUEUE,
+            message_body={
+                "job_id": job.id,
+                "user_id": user.id,
+                "document_s3_key": document_s3_key,
+                "file_name": file_name,
+                "media_key": media_key,
+                "media_title": file_name,
+            },
+        )
+
+        log_event(
+            logger,
+            logging.INFO,
+            "media.upload.created",
+            "Document uploaded and queued for parsing",
+            media_item_id=job.id,
+            source_platform="document",
+            file_name=file_name,
+            file_size_bytes=len(content),
+        )
+
+        return UploadDocumentResponse(
+            media_item_id=job.id,
+            status=job.status.value,
+            source_platform="document",
+            file_name=file_name,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.upload.failed",
+            "Document upload failed",
+            error_type=type(exc).__name__,
+            error_code="UPLOAD_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload document",
         )
     finally:
         reset_log_context(token)
