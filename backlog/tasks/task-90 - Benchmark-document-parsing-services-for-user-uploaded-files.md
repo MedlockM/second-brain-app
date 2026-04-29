@@ -158,3 +158,87 @@ def detect_pdf_complexity(pdf_path):
 All strategies documented with code examples, cost projections, and sources (AWS, Azure, Unstructured.io, LlamaParse, Marker, Docling, PyMuPDF official documentation).
 
 **Recommendation awaits owner validation**. Main README remains unchanged (no front-matter update in complement mode).
+
+---
+
+**2026-04-29b** (research agent, complement mode):
+
+Complement response delivered at `/home/marc-medlock/Documents/Perso/dev/media-summarizer-project/docs/research/task-90-document-parser-benchmark/complement-response-2026-04-29b.md`.
+
+**Owner request**: Multi-format fallback alternative. While the owner likes LlamaParse free tier as primary parser, the PyMuPDF fallback is too limited (PDF-only). The fallback must handle many different file formats (DOCX, PPTX, XLSX, HTML, images, EPUB, etc.) when LlamaParse credits are unavailable.
+
+**Complement addresses**:
+
+Revised recommendation: **LlamaParse (SaaS primary) + Unstructured.io open source (self-hosted multi-format fallback)**
+
+**Key findings:**
+
+1. **Multi-format fallback comparison** — evaluated 4 candidates:
+   - **Unstructured.io OSS** (RECOMMENDED): 60+ formats (DOCX, XLSX, PPTX, PDF, images, HTML, EPUB, email), $0-50/month CPU-only, excellent table extraction (hi_res strategy), production-grade reliability, Docker deployment available
+   - **Docling** (IBM): 20+ formats (missing EPUB, email, CSV/TSV), $0/month CPU-only, excellent markdown output, simple pip install, but narrower format coverage
+   - **Marker**: 8 formats (PDF-centric), $50-200/month GPU required, best accuracy (95.67%) but insufficient format breadth for general fallback
+   - **Apache Tika**: 1000+ formats but no markdown output (disqualified for LLM pipeline)
+
+2. **Why Unstructured.io OSS wins**:
+   - **Format breadth**: 60+ formats covers all realistic user uploads (addresses owner's concern)
+   - **Cost**: $0-50/month CPU-only (no GPU required unlike Marker)
+   - **Table extraction**: Excellent via `hi_res` strategy (detectron2_onnx)
+   - **Deployment**: Docker image simplifies ops burden (vs. Tika Java complexity)
+   - **Production readiness**: Company-backed OSS, widely adopted, battle-tested
+   - **Strategy parameters**: `fast` (cheap CPU) / `ocr_only` (scanned docs) / `hi_res` (tables) / `auto` (intelligent selection)
+
+3. **Architecture**: LlamaParse primary (best accuracy, 130+ formats, free tier) → Unstructured.io OSS fallback (60+ formats, zero API cost) when credits exhausted
+
+4. **Cost projection** (1,000 docs/month, 2 pages/doc avg):
+   - Phase 1 (MVP): $0 (LlamaParse free tier 10k credits = 5 months runway)
+   - Phase 2 (Growth): $50-70/month (LlamaParse Starter $50 + Unstructured CPU worker $20 if overflow)
+   - Phase 3 (Scale, >10k docs/month): Consider Unstructured.io SaaS ($0.03/page) or self-hosted with GPU
+
+5. **Deployment options**:
+   - **Docker** (recommended): `docker pull unstructured-io/unstructured:latest` (simplest, pre-configured)
+   - **Pip install**: `pip install "unstructured[all-docs]"` (requires system deps: libmagic, poppler, tesseract, libreoffice)
+
+6. **Trade-offs vs. PyMuPDF fallback**:
+   - **Pros**: 60+ formats (vs. PDF-only), table extraction (hi_res vs. basic), handles all user upload scenarios
+   - **Cons**: Medium deployment complexity (vs. simple pip install), good markdown (structured elements → conversion) vs. native renderer
+   - **Acceptable**: For fallback role, format breadth > markdown polish; Docker mitigates deployment pain
+
+7. **Trade-offs vs. Docling fallback**:
+   - **Unstructured advantage**: 60+ formats (vs. 20+), missing formats in Docling (EPUB, email, CSV/TSV)
+   - **Docling advantage**: Simpler deployment (single pip install), excellent native markdown renderer
+   - **Verdict**: Unstructured's format breadth critical for diverse user uploads (second brain media app context)
+
+8. **Routing logic**:
+   - LlamaParse credit check → if available → LlamaParse API (best quality)
+   - If credits exhausted → Unstructured.io OSS:
+     - `fast` strategy: Office docs (DOCX, XLSX, PPTX), native PDFs, HTML, TXT
+     - `ocr_only` strategy: Scanned PDFs, images (PNG, JPG, TIFF, HEIC)
+     - `hi_res` strategy: Complex PDFs with tables, presentations with charts
+     - `auto` strategy: Default (intelligent selection)
+
+9. **Risk mitigation**:
+   - **Deployment complexity**: Docker image removes system dependency pain (vs. manual pip install)
+   - **Markdown quality**: Structured elements → markdown conversion acceptable for LLM pipeline (validated by production users)
+   - **CPU performance**: `fast` strategy processes simple docs <5s/doc; reserve `hi_res` for complex docs; GPU optional but not required
+   - **Open source sustainability**: Unstructured.io company-backed (commercial SaaS funds OSS development), large community
+
+**Comparison matrix included**:
+- Format coverage by solution (Unstructured 60+, Docling 20+, Marker 8, Tika 1000+)
+- Deployment complexity (Docker vs. pip vs. Java)
+- Cost (CPU-only vs. GPU vs. SaaS)
+- Markdown output quality (native renderer vs. structured conversion vs. none)
+- Table extraction quality (hi_res strategy vs. VLM vs. heuristic vs. basic)
+
+**Implementation guidance**:
+- Phase 1: LlamaParse free tier only (5 months runway at 2k pages/month)
+- Phase 2: Add Unstructured.io OSS Docker fallback when credits exhausted (zero API cost)
+- Phase 3: Upgrade to LlamaParse Starter tier ($50/month, 40k credits); keep Unstructured as overflow for free-tier users
+
+**Alternative paths documented**:
+- If CPU-only latency exceeds SLA → add GPU instance or migrate to GPU-capable Marker
+- If markdown quality insufficient → migrate to Docling (narrower formats but better markdown)
+- If volume exceeds 50k docs/month → evaluate Unstructured.io SaaS ($0.03/page) or self-hosted Marker with GPU cluster
+
+All sources cited with URLs to official GitHub repositories and documentation (Unstructured.io, Docling, Marker, Apache Tika, LlamaParse).
+
+**Recommendation awaits owner validation**. Main README remains unchanged (complement addresses specific owner concern about multi-format fallback capability).
