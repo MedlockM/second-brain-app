@@ -53,8 +53,8 @@ FLASHCARDS_AUTO_GENERATE = os.environ.get(
 # LLM timeout from env (seconds)
 LLM_TIMEOUT_SECONDS = int(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
 
-# LLM model to use (gpt-4-turbo has 128K context vs gpt-4's 8K)
-LLM_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini-2024-07-18")
+# LLM model — validated by owner in task-72 benchmark
+LLM_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.4-nano-2026-03-17")
 
 
 async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_title):
@@ -92,7 +92,7 @@ async def call_llm_api(api_url, api_key, transcription, podcast_title, episode_t
             "max_completion_tokens": 1000,
         }
 
-        # Only add temperature for models that support it (not o1/o3/gpt-5 reasoning models)
+        # Only add temperature for models that support it (not o1/o3/gpt-5 family)
         if not any(x in LLM_MODEL.lower() for x in ["o1", "o3", "gpt-5"]):
             payload["temperature"] = 0.7
 

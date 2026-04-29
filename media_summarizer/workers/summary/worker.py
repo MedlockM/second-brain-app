@@ -5,10 +5,9 @@ Generates two distinct summary artifact types:
 - summary_short: Concise format for digest/newsletter (2-3 paragraphs)
 - summary_detailed: Exhaustive format for learning (structured sections)
 
-Model choice informed by task-72 LLM benchmark:
-- summary_short: Gemini 2.5 Flash-Lite recommended for cost/performance
-- summary_detailed: Claude Sonnet 4.6 recommended for quality
-Defaults to GPT-4o-mini as a reliable fallback for both.
+Model choice validated by owner (task-72 benchmark):
+- summary_short: gpt-5-nano-2025-08-07
+- summary_detailed: gpt-5.4-nano-2026-03-17
 """
 
 from __future__ import annotations
@@ -49,8 +48,8 @@ LLM_API_URL = os.environ.get(
     "LLM_API_URL", "https://api.openai.com/v1/chat/completions"
 )
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini-2024-07-18")
-SUMMARY_SHORT_MODEL = os.environ.get("SUMMARY_SHORT_LLM_MODEL", DEFAULT_MODEL)
+DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.4-nano-2026-03-17")
+SUMMARY_SHORT_MODEL = os.environ.get("SUMMARY_SHORT_LLM_MODEL", "gpt-5-nano-2025-08-07")
 SUMMARY_DETAILED_MODEL = os.environ.get("SUMMARY_DETAILED_LLM_MODEL", DEFAULT_MODEL)
 
 
