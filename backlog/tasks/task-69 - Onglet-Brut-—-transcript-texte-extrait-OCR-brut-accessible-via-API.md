@@ -4,14 +4,13 @@ title: Onglet Brut — transcript/texte extrait/OCR brut accessible via API
 status: To Do
 assignee: []
 created_date: '2026-03-29 21:01'
-updated_date: '2026-03-29 21:18'
+updated_date: '2026-04-29 19:53'
 labels:
   - feature
   - artifact
   - v1
 dependencies:
   - task-33
-  - task-70
 priority: high
 ---
 

@@ -1,10 +1,10 @@
 ---
 id: task-90
 title: Benchmark document parsing services for user-uploaded files
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-29 17:14'
-updated_date: '2026-04-29'
+updated_date: '2026-04-29 19:52'
 labels:
   - benchmark
 dependencies: []
@@ -40,6 +40,7 @@ Livrable : `docs/research/task-90-document-parser-benchmark/README.md` avec tabl
 
 ## Implementation Notes
 
+<!-- SECTION:NOTES:BEGIN -->
 **2026-04-29** (research agent, initial mode):
 
 Research completed and delivered at `/home/marc-medlock/Documents/Perso/dev/media-summarizer-project/docs/research/task-90-document-parser-benchmark/README.md`.
@@ -242,3 +243,4 @@ Revised recommendation: **LlamaParse (SaaS primary) + Unstructured.io open sourc
 All sources cited with URLs to official GitHub repositories and documentation (Unstructured.io, Docling, Marker, Apache Tika, LlamaParse).
 
 **Recommendation awaits owner validation**. Main README remains unchanged (complement addresses specific owner concern about multi-format fallback capability).
+<!-- SECTION:NOTES:END -->
