@@ -106,6 +106,14 @@ class Settings:
         self.PODCASTINDEXORG_API_KEY = os.getenv("PODCASTINDEXORG_API_KEY", "")
         self.PODCASTINDEXORG_API_SECRET = os.getenv("PODCASTINDEXORG_API_SECRET", "")
 
+        # Typesense Configuration (Search)
+        self.TYPESENSE_API_KEY = os.getenv("TYPESENSE_API_KEY", "")
+        self.TYPESENSE_HOST = os.getenv("TYPESENSE_HOST", "localhost")
+        self.TYPESENSE_PORT = os.getenv("TYPESENSE_PORT", "443")
+        self.TYPESENSE_PROTOCOL = os.getenv("TYPESENSE_PROTOCOL", "https")
+        self.TYPESENSE_CONNECTION_TIMEOUT = int(os.getenv("TYPESENSE_CONNECTION_TIMEOUT", "5"))
+        self.SEARCH_INDEXING_QUEUE = os.getenv("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
+
         # Test Configuration
         self.TEST_ENVIRONMENT = os.getenv("TEST_ENVIRONMENT", "")
         self.E2E_CLEANUP = os.getenv("E2E_CLEANUP", "true").lower() == "true"
