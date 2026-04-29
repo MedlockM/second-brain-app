@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: more
 ---
 
 # Benchmark: Document Parsing Services for User-Uploaded Files
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — texte libre décrivant la décision finale : accept recommandation X, reject parce que Y, accept with modifications Z, OU, si redo, les consignes précises de correction à intégrer au prochain passage)_
+**Decision**: bien que j'aime la solution llamaparse free tier + fallback gratuit il faut quand meme que le fallback soit capable de traiter beaucoup de  différents formats de fichiers en input. Propose une nouvelle solution
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---
