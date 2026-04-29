@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark: Document Parsing Services for User-Uploaded Files
 
 ## Owner Validation
 
-**Decision**: bien que j'aime la solution llamaparse free tier + fallback gratuit il faut quand meme que le fallback soit capable de traiter beaucoup de  différents formats de fichiers en input. Propose une nouvelle solution
+**Decision**: je veux conserver de l'api first donc on va partir sur une solution llamaparse free tier api cloud --> fallback unstructured api (avec les 15 000 pages gratuites au début)
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---

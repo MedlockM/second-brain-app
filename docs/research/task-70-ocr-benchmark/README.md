@@ -1,10 +1,10 @@
 ---
-owner_decision: pending
+owner_decision: abandoned
 ---
 
 ## Owner Validation
 
-**Decision**: on attend de voir la recommandation de l'agent qui s'occupe de challenger l'infra prévue
+**Decision**: la solution ocr sera implémentée à travers la solution de parsing (cf task 90)
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---
