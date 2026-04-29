@@ -1,10 +1,10 @@
 ---
 id: task-62
 title: Ingestion de newsletters par email
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-03-24 19:43'
-updated_date: '2026-03-29 21:02'
+updated_date: '2026-04-29 20:09'
 labels:
   - ingestion
   - second-brain

@@ -1,9 +1,10 @@
 ---
 id: task-91
 title: Implement document parsing ingestion worker per validated benchmark (task-90)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-29 17:14'
+updated_date: '2026-04-29 20:09'
 labels:
   - feature
   - ingestion

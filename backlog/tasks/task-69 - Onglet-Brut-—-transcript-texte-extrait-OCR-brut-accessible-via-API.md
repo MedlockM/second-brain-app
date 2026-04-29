@@ -1,10 +1,10 @@
 ---
 id: task-69
 title: Onglet Brut — transcript/texte extrait/OCR brut accessible via API
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-03-29 21:01'
-updated_date: '2026-04-29 19:53'
+updated_date: '2026-04-29 20:09'
 labels:
   - feature
   - artifact
