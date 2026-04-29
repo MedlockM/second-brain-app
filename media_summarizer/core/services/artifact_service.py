@@ -45,11 +45,11 @@ SUMMARY_DETAILED_QUEUE = os.environ.get("SUMMARY_DETAILED_QUEUE", "summary-detai
 QUIZ_QUEUE = os.environ.get("QUIZ_QUEUE", "quiz-queue")
 NOTES_QUEUE = os.environ.get("NOTES_QUEUE", "notes-queue")
 FLASHCARDS_QUEUE = os.environ.get("FLASHCARDS_QUEUE", "flashcards-queue")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini-2024-07-18")
-# Summary models - configurable per task-72 benchmark recommendations
-# Short summary: Gemini Flash-Lite recommended, GPT-4o-mini fallback
-# Detailed summary: Claude Sonnet 4.6 recommended, GPT-4o-mini fallback
-SUMMARY_SHORT_MODEL = os.environ.get("SUMMARY_SHORT_LLM_MODEL", OPENAI_MODEL)
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.4-nano-2026-03-17")
+# LLM models per artifact type — validated by owner in task-72 benchmark:
+# summary_short: gpt-5-nano-2025-08-07
+# all other artifacts: gpt-5.4-nano-2026-03-17
+SUMMARY_SHORT_MODEL = os.environ.get("SUMMARY_SHORT_LLM_MODEL", "gpt-5-nano-2025-08-07")
 SUMMARY_DETAILED_MODEL = os.environ.get("SUMMARY_DETAILED_LLM_MODEL", OPENAI_MODEL)
 NOTES_MODEL = os.environ.get("NOTES_LLM_MODEL", OPENAI_MODEL)
 FLASHCARDS_MODEL = os.environ.get("FLASHCARDS_LLM_MODEL", OPENAI_MODEL)

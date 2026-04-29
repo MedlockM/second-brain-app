@@ -1,7 +1,7 @@
 ---
 id: task-88
 title: Apply LLM provider/model configuration per validated benchmark (task-72)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-28 16:05'
 labels:

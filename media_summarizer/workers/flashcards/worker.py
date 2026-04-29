@@ -5,9 +5,9 @@ Generates Q/A flashcards from a transcript using an LLM. The flashcards
 follow the minimum information principle: one concept per card, no trivial
 or ambiguous questions. Output is a JSON array of {question, answer} objects.
 
-Model choice informed by task-72 LLM benchmark: GPT-4o-mini is recommended
-for flashcards due to best-in-class JSON reliability and good quality/cost
-ratio.
+Model choice validated by owner (task-72 benchmark): gpt-5.4-nano-2026-03-17
+for flashcards. Uses OpenAI Structured Outputs (response_format) for
+reliable JSON generation.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ LLM_API_URL = os.environ.get(
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 LLM_MODEL = os.environ.get(
     "FLASHCARDS_LLM_MODEL",
-    os.environ.get("OPENAI_MODEL", "gpt-4o-mini-2024-07-18"),
+    os.environ.get("OPENAI_MODEL", "gpt-5.4-nano-2026-03-17"),
 )
 
 MIN_FLASHCARDS = 5
@@ -157,6 +157,40 @@ async def _download_transcript(key: str, bucket: str = TRANSCRIPT_BUCKET) -> str
     return content.decode("utf-8")
 
 
+def _build_response_format_schema() -> Dict[str, Any]:
+    """Build the JSON Schema for OpenAI Structured Outputs (response_format).
+
+    This ensures the model returns valid JSON matching our flashcard structure,
+    eliminating parse failures for models that support native structured outputs.
+    """
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "flashcards",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "cards": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "question": {"type": "string"},
+                                "answer": {"type": "string"},
+                            },
+                            "required": ["question", "answer"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["cards"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 async def _call_llm_for_flashcards(
     transcript: str,
     language: str | None = None,
@@ -174,7 +208,17 @@ async def _call_llm_for_flashcards(
         ],
     }
 
+    # Use OpenAI Structured Outputs for models that support it (gpt-4o, gpt-5 family)
+    # This guarantees valid JSON output matching our schema.
     model_lower = (LLM_MODEL or "").lower()
+    supports_structured_outputs = any(
+        marker in model_lower
+        for marker in ["gpt-4o", "gpt-5", "gpt-4.1"]
+    )
+    if supports_structured_outputs:
+        payload["response_format"] = _build_response_format_schema()
+
+    # gpt-5 family does not support temperature parameter
     if not any(marker in model_lower for marker in ["o1", "o3", "gpt-5"]):
         try:
             payload["temperature"] = float(os.environ.get("LLM_TEMPERATURE", "0.3"))
@@ -205,6 +249,17 @@ async def _call_llm_for_flashcards(
             response.raise_for_status()
             result = await response.json()
             content = result["choices"][0]["message"]["content"]
+
+            # When using structured outputs, the response wraps cards in an object
+            if supports_structured_outputs:
+                try:
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict) and "cards" in parsed:
+                        # Re-serialize the cards array for validation
+                        content = json.dumps(parsed["cards"])
+                except json.JSONDecodeError:
+                    pass  # Fall through to standard validation
+
             return _validate_flashcards_payload(content)
 
 
