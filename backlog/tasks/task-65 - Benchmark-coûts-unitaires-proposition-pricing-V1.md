@@ -110,3 +110,55 @@ Plan:
 
 **Next steps:** Owner reviews the README and updates `owner_decision` with one of: `ok`, `abandoned`, `redo`, or `more`.
 <!-- SECTION:NOTES:END -->
+
+### Research Output (2026-04-30, REDO 3rd pass - YouTube + document parsing + rate limiting)
+
+**Mode:** REDO 3rd pass - Owner requested:
+1. Replace OCR section with document parsing (LlamaParse + Unstructured fallback strategy from task-90)
+2. Integrate YouTube 95% free captions + 5% transcription fallback
+3. Include concrete rate limiting numbers for implementation
+4. Recalculate all totals
+
+**Deliverable:** `/home/marc-medlock/Documents/Perso/dev/media-summarizer-project/docs/research/task-65-pricing-v1-benchmark/README.md` (updated)
+
+**Integrated decisions:**
+1. **Document parsing strategy (task-90):**
+   - LlamaParse free tier: 10k credits/month (basic mode 1 credit/page = $0.00125/page)
+   - Fallback Unstructured API: 15k pages free, then $0.03/page pay-as-you-go
+   - Recommendation: Use LlamaParse Starter ($50/month for 40k credits) after free tiers exhausted
+   - Cost per document (3 pages, post free-tier): **0.00324 EUR** (LlamaParse basic) vs **0.0774 EUR** (Unstructured PAYG)
+   - Free tier impact: **0 EUR** for first months (10k + 15k pages combined)
+
+2. **YouTube video cost model:**
+   - **95% videos**: free captions/ASR retrieval → **0 EUR transcription**
+   - **5% videos**: fallback transcription at 0.003€/min
+   - YouTube 25 min video cost: **0.00895 EUR** (vs 0.0802 EUR in previous benchmark, -89% reduction)
+
+3. **Rate limiting chiffré:**
+   - **Fournisseurs:** Deepgram 10 concurrent, OpenAI Tier 1 (500 RPM / 200k TPM), LlamaParse ~100 RPM
+   - **Applicatif Standard 5€:** 5 audio/day, 20 articles/day, 5 documents/day, API 10 req/min
+   - **Applicatif Premium 10€:** 10 audio/day, 30 articles/day, 10 documents/day, API 20 req/min
+   - **Global plateforme:** 8 concurrent transcriptions, 400 concurrent LLM, 80 concurrent parsing
+   - **Anti-abus free trial:** alert à 5 EUR/user, blocage à 8 EUR/user
+
+**Updated calculations:**
+- Free trial month average cost: **2.99 EUR → 2.12 EUR/user** (-29% thanks to YouTube free + doc parsing free tier)
+- Recommended 5 EUR Standard quota: **15 audio/video + 15 YouTube + 20 articles + 10 documents** (60 total), cost **3.25 EUR**, margin **35.0%**
+- 10 EUR Premium seuils (>=20% margin):
+  - Audio-heavy: **75 medias** (45 audio + 15 YouTube + 11 articles + 4 docs)
+  - Balanced: **110 medias** (33 audio + 33 YouTube + 33 articles + 11 docs)
+  - Text-heavy: **145 medias** (22 audio + 29 YouTube + 72 articles + 22 docs)
+- Premium fair-use guard: **40 audio + 30 YouTube + 50 articles + 20 docs** (140 total), cost **7.73 EUR**, margin **22.7%**
+
+**Key improvements vs REDO 2:**
+1. YouTube captions gratuites reduce free trial cost by 29% and make Premium much more attractive for YouTube-heavy users
+2. Document parsing free tier (25k pages combined) eliminates parsing cost for first months
+3. LlamaParse basic mode 23% cheaper than OCR hypothesis after free tiers exhausted
+4. Rate limiting concrete numbers provided for backend implementation
+5. All calculations redone with new cost assumptions
+
+**Recommendation:** Launch with free trial + 5 EUR Standard; add 10 EUR Premium with fair-use wording and cost monitoring. Premium is now very attractive for YouTube/text-heavy users.
+
+**Status:** Awaiting owner validation. Recommendation is marked `owner_decision: pending` in the README front-matter.
+
+**Next steps:** Owner reviews the README and updates `owner_decision` with one of: `ok`, `abandoned`, `redo`, or `more`.
