@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: redo
 ---
 
 # Benchmark: Couts Unitaires + Proposition Pricing V1 (REDO 2026-04-29)
 
 ## Owner Validation
 
-**Decision**: _(to be filled by owner after review)_
+**Decision**: il faut remplacer la section concernant l'ocr par une section plus globale sur le parsing de documents en prenant en compte le cout de la solution de parsing validée task-90 (il faut prévoir le mode cost effective pour llamaparser (cf leur documentation à propos) et équivalent pour unstructured api. Souviens toi que la stratégie est llamaparser free tier jusqu'à épuisement puis unstructured api en fallback sur les 15 000 pages offertes puis switch sur pay as you go quand c'est épuisé).Aussi dans les estimations de cout en fonction des types de media et des quotas par type de media il faut considérer que les videos youtubes ne seront pas toutes transcrites par le transcripteur à 0.003€/min mais dans la plupart des cas on récupérera directement le transcript (captions ou ASR) depuis youtube. Prévoir 5% des cas où s'active le fallback et on où on doit transcrire le fichier mp3 de la vidéo youtube. Quand tu parles de rate limiting je veux que tu le chiffres concrètement en vue de la future implémentation. Refais une passe sur tout le benchmark afin de refaire tous les calculs totaux. 
 **Validated at**: _(to be filled by owner)_
 
 ---

@@ -1,7 +1,7 @@
 ---
 id: task-56
 title: In-app digest (daily + weekly) avec résumés courts
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-03-16 22:28'
 updated_date: '2026-03-29 21:18'
