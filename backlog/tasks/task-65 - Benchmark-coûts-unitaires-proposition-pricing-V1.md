@@ -1,7 +1,7 @@
 ---
 id: task-65
 title: Benchmark coûts unitaires + proposition pricing V1
-status: In Progress
+status: To Do
 assignee:
   - Codex
 created_date: '2026-03-27 15:50'
