@@ -1,5 +1,5 @@
 """
-Search indexing worker -- indexes transcripts in Typesense after transcription completes.
+Search indexing worker -- indexes transcripts in Algolia after transcription completes.
 
 Consumes messages from SEARCH_INDEXING_QUEUE containing:
 - media_item_id: job/media identifier
@@ -8,7 +8,7 @@ Consumes messages from SEARCH_INDEXING_QUEUE containing:
 - title: (optional) media title
 - source_platform: (optional) platform source
 
-On receipt, downloads the transcript from S3 and indexes it in Typesense
+On receipt, downloads the transcript from S3 and indexes it in Algolia
 for per-user lexical search.
 """
 
@@ -44,7 +44,7 @@ async def process_indexing_message(message: Dict[str, Any]) -> None:
     """
     Process a single search indexing message.
 
-    Downloads the transcript from S3 and indexes it in Typesense.
+    Downloads the transcript from S3 and indexes it in Algolia.
     """
     body = json.loads(message.get("Body", "{}"))
 
@@ -85,7 +85,7 @@ async def process_indexing_message(message: Dict[str, Any]) -> None:
             )
             return
 
-        # Index in Typesense (synchronous call, acceptable for worker context)
+        # Index in Algolia (synchronous call, acceptable for worker context)
         search_indexing.index_transcript(
             user_id=user_id,
             media_item_id=media_item_id,

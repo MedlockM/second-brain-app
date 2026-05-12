@@ -1,14 +1,14 @@
 """
 Search API endpoints for per-user lexical transcript search.
 
-Provides full-text search over indexed media transcripts via Typesense Cloud,
+Provides full-text search over indexed media transcripts via Algolia,
 with per-user tenant isolation enforced at the query level.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -39,7 +39,7 @@ class SearchHit(BaseModel):
     source_platform: Optional[str] = Field(None, description="Source platform")
     created_at: int = Field(..., description="Creation timestamp (Unix)")
     text_match_score: int = Field(
-        ..., description="Typesense text match relevance score"
+        ..., description="Text match relevance score"
     )
     highlights: List[SearchHitHighlight] = Field(
         default_factory=list, description="Highlighted snippets"
@@ -74,6 +74,8 @@ async def search_transcripts(
 
     Performs a full-text lexical search with typo tolerance and relevance ranking.
     Results are filtered to only include the current user's content (tenant isolation).
+    Results are deduplicated by media item (one hit per document even if multiple
+    chunks match).
 
     Returns ranked results with highlighted matching snippets.
     """
@@ -86,33 +88,28 @@ async def search_transcripts(
             filter_by_platform=source_platform,
         )
 
-        # Transform Typesense response into our API response model
+        # Transform Algolia response into our API response model
         hits = []
-        for hit in result.get("hits", []):
-            document = hit.get("document", {})
-            highlights_raw = hit.get("highlights", [])
-
+        for hit_data in result.get("hits", []):
             # Build highlight snippets
             highlights = []
-            for hl in highlights_raw:
-                field_name = hl.get("field", "")
-                # Typesense returns snippets in "snippet" or "snippets" depending on config
+            for hl in hit_data.get("highlights", []):
                 snippet = hl.get("snippet", "")
-                if not snippet:
-                    snippets_list = hl.get("snippets", [])
-                    snippet = " ... ".join(snippets_list) if snippets_list else ""
                 if snippet:
                     highlights.append(
-                        SearchHitHighlight(field=field_name, snippet=snippet)
+                        SearchHitHighlight(
+                            field=hl.get("field", ""),
+                            snippet=snippet,
+                        )
                     )
 
             hits.append(
                 SearchHit(
-                    media_item_id=document.get("media_item_id", ""),
-                    title=document.get("title") or None,
-                    source_platform=document.get("source_platform") or None,
-                    created_at=document.get("created_at", 0),
-                    text_match_score=hit.get("text_match", 0),
+                    media_item_id=hit_data.get("media_item_id", ""),
+                    title=hit_data.get("title") or None,
+                    source_platform=hit_data.get("source_platform") or None,
+                    created_at=hit_data.get("created_at", 0),
+                    text_match_score=hit_data.get("text_match_score", 0),
                     highlights=highlights,
                 )
             )
@@ -126,7 +123,7 @@ async def search_transcripts(
         )
 
     except RuntimeError as e:
-        # Typesense not configured
+        # Algolia not configured
         logger.error(f"Search service unavailable: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -120,12 +120,10 @@ class Settings:
         self.PODCASTINDEXORG_API_KEY = os.getenv("PODCASTINDEXORG_API_KEY", "")
         self.PODCASTINDEXORG_API_SECRET = os.getenv("PODCASTINDEXORG_API_SECRET", "")
 
-        # Typesense Configuration (Search)
-        self.TYPESENSE_API_KEY = os.getenv("TYPESENSE_API_KEY", "")
-        self.TYPESENSE_HOST = os.getenv("TYPESENSE_HOST", "localhost")
-        self.TYPESENSE_PORT = os.getenv("TYPESENSE_PORT", "443")
-        self.TYPESENSE_PROTOCOL = os.getenv("TYPESENSE_PROTOCOL", "https")
-        self.TYPESENSE_CONNECTION_TIMEOUT = int(os.getenv("TYPESENSE_CONNECTION_TIMEOUT", "5"))
+        # Algolia Configuration (Search)
+        self.ALGOLIA_APP_ID = os.getenv("ALGOLIA_APP_ID", "")
+        self.ALGOLIA_API_KEY = os.getenv("ALGOLIA_API_KEY", "")
+        self.ALGOLIA_INDEX_NAME = os.getenv("ALGOLIA_INDEX_NAME", "transcripts")
         self.SEARCH_INDEXING_QUEUE = os.getenv("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 
         # Test Configuration
