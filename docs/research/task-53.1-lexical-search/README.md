@@ -6,7 +6,7 @@ owner_decision: pending
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture)_
+**Decision**: algolia car gratuit jusqu'à 130 users avec > 250 docs de 36 kb par user (des podcast de 30 min). Remplacement de typesense géré par la tache 96
 **Validated at**: _(date ISO)_
 
 ---
@@ -20,7 +20,7 @@ Cette réécriture complète intègre les retours owner du 2026-04-28 et les obj
 3. **Tarification variable par nombre de documents indexés** documentée pour chaque solution (owner feedback).
 4. **Hypothèses d'usage réalistes V1** : 100 users max au launch (task-65), 10-50 recherches/jour total app (pas 1M/mois), 400-1200 requêtes/mois (challenge §1.2). Les projections "100-1,000 concurrent searches" de la v1 étaient 100-1000× surdimensionnées pour une app second-brain phase MVP.
 5. **Trace explicite Typesense vs Meilisearch** : la v1 concluait "Winner: Meilisearch (9,15 vs 8,95)" mais l'owner avait validé Typesense. Cette nouvelle version documente pourquoi **Typesense** est la recommandation finale malgré le score Meilisearch légèrement supérieur (§6.1, challenge §3).
-6. **Pricing Typesense Cloud avec signup credit** mentionné (challenge §4.2) et modélisé dans les 3 phases (pré-launch gratuit / launch MVP $18/mo / growth $50/mo) alignées sur task-65 révision 2.
+6. **Pricing Typesense Cloud avec signup credit** mentionné (challenge §4.2) et modélisé dans les 3 phases (pré-launch gratuit / launch 2 GB $50/mo / growth 8 GB $150/mo) alignées sur task-65 révision 2. **Correction 2026-05-12** : le ratio RAM Typesense corrigé à 2,1× (basé sur benchmarks réels, pas sur l'hypothèse "28M books = 5000 mots") + profil heavy-podcast (36 KB/doc) renchérit significativement le coût Typesense (43 €/mois vs 15,5 € initialement estimé).
 7. **Coût infra embarqué** : les solutions self-hosted (SQLite FTS5, self-hosted Typesense/Meilisearch) consomment des ressources de la VM EC2 `t4g.small` (10,55 €/mois) déjà budgetée pour FastAPI + workers. Allocation marginale : RAM ~100-200 MB, disque EBS ~500 MB à 100 users V1.
 
 ---
@@ -33,15 +33,15 @@ Cette réécriture complète intègre les retours owner du 2026-04-28 et les obj
 |-------|----------|--------|
 | Besoin produit | **Recherche lexicale full-text** sur tous les transcripts de l'utilisateur | Owner clarification 2026-05-01 + `project_v1_scope.md` |
 | Architecture backend | VM EC2 `t4g.small` hébergeant FastAPI + workers | task-65 rév. 2 (2026-05-01) |
-| Budget infra fixe phase launch | 29,5 €/mois @100u (EC2 10,55 € + Typesense MVP 15,5 € + AWS misc 4 €) | task-65 rév. 2 §2.3 |
+| Budget infra fixe phase launch | **57,5 €/mois @100u** (EC2 10,55 € + Typesense 2 GB **43 €** + AWS misc 4 €) — **corrigé** vs 29,5 €/mois estimé en task-65 rév.2 qui utilisait le cluster 0,5 GB | Calcul corrigé 2026-05-12 |
 
 ### Recommandation
 
 **Typesense Cloud** avec approche progressive :
 
 1. **Phase pré-launch (M0-M1, <50 beta users)** : activer le **signup credit Typesense Cloud gratuit** (0 €/mois, confirmed cloud.typesense.org "free credits, no credit card"). Aucune infra search supplémentaire.
-2. **Phase launch (M2-M12, 50-5000 users)** : **cluster Typesense Cloud MVP** 0.5 GB RAM / 2 vCPU burst = **$18/mois ≈ 15,5 €/mois**. Le cluster supporte ~200k documents, ~5-10k requêtes/jour, latence <50ms p95.
-3. **Phase growth (M12+, >5k users)** : **cluster 2 GB RAM / 2 vCPU HA** = **$50/mois ≈ 43 €/mois**.
+2. **Phase launch (M2-M12, 100 users × 200 docs heavy-podcast)** : **cluster Typesense Cloud 2 GB RAM / 2 vCPU burst** = **~$50/mois ≈ 43 €/mois**. RAM nécessaire estimée : ~1,5 GB (20k docs × 36 KB × ratio 2,1). Latence <50ms p95.
+3. **Phase growth (M12+, >500 users)** : **cluster 8 GB RAM / 4 vCPU** = **~$150/mois ≈ 129 €/mois**.
 
 **Justification vs alternatives évaluées** :
 
@@ -50,10 +50,10 @@ Cette réécriture complète intègre les retours owner du 2026-04-28 et les obj
 | **SQLite FTS5 local VM** | **0 € (VM déjà payée)** | Illimité* | <10ms | ⚠️ (spellfix1) | Faible (rebuild 5 min si perte) | Facile → Typesense |
 | **Neon Postgres Free** | 0 € (free tier) | ~100k (0.5 GB storage) | 100-300ms | ⚠️ (pg_trgm) | Moyen (migration DynamoDB) | Moyen |
 | **Neon Postgres Launch** | ~12 €/mois | ~500k (2 GB) | 100-300ms | ⚠️ | Moyen | Moyen |
-| **Typesense Cloud MVP** ★ | **15,5 €/mois** | 200k+ | <50ms | ✅ | Minimal | Facile |
+| **Typesense Cloud 2 GB** ★ | **43 €/mois** (@100u heavy-podcast) | ~2 600 docs heavy | <50ms | ✅ | Minimal | Facile |
 | **Meilisearch Cloud** | ~12-15 €/mois | 200k+ | <50ms | ✅ | Minimal | Facile |
 | **OpenSearch AWS** | ~250 €/mois (3-node) | Millions | 50-200ms | ✅ | Élevé | Difficile |
-| **Algolia** | ~40 €/mois + 0,50€/1k req | Illimité | <20ms | ✅ | Minimal | Difficile |
+| **Algolia Build** (free) | **0 €/mois** (cap 1 GB index) | ~110k records (10KB chunks) | <20ms | ✅ | Minimal (chunking requis) | Moyen |
 
 *SQLite FTS5 : techniquement sans limite, pratiquement ~10-20 GB d'index avant de saturer la VM `t4g.small` (2 GB RAM). À 100 users V1 ≈ 10-20 MB d'index, largement viable.
 
@@ -66,7 +66,7 @@ Cette réécriture complète intègre les retours owner du 2026-04-28 et les obj
 - **Signup credit = phase pré-launch gratuite** : étendre cette phase maximise le runway.
 - **Réversibilité facile** : le pipeline d'indexation `search_indexing_worker.py` reste une abstraction ; swap vers SQLite FTS5 ou Meilisearch = 1-2j de travail si nécessaire.
 
-**SQLite FTS5 local** reste une alternative crédible et **sera implémentée en fallback** si le signup credit Typesense s'épuise avant le launch public. L'overhead dev est ~2j pour l'adapter SQLite. Une fois en phase launch payante, Typesense 15,5 €/mois vaut l'investissement pour la qualité UX.
+**SQLite FTS5 local** reste une alternative crédible et **sera implémentée en fallback** si le signup credit Typesense s'épuise avant le launch public. L'overhead dev est ~2j pour l'adapter SQLite. Le trade-off : Typesense 43 €/mois (75 % de l'infra) offre une meilleure typo tolerance sur le contenu ASR bruité, mais SQLite FTS5 économise 516 €/an avec une qualité potentiellement suffisante pour V1.
 
 ---
 
@@ -368,7 +368,7 @@ SQLite est **gratuit** (aucun coût logiciel). Les coûts sont uniquement infra 
 - ⚠️ **Moins bon multilingue** : FTS5 porter stemmer = EN only. Pour FR, il faut `unicode61 remove_diacritics 1` qui ne fait que du stripping d'accents, pas de stemming (`chercher` ≠ `cherché`). Acceptable mais pas optimal.
 - ⚠️ **Pas de dashboard admin** : contrairement à Typesense/Meilisearch qui offrent un UI web pour inspecter l'index, SQLite = CLI uniquement.
 
-**Verdict** : ✅ **Solution de fallback recommandée**. À implémenter **si le signup credit Typesense s'épuise avant le launch public**. L'effort dev est faible (~2j) et libère 15,5 €/mois de coûts fixes = **+4 points de marge** sur Standard 5€ @100u (27 % → 31 %). Une fois en phase launch payante, le différentiel UX (typo tolerance, multilingue) justifie les 15,5 €/mois Typesense.
+**Verdict** : ✅ **Solution de fallback recommandée** (voire **alternative crédible comme primary V1**). L'effort dev est faible (~2j) et libère **43 €/mois** de coûts fixes = **+12,3 points de marge** sur Standard 5€ @100u heavy-podcast (83,7 % → 96,0 %). Le différentiel UX (typo tolerance sur contenu ASR, multilingue FR) est le seul argument en faveur de Typesense Cloud. Si la qualité de recherche SQLite s'avère suffisante en beta, cette solution pourrait devenir le choix principal.
 
 **Sources** :
 
@@ -415,36 +415,57 @@ SQLite est **gratuit** (aucun coût logiciel). Les coûts sont uniquement infra 
 
 Typesense Cloud facture **par ressources allouées** (RAM + CPU), pas par document. Le nombre de documents impacte le choix de cluster (plus de docs → plus de RAM nécessaire).
 
-**Benchmark RAM Typesense** (source: GitHub README + docs officielles) :
+**Benchmark RAM Typesense** (source: [GitHub showcase-books-search](https://github.com/typesense/showcase-books-search) + README) :
 
-- 1M Hacker News titles (courts, ~50 mots/doc) : 165 MB RAM.
-- 2.2M recipes (moyens, ~200 mots/doc) : 900 MB RAM.
-- 28M books (longs, ~5000 mots/doc) : 14 GB RAM.
+- 1M Hacker News titles (~50 bytes texte/doc) : 165 MB RAM → ratio **3,3× texte brut**.
+- 2,2M recipes (nom + ingrédients, ~300 bytes/doc) : 900 MB RAM → ratio **1,4× texte brut**.
+- 28M books (**titre + auteur + subjects seulement**, ~80 bytes/doc, source OpenLibrary) : 14 GB RAM → ratio **6,3× texte brut** (overhead élevé car 28M documents très courts).
 
-**Extrapolation pour notre use case** (transcripts moyens ~1000 mots) :
+**ATTENTION** : le dataset "28M books" ne contient **pas** de texte de livre — uniquement titre, auteur et catégories (vérifié dans le [schema d'indexation](https://github.com/typesense/showcase-books-search/blob/master/scripts/indexer/index.rb)). Les estimations de RAM de la version précédente de ce benchmark étaient basées sur l'hypothèse erronée que ces documents faisaient 5 000 mots.
 
-- 2 000 transcripts @100u : **~10-20 MB RAM**.
-- 20 000 transcripts @1000u : **~100-200 MB RAM**.
-- 200 000 transcripts @10ku : **~1-2 GB RAM**.
+**Ratio retenu pour extrapolation** : **2,1× le texte brut** (moyenne conservatrice entre les ratios 1,4× et 3,3× sur documents courts ; sur des documents longs comme nos transcripts, l'overhead par document est amorti donc le ratio est dans la fourchette basse).
 
-| Plan Typesense Cloud | RAM / CPU | Coût/mois | Documents supportés | Phase recommandée |
-|---------------------|-----------|----------:|--------------------:|------------------|
-| **Signup credit** | Variable (jusqu'à 2 GB / 2 vCPU) | **0 €** (crédit gratuit) | ~200k | **Pré-launch M0-M1** |
-| **MVP cluster** | 0.5 GB / 2 vCPU burst | **$18/mo ≈ 15,5 €** | ~50k | **Launch M2-M12** |
-| **Growth cluster** | 2 GB / 2 vCPU burst | **$50/mo ≈ 43 €** | ~200k | **Growth M12+ >5k users** |
-| **Scale cluster HA** | 8 GB / 4 vCPU × 3 nodes | **~180 €/mo** | Millions | V3+ |
+**Profil utilisateur heavy-podcast** (use case core de l'app) :
 
-**Variabilité par nombre de documents** :
+- Mix réaliste : 60% podcasts (30 min avg → 9 000 mots), 20% articles (1 500 mots), 10% YouTube (3 000 mots), 10% courts (tweets/TikTok, 200 mots)
+- **Moyenne pondérée : ~6 000 mots/doc ≈ 36 KB texte brut/doc**
 
-- **<50k docs** : MVP cluster suffit largement.
-- **50k-200k docs** : Growth cluster recommandé (RAM 2 GB donne du confort).
-- **>200k docs** : envisager Scale cluster ou clustering multi-nodes.
+**Extrapolation corrigée** :
 
-**Pricing detail @100 users V1 launch (2000 docs)** :
+| Users | Docs/user | Texte brut total | RAM nécessaire (×2,1) | Cluster minimum |
+|------:|----------:|-----------------:|----------------------:|-----------------|
+| 50 | 100 | 180 MB | **~380 MB** | 0,5 GB **très juste** |
+| 100 | 100 | 360 MB | **~760 MB** | **1 GB requis** |
+| 100 | 200 | 720 MB | **~1,5 GB** | **2 GB requis** |
+| 500 | 200 | 3,6 GB | **~7,5 GB** | **8 GB** |
+| 1 000 | 300 | 10,8 GB | **~22,7 GB** | **32 GB** |
 
-- Cluster MVP 0.5 GB / 2 vCPU : $18/mois = **15,5 €/mois**.
+| Plan Typesense Cloud | RAM / CPU | Coût/mois | Capacité réaliste (profil heavy-podcast) | Phase recommandée |
+|---------------------|-----------|----------:|----------------------------------------:|------------------|
+| **Signup credit** | Variable | **0 €** (crédit gratuit, montant inconnu) | À déterminer empiriquement | **Pré-launch M0-M1** |
+| **MVP cluster** | 0.5 GB / 2 vCPU burst (1h/jour) | **~$18/mo ≈ 15,5 €** | **~650 docs heavy-podcast** OU ~50u × 100 docs light | **Beta <50u light** |
+| **Cluster 1 GB** | 1 GB / 2 vCPU burst (2h/jour) | **~$29/mo ≈ 25 €** | ~1 300 docs | **Launch 50-100u** |
+| **Growth cluster** | 2 GB / 2 vCPU burst (4h/jour) | **~$50/mo ≈ 43 €** | ~2 600 docs | **Launch 100u × 200 docs** |
+| **Cluster 4 GB** | 4 GB / 2 vCPU | **~$80/mo ≈ 69 €** | ~5 200 docs | **500u light** |
+| **Cluster 8 GB** | 8 GB / 4 vCPU | **~$150/mo ≈ 129 €** | ~10 400 docs | **500u × 200 docs** |
+| **Scale cluster HA** | 16+ GB / multi-nodes | **~$300+/mo** | >20k docs | **1000u+** |
+
+**Variabilité par nombre de documents** (profil heavy-podcast, 36 KB/doc) :
+
+- **<650 docs** : MVP cluster 0,5 GB suffit (très limité — ~50u avec 12 docs chacun).
+- **650-1 300 docs** : cluster 1 GB requis.
+- **1 300-2 600 docs** : cluster 2 GB requis (= 100u × 26 docs ou 50u × 52 docs).
+- **>2 600 docs** : cluster 4 GB+ requis.
+
+**Pricing detail @100 users V1 launch heavy-podcast (200 docs/user = 20 000 docs)** :
+
+- 20 000 docs × 36 KB = 720 MB texte brut × 2,1 = **~1,5 GB RAM nécessaire**.
+- Cluster 2 GB minimum requis : **~$50/mois ≈ 43 €/mois** (pas $18/mois comme estimé précédemment).
 - Aucun coût additionnel par requête ou par document.
-- Bandwidth inclus jusqu'à 100 GB egress/mois (largement suffisant pour search queries).
+- Bandwidth sortant facturé séparément (montant inclus non documenté publiquement, probablement négligeable à V1 volume).
+- Limitation CPU burst : 4h/jour sur le cluster 2 GB.
+
+**Note importante** : ces prix sont estimés depuis la grille de configuration Typesense Cloud (le pricing exact n'est pas affiché publiquement — il faut créer un compte pour voir les montants). Les chiffres ci-dessus sont des estimations basées sur les fourchettes communiquées dans la communauté et doivent être vérifiés empiriquement via le signup credit.
 
 **Avantages** :
 
@@ -460,11 +481,11 @@ Typesense Cloud facture **par ressources allouées** (RAM + CPU), pas par docume
 
 **Inconvénients** :
 
-- ⚠️ **Coût fixe 15,5 €/mois en phase launch** : représente **52 % du coût infra total** @100u (task-65 rév. 2 : infra total 29,5 €/mois = EC2 10,55 + Typesense 15,5 + misc 4). Impact pricing : voir §5.
+- ⚠️ **Coût fixe ~43 €/mois en phase launch** (cluster 2 GB requis pour 100u × 200 docs heavy-podcast) : représente **75 % du coût infra total** @100u (infra corrigé : EC2 10,55 + Typesense 43 + misc 4 = **57,5 €/mois**). Impact pricing : voir §5.
 - ⚠️ **Moins mature que Elasticsearch** : écosystème plugins plus petit, communauté moins large (25k stars GitHub vs 70k Elasticsearch).
 - ⚠️ **Multilingue FR moins fort que Meilisearch** : Typesense stemming FR est correct mais Meilisearch gère mieux les accents/homophones FR (benchmark interne Meilisearch vs Typesense 2024).
 
-**Verdict** : ✅ **Recommandation principale**. Typesense Cloud offre le meilleur compromis **qualité UX / coût / simplicité ops** pour V1. Le signup credit permet de valider la solution gratuitement en M0-M1. Le coût 15,5 €/mois en phase launch est justifié par la qualité de recherche et le gain de temps dev (pas de maintenance DB search).
+**Verdict** : ✅ **Recommandation principale**. Typesense Cloud offre le meilleur compromis **qualité UX / simplicité ops** pour V1. Le signup credit permet de valider la solution gratuitement en M0-M1. Le coût **43 €/mois** en phase launch (cluster 2 GB pour 100u heavy-podcast) est significatif (75 % de l'infra) mais justifié par la qualité de recherche et le zéro ops.
 
 **Sources** :
 
@@ -533,7 +554,7 @@ Deux modèles de pricing :
 **Inconvénients** :
 
 - ⚠️ **Tenant tokens moins élégants** que scoped API keys Typesense : nécessite un endpoint backend pour générer les tokens (pas de query direct frontend → Meilisearch avec isolation).
-- ⚠️ **Pricing légèrement plus élevé** : ~20-26 €/mois vs 15,5 €/mois Typesense à volume équivalent.
+- ⚠️ **Pricing en réalité inférieur** à Typesense Cloud pour le même volume (disk-based → ~12-15 €/mois vs Typesense 43 €/mois @100u heavy-podcast). L'avantage Typesense est la latence et la qualité, pas le prix.
 - ⚠️ **Moins de field weighting control** : le ranking Meilisearch est plus "automagique", moins configurable que Typesense/Elasticsearch.
 - ⚠️ **Pas de signup credit public** : contrairement à Typesense, Meilisearch Cloud ne mentionne pas de crédit gratuit à l'inscription (à vérifier en contactant sales).
 
@@ -586,7 +607,7 @@ OpenSearch facture **par instances** (nodes × instance type × heures) + storag
 
 **Inconvénients** :
 
-- ❌ **Coût prohibitif pour V1** : ~285 €/mois = **10× le coût Typesense** (15,5 €/mois) à volume équivalent.
+- ❌ **Coût prohibitif pour V1** : ~285 €/mois = **~7× le coût Typesense** (43 €/mois @100u heavy-podcast) à volume équivalent.
 - ❌ **Complexité opérationnelle élevée** : tuning de shards, index lifecycle policies, cluster health monitoring, rolling upgrades.
 - ❌ **Over-engineering** : OpenSearch est conçu pour des use cases big data (logs analytics, monitoring, e-commerce à des millions de SKU). Pour 2k-20k documents, c'est sortir l'artillerie lourde.
 - ❌ **Latency 50-200ms** : plus lent que Typesense/Meilisearch car architecture distribuée par défaut.
@@ -606,47 +627,57 @@ OpenSearch facture **par instances** (nodes × instance type × heures) + storag
 
 **Approche technique** : API REST + SDKs officiels React Native / Swift / Kotlin. Très similaire à Typesense/Meilisearch côté intégration.
 
-**Tarification Algolia variable par documents** :
+**Tarification Algolia (mise à jour 2026-05-12, source: algolia.com/pricing + support.algolia.com)** :
 
-Algolia facture **par record** (document indexé) + **par request** (query search).
+Algolia facture **par record stocké** + **par search request**. Pas de monthly fee fixe — c'est du **pay-as-you-go** au-delà des inclusions.
 
-| Plan | Records inclus | Requests/mois inclus | Coût/mois | Overage records | Overage requests |
-|------|---------------:|---------------------:|----------:|----------------:|-----------------:|
-| **Free** | 10k | 10k | 0 € | N/A (upgrade requis) | N/A |
-| **Grow** | 100k | 1M | $99 ≈ **85 €** | $0,40/1k | $0,50/1k |
-| **Premium** | Custom | Custom | Custom (>$1000/mo) | Négocié | Négocié |
+| Plan | Records inclus | Requests/mois inclus | Overages records | Overages requests | Record size limit |
+|------|---------------:|---------------------:|-----------------:|------------------:|------------------:|
+| **Build** (free) | **1M** | 10K | N/A (plan cap) | N/A | **10 KB hard** |
+| **Grow** | 100K | 10K | $0,40/1K | $0,50/1K | 100 KB hard, **10 KB avg** |
+| **Grow Plus** | 100K | 10K | $0,40/1K | $1,75/1K | 100 KB hard, 10 KB avg |
+| **Elevate** | Custom | Custom | Négocié | Négocié | Custom |
 
-**Variabilité par nombre de documents** :
+**Contrainte critique Build** : **1 GB maximum par application** (index total). Le "1M records" n'est exploitable que si les records sont petits. Avec des chunks de ~9 KB, le cap réel est ~**100-110k records** avant d'atteindre 1 GB.
 
-- **<10k docs** : free tier.
-- **10k-100k docs** : Grow plan $99/mo baseline + overages.
-- **>100k docs** : overages significatifs. Ex : 200k docs = $99 + (100k × $0,40/1k) = $99 + $40 = **$139/mo ≈ 120 €/mois**.
+**Split obligatoire** : la limite 10 KB/record (Build) et 10 KB average (Grow) impose de **chunker les transcripts**. Un transcript de 36 KB → 4 chunks de ~9 KB chacun.
 
-**Pricing detail @100 users V1 launch** :
+**Pricing detail @100 users V1 launch (profil heavy-podcast)** :
 
-- 2k docs, 1k searches/mois → free tier suffit **mais non viable prod** (limite 10k requests = ~333/jour insuffisant si croissance).
-- Grow plan : $99/mois = **85 €/mois** baseline pour 100k docs + 1M searches/mois.
+- 20k docs × 4 chunks = **80k records** × ~9 KB = **~720 MB** index (< 1 GB cap Build ✓).
+- Requests : 100u × 10 searches/mois × 4 keystrokes (debounce 300ms) = **~4 000/mois** (< 10K ✓).
+- **Coût Y1 : 0 €** (plan Build gratuit suffit à 100u).
+- ⚠️ Headroom limité : ~130 users ou >250 docs/user → dépasse 1 GB → migration vers Grow obligatoire.
+
+**Projection Y2-Y3** :
+
+- Y2 @1000u (100 docs/user) : 100k docs × 4 = 400k records. Build dépassé (3,6 GB >> 1 GB). Grow : overages (400k−100k) × $0,40/1K = $120/mo + requests 40k, overages 30k × $0,50/1K = $15/mo. **Total ~$135/mo ≈ 116 €/mois**.
+- Y3 @5000u (100 docs/user) : 500k × 4 = 2M records. Overages 1,9M × $0,40/1K = $760/mo + requests 200k, overages 190k × $0,50/1K = $95/mo. **Total ~$855/mo ≈ 736 €/mois**.
 
 **Avantages** :
 
+- ✅ **Phase Y1 @100u = gratuite** (plan Build, aucun frais tant que index < 1 GB et < 10K req/mois).
 - ✅ **Latence <20ms p50 globally** : CDN 70+ datacenters, le plus rapide du marché.
 - ✅ **UX exceptionnelle** : SDKs mobile natifs (InstantSearch iOS/Android), UI components React Native.
-- ✅ **Analytics intégrées** : dashboard search analytics, A/B testing, personalization.
-- ✅ **Zéro ops overhead** : 100% managé, scale automatique.
 - ✅ **Typo tolerance best-in-class** : fuzzy matching + AI-powered ranking.
+- ✅ **Zéro ops overhead** : 100% managé, scale automatique.
+- ✅ **Analytics intégrées** : dashboard search analytics, A/B testing (Grow Plus+).
 
 **Inconvénients** :
 
-- ❌ **Pricing prohibitif** : $99/mois baseline = **6× Typesense** (15,5 €/mois) pour des features dont 80% sont overkill V1 (CDN global inutile pour une app FR-first, A/B testing prématuré).
-- ❌ **Vendor lock-in fort** : API propriétaire, ranking propriétaire. Migration away = 2-4 semaines de refactor.
-- ❌ **Modèle pricing par request pénalise l'usage** : chaque search-as-you-type keystroke = 1 request. Un user qui tape "kubernetes" = 10 requests (k, ku, kub, ...). Peut exploser le quota.
+- ⚠️ **Split obligatoire des transcripts** : 10 KB limit/record → chunking logic + reconstruction des résultats (dédupliquer les hits d'un même document). Overhead dev ~4h.
+- ⚠️ **Scaling coûteux** : pay-per-record + pay-per-request = coût **imprévisible** à l'échelle. Y3 = ~736 €/mois (vs Typesense ~430 €/mois self-hosted). La facturation par request pénalise le search-as-you-type.
+- ⚠️ **Cap 1 GB sur Build** : headroom limité, migration vers Grow inévitable dès 130+ users heavy-podcast.
+- ⚠️ **10 KB average sur Grow** : même en Grow, les gros records comptent plus lourdement dans le quota. Monitoring requis.
+- ⚠️ **Vendor lock-in moyen** : API propriétaire mais concepts similaires à Typesense/Meilisearch. Migration away = 1-2 semaines.
 
-**Verdict** : ❌ **Éliminé**. Algolia est le gold standard UX mais économiquement inaccessible pour un solo dev bootstrapped. Réservé aux startups VC-backed avec budgets confortables ou aux entreprises (SaaS B2B facturant >$50/user/mois). À réévaluer si l'app atteint $100k MRR et que la latency <20ms devient différentiante.
+**Verdict** : ✅ **Alternative très crédible pour V1**. Le plan Build gratuit couvre la totalité de la phase launch @100u sans aucun frais — c'est un **avantage décisif** vs Typesense (430 €/an Y1) et Meilisearch (pas de free tier). Le trade-off est le coût à l'échelle (Y2+ plus cher que Typesense) et la complexité du chunking.
 
 **Sources** :
 
-- [Algolia Pricing](https://www.algolia.com/pricing/)
-- [Algolia Documentation](https://www.algolia.com/doc/)
+- [Algolia Pricing](https://www.algolia.com/pricing/) (consulté 2026-05-12)
+- [Algolia Record Size Limits](https://support.algolia.com/hc/en-us/articles/4406981897617) (consulté 2026-05-12)
+- [Algolia Service Limits](https://www.algolia.com/doc/guides/scaling/servers-clusters/#service-limits)
 
 ---
 
@@ -781,34 +812,40 @@ Pour un **solo dev**, la différence 0h vs 8h/an est marginale, mais 0h vs 60h/a
 
 **Hypothèses** :
 
-- Year 1 : 100 users avg (launch phase).
-- Year 2 : 1 000 users avg (growth phase).
-- Year 3 : 5 000 users avg (scale phase).
+- Year 1 : 100 users avg (launch phase), profil heavy-podcast (200 docs/user, 36 KB/doc avg).
+- Year 2 : 1 000 users avg (growth phase), profil mixte (~100 docs/user avg).
+- Year 3 : 5 000 users avg (scale phase), profil mixte (~100 docs/user avg).
+- Ratio RAM Typesense : **2,1× le texte brut** (voir §2.4).
 
 | Solution | Y1 @100u | Y2 @1ku | Y3 @5ku | **Total 3 ans** |
 |----------|--------:|--------:|--------:|---------------:|
 | **SQLite FTS5 local** | 0 € | 0 € | 120 € (VM upgrade) | **120 €** |
 | **Neon Postgres Launch** | 144 € | 240 € | 480 € | **864 €** |
-| **Typesense Cloud** | 186 € (MVP 12 mois) | 516 € (Growth) | 516 € | **1 218 €** |
+| **Typesense Cloud** | 430 € (2 GB, 10 mois) | 1 548 € (8 GB) | 5 160 € (32+ GB) | **~7 138 €** |
 | **Meilisearch Cloud** | 240 € | 480 € | 600 € | **1 320 €** |
 | **OpenSearch AWS** | 3 420 € | 3 420 € | 5 400 € | **12 240 €** |
-| **Algolia** | 1 020 € | 4 800 € | 18 000 € | **23 820 €** |
+| **Algolia** | **0 €** (Build free) | ~1 392 € (Grow overages) | ~8 832 € (Grow overages) | **~10 224 €** |
 
-**Note Y1 Typesense** : inclut 2-3 mois de signup credit gratuit (0 €) puis 9-10 mois de MVP cluster ($18/mo).
+**Note Y1 Typesense** : inclut 2-3 mois de signup credit gratuit (0 €) puis 10 mois de cluster 2 GB ($50/mo ≈ 43 €/mo). Cluster 2 GB requis pour 100u × 200 docs heavy-podcast (1,5 GB RAM nécessaire, ratio 2,1×).
+
+**Note Y2-Y3 Typesense** : profil mixte (20 % heavy-podcast 200 docs, 50 % balanced 50 docs, 30 % light 20 docs → avg ~100 docs/user). Y2 : 100k docs × 36 KB × 2,1 = 7,6 GB → cluster 8 GB ($150/mo). Y3 : 500k docs × 36 KB × 2,1 = 37,8 GB → cluster multi-node (~$430/mo). À ce stade, migration vers self-hosted (ECS/EC2) = plus économique (voir §6.5).
+
+**Note Algolia** : Plan Build (free) avec cap **1 GB index total**. Transcripts 36 KB splittés en 4 chunks de ~9 KB = 80k records @100u = ~720 MB (< 1 GB ✓). Y1 gratuit. À 1000u, passage obligatoire vers Grow (pay-as-you-go) : 400k records overages $120/mo + 30k requests overages $15/mo = ~$135/mo. Y3 @5000u : 2M records overages $760/mo + 190k requests overages $95/mo = ~$855/mo.
 
 ### 5.2 Impact pricing sur Standard 5€ @100u
 
-D'après task-65 rév. 2, le **coût infra total phase launch @100u = 0,345 €/user/mois** (dont Typesense MVP = 0,155 €/user).
+**Correction** : le coût Typesense @100u heavy-podcast (200 docs/user) = **43 €/mois** (cluster 2 GB, ratio 2,1×), et non 15,5 €/mois (cluster 0,5 GB insuffisant). Coût infra total corrigé @100u = **0,575 €/user/mois** (EC2 10,55 + Typesense 43 + misc 4 = 57,5 €/mois).
 
-| Solution search | Coût/user/mois | Marge Standard 5€ (revenu net 3,54€) | Différentiel vs Typesense |
-|----------------|---------------:|------------------------------------:|------------------------:|
-| **SQLite FTS5 local** | 0 € | **+31,0 %** | **+4,0 pts** |
-| **Neon Launch** | ~0,12 € | +28,6 % | +1,6 pts |
-| **Typesense MVP** | 0,155 € | **+27,0 %** | baseline |
-| **Meilisearch** | ~0,20 € | +25,6 % | −1,4 pts |
-| **OpenSearch** | ~2,85 € | −53,8 % | **−80,8 pts** |
+| Solution search | Coût/user/mois | Coût infra total/user/mois | Marge Standard 5€ (revenu net 3,54€) | Différentiel vs Typesense |
+|----------------|---------------:|---------------------------:|------------------------------------:|------------------------:|
+| **SQLite FTS5 local** | 0 € | 0,145 € | **+96,0 %** (marge 3,40 €) | **+12,3 pts** |
+| **Algolia Build** (free) | **0 €** | **0,145 €** | **+96,0 %** (marge 3,40 €) | **+12,3 pts** |
+| **Neon Launch** | ~0,12 € | 0,265 € | +92,5 % (marge 3,28 €) | +8,8 pts |
+| **Typesense 2 GB** | **0,43 €** | **0,575 €** | **+83,7 %** (marge 2,97 €) | baseline |
+| **Meilisearch** | ~0,20 € | 0,345 € | +90,3 % (marge 3,20 €) | +6,5 pts |
+| **OpenSearch** | ~2,85 € | 2,99 € | +15,5 % (marge 0,55 €) | **−68,2 pts** |
 
-**Lecture** : SQLite FTS5 local libère **+4 points de marge** vs Typesense (27 % → 31 %). C'est significatif mais pas game-changing. Le différentiel en valeur absolue = 15,5 €/mois × 12 = **186 €/an économisés**. À mettre en balance avec le différentiel UX (typo tolerance, multilingue).
+**Lecture** : **Algolia Build (free)** et SQLite FTS5 local sont à égalité en coût (0 €) @100u — les deux libèrent **+12,3 pts de marge** vs Typesense. Algolia offre en plus la typo tolerance best-in-class et le zéro ops, au prix du chunking (overhead dev ~4h). À l'échelle (Y2+), Algolia devient pay-as-you-go et perd cet avantage.
 
 ### 5.3 Complexité implémentation
 
@@ -832,7 +869,7 @@ D'après task-65 rév. 2, le **coût infra total phase launch @100u = 0,345 €/
 | **Meilisearch** | 0h | 0h | 0 € |
 | **OpenSearch** | 80h | 240h | **12 000 €** |
 
-**Lecture** : OpenSearch coûte ~310 €/mois en infra **+ 12 000 € de temps dev sur 3 ans** = **~23 000 €** coût total. Typesense coûte 1 218 € infra + 0 € temps dev = **1 218 €** total. **Facteur 19×**.
+**Lecture** : OpenSearch coûte ~310 €/mois en infra **+ 12 000 € de temps dev sur 3 ans** = **~23 000 €** coût total. Typesense coûte ~7 138 € infra + 0 € temps dev = **~7 138 €** total. **Facteur 3,2×**. SQLite FTS5 coûte 120 € infra + 1 200 € temps dev = **1 320 €** total — le plus économique combiné.
 
 ### 5.5 Réversibilité et lock-in
 
@@ -865,18 +902,20 @@ D'après task-65 rév. 2, le **coût infra total phase launch @100u = 0,345 €/
 - **Coût** : **0 €/mois** tant que le crédit tient.
 - **Objectif** : valider la solution techniquement avec les beta users, recueillir feedback UX, calibrer les hypothèses de volume.
 
-**Phase 2 (launch, M2-M12, 50-5000 users)** :
+**Phase 2 (launch, M2-M12, 100 users × 200 docs heavy-podcast)** :
 
-- Basculer sur **cluster MVP 0.5 GB RAM / 2 vCPU burst** = **$18/mois ≈ 15,5 €/mois**.
-- Supporte ~200k documents, ~5-10k requêtes/jour, latence <50ms p95.
-- **Coût infra total @100u** : 29,5 €/mois (EC2 10,55 + Typesense 15,5 + misc 4).
-- **Marge Standard 5€** : +27,0 % worst-case @100u (task-65 rév. 2).
+- Basculer sur **cluster 2 GB RAM / 2 vCPU burst (4h/jour)** = **~$50/mois ≈ 43 €/mois**.
+- RAM nécessaire estimée : ~1,5 GB (20k docs × 36 KB × 2,1). Cluster 2 GB donne un headroom de ~30 %.
+- Supporte ~2 600 docs heavy-podcast max, ~5-10k requêtes/jour, latence <50ms p95.
+- **Coût infra total @100u** : 57,5 €/mois (EC2 10,55 + Typesense 43 + misc 4).
+- **Marge Standard 5€** : +83,7 % @100u (marge nette 2,97 €/user).
 
-**Phase 3 (growth, M12+, >5000 users)** :
+**Phase 3 (growth, M12+, 500-1000 users)** :
 
-- Upgrade vers **cluster 2 GB RAM / 2 vCPU HA** = **$50/mois ≈ 43 €/mois**.
-- À 5000 users, coût/user = 43/5000 = **0,0086 €/user/mois** (négligeable).
-- Marge Standard 5€ reste >35 % grâce à l'amortissement.
+- Upgrade vers **cluster 8 GB RAM / 4 vCPU** = **~$150/mois ≈ 129 €/mois**.
+- 500u × 200 docs = 100k docs × 36 KB × 2,1 = 7,6 GB RAM → cluster 8 GB nécessaire.
+- À 500 users, coût/user = 129/500 = **0,258 €/user/mois** (acceptable).
+- À 1000+ users, migrer vers self-hosted Typesense (ECS ou dédié) pour contrôler les coûts.
 
 **Fallback si signup credit épuisé avant launch public** :
 
@@ -901,15 +940,15 @@ Le benchmark v1 (2026-04-23) concluait *"Winner: Meilisearch Cloud (9,15 vs 8,95
 2. **Field weighting plus riche** : `query_by: title,transcript` + `query_by_weights: 5,1` = boost titre ×5. Meilisearch a moins de contrôle granulaire sur le ranking (automagique).
 3. **Signup credit confirmé public** : Typesense affiche "free credits" sur la landing page. Meilisearch ne mentionne pas de crédit à l'inscription (à vérifier en contactant sales, mais pas de garantie). Le crédit Typesense = extension de la phase pré-launch gratuite = runway founder.
 4. **Écosystème légèrement plus mature pour use cases "application search"** : Typesense est utilisé par ~500 apps en prod (source: showcase Typesense.org), Meilisearch ~300. Pas décisif mais indicatif.
-5. **Pricing légèrement inférieur** : Typesense MVP $18/mo vs Meilisearch Starter $30/mo (usage-based avec overages potentiels). Sur 3 ans = ~450 € économisés.
+5. **Pricing comparable** : Typesense 2 GB $50/mo vs Meilisearch Cloud $12-15/mo (usage-based). Meilisearch est en réalité **moins cher** en phase launch (disk-based = RAM requirements inférieurs). L'avantage Typesense est sur la latence et la qualité, pas le prix.
 
 **Trade-off accepté** : le multilingue FR de Meilisearch est meilleur, mais Typesense FR est **suffisant** pour V1. Si les transcripts arabe/chinois deviennent majoritaires (pivot marché), migration Typesense → Meilisearch = 1-2j.
 
-**Conclusion** : Typesense l'emporte sur **la simplicité d'intégration mobile (scoped keys)**, **le signup credit**, et **le coût**. Le différentiel qualité search Meilisearch-Typesense est **marginal** pour un use case FR/EN.
+**Conclusion** : Typesense l'emporte sur **la simplicité d'intégration mobile (scoped keys)**, **le signup credit**, et **la qualité de recherche (latence + field weighting)**. Le différentiel qualité search Meilisearch-Typesense est **marginal** pour un use case FR/EN. Attention : Typesense est **plus cher** que Meilisearch en phase launch (RAM-based pricing vs disk-based).
 
 ### 6.3 Pourquoi pas SQLite FTS5 en primary (vs fallback)
 
-SQLite FTS5 local est **gratuit** (0 € vs 15,5 €/mois Typesense) et offre **latence <10ms** (vs <50ms Typesense). Pourquoi ne pas en faire la solution principale ?
+SQLite FTS5 local est **gratuit** (0 € vs 43 €/mois Typesense 2 GB) et offre **latence <10ms** (vs <50ms Typesense). Pourquoi ne pas en faire la solution principale ?
 
 **Raisons** :
 
@@ -917,16 +956,16 @@ SQLite FTS5 local est **gratuit** (0 € vs 15,5 €/mois Typesense) et offre **
 2. **Multilingue basic** : FTS5 porter = EN only. Pour FR, il faut se contenter de `unicode61 remove_diacritics 1` qui strip les accents mais ne fait pas de stemming (`chercher` ≠ `cherché`). Typesense supporte stemming FR/EN out-of-the-box.
 3. **SPOF VM unique** : si la VM crash, l'index est perdu jusqu'à rebuild (~5 min depuis S3). En phase launch avec traffic croissant, ça peut arriver (burst CPU exhausted, kernel panic, AWS EC2 retirement). Typesense Cloud = HA native, pas de downtime.
 4. **Overhead mental solo dev** : maintenir un index SQLite local + snapshots EBS + runbook rebuild = **8h/an ops**. Typesense Cloud = **0h/an**. Pour un solo dev qui jongle entre backend, mobile, marketing, product, **8h/an économisées** = **8h investies dans features** = différentiel valeur produit.
-5. **15,5 €/mois = 52 % de l'infra fixe @100u mais seulement 0,155 €/user** : à 1000 users, Typesense passe à 0,0155 €/user/mois = **négligeable**. Le coût fixe pèse lourd en phase launch, mais s'amortit rapidement.
+5. **43 €/mois = 75 % de l'infra fixe @100u, soit 0,43 €/user** : à 500 users (cluster 8 GB), Typesense passe à 0,258 €/user/mois. Le coût fixe pèse lourd en phase launch et **ne s'amortit pas aussi bien que précédemment estimé** (scaling RAM proportionnel au volume de docs). À 1000+ users, la migration vers self-hosted devient économiquement nécessaire.
 
-**Conclusion** : SQLite FTS5 est une **excellente solution de fallback** si le signup credit Typesense s'épuise avant le launch public. Mais **Typesense Cloud primary = choix optimal** pour la combinaison **qualité UX + zéro ops + réversibilité**. L'investissement 15,5 €/mois se justifie dès 100 users.
+**Conclusion** : Le différentiel de coût est **significatif** — SQLite FTS5 économise **516 €/an** @100u heavy-podcast vs Typesense Cloud 2 GB. SQLite FTS5 est une alternative solide comme **solution principale V1** si la typo tolerance dégradée est acceptable pour le profil d'usage (transcripts ASR). Typesense Cloud primary reste recommandé pour la **qualité UX** (typo tolerance sur contenu ASR bruité), mais le trade-off coût est beaucoup plus lourd qu'initialement estimé.
 
 ### 6.4 Hypothèses retenues
 
 1. **Volume users** : 100 @launch (M2-M12), 1000 @Y2, 5000 @Y3 (aligned task-65).
 2. **Recherches/user/mois** : 4-20 en moyenne (usage réel second-brain observé Readwise/Notion).
-3. **Transcripts/user** : 20 en moyenne @launch (podcast-heavy users ~50, article-heavy ~100, balanced ~20).
-4. **Taille moyenne transcript** : 20 KB (podcast 45 min ~40 KB, article ~10 KB, moyenne pondérée ~20 KB).
+3. **Transcripts/user** : 200 en profil heavy-podcast @launch (mix : 60 % podcasts, 20 % articles, 10 % YouTube, 10 % courts).
+4. **Taille moyenne transcript** : **36 KB** (profil heavy-podcast : podcasts 30 min ~54 KB, articles ~9 KB, YouTube ~18 KB, courts ~1 KB → moyenne pondérée ~36 KB = ~6 000 mots).
 5. **Langue prioritaire FR** : 70 % transcripts FR, 30 % EN. Arabe/chinois <1 % en V1.
 6. **Disponibilité search non-critique** : l'app reste utilisable en mode dégradé (filtres DynamoDB par date/tag/dossier) si Typesense est down. Cible 99 % uptime, pas 99,99 %.
 7. **Latence <300ms p95 acceptable** : dans une app second-brain consultative, 200-300ms de search latency ne dégrade pas l'UX de façon perceptible.
@@ -935,10 +974,10 @@ SQLite FTS5 local est **gratuit** (0 € vs 15,5 €/mois Typesense) et offre **
 
 | Risque | Probabilité | Impact | Mitigation |
 |--------|------------|--------|-----------|
-| **Signup credit Typesense épuisé avant launch** | Moyenne | Moyen (coût +15,5 €/mois prématuré) | Implémenter SQLite FTS5 fallback (2j dev), activer si nécessaire |
+| **Signup credit Typesense épuisé avant launch** | Moyenne | Moyen (coût +43 €/mois prématuré) | Implémenter SQLite FTS5 fallback (2j dev), activer si nécessaire |
 | **Usage search 10× supérieur aux hypothèses** | Faible | Faible (Typesense MVP supporte 10k req/j) | Monitorer query volume dès M0, upgrade cluster si >5k req/j |
 | **Qualité typo tolerance insuffisante sur FR** | Faible | Moyen (frustration users) | Mesurer empiriquement sur 20-30 transcripts FR réels, A/B test Typesense vs Meilisearch si <80% satisfaction |
-| **Coût Typesense devient prohibitif à 10k+ users** | Moyenne | Élevé (cluster Growth $50/mo → Scale $150+/mo) | Migrer vers self-hosted Typesense sur ECS Fargate ou vers Meilisearch (1-2j migration) |
+| **Coût Typesense devient prohibitif à 500-1000+ users** | **Élevée** | Élevé (cluster 8 GB $150/mo → 32+ GB $300+/mo) | Migrer vers self-hosted Typesense sur ECS/EC2 ou vers Meilisearch Cloud disk-based (1-2j migration) |
 | **Vendor lock-in Typesense si shutdown startup** | Très faible | Moyen | Typesense est open-source → self-host possible, ou migrate vers Meilisearch/OpenSearch (1-2 sem) |
 
 ### 6.6 Hors périmètre V1 (décisions reportées)
@@ -1187,7 +1226,7 @@ SQLite FTS5 local est **gratuit** (0 € vs 15,5 €/mois Typesense) et offre **
    - Peupler vocabulaire périodiquement (cron daily) : `INSERT INTO vocab SELECT DISTINCT word FROM transcripts_fts`.
    - Sur query, checker `SELECT word FROM vocab WHERE word MATCH ?` → suggérer correction.
 
-**Trade-off** : effort 2j, économie 15,5 €/mois, qualité typo tolerance −20 % vs Typesense.
+**Trade-off** : effort 2j, économie **43 €/mois** (516 €/an), qualité typo tolerance −20 % vs Typesense.
 
 ---
 
