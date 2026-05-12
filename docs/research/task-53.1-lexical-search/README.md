@@ -1,10 +1,10 @@
 ---
-owner_decision: ok
+owner_decision: redo
 ---
 
 ## Owner Validation
 
-**Decision**: Proceed with **Typesense Cloud** for MVP.
+**Decision**: Je veux une étude de prix qui prenne en compte entre autre le prix (si existant) variable en fonction du nombre de documents dans l'index. Aussi je veux que tu intègres la solution Neon dans le benchmark. Je veux aussi que tu prennes en compte dans le benchmark une solution avec VM sur AWS hostant SQLite FTS5.
 **Validated at**: 2026-04-28
 
 ---

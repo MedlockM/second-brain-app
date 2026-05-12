@@ -21,7 +21,7 @@ priority: high
 <!-- SECTION:DESCRIPTION:BEGIN -->
 ## Contexte
 
-Les utilisateurs doivent pouvoir rechercher dans leur bibliothèque de médias. La recherche V1 porte **uniquement sur les métadonnées** (pas de full-text sur le contenu des transcripts).
+Les utilisateurs doivent pouvoir rechercher dans leur bibliothèque de médias. **Cette task couvre uniquement le volet metadata** (titre, tags, source/plateforme, dossier, type). Le volet full-text sur transcripts est traité par **task-53.1** (Typesense Cloud, validée 2026-04-28) — les deux recherches coexistent en V1 et sont complémentaires.
 
 ## Spécification V1
 
@@ -38,8 +38,10 @@ Les utilisateurs doivent pouvoir rechercher dans leur bibliothèque de médias. 
 - Tri par date d'ajout (récent d'abord par défaut)
 - Pagination
 
-### Pas en V1
-- Full-text search sur le contenu des transcripts/résumés
+### Pas dans cette task (scope task-74)
+- Full-text search sur le contenu des transcripts/résumés → **traité par task-53.1 (Typesense Cloud)**, qui est aussi en V1
+
+### Pas en V1 (du tout)
 - Recherche sémantique / vectorielle
 - Suggestions / autocomplétion
 
@@ -49,7 +51,7 @@ Les utilisateurs doivent pouvoir rechercher dans leur bibliothèque de médias. 
 - Dépend de l'implémentation des dossiers et tags
 
 ## Note
-task-53 et task-53.1 existants couvrent un scoping plus large. Cette tâche se concentre sur l'implémentation V1 minimaliste basée sur les décisions produit validées.
+task-53.1 (full-text lexical search via Typesense Cloud) est **également en V1** et couvre le volet complémentaire. Cette task-74 se concentre spécifiquement sur le volet metadata (DynamoDB queries/GSI). Les deux endpoints peuvent être unifiés côté API ou rester séparés selon l'UX finale.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
