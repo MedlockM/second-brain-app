@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: redo
 ---
 
 # Benchmark: Coûts unitaires & pricing V1 (4ᵉ passe, 2026-05-01, révision 2)
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture)_
+**Decision**: le benchmark actuel est pas mal mais la solution pour la recherche lexicale a changé : on est passé sur la version gratuite d'algolia donc on va considérer que ce domaine de cout a disparu complètement. Ensuite je veux que tu ajoutes dans ce benchmark l'analyse d'un éventuel tier pour lequel l'user ne pêut pas du tout processer d'audio (podcast / video des plateformes où on a pas réussi à retrouver un transcript deja pret et donc nous oblige à utiliser deepgram, ainsi que les fichiers audios persos ou venant de whatsapp, bref tout ce qui oblige à faire de la trasncription qui coute cher...); Je te laisse donner un pricing crédible et assez rentable pour ce tier. Il faut qu'il soit différenciant des autres tiers que tu proposes. Il peut y avoir trois tiers ce n'est pas un soucis. En fait je pense qu'il faut trois tiers symbolisant les trois personas qu'on peut avoir : text-heavy, mix, audio-heavy !
 **Validated at**: _(date ISO)_
 
 ---
