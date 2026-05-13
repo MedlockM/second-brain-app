@@ -1,5 +1,5 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark : Coûts unitaires & pricing V1 (5ᵉ passe, 2026-05-13)
