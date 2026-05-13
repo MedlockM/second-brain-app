@@ -162,3 +162,54 @@ Plan:
 **Status:** Awaiting owner validation. Recommendation is marked `owner_decision: pending` in the README front-matter.
 
 **Next steps:** Owner reviews the README and updates `owner_decision` with one of: `ok`, `abandoned`, `redo`, or `more`.
+
+### Research Output (2026-05-13, REDO 5th pass - Algolia free + 3-tier persona structure)
+
+**Mode:** REDO 5th pass - Owner requested (2026-05-13):
+1. Remove search cost entirely (Typesense Cloud 43 €/mo replaced by Algolia Build free tier, task-53.1 validated 2026-05-12).
+2. Add 3-tier structure based on 3 personas: Text-Only (0 transcription), Mix (300 min), Audio-Heavy (900 min).
+
+**Deliverable:** `/home/marc-medlock/Documents/Perso/dev/media-summarizer-project/docs/research/task-65-pricing-v1-benchmark/README.md` (updated) + `compute.py` (updated)
+
+**Integrated decisions:**
+1. **Recherche lexicale: Algolia Build free tier** (task-53.1 validated 2026-05-12):
+   - 1 GB index max, 1M records, 10k searches/month — free permanently.
+   - 100u × 200 docs × 4 chunks = 80k records × 9 KB = 720 MB < 1 GB ✓
+   - Headroom: ~130 users before 1 GB cap → migration to Algolia Grow (~116 €/mo Y2) or self-hosted Typesense/Meilisearch (~20-50 €/mo).
+   - Cost Y1 @100u: **0 €** (vs 43 €/mo Typesense Cloud in 4th pass).
+
+2. **Infra cost revised**:
+   - Total fixed @100u phase launch: **19,0 €/mois** (EC2 10,55 + EBS 2,06 + Route53 0,43 + Algolia 0 + misc 1 + variable 5).
+   - Cost per user @100u: **0,190 €/user** (vs 0,575 €/user in 4th pass with Typesense).
+   - **−43 €/mo fixed cost** = **−75% infra fixed**.
+
+3. **3-tier persona structure**:
+
+| Tier | Prix TTC | Persona | Quota audio | Revenu net | Coût @100u | Marge |
+|------|----------|---------|-------------|------------|------------|-------|
+| **Text-Only** | **3 €/mois** | Lecteur (articles/newsletters/documents/YouTube), **0 min transcription** | **0 min** (blocked backend) | 2,125 € | 1,33 € (150 articles + 30 docs + 20 YouTube) | **+37,2 %** |
+| **Mix** | **5 €/mois** | Étudiant/pro équilibré (mix articles + podcasts modérés) | **300 min** (5h) | 3,542 € | 1,86 € (300 min + 100 articles + 15 docs + 10 YouTube) | **+47,4 %** |
+| **Audio-Heavy** | **9 €/mois** | Passionné podcast (écoute quotidienne) | **900 min** (15h) | 6,375 € | 3,63 € (900 min + 50 articles + 10 docs + 20 YouTube) | **+43,1 %** |
+
+**Key improvements vs 4th pass:**
+1. **Suppression Typesense Cloud** → Algolia Build free: **−43 €/mois** = **+20 pts de marge** sur Mix 5€ @100u (47,4% vs 27,0%).
+2. **Tier Text-Only 3€** = différenciation majeure: seul acteur à proposer un tier pure-text à 3€ avec marge excellente (+37,2%). Persona sous-servi (lecteurs compulsifs qui ne consomment pas de podcasts).
+3. **Parcours d'upgrade naturel**: Text-Only 3€ → Mix 5€ (+2€) → Audio-Heavy 9€ (+4€).
+4. **Pricing transparent mensuel**: pas d'engagement annuel obligatoire, contrairement aux concurrents (Readwise, Recall, Otter annuels pour prix attractifs).
+5. **Tous les prix ≤ 9€/mois** (contrainte owner respectée).
+
+**Positionnement vs concurrents:**
+- **Text-Only 3€**: 70% moins cher que Readwise Full (9,99 $/mois annuel) pour persona similaire (lecteur).
+- **Mix 5€**: comparable à Readwise Lite (5,59 $/mois annuel) mais ajoute 300 min audio que Readwise n'a pas. Positionnement unique.
+- **Audio-Heavy 9€**: aligné sur Snipd Premium (6,99 $) à quota identique (900 min) mais ajoute articles/docs illimités. 47% moins cher qu'Otter Pro mensuel (16,99 $).
+
+**Migration Algolia Build → Grow (@130+ users Y2):**
+- Headroom Build free: ~130 users heavy-podcast (200 docs/user × 36 KB × 4 chunks = 720 MB < 1 GB).
+- Au-delà 130u: passage Algolia Grow (~116 €/mo @1000u Y2, overages) ou migration vers self-hosted Typesense/Meilisearch (~20-50 €/mo).
+- À Y2 @1000u avec Algolia Grow, marge Mix 5€ reste >40% (infra 0,127 €/user).
+
+**Recommendation:** Launch avec 3 tiers (Text-Only 3€, Mix 5€, Audio-Heavy 9€) + mois gratuit tier Mix (300 min audio + text illimité, hard cap 300 articles + 50 docs). Algolia Build free couvre 100% de la phase launch Y1 @100u sans frais. Monitorer index size quotidiennement pour préparer migration Y2.
+
+**Status:** Awaiting owner validation. Recommendation is marked `owner_decision: pending` in the README front-matter.
+
+**Next steps:** Owner reviews the README and updates `owner_decision` with one of: `ok`, `abandoned`, `redo`, or `more`.
