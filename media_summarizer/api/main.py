@@ -23,6 +23,7 @@ from media_summarizer.api.endpoints import (
     newsletter_webhook,
     podcast_search,
     podcasts,
+    pricing,
     review,
     users,
 )
@@ -180,6 +181,7 @@ app.include_router(tags.router, prefix="/api/tags", tags=["tags"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(feeds.router, prefix="/api/feeds", tags=["feeds"])
 app.include_router(digest.router, prefix="/api", tags=["digest"])
+app.include_router(pricing.router, prefix="/api", tags=["pricing"])
 
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---
 from fastapi.openapi.utils import get_openapi

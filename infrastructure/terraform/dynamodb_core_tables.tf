@@ -228,3 +228,23 @@ output "user_folders_table_name" {
   value       = aws_dynamodb_table.user_folders_v1.name
   description = "User folders table name"
 }
+
+# Pricing configuration table (dynamic pricing/quota parameters, no redeploy needed)
+resource "aws_dynamodb_table" "pricing_config_v1" {
+  name         = "pricing_config"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "config_key"
+
+  attribute { name = "config_key" type = "S" }
+
+  tags = {
+    Name        = "pricing_config"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+output "pricing_config_table_name" {
+  value       = aws_dynamodb_table.pricing_config_v1.name
+  description = "Pricing configuration table name"
+}

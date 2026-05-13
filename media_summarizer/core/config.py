@@ -126,6 +126,10 @@ class Settings:
         self.ALGOLIA_INDEX_NAME = os.getenv("ALGOLIA_INDEX_NAME", "transcripts")
         self.SEARCH_INDEXING_QUEUE = os.getenv("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 
+        # Pricing Configuration
+        self.PRICING_CONFIG_TABLE = os.getenv("PRICING_CONFIG_TABLE", "pricing_config")
+        self.PRICING_ADMIN_SECRET = os.getenv("PRICING_ADMIN_SECRET", "")
+
         # Test Configuration
         self.TEST_ENVIRONMENT = os.getenv("TEST_ENVIRONMENT", "")
         self.E2E_CLEANUP = os.getenv("E2E_CLEANUP", "true").lower() == "true"

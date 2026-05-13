@@ -1,7 +1,7 @@
 ---
 id: task-86
 title: Implement V1 pricing configuration per validated benchmark (task-65)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-28 16:05'
 updated_date: '2026-05-13 16:46'

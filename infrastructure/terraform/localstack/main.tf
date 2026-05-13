@@ -623,6 +623,20 @@ resource "aws_dynamodb_table" "user_digest_settings" {
   tags = { Name = "user_digest_settings", Environment = local.environment, Project = local.project }
 }
 
+# Pricing configuration table (dynamic pricing/quota parameters)
+resource "aws_dynamodb_table" "pricing_config" {
+  name         = "pricing_config"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "config_key"
+
+  attribute {
+    name = "config_key"
+    type = "S"
+  }
+
+  tags = { Name = "pricing_config", Environment = local.environment, Project = local.project }
+}
+
 # -------------------- S3 Buckets --------------------
 resource "aws_s3_bucket" "audio" {
   bucket        = "media-summarizer-audio"
@@ -830,6 +844,7 @@ output "dynamodb_tables" {
     aws_dynamodb_table.user_folders.name,
     aws_dynamodb_table.user_digests.name,
     aws_dynamodb_table.user_digest_settings.name,
+    aws_dynamodb_table.pricing_config.name,
   ]
 }
 
