@@ -1,11 +1,11 @@
 ---
-owner_decision: pending
+owner_decision: abandoned
 ---
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — accept / reject / accept with modifications)_
-**Validated at**: _(date ISO à remplir par l'owner)_
+**Decision**: Scope entièrement absorbé par task-65 (pricing V1, 5ème passe validée). Les quotas par tier, hard caps et rate limiting sont définis dans le benchmark pricing et implémentés via task-86 (DynamoDB config table).
+**Validated at**: 2026-05-14
 
 ---
 

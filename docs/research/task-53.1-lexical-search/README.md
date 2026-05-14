@@ -1,5 +1,5 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark : Recherche lexicale dans les transcripts (REDO 2ᵉ passe, 2026-05-12)

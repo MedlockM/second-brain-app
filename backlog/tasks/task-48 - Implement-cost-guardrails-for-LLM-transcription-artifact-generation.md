@@ -4,9 +4,10 @@ title: Implement cost guardrails for LLM/transcription/artifact generation
 status: To Do
 assignee: []
 created_date: '2026-02-24 11:04'
+updated_date: '2026-05-14 05:39'
 labels: []
 dependencies:
-  - task-35
+  - task-86
   - task-46
 priority: high
 ---
