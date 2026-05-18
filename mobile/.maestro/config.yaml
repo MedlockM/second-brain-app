@@ -1,0 +1,21 @@
+# Maestro E2E Configuration for Media Summarizer Mobile App
+# https://maestro.mobile.dev/reference/configuration
+
+appId: com.mediasummarizer.app
+name: Media Summarizer E2E
+
+# Default tags for filtering flows
+tags:
+  - share-first
+  - critical
+
+# Environment variables used across all flows
+env:
+  # Test user credentials (override in CI via --env)
+  TEST_USER_EMAIL: "e2e-test@mediasummarizer.com"
+  TEST_USER_PASSWORD: "TestPass123!"
+  # API base URL for test environment
+  API_BASE_URL: "https://api-staging.mediasummarizer.com"
+  # Sample URLs for share intake testing
+  SHARE_TEST_URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+  SHARE_TEST_PODCAST_URL: "https://open.spotify.com/episode/test-episode-id"

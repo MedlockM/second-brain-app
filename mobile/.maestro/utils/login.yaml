@@ -1,0 +1,29 @@
+# Reusable login sub-flow
+# Called by other flows that require authentication
+appId: com.mediasummarizer.app
+
+---
+
+# Wait for the login screen to appear
+- assertVisible:
+    text: "Welcome back"
+    optional: false
+
+# Fill in email
+- tapOn:
+    text: "Email"
+- inputText: ${TEST_USER_EMAIL}
+
+# Fill in password
+- tapOn:
+    text: "Password"
+- inputText: ${TEST_USER_PASSWORD}
+
+# Tap Sign In
+- tapOn:
+    text: "Sign In"
+
+# Wait for navigation to inbox (login success)
+- assertVisible:
+    text: "Inbox"
+    timeout: 10000

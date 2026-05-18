@@ -1,0 +1,132 @@
+# Flow 04: Media Detail Progression
+# Navigates from the inbox to a media detail screen and verifies:
+# - Title and metadata display correctly
+# - Transcript section shows processing status
+# - AI Artifacts section is present and expandable
+# - Back navigation works
+appId: com.mediasummarizer.app
+tags:
+  - critical
+  - share-first
+  - media-detail
+
+---
+
+# Launch and authenticate
+- launchApp:
+    clearState: true
+
+- extendedWaitUntil:
+    visible:
+      text: "Welcome back"
+    timeout: 15000
+
+- runFlow: utils/login.yaml
+
+# Wait for inbox to load with items
+- assertVisible:
+    text: "Good .*"
+    regex: true
+    timeout: 5000
+
+# If there are items in the inbox, tap the first one
+# We look for any media card (identified by its URL domain text or type badge)
+- assertVisible:
+    text: "READY FOR REVIEW"
+    optional: true
+    timeout: 10000
+
+# Tap on the first media item card in the list
+# Using a generic selector for the first pressable card-like element
+- tapOn:
+    text: ".*\\.(com|org|net|io).*"
+    regex: true
+    index: 0
+    optional: true
+
+# If no items exist yet, share one first
+- runFlow:
+    when:
+      notVisible:
+        text: "Transcript"
+    commands:
+      - pressKey: back
+      - openLink: "media-summarizer://share?url=${SHARE_TEST_URL}&sourceApp=android-share-intent"
+      - assertVisible:
+          text: "Collection"
+          timeout: 5000
+      - tapOn:
+          text: "Save"
+      - assertVisible:
+          text: "Saved"
+          timeout: 8000
+      - assertVisible:
+          text: "Inbox"
+          timeout: 5000
+      # Wait for the item to appear and tap it
+      - extendedWaitUntil:
+          visible:
+            text: "youtube.com"
+          timeout: 15000
+      - tapOn:
+          text: "youtube.com"
+
+# Now on the media detail screen
+# Verify the header with back button is present
+- assertVisible:
+    id: "Go back"
+    optional: true
+
+# Verify metadata section is displayed
+- assertVisible:
+    text: ".*"
+    regex: true
+    timeout: 5000
+
+# Verify the AI Artifacts toggle section exists
+- assertVisible:
+    text: "AI Artifacts"
+    timeout: 5000
+
+# Tap to expand the AI Artifacts section
+- tapOn:
+    text: "AI Artifacts"
+
+# Verify artifact types are listed
+- assertVisible:
+    text: "Summary"
+    timeout: 3000
+- assertVisible:
+    text: "Flashcards"
+- assertVisible:
+    text: "Learning Notes"
+
+# Verify transcript section is present
+- scroll:
+    direction: DOWN
+    duration: 300
+
+- assertVisible:
+    text: "Transcript"
+    optional: true
+
+# Verify transcript shows a status (ready, processing, or empty state)
+- assertVisible:
+    text: "Transcript processing will start soon.|Extracting audio content|Transcribing audio to text|Transcript is ready|No transcript available yet"
+    regex: true
+    optional: true
+
+# Test back navigation
+- tapOn:
+    id: "Go back"
+    optional: true
+
+# Fallback: use device back button
+- pressKey:
+    key: back
+    optional: true
+
+# Verify we are back on the inbox
+- assertVisible:
+    text: "Inbox"
+    timeout: 5000

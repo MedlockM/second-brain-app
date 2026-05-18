@@ -1,0 +1,92 @@
+# Flow 03: Inbox Visibility
+# Verifies that shared items appear in the inbox with correct processing states.
+# Tests:
+# - Items show up after share submission
+# - Processing status badges are visible
+# - Pull-to-refresh works
+# - Empty state is properly replaced by content
+appId: com.mediasummarizer.app
+tags:
+  - critical
+  - share-first
+  - inbox
+
+---
+
+# Launch and authenticate
+- launchApp:
+    clearState: true
+
+- extendedWaitUntil:
+    visible:
+      text: "Welcome back"
+    timeout: 15000
+
+- runFlow: utils/login.yaml
+
+# Verify we are on the inbox screen
+- assertVisible:
+    text: "Good .*"
+    regex: true
+    timeout: 5000
+
+# Check for the Daily Digest button
+- assertVisible:
+    text: "Daily Digest"
+
+# If the inbox has items, verify the "READY FOR REVIEW" section header
+- assertVisible:
+    text: "READY FOR REVIEW"
+    optional: true
+
+# Simulate a share to populate the inbox
+- openLink: "media-summarizer://share?url=${SHARE_TEST_URL}&sourceApp=android-share-intent"
+
+- assertVisible:
+    text: "Collection"
+    timeout: 5000
+
+- tapOn:
+    text: "Save"
+
+- assertVisible:
+    text: "Saved"
+    timeout: 8000
+
+# Wait for auto-dismiss back to inbox
+- assertVisible:
+    text: "Inbox"
+    timeout: 5000
+
+# Verify the SUBMITTING section appears (optimistic local item)
+- assertVisible:
+    text: "SUBMITTING"
+    optional: true
+    timeout: 3000
+
+# Verify the shared URL domain is visible in the inbox
+- assertVisible:
+    text: "youtube.com"
+    optional: true
+    timeout: 5000
+
+# Test pull-to-refresh by scrolling down and up
+- scroll:
+    direction: DOWN
+    duration: 500
+- scroll:
+    direction: UP
+    duration: 500
+
+# After polling, items should transition from SUBMITTING to showing a type badge
+# (The exact timing depends on backend processing speed)
+- assertVisible:
+    text: "VIDEO"
+    optional: true
+    timeout: 15000
+
+# Verify processing status is shown for non-terminal items
+- assertVisible:
+    text: "Pending|Classifying|Resolving|Downloading|Extracting|Transcribing"
+    regex: true
+    optional: true

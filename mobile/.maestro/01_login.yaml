@@ -1,0 +1,35 @@
+# Flow 01: Login Authentication
+# Verifies that a user can authenticate and reach the inbox screen.
+# This flow is a prerequisite for all other share-first flows.
+appId: com.mediasummarizer.app
+tags:
+  - critical
+  - auth
+
+---
+
+# Launch the app fresh
+- launchApp:
+    clearState: true
+
+# Wait for the app to initialize (splash screen dismiss)
+- extendedWaitUntil:
+    visible:
+      text: "Welcome back"
+    timeout: 15000
+
+# Run the login sub-flow
+- runFlow: utils/login.yaml
+
+# Verify we landed on the inbox tab
+- assertVisible:
+    text: "Inbox"
+- assertVisible:
+    id: "file-tray-outline"
+    optional: true
+
+# Verify the greeting is shown (dynamic based on time of day)
+- assertVisible:
+    text: "Good .*"
+    regex: true
+    optional: true
