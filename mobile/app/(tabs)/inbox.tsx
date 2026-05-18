@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useAuth } from "../../src/contexts/AuthContext";
+import { useRouter } from "expo-router";
 import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import {
   Colors,
@@ -29,6 +29,7 @@ import type { IngestUrlResponse } from "../../src/types/media";
  */
 export default function InboxScreen() {
   const { intake } = useShareIntake();
+  const router = useRouter();
   const [recentItems, setRecentItems] = useState<IngestUrlResponse[]>([]);
 
   // When a URL is successfully saved, add it to the top of the local list
@@ -59,7 +60,14 @@ export default function InboxScreen() {
         <FlatList
           data={recentItems}
           keyExtractor={(item) => item.media_item.media_item_id}
-          renderItem={({ item }) => <InboxItemCard item={item} />}
+          renderItem={({ item }) => (
+            <InboxItemCard
+              item={item}
+              onPress={() =>
+                router.push(`/media/${item.media_item.media_item_id}`)
+              }
+            />
+          )}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
         />
@@ -90,8 +98,15 @@ function EmptyState() {
 
 /**
  * Card component for an inbox item.
+ * Tapping navigates to the media detail screen.
  */
-function InboxItemCard({ item }: { item: IngestUrlResponse }) {
+function InboxItemCard({
+  item,
+  onPress,
+}: {
+  item: IngestUrlResponse;
+  onPress: () => void;
+}) {
   const { media_item, processing_job, deduplicated } = item;
 
   let displayDomain: string;
@@ -106,7 +121,7 @@ function InboxItemCard({ item }: { item: IngestUrlResponse }) {
   const statusColor = getStatusColor(processing_job.status);
 
   return (
-    <View style={styles.card}>
+    <Pressable style={styles.card} onPress={onPress}>
       <View style={styles.cardContent}>
         <View style={styles.cardTextSection}>
           <Text style={styles.cardUrl} numberOfLines={2}>
@@ -127,7 +142,7 @@ function InboxItemCard({ item }: { item: IngestUrlResponse }) {
           <Text style={styles.deduplicatedText}>Already in library</Text>
         )}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
