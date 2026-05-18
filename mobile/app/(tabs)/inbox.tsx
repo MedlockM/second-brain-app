@@ -13,13 +13,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useMediaPolling } from "../../src/hooks/useMediaPolling";
+import { useNetworkStatus } from "../../src/hooks/useNetworkStatus";
+import { useOfflineSync } from "../../src/hooks/useOfflineSync";
 import { InboxItem } from "../../src/contexts/InboxContext";
+import { OfflineBanner, SyncingBanner } from "../../src/components/OfflineBanner";
 import {
   Colors,
   Typography,
   Spacing,
   BorderRadius,
   Shadows,
+  TouchTarget,
 } from "../../src/constants/theme";
 import type {
   MediaStatusResponse,
@@ -32,6 +36,7 @@ import type {
  *
  * Layout follows the inbox_daily_digest_button_ux mockup:
  * - Greeting header
+ * - Offline banner (when disconnected)
  * - Daily Digest button
  * - "Ready for Review" section with media item cards
  * - Processing items shown with status badges
@@ -41,10 +46,14 @@ import type {
  * - Pull-to-refresh
  * - Loading, error, and empty states
  * - Optimistic UI: shows locally-shared items before backend confirms
+ * - Offline banner with queued item count (AC#6)
+ * - Minimum 48px touch targets on all interactive elements (AC#2)
  */
 export default function InboxScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const { isConnected } = useNetworkStatus();
+  const { queuedCount, isSyncing, triggerSync } = useOfflineSync();
   const {
     items,
     pendingLocalItems,
@@ -102,7 +111,12 @@ export default function InboxScreen() {
             style={styles.errorIcon}
           />
           <Text style={styles.errorTitle}>{error}</Text>
-          <Pressable style={styles.retryButton} onPress={retry}>
+          <Pressable
+            style={styles.retryButton}
+            onPress={retry}
+            accessibilityLabel="Retry loading inbox"
+            accessibilityRole="button"
+          >
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
             <Text style={styles.retryButtonText}>Retry</Text>
           </Pressable>
@@ -138,11 +152,13 @@ export default function InboxScreen() {
             onDigestPress={handleDigestPress}
             pendingLocalItems={pendingLocalItems}
             hasItems={hasItems}
+            isOffline={!isConnected}
+            queuedCount={queuedCount}
+            isSyncing={isSyncing}
+            onSyncPress={triggerSync}
           />
         }
-        ListEmptyComponent={
-          !hasItems ? <EmptyState /> : null
-        }
+        ListEmptyComponent={!hasItems ? <EmptyState /> : null}
       />
     </SafeAreaView>
   );
@@ -156,6 +172,10 @@ interface ListHeaderProps {
   onDigestPress: () => void;
   pendingLocalItems: InboxItem[];
   hasItems: boolean;
+  isOffline: boolean;
+  queuedCount: number;
+  isSyncing: boolean;
+  onSyncPress: () => void;
 }
 
 function ListHeader({
@@ -164,6 +184,10 @@ function ListHeader({
   onDigestPress,
   pendingLocalItems,
   hasItems,
+  isOffline,
+  queuedCount,
+  isSyncing,
+  onSyncPress,
 }: ListHeaderProps) {
   return (
     <View>
@@ -172,13 +196,27 @@ function ListHeader({
         <Text style={styles.greeting}>{greeting}</Text>
       </View>
 
-      {/* Daily Digest Button */}
+      {/* Offline Banner (AC#6) */}
+      {isOffline && (
+        <OfflineBanner
+          queuedCount={queuedCount}
+          isSyncing={isSyncing}
+          onSyncPress={onSyncPress}
+        />
+      )}
+
+      {/* Syncing Banner (shown briefly when coming back online) */}
+      {!isOffline && isSyncing && <SyncingBanner count={queuedCount} />}
+
+      {/* Daily Digest Button - min 48px touch target (AC#2) */}
       <Pressable
         style={({ pressed }) => [
           styles.digestButton,
           pressed && styles.digestButtonPressed,
         ]}
         onPress={onDigestPress}
+        accessibilityLabel={`Open Daily Digest, ${completedCount} items ready`}
+        accessibilityRole="button"
       >
         <View style={styles.digestIconContainer}>
           <Ionicons name="book-outline" size={22} color={Colors.primary} />
@@ -254,11 +292,10 @@ function MediaItemCard({ item, onPress }: MediaItemCardProps) {
 
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.card,
-        pressed && styles.cardPressed,
-      ]}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={() => onPress(media_item.media_item_id)}
+      accessibilityLabel={`${mediaTypeLabel} from ${displayDomain}, ${statusLabel}`}
+      accessibilityRole="button"
     >
       <View style={styles.cardContent}>
         {/* Thumbnail placeholder */}
@@ -327,7 +364,10 @@ function PendingLocalItemCard({ item }: PendingLocalItemCardProps) {
   const isFailed = item.state === "failed";
 
   return (
-    <View style={[styles.card, isFailed && styles.cardFailed]}>
+    <View
+      style={[styles.card, isFailed && styles.cardFailed]}
+      accessibilityLabel={`Pending link from ${displayDomain}, ${isFailed ? "failed" : "submitting"}`}
+    >
       <View style={styles.cardContent}>
         <View style={styles.thumbnailContainer}>
           {isFailed ? (
@@ -555,6 +595,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm + 4,
     borderRadius: BorderRadius.lg,
+    minHeight: TouchTarget.minimum,
   },
   retryButtonText: {
     fontSize: Typography.label.fontSize,
@@ -562,7 +603,7 @@ const styles = StyleSheet.create({
     color: Colors.onPrimary,
   },
 
-  // Daily Digest button
+  // Daily Digest button - meets 48px minimum touch target
   digestButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -574,6 +615,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.outlineVariant,
+    minHeight: TouchTarget.comfortable,
     ...Shadows.soft,
   },
   digestButtonPressed: {
@@ -624,13 +666,14 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
 
-  // Card
+  // Card - minimum touch height enforced
   card: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.xl,
     padding: Spacing.sm + 4,
     marginHorizontal: Spacing.md,
     marginBottom: Spacing.md,
+    minHeight: TouchTarget.comfortable,
     ...Shadows.soft,
   },
   cardPressed: {

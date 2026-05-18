@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useDebounce } from "../../src/hooks/useDebounce";
 import {
@@ -23,6 +24,7 @@ import {
   Spacing,
   BorderRadius,
   Shadows,
+  TouchTarget,
 } from "../../src/constants/theme";
 import type {
   MediaItemContract,
@@ -162,6 +164,7 @@ function getDisplayTitle(item: MediaItemContract): string {
 
 export default function SearchScreen() {
   const { token } = useAuth();
+  const router = useRouter();
 
   // Search state
   const [query, setQuery] = useState("");
@@ -312,7 +315,12 @@ export default function SearchScreen() {
           <FlatList
             data={results}
             keyExtractor={(item) => item.media_item_id}
-            renderItem={({ item }) => <ResultCard item={item} />}
+            renderItem={({ item }) => (
+              <ResultCard
+                item={item}
+                onPress={() => router.push(`/media/${item.media_item_id}`)}
+              />
+            )}
             contentContainerStyle={styles.resultsList}
             showsVerticalScrollIndicator={false}
             ListHeaderComponent={
@@ -394,7 +402,7 @@ function ErrorState({ message }: { message: string }) {
   );
 }
 
-function ResultCard({ item }: { item: MediaItemContract }) {
+function ResultCard({ item, onPress }: { item: MediaItemContract; onPress: () => void }) {
   const displayTitle = getDisplayTitle(item);
   const sourceLabel = getSourceLabel(item.source_platform);
   const dateLabel = formatDate(item.created_at);
@@ -403,7 +411,12 @@ function ResultCard({ item }: { item: MediaItemContract }) {
   const typeIcon = getMediaTypeIcon(item.media_type);
 
   return (
-    <Pressable style={styles.card}>
+    <Pressable
+      style={styles.card}
+      onPress={onPress}
+      accessibilityLabel={`${displayTitle}, ${sourceLabel}`}
+      accessibilityRole="button"
+    >
       {/* Card Header: source icon + label + date */}
       <View style={styles.cardHeader}>
         <View style={styles.cardSourceRow}>
@@ -451,7 +464,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
 
-  // Search bar
+  // Search bar - minimum height meets touch target (AC#2)
   searchBarContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -459,7 +472,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
     borderColor: Colors.outlineVariant,
-    height: 48,
+    height: TouchTarget.minimum,
     paddingHorizontal: Spacing.md,
   },
   searchIcon: {
@@ -490,7 +503,8 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   filterChip: {
-    height: 32,
+    height: 40,
+    minWidth: TouchTarget.minimum,
     paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.background,

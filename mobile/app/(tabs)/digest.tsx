@@ -22,6 +22,7 @@ import {
   Spacing,
   BorderRadius,
   Shadows,
+  TouchTarget,
 } from "../../src/constants/theme";
 import type {
   DailyDigest,
@@ -374,6 +375,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm + 2,
     alignItems: "center",
     borderRadius: BorderRadius.full,
+    minHeight: 40,
+    justifyContent: "center",
   },
   segmentButtonActive: {
     backgroundColor: Colors.primary,
@@ -424,6 +427,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm + 2,
     borderRadius: BorderRadius.full,
+    minHeight: TouchTarget.minimum,
+    justifyContent: "center",
+    alignItems: "center",
   },
   retryButtonText: {
     fontSize: Typography.label.fontSize,

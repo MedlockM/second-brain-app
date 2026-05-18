@@ -1,7 +1,7 @@
 import { Redirect, Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/contexts/AuthContext";
-import { Colors, Typography } from "../../src/constants/theme";
+import { Colors, Typography, TouchTarget } from "../../src/constants/theme";
 import { ActivityIndicator, View, StyleSheet } from "react-native";
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>["name"];
@@ -37,7 +37,7 @@ export default function TabsLayout() {
           borderTopColor: Colors.outlineVariant,
           borderTopWidth: StyleSheet.hairlineWidth,
           paddingTop: 4,
-          height: 56,
+          height: TouchTarget.large,
         },
         tabBarLabelStyle: {
           fontSize: 10,

@@ -8,6 +8,7 @@ import {
   Spacing,
   BorderRadius,
   Shadows,
+  TouchTarget,
 } from "../../src/constants/theme";
 
 /**
@@ -146,6 +147,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 14,
     paddingHorizontal: Spacing.md,
+    minHeight: TouchTarget.minimum,
   },
   menuIcon: {
     width: 32,
