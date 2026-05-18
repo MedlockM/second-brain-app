@@ -1,7 +1,7 @@
 ---
 id: task-96
 title: Implement mobile tags management and collection selection screens
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-18 20:27'
 labels:

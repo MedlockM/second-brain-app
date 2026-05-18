@@ -1,7 +1,7 @@
 ---
 id: task-95
 title: Implement mobile search screen with full-text and metadata filters
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-18 20:27'
 labels:

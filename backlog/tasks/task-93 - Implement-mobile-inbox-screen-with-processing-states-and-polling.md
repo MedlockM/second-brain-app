@@ -1,7 +1,7 @@
 ---
 id: task-93
 title: Implement mobile inbox screen with processing states and polling
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-18 20:27'
 labels:

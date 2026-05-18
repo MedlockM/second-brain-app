@@ -1,7 +1,7 @@
 ---
 id: task-97
 title: Implement mobile daily and weekly digest screens
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-18 20:27'
 labels:

@@ -1,7 +1,7 @@
 ---
 id: task-94
 title: Implement mobile media detail screen with artifact actions
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-18 20:27'
 labels:
