@@ -1,0 +1,376 @@
+import { useEffect } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  ActivityIndicator,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import {
+  useShareIntake,
+  type ShareIntakeState,
+} from "../src/contexts/ShareIntentContext";
+import {
+  Colors,
+  Typography,
+  Spacing,
+  BorderRadius,
+  Shadows,
+} from "../src/constants/theme";
+
+/**
+ * Share confirmation screen.
+ * Displayed when a URL is shared into the app via Android share intent.
+ *
+ * Layout follows the design reference (confirmation_de_partage_version_finale):
+ * - Top bar: close button (left), title (center), save button (right)
+ * - Media preview card with URL
+ * - Feedback states: submitting, success, error
+ */
+export default function ShareConfirmationScreen() {
+  const router = useRouter();
+  const { intake, submitUrl, dismiss, retry } = useShareIntake();
+
+  // Auto-dismiss on success after a brief delay
+  useEffect(() => {
+    if (intake.status === "success") {
+      const timer = setTimeout(() => {
+        handleClose();
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [intake.status]);
+
+  const handleClose = () => {
+    dismiss();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/inbox");
+    }
+  };
+
+  const handleSave = () => {
+    submitUrl();
+  };
+
+  const handleRetry = () => {
+    retry();
+  };
+
+  const canSave = intake.status === "ready" || intake.status === "error";
+
+  return (
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+      {/* Top Bar - matching design: close (left), title (center), save (right) */}
+      <View style={styles.topBar}>
+        <Pressable
+          style={styles.closeButton}
+          onPress={handleClose}
+          accessibilityLabel="Close"
+          accessibilityRole="button"
+        >
+          <Ionicons name="close" size={24} color={Colors.textMain} />
+        </Pressable>
+
+        <Text style={styles.topBarTitle}>Save Link</Text>
+
+        <Pressable
+          style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
+          onPress={handleSave}
+          disabled={!canSave}
+          accessibilityLabel="Save"
+          accessibilityRole="button"
+        >
+          {intake.status === "submitting" ? (
+            <ActivityIndicator size="small" color={Colors.textMain} />
+          ) : (
+            <Text style={styles.saveButtonText}>Save</Text>
+          )}
+        </Pressable>
+      </View>
+
+      {/* Content */}
+      <View style={styles.content}>
+        <ShareContent intake={intake} onRetry={handleRetry} />
+      </View>
+    </SafeAreaView>
+  );
+}
+
+/**
+ * Renders the appropriate content based on the current share intake state.
+ */
+function ShareContent({
+  intake,
+  onRetry,
+}: {
+  intake: ShareIntakeState;
+  onRetry: () => void;
+}) {
+  switch (intake.status) {
+    case "idle":
+    case "validating":
+      return (
+        <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.statusText}>Processing shared content...</Text>
+        </View>
+      );
+
+    case "invalid":
+      return (
+        <View style={styles.centerContent}>
+          <View style={styles.errorIcon}>
+            <Ionicons name="alert-circle" size={48} color={Colors.error} />
+          </View>
+          <Text style={styles.errorTitle}>Cannot save this content</Text>
+          <Text style={styles.errorMessage}>{intake.message}</Text>
+        </View>
+      );
+
+    case "ready":
+      return <UrlPreviewCard url={intake.url!} />;
+
+    case "submitting":
+      return <UrlPreviewCard url={intake.url!} isSubmitting />;
+
+    case "success":
+      return (
+        <View style={styles.centerContent}>
+          <View style={styles.successIcon}>
+            <Ionicons name="checkmark-circle" size={48} color="#4caf50" />
+          </View>
+          <Text style={styles.successTitle}>Saved!</Text>
+          <Text style={styles.successMessage}>
+            {intake.response?.deduplicated
+              ? "This link was already in your inbox."
+              : "Link added to your inbox. Processing will begin shortly."}
+          </Text>
+        </View>
+      );
+
+    case "error":
+      return (
+        <View style={styles.centerContent}>
+          <View style={styles.errorIcon}>
+            <Ionicons name="alert-circle" size={48} color={Colors.error} />
+          </View>
+          <Text style={styles.errorTitle}>Save failed</Text>
+          <Text style={styles.errorMessage}>{intake.message}</Text>
+          <Pressable style={styles.retryButton} onPress={onRetry}>
+            <Ionicons name="refresh" size={18} color={Colors.textMain} />
+            <Text style={styles.retryButtonText}>Try again</Text>
+          </Pressable>
+        </View>
+      );
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * Preview card showing the URL being saved.
+ * Matches the design mockup's media card layout.
+ */
+function UrlPreviewCard({
+  url,
+  isSubmitting = false,
+}: {
+  url: string;
+  isSubmitting?: boolean;
+}) {
+  let displayDomain: string;
+  try {
+    const parsed = new URL(url);
+    displayDomain = parsed.hostname.replace(/^www\./, "");
+  } catch {
+    displayDomain = url;
+  }
+
+  return (
+    <View style={[styles.previewCard, isSubmitting && styles.previewCardMuted]}>
+      <View style={styles.previewCardContent}>
+        <View style={styles.previewTextSection}>
+          <Text style={styles.previewUrl} numberOfLines={3}>
+            {url}
+          </Text>
+          <Text style={styles.previewDomain}>{displayDomain}</Text>
+        </View>
+        <View style={styles.previewIconContainer}>
+          <Ionicons name="link" size={24} color={Colors.textMuted} />
+        </View>
+      </View>
+      {isSubmitting && (
+        <View style={styles.previewSubmitting}>
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <Text style={styles.previewSubmittingText}>Saving...</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  topBarTitle: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: Typography.headline.fontWeight,
+    color: Colors.textMain,
+  },
+  saveButton: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    minWidth: 80,
+    alignItems: "center",
+    justifyContent: "center",
+    height: 36,
+  },
+  saveButtonDisabled: {
+    opacity: 0.5,
+  },
+  saveButtonText: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: "700",
+    color: Colors.textMain,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+  },
+  centerContent: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+  },
+  statusText: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textMuted,
+    marginTop: Spacing.md,
+  },
+  // Preview card
+  previewCard: {
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.outlineVariant,
+    ...Shadows.soft,
+  },
+  previewCardMuted: {
+    opacity: 0.7,
+  },
+  previewCardContent: {
+    flexDirection: "row",
+    gap: Spacing.md,
+  },
+  previewTextSection: {
+    flex: 1,
+    gap: Spacing.sm,
+  },
+  previewUrl: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: Typography.headline.fontWeight,
+    color: Colors.textMain,
+    lineHeight: 26,
+  },
+  previewDomain: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textMuted,
+    marginTop: Spacing.xs,
+  },
+  previewIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.surfaceContainerHigh,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewSubmitting: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.outlineVariant,
+  },
+  previewSubmittingText: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textMuted,
+  },
+  // Success state
+  successIcon: {
+    marginBottom: Spacing.md,
+  },
+  successTitle: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: Typography.headline.fontWeight,
+    color: Colors.textMain,
+    marginBottom: Spacing.sm,
+  },
+  successMessage: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textMuted,
+    textAlign: "center",
+    lineHeight: Typography.body.lineHeight,
+  },
+  // Error state
+  errorIcon: {
+    marginBottom: Spacing.md,
+  },
+  errorTitle: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: Typography.headline.fontWeight,
+    color: Colors.textMain,
+    marginBottom: Spacing.sm,
+  },
+  errorMessage: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textMuted,
+    textAlign: "center",
+    lineHeight: Typography.body.lineHeight,
+    marginBottom: Spacing.lg,
+  },
+  retryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceContainer,
+  },
+  retryButtonText: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: Typography.label.fontWeight,
+    color: Colors.textMain,
+  },
+});
