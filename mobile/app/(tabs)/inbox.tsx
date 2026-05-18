@@ -67,10 +67,9 @@ export default function InboxScreen() {
 
   const handleItemPress = useCallback(
     (mediaItemId: string) => {
-      // Navigate to media detail - route will be implemented in a future task
-      // For now, just log for navigation readiness
+      router.push(`/media/${mediaItemId}`);
     },
-    [],
+    [router],
   );
 
   // Loading state

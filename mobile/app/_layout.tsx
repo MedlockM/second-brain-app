@@ -49,6 +49,12 @@ export default function RootLayout() {
                 animation: "slide_from_bottom",
               }}
             />
+            <Stack.Screen
+              name="media/[id]"
+              options={{
+                animation: "slide_from_right",
+              }}
+            />
           </Stack>
         </InboxProvider>
       </ShareIntentProvider>
