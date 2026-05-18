@@ -55,6 +55,22 @@ export default function RootLayout() {
                 animation: "slide_from_right",
               }}
             />
+            <Stack.Screen
+              name="media/tags"
+              options={{
+                presentation: "modal",
+                animation: "slide_from_bottom",
+                gestureEnabled: true,
+              }}
+            />
+            <Stack.Screen
+              name="media/collection"
+              options={{
+                presentation: "modal",
+                animation: "slide_from_bottom",
+                gestureEnabled: true,
+              }}
+            />
           </Stack>
         </InboxProvider>
       </ShareIntentProvider>
