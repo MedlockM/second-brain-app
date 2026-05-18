@@ -1,7 +1,7 @@
 ---
 id: task-36
 title: 'Implement mobile foundation (app shell, navigation, auth/refresh session)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-02-24 11:04'
 updated_date: '2026-05-18 15:32'
