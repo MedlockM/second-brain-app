@@ -4,7 +4,7 @@ title: Implement Android Share Intent to app inbox flow
 status: To Do
 assignee: []
 created_date: '2026-02-24 11:04'
-updated_date: '2026-02-24 20:55'
+updated_date: '2026-05-18 15:32'
 labels: []
 dependencies:
   - task-36
@@ -34,4 +34,6 @@ Réutilisation existante (obligatoire):
 - `front/src/services/podcastService.ts`: réutiliser le pattern technique du client API (fetch typé + `parseErrorResponse`), mais ne pas réutiliser les endpoints podcast legacy.
 - `front/src/components/JobsInProgress.tsx`: reprendre la logique de feedback immédiat + retry/refresh (pas le JSX web).
 Contraintes: réécrire l’UI en React Native; ne réutiliser que logique/contrats.
+
+**Design reference:** Use `mobile-design-mockups/confirmation_de_partage_version_finale/` for the share confirmation screen (layout, feedback UX, animations). Implement natively.
 <!-- SECTION:NOTES:END -->

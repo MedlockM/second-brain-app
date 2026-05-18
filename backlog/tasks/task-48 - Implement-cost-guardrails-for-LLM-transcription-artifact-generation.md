@@ -1,7 +1,7 @@
 ---
 id: task-48
 title: Implement cost guardrails for LLM/transcription/artifact generation
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-02-24 11:04'
 updated_date: '2026-05-14 05:39'

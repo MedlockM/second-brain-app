@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-02-24 11:04'
-updated_date: '2026-03-29 21:18'
+updated_date: '2026-05-18 15:32'
 labels: []
 dependencies:
   - task-37
@@ -43,4 +43,15 @@ Réutilisation existante (obligatoire):
 - `front/src/services/episodesService.ts` / `front/src/services/summariesService.ts`: réutiliser le pattern list/detail côté client API, en remplaçant les endpoints legacy par `/api/media/*` et `/api/artifacts/*`.
 - `front/src/contexts/MinutesContext.tsx`: réutiliser le pattern de rafraîchissement périodique pour états synchronisés.
 Contraintes: ne pas porter les composants web existants tels quels; réimplémenter les vues en natif.
+
+**Design reference:** Use mockups in `mobile-design-mockups/` as visual spec for each screen:
+- `inbox_daily_digest_button_ux/` — inbox with digest button
+- `media_detail_ai_artifacts_dropdown/` — media detail with artifact actions (collapsed)
+- `media_detail_ai_artifacts_expanded/` — media detail with artifact actions (expanded)
+- `search_harmonized_v2/` — search screen
+- `gestion_des_tags_no_keyboard_space/` — tag management
+- `s_lection_de_collection/` — collection selection
+- `daily_digest_your_day_in_review/` — daily digest screen
+- `weekly_digest_harmonized_v2/` — weekly digest screen
+Design system: `my_design_system/DESIGN.md`. All mockups are HTML/Tailwind prototypes; implement natively.
 <!-- SECTION:NOTES:END -->

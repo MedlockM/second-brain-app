@@ -1,7 +1,7 @@
 ---
 id: task-53.1
 title: Cadrer la recherche lexicale par utilisateur dans la base de transcripts media
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-03-16 22:20'
 updated_date: '2026-04-23 08:58'

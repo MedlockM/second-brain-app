@@ -1,0 +1,147 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><title>Inbox - Warm Clarity</title><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"><script id="tailwind-config">        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#ffcb05",
+                        "background-light": "#fcf9f6",
+                        surface: "#ffffff",
+                        "text-main": "#2b2d42",
+                        "text-muted": "#8d99ae",
+                        accent: "#ffcb05",
+                        outline: "#e5e2df",
+                        "surface-container": "#f1edea"
+                    },
+                    fontFamily: {
+                        display: "'Plus Jakarta Sans'",
+                        headline: ["'Plus Jakarta Sans'"],
+                        body: ["'Plus Jakarta Sans'"],
+                        label: ["'Plus Jakarta Sans'"]
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.25rem",
+                        lg: "0.5rem",
+                        xl: "0.75rem",
+                        "2xl": "1rem",
+                        full: "9999px"
+                    },
+                    boxShadow: {
+                        soft: "0 8px 24px rgba(43, 45, 66, 0.04)"
+                    }
+                }
+            }
+        };
+    </script><style>        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #fcf9f6;
+            color: #2b2d42;
+            -webkit-font-smoothing: antialiased;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style></head>
+<body class="bg-[#fcf9f6] text-[#2b2d42] h-screen flex flex-col overflow-hidden relative selection:bg-[#ffcb05]/20">
+<!-- Floating Header -->
+<header class="fixed top-0 left-0 right-0 z-50 bg-[#fcf9f6]/80 backdrop-blur-md px-6 pt-12 pb-4 border-b border-gray-100">
+<h1 class="text-[28px] font-bold tracking-tight text-[#2b2d42]">Good Morning, Alex</h1>
+
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 overflow-y-auto no-scrollbar pt-32 pb-24 px-4">
+<!-- Processing Queue Section -->
+<section class="mb-8 overflow-hidden"><a class="flex items-center justify-between bg-white p-5 rounded-2xl border border-gray-100 shadow-soft active:scale-[0.98] transition-transform group" href="#"><div class="flex items-center gap-4"><div class="w-10 h-10 rounded-xl bg-[#ffcb05]/10 flex items-center justify-center"><span class="material-symbols-outlined text-[#ffcb05] text-2xl">menu_book</span></div><span class="text-base font-bold text-[#2b2d42]">Daily Digest</span></div><div class="flex items-center gap-2"><span class="text-base font-medium text-[#8d99ae]">5</span><span class="material-symbols-outlined text-[#ffcb05] transition-transform group-hover:translate-x-0.5">chevron_right</span></div></a></section>
+<!-- Ready Summaries Section -->
+<section>
+<div class="flex items-center justify-between mb-4 px-2">
+<h2 class="text-sm font-bold text-[#8d99ae] uppercase tracking-wider">Ready for Review</h2>
+</div>
+<div class="flex flex-col gap-4">
+<!-- Ready Card 1 -->
+<div class="bg-white p-3 rounded-2xl shadow-soft flex items-center gap-4 cursor-pointer active:scale-[0.98] transition-transform">
+<div class="w-20 h-20 rounded-xl bg-gray-100 shrink-0 overflow-hidden relative">
+<img alt="Retro computer setup" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDtC5NiiBP1hhqK3tc4LxSix8QFGo0zWDcz_-b9P0WiU1x3EVg1g2yr_aWi48MFRkrpUaxvjdtjEerFP2AfMxketFaiWAdeKnJ83sRuHhYViRqy9lpuqe9IIG0Bw_e3GjBKVBBPGNFsnI01xqJkKH4iXj6qlUsoB2tBsJ3y7WwQHUk_y-o0Jga7FE4aFmWZ0rJBVbDKAR1kU_-tQzcPwKfLoRwE7ttravTzw7lNxJfh7TayU-0ZctHvH6QHVl1tz78FHaMVUaLuOw">
+<div class="absolute bottom-1 right-1 bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] text-white font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-[10px]">headphones</span> 45m
+                    </div>
+</div>
+<div class="flex-1 min-w-0 py-1">
+<div class="flex items-center gap-1.5 mb-1">
+<span class="text-[11px] font-bold text-[#2b2d42] bg-[#ffcb05] px-2 py-0.5 rounded-md uppercase tracking-wide">Podcast</span>
+<span class="text-[11px] text-[#8d99ae]">• 2h ago</span>
+</div>
+<h3 class="text-base font-bold text-[#2b2d42] leading-snug line-clamp-2 mb-1">Designing for the Mind: Cognitive Load in UI</h3>
+<p class="text-xs text-[#8d99ae] truncate">Design Details Podcast</p>
+</div>
+</div>
+<!-- Ready Card 2 -->
+<div class="bg-white p-3 rounded-2xl shadow-soft flex items-center gap-4 cursor-pointer active:scale-[0.98] transition-transform">
+<div class="w-20 h-20 rounded-xl bg-gray-100 shrink-0 overflow-hidden">
+<img alt="Notebook and pen" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAdM8dWxmNh7a3WVM5LFqjwj1qtk5HijTlQqFY7hnh4B6mvDUHXxQU5f1ktkdZhHXCzVEOYJywqp70EZR5weOCsnNGb9Dka7tgpgIFkGeL9AYTpMGkFQJCXQkrX64-lPOzqLUwvfhv7_FPv2SfdONM3HvgzUCwrhHUYZrjDORzGBY5JCq0EhgX3Xbq1vkw_UrzkUO3KWPMCZ9Gl6TwnllQyqcS5tgklzemLvX56YxFjt2iq4iSYfUNCgrPMD_HyOiukWikJGYgLmg">
+</div>
+<div class="flex-1 min-w-0 py-1">
+<div class="flex items-center gap-1.5 mb-1">
+<span class="text-[11px] font-bold text-[#2b2d42] bg-gray-100 px-2 py-0.5 rounded-md uppercase tracking-wide">Article</span>
+<span class="text-[11px] text-[#8d99ae]">• 5h ago</span>
+</div>
+<h3 class="text-base font-bold text-[#2b2d42] leading-snug line-clamp-2 mb-1">The Psychology of Habit Formation</h3>
+<p class="text-xs text-[#8d99ae] truncate">medium.com</p>
+</div>
+</div>
+<!-- Ready Card 3 -->
+<div class="bg-white p-3 rounded-2xl shadow-soft flex items-center gap-4 cursor-pointer active:scale-[0.98] transition-transform">
+<div class="w-20 h-20 rounded-xl bg-gray-100 shrink-0 overflow-hidden relative">
+<div class="absolute inset-0 bg-gradient-to-br from-[#2b2d42] to-[#4b4e6d]"></div>
+<span class="material-symbols-outlined text-white/50 text-3xl absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">article</span>
+</div>
+<div class="flex-1 min-w-0 py-1">
+<div class="flex items-center gap-1.5 mb-1">
+<span class="text-[11px] font-bold text-[#2b2d42] bg-gray-100 px-2 py-0.5 rounded-md uppercase tracking-wide">Newsletter</span>
+<span class="text-[11px] text-[#8d99ae]">• Yesterday</span>
+</div>
+<h3 class="text-base font-bold text-[#2b2d42] leading-snug line-clamp-2 mb-1">Weekly Tech Trends: Q3 Analysis</h3>
+<p class="text-xs text-[#8d99ae] truncate">Benedict Evans</p>
+</div>
+</div>
+</div>
+</section>
+<div class="h-8"></div>
+</main>
+<!-- Shared BottomNavBar Component -->
+<div class="fixed bottom-0 left-0 right-0 z-50">
+<div class="flex gap-2 border-t border-gray-100 bg-white px-4 pb-safe pt-2 shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
+<a class="flex flex-1 flex-col items-center justify-end gap-1 rounded-full text-[#ffcb05] pb-2" href="#">
+<div class="flex h-8 items-center justify-center" style="font-variation-settings: 'FILL' 1;">
+<span class="material-symbols-outlined text-[24px]">trophy</span>
+</div>
+<p class="text-xs font-bold leading-normal tracking-[0.015em] text-[#2b2d42]">Inbox</p>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-[#8d99ae] hover:text-[#2b2d42] transition-colors pb-2" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">magnification_large</span>
+</div>
+<p class="text-xs font-medium leading-normal tracking-[0.015em]">Search</p>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-[#8d99ae] hover:text-[#2b2d42] transition-colors pb-2" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">file_open</span>
+</div>
+<p class="text-xs font-medium leading-normal tracking-[0.015em]">Digest</p>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-[#8d99ae] hover:text-[#2b2d42] transition-colors pb-2" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">verified_user</span>
+</div>
+<p class="text-xs font-medium leading-normal tracking-[0.015em]">Account</p>
+</a>
+</div>
+<!-- Safe area padding for newer iOS devices -->
+<div class="h-safe bg-white"></div>
+</div>
+
+
+</body></html>

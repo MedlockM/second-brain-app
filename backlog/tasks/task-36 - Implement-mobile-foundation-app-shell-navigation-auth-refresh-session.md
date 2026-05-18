@@ -4,7 +4,7 @@ title: 'Implement mobile foundation (app shell, navigation, auth/refresh session
 status: To Do
 assignee: []
 created_date: '2026-02-24 11:04'
-updated_date: '2026-02-24 20:55'
+updated_date: '2026-05-18 15:32'
 labels: []
 dependencies:
   - task-18
@@ -35,4 +35,9 @@ Réutilisation existante (obligatoire):
 - `front/src/utils/validation.ts` et `front/src/types/auth.ts`: reprendre les validations/formats auth existants.
 - `front/src/services/settingsService.ts` / `front/src/services/billingService.ts`: réutiliser le pattern de client API (headers auth, parsing d’erreurs) si nécessaire.
 Contraintes: ne pas porter les primitives web telles quelles (`import.meta.env`, router web, DOM/Tailwind).
+
+**Design reference:** Use mockups in `mobile-design-mockups/` as visual spec. Key files:
+- `my_design_system/DESIGN.md` — design system (colors, typography, elevation, components)
+- `account_harmonized_v2/` — account screen layout and navigation pattern
+All mockups are HTML/Tailwind prototypes; implement natively in the chosen mobile framework.
 <!-- SECTION:NOTES:END -->

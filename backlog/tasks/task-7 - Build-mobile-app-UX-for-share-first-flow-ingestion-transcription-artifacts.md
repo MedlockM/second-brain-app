@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-01-24 13:06'
-updated_date: '2026-02-24 20:55'
+updated_date: '2026-05-18 15:32'
 labels: []
 dependencies:
   - task-39
@@ -43,4 +43,6 @@ Réutilisation existante (obligatoire) pour la passe UX finale:
 - `front/src/types/media.ts`: vérifier que les écrans couvrent l’ensemble des statuts canoniques media/transcript/artifacts.
 - `front/src/utils/validation.ts`: conserver la logique de validation de saisie côté auth/inputs.
 Contraintes: l’UI visuelle web actuelle sert de référence fonctionnelle uniquement; implémentation native obligatoire.
+
+**Design reference:** Use all mockups in `mobile-design-mockups/` as visual spec for UX audit. Design system defined in `my_design_system/DESIGN.md`. Each subfolder contains a `screen.png` (visual reference) and `code.html` (Tailwind prototype for layout/spacing/colors). Implement natively — mockups are reference only, not deployable code.
 <!-- SECTION:NOTES:END -->

@@ -58,7 +58,6 @@ Critères de sélection :
 - Status = "To Do" uniquement
 - `dispatchable` != false dans le front-matter
 - Aucune dépendance non résolue (les dépendances doivent toutes être "Done")
-- Pas de tâche mobile si le prompt ne mentionne pas de repo mobile
 - **Pas de benchmark déjà produit en attente** : si un dossier `docs/research/task-XX-*/` existe avec un README.md dont `owner_decision == pending`, skip la tâche `task-XX` avec la raison "task-XX skipped: benchmark produced, owner decision pending in <README path>". **Exception** : si le dossier contient au moins un fichier `complement-request-*.md` dont il n'existe pas encore de `complement-response-*.md` correspondant (matching sur la date dans le nom), alors la tâche reste dispatchable — `task-research` sera relancé pour produire le complément demandé. La tâche redeviendra dispatchable (via Phase 0) quand l'owner aura mis `ok`, `abandoned`, `redo` ou `more`.
 
 Tri : par priorité (high > medium > low) puis par numéro de tâche croissant.

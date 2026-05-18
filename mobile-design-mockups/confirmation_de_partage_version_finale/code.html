@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Share Confirmation</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-container-high": "#ebe7e5",
+                        "surface-dim": "#ddd9d7",
+                        "inverse-primary": "#c7c8b5",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed-variant": "#584400",
+                        "inverse-surface": "#31302f",
+                        "tertiary-container": "#dae6dd",
+                        "surface-container-highest": "#e5e2df",
+                        "tertiary-fixed": "#d9e5dc",
+                        "on-primary-fixed": "#1b1d11",
+                        "on-surface-variant": "#474740",
+                        "primary-fixed": "#e4e4d1",
+                        "tertiary-fixed-dim": "#bdc9c1",
+                        "on-tertiary-container": "#5c6760",
+                        "on-error-container": "#93000a",
+                        "secondary-fixed": "#ffe08d",
+                        "on-background": "#1c1b1a",
+                        "surface-variant": "#e5e2df",
+                        "surface": "#fcf9f6",
+                        "on-tertiary-fixed-variant": "#3e4943",
+                        "on-tertiary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "on-tertiary-fixed": "#131e18",
+                        "on-surface": "#1c1b1a",
+                        "on-secondary-container": "#6f5700",
+                        "surface-container-low": "#f7f3f0",
+                        "on-secondary": "#ffffff",
+                        "secondary": "#745b00",
+                        "outline-variant": "#c8c7bd",
+                        "secondary-fixed-dim": "#f2c000",
+                        "secondary-container": "#ffcb09",
+                        "on-primary-container": "#646657",
+                        "surface-container": "#f1edea",
+                        "on-primary": "#ffffff",
+                        "surface-tint": "#5e5f51",
+                        "primary-container": "#e4e4d1",
+                        "on-error": "#ffffff",
+                        "on-secondary-fixed": "#241a00",
+                        "background": "#fcf9f6",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary": "#56615a",
+                        "surface-bright": "#fcf9f6",
+                        "inverse-on-surface": "#f4f0ed",
+                        "primary": "#745b00",
+                        "outline": "#78776f",
+                        "primary-fixed-dim": "#c7c8b5",
+                        "on-primary-fixed-variant": "#46483a"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    fontFamily: {
+                        "headline": ["Plus Jakarta Sans", "sans-serif"],
+                        "display": ["Plus Jakarta Sans", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Inter", "sans-serif"]
+                    },
+                    boxShadow: {
+                        'soft': '0 8px 24px rgba(43, 45, 66, 0.04)',
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface font-body antialiased min-h-screen flex flex-col items-center justify-start pt-safe">
+<!-- Top App Bar equivalent for a modal/bottom sheet context -->
+<header class="w-full max-w-md px-6 py-4 flex justify-between items-center sticky top-0 bg-surface/90 backdrop-blur-md z-10 no-line-rule">
+<button class="p-2 rounded-full hover:bg-surface-container-high transition-colors scale-95 active:opacity-80 flex items-center justify-center bg-surface-container-high/50 text-on-surface">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+<div class="flex items-center gap-1 cursor-pointer">
+<h1 class="font-headline text-headline-sm font-bold tracking-tight text-on-surface">Collection</h1>
+<span class="material-symbols-outlined text-on-surface-variant text-sm" data-icon="expand_more">expand_more</span>
+</div>
+<button class="bg-secondary-container text-on-primary-container font-headline font-bold py-2 px-4 rounded-full hover:bg-secondary-fixed transition-colors scale-95 active:opacity-80 text-sm">
+            Enregistrer
+        </button>
+</header>
+<main class="w-full max-w-md px-6 flex flex-col gap-6 pb-8">
+<!-- Media Summary Preview Card -->
+<article class="bg-surface-container-low rounded-xl p-5 shadow-soft border border-outline-variant/30 relative overflow-hidden group">
+<div class="flex gap-4">
+<div class="flex-1 flex flex-col gap-2">
+<h2 class="font-headline text-lg font-bold leading-tight text-on-surface">
+                        « Les plus grosses mises à jour Android de tous les temps » : regardez en direct ce que prépare Google
+                    </h2>
+<p class="font-body text-sm text-on-surface-variant leading-relaxed line-clamp-2">
+                        Google a présenté beaucoup de nouveautés lors de sa conférence annuelle.
+                    </p>
+</div>
+<div class="w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-surface-container-high">
+<img alt="Abstract 3D rendering of an android-like figure floating in a colorful digital space" class="w-full h-full object-cover" data-alt="A stylized 3D rendering of a futuristic android character floating within a vibrant, softly illuminated digital environment. The scene employs a warm, high-key lighting scheme indicative of a modern light-mode interface. The color palette blends soft amber tones with gentle blues and purples, conveying a sense of technological innovation and editorial elegance." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDtSt9XUZWK9zkxEKUPoBmitspISF3Gb9pzR0GHzgdQYSuHcT5o_FyjPyCVDtjm7YOhkSW7lcg9P0bJskw6BRY85wF8hEP4xp4XPeTI2NndsvF2Mk-7NYShAliNTkegeCmtEzsEsCB4yIbrH-gYbtMudqT_KK1Xg3iphV1H9YDVTwhRn45fxw1EgFVfyk7uwYVI9I5lKG6A8h2BTmni-T8xZvozb2mYCrILPW1-4uh-ek3nOLTs8GtxZQFWOeQm52e40yhN8S5PHQ"/>
+</div>
+</div>
+<div class="mt-4 pt-4 border-t border-outline-variant/20">
+<input class="w-full bg-transparent border-none text-sm font-body text-on-surface placeholder-on-surface-variant focus:ring-0 p-0" placeholder="Note" type="text"/>
+</div>
+</article>
+<!-- Organization Section -->
+<section class="flex flex-col gap-3">
+<!-- Folder Row -->
+<button class="w-full flex items-center justify-between p-4 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-colors shadow-sm">
+<div class="flex items-center gap-3 text-on-surface">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="folder_open" data-weight="fill" style='font-variation-settings: "FILL" 1;'>folder_open</span>
+<span class="font-headline font-medium text-[15px]">Non trié</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="chevron_right">chevron_right</span>
+</button>
+<!-- Tags Row -->
+<button class="w-full flex items-center justify-between p-4 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-colors shadow-sm">
+<div class="flex items-center gap-3 text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="tag">tag</span>
+<span class="font-headline font-medium text-[15px]">Tags</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="chevron_right">chevron_right</span>
+</button>
+</section>
+<!-- Additional Actions (Highlights / URL) -->
+</main>
+</body></html>

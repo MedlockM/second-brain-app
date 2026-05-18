@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Daily Digest - Media Summarizer</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#745b00",
+                        "background": "#fcf9f6",
+                        surface: "#ffffff",
+                        "on-surface": "#1c1b1a",
+                        "on-surface-variant": "#474740",
+                        outline: "#78776f",
+                        "primary-container": "#e4e4d1",
+                        "on-primary-container": "#646657",
+                        "secondary-container": "#ffcb09",
+                        "on-secondary-container": "#6f5700",
+                        "outline-variant": "#c8c7bd",
+                    },
+                    fontFamily: {
+                        headline: ["Plus Jakarta Sans", "sans-serif"],
+                        display: ["Plus Jakarta Sans", "sans-serif"],
+                        body: ["Inter", "sans-serif"],
+                        label: ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.25rem",
+                        lg: "0.5rem",
+                        xl: "0.75rem",
+                        full: "9999px"
+                    },
+                    boxShadow: {
+                        soft: "0 4px 20px rgba(0, 0, 0, 0.05)"
+                    }
+                }
+            }
+        };
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+</head>
+<body class="bg-background dark:bg-zinc-900 font-body text-on-surface antialiased h-[884px] flex flex-col overflow-hidden">
+<!-- Header Section -->
+<header class="px-6 pt-12 pb-4 flex-shrink-0">
+<h1 class="font-headline text-[28px] font-bold tracking-tight text-on-surface dark:text-zinc-100">Your Day in Review</h1>
+<p class="text-on-surface-variant mt-1 text-sm">3 insights from today</p>
+</header>
+<!-- Carousel Section -->
+<main class="flex-1 overflow-hidden flex flex-col relative pb-6">
+<!-- Scrollable Container -->
+<div class="flex justify-center gap-2 py-4 mt-2 mb-2"> <div class="w-2 h-2 rounded-full bg-on-surface transition-all duration-300"></div> <div class="w-2 h-2 rounded-full bg-outline-variant transition-all duration-300"></div> <div class="w-2 h-2 rounded-full bg-outline-variant transition-all duration-300"></div> </div><div class="flex-1 w-full overflow-x-auto overflow-y-hidden snap-x snap-mandatory no-scrollbar flex items-center px-6 gap-4 pb-8 pt-2">
+<!-- Insight Card 1 -->
+<article class="snap-center shrink-0 w-full max-w-sm h-full max-h-[663px] bg-surface dark:bg-zinc-800 rounded-xl shadow-soft flex flex-col relative overflow-hidden border border-outline-variant/30">
+<!-- Media Thumbnail -->
+<div class="h-48 w-full bg-cover bg-center rounded-t-xl relative shrink-0" data-alt="Microphone in a studio setting" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDoKBI08muMpULvSliLggE9fIjnMXsBiQKJjov26Vo3jnRqqVndX99EZxtNGAgaXTAmNUkrkSOEsJ9TkmeQOY-NeSu4tW_lghFKRc3dxDZPC-N2WxEjVyYOMUqrDA-ugRRxdCc7LcONha5VcgU38hkHTzOMZw6mn3OBi0AolECtzfEWiy8FKoRnf4Wj6suH2oc7dyRCKuxyXBwbdZ1NRdTz2modHX8ytVfpo0XFwbi4LCmQMIzqwFCrXwaBldc_odhmFjzCT2ZYOA');">
+<div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+<div class="absolute bottom-4 left-4 right-4 flex justify-between items-end">
+<span class="px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-white text-xs font-semibold tracking-wide uppercase border border-white/30 font-label">Podcast</span>
+<span class="text-white/90 text-sm font-medium flex items-center gap-1 font-label">
+<span class="material-symbols-outlined text-[16px]">schedule</span> 5m read
+                        </span>
+</div>
+</div>
+<!-- Content Area -->
+<div class="flex-1 p-6 flex flex-col justify-center">
+<h2 class="text-outline text-sm font-semibold uppercase tracking-wider mb-3 font-label">Huberman Lab</h2>
+<blockquote class="font-headline text-2xl font-bold leading-tight text-on-surface dark:text-zinc-100 mb-6 relative z-10">
+<span class="absolute -top-4 -left-2 text-primary-container text-6xl font-serif leading-none -z-10">"</span>
+                        Focus is a byproduct of prioritizing what matters over what is urgent.
+                    </blockquote>
+<p class="text-on-surface-variant text-base leading-relaxed font-body">
+                        True productivity isn't about doing more things, it's about doing the right things with undivided attention.
+                    </p>
+</div>
+<!-- CTA Button Area -->
+</article>
+<!-- Insight Card 2 -->
+<article class="snap-center shrink-0 w-full max-w-sm h-full max-h-[663px] bg-surface dark:bg-zinc-800 rounded-xl shadow-soft flex flex-col relative overflow-hidden border border-outline-variant/30">
+<div class="h-48 w-full bg-cover bg-center rounded-t-xl relative shrink-0" data-alt="Notebook and pen on desk" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCf3lq-lfjgI0kBREZjbuSwcL2mNgVenTdLUxjvCK9RctVxaozeQAfxrumB4K9d8t-qlmDzTDNk2WvYnyJoYK4WVRcsOs-wtcGiSae3Uc4brb-YdG03XrKzZOYt4K6mkoMVZD1ldRcB4Il2ZKCSwDSx1Pof6beuyVK4tVcZ2A9nXkhHyXTsoPJ0f897l9h4Z2AmuLo52AQGr276bNTE4RkIlDronbu7cu3n7nFNkAj_f0DOZuoNus-eBKRS97Eu0mrj8WsnEoBeQg');">
+<div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+<div class="absolute bottom-4 left-4 right-4 flex justify-between items-end">
+<span class="px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-white text-xs font-semibold tracking-wide uppercase border border-white/30 font-label">Article</span>
+<span class="text-white/90 text-sm font-medium flex items-center gap-1 font-label">
+<span class="material-symbols-outlined text-[16px]">schedule</span> 3m read
+                        </span>
+</div>
+</div>
+<div class="flex-1 p-6 flex flex-col justify-center">
+<h2 class="text-outline text-sm font-semibold uppercase tracking-wider mb-3 font-label">Deep Work</h2>
+<blockquote class="font-headline text-2xl font-bold leading-tight text-on-surface dark:text-zinc-100 mb-6 relative z-10">
+<span class="absolute -top-4 -left-2 text-primary-container text-6xl font-serif leading-none -z-10">"</span>
+                        Schedule every minute of your day.
+                    </blockquote>
+<p class="text-on-surface-variant text-base leading-relaxed font-body">
+                        Time-blocking removes the cognitive load of deciding what to do next, allowing you to dive straight into execution.
+                    </p>
+</div>
+</article>
+<!-- Insight Card 3 -->
+<article class="snap-center shrink-0 w-full max-w-sm h-full max-h-[663px] bg-surface dark:bg-zinc-800 rounded-xl shadow-soft flex flex-col relative overflow-hidden border border-outline-variant/30">
+<div class="h-48 w-full bg-cover bg-center rounded-t-xl relative shrink-0" data-alt="Abstract colorful gradient shapes" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuD9jq5ti8Wo8bfU763Uh1xdEszVJs0_NYuGmGkdSwBwABvKmOuNxYkOYmDvVwZqQPieFsHwjSOo1nWNYj1hTS7wKlDRS1TTevdYtExMr52jmQ5nsNoW5Qx84PbRboQv3eyqFKr5_74ZbcfeLO9PCtpN_31qAIBGwXteYw_4tr0Bg1x4B6pc9T5KAiyfl0NBSzAriX51iNahRb76g3cdMctcE1Ey8Fra22MfG289av5xmRhgtkkQ70u_3fa6z_e7aa57ikgvQiw0XA');">
+<div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+<div class="absolute bottom-4 left-4 right-4 flex justify-between items-end">
+<span class="px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-white text-xs font-semibold tracking-wide uppercase border border-white/30 font-label">YouTube</span>
+<span class="text-white/90 text-sm font-medium flex items-center gap-1 font-label">
+<span class="material-symbols-outlined text-[16px]">schedule</span> 7m read
+                        </span>
+</div>
+</div>
+<div class="flex-1 p-6 flex flex-col justify-center">
+<h2 class="text-outline text-sm font-semibold uppercase tracking-wider mb-3 font-label">Ali Abdaal</h2>
+<blockquote class="font-headline text-2xl font-bold leading-tight text-on-surface dark:text-zinc-100 mb-6 relative z-10">
+<span class="absolute -top-4 -left-2 text-primary-container text-6xl font-serif leading-none -z-10">"</span>
+                        Consistency is the key to long term success.
+                    </blockquote>
+<p class="text-on-surface-variant text-base leading-relaxed font-body">
+                        Showing up every day, even when you don't feel like it, builds the momentum necessary for compounding returns.
+                    </p>
+</div>
+</article>
+</div>
+<!-- Pagination Dots -->
+</main>
+<!-- Shared Bottom Navigation Bar -->
+<nav class="flex-shrink-0 flex gap-2 border-t border-outline-variant/30 bg-surface dark:bg-zinc-900 px-4 pb-safe pt-2">
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-on-surface-variant hover:text-secondary-container transition-colors py-1" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">trophy</span>
+</div>
+<p class="text-[11px] font-medium leading-normal tracking-wide font-label">Inbox</p>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-on-surface-variant hover:text-secondary-container transition-colors py-1" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">search</span>
+</div>
+<p class="text-[11px] font-medium leading-normal tracking-wide font-label">Search</p>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-secondary-container py-1" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-[24px]" style="font-variation-settings: 'FILL' 1;">file_open</span>
+</div>
+<p class="text-[11px] font-medium leading-normal tracking-wide font-label">Digest</p>
+</a>
+<a class="flex flex-1 flex-col items-center justify-end gap-1 text-on-surface-variant hover:text-secondary-container transition-colors py-1" href="#">
+<div class="flex h-8 items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">person</span>
+</div>
+<p class="text-[11px] font-medium leading-normal tracking-wide font-label">Account</p>
+</a>
+</nav>
+</body></html>

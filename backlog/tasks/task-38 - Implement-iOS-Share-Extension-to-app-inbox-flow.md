@@ -4,7 +4,7 @@ title: Implement iOS Share Extension to app inbox flow
 status: To Do
 assignee: []
 created_date: '2026-02-24 11:04'
-updated_date: '2026-02-24 20:55'
+updated_date: '2026-05-18 15:32'
 labels: []
 dependencies:
   - task-36
@@ -34,4 +34,6 @@ Réutilisation existante (obligatoire):
 - `front/src/services/podcastService.ts`: reprendre le pattern de client HTTP (gestion erreurs/réponses), sans réutiliser les routes podcast legacy.
 - `front/src/components/JobsInProgress.tsx`: réutiliser la logique de progression/retry pour le feedback post-partage.
 Contraintes: portage logique seulement, pas de composants DOM/Tailwind ni dépendances browser.
+
+**Design reference:** Use `mobile-design-mockups/confirmation_de_partage_version_finale/` for the share confirmation screen (layout, feedback UX, animations). Implement natively.
 <!-- SECTION:NOTES:END -->
