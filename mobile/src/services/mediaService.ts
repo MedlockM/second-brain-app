@@ -6,11 +6,30 @@ import type {
 } from "../types/media";
 
 /**
+ * Response shape for GET /api/media (list endpoint).
+ */
+export interface ListMediaResponse {
+  items: MediaStatusResponse[];
+  total: number;
+}
+
+/**
  * Media ingestion service for mobile.
  * Uses the canonical /api/media/* endpoints.
  * Shared by both Android share intent and iOS share extension flows.
  */
 export class MediaService {
+  /**
+   * Fetch the list of all media items for the current user.
+   * GET /api/media
+   */
+  static async listMedia(token: string): Promise<ListMediaResponse> {
+    return apiRequest<ListMediaResponse>("/api/media", {
+      method: "GET",
+      token,
+    });
+  }
+
   /**
    * Submit a URL for ingestion via the canonical endpoint.
    * POST /api/media/ingest-url
