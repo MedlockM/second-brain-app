@@ -1,7 +1,7 @@
 ---
 id: task-38
 title: Implement iOS Share Extension to app inbox flow
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-02-24 11:04'
 updated_date: '2026-05-18 15:32'
