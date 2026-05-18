@@ -4,10 +4,10 @@ title: Implement offline queue and network resync/retry for shared URLs
 status: To Do
 assignee: []
 created_date: '2026-02-24 11:04'
-updated_date: '2026-02-24 20:55'
+updated_date: '2026-05-18 20:27'
 labels: []
 dependencies:
-  - task-39
+  - task-93
 priority: high
 ---
 

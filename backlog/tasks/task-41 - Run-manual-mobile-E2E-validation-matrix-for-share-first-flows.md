@@ -4,13 +4,11 @@ title: Run manual mobile E2E validation matrix for share-first flows
 status: To Do
 assignee: []
 created_date: '2026-02-24 11:04'
-updated_date: '2026-02-24 20:55'
+updated_date: '2026-05-18 20:27'
 labels: []
 dependencies:
-  - task-37
-  - task-38
-  - task-39
-  - task-40
+  - task-93
+  - task-94
 priority: medium
 ---
 

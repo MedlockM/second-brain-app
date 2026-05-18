@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-03-20 21:50'
-updated_date: '2026-03-29 21:18'
+updated_date: '2026-05-18 20:29'
 labels:
   - mobile
   - backend
@@ -14,7 +14,7 @@ labels:
 dependencies:
   - task-37
   - task-38
-  - task-39
+  - task-93
   - task-41
 priority: high
 ---
