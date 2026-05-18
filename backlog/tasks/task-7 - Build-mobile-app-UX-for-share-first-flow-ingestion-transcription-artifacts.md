@@ -3,7 +3,7 @@ id: task-7
 title: >-
   Build mobile app UX for share-first flow (ingestion -> transcription ->
   artifacts)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-01-24 13:06'
 updated_date: '2026-05-18 21:16'

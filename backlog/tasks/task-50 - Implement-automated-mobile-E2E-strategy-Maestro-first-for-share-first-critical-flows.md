@@ -3,7 +3,7 @@ id: task-50
 title: >-
   Implement automated mobile E2E strategy (Maestro-first) for share-first
   critical flows
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-02-24 21:17'
 updated_date: '2026-05-18 21:16'
