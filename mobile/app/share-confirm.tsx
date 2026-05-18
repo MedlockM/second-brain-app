@@ -12,14 +12,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { Colors, Typography, Spacing, BorderRadius, Shadows } from "../src/constants/theme";
+import { Colors, Typography, Spacing, BorderRadius, Shadows, TouchTarget } from "../src/constants/theme";
 import { useAuth } from "../src/contexts/AuthContext";
 import { useInbox } from "../src/contexts/InboxContext";
+import { useIsOnline } from "../src/hooks/useNetworkStatus";
 import { MediaService } from "../src/services/mediaService";
+import { OfflineQueue } from "../src/services/offlineQueue";
 import { validateShareInput } from "../src/lib/urlValidation";
 import { getFriendlyErrorMessage } from "../src/lib/getFriendlyErrorMessage";
 
-type SubmitState = "idle" | "submitting" | "success" | "error";
+type SubmitState = "idle" | "submitting" | "success" | "queued" | "error";
 
 /**
  * Share Confirmation Screen.
@@ -30,12 +32,16 @@ type SubmitState = "idle" | "submitting" | "success" | "error";
  *         URL preview card with note field
  *         Folder selector
  *         Tags selector
+ *
+ * Offline behavior (AC#6): When device is offline, the URL is queued
+ * in persistent storage and will be submitted when connectivity returns.
  */
 export default function ShareConfirmScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ url?: string; sourceApp?: string }>();
   const { token } = useAuth();
   const { addItem, markSubmitted, markFailed } = useInbox();
+  const isOnline = useIsOnline();
 
   const [sharedUrl, setSharedUrl] = useState(params.url ?? "");
   const [note, setNote] = useState("");
@@ -85,6 +91,40 @@ export default function ShareConfirmScreen() {
       return;
     }
 
+    // Offline behavior (AC#6): queue for later if not connected
+    if (!isOnline) {
+      await OfflineQueue.enqueue(
+        result.url,
+        params.sourceApp ?? "ios-share-extension",
+      );
+      setSubmitState("queued");
+
+      // Animate queued feedback
+      Animated.parallel([
+        Animated.timing(successOpacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(successScale, {
+          toValue: 1,
+          friction: 5,
+          useNativeDriver: true,
+        }),
+        Animated.timing(cardOpacity, {
+          toValue: 0.6,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      // Auto-dismiss after queued confirmation
+      setTimeout(() => {
+        handleClose();
+      }, 1500);
+      return;
+    }
+
     setSubmitState("submitting");
     setErrorMessage(null);
 
@@ -92,12 +132,12 @@ export default function ShareConfirmScreen() {
 
     try {
       const response = await MediaService.ingestUrl(
+        token,
         {
           url: result.url,
           source_app: params.sourceApp ?? "ios-share-extension",
           idempotency_key: localId,
         },
-        token,
       );
 
       markSubmitted(localId, response);
@@ -137,6 +177,7 @@ export default function ShareConfirmScreen() {
   }, [
     sharedUrl,
     token,
+    isOnline,
     params.sourceApp,
     addItem,
     markSubmitted,
@@ -294,6 +335,29 @@ export default function ShareConfirmScreen() {
             <Text style={styles.successText}>Saved</Text>
           </Animated.View>
         )}
+
+        {/* Queued offline overlay (AC#6) */}
+        {submitState === "queued" && (
+          <Animated.View
+            style={[
+              styles.successOverlay,
+              {
+                opacity: successOpacity,
+                transform: [{ scale: successScale }],
+              },
+            ]}
+          >
+            <Ionicons
+              name="cloud-offline-outline"
+              size={64}
+              color={Colors.primary}
+            />
+            <Text style={styles.successText}>Queued for sync</Text>
+            <Text style={styles.queuedHint}>
+              Will be submitted when you reconnect
+            </Text>
+          </Animated.View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -324,8 +388,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
   },
   closeButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.surfaceContainerHigh,
     alignItems: "center",
@@ -342,7 +406,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
     minWidth: 80,
+    minHeight: TouchTarget.minimum,
     alignItems: "center",
+    justifyContent: "center",
   },
   saveButtonDisabled: {
     opacity: 0.5,
@@ -432,6 +498,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     backgroundColor: Colors.surfaceContainerLow,
     borderRadius: BorderRadius.xl,
+    minHeight: TouchTarget.comfortable,
   },
   organizationRowLeft: {
     flexDirection: "row",
@@ -457,5 +524,11 @@ const styles = StyleSheet.create({
     fontSize: Typography.headline.fontSize,
     fontWeight: Typography.headline.fontWeight,
     color: Colors.textMain,
+  },
+  queuedHint: {
+    marginTop: Spacing.xs,
+    fontSize: Typography.small.fontSize,
+    color: Colors.textMuted,
+    textAlign: "center",
   },
 });

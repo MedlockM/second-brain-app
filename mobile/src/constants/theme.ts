@@ -78,3 +78,17 @@ export const Shadows = {
     elevation: 2,
   },
 } as const;
+
+/**
+ * Touch target size constraints per platform accessibility guidelines.
+ * iOS: minimum 44pt, Android: minimum 48dp.
+ * We use 48px as the floor for both platforms (AC#2).
+ */
+export const TouchTarget = {
+  /** Absolute minimum for any interactive element (48px) */
+  minimum: 48,
+  /** Comfortable touch target for primary actions (56px) */
+  comfortable: 56,
+  /** Large touch target for hero/CTA buttons (64px) */
+  large: 64,
+} as const;

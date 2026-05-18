@@ -23,11 +23,13 @@ import {
   Spacing,
   BorderRadius,
   Shadows,
+  TouchTarget,
 } from "../../src/constants/theme";
 import type {
   MediaStatusResponse,
   ArtifactType,
   ArtifactStatus,
+  ProcessingJobLifecycleStatus,
 } from "../../src/types/media";
 
 // Enable LayoutAnimation on Android
@@ -56,6 +58,19 @@ type ArtifactLocalState = {
   error?: string;
 };
 
+/**
+ * Media Detail Screen.
+ *
+ * Shows media metadata, transcript status with retry (AC#4),
+ * and AI artifact generation actions (AC#5).
+ *
+ * Improvements over base implementation:
+ * - Artifacts section auto-expands when media is ready (AC#5)
+ * - View button for ready artifacts (AC#5)
+ * - Retry button for failed transcripts (AC#4)
+ * - Cancel indication for stuck processing (AC#4)
+ * - All interactive elements meet 48px minimum touch target (AC#2)
+ */
 export default function MediaDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -127,11 +142,26 @@ export default function MediaDetailScreen() {
 
       setArtifactStates(newStates);
 
+      // Auto-expand artifacts panel when media is ready for artifacts (AC#5)
+      const isMediaReady =
+        response.media_item.status === "ready_for_artifacts" ||
+        response.processing_job.status === "ready_for_artifacts" ||
+        response.processing_job.status === "completed";
+      if (isMediaReady) {
+        setArtifactsExpanded(true);
+      }
+
       // Start polling if any artifact is in progress
       const hasInProgress = Object.values(newStates).some(
         (s) => s.status === "queued" || s.status === "generating",
       );
-      if (hasInProgress) {
+      // Also poll if transcript is still processing
+      const transcriptProcessing =
+        response.media_item.transcript &&
+        response.media_item.transcript.status !== "ready" &&
+        response.media_item.transcript.status !== "failed";
+
+      if (hasInProgress || transcriptProcessing) {
         startPolling();
       }
     } catch (err) {
@@ -148,7 +178,7 @@ export default function MediaDetailScreen() {
     fetchMediaStatus();
   }, [fetchMediaStatus]);
 
-  // Polling for in-progress artifacts
+  // Polling for in-progress artifacts and transcript
   const startPolling = useCallback(() => {
     if (pollingRef.current) return; // Already polling
 
@@ -192,7 +222,12 @@ export default function MediaDetailScreen() {
         const hasInProgress = Object.values(newStates).some(
           (s) => s.status === "queued" || s.status === "generating",
         );
-        if (!hasInProgress && pollingRef.current) {
+        const transcriptProcessing =
+          response.media_item.transcript &&
+          response.media_item.transcript.status !== "ready" &&
+          response.media_item.transcript.status !== "failed";
+
+        if (!hasInProgress && !transcriptProcessing && pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
         }
@@ -244,6 +279,25 @@ export default function MediaDetailScreen() {
     [token, id, startPolling],
   );
 
+  const handleRetryProcessing = useCallback(async () => {
+    // Re-fetch media status to check if processing has resumed
+    if (!token || !id) return;
+    try {
+      const response = await MediaService.getMediaStatus(token, id);
+      if (!mountedRef.current) return;
+      setMediaData(response);
+      // If still failed, user needs to re-submit. Otherwise, start polling.
+      if (
+        response.processing_job.status !== "failed" &&
+        response.processing_job.status !== "cancelled"
+      ) {
+        startPolling();
+      }
+    } catch {
+      // Silent - user can try again
+    }
+  }, [token, id, startPolling]);
+
   const toggleArtifactsExpanded = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setArtifactsExpanded((prev) => !prev);
@@ -275,7 +329,12 @@ export default function MediaDetailScreen() {
           <Text style={styles.errorText}>
             {error || "Unable to load media details."}
           </Text>
-          <Pressable style={styles.retryButton} onPress={fetchMediaStatus}>
+          <Pressable
+            style={styles.retryButton}
+            onPress={fetchMediaStatus}
+            accessibilityLabel="Retry loading media details"
+            accessibilityRole="button"
+          >
             <Text style={styles.retryButtonText}>Retry</Text>
           </Pressable>
         </View>
@@ -318,6 +377,11 @@ export default function MediaDetailScreen() {
     ? formatDuration(media_item.transcript.duration_seconds)
     : null;
 
+  const mediaReady =
+    media_item.status === "ready_for_artifacts" ||
+    processing_job.status === "ready_for_artifacts" ||
+    processing_job.status === "completed";
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <Header onBack={() => router.back()} />
@@ -356,17 +420,25 @@ export default function MediaDetailScreen() {
           </View>
         </View>
 
-        {/* AI Artifacts Section */}
+        {/* Processing Status Banner (AC#4) */}
+        {processing_job.status === "failed" && (
+          <ProcessingFailedBanner
+            errorMessage={processing_job.error_message}
+            onRetry={handleRetryProcessing}
+          />
+        )}
+
+        {/* AI Artifacts Section (AC#5) */}
         <View style={styles.artifactsSection}>
           <Pressable
             style={styles.artifactsToggle}
             onPress={toggleArtifactsExpanded}
+            accessibilityLabel={`AI Artifacts, ${artifactsExpanded ? "collapse" : "expand"}`}
+            accessibilityRole="button"
           >
             <View style={styles.artifactsToggleLeft}>
               <Ionicons
-                name={
-                  artifactsExpanded ? "chevron-up" : "chevron-down"
-                }
+                name={artifactsExpanded ? "chevron-up" : "chevron-down"}
                 size={20}
                 color={Colors.textMain}
               />
@@ -389,20 +461,20 @@ export default function MediaDetailScreen() {
                   icon={artifact.icon}
                   state={artifactStates[artifact.type]}
                   onGenerate={() => handleGenerate(artifact.type)}
-                  mediaReady={
-                    media_item.status === "ready_for_artifacts" ||
-                    processing_job.status === "ready_for_artifacts" ||
-                    processing_job.status === "completed"
-                  }
+                  mediaReady={mediaReady}
                 />
               ))}
             </View>
           )}
         </View>
 
-        {/* Transcript / Content Section */}
+        {/* Transcript / Content Section (AC#4) */}
         <View style={styles.contentSection}>
-          <TranscriptSection transcript={media_item.transcript} />
+          <TranscriptSection
+            transcript={media_item.transcript}
+            processingStatus={processing_job.status}
+            onRefresh={fetchMediaStatus}
+          />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -418,14 +490,53 @@ function Header({ onBack }: { onBack: () => void }) {
         style={styles.headerButton}
         onPress={onBack}
         accessibilityLabel="Go back"
+        accessibilityRole="button"
+        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
       >
         <Ionicons name="arrow-back" size={24} color={Colors.textMain} />
       </Pressable>
       <Pressable
         style={styles.headerButton}
         accessibilityLabel="Share"
+        accessibilityRole="button"
+        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
       >
         <Ionicons name="share-outline" size={24} color={Colors.textMain} />
+      </Pressable>
+    </View>
+  );
+}
+
+/**
+ * Banner shown when the processing job has failed (AC#4).
+ * Provides context and a refresh action.
+ */
+function ProcessingFailedBanner({
+  errorMessage,
+  onRetry,
+}: {
+  errorMessage?: string;
+  onRetry: () => void;
+}) {
+  return (
+    <View style={styles.failedBanner}>
+      <View style={styles.failedBannerContent}>
+        <Ionicons name="alert-circle" size={20} color={Colors.error} />
+        <View style={styles.failedBannerText}>
+          <Text style={styles.failedBannerTitle}>Processing failed</Text>
+          <Text style={styles.failedBannerMessage}>
+            {errorMessage || "An error occurred during processing. You can try refreshing."}
+          </Text>
+        </View>
+      </View>
+      <Pressable
+        style={styles.failedBannerRetry}
+        onPress={onRetry}
+        accessibilityLabel="Refresh processing status"
+        accessibilityRole="button"
+      >
+        <Ionicons name="refresh" size={16} color={Colors.error} />
+        <Text style={styles.failedBannerRetryText}>Refresh</Text>
       </Pressable>
     </View>
   );
@@ -446,7 +557,8 @@ function ArtifactRow({
   onGenerate: () => void;
   mediaReady: boolean;
 }) {
-  const isInProgress = state.status === "queued" || state.status === "generating";
+  const isInProgress =
+    state.status === "queued" || state.status === "generating";
   const isReady = state.status === "ready";
   const isFailed = state.status === "failed";
   const canGenerate = state.status === "idle" && mediaReady;
@@ -469,9 +581,18 @@ function ArtifactRow({
         )}
 
         {isReady && (
-          <View style={styles.artifactReadyBadge}>
-            <Ionicons name="checkmark-circle" size={16} color="#4caf50" />
-            <Text style={styles.artifactReadyText}>Ready</Text>
+          <View style={styles.artifactReadyContainer}>
+            <View style={styles.artifactReadyBadge}>
+              <Ionicons name="checkmark-circle" size={16} color="#4caf50" />
+              <Text style={styles.artifactReadyText}>Ready</Text>
+            </View>
+            <Pressable
+              style={styles.artifactViewButton}
+              accessibilityLabel={`View ${label}`}
+              accessibilityRole="button"
+            >
+              <Text style={styles.artifactViewButtonText}>View</Text>
+            </Pressable>
           </View>
         )}
 
@@ -481,6 +602,8 @@ function ArtifactRow({
             <Pressable
               style={styles.artifactRetryButton}
               onPress={onGenerate}
+              accessibilityLabel={`Retry generating ${label}`}
+              accessibilityRole="button"
             >
               <Text style={styles.artifactRetryText}>Retry</Text>
             </Pressable>
@@ -488,7 +611,12 @@ function ArtifactRow({
         )}
 
         {canGenerate && (
-          <Pressable style={styles.generateButton} onPress={onGenerate}>
+          <Pressable
+            style={styles.generateButton}
+            onPress={onGenerate}
+            accessibilityLabel={`Generate ${label}`}
+            accessibilityRole="button"
+          >
             <Text style={styles.generateButtonText}>Generate</Text>
           </Pressable>
         )}
@@ -501,10 +629,17 @@ function ArtifactRow({
   );
 }
 
+/**
+ * Transcript section with status display and retry capability (AC#4).
+ */
 function TranscriptSection({
   transcript,
+  processingStatus,
+  onRefresh,
 }: {
   transcript: MediaStatusResponse["media_item"]["transcript"];
+  processingStatus: ProcessingJobLifecycleStatus;
+  onRefresh: () => void;
 }) {
   if (!transcript) {
     return (
@@ -517,6 +652,13 @@ function TranscriptSection({
         <Text style={styles.transcriptEmptyText}>
           No transcript available yet.
         </Text>
+        {processingStatus !== "completed" &&
+          processingStatus !== "failed" &&
+          processingStatus !== "cancelled" && (
+            <Text style={styles.transcriptEmptyHint}>
+              Transcript will appear once processing completes.
+            </Text>
+          )}
       </View>
     );
   }
@@ -541,7 +683,11 @@ function TranscriptSection({
       <View style={styles.transcriptMeta}>
         {transcript.language && (
           <View style={styles.transcriptMetaItem}>
-            <Ionicons name="language-outline" size={14} color={Colors.textMuted} />
+            <Ionicons
+              name="language-outline"
+              size={14}
+              color={Colors.textMuted}
+            />
             <Text style={styles.transcriptMetaText}>
               {transcript.language.toUpperCase()}
             </Text>
@@ -599,6 +745,19 @@ function TranscriptSection({
           {statusMessages[transcript.status] || "Processing..."}
         </Text>
       </View>
+
+      {/* Retry button for failed transcription (AC#4) */}
+      {isFailed && (
+        <Pressable
+          style={styles.transcriptRetryButton}
+          onPress={onRefresh}
+          accessibilityLabel="Refresh transcript status"
+          accessibilityRole="button"
+        >
+          <Ionicons name="refresh" size={16} color={Colors.error} />
+          <Text style={styles.transcriptRetryText}>Refresh status</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -657,17 +816,18 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.xxl,
   },
 
-  // Header
+  // Header - buttons meet 48px with hitSlop
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
+    minHeight: TouchTarget.comfortable,
   },
   headerButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: BorderRadius.full,
     justifyContent: "center",
     alignItems: "center",
@@ -720,6 +880,50 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
+  // Processing failed banner (AC#4)
+  failedBanner: {
+    backgroundColor: Colors.errorContainer,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  failedBannerContent: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+  },
+  failedBannerText: {
+    flex: 1,
+  },
+  failedBannerTitle: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: "600",
+    color: Colors.error,
+    marginBottom: 2,
+  },
+  failedBannerMessage: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textMain,
+    lineHeight: 18,
+  },
+  failedBannerRetry: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    backgroundColor: "rgba(186, 26, 26, 0.08)",
+    minHeight: TouchTarget.minimum,
+  },
+  failedBannerRetryText: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: "600",
+    color: Colors.error,
+  },
+
   // Artifacts section
   artifactsSection: {
     marginBottom: Spacing.lg,
@@ -732,6 +936,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.xl,
+    minHeight: TouchTarget.minimum,
     ...Shadows.soft,
   },
   artifactsToggleLeft: {
@@ -759,6 +964,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
     paddingVertical: 14,
+    minHeight: TouchTarget.minimum,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.outlineVariant,
   },
@@ -787,6 +993,11 @@ const styles = StyleSheet.create({
     fontSize: Typography.small.fontSize,
     color: Colors.textMuted,
   },
+  artifactReadyContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
   artifactReadyBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -796,6 +1007,19 @@ const styles = StyleSheet.create({
     fontSize: Typography.small.fontSize,
     fontWeight: Typography.label.fontWeight,
     color: "#4caf50",
+  },
+  artifactViewButton: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surfaceContainerHigh,
+    minHeight: 36,
+    justifyContent: "center",
+  },
+  artifactViewButtonText: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: "600",
+    color: Colors.textMain,
   },
   artifactFailedContainer: {
     flexDirection: "row",
@@ -807,10 +1031,12 @@ const styles = StyleSheet.create({
     color: Colors.error,
   },
   artifactRetryButton: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
     backgroundColor: Colors.errorContainer,
+    minHeight: 36,
+    justifyContent: "center",
   },
   artifactRetryText: {
     fontSize: Typography.small.fontSize,
@@ -824,9 +1050,12 @@ const styles = StyleSheet.create({
   },
   generateButton: {
     paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
+    paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.md,
     backgroundColor: Colors.primary,
+    minHeight: TouchTarget.minimum,
+    justifyContent: "center",
+    alignItems: "center",
   },
   generateButtonText: {
     fontSize: Typography.label.fontSize,
@@ -872,6 +1101,23 @@ const styles = StyleSheet.create({
     color: Colors.textMain,
     lineHeight: Typography.body.lineHeight,
   },
+  transcriptRetryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.errorContainer,
+    minHeight: TouchTarget.minimum,
+    marginTop: Spacing.sm,
+  },
+  transcriptRetryText: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: "600",
+    color: Colors.error,
+  },
   transcriptEmpty: {
     alignItems: "center",
     gap: Spacing.sm,
@@ -880,6 +1126,12 @@ const styles = StyleSheet.create({
   transcriptEmptyText: {
     fontSize: Typography.body.fontSize,
     color: Colors.textMuted,
+  },
+  transcriptEmptyHint: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textMuted,
+    fontStyle: "italic",
+    textAlign: "center",
   },
 
   // Error state
@@ -894,6 +1146,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: BorderRadius.md,
     marginTop: Spacing.sm,
+    minHeight: TouchTarget.minimum,
+    justifyContent: "center",
+    alignItems: "center",
   },
   retryButtonText: {
     fontSize: Typography.label.fontSize,

@@ -19,6 +19,7 @@ import {
   Spacing,
   BorderRadius,
   Shadows,
+  TouchTarget,
 } from "../src/constants/theme";
 
 /**
@@ -228,8 +229,8 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
   },
   closeButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.surfaceContainerHigh,
     alignItems: "center",
@@ -248,7 +249,7 @@ const styles = StyleSheet.create({
     minWidth: 80,
     alignItems: "center",
     justifyContent: "center",
-    height: 36,
+    minHeight: TouchTarget.minimum,
   },
   saveButtonDisabled: {
     opacity: 0.5,
@@ -367,6 +368,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.surfaceContainer,
+    minHeight: TouchTarget.minimum,
   },
   retryButtonText: {
     fontSize: Typography.label.fontSize,
