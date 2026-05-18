@@ -21,6 +21,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSPhotoLibraryUsageDescription:
         "Used to attach images to media entries.",
     },
+    // App Groups for sharing data between the main app and the share extension
+    entitlements: {
+      "com.apple.security.application-groups": [
+        "group.com.mediasummarizer.app",
+      ],
+    },
   },
   android: {
     adaptiveIcon: {
@@ -36,7 +42,21 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
   },
-  plugins: ["expo-router", "expo-secure-store"],
+  plugins: [
+    "expo-router",
+    "expo-secure-store",
+    [
+      "expo-share-intent",
+      {
+        iosShareExtensionName: "ShareMedia",
+        iosActivationRules: {
+          NSExtensionActivationSupportsWebURLWithMaxCount: 1,
+          NSExtensionActivationSupportsText: true,
+        },
+      },
+    ],
+    "./plugins/withShareExtension",
+  ],
   extra: {
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "https://api.mediasummarizer.com",
     eas: {
