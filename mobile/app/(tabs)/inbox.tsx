@@ -22,7 +22,8 @@ import {
 import type { IngestUrlResponse } from "../../src/types/media";
 
 /**
- * Inbox screen - shows shared media items.
+ * Inbox screen - shows shared media items from both Android share intent
+ * and iOS share extension flows.
  * Displays recently shared URLs and their processing status.
  * Acts as the destination for items saved via the share intent flow.
  */

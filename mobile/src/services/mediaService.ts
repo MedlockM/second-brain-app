@@ -8,11 +8,12 @@ import type {
 /**
  * Media ingestion service for mobile.
  * Uses the canonical /api/media/* endpoints.
- * Pattern adapted from front/src/services/mediaService.ts.
+ * Shared by both Android share intent and iOS share extension flows.
  */
 export class MediaService {
   /**
    * Submit a URL for ingestion via the canonical endpoint.
+   * POST /api/media/ingest-url
    */
   static async ingestUrl(
     token: string,
@@ -27,6 +28,7 @@ export class MediaService {
 
   /**
    * Get the current status of a media item and its processing job.
+   * GET /api/media/:mediaItemId
    */
   static async getMediaStatus(
     token: string,

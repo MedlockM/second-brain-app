@@ -1,6 +1,7 @@
 /**
  * Media types for the mobile app.
- * Ported from front/src/types/media.ts - only the types needed for share intake.
+ * Ported from front/src/types/media.ts - types needed for share intake and inbox.
+ * Used by both Android share intent and iOS share extension flows.
  */
 
 export type MediaType =
@@ -80,6 +81,15 @@ export interface ProcessingProgress {
   stage: ProcessingJobLifecycleStatus;
 }
 
+export interface TranscriptInfo {
+  status: TranscriptStatus;
+  transcription_s3_key?: string;
+  source?: string;
+  language?: string;
+  segments_count?: number;
+  duration_seconds?: number;
+}
+
 export interface ProcessingJobContract {
   job_id: string;
   status: ProcessingJobLifecycleStatus;
@@ -90,15 +100,6 @@ export interface ProcessingJobContract {
   completed_at?: string;
   error_code?: CanonicalErrorCode;
   error_message?: string;
-}
-
-export interface TranscriptInfo {
-  status: TranscriptStatus;
-  transcription_s3_key?: string;
-  source?: string;
-  language?: string;
-  segments_count?: number;
-  duration_seconds?: number;
 }
 
 export interface ArtifactStatusSnapshot {

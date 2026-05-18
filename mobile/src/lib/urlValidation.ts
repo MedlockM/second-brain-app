@@ -1,7 +1,8 @@
 /**
- * URL validation and extraction utilities for Android share intent payloads.
+ * URL validation and extraction utilities for share intent payloads.
  *
- * Android SEND intents with text/plain can contain:
+ * Used by both Android share intent (SEND action with text/plain) and
+ * iOS share extension. Shared payloads can contain:
  * - A raw URL: "https://example.com/article"
  * - A URL with surrounding text: "Check this out https://example.com/article cool stuff"
  * - Plain text with no URL at all
@@ -36,18 +37,40 @@ export function extractUrlFromSharedText(text: string | null | undefined): strin
   // Search for URLs within the text
   const matches = trimmed.match(URL_REGEX);
   if (!matches || matches.length === 0) {
+    // If the entire text looks like a bare domain (e.g. "example.com/path"),
+    // prepend https://
+    const bareDomainRegex = /^[a-z0-9][-a-z0-9]*(\.[a-z]{2,})+([/?#].*)?$/i;
+    if (bareDomainRegex.test(trimmed)) {
+      return `https://${trimmed}`;
+    }
     return null;
   }
 
   // Return the first valid URL found
   for (const match of matches) {
-    const parsed = tryParseUrl(match);
+    const cleaned = cleanUrl(match);
+    const parsed = tryParseUrl(cleaned);
     if (parsed) {
       return parsed;
     }
   }
 
   return null;
+}
+
+/**
+ * Alias for extractUrlFromSharedText (used by iOS share extension code).
+ */
+export function extractUrlFromText(text: string): string | null {
+  return extractUrlFromSharedText(text);
+}
+
+/**
+ * Cleans a URL by removing trailing punctuation that may have been captured
+ * from surrounding text context.
+ */
+function cleanUrl(url: string): string {
+  return url.replace(/[.,;:!?)]+$/, "");
 }
 
 /**
@@ -79,6 +102,13 @@ function tryParseUrl(candidate: string): string | null {
 }
 
 /**
+ * Validates that a URL is well-formed and uses an allowed scheme.
+ */
+export function isValidShareUrl(url: string): boolean {
+  return tryParseUrl(url) !== null;
+}
+
+/**
  * Result of validating a share intent payload.
  */
 export type ShareIntentValidationResult =
@@ -107,6 +137,26 @@ export function validateShareIntentPayload(
   }
 
   return { valid: true, url };
+}
+
+/**
+ * Alias result type for iOS share extension code.
+ */
+export type UrlValidationResult =
+  | { valid: true; url: string }
+  | { valid: false; error: string };
+
+/**
+ * Validates shared content and extracts a valid URL.
+ * Returns either the cleaned URL or a user-friendly error message.
+ * Used primarily by the iOS share extension flow.
+ */
+export function validateShareInput(text: string | null | undefined): UrlValidationResult {
+  const result = validateShareIntentPayload(text);
+  if (result.valid) {
+    return result;
+  }
+  return { valid: false, error: getShareIntentErrorMessage(result.reason) };
 }
 
 /**
