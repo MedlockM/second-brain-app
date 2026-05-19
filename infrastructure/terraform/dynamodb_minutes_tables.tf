@@ -18,19 +18,11 @@ resource "aws_dynamodb_table" "subscriptions" {
 
   attribute { name = "id"                     type = "S" }
   attribute { name = "user_id"                type = "S" }
-  attribute { name = "stripe_subscription_id" type = "S" }
 
   # GSI: user-index
   global_secondary_index {
     name            = "user-index"
     hash_key        = "user_id"
-    projection_type = "ALL"
-  }
-
-  # GSI: stripe-index
-  global_secondary_index {
-    name            = "stripe-index"
-    hash_key        = "stripe_subscription_id"
     projection_type = "ALL"
   }
 

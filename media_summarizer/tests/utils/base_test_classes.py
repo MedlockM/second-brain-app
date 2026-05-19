@@ -456,22 +456,6 @@ class BaseIntegrationTestCase(BaseTestCase):
         """For backward compatibility - returns the LocalStack SES client."""
         return localstack_ses_client
 
-    @pytest.fixture
-    def stripe_client(self):
-        """Create a real Stripe client using the test API key from .env."""
-        import stripe
-        # Get the Stripe API key from environment variables
-        stripe_api_key = os.environ.get("STRIPE_API_KEY")
-        if not stripe_api_key:
-            pytest.skip(
-                "STRIPE_API_KEY not found in environment variables")
-
-        # Configure the Stripe library with the test API key
-        stripe.api_key = stripe_api_key
-
-        # Return the stripe module itself as the client
-        return stripe
-
     # Real service fixtures for integration tests
     @pytest.fixture(autouse=True)
     def ensure_docker_services_running(self):

@@ -32,7 +32,6 @@ services:
       - PROCESSING_JOBS_TABLE=processing_jobs
       - CREDIT_TRANSACTIONS_TABLE=credit_transactions
       - AUTH_TOKENS_TABLE=auth_tokens
-      - STRIPE_EVENTS_TABLE=stripe_events
       # SQS Queues
       - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
       - TRANSCRIPTION_QUEUE=transcription-queue

@@ -13,7 +13,6 @@ Test Categories:
 Requirements:
 - All external services must be running (LocalStack, Docker Whisper, etc.)
 - Tests use real AWS services via LocalStack
-- Tests use real Stripe API with test keys
 - Tests use real Docker Whisper service
 - Minimal mocking, focused on external dependencies only
 

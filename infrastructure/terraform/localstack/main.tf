@@ -82,10 +82,6 @@ resource "aws_dynamodb_table" "subscriptions" {
     name = "status"
     type = "S"
   }
-  attribute {
-    name = "stripe_subscription_id"
-    type = "S"
-  }
 
   global_secondary_index {
     name            = "user-index"
@@ -96,12 +92,6 @@ resource "aws_dynamodb_table" "subscriptions" {
   global_secondary_index {
     name            = "status-index"
     hash_key        = "status"
-    projection_type = "ALL"
-  }
-
-  global_secondary_index {
-    name            = "stripe-index"
-    hash_key        = "stripe_subscription_id"
     projection_type = "ALL"
   }
 
@@ -436,19 +426,6 @@ resource "aws_dynamodb_table" "auth_tokens" {
   }
 
   tags = { Name = "auth_tokens", Environment = local.environment, Project = local.project }
-}
-
-resource "aws_dynamodb_table" "stripe_events" {
-  name         = "stripe_events"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "id"
-
-  attribute {
-    name = "id"
-    type = "S"
-  }
-
-  tags = { Name = "stripe_events", Environment = local.environment, Project = local.project }
 }
 
 # Media artifacts table (canonical artifact records + request pointers)
@@ -826,7 +803,6 @@ output "dynamodb_tables" {
     aws_dynamodb_table.processing_jobs.name,
     aws_dynamodb_table.credit_transactions.name,
     aws_dynamodb_table.auth_tokens.name,
-    aws_dynamodb_table.stripe_events.name,
     aws_dynamodb_table.subscriptions.name,
     aws_dynamodb_table.minute_buckets.name,
     aws_dynamodb_table.minute_usage.name,

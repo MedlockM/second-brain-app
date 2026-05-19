@@ -39,7 +39,6 @@ CREDIT_TRANSACTIONS_TABLE = os.environ.get(
 )
 PROCESSING_JOBS_TABLE = os.environ.get("PROCESSING_JOBS_TABLE", "processing_jobs")
 AUTH_TOKENS_TABLE = os.environ.get("AUTH_TOKENS_TABLE", "auth_tokens")
-STRIPE_EVENTS_TABLE = os.environ.get("STRIPE_EVENTS_TABLE", "stripe_events")
 USER_FOLDERS_TABLE = os.environ.get("USER_FOLDERS_TABLE", "user_folders")
 USER_TAGS_TABLE = os.environ.get("USER_TAGS_TABLE", "user_tags")
 USER_RSS_FEEDS_TABLE = os.environ.get("USER_RSS_FEEDS_TABLE", "user_rss_feeds")
@@ -618,63 +617,6 @@ async def cleanup_expired_tokens() -> int:
     except ClientError as e:
         _log_dynamodb_error("cleanup_expired_tokens", e, table=AUTH_TOKENS_TABLE)
         raise
-
-
-# Stripe webhook idempotency helpers
-async def has_stripe_event(event_id: str) -> bool:
-    """Return True if the Stripe event has already been recorded (processed)."""
-    try:
-        session = get_session()
-        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
-            table = await dynamodb.Table(STRIPE_EVENTS_TABLE)
-            response = await table.get_item(Key={"id": event_id})
-            return "Item" in response
-    except ClientError as e:
-        _log_dynamodb_error(
-            "has_stripe_event",
-            e,
-            table=STRIPE_EVENTS_TABLE,
-            event_id=event_id,
-        )
-        raise
-
-
-async def record_stripe_event(event_id: str) -> bool:
-    """Record a processed Stripe event. Returns True if new, False if already exists."""
-    from datetime import datetime, timezone
-
-    session = get_session()
-    async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
-        table = await dynamodb.Table(STRIPE_EVENTS_TABLE)
-        try:
-            await table.put_item(
-                Item={
-                    "id": event_id,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-                ConditionExpression="attribute_not_exists(id)",
-            )
-            _log_dynamodb_success(
-                "record_stripe_event",
-                table=STRIPE_EVENTS_TABLE,
-                event_id=event_id,
-            )
-            return True
-        except ClientError as e:
-            if e.response["Error"].get("Code") == "ConditionalCheckFailedException":
-                _log_dynamodb_success(
-                    "record_stripe_event_duplicate",
-                    table=STRIPE_EVENTS_TABLE,
-                    event_id=event_id,
-                )
-                return False
-            _log_dynamodb_error(
-                "record_stripe_event",
-                e,
-                table=STRIPE_EVENTS_TABLE,
-                event_id=event_id,
-            )
-            raise
 
 
 # ---------- Folder operations ----------

@@ -84,33 +84,6 @@ async def update_subscription(subscription: Subscription) -> Subscription:
         return subscription
 
 
-async def get_subscription_by_stripe_id(
-    stripe_subscription_id: str,
-) -> Optional[Subscription]:
-    """Fetch a subscription by stripe_subscription_id using GSI 'stripe-index'."""
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(SUBSCRIPTIONS_TABLE)
-        try:
-            response = await table.query(
-                IndexName="stripe-index",
-                KeyConditionExpression=Key("stripe_subscription_id").eq(
-                    stripe_subscription_id
-                ),
-            )
-            items = response.get("Items", [])
-            if not items:
-                return None
-            return Subscription.from_dynamodb_item(items[0])
-        except ClientError:
-            # If index not found or not provisioned in local env
-            return None
-
-
 # ---------- Minute Buckets ----------
 
 

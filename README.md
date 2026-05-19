@@ -60,7 +60,7 @@ make test-all           # Tous les tests
 - **Backend** : Python, FastAPI, DynamoDB, SQS, S3
 - **Transcription** : Deepgram Nova-3
 - **LLM** : configurable (à benchmarker)
-- **Paiements** : Stripe
+- **Paiements** : RevenueCat (mobile) + server-side entitlements
 - **Mobile** : React Native + Expo (repo séparé via Stitch, sera intégré ici)
 - **Dev local** : Docker + LocalStack
 

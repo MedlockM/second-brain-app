@@ -124,7 +124,7 @@ class TestCreditPurchase:
                     response = client.post("/api/v1/credits/purchase", json={
                         "user_id": "user123",
                         "amount": 50,
-                        "payment_method": "stripe",
+                        "payment_method": "revenuecat",
                         "description": "Test purchase"
                     })
 
@@ -140,7 +140,7 @@ class TestCreditPurchase:
             response = client.post("/api/v1/credits/purchase", json={
                 "user_id": "nonexistent",
                 "amount": 50,
-                "payment_method": "stripe"
+                "payment_method": "revenuecat"
             })
 
             assert response.status_code == 404
@@ -152,7 +152,7 @@ class TestCreditPurchase:
         response = client.post("/api/v1/credits/purchase", json={
             "user_id": "user123",
             "amount": -10,
-            "payment_method": "stripe"
+            "payment_method": "revenuecat"
         })
 
         assert response.status_code == 422  # Validation error
@@ -343,7 +343,7 @@ class TestModelValidation:
         valid_request = CreditPurchaseRequest(
             user_id="user123",
             amount=50,
-            payment_method="stripe",
+            payment_method="revenuecat",
             description="Test purchase"
         )
         assert valid_request.amount == 50
@@ -353,7 +353,7 @@ class TestModelValidation:
             CreditPurchaseRequest(
                 user_id="user123",
                 amount=-10,
-                payment_method="stripe"
+                payment_method="revenuecat"
             )
 
         # Invalid amount (zero)
@@ -361,7 +361,7 @@ class TestModelValidation:
             CreditPurchaseRequest(
                 user_id="user123",
                 amount=0,
-                payment_method="stripe"
+                payment_method="revenuecat"
             )
 
     def test_credit_deduction_request_validation(self):

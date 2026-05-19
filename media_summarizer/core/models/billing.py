@@ -29,8 +29,6 @@ class SubscriptionTier(str, Enum):
 class Subscription(BaseModel):
     id: str = Field(...)
     user_id: str = Field(...)
-    stripe_customer_id: Optional[str] = None
-    stripe_subscription_id: Optional[str] = None
     tier: SubscriptionTier = Field(...)
     minutes_per_period: int = Field(..., ge=0)
     current_period_start: Optional[datetime] = None
@@ -44,8 +42,6 @@ class Subscription(BaseModel):
         item = {
             "id": self.id,
             "user_id": self.user_id,
-            "stripe_customer_id": self.stripe_customer_id,
-            "stripe_subscription_id": self.stripe_subscription_id,
             "tier": self.tier.value,
             "minutes_per_period": self.minutes_per_period,
             "status": self.status.value,
@@ -66,8 +62,6 @@ class Subscription(BaseModel):
         return cls(
             id=item["id"],
             user_id=item["user_id"],
-            stripe_customer_id=item.get("stripe_customer_id"),
-            stripe_subscription_id=item.get("stripe_subscription_id"),
             tier=SubscriptionTier(item["tier"]),
             minutes_per_period=item["minutes_per_period"],
             current_period_start=datetime.fromisoformat(cps) if cps else None,

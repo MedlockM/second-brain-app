@@ -117,11 +117,6 @@ jobs:
           AWS_DEFAULT_REGION=us-east-1
           AWS_ENDPOINT_URL=http://localhost:4566
 
-          # Stripe test configuration
-          STRIPE_SECRET_KEY=sk_test_51234567890abcdef_test_key_for_e2e_testing
-          STRIPE_PUBLISHABLE_KEY=pk_test_51234567890abcdef_test_key_for_e2e_testing
-          STRIPE_WEBHOOK_SECRET=whsec_test_webhook_secret_for_e2e_testing
-          STRIPE_REDIRECT_POLICY=never
 
           # JWT and Auth
           JWT_SECRET_KEY=test_jwt_secret_key_for_e2e_auth_testing
@@ -312,11 +307,6 @@ jobs:
           # OpenAI for summarization (using test key or mock)
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || 'sk-test-mock-key-for-e2e' }}
 
-          # Stripe test configuration
-          STRIPE_SECRET_KEY=sk_test_51234567890abcdef_test_key_for_e2e_testing
-          STRIPE_PUBLISHABLE_KEY=pk_test_51234567890abcdef_test_key_for_e2e_testing
-          STRIPE_WEBHOOK_SECRET=whsec_test_webhook_secret_for_e2e_testing
-          STRIPE_REDIRECT_POLICY=never
 
           # JWT and Auth
           JWT_SECRET_KEY=test_jwt_secret_key_for_e2e_auth_testing

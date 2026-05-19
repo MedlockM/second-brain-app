@@ -29,6 +29,7 @@ from media_summarizer.api.endpoints import (
 )
 from media_summarizer.api.endpoints import auth
 from media_summarizer.api.endpoints import auth_social
+from media_summarizer.api.endpoints import entitlements
 from media_summarizer.api.endpoints import episodes
 from media_summarizer.api.endpoints import folders
 from media_summarizer.api.endpoints import search
@@ -144,20 +145,6 @@ async def root():
     return {"message": "Bienvenue sur l'API Media Summarizer"}
 
 
-# Public redirect landing pages for Stripe Checkout
-# These are not webhooks; they are simple pages where the browser lands after payment
-@app.get("/payment-success", include_in_schema=False)
-async def payment_success(session_id: str | None = None):
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:8000")
-    return RedirectResponse(url=frontend_url)
-
-
-@app.get("/payment-cancel", include_in_schema=False)
-async def payment_cancel():
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:8000")
-    return RedirectResponse(url=frontend_url)
-
-
 # Inclusion des routes API
 app.include_router(health.router, prefix="/api/v1/health", tags=["health"])
 app.include_router(media.router, prefix="/api/media", tags=["media"])
@@ -170,9 +157,6 @@ app.include_router(
 )
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(podcasts.router, prefix="/api/v1", tags=["podcasts"])
-from media_summarizer.api.endpoints import billing
-
-app.include_router(billing.router, prefix="/api/v1", tags=["billing"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
 app.include_router(episodes.router, prefix="/api/v1", tags=["episodes"])
 app.include_router(folders.router, prefix="/api/folders", tags=["folders"])
@@ -182,6 +166,7 @@ app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(feeds.router, prefix="/api/feeds", tags=["feeds"])
 app.include_router(digest.router, prefix="/api", tags=["digest"])
 app.include_router(pricing.router, prefix="/api", tags=["pricing"])
+app.include_router(entitlements.router, prefix="/api/v1", tags=["entitlements"])
 
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---
 from fastapi.openapi.utils import get_openapi
