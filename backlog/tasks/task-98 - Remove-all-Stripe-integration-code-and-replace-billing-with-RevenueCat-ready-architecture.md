@@ -3,7 +3,7 @@ id: task-98
 title: >-
   Remove all Stripe integration code and replace billing with RevenueCat-ready
   architecture
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 16:26'
 labels:
