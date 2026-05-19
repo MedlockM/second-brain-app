@@ -19,9 +19,10 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.models import ProcessingJob
-from media_summarizer.utils import database_async, episode_idempotence, s3, sqs
+from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils import media_idempotence as episode_idempotence
 from media_summarizer.utils.logging_config import log_event
-from media_summarizer.utils.user_media_submissions import mark_user_media_submission
+from media_summarizer.utils.user_media_submissions import mark_user_submission as mark_user_media_submission
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +227,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             x_ingestion_enqueued = False
             youtube_ingestion_enqueued = False
             tiktok_ingestion_enqueued = False
+            social_video_transcription_enqueued = False
             outcome_status = ProcessingLifecycleStatus.PENDING
             if resolved.raw_text is not None and resolved.media_family == MediaFamily.TEXT:
                 transcript_s3_key = f"{job.id}.txt"
@@ -306,6 +308,40 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     source_platform=resolved.source_platform.value,
                     transcript_source="deepgram",
                     audio_s3_key=resolved.audio_s3_key,
+                )
+            elif resolved.media_family == MediaFamily.SOCIAL_VIDEO and resolved.audio_url:
+                # Instagram (and any future social video provider returning a remote audio URL)
+                job.mark_transcribing()
+                await database_async.update_processing_job(job)
+                await sqs.send_message(
+                    queue_name=self._deepgram_transcription_queue,
+                    message_body={
+                        "job_id": job.id,
+                        "user_id": command.user.user_id,
+                        "user_email": command.user.user_email,
+                        "audio_url": resolved.audio_url,
+                        "media_key": resolved.media_key,
+                        "normalized_url": resolved.normalized_url,
+                        "source_platform": resolved.source_platform.value,
+                        "resolver_key": resolved.resolver_key,
+                        "episode_title": title,
+                        "podcast_title": title,
+                    },
+                )
+                pipeline_enqueued = True
+                social_video_transcription_enqueued = True
+                outcome_status = ProcessingLifecycleStatus.TRANSCRIBING
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "transcription.enqueued",
+                    "Social video transcription enqueued",
+                    job_id=job.id,
+                    media_item_id=job.id,
+                    queue=self._deepgram_transcription_queue,
+                    resolver_key=resolved.resolver_key,
+                    source_platform=resolved.source_platform.value,
+                    transcript_source="deepgram",
                 )
             elif resolved.audio_url:
                 await sqs.send_message(
@@ -497,6 +533,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "x_ingestion_enqueued": x_ingestion_enqueued,
                     "youtube_ingestion_enqueued": youtube_ingestion_enqueued,
                     "tiktok_ingestion_enqueued": tiktok_ingestion_enqueued,
+                    "social_video_transcription_enqueued": social_video_transcription_enqueued,
                     "media_family": resolved.media_family.value,
                     "media_type": resolved.media_type.value,
                     "source_platform": resolved.source_platform.value,
