@@ -3,7 +3,7 @@ name: task-feature
 description: Agent dédié aux tâches feature et implementation du backlog. Type par défaut quand aucun autre type ne correspond.
 tools: Read, Edit, Write, Grep, Glob, Bash
 model: opus
-effort: high
+effort: xhigh
 isolation: worktree
 ---
 
