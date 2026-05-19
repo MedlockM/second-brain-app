@@ -59,6 +59,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   extra: {
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "https://api.mediasummarizer.com",
+    revenueCatAppleKey: process.env.EXPO_PUBLIC_REVENUCAT_APPLE_KEY || "",
+    revenueCatGoogleKey: process.env.EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY || "",
     eas: {
       projectId: process.env.EAS_PROJECT_ID || "placeholder-project-id",
     },

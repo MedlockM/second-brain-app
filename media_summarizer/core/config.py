@@ -126,6 +126,12 @@ class Settings:
         self.PRICING_CONFIG_TABLE = os.getenv("PRICING_CONFIG_TABLE", "pricing_config")
         self.PRICING_ADMIN_SECRET = os.getenv("PRICING_ADMIN_SECRET", "")
 
+        # RevenueCat Configuration
+        self.REVENUCAT_API_KEY = os.getenv("REVENUCAT_API_KEY", "")
+        self.REVENUCAT_WEBHOOK_SECRET = os.getenv("REVENUCAT_WEBHOOK_SECRET", "")
+        self.REVENUCAT_PROJECT_ID = os.getenv("REVENUCAT_PROJECT_ID", "")
+        self.REVENUCAT_EVENTS_TABLE = os.getenv("REVENUCAT_EVENTS_TABLE", "revenucat_events")
+
         # Test Configuration
         self.TEST_ENVIRONMENT = os.getenv("TEST_ENVIRONMENT", "")
         self.E2E_CLEANUP = os.getenv("E2E_CLEANUP", "true").lower() == "true"

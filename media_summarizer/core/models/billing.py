@@ -18,6 +18,13 @@ class SubscriptionStatus(str, Enum):
     incomplete = "incomplete"
     past_due = "past_due"
     unpaid = "unpaid"
+    expired = "expired"
+    grace_period = "grace_period"
+
+
+class SubscriptionPlatform(str, Enum):
+    ios = "ios"
+    android = "android"
 
 
 class SubscriptionTier(str, Enum):
@@ -35,6 +42,11 @@ class Subscription(BaseModel):
     current_period_end: Optional[datetime] = None
     status: SubscriptionStatus = Field(default=SubscriptionStatus.active)
     cancel_at_period_end: bool = Field(default=False)
+    # RevenueCat-specific fields
+    revenucat_app_user_id: Optional[str] = None
+    revenucat_product_id: Optional[str] = None
+    platform: Optional[SubscriptionPlatform] = None
+    auto_renew_status: bool = Field(default=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -46,6 +58,7 @@ class Subscription(BaseModel):
             "minutes_per_period": self.minutes_per_period,
             "status": self.status.value,
             "cancel_at_period_end": self.cancel_at_period_end,
+            "auto_renew_status": self.auto_renew_status,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -53,12 +66,19 @@ class Subscription(BaseModel):
             item["current_period_start"] = self.current_period_start.isoformat()
         if self.current_period_end:
             item["current_period_end"] = self.current_period_end.isoformat()
+        if self.revenucat_app_user_id:
+            item["revenucat_app_user_id"] = self.revenucat_app_user_id
+        if self.revenucat_product_id:
+            item["revenucat_product_id"] = self.revenucat_product_id
+        if self.platform:
+            item["platform"] = self.platform.value
         return item
 
     @classmethod
     def from_dynamodb_item(cls, item: Dict[str, Any]) -> "Subscription":
         cps = item.get("current_period_start")
         cpe = item.get("current_period_end")
+        platform_val = item.get("platform")
         return cls(
             id=item["id"],
             user_id=item["user_id"],
@@ -68,6 +88,10 @@ class Subscription(BaseModel):
             current_period_end=datetime.fromisoformat(cpe) if cpe else None,
             status=SubscriptionStatus(item["status"]),
             cancel_at_period_end=bool(item.get("cancel_at_period_end", False)),
+            revenucat_app_user_id=item.get("revenucat_app_user_id"),
+            revenucat_product_id=item.get("revenucat_product_id"),
+            platform=SubscriptionPlatform(platform_val) if platform_val else None,
+            auto_renew_status=bool(item.get("auto_renew_status", True)),
             created_at=datetime.fromisoformat(item["created_at"]),
             updated_at=datetime.fromisoformat(item["updated_at"]),
         )

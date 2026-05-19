@@ -30,6 +30,7 @@ from media_summarizer.api.endpoints import (
 from media_summarizer.api.endpoints import auth
 from media_summarizer.api.endpoints import auth_social
 from media_summarizer.api.endpoints import entitlements
+from media_summarizer.api.endpoints import revenucat_webhook
 from media_summarizer.api.endpoints import episodes
 from media_summarizer.api.endpoints import folders
 from media_summarizer.api.endpoints import search
@@ -167,6 +168,7 @@ app.include_router(feeds.router, prefix="/api/feeds", tags=["feeds"])
 app.include_router(digest.router, prefix="/api", tags=["digest"])
 app.include_router(pricing.router, prefix="/api", tags=["pricing"])
 app.include_router(entitlements.router, prefix="/api/v1", tags=["entitlements"])
+app.include_router(revenucat_webhook.router, prefix="/api", tags=["webhooks"])
 
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---
 from fastapi.openapi.utils import get_openapi
