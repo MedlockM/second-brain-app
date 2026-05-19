@@ -1,9 +1,10 @@
 ---
 id: task-44
 title: Prepare store assets and listing metadata with pre-review QA
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-02-24 11:04'
+updated_date: '2026-05-19'
 labels: []
 dependencies:
   - task-42
