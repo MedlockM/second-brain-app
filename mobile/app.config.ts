@@ -60,7 +60,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   extra: {
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "https://api.mediasummarizer.com",
     eas: {
-      projectId: "placeholder-project-id",
+      projectId: process.env.EAS_PROJECT_ID || "placeholder-project-id",
     },
   },
 });

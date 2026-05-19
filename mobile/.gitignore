@@ -15,8 +15,8 @@ android/
 .env
 .env.local
 
-# EAS
-eas.json
+# Google Play service account (written by CI, never commit)
+google-services-key.json
 
 # Metro bundler
 .metro-health-check*
