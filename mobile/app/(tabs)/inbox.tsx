@@ -13,10 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useMediaPolling } from "../../src/hooks/useMediaPolling";
-import { useNetworkStatus } from "../../src/hooks/useNetworkStatus";
-import { useOfflineSync } from "../../src/hooks/useOfflineSync";
 import { InboxItem } from "../../src/contexts/InboxContext";
-import { OfflineBanner, SyncingBanner } from "../../src/components/OfflineBanner";
 import {
   Colors,
   Typography,
@@ -36,7 +33,6 @@ import type {
  *
  * Layout follows the inbox_daily_digest_button_ux mockup:
  * - Greeting header
- * - Offline banner (when disconnected)
  * - Daily Digest button
  * - "Ready for Review" section with media item cards
  * - Processing items shown with status badges
@@ -46,14 +42,11 @@ import type {
  * - Pull-to-refresh
  * - Loading, error, and empty states
  * - Optimistic UI: shows locally-shared items before backend confirms
- * - Offline banner with queued item count (AC#6)
- * - Minimum 48px touch targets on all interactive elements (AC#2)
+ * - Minimum 48px touch targets on all interactive elements
  */
 export default function InboxScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const { isConnected } = useNetworkStatus();
-  const { queuedCount, isSyncing, triggerSync } = useOfflineSync();
   const {
     items,
     pendingLocalItems,
@@ -152,10 +145,6 @@ export default function InboxScreen() {
             onDigestPress={handleDigestPress}
             pendingLocalItems={pendingLocalItems}
             hasItems={hasItems}
-            isOffline={!isConnected}
-            queuedCount={queuedCount}
-            isSyncing={isSyncing}
-            onSyncPress={triggerSync}
           />
         }
         ListEmptyComponent={!hasItems ? <EmptyState /> : null}
@@ -172,10 +161,6 @@ interface ListHeaderProps {
   onDigestPress: () => void;
   pendingLocalItems: InboxItem[];
   hasItems: boolean;
-  isOffline: boolean;
-  queuedCount: number;
-  isSyncing: boolean;
-  onSyncPress: () => void;
 }
 
 function ListHeader({
@@ -184,10 +169,6 @@ function ListHeader({
   onDigestPress,
   pendingLocalItems,
   hasItems,
-  isOffline,
-  queuedCount,
-  isSyncing,
-  onSyncPress,
 }: ListHeaderProps) {
   return (
     <View>
@@ -196,19 +177,7 @@ function ListHeader({
         <Text style={styles.greeting}>{greeting}</Text>
       </View>
 
-      {/* Offline Banner (AC#6) */}
-      {isOffline && (
-        <OfflineBanner
-          queuedCount={queuedCount}
-          isSyncing={isSyncing}
-          onSyncPress={onSyncPress}
-        />
-      )}
-
-      {/* Syncing Banner (shown briefly when coming back online) */}
-      {!isOffline && isSyncing && <SyncingBanner count={queuedCount} />}
-
-      {/* Daily Digest Button - min 48px touch target (AC#2) */}
+      {/* Daily Digest Button - min 48px touch target */}
       <Pressable
         style={({ pressed }) => [
           styles.digestButton,

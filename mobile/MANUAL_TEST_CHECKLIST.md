@@ -64,31 +64,9 @@ Test on at least one small viewport (320px width, e.g. iPhone SE) and one standa
 - [ ] Empty share shows appropriate error message
 - [ ] Error banner has visible retry link
 
-### Offline Share (AC#6)
-- [ ] With airplane mode ON, sharing a URL shows "Queued for sync" overlay
-- [ ] Queued link icon (cloud-offline) is displayed
-- [ ] "Will be submitted when you reconnect" hint is visible
-- [ ] Screen auto-dismisses after queued confirmation
-
 ---
 
-## 3. Offline/Network Behavior (AC#6)
-
-### Offline Banner
-- [ ] When device goes offline, banner appears in inbox: "You are offline"
-- [ ] Banner shows count of queued links (e.g. "2 links queued for sync")
-- [ ] When no items queued, shows "Shared links will be saved and synced..."
-- [ ] Banner disappears when connectivity returns
-
-### Sync on Reconnect
-- [ ] After going back online, queued items are submitted automatically
-- [ ] "Syncing X queued links..." banner appears briefly
-- [ ] Successfully synced items appear in the inbox list
-- [ ] Failed sync items are retried (up to 5 times)
-
----
-
-## 4. Media Detail Screen
+## 3. Media Detail Screen
 
 ### Layout
 - [ ] Back button is tappable (44px + hitSlop)
@@ -114,7 +92,7 @@ Test on at least one small viewport (320px width, e.g. iPhone SE) and one standa
 
 ---
 
-## 5. AI Artifacts (AC#5)
+## 4. AI Artifacts (AC#5)
 
 ### Artifacts Toggle
 - [ ] Yellow "AI Artifacts" toggle button is visible (48px min height)
@@ -146,7 +124,7 @@ Test on at least one small viewport (320px width, e.g. iPhone SE) and one standa
 
 ---
 
-## 6. Search Screen
+## 5. Search Screen
 
 ### Touch Targets
 - [ ] Search input field is 48px height
@@ -161,7 +139,7 @@ Test on at least one small viewport (320px width, e.g. iPhone SE) and one standa
 
 ---
 
-## 7. Tab Bar
+## 6. Tab Bar
 
 ### Touch Targets (AC#2)
 - [ ] Tab bar height is 64px (comfortable touch zone)
@@ -171,7 +149,7 @@ Test on at least one small viewport (320px width, e.g. iPhone SE) and one standa
 
 ---
 
-## 8. General UX Criteria
+## 7. General UX Criteria
 
 ### One-Handed Usability (AC#2)
 - [ ] Primary actions (Save, Generate, Retry) are in thumb-reach zone (lower 2/3)

@@ -15,13 +15,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { Colors, Typography, Spacing, BorderRadius, Shadows, TouchTarget } from "../src/constants/theme";
 import { useAuth } from "../src/contexts/AuthContext";
 import { useInbox } from "../src/contexts/InboxContext";
-import { useIsOnline } from "../src/hooks/useNetworkStatus";
 import { MediaService } from "../src/services/mediaService";
-import { OfflineQueue } from "../src/services/offlineQueue";
 import { validateShareInput } from "../src/lib/urlValidation";
 import { getFriendlyErrorMessage } from "../src/lib/getFriendlyErrorMessage";
 
-type SubmitState = "idle" | "submitting" | "success" | "queued" | "error";
+type SubmitState = "idle" | "submitting" | "success" | "error";
 
 /**
  * Share Confirmation Screen.
@@ -33,16 +31,12 @@ type SubmitState = "idle" | "submitting" | "success" | "queued" | "error";
  *         Folder selector
  *         Tags selector
  *
- * Offline behavior (AC#6): When device is offline, the URL is queued
- * in persistent storage and will be submitted when connectivity returns.
  */
 export default function ShareConfirmScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ url?: string; sourceApp?: string }>();
   const { token } = useAuth();
   const { addItem, markSubmitted, markFailed } = useInbox();
-  const isOnline = useIsOnline();
-
   const [sharedUrl, setSharedUrl] = useState(params.url ?? "");
   const [note, setNote] = useState("");
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
@@ -88,40 +82,6 @@ export default function ShareConfirmScreen() {
     if (!token) {
       setErrorMessage("Please sign in to save links.");
       setSubmitState("error");
-      return;
-    }
-
-    // Offline behavior (AC#6): queue for later if not connected
-    if (!isOnline) {
-      await OfflineQueue.enqueue(
-        result.url,
-        params.sourceApp ?? "ios-share-extension",
-      );
-      setSubmitState("queued");
-
-      // Animate queued feedback
-      Animated.parallel([
-        Animated.timing(successOpacity, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.spring(successScale, {
-          toValue: 1,
-          friction: 5,
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardOpacity, {
-          toValue: 0.6,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      // Auto-dismiss after queued confirmation
-      setTimeout(() => {
-        handleClose();
-      }, 1500);
       return;
     }
 
@@ -177,7 +137,6 @@ export default function ShareConfirmScreen() {
   }, [
     sharedUrl,
     token,
-    isOnline,
     params.sourceApp,
     addItem,
     markSubmitted,
@@ -336,28 +295,6 @@ export default function ShareConfirmScreen() {
           </Animated.View>
         )}
 
-        {/* Queued offline overlay (AC#6) */}
-        {submitState === "queued" && (
-          <Animated.View
-            style={[
-              styles.successOverlay,
-              {
-                opacity: successOpacity,
-                transform: [{ scale: successScale }],
-              },
-            ]}
-          >
-            <Ionicons
-              name="cloud-offline-outline"
-              size={64}
-              color={Colors.primary}
-            />
-            <Text style={styles.successText}>Queued for sync</Text>
-            <Text style={styles.queuedHint}>
-              Will be submitted when you reconnect
-            </Text>
-          </Animated.View>
-        )}
       </View>
     </SafeAreaView>
   );
@@ -524,11 +461,5 @@ const styles = StyleSheet.create({
     fontSize: Typography.headline.fontSize,
     fontWeight: Typography.headline.fontWeight,
     color: Colors.textMain,
-  },
-  queuedHint: {
-    marginTop: Spacing.xs,
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-    textAlign: "center",
   },
 });
