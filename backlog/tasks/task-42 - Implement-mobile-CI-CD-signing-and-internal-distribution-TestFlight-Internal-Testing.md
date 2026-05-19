@@ -3,7 +3,7 @@ id: task-42
 title: >-
   Implement mobile CI/CD signing and internal distribution (TestFlight/Internal
   Testing)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-02-24 11:04'
 labels: []
