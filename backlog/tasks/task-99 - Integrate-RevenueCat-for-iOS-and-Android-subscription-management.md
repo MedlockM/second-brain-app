@@ -1,7 +1,7 @@
 ---
 id: task-99
 title: Integrate RevenueCat for iOS and Android subscription management
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 16:27'
 labels:
