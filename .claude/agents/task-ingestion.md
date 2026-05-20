@@ -21,4 +21,6 @@ Contraintes :
 - Suis le pattern resolver dans `media_summarizer/infrastructure/resolvers/`
 - Gère les erreurs avec des enums stables
 - Utilise les endpoints canoniques : `/api/media/*`
+- N'ajoute PAS de tests automatisés sauf si les critères d'acceptation le demandent explicitement
+- Supprime le code obsolète directement, pas de backward-compatibility
 - Langue des commits et du code : anglais
