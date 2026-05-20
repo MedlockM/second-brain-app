@@ -46,26 +46,7 @@ Database (DynamoDB via LocalStack)
 - Initialize (verify required tables exist): python scripts/init_db.py init
 
 Testing
-- Policy (local): ignore coverage until the end of the project. Focus on tests passing.
-  - To bypass coverage options defined in pytest.ini, override addopts:
-    - Unit only: `uv run pytest media_summarizer/tests/unit -q --override-ini "addopts="`
-    - Integration: `uv run pytest media_summarizer/tests/integration -q --override-ini "addopts="`
-    - E2E: `uv run pytest media_summarizer/tests/end_to_end -q -m e2e --override-ini "addopts="`
-- All tests (with coverage via pytest.ini): pytest
-- Run by folder
-  - Unit: pytest media_summarizer/tests/unit -v
-  - Integration: pytest media_summarizer/tests/integration -v
-  - E2E: pytest media_summarizer/tests/end_to_end -v -m e2e
-- Markers (defined in pytest.ini): unit, integration, component, workflow, e2e, requires_workers, requires_localstack, requires_database, requires_stripe, requires_whisper, requires_all_services, slow, fast, api, worker, adapter, core, database, ci_only, local_only, nightly, smoke, forecast
-  - Example: pytest -m "unit and not slow"
-- Single test
-  - File: pytest media_summarizer/tests/unit/api/endpoints/test_health.py -q
-  - Specific test: pytest media_summarizer/tests/unit/api/endpoints/test_health.py::TestBasicHealthCheck::test_health_check_success -q
-- Parallel tests (pytest-xdist): pytest -n auto
-- E2E helper script: bash scripts/run_e2e_tests.sh
-- Integration infra checks:
-  - python scripts/verify_integration_tests.py
-  - python scripts/demo_integration_tests.py
+- No automated tests in V1. Validation is done via local manual runs and mobile Maestro flows (mobile/.maestro/).
 
 Linting and formatting
 - Lint (Ruff): ruff check .
@@ -101,12 +82,6 @@ Key flows (end-to-end)
 2) API writes job metadata (DynamoDB) and enqueues processing
 3) Download -> Transcription (Whisper) -> Summarization (LLM) via SQS chain
 4) Summary stored to S3; email notification sent via SES; job status tracked in DynamoDB
-
-Testing architecture (high level)
-- SQS in tests: to avoid flakiness when peeking into queues, always delete messages after receiving them, prefer per-test unique queues (monkeypatch get_queue_url to map logical names like "transcription-queue" to the test queue), and widen retry windows when necessary. Ensure AWS creds are set in the test environment for aiobotocore/boto3 (AWS_ACCESS_KEY_ID/SECRET, AWS_REGION, AWS_ENDPOINT_URL).
-- pytest.ini routes tests to media_summarizer/tests and enables asyncio, coverage, and rich markers
-- Integration tests emphasize real services: LocalStack for AWS, real Whisper docker service, httpx async server for RSS/audio
-- E2E tests require API + workers + LocalStack up; helper script validates services and runs -m e2e
 
 Important references
 - README.md: Quickstart, services, environments, and test overview

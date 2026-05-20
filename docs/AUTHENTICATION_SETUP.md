@@ -103,10 +103,6 @@ Gestion des Erreurs Courantes
 - 401 Email non vérifié → utiliser /api/v1/auth/verify-email après réception de l’email
 - 400 OAuth non configuré → vérifier GOOGLE_* ou APPLE_* dans l’environnement
 
-Tests & Validation
-- Tests d’intégration pour OAuth social: media_summarizer/tests/integration/test_auth_social_integration.py
-- E2E billing (minutes): media_summarizer/tests/end_to_end/test_minutes_billing_e2e.py
-
 Références Code
 - Auth locale: media_summarizer/api/endpoints/auth.py
 - OAuth social: media_summarizer/api/endpoints/auth_social.py

@@ -1,2 +1,0 @@
-from media_summarizer.tests.utils.dynamodb_localstack import DynamoDBLocalStackClient as LocalstackDynamoDBClient
-
