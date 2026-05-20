@@ -2,8 +2,8 @@
 name: task-research
 description: Agent dédié aux tâches de type research/benchmark du backlog. Utilisé quand les labels contiennent benchmark, pricing, product ou scoping.
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
-model: sonnet
-effort: high
+model: opus
+effort: xhigh
 isolation: worktree
 ---
 

@@ -56,7 +56,6 @@ Aucune tâche bloquante V1 ouverte côté code au 2026-05-20.
 | **LlamaParse** (LlamaIndex Cloud) | gratuit free tier (1000 pages/jour) | Resolver documents primaire (PDF/DOCX/PPTX) | À créer |
 | **Unstructured.io** | 15 000 pages gratuites au début, puis usage-based | Resolver documents fallback | À créer |
 | **X (Developer Platform)** | Free tier OK pour V1 | Lecture API X | OK (bearer token dans `.env.prod`) |
-| **Provider email transactionnel** (SES, Resend, Postmark…) | usage-based | Notifications transactionnelles (verify email, etc.) | À choisir |
 
 ---
 
@@ -97,10 +96,6 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 COOKIE_SECURE=true
 COOKIE_DOMAIN=app.<your-domain>
 COOKIE_SAMESITE=Lax
-EMAIL_FROM=noreply@<your-domain>
-SMTP_HOST=...                          # ou SES/Resend
-SMTP_USER=...
-SMTP_PASSWORD=...
 
 # Google OAuth (Sign in with Google)
 GOOGLE_CLIENT_ID=...                   # Web client ID — vérifie l'`aud` des id_tokens mobiles iOS/Android
@@ -246,7 +241,8 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    - **Sign in with Apple** (iOS uniquement) — modal Apple natif → user créé/lié → inbox
    - **Continue with Google** (iOS et Android) — sheet Google natif → user créé/lié → inbox
    - Share intent depuis Safari/Chrome → écran share-confirm → submit
-   - Inbox polling → media detail → artifacts
+   - Inbox : la vignette du media partagé apparaît immédiatement (insertion optimiste, pas de polling de la liste)
+   - Tap sur une vignette en cours de traitement → écran detail avec placeholder « Generating text… » et polling 3s sur `GET /api/media/{id}` jusqu'à `completed`/`failed`
    - Search
    - Paywall (sans achat encore)
 
@@ -328,7 +324,6 @@ Une fois ces inscriptions faites, plus aucun blocage code :
 - [ ] Deepgram API key + budget configuré
 - [ ] Algolia App créée + index `media_v1` configuré
 - [ ] RevenueCat projet + 3 produits par store + webhook configuré
-- [ ] Provider e-mail (SES/Resend/Postmark) configuré + DNS validé
 
 ---
 
