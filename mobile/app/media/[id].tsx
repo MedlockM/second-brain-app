@@ -17,6 +17,7 @@ import { useAuth } from "../../src/contexts/AuthContext";
 import { MediaService } from "../../src/services/mediaService";
 import { ArtifactService } from "../../src/services/artifactService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
+import { useMediaDetailPolling } from "../../src/hooks/useMediaDetailPolling";
 import {
   Colors,
   Typography,
@@ -50,7 +51,7 @@ const ARTIFACT_TYPES: {
   { type: "notes", label: "Learning Notes", icon: "book-outline" },
 ];
 
-const POLL_INTERVAL_MS = 3000;
+const ARTIFACT_POLL_INTERVAL_MS = 3000;
 
 type ArtifactLocalState = {
   status: ArtifactStatus | "idle";
@@ -61,135 +62,238 @@ type ArtifactLocalState = {
 /**
  * Media Detail Screen.
  *
- * Shows media metadata, transcript status with retry (AC#4),
- * and AI artifact generation actions (AC#5).
+ * Lifecycle:
+ * 1. On mount, uses `useMediaDetailPolling` hook to fetch media status.
+ * 2. If the processing job is non-terminal, shows a "Generating text..." placeholder
+ *    with a spinner. Polls every 3s until status becomes terminal.
+ * 3. On "completed": transitions to the full detail view with artifacts.
+ * 4. On "failed": shows a failure banner with the error message.
+ * 5. On 5-minute timeout: stops polling and shows a "taking longer" message.
  *
- * Improvements over base implementation:
- * - Artifacts section auto-expands when media is ready (AC#5)
- * - View button for ready artifacts (AC#5)
- * - Retry button for failed transcripts (AC#4)
- * - Cancel indication for stuck processing (AC#4)
- * - All interactive elements meet 48px minimum touch target (AC#2)
+ * Features:
+ * - Contextual processing message based on source_platform
+ * - Artifacts section with generation actions
+ * - Retry/refresh for failed states
+ * - All interactive elements meet 48px minimum touch target
  */
 export default function MediaDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { token } = useAuth();
 
-  const [mediaData, setMediaData] = useState<MediaStatusResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [artifactsExpanded, setArtifactsExpanded] = useState(false);
+  const {
+    state: pollingState,
+    mediaData,
+    fetchError,
+    processingError,
+    processingMessage,
+    refresh,
+  } = useMediaDetailPolling(id);
+
+  // --- Loading state (initial fetch) ---
+  if (pollingState === "loading") {
+    return (
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <Header onBack={() => router.back()} />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // --- Fetch error state (network/auth error) ---
+  if (pollingState === "error") {
+    return (
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <Header onBack={() => router.back()} />
+        <View style={styles.centered}>
+          <Ionicons
+            name="alert-circle-outline"
+            size={48}
+            color={Colors.error}
+          />
+          <Text style={styles.errorText}>
+            {fetchError || "Unable to load media details."}
+          </Text>
+          <Pressable
+            style={styles.retryButton}
+            onPress={refresh}
+            accessibilityLabel="Retry loading media details"
+            accessibilityRole="button"
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // --- Processing state (non-terminal, showing placeholder) ---
+  if (pollingState === "processing") {
+    return (
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <Header onBack={() => router.back()} />
+        <View style={styles.centered}>
+          <View style={styles.processingIconContainer}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+          </View>
+          <Text style={styles.processingTitle}>{processingMessage}</Text>
+          <Text style={styles.processingSubtitle}>
+            This usually takes less than a minute.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // --- Timeout state (5 minutes elapsed without completion) ---
+  if (pollingState === "timeout") {
+    return (
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <Header onBack={() => router.back()} />
+        <View style={styles.centered}>
+          <Ionicons
+            name="time-outline"
+            size={48}
+            color={Colors.textMuted}
+          />
+          <Text style={styles.timeoutTitle}>
+            This is taking longer than usual.
+          </Text>
+          <Text style={styles.timeoutSubtitle}>
+            Pull down to refresh or come back later.
+          </Text>
+          <Pressable
+            style={styles.refreshButton}
+            onPress={refresh}
+            accessibilityLabel="Refresh media status"
+            accessibilityRole="button"
+          >
+            <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
+            <Text style={styles.refreshButtonText}>Refresh</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // --- Failed state (processing failed) ---
+  if (pollingState === "failed") {
+    return (
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <Header onBack={() => router.back()} />
+        <View style={styles.centered}>
+          <Ionicons
+            name="alert-circle"
+            size={48}
+            color={Colors.error}
+          />
+          <Text style={styles.failedTitle}>Processing failed</Text>
+          <Text style={styles.failedMessage}>
+            {processingError || "An unexpected error occurred."}
+          </Text>
+          <Pressable
+            style={styles.refreshButton}
+            onPress={refresh}
+            accessibilityLabel="Refresh media status"
+            accessibilityRole="button"
+          >
+            <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
+            <Text style={styles.refreshButtonText}>Refresh</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // --- Completed state (full detail view) ---
+  if (!mediaData) {
+    // Safety check: should not happen after the hook resolves
+    return (
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <Header onBack={() => router.back()} />
+        <View style={styles.centered}>
+          <Text style={styles.errorText}>Unable to load media details.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <CompletedDetailView
+      mediaData={mediaData}
+      onBack={() => router.back()}
+    />
+  );
+}
+
+// --- Completed Detail View (extracted for clarity) ---
+
+interface CompletedDetailViewProps {
+  mediaData: MediaStatusResponse;
+  onBack: () => void;
+}
+
+function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
+  const { token } = useAuth();
+  const { media_item, processing_job } = mediaData;
+
+  const [artifactsExpanded, setArtifactsExpanded] = useState(true);
   const [artifactStates, setArtifactStates] = useState<
     Record<ArtifactType, ArtifactLocalState>
-  >({
-    summary: { status: "idle" },
-    quiz: { status: "idle" },
-    notes: { status: "idle" },
+  >(() => {
+    const initial: Record<ArtifactType, ArtifactLocalState> = {
+      summary: { status: "idle" },
+      quiz: { status: "idle" },
+      notes: { status: "idle" },
+    };
+
+    for (const artifact of mediaData.artifacts) {
+      initial[artifact.artifact_type] = {
+        status: artifact.status,
+        artifactId: artifact.artifact_id,
+      };
+    }
+
+    const artifactStatuses = media_item.artifact_statuses;
+    if (artifactStatuses) {
+      for (const [type, snapshot] of Object.entries(artifactStatuses)) {
+        if (snapshot) {
+          initial[type as ArtifactType] = {
+            status: snapshot.status,
+            artifactId: snapshot.artifact_id,
+          };
+        }
+      }
+    }
+
+    return initial;
   });
 
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const artifactPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       mountedRef.current = false;
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
+      if (artifactPollRef.current) {
+        clearInterval(artifactPollRef.current);
       }
     };
   }, []);
 
-  // Fetch media status on mount
-  const fetchMediaStatus = useCallback(async () => {
-    if (!token || !id) return;
+  const startArtifactPolling = useCallback(() => {
+    if (artifactPollRef.current) return;
 
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await MediaService.getMediaStatus(token, id);
-      if (!mountedRef.current) return;
-
-      setMediaData(response);
-
-      // Initialize artifact states from response
-      const newStates: Record<ArtifactType, ArtifactLocalState> = {
-        summary: { status: "idle" },
-        quiz: { status: "idle" },
-        notes: { status: "idle" },
-      };
-
-      for (const artifact of response.artifacts) {
-        newStates[artifact.artifact_type] = {
-          status: artifact.status,
-          artifactId: artifact.artifact_id,
-        };
-      }
-
-      // Also check artifact_statuses on media_item
-      const artifactStatuses = response.media_item.artifact_statuses;
-      if (artifactStatuses) {
-        for (const [type, snapshot] of Object.entries(artifactStatuses)) {
-          if (snapshot) {
-            newStates[type as ArtifactType] = {
-              status: snapshot.status,
-              artifactId: snapshot.artifact_id,
-            };
-          }
-        }
-      }
-
-      setArtifactStates(newStates);
-
-      // Auto-expand artifacts panel when media is ready for artifacts (AC#5)
-      const isMediaReady =
-        response.media_item.status === "ready_for_artifacts" ||
-        response.processing_job.status === "ready_for_artifacts" ||
-        response.processing_job.status === "completed";
-      if (isMediaReady) {
-        setArtifactsExpanded(true);
-      }
-
-      // Start polling if any artifact is in progress
-      const hasInProgress = Object.values(newStates).some(
-        (s) => s.status === "queued" || s.status === "generating",
-      );
-      // Also poll if transcript is still processing
-      const transcriptProcessing =
-        response.media_item.transcript &&
-        response.media_item.transcript.status !== "ready" &&
-        response.media_item.transcript.status !== "failed";
-
-      if (hasInProgress || transcriptProcessing) {
-        startPolling();
-      }
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setError(getFriendlyErrorMessage(err));
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-      }
-    }
-  }, [token, id]);
-
-  useEffect(() => {
-    fetchMediaStatus();
-  }, [fetchMediaStatus]);
-
-  // Polling for in-progress artifacts and transcript
-  const startPolling = useCallback(() => {
-    if (pollingRef.current) return; // Already polling
-
-    pollingRef.current = setInterval(async () => {
-      if (!token || !id || !mountedRef.current) return;
+    artifactPollRef.current = setInterval(async () => {
+      if (!token || !mountedRef.current) return;
 
       try {
-        const response = await MediaService.getMediaStatus(token, id);
+        const response = await MediaService.getMediaStatus(
+          token,
+          media_item.media_item_id,
+        );
         if (!mountedRef.current) return;
-
-        setMediaData(response);
 
         const newStates: Record<ArtifactType, ArtifactLocalState> = {
           summary: { status: "idle" },
@@ -218,30 +322,24 @@ export default function MediaDetailScreen() {
 
         setArtifactStates(newStates);
 
-        // Stop polling if nothing is in progress anymore
+        // Stop if no artifacts are in progress
         const hasInProgress = Object.values(newStates).some(
           (s) => s.status === "queued" || s.status === "generating",
         );
-        const transcriptProcessing =
-          response.media_item.transcript &&
-          response.media_item.transcript.status !== "ready" &&
-          response.media_item.transcript.status !== "failed";
-
-        if (!hasInProgress && !transcriptProcessing && pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
+        if (!hasInProgress && artifactPollRef.current) {
+          clearInterval(artifactPollRef.current);
+          artifactPollRef.current = null;
         }
       } catch {
-        // Silent fail during polling - don't disrupt user
+        // Silent fail during polling
       }
-    }, POLL_INTERVAL_MS);
-  }, [token, id]);
+    }, ARTIFACT_POLL_INTERVAL_MS);
+  }, [token, media_item.media_item_id]);
 
   const handleGenerate = useCallback(
     async (artifactType: ArtifactType) => {
-      if (!token || !id) return;
+      if (!token) return;
 
-      // Optimistic update
       setArtifactStates((prev) => ({
         ...prev,
         [artifactType]: { status: "queued" },
@@ -250,7 +348,7 @@ export default function MediaDetailScreen() {
       try {
         const result = await ArtifactService.generateArtifact(
           token,
-          id,
+          media_item.media_item_id,
           artifactType,
         );
         if (!mountedRef.current) return;
@@ -263,8 +361,7 @@ export default function MediaDetailScreen() {
           },
         }));
 
-        // Start polling for progress
-        startPolling();
+        startArtifactPolling();
       } catch (err) {
         if (!mountedRef.current) return;
         setArtifactStates((prev) => ({
@@ -276,73 +373,13 @@ export default function MediaDetailScreen() {
         }));
       }
     },
-    [token, id, startPolling],
+    [token, media_item.media_item_id, startArtifactPolling],
   );
-
-  const handleRetryProcessing = useCallback(async () => {
-    // Re-fetch media status to check if processing has resumed
-    if (!token || !id) return;
-    try {
-      const response = await MediaService.getMediaStatus(token, id);
-      if (!mountedRef.current) return;
-      setMediaData(response);
-      // If still failed, user needs to re-submit. Otherwise, start polling.
-      if (
-        response.processing_job.status !== "failed" &&
-        response.processing_job.status !== "cancelled"
-      ) {
-        startPolling();
-      }
-    } catch {
-      // Silent - user can try again
-    }
-  }, [token, id, startPolling]);
 
   const toggleArtifactsExpanded = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setArtifactsExpanded((prev) => !prev);
   };
-
-  // Loading state
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
-        <Header onBack={() => router.back()} />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // Error state
-  if (error || !mediaData) {
-    return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
-        <Header onBack={() => router.back()} />
-        <View style={styles.centered}>
-          <Ionicons
-            name="alert-circle-outline"
-            size={48}
-            color={Colors.error}
-          />
-          <Text style={styles.errorText}>
-            {error || "Unable to load media details."}
-          </Text>
-          <Pressable
-            style={styles.retryButton}
-            onPress={fetchMediaStatus}
-            accessibilityLabel="Retry loading media details"
-            accessibilityRole="button"
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const { media_item, processing_job } = mediaData;
 
   // Extract display info
   let displayTitle: string;
@@ -384,7 +421,7 @@ export default function MediaDetailScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      <Header onBack={() => router.back()} />
+      <Header onBack={onBack} />
 
       <ScrollView
         style={styles.scrollView}
@@ -420,15 +457,7 @@ export default function MediaDetailScreen() {
           </View>
         </View>
 
-        {/* Processing Status Banner (AC#4) */}
-        {processing_job.status === "failed" && (
-          <ProcessingFailedBanner
-            errorMessage={processing_job.error_message}
-            onRetry={handleRetryProcessing}
-          />
-        )}
-
-        {/* AI Artifacts Section (AC#5) */}
+        {/* AI Artifacts Section */}
         <View style={styles.artifactsSection}>
           <Pressable
             style={styles.artifactsToggle}
@@ -468,12 +497,11 @@ export default function MediaDetailScreen() {
           )}
         </View>
 
-        {/* Transcript / Content Section (AC#4) */}
+        {/* Transcript / Content Section */}
         <View style={styles.contentSection}>
           <TranscriptSection
             transcript={media_item.transcript}
             processingStatus={processing_job.status}
-            onRefresh={fetchMediaStatus}
           />
         </View>
       </ScrollView>
@@ -502,41 +530,6 @@ function Header({ onBack }: { onBack: () => void }) {
         hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
       >
         <Ionicons name="share-outline" size={24} color={Colors.textMain} />
-      </Pressable>
-    </View>
-  );
-}
-
-/**
- * Banner shown when the processing job has failed (AC#4).
- * Provides context and a refresh action.
- */
-function ProcessingFailedBanner({
-  errorMessage,
-  onRetry,
-}: {
-  errorMessage?: string;
-  onRetry: () => void;
-}) {
-  return (
-    <View style={styles.failedBanner}>
-      <View style={styles.failedBannerContent}>
-        <Ionicons name="alert-circle" size={20} color={Colors.error} />
-        <View style={styles.failedBannerText}>
-          <Text style={styles.failedBannerTitle}>Processing failed</Text>
-          <Text style={styles.failedBannerMessage}>
-            {errorMessage || "An error occurred during processing. You can try refreshing."}
-          </Text>
-        </View>
-      </View>
-      <Pressable
-        style={styles.failedBannerRetry}
-        onPress={onRetry}
-        accessibilityLabel="Refresh processing status"
-        accessibilityRole="button"
-      >
-        <Ionicons name="refresh" size={16} color={Colors.error} />
-        <Text style={styles.failedBannerRetryText}>Refresh</Text>
       </Pressable>
     </View>
   );
@@ -583,7 +576,7 @@ function ArtifactRow({
         {isReady && (
           <View style={styles.artifactReadyContainer}>
             <View style={styles.artifactReadyBadge}>
-              <Ionicons name="checkmark-circle" size={16} color="#4caf50" />
+              <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
               <Text style={styles.artifactReadyText}>Ready</Text>
             </View>
             <Pressable
@@ -630,16 +623,14 @@ function ArtifactRow({
 }
 
 /**
- * Transcript section with status display and retry capability (AC#4).
+ * Transcript section with status display.
  */
 function TranscriptSection({
   transcript,
   processingStatus,
-  onRefresh,
 }: {
   transcript: MediaStatusResponse["media_item"]["transcript"];
   processingStatus: ProcessingJobLifecycleStatus;
-  onRefresh: () => void;
 }) {
   if (!transcript) {
     return (
@@ -732,7 +723,7 @@ function TranscriptSection({
           <Ionicons
             name="checkmark-circle"
             size={16}
-            color="#4caf50"
+            color={Colors.primary}
             style={{ marginRight: Spacing.sm }}
           />
         )}
@@ -745,19 +736,6 @@ function TranscriptSection({
           {statusMessages[transcript.status] || "Processing..."}
         </Text>
       </View>
-
-      {/* Retry button for failed transcription (AC#4) */}
-      {isFailed && (
-        <Pressable
-          style={styles.transcriptRetryButton}
-          onPress={onRefresh}
-          accessibilityLabel="Refresh transcript status"
-          accessibilityRole="button"
-        >
-          <Ionicons name="refresh" size={16} color={Colors.error} />
-          <Text style={styles.transcriptRetryText}>Refresh status</Text>
-        </Pressable>
-      )}
     </View>
   );
 }
@@ -833,6 +811,70 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  // Processing placeholder
+  processingIconContainer: {
+    marginBottom: Spacing.md,
+  },
+  processingTitle: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: Typography.headline.fontWeight,
+    color: Colors.textMain,
+    textAlign: "center",
+  },
+  processingSubtitle: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textMuted,
+    textAlign: "center",
+    marginTop: Spacing.xs,
+  },
+
+  // Timeout state
+  timeoutTitle: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: Typography.headline.fontWeight,
+    color: Colors.textMain,
+    textAlign: "center",
+  },
+  timeoutSubtitle: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textMuted,
+    textAlign: "center",
+    marginTop: Spacing.xs,
+  },
+
+  // Failed state
+  failedTitle: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: Typography.headline.fontWeight,
+    color: Colors.error,
+    textAlign: "center",
+  },
+  failedMessage: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textMain,
+    textAlign: "center",
+    lineHeight: Typography.body.lineHeight,
+    marginTop: Spacing.xs,
+  },
+
+  // Refresh/Retry button
+  refreshButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm + 4,
+    borderRadius: BorderRadius.lg,
+    minHeight: TouchTarget.minimum,
+    marginTop: Spacing.md,
+  },
+  refreshButtonText: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: Typography.label.fontWeight,
+    color: Colors.onPrimary,
+  },
+
   // Hero
   heroSection: {
     marginBottom: Spacing.xl,
@@ -878,50 +920,6 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.5,
-  },
-
-  // Processing failed banner (AC#4)
-  failedBanner: {
-    backgroundColor: Colors.errorContainer,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.md,
-    marginBottom: Spacing.lg,
-    gap: Spacing.sm,
-  },
-  failedBannerContent: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: Spacing.sm,
-  },
-  failedBannerText: {
-    flex: 1,
-  },
-  failedBannerTitle: {
-    fontSize: Typography.label.fontSize,
-    fontWeight: "600",
-    color: Colors.error,
-    marginBottom: 2,
-  },
-  failedBannerMessage: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMain,
-    lineHeight: 18,
-  },
-  failedBannerRetry: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    backgroundColor: "rgba(186, 26, 26, 0.08)",
-    minHeight: TouchTarget.minimum,
-  },
-  failedBannerRetryText: {
-    fontSize: Typography.label.fontSize,
-    fontWeight: "600",
-    color: Colors.error,
   },
 
   // Artifacts section
@@ -1006,7 +1004,7 @@ const styles = StyleSheet.create({
   artifactReadyText: {
     fontSize: Typography.small.fontSize,
     fontWeight: Typography.label.fontWeight,
-    color: "#4caf50",
+    color: Colors.primary,
   },
   artifactViewButton: {
     paddingHorizontal: Spacing.md,
@@ -1100,23 +1098,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.body.fontSize,
     color: Colors.textMain,
     lineHeight: Typography.body.lineHeight,
-  },
-  transcriptRetryButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.errorContainer,
-    minHeight: TouchTarget.minimum,
-    marginTop: Spacing.sm,
-  },
-  transcriptRetryText: {
-    fontSize: Typography.label.fontSize,
-    fontWeight: "600",
-    color: Colors.error,
   },
   transcriptEmpty: {
     alignItems: "center",
