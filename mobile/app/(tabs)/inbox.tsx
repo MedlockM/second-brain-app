@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useMediaPolling } from "../../src/hooks/useMediaPolling";
 import { InboxItem } from "../../src/contexts/InboxContext";
@@ -25,24 +26,17 @@ import {
 import type {
   MediaStatusResponse,
   MediaType,
-  ProcessingJobLifecycleStatus,
+  SourcePlatform,
 } from "../../src/types/media";
 
 /**
- * Inbox screen - displays shared media items with processing states and polling.
+ * Inbox screen - displays shared media items as uniform vignettes.
  *
- * Layout follows the inbox_daily_digest_button_ux mockup:
- * - Greeting header
- * - Daily Digest button
- * - "Ready for Review" section with media item cards
- * - Processing items shown with status badges
- *
- * Features:
- * - Live polling (every 5s) for items in non-terminal states
- * - Pull-to-refresh
- * - Loading, error, and empty states
- * - Optimistic UI: shows locally-shared items before backend confirms
- * - Minimum 48px touch targets on all interactive elements
+ * V1 design decisions:
+ * - No polling: single fetch on mount + pull-to-refresh + refetch on focus
+ * - No processing status badges or spinners per item
+ * - Optimistic insertion: pending local items appear instantly as placeholders
+ * - Tapping an item navigates to detail (which handles its own "Generating text..." state)
  */
 export default function InboxScreen() {
   const { user } = useAuth();
@@ -59,9 +53,12 @@ export default function InboxScreen() {
 
   const greeting = getGreeting(user?.email?.split("@")[0]);
 
-  const completedCount = items.filter(
-    (item) => item.processing_job.status === "completed",
-  ).length;
+  // Refetch when the screen gains focus (multi-device sync)
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh]),
+  );
 
   const handleDigestPress = useCallback(() => {
     router.push("/(tabs)/digest");
@@ -73,6 +70,24 @@ export default function InboxScreen() {
     },
     [router],
   );
+
+  // Build a unified list: pending local items first, then backend items
+  const unifiedItems: UnifiedItem[] = [
+    ...pendingLocalItems.map(
+      (local): UnifiedItem => ({
+        kind: "local",
+        key: local.localId,
+        local,
+      }),
+    ),
+    ...items.map(
+      (backend): UnifiedItem => ({
+        kind: "backend",
+        key: backend.media_item.media_item_id,
+        backend,
+      }),
+    ),
+  ];
 
   // Loading state
   if (isLoading) {
@@ -118,15 +133,15 @@ export default function InboxScreen() {
     );
   }
 
-  const hasItems = items.length > 0 || pendingLocalItems.length > 0;
+  const hasItems = unifiedItems.length > 0;
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <FlatList
-        data={items}
-        keyExtractor={(item) => item.media_item.media_item_id}
+        data={unifiedItems}
+        keyExtractor={(item) => item.key}
         renderItem={({ item }) => (
-          <MediaItemCard item={item} onPress={handleItemPress} />
+          <UnifiedItemCard item={item} onPress={handleItemPress} />
         )}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
@@ -141,9 +156,7 @@ export default function InboxScreen() {
         ListHeaderComponent={
           <ListHeader
             greeting={greeting}
-            completedCount={completedCount}
             onDigestPress={handleDigestPress}
-            pendingLocalItems={pendingLocalItems}
             hasItems={hasItems}
           />
         }
@@ -153,23 +166,24 @@ export default function InboxScreen() {
   );
 }
 
+// --- Types ---
+
+interface UnifiedItem {
+  kind: "local" | "backend";
+  key: string;
+  local?: InboxItem;
+  backend?: MediaStatusResponse;
+}
+
 // --- Sub-components ---
 
 interface ListHeaderProps {
   greeting: string;
-  completedCount: number;
   onDigestPress: () => void;
-  pendingLocalItems: InboxItem[];
   hasItems: boolean;
 }
 
-function ListHeader({
-  greeting,
-  completedCount,
-  onDigestPress,
-  pendingLocalItems,
-  hasItems,
-}: ListHeaderProps) {
+function ListHeader({ greeting, onDigestPress, hasItems }: ListHeaderProps) {
   return (
     <View>
       {/* Greeting */}
@@ -177,14 +191,14 @@ function ListHeader({
         <Text style={styles.greeting}>{greeting}</Text>
       </View>
 
-      {/* Daily Digest Button - min 48px touch target */}
+      {/* Daily Digest Button */}
       <Pressable
         style={({ pressed }) => [
           styles.digestButton,
           pressed && styles.digestButtonPressed,
         ]}
         onPress={onDigestPress}
-        accessibilityLabel={`Open Daily Digest, ${completedCount} items ready`}
+        accessibilityLabel="Open Daily Digest"
         accessibilityRole="button"
       >
         <View style={styles.digestIconContainer}>
@@ -192,27 +206,14 @@ function ListHeader({
         </View>
         <Text style={styles.digestButtonLabel}>Daily Digest</Text>
         <View style={styles.digestButtonRight}>
-          {completedCount > 0 && (
-            <Text style={styles.digestCount}>{completedCount}</Text>
-          )}
           <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
         </View>
       </Pressable>
 
-      {/* Pending local items (optimistic) */}
-      {pendingLocalItems.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>SUBMITTING</Text>
-          {pendingLocalItems.map((localItem) => (
-            <PendingLocalItemCard key={localItem.localId} item={localItem} />
-          ))}
-        </View>
-      )}
-
-      {/* Section header for backend items */}
+      {/* Section header */}
       {hasItems && (
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>READY FOR REVIEW</Text>
+          <Text style={styles.sectionTitle}>YOUR MEDIA</Text>
         </View>
       )}
     </View>
@@ -236,13 +237,32 @@ function EmptyState() {
   );
 }
 
-interface MediaItemCardProps {
+// --- Unified Item Card ---
+
+interface UnifiedItemCardProps {
+  item: UnifiedItem;
+  onPress: (mediaItemId: string) => void;
+}
+
+function UnifiedItemCard({ item, onPress }: UnifiedItemCardProps) {
+  if (item.kind === "local" && item.local) {
+    return <LocalItemCard item={item.local} />;
+  }
+  if (item.kind === "backend" && item.backend) {
+    return <BackendItemCard item={item.backend} onPress={onPress} />;
+  }
+  return null;
+}
+
+// --- Backend Item Card (no status badge) ---
+
+interface BackendItemCardProps {
   item: MediaStatusResponse;
   onPress: (mediaItemId: string) => void;
 }
 
-function MediaItemCard({ item, onPress }: MediaItemCardProps) {
-  const { media_item, processing_job } = item;
+function BackendItemCard({ item, onPress }: BackendItemCardProps) {
+  const { media_item } = item;
 
   let displayDomain: string;
   try {
@@ -255,25 +275,22 @@ function MediaItemCard({ item, onPress }: MediaItemCardProps) {
   const mediaTypeLabel = getMediaTypeLabel(media_item.media_type);
   const mediaTypeBgColor = getMediaTypeBgColor(media_item.media_type);
   const timeAgo = getRelativeTime(media_item.created_at);
-  const statusLabel = getStatusLabel(processing_job.status);
-  const statusColor = getStatusColor(processing_job.status);
-  const isProcessing = !isTerminal(processing_job.status);
+  const icon = getMediaTypeIcon(media_item.media_type);
+
+  // Use title if available from backend, otherwise fall back to URL
+  const displayTitle = media_item.original_url;
 
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={() => onPress(media_item.media_item_id)}
-      accessibilityLabel={`${mediaTypeLabel} from ${displayDomain}, ${statusLabel}`}
+      accessibilityLabel={`${mediaTypeLabel} from ${displayDomain}`}
       accessibilityRole="button"
     >
       <View style={styles.cardContent}>
         {/* Thumbnail placeholder */}
         <View style={styles.thumbnailContainer}>
-          <Ionicons
-            name={getMediaTypeIcon(media_item.media_type)}
-            size={28}
-            color={Colors.textMuted}
-          />
+          <Ionicons name={icon} size={28} color={Colors.textMuted} />
         </View>
 
         {/* Text content */}
@@ -290,38 +307,24 @@ function MediaItemCard({ item, onPress }: MediaItemCardProps) {
 
           {/* Title / URL */}
           <Text style={styles.cardTitle} numberOfLines={2}>
-            {media_item.original_url}
+            {displayTitle}
           </Text>
 
           {/* Source domain */}
           <Text style={styles.cardDomain}>{displayDomain}</Text>
         </View>
       </View>
-
-      {/* Processing status indicator */}
-      {isProcessing && (
-        <View style={styles.cardFooter}>
-          <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-            {isProcessing && (
-              <ActivityIndicator
-                size={10}
-                color={Colors.textMain}
-                style={styles.statusSpinner}
-              />
-            )}
-            <Text style={styles.statusText}>{statusLabel}</Text>
-          </View>
-        </View>
-      )}
     </Pressable>
   );
 }
 
-interface PendingLocalItemCardProps {
+// --- Local (optimistic) Item Card ---
+
+interface LocalItemCardProps {
   item: InboxItem;
 }
 
-function PendingLocalItemCard({ item }: PendingLocalItemCardProps) {
+function LocalItemCard({ item }: LocalItemCardProps) {
   let displayDomain: string;
   try {
     const parsed = new URL(item.url);
@@ -331,21 +334,23 @@ function PendingLocalItemCard({ item }: PendingLocalItemCardProps) {
   }
 
   const isFailed = item.state === "failed";
+  const icon = getSourcePlatformIcon(item.sourcePlatform);
 
   return (
     <View
       style={[styles.card, isFailed && styles.cardFailed]}
-      accessibilityLabel={`Pending link from ${displayDomain}, ${isFailed ? "failed" : "submitting"}`}
+      accessibilityLabel={`Pending link from ${displayDomain}`}
     >
       <View style={styles.cardContent}>
         <View style={styles.thumbnailContainer}>
           {isFailed ? (
             <Ionicons name="alert-circle" size={28} color={Colors.error} />
           ) : (
-            <ActivityIndicator size={20} color={Colors.primary} />
+            <Ionicons name={icon} size={28} color={Colors.textMuted} />
           )}
         </View>
         <View style={styles.cardTextSection}>
+          {/* Title = URL */}
           <Text style={styles.cardTitle} numberOfLines={2}>
             {item.url}
           </Text>
@@ -353,22 +358,6 @@ function PendingLocalItemCard({ item }: PendingLocalItemCardProps) {
           {isFailed && item.errorMessage && (
             <Text style={styles.errorMessage}>{item.errorMessage}</Text>
           )}
-        </View>
-      </View>
-      <View style={styles.cardFooter}>
-        <View
-          style={[
-            styles.statusBadge,
-            {
-              backgroundColor: isFailed
-                ? Colors.errorContainer
-                : Colors.surfaceContainerHigh,
-            },
-          ]}
-        >
-          <Text style={styles.statusText}>
-            {isFailed ? "Failed" : "Submitting..."}
-          </Text>
         </View>
       </View>
     </View>
@@ -438,7 +427,7 @@ function getMediaTypeBgColor(type: MediaType): string {
       return Colors.primary;
     case "youtube_video":
     case "short_video":
-      return "#ffe0e0";
+      return Colors.errorContainer;
     case "article":
       return Colors.surfaceContainerHigh;
     default:
@@ -466,50 +455,26 @@ function getMediaTypeIcon(
   }
 }
 
-function getStatusLabel(status: ProcessingJobLifecycleStatus): string {
-  switch (status) {
-    case "pending":
-      return "Pending";
-    case "classifying":
-      return "Classifying";
-    case "resolving":
-      return "Resolving";
-    case "downloading":
-      return "Downloading";
-    case "extracting":
-      return "Extracting";
-    case "transcribing":
-      return "Transcribing";
-    case "ready_for_artifacts":
-      return "Generating summary";
-    case "completed":
-      return "Done";
-    case "failed":
-      return "Failed";
-    case "cancelled":
-      return "Cancelled";
+function getSourcePlatformIcon(
+  platform?: SourcePlatform,
+): React.ComponentProps<typeof Ionicons>["name"] {
+  switch (platform) {
+    case "spotify":
+    case "apple_podcasts":
+    case "deezer":
+    case "rss":
+    case "podcast_index":
+      return "headset-outline";
+    case "youtube":
+      return "play-circle-outline";
+    case "instagram":
+    case "tiktok":
+      return "videocam-outline";
+    case "x":
+      return "chatbubble-outline";
     default:
-      return "Processing";
+      return "link-outline";
   }
-}
-
-function getStatusColor(status: ProcessingJobLifecycleStatus): string {
-  switch (status) {
-    case "completed":
-    case "ready_for_artifacts":
-      return "#e8f5e9";
-    case "failed":
-    case "cancelled":
-      return Colors.errorContainer;
-    default:
-      return Colors.surfaceContainerHigh;
-  }
-}
-
-function isTerminal(status: ProcessingJobLifecycleStatus): boolean {
-  return (
-    status === "completed" || status === "failed" || status === "cancelled"
-  );
 }
 
 // --- Styles ---
@@ -525,10 +490,9 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
   },
   greeting: {
+    ...Typography.display,
     fontSize: 28,
-    fontWeight: "700",
     color: Colors.textMain,
-    letterSpacing: -0.5,
   },
   listContent: {
     paddingBottom: Spacing.xl,
@@ -572,7 +536,7 @@ const styles = StyleSheet.create({
     color: Colors.onPrimary,
   },
 
-  // Daily Digest button - meets 48px minimum touch target
+  // Daily Digest button
   digestButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -611,18 +575,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.sm,
   },
-  digestCount: {
-    fontSize: Typography.body.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.textMuted,
-  },
 
   // Section
-  section: {
-    paddingHorizontal: Spacing.md,
-    marginBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
   sectionHeaderRow: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
@@ -635,7 +589,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
 
-  // Card - minimum touch height enforced
+  // Card
   card: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.xl,
@@ -706,33 +660,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.small.fontSize,
     color: Colors.error,
     marginTop: Spacing.xs,
-  },
-
-  // Card footer (processing status)
-  cardFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginTop: Spacing.sm,
-    paddingTop: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.outlineVariant,
-  },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 3,
-    borderRadius: BorderRadius.sm,
-    gap: Spacing.xs,
-  },
-  statusSpinner: {
-    marginRight: 2,
-  },
-  statusText: {
-    fontSize: Typography.small.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.textMain,
   },
 
   // Empty state

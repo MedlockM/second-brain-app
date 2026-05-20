@@ -4,7 +4,7 @@ import React, {
   useState,
   useCallback,
 } from "react";
-import { IngestUrlResponse, ProcessingJobLifecycleStatus } from "../types/media";
+import { IngestUrlResponse, ProcessingJobLifecycleStatus, SourcePlatform } from "../types/media";
 
 /**
  * Represents a single inbox item - a shared URL that has been submitted or is pending.
@@ -18,6 +18,8 @@ export interface InboxItem {
   note?: string;
   /** Source app identifier */
   sourceApp?: string;
+  /** Detected source platform for placeholder icon */
+  sourcePlatform?: SourcePlatform;
   /** Local state of the item */
   state: "pending" | "submitting" | "submitted" | "failed";
   /** Processing status from the backend (after submission) */
@@ -36,7 +38,7 @@ export interface InboxItem {
 
 interface InboxContextValue {
   items: InboxItem[];
-  addItem: (url: string, sourceApp?: string) => string;
+  addItem: (url: string, sourceApp?: string, sourcePlatform?: SourcePlatform) => string;
   updateItem: (localId: string, updates: Partial<InboxItem>) => void;
   removeItem: (localId: string) => void;
   markSubmitted: (localId: string, response: IngestUrlResponse) => void;
@@ -56,12 +58,13 @@ function generateLocalId(): string {
 export function InboxProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<InboxItem[]>([]);
 
-  const addItem = useCallback((url: string, sourceApp?: string): string => {
+  const addItem = useCallback((url: string, sourceApp?: string, sourcePlatform?: SourcePlatform): string => {
     const localId = generateLocalId();
     const item: InboxItem = {
       localId,
       url,
       sourceApp,
+      sourcePlatform,
       state: "pending",
       createdAt: new Date().toISOString(),
     };
