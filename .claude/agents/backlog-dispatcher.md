@@ -65,16 +65,19 @@ Limite au nombre max indiqué dans le prompt.
 
 ## Phase 2 : Classification et dispatch
 
-Pour chaque tâche sélectionnée, détermine le type d'agent :
+Pour chaque tâche sélectionnée, détermine le type d'agent. **L'ordre de priorité ci-dessous compte** : si plusieurs labels matchent, applique la première règle qui matche.
 
-| Condition (labels) | Agent definition |
-|---|---|
-| benchmark, pricing, product, scoping | task-research |
-| cleanup | task-cleanup |
-| tooling, orchestration, agents | task-tooling |
-| ingestion | task-ingestion |
-| feature | task-feature |
-| (aucun match) | task-feature |
+| # | Condition (labels) | Agent definition |
+|---|---|---|
+| 1 | benchmark, pricing, product, scoping | task-research |
+| 2 | cleanup | task-cleanup |
+| 3 | **mobile** | **task-mobile** |
+| 4 | tooling, orchestration, agents | task-tooling |
+| 5 | ingestion | task-ingestion |
+| 6 | feature | task-feature |
+| 7 | (aucun match) | task-feature |
+
+**Règle d'or pour `mobile`** : toute tâche dont les labels contiennent `mobile` (même si elle a aussi `feature`, `auth`, etc.) doit aller à `task-mobile`. Cet agent est seul à connaître les contraintes de design system "Amber Clarity" et il est seul autorisé à modifier le contenu de `mobile/`. Si une tâche touche à la fois le backend et le mobile, dispatche-la quand même vers `task-mobile` (il a accès au backend en lecture/édition pour ajouter les endpoints qui lui manquent).
 
 ### Mode dry-run
 Si le prompt contient "dry-run" : affiche le plan de dispatch (tâches, types, agents) et arrête-toi. Ne lance aucun agent.
