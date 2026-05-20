@@ -1,0 +1,66 @@
+# Example terraform.tfvars — copy to terraform.tfvars (gitignored) and fill in.
+# `terraform apply` reads it automatically.
+
+aws_region   = "eu-west-3"
+environment  = "dev"        # or "staging", "prod"
+project_name = "media-summarizer"
+
+# VPC inputs (existing in your account)
+vpc_id     = "vpc-xxxxxxxx"
+subnet_ids = ["subnet-aaaa", "subnet-bbbb"]
+
+# Standalone secrets (kept for backward compatibility with the older
+# per-secret resources in scaling.tf — ECS workers reference these directly).
+openai_api_key   = "sk-..."
+deepgram_api_key = "..."
+
+# Consolidated runtime secret payload. Every key listed here becomes an env var
+# inside Lambdas/ECS containers that mount this secret. Add or remove keys as
+# the V1 launch plan evolves.
+secret_payload = {
+  # LLM / Transcription
+  OPENAI_API_KEY    = "sk-..."
+  OPENAI_MODEL      = "gpt-4o-mini"
+  DEEPGRAM_API_KEY  = ""
+  DEEPGRAM_MODEL    = "nova-2"
+
+  # Search
+  ALGOLIA_APP_ID     = ""
+  ALGOLIA_API_KEY    = ""
+  ALGOLIA_INDEX_NAME = "media_v1"
+
+  # PodcastIndex
+  PODCASTINDEXORG_API_KEY    = ""
+  PODCASTINDEXORG_API_SECRET = ""
+
+  # X (Twitter)
+  X_API_BEARER_TOKEN = ""
+
+  # Instagram (GetInsaver)
+  GETINSAVER_API_KEY = ""
+
+  # Document parsing (LlamaParse primary + Unstructured fallback, task-90)
+  LLAMAPARSE_API_KEY    = ""
+  UNSTRUCTURED_API_KEY  = ""
+
+  # Google OAuth (web client id used to verify mobile id_tokens)
+  GOOGLE_CLIENT_ID     = ""
+  GOOGLE_CLIENT_SECRET = ""
+  GOOGLE_REDIRECT_URI  = "https://api.example.com/api/v1/auth/google/callback"
+
+  # Apple Sign in
+  APPLE_CLIENT_ID    = ""
+  APPLE_TEAM_ID      = ""
+  APPLE_KEY_ID       = ""
+  APPLE_PRIVATE_KEY  = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+  APPLE_REDIRECT_URI = "https://api.example.com/api/v1/auth/apple/callback"
+
+  # JWT / cookies
+  JWT_SECRET_KEY = ""
+  COOKIE_DOMAIN  = "app.example.com"
+
+  # RevenueCat (backend)
+  REVENUCAT_API_KEY        = ""
+  REVENUCAT_PROJECT_ID     = ""
+  REVENUCAT_WEBHOOK_SECRET = ""
+}

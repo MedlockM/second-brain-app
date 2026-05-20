@@ -1,8 +1,9 @@
 """
 Shared media submission service with global idempotence (media key),
-job creation, minutes billing, and notifications.
+job creation, and minutes billing.
 
 Designed to be called by API endpoints and future sync integrations.
+In V1, notifications are delivered via mobile app polling, not email.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ async def submit_media_for_user(
     Submit a media item for a user with global idempotence.
 
     - If key is new: create a canonical job, reserve key, allocate minutes, enqueue download.
-    - If key already processed: create a billing/notification job, charge minutes, send email with cached summary.
+    - If key already processed: create a billing job, charge minutes (summary in app via polling).
     - If key reserved/in progress: return "pending" status (watchers fan-out).
 
     Returns a dict compatible with MediaItemSelectionResponse.
@@ -136,27 +137,10 @@ async def submit_media_for_user(
             )
             await finalize_usage(billing_job.id, minutes_used)
 
-            # Send email (from_cache=True)
-            await sqs.send_message(
-                queue_name="email-notification-queue",
-                message_body={
-                    "notification_type": "completion",
-                    "job_id": billing_job.id,
-                    "email": user.email,
-                    "source_title": source_title,
-                    "media_title": media_title,
-                    "summary_content": summary_content,
-                    "from_cache": True,
-                    # Deprecated aliases for backward compatibility
-                    "podcast_title": source_title,
-                    "episode_title": media_title,
-                },
-            )
-
             return {
                 "job_id": billing_job.id,
                 "status": "completed",
-                "message": "Existing summary detected -- completion email sent (minutes charged)",
+                "message": "Existing summary detected -- available in app (minutes charged)",
                 "minutes_hold_estimated": minutes_used,
                 "estimated_processing_time": "0",
                 "media_title": media_title,

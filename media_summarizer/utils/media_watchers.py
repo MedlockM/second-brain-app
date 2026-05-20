@@ -162,6 +162,18 @@ async def mark_watcher_emailed(
     )
 
 
+async def mark_watcher_processed(
+    media_key: Optional[str] = None,
+    user_id: str = "",
+) -> None:
+    # Mark watcher as processed (V1: no email, just state tracking for deduplication).
+    # Notification delivery now via mobile app polling, not email.
+    await mark_watcher_completed(
+        media_key=media_key,
+        user_id=user_id,
+    )
+
+
 async def mark_watcher_failed(
     media_key: Optional[str] = None,
     user_id: str = "",

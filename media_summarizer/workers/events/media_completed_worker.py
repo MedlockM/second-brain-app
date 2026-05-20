@@ -1,9 +1,9 @@
 """
-Media completed events consumer -- fan-out notifications to media watchers.
+Media completed events consumer -- fan-out to media watchers.
 
 - Consumes events from MEDIA_COMPLETED_EVENTS_QUEUE (episode-completed-events, legacy queue name)
-- For each media key, fetches watchers, finalizes their minute usage, and sends completion emails with from_cache=True
-- Handles insufficient minutes per policy: spotify -> email error; manual -> no email, mark failed
+- For each media key, fetches watchers, marks processing state, and finalizes their minute usage
+- In V1, all user notifications are via mobile app polling; email notifications disabled
 """
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ MEDIA_COMPLETED_EVENTS_QUEUE = os.environ.get(
     "MEDIA_COMPLETED_EVENTS_QUEUE",
     os.environ.get("EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"),
 )
-NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-queue")
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
 
 # Backoff
@@ -47,39 +46,6 @@ async def _load_summary_content(summary_s3_key: Optional[str]) -> Optional[Dict[
     except Exception as e:
         logger.warning(f"Failed to load summary content {summary_s3_key}: {e}")
         return None
-
-
-async def _notify_watcher_completion(*, watcher: Dict[str, Any], source_title: Optional[str], media_title: Optional[str], summary_content: Optional[Dict[str, Any]]) -> None:
-    await sqs.send_message(
-        queue_name=NOTIFICATION_QUEUE,
-        message_body={
-            "notification_type": "completion",
-            "job_id": watcher.get("job_id"),
-            "email": watcher.get("email"),
-            "source_title": source_title,
-            "media_title": media_title,
-            "summary_content": summary_content,
-            "from_cache": True,
-            # Deprecated aliases for downstream compatibility
-            "podcast_title": source_title,
-            "episode_title": media_title,
-        },
-    )
-
-
-async def _notify_watcher_insufficient_minutes(*, watcher: Dict[str, Any]) -> None:
-    # Only for spotify source per policy
-    await sqs.send_message(
-        queue_name=NOTIFICATION_QUEUE,
-        message_body={
-            "notification_type": "error",
-            "job_id": watcher.get("job_id"),
-            "email": watcher.get("email"),
-            "error": "Insufficient minutes to finalize usage for this media item.",
-            "step": "billing",
-            "from_cache": True,
-        },
-    )
 
 
 async def process_event(message: Dict[str, Any]) -> None:
@@ -131,43 +97,32 @@ async def process_event(message: Dict[str, Any]) -> None:
             except Exception as e:
                 logger.error(f"Failed to update processing job {job_id}: {e}")
 
-            # CRITICAL: Send email FIRST, before charging minutes
+            # Mark watcher as processed (for deduplication; notifications via mobile polling in V1)
             try:
-                await _notify_watcher_completion(
-                    watcher=w,
-                    source_title=source_title,
-                    media_title=media_title,
-                    summary_content=summary_content,
-                )
-                await media_watchers.mark_watcher_emailed(media_key, w.get("user_id"))
-                logger.info(f"Successfully sent completion email to {w.get('email')} for media key {media_key}")
-            except Exception as email_error:
-                # If email sending fails, DO NOT charge minutes
-                logger.error(f"Failed to send email to {w.get('email')} for media key {media_key}: {email_error}")
+                await media_watchers.mark_watcher_processed(media_key, w.get("user_id"))
+                logger.info(f"Marked watcher {w.get('user_id')} as processed for media key {media_key}")
+            except Exception as mark_error:
+                logger.error(f"Failed to mark watcher processed for {w.get('user_id')} on {media_key}: {mark_error}")
                 await media_watchers.mark_watcher_failed(
                     media_key,
                     w.get("user_id"),
-                    reason=f"email_failed: {str(email_error)}"
+                    reason=f"mark_processed_failed: {str(mark_error)}"
                 )
-                # Skip finalize_usage - user will not be charged
                 continue
 
-            # ONLY NOW: Finalize usage (charge minutes) AFTER successful email delivery
+            # Finalize usage (charge minutes)
             ok = await finalize_usage(job_id, minutes_used)
             if not ok:
-                # Edge case: Email sent but billing failed
-                # Policy: spotify -> send error email; manual -> no email
-                logger.error(f"Email sent successfully but failed to finalize usage for job {job_id}")
-                if (w.get("source") or "").lower() == "spotify":
-                    await _notify_watcher_insufficient_minutes(watcher=w)
+                # Insufficient minutes
+                logger.error(f"Failed to finalize usage for job {job_id}: insufficient minutes")
                 await media_watchers.mark_watcher_failed(
                     media_key,
                     w.get("user_id"),
-                    reason="insufficient_minutes_after_email"
+                    reason="insufficient_minutes"
                 )
                 continue
 
-            logger.info(f"Successfully processed watcher {w.get('user_id')} for media key {media_key}: email sent + {minutes_used} minutes charged")
+            logger.info(f"Successfully processed watcher {w.get('user_id')} for media key {media_key}: {minutes_used} minutes charged")
 
         except Exception as e:
             logger.error(f"Error processing watcher {w.get('user_id')} for {media_key}: {e}")

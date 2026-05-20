@@ -40,7 +40,6 @@ class SummarizationWorker:
 
 # Configuration
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
-NOTIFICATION_QUEUE = os.environ.get("NOTIFICATION_QUEUE", "email-notification-queue")
 EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
@@ -228,29 +227,6 @@ async def generate_summary_with_retry(
         raise
 
 
-async def send_notification(
-    notification_type: str, job_id: str, email: str, **kwargs
-) -> None:
-    """Send notification message to the email queue using utils."""
-    try:
-        notification_data = {
-            "notification_type": notification_type,
-            "job_id": job_id,
-            "email": email,
-            **kwargs,
-        }
-
-        await sqs.send_message(
-            queue_name=NOTIFICATION_QUEUE, message_body=notification_data
-        )
-
-        logger.info(f"Sent {notification_type} notification for job {job_id}")
-
-    except Exception as e:
-        logger.error(f"Failed to send notification: {str(e)}")
-        raise
-
-
 async def process_summarization_message(message_body: Dict[str, Any]) -> None:
     """
     Process a single summarization message.
@@ -398,17 +374,6 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
         except Exception as e:
             logger.warning(f"Failed to generate presigned URL: {str(e)}")
             summary_url = f"s3://{SUMMARY_BUCKET}/{summary_s3_key}"
-
-        # Send completion notification with summary content
-        await send_notification(
-            notification_type="completion",
-            job_id=job_id,
-            email=email,
-            podcast_title=message_body.get("podcast_title"),
-            episode_title=message_body.get("episode_title"),
-            episode_guid=message_body.get("episode_guid"),
-            summary_content=summary_result,
-        )
 
         logger.info(f"Successfully completed summarization for job {job_id}")
 

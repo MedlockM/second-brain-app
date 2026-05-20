@@ -153,24 +153,7 @@ async def process_message_with_retry(
                     exc_info=refund_err,
                 )
 
-            # 3. Send error notification to user
-            try:
-                if job_id and job_id != "unknown":
-                    await send_error_notification(
-                        job_id=job_id,
-                        error_message=user_error_message,
-                        step=worker_name
-                    )
-            except Exception as notify_err:
-                log_event(
-                    logger,
-                    logging.ERROR,
-                    "notification.failed",
-                    "Failed to emit worker failure notification",
-                    worker=worker_name,
-                    error_type=type(notify_err).__name__,
-                    exc_info=notify_err,
-                )
+            # 3. User notifications via email are disabled in V1 (replaced by mobile polling)
 
             # Technical errors are logged for monitoring/alerting
             log_event(
@@ -223,38 +206,3 @@ def get_sqs_receive_params(visibility_timeout: int = 120) -> Dict[str, Any]:
 # Legacy refund_credits_on_failure removed in favor of minute holds release
 
 
-async def send_error_notification(
-    job_id: str,
-    error_message: str,
-    step: str
-) -> None:
-    """
-    Legacy compatibility hook for failure notifications.
-    Mailing has been removed from the processing pipeline; keep a structured log only.
-
-    Args:
-        job_id: Job identifier
-        error_message: Error description
-        step: Processing step where error occurred
-    """
-    user_error_message = get_user_facing_error_message(error_message)
-
-    notification_body = {
-        "job_id": job_id,
-        "error": user_error_message,
-        "step": step,
-        "success": False,
-        "notification_type": "error",
-        "timestamp": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
-    }
-
-    log_event(
-        logger,
-        logging.WARNING,
-        "notification.skipped",
-        "Email notifications are disabled; skipping worker failure notification",
-        job_id=job_id,
-        error_code=step,
-        detail=user_error_message,
-        notification_payload=notification_body,
-    )

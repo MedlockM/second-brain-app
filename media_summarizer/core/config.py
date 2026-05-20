@@ -70,8 +70,7 @@ class Settings:
         self.JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
         self.JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
 
-        # Email Configuration
-        self.EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@example.com")
+        # Frontend Configuration
         self.FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
         # OpenAI Configuration

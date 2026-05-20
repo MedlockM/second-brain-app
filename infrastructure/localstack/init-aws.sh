@@ -176,7 +176,7 @@ done
 echo "📬 Creating SQS queues..."
 
 # Create main SQS queues
-queues=("audio-download-queue" "transcription-queue" "summarization-queue" "email-notification-queue")
+queues=("audio-download-queue" "transcription-queue" "summarization-queue")
 
 for queue in "${queues[@]}"; do
     if aws --endpoint-url=http://localhost:4566 sqs get-queue-url --queue-name "$queue" --region us-east-1 >/dev/null 2>&1; then
@@ -190,7 +190,7 @@ done
 # Create Dead Letter Queues (for production reliability)
 echo "📬 Creating Dead Letter Queues..."
 
-dlq_queues=("audio-download-dlq" "transcription-dlq" "summarization-dlq" "email-notification-dlq")
+dlq_queues=("audio-download-dlq" "transcription-dlq" "summarization-dlq")
 
 for dlq in "${dlq_queues[@]}"; do
     if aws --endpoint-url=http://localhost:4566 sqs get-queue-url --queue-name "$dlq" --region us-east-1 >/dev/null 2>&1; then
@@ -320,12 +320,6 @@ echo "📬 Created SQS queues:"
 echo "   - audio-download-queue (+ DLQ)"
 echo "   - transcription-queue (+ DLQ)"
 echo "   - summarization-queue (+ DLQ)"
-echo "   - email-notification-queue (+ DLQ)"
-echo ""
-echo "📧 Verified SES emails:"
-echo "   - noreply@media-summarizer.com"
-echo "   - noreply@example.com"
-echo "   - test@example.com"
 echo ""
 echo "🧪 Test data created:"
 echo "   - 3 test users for E2E testing"
