@@ -3,7 +3,7 @@ id: task-101
 title: >-
   Wire Google and Apple OAuth into mobile app (Sign in with Apple required for
   iOS)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-20 08:47'
 labels:
