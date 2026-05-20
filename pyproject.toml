@@ -32,6 +32,7 @@ dependencies = [
     "yt-dlp",
     "fsrs>=1.0.0",
     "algoliasearch>=4.0.0,<5.0.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]

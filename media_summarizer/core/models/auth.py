@@ -16,12 +16,10 @@ class TokenType(str, Enum):
     ACCESS_TOKEN = "access_token"
     REFRESH_TOKEN = "refresh_token"
     EMAIL_VERIFICATION = "email_verification"
-    # Backward-compatible alias for older tests referring to MAGIC_LINK
-    MAGIC_LINK = "email_verification"
 
 
 class AuthToken(BaseModel):
-    """Authentication token model for Magic Link system."""
+    """Authentication token model (access, refresh, email verification)."""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str = Field(..., description="ID of the user this token belongs to")
@@ -90,26 +88,6 @@ class AuthToken(BaseModel):
     ) -> "AuthToken":
         """Create a new email verification token (single-use)."""
         expires_at = datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)
-        return cls(
-            user_id=user_id,
-            email=email,
-            token_type=TokenType.EMAIL_VERIFICATION,
-            expires_at=expires_at,
-        )
-
-    @classmethod
-    def create_magic_link_token(
-        cls,
-        user_id: str,
-        email: str,
-        expires_in_minutes: int = 15,
-    ) -> "AuthToken":
-        """Backward-compatible alias for creating a magic link token.
-
-        Historically, tests used a "magic link" token. This maps to EMAIL_VERIFICATION
-        tokens in the current system.
-        """
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)
         return cls(
             user_id=user_id,
             email=email,

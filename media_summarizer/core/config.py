@@ -25,7 +25,6 @@ class Settings:
 
         # Database tables
         self.USERS_TABLE = os.getenv("USERS_TABLE", "users")
-        self.MAGIC_LINKS_TABLE = os.getenv("MAGIC_LINKS_TABLE", "magic_links")
         self.TRANSACTIONS_TABLE = os.getenv("TRANSACTIONS_TABLE", "transactions")
         self.PODCASTS_TABLE = os.getenv("PODCASTS_TABLE", "podcasts")
         self.EPISODES_TABLE = os.getenv("EPISODES_TABLE", "episodes")

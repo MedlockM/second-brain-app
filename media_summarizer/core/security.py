@@ -1,10 +1,9 @@
 """
-Security utilities for JWT token management and Magic Link authentication.
+Security utilities for JWT token management.
 
 This module provides helpers for:
-- Creating and verifying magic link tokens
 - Creating and validating JWT access tokens
-- Password hashing (future)
+- Password hashing
 """
 import os
 import logging
@@ -18,63 +17,6 @@ logger = logging.getLogger(__name__)
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-secret-key-change-in-production")
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-MAGIC_LINK_EXPIRE_MINUTES = int(os.environ.get("MAGIC_LINK_EXPIRE_MINUTES", "15"))
-MAGIC_LINK_SECRET = os.environ.get("MAGIC_LINK_SECRET", JWT_SECRET_KEY + "-magic")  # Separate secret for magic links
-
-
-def create_magic_link_token(email: str) -> str:
-    """
-    Create a signed magic link token containing the user's email.
-    
-    Args:
-        email: The user's email address
-        
-    Returns:
-        A signed JWT token for the magic link
-    """
-    expire = datetime.now(timezone.utc) + timedelta(minutes=MAGIC_LINK_EXPIRE_MINUTES)
-    to_encode = {
-        "sub": email,
-        "type": "magic_link",
-        "exp": expire,
-        "iat": datetime.now(timezone.utc)
-    }
-    
-    encoded_jwt = jwt.encode(to_encode, MAGIC_LINK_SECRET, algorithm=JWT_ALGORITHM)
-    logger.debug(f"Created magic link token for {email}, expires at {expire}")
-    return encoded_jwt
-
-
-def verify_magic_link_token(token: str) -> str:
-    """
-    Verify a magic link token and extract the email.
-    
-    Args:
-        token: The magic link JWT token
-        
-    Returns:
-        The email address from the token
-        
-    Raises:
-        ValueError: If the token is invalid or expired
-    """
-    try:
-        payload = jwt.decode(token, MAGIC_LINK_SECRET, algorithms=[JWT_ALGORITHM])
-        
-        # Verify token type
-        if payload.get("type") != "magic_link":
-            raise ValueError("Invalid token type")
-            
-        email: str = payload.get("sub")
-        if not email:
-            raise ValueError("Email not found in token")
-            
-        logger.debug(f"Successfully verified magic link token for {email}")
-        return email
-        
-    except JWTError as e:
-        logger.warning(f"Magic link token verification failed: {str(e)}")
-        raise ValueError(f"Invalid or expired magic link: {str(e)}")
 
 
 def create_access_token(data: Dict[str, Any], expires_minutes: Optional[int] = None) -> str:
