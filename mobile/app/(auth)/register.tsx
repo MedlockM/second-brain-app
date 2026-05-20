@@ -17,6 +17,7 @@ import {
   getEmailValidationError,
   getPasswordValidationError,
 } from "../../src/lib/validation";
+import { SocialAuthButtons } from "../../src/components/SocialAuthButtons";
 import { Colors, Typography, Spacing, BorderRadius } from "../../src/constants/theme";
 
 export default function RegisterScreen() {
@@ -116,6 +117,8 @@ export default function RegisterScreen() {
             onPress={handleRegister}
             disabled={isSubmitting}
             activeOpacity={0.8}
+            accessibilityLabel="Create account with email"
+            accessibilityRole="button"
           >
             {isSubmitting ? (
               <ActivityIndicator color={Colors.onPrimary} />
@@ -124,6 +127,11 @@ export default function RegisterScreen() {
             )}
           </TouchableOpacity>
         </View>
+
+        <SocialAuthButtons
+          onError={(message) => setError(message)}
+          disabled={isSubmitting}
+        />
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>Already have an account? </Text>

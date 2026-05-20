@@ -17,6 +17,7 @@ import {
   getEmailValidationError,
   getPasswordValidationError,
 } from "../../src/lib/validation";
+import { SocialAuthButtons } from "../../src/components/SocialAuthButtons";
 import { Colors, Typography, Spacing, BorderRadius } from "../../src/constants/theme";
 
 export default function LoginScreen() {
@@ -119,6 +120,8 @@ export default function LoginScreen() {
             onPress={handleLogin}
             disabled={isSubmitting}
             activeOpacity={0.8}
+            accessibilityLabel="Sign in with email"
+            accessibilityRole="button"
           >
             {isSubmitting ? (
               <ActivityIndicator color={Colors.onPrimary} />
@@ -127,6 +130,11 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
         </View>
+
+        <SocialAuthButtons
+          onError={(message) => setError(message)}
+          disabled={isSubmitting}
+        />
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>Don't have an account? </Text>

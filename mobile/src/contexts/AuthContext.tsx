@@ -23,6 +23,8 @@ interface AuthState {
 interface AuthContextValue extends AuthState {
   login: (data: LoginRequest) => Promise<void>;
   register: (data: RegisterRequest) => Promise<void>;
+  loginWithGoogle: (idToken: string) => Promise<void>;
+  loginWithApple: (identityToken: string, user?: { email?: string; fullName?: { givenName?: string; familyName?: string } }) => Promise<void>;
   logout: () => Promise<void>;
   clearSessionError: () => void;
 }
@@ -147,6 +149,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [scheduleRefresh],
   );
 
+  const loginWithGoogle = useCallback(
+    async (idToken: string) => {
+      const response = await AuthService.loginWithGoogleNative(idToken);
+      setState({
+        user: response.user,
+        token: response.access_token,
+        isLoading: false,
+        isAuthenticated: true,
+        sessionError: null,
+      });
+      scheduleRefresh();
+    },
+    [scheduleRefresh],
+  );
+
+  const loginWithApple = useCallback(
+    async (
+      identityToken: string,
+      user?: { email?: string; fullName?: { givenName?: string; familyName?: string } },
+    ) => {
+      const response = await AuthService.loginWithAppleNative(identityToken, user);
+      setState({
+        user: response.user,
+        token: response.access_token,
+        isLoading: false,
+        isAuthenticated: true,
+        sessionError: null,
+      });
+      scheduleRefresh();
+    },
+    [scheduleRefresh],
+  );
+
   const logout = useCallback(async () => {
     if (refreshTimerRef.current) {
       clearTimeout(refreshTimerRef.current);
@@ -174,6 +209,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ...state,
     login,
     register,
+    loginWithGoogle,
+    loginWithApple,
     logout,
     clearSessionError,
   };

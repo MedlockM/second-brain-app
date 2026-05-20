@@ -414,3 +414,205 @@ async def apple_callback(
     except Exception as e:
         logger.error(f"Apple callback error: {e}")
         return _redirect_error("apple", "server_error")
+
+
+# ------------------ Native Mobile Token Endpoints ------------------
+# These endpoints accept ID tokens obtained by native mobile SDKs
+# (expo-apple-authentication, expo-auth-session/google) and return
+# access + refresh tokens in JSON (no cookies, mobile stores in secure store).
+
+from pydantic import BaseModel as PydanticBaseModel, Field
+from datetime import timedelta
+from media_summarizer.utils.auth_utils import (
+    create_access_token,
+    create_token_payload,
+    get_access_token_expires_seconds,
+)
+
+
+class GoogleNativeRequest(PydanticBaseModel):
+    id_token: str = Field(..., description="Google ID token from native SDK")
+
+
+class AppleNativeRequest(PydanticBaseModel):
+    identity_token: str = Field(..., description="Apple identity token from native SDK")
+    user: Optional[Dict[str, Any]] = Field(
+        default=None, description="User info from Apple (name, email) - only sent on first login"
+    )
+
+
+class NativeAuthResponse(PydanticBaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: Dict[str, Any]
+
+
+@router.post("/google/native", response_model=NativeAuthResponse)
+async def google_native(
+    request: GoogleNativeRequest,
+    db: DynamoDBConnection = Depends(get_db),
+):
+    """
+    Verify a Google ID token obtained by the mobile native SDK and return
+    access + refresh tokens for the mobile app.
+    """
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Google OAuth not configured")
+
+    try:
+        # Validate id_token via Google tokeninfo endpoint
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            info_url = "https://oauth2.googleapis.com/tokeninfo"
+            info_resp = await client.get(info_url, params={"id_token": request.id_token})
+            info_resp.raise_for_status()
+            info = info_resp.json()
+
+        # Claim checks
+        aud = info.get("aud")
+        iss = info.get("iss")
+        email = info.get("email")
+        email_verified = str(info.get("email_verified", "false")).lower() in (
+            "true", "1", "yes",
+        )
+        sub = info.get("sub")
+
+        if aud != GOOGLE_CLIENT_ID or iss not in (
+            "accounts.google.com",
+            "https://accounts.google.com",
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid audience or issuer",
+            )
+        if not email or not email_verified or not sub:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token claims: missing email or unverified",
+            )
+
+        # Link or create user
+        user = await _link_or_create_user(
+            email=email.lower().strip(), provider="google", provider_sub=sub
+        )
+
+        # Create refresh token
+        refresh_expires_at = get_refresh_token_expires_at()
+        refresh = AuthToken.create_refresh_token(
+            user_id=user.id, email=user.email, absolute_expires_at=refresh_expires_at
+        )
+        refresh = await database_async.create_auth_token(refresh)
+
+        # Create access token
+        access_seconds = get_access_token_expires_seconds()
+        access_token = create_access_token(
+            data=create_token_payload(user_id=user.id, email=user.email),
+            expires_delta=timedelta(seconds=access_seconds),
+        )
+
+        return NativeAuthResponse(
+            access_token=access_token,
+            refresh_token=refresh.token,
+            token_type="bearer",
+            expires_in=access_seconds,
+            user={"id": user.id, "email": user.email},
+        )
+
+    except httpx.HTTPStatusError as e:
+        logger.warning(f"Google native token verification HTTP error: {e.response.status_code}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Failed to verify Google ID token",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Google native auth error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal error during Google authentication",
+        )
+
+
+@router.post("/apple/native", response_model=NativeAuthResponse)
+async def apple_native(
+    request: AppleNativeRequest,
+    db: DynamoDBConnection = Depends(get_db),
+):
+    """
+    Verify an Apple identity token obtained by the mobile native SDK and return
+    access + refresh tokens for the mobile app.
+    """
+    if not APPLE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Apple OAuth not configured")
+
+    try:
+        # Verify identity_token using Apple JWKS
+        claims = await _apple_verify_id_token(request.identity_token)
+
+        sub = claims.get("sub")
+        email = claims.get("email")
+        email_verified_raw = claims.get("email_verified")
+        email_verified = (
+            (str(email_verified_raw).lower() in ("true", "1", "yes"))
+            if email_verified_raw is not None
+            else True  # Apple may omit when using private relay; treat as verified
+        )
+
+        if not sub:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token claims: missing sub",
+            )
+
+        # Email may not be in the token on subsequent logins; try from request.user
+        if not email and request.user:
+            email = request.user.get("email")
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unable to determine email from Apple token or user info",
+            )
+
+        if not email_verified:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email not verified",
+            )
+
+        # Link or create user
+        user = await _link_or_create_user(
+            email=email.lower().strip(), provider="apple", provider_sub=sub
+        )
+
+        # Create refresh token
+        refresh_expires_at = get_refresh_token_expires_at()
+        refresh = AuthToken.create_refresh_token(
+            user_id=user.id, email=user.email, absolute_expires_at=refresh_expires_at
+        )
+        refresh = await database_async.create_auth_token(refresh)
+
+        # Create access token
+        access_seconds = get_access_token_expires_seconds()
+        access_token = create_access_token(
+            data=create_token_payload(user_id=user.id, email=user.email),
+            expires_delta=timedelta(seconds=access_seconds),
+        )
+
+        return NativeAuthResponse(
+            access_token=access_token,
+            refresh_token=refresh.token,
+            token_type="bearer",
+            expires_in=access_seconds,
+            user={"id": user.id, "email": user.email},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Apple native auth error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal error during Apple authentication",
+        )

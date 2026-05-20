@@ -2,6 +2,7 @@ import {
   RegisterRequest,
   LoginRequest,
   TokenVerificationResponse,
+  NativeAuthResponse,
   AuthUser,
 } from "../types/auth";
 import { Config } from "../constants/config";
@@ -168,6 +169,79 @@ export class AuthService {
       console.warn("Token refresh failed:", error);
       return null;
     }
+  }
+
+  /**
+   * Authenticate with Google using a native ID token.
+   * The backend verifies the token and returns access + refresh tokens.
+   */
+  static async loginWithGoogleNative(idToken: string): Promise<NativeAuthResponse> {
+    const response = await fetch(
+      `${Config.API_BASE_URL}/api/v1/auth/google/native`,
+      {
+        method: "POST",
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ id_token: idToken }),
+      },
+    );
+
+    if (!response.ok) {
+      const { message, code } = await parseErrorResponse(
+        response,
+        "Google sign-in failed",
+      );
+      throw createHttpError(message, response.status, code);
+    }
+
+    const result: NativeAuthResponse = await response.json();
+    await this.persistNativeTokens(result);
+    return result;
+  }
+
+  /**
+   * Authenticate with Apple using a native identity token.
+   * The backend verifies the token and returns access + refresh tokens.
+   */
+  static async loginWithAppleNative(
+    identityToken: string,
+    user?: { email?: string; fullName?: { givenName?: string; familyName?: string } },
+  ): Promise<NativeAuthResponse> {
+    const response = await fetch(
+      `${Config.API_BASE_URL}/api/v1/auth/apple/native`,
+      {
+        method: "POST",
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({
+          identity_token: identityToken,
+          user: user?.email ? { email: user.email } : undefined,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const { message, code } = await parseErrorResponse(
+        response,
+        "Apple sign-in failed",
+      );
+      throw createHttpError(message, response.status, code);
+    }
+
+    const result: NativeAuthResponse = await response.json();
+    await this.persistNativeTokens(result);
+    return result;
+  }
+
+  /**
+   * Persist tokens from native social auth response.
+   */
+  private static async persistNativeTokens(
+    response: NativeAuthResponse,
+  ): Promise<void> {
+    await TokenStorage.saveAccessToken(
+      response.access_token,
+      response.expires_in,
+    );
+    await TokenStorage.saveRefreshToken(response.refresh_token);
   }
 
   /**

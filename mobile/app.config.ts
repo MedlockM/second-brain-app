@@ -17,6 +17,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: false,
     bundleIdentifier: "com.mediasummarizer.app",
+    usesAppleSignIn: true,
     infoPlist: {
       NSPhotoLibraryUsageDescription:
         "Used to attach images to media entries.",
@@ -45,6 +46,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     "expo-router",
     "expo-secure-store",
+    "expo-apple-authentication",
     [
       "expo-share-intent",
       {
@@ -59,6 +61,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   extra: {
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "https://api.mediasummarizer.com",
+    googleClientIdWeb: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB || "",
+    googleClientIdIos: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || "",
+    googleClientIdAndroid: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || "",
     revenueCatAppleKey: process.env.EXPO_PUBLIC_REVENUCAT_APPLE_KEY || "",
     revenueCatGoogleKey: process.env.EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY || "",
     eas: {
