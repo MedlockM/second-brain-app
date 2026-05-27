@@ -1,7 +1,7 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-05-20.
+> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-05-27.
 
 ---
 
@@ -15,11 +15,11 @@
 | YouTube (transcript natif + fallback Deepgram) | OK | — |
 | Podcasts (PodcastIndex resolver) | OK | — |
 | Audio file (upload direct) | OK | — |
-| **X (Twitter)** | OK — worker, resolver, classifier, orchestrator câblés | — (bearer token déjà fourni dans `.env.prod`) |
+| **X (Twitter)** | OK — worker, resolver, classifier, orchestrator câblés | — (bearer token à renseigner dans `.env` local + AWS Secrets Manager prod) |
 | **TikTok** | OK — worker dédié + 2-tier rate limiter (pacing + quota horaire) | — |
 | **Instagram** | OK — resolver + orchestrator dispatch `SOCIAL_VIDEO + audio_url` câblés | Clé GetInsaver à fournir |
 | Shared text | OK | — |
-| **Documents (PDF/DOCX/PPTX)** | OK — LlamaParse resolver (primary) + Unstructured resolver (fallback) + document_parsing worker câblés | — (clés LlamaParse + Unstructured déjà fournies dans `.env`) |
+| **Documents (PDF/DOCX/PPTX)** | OK — LlamaParse resolver (primary) + Unstructured resolver (fallback) + document_parsing worker câblés | — (clés LlamaParse + Unstructured à renseigner dans `.env` local + AWS Secrets Manager prod) |
 
 ### Méthodes d'authentification V1
 
@@ -41,21 +41,21 @@ Aucune tâche bloquante V1 ouverte côté code au 2026-05-20.
 
 | Service | Coût | Pourquoi | Statut |
 |---|---|---|---|
-| **GitHub** (compte + repo privé) | gratuit | Versioning, CI/CD, releases | À créer |
+| **GitHub** (compte + repo privé) | gratuit | Versioning, CI/CD, releases | OK (`MedlockM/second-brain-app`, privé, créé 2026-05-27) |
 | **AWS** (compte) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | À créer |
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | À créer |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | À créer |
 | **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | À créer |
 | **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | À créer |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | À créer |
-| **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (clé consignée dans `.env.dev`) |
-| **Deepgram** | usage-based | Transcription audio | OK (clé consignée dans `.env.prod`) |
-| **Algolia** | gratuit < 10k records | Search lexical | OK (App ID + Admin API key + index name consignés dans `.env`) |
-| **PodcastIndex.org** | gratuit | Resolver podcasts | OK (clé+secret consignées dans `.env.dev`) |
+| **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (compte créé, clé en local dans `.env`) |
+| **Deepgram** | usage-based | Transcription audio | OK (compte créé, clé en local dans `.env`) |
+| **Algolia** | gratuit < 10k records | Search lexical | OK (App ID + Admin API key + index name en local dans `.env`) |
+| **PodcastIndex.org** | gratuit | Resolver podcasts | OK (compte créé, clé+secret en local dans `.env`) |
 | **GetInsaver** | usage-based / API key | Resolver Instagram | À créer |
-| **LlamaParse** (LlamaIndex Cloud) | gratuit free tier (1000 pages/jour) | Resolver documents primaire (PDF/DOCX/PPTX) | OK (clé consignée dans `.env`) |
-| **Unstructured.io** | 15 000 pages gratuites au début, puis usage-based | Resolver documents fallback | OK (clé consignée dans `.env`) |
-| **X (Developer Platform)** | Free tier OK pour V1 | Lecture API X | OK (bearer token dans `.env.prod`) |
+| **LlamaParse** (LlamaIndex Cloud) | gratuit free tier (1000 pages/jour) | Resolver documents primaire (PDF/DOCX/PPTX) | OK (compte créé, clé en local dans `.env`) |
+| **Unstructured.io** | 15 000 pages gratuites au début, puis usage-based | Resolver documents fallback | OK (compte créé, clé en local dans `.env`) |
+| **X (Developer Platform)** | Free tier OK pour V1 | Lecture API X | OK (compte créé, bearer token en local dans `.env`) |
 
 ---
 
@@ -69,9 +69,11 @@ l'amorçage — le code lit toujours via `os.getenv(...)` sans changement.
 Bootstrap : `cp infrastructure/terraform/terraform.tfvars.example terraform.tfvars`,
 remplir `secret_payload`, puis `terraform apply`. Voir `infrastructure/terraform/README.md`.
 
-Local : `.env` à la racine, chargé automatiquement par `python-dotenv` depuis
-`media_summarizer/__init__.py` (override=False, donc les vraies variables d'env priment).
-Modèle complet : `.env.example` (18 sections numérotées).
+Local : **un seul fichier `.env`** à la racine, chargé automatiquement par
+`python-dotenv` depuis `media_summarizer/__init__.py` (override=False, donc les
+vraies variables d'env priment). Modèle complet : `.env.example` (18 sections
+numérotées). Les anciens `.env.dev` et `.env.prod` sont **legacy et gitignorés**
+— ne pas les utiliser ni les recréer.
 
 ### 3.1 AWS infra
 
@@ -190,10 +192,10 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 
 ### Phase 1 — Code & repo (jour 1)
 
-1. Créer un repo GitHub privé `media-summarizer-project`.
-2. Push de la branche `main` (et `second-brain-project` si on garde un branching).
-3. Activer Branch protection sur `main` (require PR + checks).
-4. Configurer GitHub Actions (CI minimal : `ruff`, `mypy` côté backend ; `npm run typecheck` + `npm run lint` côté mobile). Validation fonctionnelle via les phases 4 et 9.
+1. ~~Créer un repo GitHub privé.~~ **Fait** : `MedlockM/second-brain-app` (privé), branche par défaut `main`. Historique purgé des secrets, `.venv-311/` et scratchpads ; `.gitignore` durci. Premier push : 2026-05-27 (HEAD `eb22f0e`, 174 commits, 553 fichiers).
+2. Activer Branch protection sur `main` (require PR + checks).
+3. Configurer GitHub Actions (CI minimal : `ruff`, `mypy` côté backend ; `npm run typecheck` + `npm run lint` côté mobile). Validation fonctionnelle via les phases 4 et 9.
+4. Bascule du worktree de dev local : `cd ~/Documents/Perso/dev/media-summarizer-project && git remote rename origin old-origin && git remote add origin git@github.com:MedlockM/second-brain-app.git && git fetch origin` puis travailler désormais contre `origin/main` du nouveau dépôt.
 
 ### Phase 2 — Comptes externes (jour 1-2)
 
@@ -202,7 +204,7 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 3. AWS account + IAM admin user + facturation alarms.
 4. Expo / EAS account + lien vers le repo.
 5. RevenueCat account + projet + apps iOS/Android (clés générées).
-6. Comptes API à créer : GetInsaver. (OpenAI, Deepgram, PodcastIndex, X Developer, LlamaParse, Unstructured.io et Algolia déjà configurés — voir `.env`, `.env.dev` et `.env.prod`.)
+6. Comptes API à créer : GetInsaver. (OpenAI, Deepgram, PodcastIndex, X Developer, LlamaParse, Unstructured.io et Algolia déjà configurés — voir `.env` local.)
 7. **Google Cloud Console** : créer un projet, activer l'écran de consentement OAuth (External, scopes openid + email + profile), créer **3 OAuth Client IDs** : iOS (avec bundle id), Android (avec SHA-1 du keystore EAS), Web (utilisé par le backend pour vérifier le `aud` du id_token).
 8. **Apple Developer** : créer un **Sign in with Apple Service ID** (ex: `com.yourdomain.app.signinwithapple`), créer une **Sign in with Apple Key** (récupérer le `.p8` private key + Key ID), récupérer le Team ID, configurer le Return URL pour le backend.
 
@@ -315,14 +317,14 @@ Une fois ces inscriptions faites, plus aucun blocage code :
 - [ ] **Apple Sign in with Apple Service ID + Key (.p8) générés** + Team ID, Key ID renseignés
 - [ ] Google Play Console activé (immédiat)
 - [ ] **Google Cloud Console : 3 OAuth Client IDs créés (iOS, Android, Web) + écran de consentement publié**
-- [x] X Developer App approuvée + bearer token (déjà présent dans `.env.prod`)
+- [x] X Developer App approuvée + bearer token (en local dans `.env`)
 - [ ] GetInsaver API key obtenue
-- [x] LlamaParse API key obtenue (free tier 1000 pages/jour) — clé déjà présente dans `.env`
-- [x] Unstructured.io API key obtenue (15 000 pages gratuites au démarrage) — clé déjà présente dans `.env`
-- [x] PodcastIndex API key + secret obtenus
-- [x] OpenAI API key + budget configuré (clé déjà présente dans `.env.dev`)
-- [x] Deepgram API key + budget configuré (clé déjà présente dans `.env.prod`)
-- [x] Algolia App créée + index `transcripts` configuré (App ID + Admin API key + index name déjà présents dans `.env`)
+- [x] LlamaParse API key obtenue (free tier 1000 pages/jour) — en local dans `.env`
+- [x] Unstructured.io API key obtenue (15 000 pages gratuites au démarrage) — en local dans `.env`
+- [x] PodcastIndex API key + secret obtenus (en local dans `.env`)
+- [x] OpenAI API key + budget configuré (en local dans `.env`)
+- [x] Deepgram API key + budget configuré (en local dans `.env`)
+- [x] Algolia App créée + index `transcripts` configuré (App ID + Admin API key + index name en local dans `.env`)
 - [ ] RevenueCat projet + 3 produits par store + webhook configuré
 
 ---
