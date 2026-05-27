@@ -34,7 +34,6 @@ Read `README.md` for project overview and V1 scope. Read `docs/CANONICAL_MEDIA_A
 
 ## Do NOT touch
 
-- `front/` — legacy, will be fully replaced
 - Any code related to: Spotify sync, email delivery, quiz generation, Whisper transcription, credit-based billing
 - `/api/v1/` endpoints — canonical endpoints are `/api/media/*` and `/api/artifacts/*`
 
