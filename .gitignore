@@ -1,15 +1,50 @@
-# AWS credentials
-media-summarizer-app_accessKeys.csv
+# =============================================================================
+# Secrets & credentials
+# =============================================================================
+# All env files except the canonical example template
+.env
+.env.*
+!.env.example
+front/.env
+mobile/.env
+
+# Standalone credential files (never commit these — use AWS Secrets Manager)
+aws-temp-creds
+stripe_test_creds
+podcastindex_creds
+*_creds
 *.pem
 *.key
+*.p8
+*.p12
+*.jks
+*.mobileprovision
+media-summarizer-app_accessKeys.csv
+google-services-key.json
 
+# Auth scratchpads (test runs)
+jwt_full.txt
+magic_token.txt
+last_email.txt
+user_id.txt
+user_record.json
+verify_resp.json
+billing_after_verify.json
+minutes_initial.json
+job_resp.json
+pack_resp.json
+
+# =============================================================================
 # Python
+# =============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 .pytest_cache/
+.ruff_cache/
+.uv-cache/
 .coverage
 coverage.xml
 coverage.json
@@ -17,10 +52,10 @@ htmlcov/
 .tox/
 .nox/
 .hypothesis/
-.env
-.venv
-env/
+.venv/
+.venv-311/
 venv/
+env/
 ENV/
 env.bak/
 venv.bak/
@@ -30,26 +65,56 @@ dist/
 build/
 *.egg-info/
 
-# Local development
-.env
-.env.local
-.env.development
-.env.test
-.env.production
+# Runtime PIDs / sockets
+*.pid
+.uvicorn_api.pid
 
-# IDE files
+# Bootstrap shim that auto-loads .env.dev (legacy, do not commit)
+sitecustomize.py
+
+# Generated OpenAPI dump (canonical spec lives at docs/CANONICAL_MEDIA_API_OPENAPI.yaml)
+openapi.json
+
+# Misplaced pip arg files like `pip install =1.0.0`
+=*.*.*
+
+# =============================================================================
+# Node / front / mobile
+# =============================================================================
+node_modules/
+front/dist/
+front/dist-ssr/
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+mobile/ios/
+mobile/android/
+.metro-health-check*
+
+# =============================================================================
+# IDE / editor
+# =============================================================================
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 .kiro/
+.codex
 
+# =============================================================================
 # Logs
+# =============================================================================
 logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Media files
+# =============================================================================
+# Media files (raw audio/video should never be committed)
+# =============================================================================
 *.mp3
 *.wav
 *.mp4
@@ -58,22 +123,49 @@ logs/
 *.flac
 *.aac
 
+# =============================================================================
 # Docker
+# =============================================================================
 .docker/
 docker-compose.override.yml
 
+# =============================================================================
 # Terraform
+# =============================================================================
 .terraform/
+.terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
 *.tfvars
+!*.tfvars.example
 .terraformrc
 terraform.rc
 
+# =============================================================================
 # LocalStack
+# =============================================================================
 .localstack/
 localstack-data/
 
+# =============================================================================
+# Claude / agent tooling
+# =============================================================================
+.claude/dispatch-runs/
+.claude/worktrees/
+.claude/settings.local.json
+
+# =============================================================================
+# Scratchpads / one-off planning docs at repo root
+# =============================================================================
+TASK_*.md
+debug_*.py
+missing_*.tsv
+test_episode_order.py
+test_matching_debug.py
+test_search_episodes.py
+
+# =============================================================================
 # Temporary files
+# =============================================================================
 tmp/
 temp/
