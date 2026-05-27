@@ -1,0 +1,423 @@
+openapi: 3.1.0
+info:
+  title: Canonical Media API Contract
+  version: frozen-2026-02-24
+  description: >
+    Frozen contract baseline for media ingestion, media status, artifact creation,
+    and artifact reads. This specification is contract-only for task-19.
+servers:
+  - url: /
+security:
+  - BearerAuth: []
+paths:
+  /api/media/ingest-url:
+    post:
+      operationId: ingestMediaUrl
+      tags: [media]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestUrlRequest'
+      responses:
+        '200':
+          description: Media URL accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestUrlResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/media/{media_item_id}:
+    get:
+      operationId: getMediaStatus
+      tags: [media]
+      parameters:
+        - name: media_item_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current media status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaStatusResponse'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '403':
+          $ref: '#/components/responses/NotAuthorized'
+        '404':
+          $ref: '#/components/responses/MediaNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/media/{media_item_id}/artifacts:
+    post:
+      operationId: createMediaArtifact
+      tags: [artifacts]
+      parameters:
+        - name: media_item_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArtifactCreateRequest'
+      responses:
+        '200':
+          description: Artifact request accepted or deduplicated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactCreateResponse'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '402':
+          $ref: '#/components/responses/InsufficientMinutes'
+        '403':
+          $ref: '#/components/responses/NotAuthorized'
+        '404':
+          $ref: '#/components/responses/MediaNotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      operationId: listMediaArtifacts
+      tags: [artifacts]
+      parameters:
+        - name: media_item_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Artifact list for media item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactListResponse'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '403':
+          $ref: '#/components/responses/NotAuthorized'
+        '404':
+          $ref: '#/components/responses/MediaNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/artifacts/{artifact_id}:
+    get:
+      operationId: getArtifactDetail
+      tags: [artifacts]
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Artifact detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactDetailResponse'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '403':
+          $ref: '#/components/responses/NotAuthorized'
+        '404':
+          $ref: '#/components/responses/ArtifactNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    IngestUrlRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string }
+        source_app: { type: string }
+        locale: { type: string }
+        idempotency_key: { type: string }
+    IngestUrlResponse:
+      type: object
+      required: [media_item, processing_job, deduplicated]
+      properties:
+        media_item:
+          $ref: '#/components/schemas/MediaItemContract'
+        processing_job:
+          $ref: '#/components/schemas/ProcessingJobContract'
+        deduplicated:
+          type: boolean
+        duplicate_of_media_item_id:
+          type: string
+    MediaStatusResponse:
+      type: object
+      required: [media_item, processing_job, artifacts]
+      properties:
+        media_item:
+          $ref: '#/components/schemas/MediaItemContract'
+        processing_job:
+          $ref: '#/components/schemas/ProcessingJobContract'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MediaArtifactContract'
+    ArtifactCreateRequest:
+      type: object
+      required: [artifact_type]
+      properties:
+        artifact_type:
+          type: string
+          enum: [summary, quiz, notes]
+        parameters:
+          type: object
+          additionalProperties: true
+        idempotency_key:
+          type: string
+    ArtifactCreateResponse:
+      type: object
+      required: [artifact, reused_existing]
+      properties:
+        artifact:
+          $ref: '#/components/schemas/MediaArtifactContract'
+        reused_existing:
+          type: boolean
+    ArtifactListResponse:
+      type: object
+      required: [media_item_id, items, count]
+      properties:
+        media_item_id: { type: string }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MediaArtifactContract'
+        count:
+          type: integer
+          minimum: 0
+    ArtifactDetailResponse:
+      type: object
+      required: [artifact]
+      properties:
+        artifact:
+          $ref: '#/components/schemas/MediaArtifactContract'
+      example:
+        artifact:
+          artifact_id: art_01JQ8ZNOTESGWQ9VJ24M4S0C9H4
+          media_item_id: med_01JQ8X8J5S3H3CXX8V70M9M3K7
+          artifact_type: notes
+          status: ready
+          parameters:
+            language: fr
+            audience: study
+          content:
+            artifact_id: art_01JQ8ZNOTESGWQ9VJ24M4S0C9H4
+            media_item_id: med_01JQ8X8J5S3H3CXX8V70M9M3K7
+            artifact_type: notes
+            generated_at: "2026-02-24T20:37:10Z"
+            source:
+              transcript_s3_key: job_01JQ8X8J5T9Q5V7Q4TW4N1HY03.txt
+              generator_version: notes:gpt-4o-mini-2024-07-18:prompt-v1
+            content:
+              objectives: ["..."]
+              concepts:
+                - term: "..."
+                  explanation: "..."
+                  importance: core
+              key_points: ["..."]
+              action_items: ["..."]
+              glossary:
+                - term: "..."
+                  definition: "..."
+          created_at: "2026-02-24T20:36:04Z"
+          updated_at: "2026-02-24T20:37:10Z"
+          completed_at: "2026-02-24T20:37:10Z"
+    ProcessingJobContract:
+      type: object
+      required: [job_id, status, progress, created_at, updated_at]
+      properties:
+        job_id: { type: string }
+        status:
+          type: string
+          enum:
+            - pending
+            - classifying
+            - resolving
+            - downloading
+            - extracting
+            - transcribing
+            - ready_for_artifacts
+            - completed
+            - failed
+            - cancelled
+        progress:
+          type: object
+          required: [percentage, stage]
+          properties:
+            percentage:
+              type: integer
+              minimum: 0
+              maximum: 100
+            stage:
+              type: string
+        created_at: { type: string }
+        updated_at: { type: string }
+        started_at: { type: string }
+        completed_at: { type: string }
+        error_code: { type: string }
+        error_message: { type: string }
+    MediaItemContract:
+      type: object
+      required:
+        [media_item_id, media_key, original_url, normalized_url, media_type, source_platform, status, transcript, artifact_statuses, created_at, updated_at]
+      properties:
+        media_item_id: { type: string }
+        media_key: { type: string }
+        original_url: { type: string }
+        normalized_url: { type: string }
+        media_type:
+          type: string
+          enum: [podcast_episode, article, youtube_video, short_video, audio_file, unknown]
+        source_platform:
+          type: string
+          enum: [spotify, apple_podcasts, deezer, rss, podcast_index, youtube, instagram, tiktok, web, direct_url, unknown]
+        status:
+          type: string
+          enum: [ingested, resolving, processing, ready_for_artifacts, failed, cancelled]
+        transcript:
+          type: object
+          required: [status]
+          properties:
+            status:
+              type: string
+              enum: [pending, extracting, transcribing, ready, failed]
+            transcription_s3_key: { type: string }
+            source: { type: string }
+            language: { type: string }
+            segments_count: { type: integer, minimum: 0 }
+            duration_seconds: { type: number, minimum: 0 }
+        artifact_statuses:
+          type: object
+          additionalProperties: true
+        created_at: { type: string }
+        updated_at: { type: string }
+    MediaArtifactContract:
+      type: object
+      required: [artifact_id, media_item_id, artifact_type, status, parameters, created_at, updated_at]
+      properties:
+        artifact_id: { type: string }
+        media_item_id: { type: string }
+        artifact_type:
+          type: string
+          enum: [summary, quiz, notes]
+        status:
+          type: string
+          enum: [queued, generating, ready, failed]
+        parameters:
+          type: object
+          additionalProperties: true
+        content:
+          type: object
+          additionalProperties: true
+        error_code: { type: string }
+        error_message: { type: string }
+        created_at: { type: string }
+        updated_at: { type: string }
+        completed_at: { type: string }
+    CanonicalErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            request_id: { type: string }
+        detail: { type: string }
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    SessionExpired:
+      description: Authentication required or expired
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    NotAuthorized:
+      description: Resource access denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    MediaNotFound:
+      description: Media item not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    ArtifactNotFound:
+      description: Artifact not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    ValidationError:
+      description: Payload validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    InsufficientMinutes:
+      description: Not enough minutes/quota
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'

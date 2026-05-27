@@ -1,0 +1,268 @@
+{
+  "tasks": [
+    {
+      "id": "task-6",
+      "title": "Finalize structured logging for the canonical share-first pipeline",
+      "status": "In Progress",
+      "priority": "high",
+      "dependencies": [
+        "task-10",
+        "task-11",
+        "task-12",
+        "task-22",
+        "task-24",
+        "task-29",
+        "task-30",
+        "task-31",
+        "task-33",
+        "task-34",
+        "task-51",
+        "task-54"
+      ],
+      "labels": ["backend", "logging"]
+    },
+    {
+      "id": "task-10",
+      "title": "Implement universal URL ingestion API for multi-media inputs",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-11",
+      "title": "Enable on-demand artifact generation from completed transcription",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-12",
+      "title": "Build notes generation capability as a first-class artifact",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-18",
+      "title": "Decide mobile stack and lock ADR",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-22",
+      "title": "Implement media status endpoint GET /api/media/{media_item_id}",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-23",
+      "title": "Purge legacy ingestion and completion runtime paths",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-24",
+      "title": "Implement shared podcast resolver foundation",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-29",
+      "title": "Implement Article connector",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-30",
+      "title": "Implement YouTube connector",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-31",
+      "title": "Implement Instagram connector",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-33",
+      "title": "Implement artifact read endpoints",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-34",
+      "title": "Implement artifact storage idempotence cache",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-35",
+      "title": "Define and implement media-processing quotas instead of artifact-generation quotas",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-11", "task-12", "task-34", "task-65"],
+      "labels": ["quota", "pricing"]
+    },
+    {
+      "id": "task-36",
+      "title": "Implement mobile foundation (app shell, navigation, auth/refresh session)",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-18"],
+      "labels": ["mobile", "react-native"]
+    },
+    {
+      "id": "task-37",
+      "title": "Implement Android Share Intent to app inbox flow",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-36"],
+      "labels": ["mobile", "android"]
+    },
+    {
+      "id": "task-38",
+      "title": "Implement iOS Share Extension to app inbox flow",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-36"],
+      "labels": ["mobile", "ios"]
+    },
+    {
+      "id": "task-39",
+      "title": "Implement share-first mobile screens",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": [
+        "task-37",
+        "task-38",
+        "task-10",
+        "task-11",
+        "task-12",
+        "task-22",
+        "task-33"
+      ],
+      "labels": ["mobile", "ui"]
+    },
+    {
+      "id": "task-40",
+      "title": "Implement offline queue and network resync/retry for shared URLs",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-39"],
+      "labels": ["mobile", "offline"]
+    },
+    {
+      "id": "task-41",
+      "title": "Run manual mobile E2E validation matrix for share-first flows",
+      "status": "To Do",
+      "priority": "medium",
+      "dependencies": ["task-39"],
+      "labels": ["mobile", "manual"]
+    },
+    {
+      "id": "task-42",
+      "title": "Implement mobile CI/CD signing and internal distribution",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-41"],
+      "labels": ["mobile", "release"]
+    },
+    {
+      "id": "task-43",
+      "title": "Complete app store compliance package",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-42"],
+      "labels": ["privacy", "compliance"]
+    },
+    {
+      "id": "task-44",
+      "title": "Prepare store assets and listing metadata with pre-review QA",
+      "status": "To Do",
+      "priority": "medium",
+      "dependencies": ["task-42"],
+      "labels": ["release", "listing"]
+    },
+    {
+      "id": "task-45",
+      "title": "Publish mobile app to production stores with hotfix and rollback runbook",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-43", "task-44", "task-50"],
+      "labels": ["publish", "release"]
+    },
+    {
+      "id": "task-46",
+      "title": "Implement dashboards, SLOs, and alerting for ingestion to transcription to artifacts",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": [
+        "task-6",
+        "task-24",
+        "task-29",
+        "task-30",
+        "task-31",
+        "task-54",
+        "task-11",
+        "task-12"
+      ],
+      "labels": ["observability", "slo", "alerts"]
+    },
+    {
+      "id": "task-48",
+      "title": "Implement cost guardrails for LLM/transcription/artifact generation",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-35", "task-46"],
+      "labels": ["cost", "budget"]
+    },
+    {
+      "id": "task-49",
+      "title": "Rename episode-centric identifiers to media-agnostic naming across codebase",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-23"],
+      "labels": ["rename", "codebase"]
+    },
+    {
+      "id": "task-50",
+      "title": "Implement automated mobile E2E strategy (Maestro-first) for share-first critical flows",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": ["task-39", "task-40", "task-42"],
+      "labels": ["mobile", "maestro"]
+    },
+    {
+      "id": "task-51",
+      "title": "Migrate active transcription path from Whisper to Deepgram",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-54",
+      "title": "Implement TikTok connector",
+      "status": "Done",
+      "priority": "high",
+      "dependencies": []
+    },
+    {
+      "id": "task-65",
+      "title": "Define v1 pricing model for processed media volume",
+      "status": "To Do",
+      "priority": "high",
+      "dependencies": [],
+      "labels": ["pricing"]
+    }
+  ]
+}

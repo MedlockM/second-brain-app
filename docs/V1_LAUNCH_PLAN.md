@@ -15,11 +15,11 @@
 | YouTube (transcript natif + fallback Deepgram) | OK | — |
 | Podcasts (PodcastIndex resolver) | OK | — |
 | Audio file (upload direct) | OK | — |
-| **X (Twitter)** | OK — worker, resolver, classifier, orchestrator câblés | Clé API à fournir |
+| **X (Twitter)** | OK — worker, resolver, classifier, orchestrator câblés | — (bearer token déjà fourni dans `.env.prod`) |
 | **TikTok** | OK — worker dédié + 2-tier rate limiter (pacing + quota horaire) | — |
 | **Instagram** | OK — resolver + orchestrator dispatch `SOCIAL_VIDEO + audio_url` câblés | Clé GetInsaver à fournir |
 | Shared text | OK | — |
-| **Documents (PDF/DOCX/PPTX)** | OK — LlamaParse resolver (primary) + Unstructured resolver (fallback) + document_parsing worker câblés | Clés API à fournir |
+| **Documents (PDF/DOCX/PPTX)** | OK — LlamaParse resolver (primary) + Unstructured resolver (fallback) + document_parsing worker câblés | — (clés LlamaParse + Unstructured déjà fournies dans `.env`) |
 
 ### Méthodes d'authentification V1
 
@@ -48,13 +48,13 @@ Aucune tâche bloquante V1 ouverte côté code au 2026-05-20.
 | **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | À créer |
 | **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | À créer |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | À créer |
-| **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | À créer |
-| **Deepgram** | usage-based | Transcription audio | À créer |
-| **Algolia** | gratuit < 10k records | Search lexical | À créer |
+| **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (clé consignée dans `.env.dev`) |
+| **Deepgram** | usage-based | Transcription audio | OK (clé consignée dans `.env.prod`) |
+| **Algolia** | gratuit < 10k records | Search lexical | OK (App ID + Admin API key + index name consignés dans `.env`) |
 | **PodcastIndex.org** | gratuit | Resolver podcasts | OK (clé+secret consignées dans `.env.dev`) |
 | **GetInsaver** | usage-based / API key | Resolver Instagram | À créer |
-| **LlamaParse** (LlamaIndex Cloud) | gratuit free tier (1000 pages/jour) | Resolver documents primaire (PDF/DOCX/PPTX) | À créer |
-| **Unstructured.io** | 15 000 pages gratuites au début, puis usage-based | Resolver documents fallback | À créer |
+| **LlamaParse** (LlamaIndex Cloud) | gratuit free tier (1000 pages/jour) | Resolver documents primaire (PDF/DOCX/PPTX) | OK (clé consignée dans `.env`) |
+| **Unstructured.io** | 15 000 pages gratuites au début, puis usage-based | Resolver documents fallback | OK (clé consignée dans `.env`) |
 | **X (Developer Platform)** | Free tier OK pour V1 | Lecture API X | OK (bearer token dans `.env.prod`) |
 
 ---
@@ -202,7 +202,7 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 3. AWS account + IAM admin user + facturation alarms.
 4. Expo / EAS account + lien vers le repo.
 5. RevenueCat account + projet + apps iOS/Android (clés générées).
-6. Comptes API à créer : OpenAI, Deepgram, Algolia, GetInsaver, **LlamaParse (LlamaIndex Cloud)**, **Unstructured.io**. (PodcastIndex et X Developer déjà configurés — voir `.env.dev` et `.env.prod`.)
+6. Comptes API à créer : GetInsaver. (OpenAI, Deepgram, PodcastIndex, X Developer, LlamaParse, Unstructured.io et Algolia déjà configurés — voir `.env`, `.env.dev` et `.env.prod`.)
 7. **Google Cloud Console** : créer un projet, activer l'écran de consentement OAuth (External, scopes openid + email + profile), créer **3 OAuth Client IDs** : iOS (avec bundle id), Android (avec SHA-1 du keystore EAS), Web (utilisé par le backend pour vérifier le `aud` du id_token).
 8. **Apple Developer** : créer un **Sign in with Apple Service ID** (ex: `com.yourdomain.app.signinwithapple`), créer une **Sign in with Apple Key** (récupérer le `.p8` private key + Key ID), récupérer le Team ID, configurer le Return URL pour le backend.
 
@@ -315,14 +315,14 @@ Une fois ces inscriptions faites, plus aucun blocage code :
 - [ ] **Apple Sign in with Apple Service ID + Key (.p8) générés** + Team ID, Key ID renseignés
 - [ ] Google Play Console activé (immédiat)
 - [ ] **Google Cloud Console : 3 OAuth Client IDs créés (iOS, Android, Web) + écran de consentement publié**
-- [ ] X Developer App approuvée + bearer token
+- [x] X Developer App approuvée + bearer token (déjà présent dans `.env.prod`)
 - [ ] GetInsaver API key obtenue
-- [ ] LlamaParse API key obtenue (free tier 1000 pages/jour)
-- [ ] Unstructured.io API key obtenue (15 000 pages gratuites au démarrage)
-- [ ] PodcastIndex API key + secret obtenus
-- [ ] OpenAI API key + budget configuré
-- [ ] Deepgram API key + budget configuré
-- [ ] Algolia App créée + index `media_v1` configuré
+- [x] LlamaParse API key obtenue (free tier 1000 pages/jour) — clé déjà présente dans `.env`
+- [x] Unstructured.io API key obtenue (15 000 pages gratuites au démarrage) — clé déjà présente dans `.env`
+- [x] PodcastIndex API key + secret obtenus
+- [x] OpenAI API key + budget configuré (clé déjà présente dans `.env.dev`)
+- [x] Deepgram API key + budget configuré (clé déjà présente dans `.env.prod`)
+- [x] Algolia App créée + index `transcripts` configuré (App ID + Admin API key + index name déjà présents dans `.env`)
 - [ ] RevenueCat projet + 3 produits par store + webhook configuré
 
 ---
