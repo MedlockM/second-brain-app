@@ -37,7 +37,7 @@ Every log record conforms to this schema. Fields absent from context are seriali
 | `media_item_id` | string | Canonical media item ID (same as job_id in current model) |
 | `media_type` | string | `audio`, `article`, `video` |
 | `source_platform` | string | `youtube`, `tiktok`, `instagram`, `audio`, `web`, `rss` |
-| `resolver_key` | string | Active resolver: `youtube`, `tiktok`, `getinsaver`, `deepgram`, `article` |
+| `resolver_key` | string | Active resolver: `youtube`, `tiktok`, `apify`, `deepgram`, `article` |
 | `provider` | string | External provider: `deepgram`, `dynamodb`, `s3`, `sqs`, `openai` |
 | `transcript_source` | string | `deepgram` (canonical active path), `whisper` (legacy path) |
 | `fallback_strategy` | string | Strategy level used when primary path unavailable |
@@ -175,11 +175,11 @@ log_event(logger, logging.WARNING, "resolver.youtube.fallback", "YouTube transcr
           job_id=job_id, source_platform="youtube", fallback_strategy="ytdlp_audio")
 ```
 
-### Instagram via getinsaver
+### Instagram via Apify
 
 ```python
-log_event(logger, logging.INFO, "resolver.instagram.started", "Instagram download via getinsaver started",
-          job_id=job_id, source_platform="instagram", resolver_key="getinsaver", provider="getinsaver")
+log_event(logger, logging.INFO, "resolver.instagram.started", "Instagram Apify resolution started",
+          job_id=job_id, source_platform="instagram", resolver_key="instagram.default", provider="apify")
 ```
 
 ### TikTok via yt-dlp
@@ -196,7 +196,7 @@ log_event(logger, logging.WARNING, "resolver.tiktok.fallback", "TikTok video dow
 
 The formatter automatically redacts:
 
-- Fields named: `access_token`, `api_key`, `authorization`, `cookie`, `deepgram_api_key`, `getinsaver_api_key`, `jwt`, `openai_api_key`, `password`, `refresh_token`, `secret`, `token`
+- Fields named: `access_token`, `api_key`, `apify_api_token`, `authorization`, `cookie`, `deepgram_api_key`, `jwt`, `openai_api_key`, `password`, `refresh_token`, `secret`, `token`
 - Fields named `email` or `user_email` → masked to `u***r@domain.com`
 - URL query params with keys: `access_token`, `api_key`, `auth`, `code`, `password`, `secret`, `token`
 - Bearer/Token authorization header values in string fields

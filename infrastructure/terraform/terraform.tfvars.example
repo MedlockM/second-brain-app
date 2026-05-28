@@ -36,8 +36,8 @@ secret_payload = {
   # X (Twitter)
   X_API_BEARER_TOKEN = ""
 
-  # Instagram (GetInsaver)
-  GETINSAVER_API_KEY = ""
+  # Instagram (Apify)
+  APIFY_API_TOKEN = ""
 
   # Document parsing (LlamaParse primary + Unstructured fallback, task-90)
   LLAMAPARSE_API_KEY    = ""

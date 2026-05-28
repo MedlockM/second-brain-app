@@ -13,6 +13,7 @@ from media_summarizer.core.media_ingestion.domain import (
     IngestSharedContentCommand,
     IngestUrlCommand,
     MediaFamily,
+    MediaType,
     ProcessingLifecycleStatus,
     ResolvedMedia,
 )
@@ -43,6 +44,9 @@ DEFAULT_YOUTUBE_INGESTION_QUEUE = os.environ.get(
 )
 DEFAULT_TIKTOK_INGESTION_QUEUE = os.environ.get(
     "TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue"
+)
+DEFAULT_INSTAGRAM_IMAGE_QUEUE = os.environ.get(
+    "INSTAGRAM_IMAGE_QUEUE", "instagram-image-queue"
 )
 DEFAULT_EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
@@ -122,6 +126,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         x_ingestion_queue: Optional[str] = None,
         youtube_ingestion_queue: Optional[str] = None,
         tiktok_ingestion_queue: Optional[str] = None,
+        instagram_image_queue: Optional[str] = None,
     ) -> None:
         self._deepgram_transcription_queue = (
             deepgram_transcription_queue
@@ -137,6 +142,9 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         self._x_ingestion_queue = x_ingestion_queue or DEFAULT_X_INGESTION_QUEUE
         self._youtube_ingestion_queue = (
             youtube_ingestion_queue or DEFAULT_YOUTUBE_INGESTION_QUEUE
+        )
+        self._instagram_image_queue = (
+            instagram_image_queue or DEFAULT_INSTAGRAM_IMAGE_QUEUE
         )
         self._tiktok_ingestion_queue = (
             tiktok_ingestion_queue or DEFAULT_TIKTOK_INGESTION_QUEUE
@@ -309,8 +317,48 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     transcript_source="deepgram",
                     audio_s3_key=resolved.audio_s3_key,
                 )
+            elif resolved.media_type == MediaType.IMAGE_POST:
+                # Instagram image posts (single + carousel) — dispatch to image/OCR queue
+                # Caption is persisted in metadata; images sent for visual processing
+                job.mark_extracting()
+                await database_async.update_processing_job(job)
+                await sqs.send_message(
+                    queue_name=self._instagram_image_queue,
+                    message_body={
+                        "job_id": job.id,
+                        "user_id": command.user.user_id,
+                        "user_email": command.user.user_email,
+                        "media_key": resolved.media_key,
+                        "normalized_url": resolved.normalized_url,
+                        "source_platform": resolved.source_platform.value,
+                        "resolver_key": resolved.resolver_key,
+                        "image_urls": resolved.metadata.get("image_urls", []),
+                        "image_count": resolved.metadata.get("image_count", 0),
+                        "post_type": resolved.metadata.get("post_type"),
+                        "caption": resolved.metadata.get("caption"),
+                        "comments": resolved.metadata.get("comments", []),
+                        "comments_count": resolved.metadata.get("comments_count", 0),
+                        "episode_title": title,
+                        "podcast_title": title,
+                    },
+                )
+                pipeline_enqueued = True
+                outcome_status = ProcessingLifecycleStatus.EXTRACTING
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "worker.enqueued",
+                    "Instagram image post enqueued for OCR/vision processing",
+                    job_id=job.id,
+                    media_item_id=job.id,
+                    queue=self._instagram_image_queue,
+                    resolver_key=resolved.resolver_key,
+                    source_platform=resolved.source_platform.value,
+                    post_type=resolved.metadata.get("post_type"),
+                    image_count=resolved.metadata.get("image_count", 0),
+                )
             elif resolved.media_family == MediaFamily.SOCIAL_VIDEO and resolved.audio_url:
-                # Instagram (and any future social video provider returning a remote audio URL)
+                # Instagram reels/video posts and other social video with a remote audio URL
                 job.mark_transcribing()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
@@ -326,6 +374,9 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                         "resolver_key": resolved.resolver_key,
                         "episode_title": title,
                         "podcast_title": title,
+                        "caption": resolved.metadata.get("caption"),
+                        "comments": resolved.metadata.get("comments", []),
+                        "comments_count": resolved.metadata.get("comments_count", 0),
                     },
                 )
                 pipeline_enqueued = True

@@ -17,8 +17,6 @@ from .domain import (
     UserContext,
 )
 from .errors import (
-    DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE,
-    DEFAULT_INSTAGRAM_PROVIDER_TEMPORARY_MESSAGE,
     DEFAULT_INVALID_URL_MESSAGE,
     DEFAULT_UNSUPPORTED_URL_MESSAGE,
     ClassificationError,
@@ -48,8 +46,6 @@ __all__ = [
     "ClassificationError",
     "ContentResolverPort",
     "DEFAULT_INVALID_URL_MESSAGE",
-    "DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE",
-    "DEFAULT_INSTAGRAM_PROVIDER_TEMPORARY_MESSAGE",
     "DEFAULT_UNSUPPORTED_URL_MESSAGE",
     "IngestionOutcome",
     "IngestSharedContentCommand",

@@ -50,7 +50,7 @@ slos:
       bad_event: worker.failed              # with resolver_key dimension
       # Retries (worker.retry_scheduled) do not count as bad until exhausted
     dimensions:
-      - resolver_key: [youtube, tiktok, getinsaver, article, deepgram, rss]
+      - resolver_key: [youtube, tiktok, apify, article, deepgram, rss]
     target: 97.0%
     burn_rate_thresholds:
       - window: 15m

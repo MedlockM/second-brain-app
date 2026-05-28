@@ -258,7 +258,7 @@ Supporter les autres médias demandés en privilégiant fidélité au contenu so
    - resolver queue-first dédié avec `youtube-transcript-api` en cascade: transcripts manuels, puis transcripts auto-générés.
    - fallback audio via `yt-dlp` utilisé comme bibliothèque Python pour résoudre une URL audio distante, puis envoi dans le pipeline Deepgram si aucun transcript exploitable n'est disponible.
 3. Instagram/TikTok:
-   - Instagram: resolver dédié `instagram.default`, résolution `media_url` via `getinsaver`, puis envoi à Deepgram.
+   - Instagram: resolver dédié `instagram.default`, résolution via Apify actors (Reel Scraper, Post Scraper, Comment Scraper). Reels/vidéos -> Deepgram. Images -> pipeline OCR/vision. Caption et commentaires persistés.
    - TikTok: extraction via `yt-dlp` (méthode A), fallback `audio_only`, puis envoi dans le pipeline Deepgram.
    - appliquer un rate limiting global côté TikTok pour rester sous `100 requêtes / heure`.
 4. Standardiser sortie en `raw_text` + `transcript_source` (native_transcript / deepgram).
@@ -269,9 +269,11 @@ YOUTUBE_INGESTION_QUEUE=youtube-ingestion-queue
 YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS=20
 YTDLP_TIMEOUT_SECONDS=30
 DEEPGRAM_API_KEY=...
-GETINSAVER_API_BASE_URL=https://getinsaver.com/api/v1
-GETINSAVER_API_KEY=...
-GETINSAVER_TIMEOUT_SECONDS=20
+APIFY_API_TOKEN=...
+APIFY_INSTAGRAM_REEL_ACTOR_ID=apify~instagram-reel-scraper
+APIFY_INSTAGRAM_POST_ACTOR_ID=apify~instagram-post-scraper
+APIFY_INSTAGRAM_COMMENT_ACTOR_ID=apify~instagram-comment-scraper
+APIFY_TIMEOUT_SECONDS=60
 TIKTOK_RATE_LIMIT_PER_HOUR=100
 ARTICLE_EXTRACTOR_MODE=readability
 ```
@@ -279,7 +281,7 @@ ARTICLE_EXTRACTOR_MODE=readability
 ### 4.5 Critères d'Acceptation
 - [ ] Article: texte propre extrait pour 90%+ des pages de test.
 - [ ] YouTube: transcript manuel prioritaire, transcript auto en fallback, puis Deepgram en dernier recours.
-- [ ] Instagram: `media_url` résolu puis transcrit via Deepgram.
+- [ ] Instagram: Reels/vidéos résolus via Apify puis transcrits via Deepgram. Images envoyées au pipeline OCR/vision. Caption et commentaires persistés.
 - [ ] TikTok: méthode A `yt-dlp` utilisée en premier, fallback `audio_only` disponible, sans dépasser le plafond de `100 requêtes / heure`.
 
 ### 4.6 Tests

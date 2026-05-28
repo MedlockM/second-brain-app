@@ -25,18 +25,21 @@ Le principe commun est le suivant:
 ## Decision par plateforme
 
 ### Instagram
-Strategie retenue:
-- utiliser `https://getinsaver.com/api/`
-- recuperer le `media_url`
-- transmettre ce `media_url` a Deepgram pour transcription
+Strategie retenue (mise a jour task-108, 2026-05-28):
+- utiliser Apify comme provider unique (Instagram Reel Scraper + Post Scraper + Comment Scraper)
+- Reels/videos: recuperer `downloadedVideo` ou `videoUrl` puis transmettre a Deepgram pour transcription
+- Posts images (single + carrousel): recuperer `displayUrl`, `images`, `childPosts` puis envoyer au pipeline OCR/vision
+- Caption: extraite du champ `caption` de tous les scrapers, persistee comme contenu textuel
+- Commentaires: recuperes via Comment Scraper avec pagination (best-effort, non-bloquant)
 
 Fallback:
-- aucun fallback supplementaire n'est retenu dans cet ADR
+- aucun fallback retenu pour V1 (decision owner task-107: Apify seul, pas de second provider)
+- l'architecture hexagonale permet de reintroduire un adapter fallback plus tard si necessaire
 
 Rationale:
-- le plan free couvre le besoin initial (`1000` requetes par jour)
-- l'objectif pour Instagram est de convertir rapidement l'URL source en URL media directement exploitable
-- on evite d'ajouter une seconde chaine de resolution tant que ce provider couvre le besoin
+- Apify couvre les 4 dimensions de contenu Instagram (video, images, caption, commentaires)
+- le provider precedent ne couvrait que les Reels et ne retournait ni captions ni commentaires ni images
+- un seul provider reduit la surface d'integration et les secrets a gerer en V1
 
 ### TikTok
 Strategie retenue:
@@ -101,7 +104,7 @@ Regles d'usage:
 ## Consequences
 - le resolver YouTube doit exposer explicitement la cascade `manual -> auto -> audio`
 - le resolver TikTok doit integrer un fallback `audio_only` sans changer de famille d'outil
-- l'ingestion Instagram depend d'un provider unique (`getinsaver`) sans mecanisme de secours additionnel a ce stade
+- l'ingestion Instagram depend d'un provider unique (Apify) sans mecanisme de secours additionnel a ce stade
 - l'observabilite doit permettre d'identifier:
   - le niveau de fallback declenche
   - le provider/outillage utilise
@@ -110,7 +113,7 @@ Regles d'usage:
 ## Hors perimetre de cet ADR
 - le detail du code d'integration concret pour chaque provider
 - le choix fin des files, workers ou parametrages d'execution
-- un eventuel fallback supplementaire Instagram si `getinsaver` devient insuffisant
+- un eventuel fallback supplementaire Instagram si Apify devient insuffisant
 
 ## References internes
 - `docs/MEDIA_INGESTION_CORE_ARCHITECTURE.md`

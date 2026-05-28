@@ -91,12 +91,18 @@ class Settings:
         self.YTDLP_TIMEOUT_SECONDS = float(
             os.getenv("YTDLP_TIMEOUT_SECONDS", "30")
         )
-        self.GETINSAVER_API_BASE_URL = os.getenv(
-            "GETINSAVER_API_BASE_URL", "https://getinsaver.com/api/v1"
+        self.APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
+        self.APIFY_INSTAGRAM_REEL_ACTOR_ID = os.getenv(
+            "APIFY_INSTAGRAM_REEL_ACTOR_ID", "apify~instagram-reel-scraper"
         )
-        self.GETINSAVER_API_KEY = os.getenv("GETINSAVER_API_KEY", "")
-        self.GETINSAVER_TIMEOUT_SECONDS = int(
-            os.getenv("GETINSAVER_TIMEOUT_SECONDS", "20")
+        self.APIFY_INSTAGRAM_POST_ACTOR_ID = os.getenv(
+            "APIFY_INSTAGRAM_POST_ACTOR_ID", "apify~instagram-post-scraper"
+        )
+        self.APIFY_INSTAGRAM_COMMENT_ACTOR_ID = os.getenv(
+            "APIFY_INSTAGRAM_COMMENT_ACTOR_ID", "apify~instagram-comment-scraper"
+        )
+        self.APIFY_TIMEOUT_SECONDS = int(
+            os.getenv("APIFY_TIMEOUT_SECONDS", "60")
         )
 
         # Document Parsing Configuration

@@ -50,7 +50,7 @@ _SENSITIVE_FIELD_NAMES = {
     "cookie",
     "cookies",
     "deepgram_api_key",
-    "getinsaver_api_key",
+    "apify_api_token",
     "jwt",
     "openai_api_key",
     "password",

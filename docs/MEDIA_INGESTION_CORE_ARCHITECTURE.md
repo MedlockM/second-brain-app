@@ -201,14 +201,17 @@ Only steps 1-5 should be needed; `use_cases.py` and `registry.py` should remain 
 5. When no native transcript is available, the worker resolves a remote audio stream URL with `yt-dlp` and reuses `deepgram-transcription-queue` without downloading media locally.
 6. Worker metadata keeps the chosen strategy explicit through `transcription_metadata.provider` (`native_transcript` or `deepgram`) and `extraction_metadata.selected_strategy` (`native_transcript` or `audio_fallback`).
 
-## Instagram connector runtime path (task-31)
+## Instagram connector runtime path (task-31, task-108)
 
-`instagram.default` now follows an inline provider-resolution path:
+`instagram.default` uses Apify actors (Reel Scraper, Post Scraper, Comment Scraper) to cover all Instagram content types:
 
-1. URL is classified as `social_video` and routed to `InstagramResolver`.
-2. Resolver calls `getinsaver` (`/download/instagram`) using the canonical Instagram URL plus the derived content type (`post|reel|igtv`).
-3. Resolver extracts the first transcribable `downloads[].url` and returns it as `audio_url`.
-4. `ProcessingJobSubmissionOrchestrator` reuses the existing Deepgram queue path because `ResolvedMedia.audio_url` is already available.
+1. URL is classified as `social_video` and routed to `InstagramResolver` (backed by `InstagramApifyResolver`).
+2. Resolver detects content type from URL path (`/reel/` -> reel, `/p/` -> post, `/tv/` -> igtv).
+3. For **Reels/IGTV**: Apify Reel Scraper returns `downloadedVideo` (hosted MP4, 3-day TTL) or `videoUrl` (CDN). Resolver returns it as `audio_url`. Orchestrator dispatches to Deepgram transcription queue.
+4. For **Video posts** (`/p/` with video): Apify Post Scraper returns `videoUrl`. Same Deepgram dispatch path as Reels.
+5. For **Image posts** (single or carousel): Apify Post Scraper returns `displayUrl`, `images`, `childPosts`. Resolver returns `MediaType.IMAGE_POST` with image URLs in metadata. Orchestrator dispatches to `instagram-image-queue` for OCR/vision processing.
+6. **Caption**: extracted from `caption` field in all scraper responses. Persisted in resolved metadata and forwarded to downstream workers.
+7. **Comments**: fetched via Apify Comment Scraper (best-effort, non-blocking). Persisted in resolved metadata with pagination (up to 50 per post).
 
 ## TikTok connector runtime path (task-54)
 

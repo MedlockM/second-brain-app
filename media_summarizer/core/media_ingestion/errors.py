@@ -9,12 +9,6 @@ DEFAULT_UNSUPPORTED_URL_MESSAGE = (
     "Unsupported URL. Supported media families: "
     "podcast, article, youtube, social_video, audio."
 )
-DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE = (
-    "Unable to resolve transcribable media from this Instagram URL."
-)
-DEFAULT_INSTAGRAM_PROVIDER_TEMPORARY_MESSAGE = (
-    "Instagram media resolution is temporarily unavailable."
-)
 
 
 class MediaIngestionError(Exception):

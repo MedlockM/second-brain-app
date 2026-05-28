@@ -69,7 +69,7 @@ def _detect_platform(url: str) -> tuple[str, str]:
     if host in _TIKTOK_HOSTS:
         return "tiktok", "tiktok"
     if host in _INSTAGRAM_HOSTS:
-        return "instagram", "getinsaver"
+        return "instagram", "apify"
     if path.endswith(_AUDIO_EXTENSIONS):
         return "audio", "deepgram"
     return "web", "article"

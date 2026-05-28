@@ -22,6 +22,7 @@ class MediaType(str, Enum):
     ARTICLE = "article"
     YOUTUBE_VIDEO = "youtube_video"
     SHORT_VIDEO = "short_video"
+    IMAGE_POST = "image_post"
     AUDIO_FILE = "audio_file"
     SHARED_TEXT = "shared_text"
     UNKNOWN = "unknown"
