@@ -1,13 +1,13 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark : Instagram Content Extraction Services for V1 Ingestion
 
 ## Owner Validation
 
-**Decision**: _(to be filled by the owner after review — free-text describing the final decision: accept recommendation X, reject because Y, accept with modifications Z, or redo instructions)_
-**Validated at**: _(ISO date to be filled by the owner)_
+**Decision**: Accept Apify as the single Instagram provider for V1 (Instagram Reel Scraper + Instagram Post Scraper + Instagram Comment Scraper). **Do not keep getinsaver as fallback** — replace it entirely. The implementation must remove the existing `getinsaver` adapter and its env config (`GETINSAVER_*`) once the Apify-based path is live and verified end-to-end. Rationale: keeping two Instagram providers in V1 doubles the integration surface, secrets, and observability for marginal benefit at the current volumes; the hexagonal architecture already lets us re-introduce a fallback adapter later if Apify reliability ever becomes an issue.
+**Validated at**: 2026-05-28
 
 ---
 
