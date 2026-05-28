@@ -92,3 +92,22 @@ Acceptance criteria détaillés ci-dessous.
 - [ ] #9 Section 'risques et plan B' identifiant les principaux risques (TOS Meta, breakage, coût) avec mitigation
 - [ ] #10 Aucune modification de code dans media_summarizer/ ou ailleurs hors du dossier docs/research/
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Mode: initial** — benchmark produced from scratch.
+
+Benchmark README published at `docs/research/task-107-instagram-extraction-benchmark/README.md` with `owner_decision: pending`.
+
+**Recommendation awaits owner validation.**
+
+Summary of findings:
+- Evaluated 7 providers across all 4 required axes (content capabilities, pricing, free tier, reputation)
+- Bright Data, HikerAPI, and RapidAPI marketplace eliminated due to failing the blocking criterion (no downloadable Reels video URL) or insufficient documentation to confirm it
+- GetInSaver (incumbent) passes Reels extraction but cannot handle image posts, captions, or comments
+- **Apify recommended as primary** (Reel Scraper + Post Scraper + Comment Scraper combination) covering all 4 content dimensions with proven downloadable video URLs
+- GetInSaver retained as zero-cost Reels fallback
+- Estimated V1 cost: $5-29/month on Apify depending on comment extraction needs
+- Migration plan and risk mitigation documented
+<!-- SECTION:NOTES:END -->
