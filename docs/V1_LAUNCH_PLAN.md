@@ -1,7 +1,7 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-05-27.
+> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-05-28.
 
 ---
 
@@ -217,10 +217,18 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 5. Confirmer que l'IAM policy `runtime-secret-read-<env>` est attachée aux task execution roles ECS et aux Lambda execution roles qui en ont besoin.
 6. Vérifier que les queues SQS DLQ sont câblées.
 
-### Phase 4 — Tests locaux (jour 3-4)
+### Phase 4 — Tests d'intégration contre AWS dev (jour 3-4)
 
-1. `docker-compose up` (LocalStack + API + workers).
-2. Renseigner un `.env` à la racine (gabarit complet dans `.env.example`). `python-dotenv` le charge automatiquement à l'import via `media_summarizer/__init__.py` ; en prod les vraies env vars priment (`override=False`).
+> **Décision 2026-05-28** : on n'utilise pas LocalStack en V1. Pour un projet solo,
+> les coûts AWS dev (DynamoDB on-demand + S3 + SQS + Lambda) sont négligeables
+> face aux coûts variables OpenAI/Deepgram/LlamaParse qui sont identiques local
+> ou cloud, et LocalStack introduit des écarts de fidélité (IAM, EventBridge,
+> Secrets Manager, edge cases SQS) qui font perdre plus de temps qu'ils n'en
+> économisent. On lance l'API + workers Python en local avec un `.env` pointant
+> directement sur l'environnement AWS `dev`.
+
+1. Renseigner le `.env` racine avec les credentials AWS dev (gabarit complet dans `.env.example`). `python-dotenv` le charge automatiquement à l'import via `media_summarizer/__init__.py` ; en prod les vraies env vars priment (`override=False`).
+2. Lancer l'API et les workers Python en local (hot-reload), pointant sur les vraies ressources AWS dev (DynamoDB, S3, SQS, Secrets Manager).
 3. Tester chaque source d'ingestion via `POST /api/media/ingest` :
    - URL article → vérifier extraction → artifacts générés
    - URL YouTube → vérifier transcript → artifacts
@@ -229,8 +237,9 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    - URL TikTok → worker TikTok → subtitles natifs ou Deepgram → artifacts
    - **URL Instagram (reel)** → resolver Instagram → Deepgram → artifacts
    - **Upload PDF/DOCX/PPTX** → worker `document_parsing` → LlamaParse (primaire) ou Unstructured (fallback) → artifacts
-4. Vérifier les états du job dans la DB : `pending → resolving → transcribing → ready_for_artifacts → completed`.
-5. Tester le digest journalier (cron + EventBridge en local).
+4. Vérifier les états du job dans DynamoDB dev : `pending → resolving → transcribing → ready_for_artifacts → completed`.
+5. Tester le digest journalier (EventBridge rule sur l'env dev).
+6. Nettoyer périodiquement les données dev (script de purge ou TTL DynamoDB) pour éviter d'accumuler du bruit entre les sessions de test.
 
 ### Phase 5 — Mobile dev build (jour 4-5)
 
@@ -353,8 +362,9 @@ eas build --platform ios --profile development
 npm run build:ios:preview
 npm run build:android:preview
 
-# Run local stack
-docker-compose up
+# Run API + workers en local contre l'env AWS dev (cf. Phase 4)
+uvicorn media_summarizer.api.main:app --reload
+# (lancer chaque worker dans un terminal séparé selon la doc backend)
 
 # Lint & type checks
 ruff check .
