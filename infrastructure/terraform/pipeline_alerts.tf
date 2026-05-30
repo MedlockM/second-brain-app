@@ -347,12 +347,13 @@ resource "aws_cloudwatch_metric_alarm" "artifact_generation_success_rate_breach"
 
 resource "aws_cloudwatch_metric_alarm" "dlq_messages_present" {
   for_each = {
-    "transcription"        = aws_sqs_queue.transcription_dlq.name
     "deepgram"             = aws_sqs_queue.deepgram_transcription_dlq.name
     "summarization"        = aws_sqs_queue.summarization_dlq.name
     "youtube"              = aws_sqs_queue.youtube_ingestion_dlq.name
     "tiktok"               = aws_sqs_queue.tiktok_ingestion_dlq.name
     "audio-download"       = aws_sqs_queue.audio_download_dlq.name
+    "article-extraction"   = aws_sqs_queue.article_extraction_dlq.name
+    "document-parsing"     = aws_sqs_queue.document_parsing_dlq.name
   }
 
   alarm_name          = "${var.project_name}-${each.key}-dlq-non-empty"

@@ -1,15 +1,5 @@
 # Core DynamoDB tables aligned with application code expectations
 
-terraform {
-  required_version = ">= 1.0"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
 # Users table
 resource "aws_dynamodb_table" "users_v2" {
   name         = "users"
@@ -53,6 +43,16 @@ resource "aws_dynamodb_table" "processing_jobs_v1" {
     hash_key        = "job_status"
     projection_type = "ALL"
   }
+
+  # TTL configuration for auto-deletion
+  ttl {
+    attribute_name = "expire_at"
+    enabled        = true
+  }
+
+  # Enable Streams for archiving (job_archiver Lambda)
+  stream_enabled   = true
+  stream_view_type = "OLD_IMAGE"
 
   tags = {
     Name        = "processing_jobs"

@@ -1,36 +1,28 @@
-# Lambda Dockerfile for utility/background Lambda functions
-# This image can be reused for handlers under media_summarizer.workers.*
-# It packages all dependencies needed for the Lambda runtime
+# Shared Lambda container image for all functions (API + workers).
+# ARM64/Graviton2 base for 20% cost saving.
+# CMD is overridden per function in Terraform (image_config.command).
 
-FROM public.ecr.aws/lambda/python:3.11
+FROM public.ecr.aws/lambda/python:3.11-arm64
 
-# Install build dependencies
-RUN yum install -y gcc python3-devel && yum clean all
+# Install build dependencies for C extensions (cryptography, bcrypt, lxml)
+RUN yum install -y gcc python3-devel libxml2-devel libxslt-devel && yum clean all
 
-# Install uv for faster dependency installation
+# Install uv for fast dependency installation
 RUN pip install --no-cache-dir uv
 
 # Set working directory to Lambda task root
 WORKDIR ${LAMBDA_TASK_ROOT}
 
-# Copy dependency files first (for better caching)
+# Copy dependency manifest
 COPY pyproject.toml ./
 
-# Install dependencies using uv
-# We install in the Lambda task root so they're available at runtime
-RUN uv pip install --system --no-cache-dir \
-    aioboto3 \
-    aiohttp \
-    boto3 \
-    httpx \
-    pydantic \
-    pydantic-settings \
-    python-dotenv \
-    tenacity
+# Install all runtime dependencies using uv
+# Note: openai-whisper, docker, slowapi, redis have been removed from pyproject.toml
+RUN uv pip install --system --no-cache-dir ".[default]" 2>/dev/null || \
+    uv pip install --system --no-cache-dir -e .
 
 # Copy application code
 COPY media_summarizer/ ./media_summarizer/
 
-# Set the handler - this can be overridden per function in Terraform
-# Default to the cleanup job archiver handler.
-CMD ["media_summarizer.workers.cleanup.job_archiver.lambda_handler"]
+# Default CMD is the API handler; overridden per worker in Terraform
+CMD ["media_summarizer.api.lambda_handler.handler"]

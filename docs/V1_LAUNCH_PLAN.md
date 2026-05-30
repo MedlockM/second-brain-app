@@ -63,8 +63,8 @@ Aucune tâche bloquante V1 ouverte côté code au 2026-05-20.
 
 Production : tous les secrets sont consolidés dans une seule entrée **AWS Secrets Manager**
 (`media-summarizer-runtime-<env>`) provisionnée par `infrastructure/terraform/secrets.tf`.
-Lambdas et tâches ECS reçoivent chaque clé du JSON comme variable d'environnement à
-l'amorçage — le code lit toujours via `os.getenv(...)` sans changement.
+Les Lambda functions chargent ce secret au cold start et injectent chaque clé du JSON comme
+variable d'environnement — le code lit toujours via `os.getenv(...)` sans changement.
 
 Bootstrap : `cp infrastructure/terraform/terraform.tfvars.example terraform.tfvars`,
 remplir `secret_payload`, puis `terraform apply`. Voir `infrastructure/terraform/README.md`.
@@ -79,7 +79,7 @@ numérotées). Les anciens `.env.dev` et `.env.prod` sont **legacy et gitignoré
 
 ```bash
 AWS_DEFAULT_REGION=eu-west-3       # ou us-east-1, à figer
-AWS_ACCESS_KEY_ID=...              # clé IAM dédiée backend (production hors Lambda/ECS)
+AWS_ACCESS_KEY_ID=...              # clé IAM dédiée backend (production hors Lambda)
 AWS_SECRET_ACCESS_KEY=...
 ARCHIVE_BUCKET=...
 AUDIO_BUCKET=...
@@ -210,12 +210,13 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 
 ### Phase 3 — Infrastructure AWS (jour 2-3)
 
-1. `cp infrastructure/terraform/terraform.tfvars.example infrastructure/terraform/terraform.tfvars` puis remplir : `environment`, `vpc_id`, `subnet_ids`, **et tout `secret_payload`** (modèle complet dans le fichier example, voir `infrastructure/terraform/README.md`).
+1. `cp infrastructure/terraform/terraform.tfvars.example infrastructure/terraform/terraform.tfvars` puis remplir : `environment`, **et tout `secret_payload`** (modèle complet dans le fichier example, voir `infrastructure/terraform/README.md`).
 2. `terraform init && terraform plan` sur l'environnement dev.
-3. `terraform apply` → DynamoDB tables, S3 buckets, SQS queues, ECS services, Lambda fonctions, **secret consolidé `media-summarizer-runtime-<env>`** créé par `secrets.tf`.
-4. Vérifier que `aws_secretsmanager_secret.runtime` contient bien toutes les clés (Console AWS → Secrets Manager). Le `lifecycle { ignore_changes }` permet une rotation manuelle ultérieure sans replan.
-5. Confirmer que l'IAM policy `runtime-secret-read-<env>` est attachée aux task execution roles ECS et aux Lambda execution roles qui en ont besoin.
-6. Vérifier que les queues SQS DLQ sont câblées.
+3. `terraform apply` → DynamoDB tables, S3 buckets, SQS queues, Lambda functions (workers + API), API Gateway HTTP API, ECR repository, **secret consolidé `media-summarizer-runtime-<env>`** créé par `secrets.tf`.
+4. Build and push the Lambda container image: `docker build -f infrastructure/docker/lambda.Dockerfile -t <ecr-url>:worker-latest . && docker push`. Tag as `api-latest` as well (same image, different CMD).
+5. Vérifier que `aws_secretsmanager_secret.runtime` contient bien toutes les clés (Console AWS → Secrets Manager). Le `lifecycle { ignore_changes }` permet une rotation manuelle ultérieure sans replan.
+6. Confirmer que l'IAM policies `lambda-worker-policy` et `lambda-api-policy` sont attachées aux Lambda execution roles.
+7. Vérifier que les queues SQS DLQ sont câblées et que chaque queue a un event source mapping vers sa Lambda.
 
 ### Phase 4 — Tests locaux (jour 3-4)
 
@@ -267,10 +268,10 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 ### Phase 7 — CI/CD (jour 6-7)
 
 1. GitHub Actions : workflow PR (`ruff`, `mypy` côté backend ; `npm run typecheck` + `npm run lint` côté mobile).
-2. GitHub Actions : workflow main (deploy backend ECS/Lambda via Terraform).
+2. GitHub Actions : workflow main (build Lambda container image, push to ECR, update Lambda functions). See `.github/workflows/deploy-lambda.yml`.
 3. EAS Submit pour TestFlight / Play Internal automatique sur tag `v*`.
 4. Stocker AWS keys, RevenueCat keys, Expo token comme **GitHub repo secrets**.
-5. Vérifier que rollback est possible (Terraform state versionné en S3).
+5. Vérifier que rollback est possible (re-tag a previous image in ECR and update Lambda).
 
 ### Phase 8 — Monitoring & observabilité (jour 7-8)
 
@@ -371,7 +372,7 @@ terraform apply
 - `AGENTS.md` — guardrails projet
 - `CLAUDE.md` — convention de création de tâches
 - `.env.example` — gabarit complet des variables (18 sections numérotées)
-- `infrastructure/terraform/README.md` — runbook Secrets Manager + injection ECS/Lambda
+- `infrastructure/terraform/README.md` — runbook Secrets Manager + Lambda deployment
 - `infrastructure/terraform/secrets.tf` — secret consolidé `media-summarizer-runtime-<env>`
 - `infrastructure/terraform/terraform.tfvars.example` — modèle `secret_payload` à recopier
 - `docs/MOBILE_APP_IMPLEMENTATION_PLAN.md` — détails techniques mobile

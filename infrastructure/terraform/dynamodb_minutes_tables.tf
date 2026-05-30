@@ -1,15 +1,5 @@
 # DynamoDB tables for minutes-based monetization (subscriptions, minute buckets, minute usage, follows)
 
-terraform {
-  required_version = ">= 1.0"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
 # Subscriptions table
 resource "aws_dynamodb_table" "subscriptions" {
   name         = "subscriptions"

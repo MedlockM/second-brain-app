@@ -79,7 +79,7 @@ resource "aws_iam_policy" "lambda_archiver" {
           "dynamodb:DescribeStream",
           "dynamodb:ListStreams"
         ]
-        Resource = aws_dynamodb_table.processing_jobs.stream_arn
+        Resource = aws_dynamodb_table.processing_jobs_v1.stream_arn
       },
       {
         Effect = "Allow"
@@ -128,7 +128,7 @@ resource "aws_cloudwatch_log_group" "lambda_archiver" {
 
 # DynamoDB Stream Event Source Mapping
 resource "aws_lambda_event_source_mapping" "job_archiver" {
-  event_source_arn  = aws_dynamodb_table.processing_jobs.stream_arn
+  event_source_arn  = aws_dynamodb_table.processing_jobs_v1.stream_arn
   function_name     = aws_lambda_function.job_archiver.arn
   starting_position = "LATEST"
   batch_size        = 100

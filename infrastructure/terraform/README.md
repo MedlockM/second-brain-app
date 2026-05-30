@@ -1,8 +1,15 @@
-# Terraform — Media Summarizer
+# Terraform -- Media Summarizer
 
 Provisions all AWS resources for the V1 stack: DynamoDB tables, S3 buckets,
-SQS queues, ECS Fargate workers, Lambda functions, Secrets Manager, IAM,
-CloudWatch dashboards/alarms.
+SQS queues, Lambda functions (API + workers), API Gateway HTTP API, ECR,
+Secrets Manager, IAM, CloudWatch dashboards/alarms.
+
+## Architecture (Lambda-only, no ECS)
+
+All backend compute runs as AWS Lambda functions deployed as ARM64 container
+images from a shared ECR repository. The FastAPI API is fronted by API Gateway
+HTTP API. Workers are triggered by SQS event source mappings (one Lambda per
+queue). No VPC is required.
 
 ## Where do secrets live?
 
@@ -13,8 +20,7 @@ Where the env var comes from depends on the runtime:
 | Runtime | Source |
 |---|---|
 | Local dev (`uvicorn`, `docker-compose`) | `.env` at repo root, loaded automatically by `python-dotenv` (declared in `media_summarizer/__init__.py`) |
-| Lambda | env vars wired in the Lambda definition — pulled from the consolidated runtime secret via `secrets` block (when supported) or a `data` source (see "Wiring a Lambda" below) |
-| ECS Fargate worker | container `secrets` block referencing `aws_secretsmanager_secret.runtime.arn` — AWS injects each JSON key as an env var at boot |
+| Lambda (API + workers) | Fetched from Secrets Manager at cold start by the handler init code (`lambda_handler.py` / `lambda_handlers.py`) and injected into `os.environ` |
 | GitHub Actions (mobile builds, infra deploys) | repo secrets injected as env vars in the workflow |
 
 The single source of truth in production is the `media-summarizer-runtime-<env>`
@@ -25,7 +31,7 @@ Secrets Manager entry created by `secrets.tf`.
 ```bash
 cd infrastructure/terraform
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars: set environment (dev/staging/prod), VPC, secret_payload
+# Edit terraform.tfvars: set environment (dev/staging/prod), secret_payload
 terraform init
 terraform plan
 terraform apply
@@ -38,69 +44,42 @@ rotate values directly in the AWS Console without Terraform reverting them.
 To force-update from Terraform after a rotation, comment out the
 `ignore_changes` line, run `apply`, then restore it.
 
-## Wiring a new Lambda to the runtime secret
+## Deploying code changes
 
-The Lambda's execution role needs the read policy:
+After `terraform apply` creates the infrastructure, deploy code by building and
+pushing the Lambda container image:
 
-```hcl
-resource "aws_iam_role_policy_attachment" "my_lambda_runtime_secret" {
-  role       = aws_iam_role.my_lambda.name
-  policy_arn = aws_iam_policy.runtime_secret_read.arn
-}
+```bash
+# Build for ARM64
+docker buildx build --platform linux/arm64 \
+  -f infrastructure/docker/lambda.Dockerfile \
+  -t <ecr-url>:worker-latest \
+  -t <ecr-url>:api-latest \
+  --push .
+
+# Update Lambda functions to use the new image
+aws lambda update-function-code --function-name media-summarizer-api --image-uri <ecr-url>:api-latest
+aws lambda update-function-code --function-name media-summarizer-worker-<name> --image-uri <ecr-url>:worker-latest
 ```
 
-Then inject the secret values as env vars. Two options:
-
-**Option A — at apply time (simpler, redeploy on rotation):**
-
-```hcl
-data "aws_secretsmanager_secret_version" "runtime" {
-  secret_id = aws_secretsmanager_secret.runtime.id
-}
-
-resource "aws_lambda_function" "my_lambda" {
-  # ...
-  environment {
-    variables = jsondecode(data.aws_secretsmanager_secret_version.runtime.secret_string)
-  }
-}
-```
-
-**Option B — at runtime (Lambda fetches on cold start):**
-
-The Lambda code calls `boto3.client('secretsmanager').get_secret_value(...)`
-itself and merges the result into `os.environ` before importing
-`media_summarizer`. Use this only if cold-start latency is acceptable; Option A
-is preferred for V1.
-
-## Wiring an ECS task
-
-Already done in `scaling.tf` for the existing per-secret entries. To add the
-consolidated secret:
-
-```hcl
-container_definitions = jsonencode([
-  {
-    # ...
-    secrets = [
-      { name = "OPENAI_API_KEY",   valueFrom = "${aws_secretsmanager_secret.runtime.arn}:OPENAI_API_KEY::" },
-      { name = "DEEPGRAM_API_KEY", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:DEEPGRAM_API_KEY::" },
-      # one entry per key the worker actually needs
-    ]
-  }
-])
-```
-
-The `:KEY::` suffix tells ECS to pull a single field out of the JSON secret.
+This is automated by `.github/workflows/deploy-lambda.yml` on push to main.
 
 ## Files
 
 | File | Role |
 |---|---|
+| `main.tf` | Provider configuration, shared variables, data sources |
 | `secrets.tf` | Consolidated runtime secret + read policy + outputs |
 | `terraform.tfvars.example` | Template for `terraform.tfvars` (gitignored) |
-| `scaling.tf` | ECS Fargate workers, Lambda scaling controller, SQS queues, S3 buckets, per-secret entries (legacy) |
+| `sqs.tf` | SQS queues and dead-letter queues |
+| `s3.tf` | S3 buckets for media pipeline |
+| `ecr.tf` | ECR repository for Lambda container images |
+| `iam_lambda.tf` | IAM roles and policies for Lambda functions |
+| `lambda_workers.tf` | Worker Lambda functions + SQS event source mappings |
+| `lambda_api.tf` | API Lambda + API Gateway HTTP API |
 | `dynamodb_*.tf` | DynamoDB tables |
-| `monitoring.tf`, `pipeline_*.tf` | CloudWatch dashboards, alarms |
-| `archiving.tf` | Archive bucket + lifecycle |
+| `monitoring.tf` | CloudWatch alarms, metric filters, dashboard |
+| `pipeline_alerts.tf` | Pipeline-specific alerting rules |
+| `pipeline_dashboard.tf` | Pipeline observability dashboard + metric filters |
+| `archiving.tf` | Archive bucket + lifecycle + archiver Lambda |
 | `localstack/` | Stripped-down stack used by `docker-compose.dev.yml` for offline dev |
