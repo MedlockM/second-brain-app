@@ -1,7 +1,7 @@
 ---
 id: task-106
 title: Migrate backend to Lambda-only architecture per validated benchmark (task-105)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-20 10:44'
 labels:

@@ -3,7 +3,7 @@ id: task-111
 title: >-
   Remove download_worker: route podcasts directly to Deepgram via audio_url (RSS
   enclosure)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-30 21:48'
 labels:
