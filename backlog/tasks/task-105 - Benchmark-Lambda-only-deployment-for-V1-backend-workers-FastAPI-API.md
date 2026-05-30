@@ -1,7 +1,7 @@
 ---
 id: task-105
 title: Benchmark Lambda-only deployment for V1 backend (workers + FastAPI API)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-20 10:43'
 labels:
