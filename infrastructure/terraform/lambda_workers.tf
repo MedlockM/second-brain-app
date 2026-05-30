@@ -34,12 +34,6 @@ locals {
       queue_arn   = aws_sqs_queue.tiktok_ingestion.arn
       handler     = "media_summarizer.workers.lambda_handlers.tiktok_ingestion_handler"
     }
-    download = {
-      memory_size = 1024
-      timeout     = 300
-      queue_arn   = aws_sqs_queue.audio_download.arn
-      handler     = "media_summarizer.workers.lambda_handlers.download_handler"
-    }
     deepgram_transcription = {
       memory_size = 512
       timeout     = 600

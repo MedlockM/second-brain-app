@@ -110,10 +110,6 @@ tiktok_ingestion_handler = _build_handler(
     "media_summarizer.workers.tiktok_ingestion_worker"
 )
 
-download_handler = _build_handler(
-    "media_summarizer.workers.download_worker"
-)
-
 deepgram_transcription_handler = _build_handler(
     "media_summarizer.workers.transcription.deepgram_worker"
 )

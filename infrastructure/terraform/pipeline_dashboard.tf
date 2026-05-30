@@ -549,7 +549,6 @@ resource "aws_cloudwatch_dashboard" "pipeline_observability" {
             ["...", "summarization-dlq", { "stat" : "Sum", "period" : 300, "label" : "Summarization DLQ" }],
             ["...", "youtube-ingestion-dlq", { "stat" : "Sum", "period" : 300, "label" : "YouTube DLQ" }],
             ["...", "tiktok-ingestion-dlq", { "stat" : "Sum", "period" : 300, "label" : "TikTok DLQ" }],
-            ["...", "audio-download-dlq", { "stat" : "Sum", "period" : 300, "label" : "Download DLQ" }],
             ["...", "article-extraction-dlq", { "stat" : "Sum", "period" : 300, "label" : "Article DLQ" }]
           ]
           view    = "timeSeries"

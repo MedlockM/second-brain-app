@@ -120,7 +120,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         self,
         *,
         deepgram_transcription_queue: Optional[str] = None,
-        audio_download_queue: Optional[str] = None,
         podcastindex_resolution_queue: Optional[str] = None,
         article_extraction_queue: Optional[str] = None,
         x_ingestion_queue: Optional[str] = None,
@@ -130,7 +129,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
     ) -> None:
         self._deepgram_transcription_queue = (
             deepgram_transcription_queue
-            or audio_download_queue
             or DEFAULT_DEEPGRAM_TRANSCRIPTION_QUEUE
         )
         self._podcastindex_resolution_queue = (

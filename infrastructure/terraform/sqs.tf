@@ -142,37 +142,6 @@ resource "aws_sqs_queue" "tiktok_ingestion" {
 }
 
 # =============================================================================
-# Audio Download
-# =============================================================================
-
-resource "aws_sqs_queue" "audio_download_dlq" {
-  name = "audio-download-dlq"
-
-  tags = {
-    Name        = "audio-download-dlq"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-resource "aws_sqs_queue" "audio_download" {
-  name                       = "audio-download-queue"
-  visibility_timeout_seconds = 1800
-  message_retention_seconds  = 1209600
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.audio_download_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = {
-    Name        = "audio-download-queue"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-# =============================================================================
 # Deepgram Transcription
 # =============================================================================
 
@@ -432,7 +401,6 @@ output "queue_urls" {
     x_ingestion             = aws_sqs_queue.x_ingestion.url
     youtube_ingestion       = aws_sqs_queue.youtube_ingestion.url
     tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion.url
-    audio_download          = aws_sqs_queue.audio_download.url
     deepgram_transcription  = aws_sqs_queue.deepgram_transcription.url
     summarization           = aws_sqs_queue.summarization.url
     document_parsing        = aws_sqs_queue.document_parsing.url
