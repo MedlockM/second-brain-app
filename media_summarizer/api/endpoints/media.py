@@ -25,6 +25,11 @@ from media_summarizer.core.services import folder_service
 from media_summarizer.core.services import tag_service
 from media_summarizer.core.services import media_search_service
 from media_summarizer.core.services.media_search_service import SearchFilters
+from media_summarizer.core.services.quota_enforcer import (
+    check_submission_allowed,
+    record_submission,
+    estimate_submission_cost,
+)
 from media_summarizer.core.services.raw_content_service import (
     get_raw_content,
     RawContentNotAvailableError,
@@ -257,6 +262,19 @@ async def ingest_url(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+        # Quota enforcement check before processing
+        quota_result = await check_submission_allowed(
+            user_id=user.id,
+            source_platform=source_platform,
+            duration_seconds=0,  # duration unknown at URL ingestion time
+        )
+        if not quota_result.allowed:
+            raise HTTPException(
+                status_code=quota_result.http_status,
+                detail=quota_result.message,
+                headers={"X-Quota-Error-Code": quota_result.error_code},
+            )
+
         # Derive media_type from source_platform
         _platform_to_media_type = {
             "youtube": "video",
@@ -329,6 +347,15 @@ async def ingest_url(
                 queue_name=PODCASTINDEX_RESOLUTION_QUEUE,
                 message_body={**base_payload, "feed_url": url},
             )
+
+        # Record quota usage after successful enqueue
+        estimated_cost = estimate_submission_cost(source_platform, duration_seconds=0)
+        await record_submission(
+            user_id=user.id,
+            source_platform=source_platform,
+            duration_seconds=0,
+            estimated_cost_eur=estimated_cost,
+        )
 
         log_event(
             logger,
@@ -420,6 +447,19 @@ async def upload_document(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+        # Quota enforcement check before processing
+        quota_result = await check_submission_allowed(
+            user_id=user.id,
+            source_platform="document",
+            duration_seconds=0,
+        )
+        if not quota_result.allowed:
+            raise HTTPException(
+                status_code=quota_result.http_status,
+                detail=quota_result.message,
+                headers={"X-Quota-Error-Code": quota_result.error_code},
+            )
+
         # Create processing job
         job = ProcessingJob(
             user_id=user.id,
@@ -464,6 +504,15 @@ async def upload_document(
                 "media_key": media_key,
                 "media_title": file_name,
             },
+        )
+
+        # Record quota usage after successful enqueue
+        estimated_cost = estimate_submission_cost("document", duration_seconds=0)
+        await record_submission(
+            user_id=user.id,
+            source_platform="document",
+            duration_seconds=0,
+            estimated_cost_eur=estimated_cost,
         )
 
         log_event(

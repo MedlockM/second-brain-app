@@ -37,9 +37,26 @@ Not allowed:
 ## Core ingestion flow
 
 1. canonicalize URL and derive `media_key`
-2. route URL through `ResolverRouter` (classification + resolver lookup)
-3. resolve URL through `ContentResolverPort`
-4. submit persistence/pipeline through `SubmissionOrchestratorPort`
+2. **quota enforcement check** via `quota_enforcer.check_submission_allowed` (hard caps, daily rate limits, max audio duration, cost monitoring block)
+3. route URL through `ResolverRouter` (classification + resolver lookup)
+4. resolve URL through `ContentResolverPort`
+5. submit persistence/pipeline through `SubmissionOrchestratorPort`
+6. **record submission** via `quota_enforcer.record_submission` (atomically increment monthly/daily usage counters)
+
+## Quota enforcement (task-110)
+
+All submission entry points (`POST /api/media/ingest-url`, `POST /api/media/upload`, `POST /api/v1/podcasts/submit`, and `media_submission.submit_media_for_user`) call the quota enforcement engine before creating a job.
+
+The engine checks in order:
+1. Tier-level audio gating (text_only tier refuses all audio structurally)
+2. Max audio duration per import (60 min for Mix, 90 min for Audio-Heavy)
+3. Monthly hard caps per media type (audio_minutes, articles, documents, youtube)
+4. Daily rate limits per media type
+5. Cost monitoring hard block (estimated monthly cost exceeds threshold)
+
+On denial, a stable error code is returned (`tier_quota_exceeded`, `daily_rate_limit`, `audio_too_long`, `cost_hard_block`) that the mobile app can pattern-match for localized display.
+
+Usage counters are stored in DynamoDB tables `user_usage_monthly` (PK: user_id, SK: YYYY-MM) and `user_usage_daily` (PK: user_id, SK: YYYY-MM-DD) with atomic ADD operations.
 
 ## URL classification and routing policy (task-21)
 
