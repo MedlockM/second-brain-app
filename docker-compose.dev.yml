@@ -33,7 +33,6 @@ services:
       - CREDIT_TRANSACTIONS_TABLE=credit_transactions
       - AUTH_TOKENS_TABLE=auth_tokens
       # SQS Queues
-      - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
       - TRANSCRIPTION_QUEUE=transcription-queue
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
@@ -80,7 +79,6 @@ services:
       - PROCESSING_JOBS_TABLE=processing_jobs
       - CREDIT_TRANSACTIONS_TABLE=credit_transactions
       # SQS Queues
-      - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
       - TRANSCRIPTION_QUEUE=transcription-queue
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
@@ -91,42 +89,7 @@ services:
         condition: service_completed_successfully
 
   # Worker de téléchargement audio
-  download-worker:
-    profiles: [ "workers", "full" ]
-    build:
-      context: .
-      dockerfile: infrastructure/docker/worker.Dockerfile
-    volumes:
-      - .:/app
-    env_file:
-      - .env.dev
-    environment:
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - AWS_DEFAULT_REGION=us-east-1
-      - AWS_REGION=us-east-1
-      # S3 Buckets
-      - AUDIO_BUCKET=media-summarizer-audio
-      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
-      - SUMMARY_BUCKET=media-summarizer-summaries
-      # DynamoDB Tables
-      - USERS_TABLE=users
-      - PROCESSING_JOBS_TABLE=processing_jobs
-      - CREDIT_TRANSACTIONS_TABLE=credit_transactions
-      # SQS Queues
-      - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
-      - TRANSCRIPTION_QUEUE=transcription-queue
-      - SUMMARIZATION_QUEUE=summarization-queue
-      - NOTIFICATION_QUEUE=email-notification-queue
-    depends_on:
-      localstack:
-        condition: service_healthy
-      terraform:
-        condition: service_completed_successfully
-    command: python -m media_summarizer.workers.download_worker
-
-  # Worker de résumé LLM
+# Worker de résumé LLM
   summarize-worker:
     profiles: [ "workers", "full" ]
     build:
@@ -151,7 +114,6 @@ services:
       - PROCESSING_JOBS_TABLE=processing_jobs
       - CREDIT_TRANSACTIONS_TABLE=credit_transactions
       # SQS Queues
-      - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
       - TRANSCRIPTION_QUEUE=transcription-queue
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
@@ -188,7 +150,6 @@ services:
       - PROCESSING_JOBS_TABLE=processing_jobs
       - CREDIT_TRANSACTIONS_TABLE=credit_transactions
       # SQS Queues
-      - AUDIO_DOWNLOAD_QUEUE=audio-download-queue
       - TRANSCRIPTION_QUEUE=transcription-queue
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue

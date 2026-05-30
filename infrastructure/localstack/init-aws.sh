@@ -176,7 +176,7 @@ done
 echo "📬 Creating SQS queues..."
 
 # Create main SQS queues
-queues=("audio-download-queue" "transcription-queue" "summarization-queue")
+queues=("transcription-queue" "summarization-queue")
 
 for queue in "${queues[@]}"; do
     if aws --endpoint-url=http://localhost:4566 sqs get-queue-url --queue-name "$queue" --region us-east-1 >/dev/null 2>&1; then
@@ -190,7 +190,7 @@ done
 # Create Dead Letter Queues (for production reliability)
 echo "📬 Creating Dead Letter Queues..."
 
-dlq_queues=("audio-download-dlq" "transcription-dlq" "summarization-dlq")
+dlq_queues=("transcription-dlq" "summarization-dlq")
 
 for dlq in "${dlq_queues[@]}"; do
     if aws --endpoint-url=http://localhost:4566 sqs get-queue-url --queue-name "$dlq" --region us-east-1 >/dev/null 2>&1; then
@@ -205,16 +205,6 @@ done
 if [ "$SETUP_DLQ_POLICIES" = "true" ]; then
     echo "⚙️ Configuring DLQ redrive policies..."
 
-    # Get DLQ ARNs
-    DOWNLOAD_DLQ_ARN=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes --queue-url http://localhost:4566/000000000000/audio-download-dlq --attribute-names QueueArn --query 'Attributes.QueueArn' --output text 2>/dev/null || echo "")
-
-    if [ -n "$DOWNLOAD_DLQ_ARN" ]; then
-        # Configure redrive policy for main queue (after 3 failures, send to DLQ)
-        aws --endpoint-url=http://localhost:4566 sqs set-queue-attributes \
-            --queue-url http://localhost:4566/000000000000/audio-download-queue \
-            --attributes "{\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"$DOWNLOAD_DLQ_ARN\\\",\\\"maxReceiveCount\\\":3}\"}" >/dev/null 2>&1
-        echo "✅ Configured DLQ policies"
-    fi
 fi
 
 echo "📧 Setting up SES..."
@@ -317,7 +307,6 @@ echo "   - media-summarizer-summaries"
 echo "   - test-data"
 echo ""
 echo "📬 Created SQS queues:"
-echo "   - audio-download-queue (+ DLQ)"
 echo "   - transcription-queue (+ DLQ)"
 echo "   - summarization-queue (+ DLQ)"
 echo ""

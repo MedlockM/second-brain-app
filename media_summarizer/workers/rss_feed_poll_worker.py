@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
 RSS_FEED_POLL_QUEUE = os.environ.get("RSS_FEED_POLL_QUEUE", "rss-feed-poll-queue")
 ARTICLE_EXTRACTION_QUEUE = os.environ.get("ARTICLE_EXTRACTION_QUEUE", "article-extraction-queue")
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get("DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue")
-AUDIO_DOWNLOAD_QUEUE = os.environ.get("AUDIO_DOWNLOAD_QUEUE", "audio-download-queue")
 
 # Polling interval: re-enqueue after this many seconds (default 1 hour)
 POLL_INTERVAL_SECONDS = int(os.environ.get("RSS_POLL_INTERVAL_SECONDS", "3600"))
@@ -40,7 +39,7 @@ async def _route_item_to_pipeline(
 ) -> None:
     """Route a single feed item to the appropriate ingestion queue.
 
-    - Audio items -> audio-download-queue (direct audio URL)
+    - Audio items -> deepgram-transcription-queue (direct audio URL, no download worker)
     - Article items -> article-extraction-queue (web URL)
     """
     import uuid
@@ -70,9 +69,9 @@ async def _route_item_to_pipeline(
     job = await database_async.create_processing_job(job)
 
     if item_type == "audio" and audio_url:
-        # Route to audio download
+        # Route to deepgram transcription (direct path, no download worker needed)
         await sqs.send_message(
-            queue_name=AUDIO_DOWNLOAD_QUEUE,
+            queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
             message_body={
                 "job_id": job.id,
                 "user_id": user_id,
@@ -89,7 +88,7 @@ async def _route_item_to_pipeline(
             logger,
             logging.INFO,
             "rss_poll.item_routed",
-            "RSS item routed to audio download",
+            "RSS item routed to deepgram transcription",
             job_id=job.id,
             item_type="audio",
             guid=guid,

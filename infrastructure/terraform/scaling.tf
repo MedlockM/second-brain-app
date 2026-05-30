@@ -175,7 +175,6 @@ resource "aws_iam_policy" "ecs_task_policy" {
         ]
         Resource = [
           aws_sqs_queue.rss_resolution.arn,
-          aws_sqs_queue.audio_download.arn,
           aws_sqs_queue.youtube_ingestion.arn,
           aws_sqs_queue.tiktok_ingestion.arn,
           aws_sqs_queue.deepgram_transcription.arn,
@@ -269,34 +268,6 @@ resource "aws_sqs_queue" "rss_resolution" {
 
   tags = {
     Name        = "podcastindex-resolution-queue"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-# Dead-letter queue for audio download
-resource "aws_sqs_queue" "audio_download_dlq" {
-  name = "audio-download-dlq"
-
-  tags = {
-    Name        = "audio-download-dlq"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-resource "aws_sqs_queue" "audio_download" {
-  name                       = "audio-download-queue"
-  visibility_timeout_seconds = 300
-  message_retention_seconds  = 1209600
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.audio_download_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = {
-    Name        = "audio-download-queue"
     Environment = var.environment
     Project     = var.project_name
   }
@@ -568,7 +539,6 @@ resource "aws_ecs_task_definition" "ephemeral_worker" {
     x             = { cpu = 256, memory = 512 }
     youtube       = { cpu = 512, memory = 1024 }
     tiktok        = { cpu = 512, memory = 1024 }
-    download      = { cpu = 512, memory = 1024 }
     deepgram      = { cpu = 1024, memory = 2048 }
     whisper       = { cpu = 1024, memory = 2048 }
     summarization = { cpu = 512, memory = 1024 }
@@ -738,7 +708,6 @@ resource "aws_iam_policy" "lambda_scaling" {
         ]
         Resource = [
           aws_sqs_queue.rss_resolution.arn,
-          aws_sqs_queue.audio_download.arn,
           aws_sqs_queue.x_ingestion.arn,
           aws_sqs_queue.youtube_ingestion.arn,
           aws_sqs_queue.tiktok_ingestion.arn,
@@ -801,7 +770,6 @@ resource "aws_lambda_function" "scaling_controller" {
       X_TASK_DEFINITION_ARN           = aws_ecs_task_definition.ephemeral_worker["x"].arn
       YOUTUBE_TASK_DEFINITION_ARN     = aws_ecs_task_definition.ephemeral_worker["youtube"].arn
       TIKTOK_TASK_DEFINITION_ARN      = aws_ecs_task_definition.ephemeral_worker["tiktok"].arn
-      DOWNLOAD_TASK_DEFINITION_ARN    = aws_ecs_task_definition.ephemeral_worker["download"].arn
       DEEPGRAM_TASK_DEFINITION_ARN    = aws_ecs_task_definition.ephemeral_worker["deepgram"].arn
       WHISPER_TASK_DEFINITION_ARN     = aws_ecs_task_definition.ephemeral_worker["whisper"].arn
       SUMMARIZATION_TASK_DEFINITION_ARN = aws_ecs_task_definition.ephemeral_worker["summarization"].arn
@@ -971,7 +939,6 @@ output "queue_urls" {
   value = {
     podcastindex_resolution = aws_sqs_queue.rss_resolution.url
     rss_resolution     = aws_sqs_queue.rss_resolution.url
-    audio_download     = aws_sqs_queue.audio_download.url
     transcription      = aws_sqs_queue.transcription.url
     x_ingestion        = aws_sqs_queue.x_ingestion.url
     youtube_ingestion  = aws_sqs_queue.youtube_ingestion.url

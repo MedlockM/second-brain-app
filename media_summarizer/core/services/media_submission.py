@@ -211,9 +211,9 @@ async def submit_media_for_user(
     # Persist update
     await database_async.update_processing_job(created_job)
 
-    # Enqueue download message
+    # Enqueue to deepgram transcription queue (direct path, no download worker needed)
     await sqs.send_message(
-        queue_name="audio-download-queue",
+        queue_name="deepgram-transcription-queue",
         message_body={
             "job_id": created_job.id,
             "user_id": user.id,

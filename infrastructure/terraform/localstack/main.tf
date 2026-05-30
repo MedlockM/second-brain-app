@@ -640,19 +640,6 @@ resource "aws_s3_bucket" "flashcards" {
 }
 
 # -------------------- SQS Queues (+ DLQs) --------------------
-resource "aws_sqs_queue" "audio_download_dlq" {
-  name = "audio-download-dlq"
-}
-
-resource "aws_sqs_queue" "audio_download" {
-  name = "audio-download-queue"
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.audio_download_dlq.arn
-    maxReceiveCount     = 3
-  })
-}
-
 resource "aws_sqs_queue" "transcription_dlq" { name = "transcription-dlq" }
 resource "aws_sqs_queue" "transcription" {
   name = "transcription-queue"
@@ -804,7 +791,6 @@ output "dynamodb_tables" {
 
 output "sqs_queues" {
   value = [
-    aws_sqs_queue.audio_download.name,
     aws_sqs_queue.transcription.name,
     aws_sqs_queue.podcastindex_resolution.name,
     aws_sqs_queue.deepgram_transcription.name,
@@ -934,7 +920,6 @@ resource "aws_lambda_function" "spotify_sync_worker" {
       SPOTIFY_FOLLOWS_TABLE          = aws_dynamodb_table.spotify_playlist_follows.name
       SPOTIFY_PLAYLIST_FOLLOWS_TABLE = aws_dynamodb_table.spotify_playlist_follows.name
       PROCESSING_JOBS_TABLE          = aws_dynamodb_table.processing_jobs.name
-      AUDIO_DOWNLOAD_QUEUE           = aws_sqs_queue.audio_download.name
       PODCASTINDEXORG_API_KEY        = var.podcastindex_api_key
       PODCASTINDEXORG_API_SECRET     = var.podcastindex_api_secret
       SPOTIFY_CLIENT_ID              = var.spotify_client_id
