@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: more
 ---
 
 # Benchmark: Lambda-only deployment for V1 backend (workers + FastAPI API)
 
 ## Owner Validation
 
-**Decision**: _(to be filled by owner after review)_
+**Decision**: re-vérifier l'hypothèse ffmpeg
 **Validated at**: _(ISO date to be filled by owner)_
 
 ---

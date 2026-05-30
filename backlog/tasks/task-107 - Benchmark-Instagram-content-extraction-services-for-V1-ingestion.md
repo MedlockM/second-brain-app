@@ -1,7 +1,7 @@
 ---
 id: task-107
 title: Benchmark Instagram content extraction services for V1 ingestion
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-28 14:17'
 labels:

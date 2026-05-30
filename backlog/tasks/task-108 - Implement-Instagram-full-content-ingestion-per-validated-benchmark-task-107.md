@@ -1,7 +1,7 @@
 ---
 id: task-108
 title: Implement Instagram full-content ingestion per validated benchmark (task-107)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-28 14:18'
 updated_date: '2026-05-28 16:41'
