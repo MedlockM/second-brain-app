@@ -1,25 +1,35 @@
 """
-Centralized rate limiting configuration and helpers.
+Rate limiting compatibility shim.
+
+In the Lambda-only architecture, rate limiting is handled by API Gateway
+throttling (per-route, per-stage). This module provides a no-op limiter
+so existing endpoint decorators (@limiter.limit(...)) remain valid without
+requiring the slowapi/redis dependencies.
 """
+
 import os
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 
 def _normalize_limit(value: str | None, default: str) -> str:
     v = (value or default).strip()
     if "/" not in v:
-        # Interpret lone numeric as per-minute
         v = f"{v}/minute"
     return v
-
-
-# Global limiter instance with env-driven default
-DEFAULT_RATE = _normalize_limit(os.environ.get("RATE_LIMIT_PER_MINUTE", "60/minute"), "60/minute")
-limiter = Limiter(key_func=get_remote_address, default_limits=[DEFAULT_RATE])
 
 
 def get_limit_from_env(var_name: str, default: str) -> str:
     """Return a normalized rate limit string from env or default (e.g. "10/minute")."""
     return _normalize_limit(os.environ.get(var_name), default)
 
+
+class _NoOpLimiter:
+    """A limiter that does nothing -- all rate enforcement is at the API Gateway layer."""
+
+    def limit(self, *args, **kwargs):
+        """Return a no-op decorator."""
+        def decorator(func):
+            return func
+        return decorator
+
+
+limiter = _NoOpLimiter()

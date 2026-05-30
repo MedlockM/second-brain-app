@@ -1,21 +1,16 @@
-# Example terraform.tfvars — copy to terraform.tfvars (gitignored) and fill in.
+# Example terraform.tfvars -- copy to terraform.tfvars (gitignored) and fill in.
 # `terraform apply` reads it automatically.
 
 aws_region   = "eu-west-3"
 environment  = "dev"        # or "staging", "prod"
 project_name = "media-summarizer"
 
-# VPC inputs (existing in your account)
-vpc_id     = "vpc-xxxxxxxx"
-subnet_ids = ["subnet-aaaa", "subnet-bbbb"]
-
-# Standalone secrets (kept for backward compatibility with the older
-# per-secret resources in scaling.tf — ECS workers reference these directly).
-openai_api_key   = "sk-..."
-deepgram_api_key = "..."
+# Optional: custom domain for API Gateway (leave empty to use the default endpoint)
+api_custom_domain = ""
+api_zone_id       = ""
 
 # Consolidated runtime secret payload. Every key listed here becomes an env var
-# inside Lambdas/ECS containers that mount this secret. Add or remove keys as
+# inside Lambda functions that mount this secret. Add or remove keys as
 # the V1 launch plan evolves.
 secret_payload = {
   # LLM / Transcription
@@ -39,7 +34,7 @@ secret_payload = {
   # Instagram (Apify)
   APIFY_API_TOKEN = ""
 
-  # Document parsing (LlamaParse primary + Unstructured fallback, task-90)
+  # Document parsing (LlamaParse primary + Unstructured fallback)
   LLAMAPARSE_API_KEY    = ""
   UNSTRUCTURED_API_KEY  = ""
 

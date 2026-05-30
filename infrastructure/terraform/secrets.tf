@@ -68,13 +68,6 @@ resource "aws_iam_policy" "runtime_secret_read" {
   })
 }
 
-# Existing ECS task execution role already has permission to fetch individual
-# secrets; attach the consolidated policy too.
-resource "aws_iam_role_policy_attachment" "ecs_task_execution_runtime_secret" {
-  role       = aws_iam_role.ecs_task_execution.name
-  policy_arn = aws_iam_policy.runtime_secret_read.arn
-}
-
 # Outputs so other modules / Lambda definitions can wire the secret into their
 # `environment` or `secrets` blocks without re-declaring it.
 output "runtime_secret_arn" {
