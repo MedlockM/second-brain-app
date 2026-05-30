@@ -1,5 +1,5 @@
 ---
-owner_decision: more
+owner_decision: pending
 ---
 
 # Benchmark: Lambda-only deployment for V1 backend (workers + FastAPI API)
