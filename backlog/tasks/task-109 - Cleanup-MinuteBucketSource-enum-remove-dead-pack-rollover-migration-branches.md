@@ -1,7 +1,7 @@
 ---
 id: task-109
 title: 'Cleanup MinuteBucketSource enum: remove dead pack/rollover/migration branches'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-29 08:46'
 labels:

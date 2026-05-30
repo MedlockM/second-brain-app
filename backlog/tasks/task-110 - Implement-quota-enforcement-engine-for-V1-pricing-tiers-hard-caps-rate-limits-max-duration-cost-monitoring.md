@@ -3,7 +3,7 @@ id: task-110
 title: >-
   Implement quota enforcement engine for V1 pricing tiers (hard caps + rate
   limits + max duration + cost monitoring)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-29 08:55'
 labels:
