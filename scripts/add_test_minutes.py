@@ -42,17 +42,18 @@ async def add_minutes(email: str, minutes: int = 100):
 
     print(f"✅ Found user: {user.id}")
 
-    # Create a minute bucket
+    # Create a minute bucket (subscription type for current month)
     now = datetime.now(timezone.utc)
     bucket_id = f"mb_{uuid.uuid4().hex[:16]}"
     bucket = MinuteBucket(
         id=bucket_id,
         user_id=user.id,
-        source_type=MinuteBucketSource.pack,
-        source_ref="test_pack",
+        source_type=MinuteBucketSource.subscription,
+        source_ref="test_subscription",
         minutes_total=minutes,
         minutes_remaining=minutes,
-        expires_at=now + timedelta(days=365),  # 1 year expiry
+        period_start=now,
+        period_end=now + timedelta(days=30),
     )
 
     await minute_db.create_minute_bucket(bucket)
@@ -60,7 +61,7 @@ async def add_minutes(email: str, minutes: int = 100):
     print(f"✅ Added {minutes} minutes to user {email}")
     print(f"   User ID: {user.id}")
     print(f"   Bucket ID: {bucket.id}")
-    print(f"   Expires: {bucket.expires_at}")
+    print(f"   Period end: {bucket.period_end}")
 
     # Show total available minutes
     from media_summarizer.core.services import minute_pool

@@ -1,7 +1,7 @@
 """
 Forecast service — compute per-podcast monthly minutes forecast using Podcast Index.
 
-Rules implemented (PAYMENT_SYSTEM_V2.md, section 3):
+Rules implemented:
 - If ≥ 4 months of history: average of last 4 calendar months
 - If = 3 months: average of last 3 months
 - If 1–2 months: average of last 2 months
