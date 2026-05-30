@@ -75,12 +75,10 @@ async def get_entitlements_status(
     - period_end date for subscription expiry tracking
     - auto_renew_status for renewal display
     - total remaining minutes across all sources
-    - breakdown by source type
     - offerings_config if user has no active subscription (for paywall display)
     """
     try:
         from media_summarizer.utils import minute_db
-        from media_summarizer.core.models.billing import MinuteBucketSource
 
         # Get active subscription
         subs = await minute_db.get_subscriptions_by_user_id(current_user.id)
@@ -103,23 +101,13 @@ async def get_entitlements_status(
         now = datetime.now(timezone.utc)
 
         total_remaining = 0
-        breakdown = {"subscription": 0, "pack": 0, "rollover": 0, "migration": 0}
 
         for b in buckets:
             # Skip expired buckets
             if b.expires_at and b.expires_at < now:
                 continue
 
-            mr = int(b.minutes_remaining or 0)
-            total_remaining += mr
-            if b.source_type == MinuteBucketSource.subscription:
-                breakdown["subscription"] += mr
-            elif b.source_type == MinuteBucketSource.pack:
-                breakdown["pack"] += mr
-            elif b.source_type == MinuteBucketSource.rollover:
-                breakdown["rollover"] += mr
-            elif b.source_type == MinuteBucketSource.migration:
-                breakdown["migration"] += mr
+            total_remaining += int(b.minutes_remaining or 0)
 
         is_active = active_sub is not None and active_sub.status.value in (
             "active", "grace_period", "canceled"
@@ -133,7 +121,6 @@ async def get_entitlements_status(
             "period_end": active_sub.current_period_end.isoformat() if active_sub and active_sub.current_period_end else None,
             "auto_renew_status": active_sub.auto_renew_status if active_sub else None,
             "minutes_remaining": total_remaining,
-            "breakdown": breakdown,
         }
 
         # Include offerings config if user has no active subscription

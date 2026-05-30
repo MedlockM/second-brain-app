@@ -3,14 +3,13 @@ Minute pool service — allocate holds for jobs, finalize on success, release on
 
 This service uses minute_db to operate on DynamoDB tables:
 - minute_usage: create holds (held), finalize (finalized), release (released)
-- minute_buckets: decrement minutes_remaining on finalize, in order:
-  rollover -> subscription -> packs (by earliest expiration)
+- minute_buckets: decrement minutes_remaining on finalize, sorted by period_end (oldest first)
 """
 from __future__ import annotations
 from typing import Dict, Any, List
 from datetime import datetime, timezone, timedelta
 
-from media_summarizer.core.models.billing import MinuteUsage, MinuteUsageStatus, MinuteBucketSource
+from media_summarizer.core.models.billing import MinuteUsage, MinuteUsageStatus
 from media_summarizer.utils import minute_db
 
 
@@ -83,21 +82,9 @@ async def finalize_usage(job_id: str, minutes_used: int) -> bool:
     # Load buckets
     buckets = await minute_db.get_minute_buckets_by_user_id(usage.user_id)
 
-    # Ordering: rollover -> subscription -> packs (by earliest expiry)
-    rollover = [b for b in buckets if b.source_type == MinuteBucketSource.rollover]
-    subs = [b for b in buckets if b.source_type == MinuteBucketSource.subscription]
-    packs = [b for b in buckets if b.source_type == MinuteBucketSource.pack]
-
-    # Sort rollover by earliest expiration (as per PAYMENT_SYSTEM_V2.md line 24)
-    rollover.sort(key=lambda b: b.expires_at or datetime.max.replace(tzinfo=timezone.utc))
-    
-    # Sort subscriptions by period_end (consume oldest period first)
-    subs.sort(key=lambda b: b.period_end or datetime.max.replace(tzinfo=timezone.utc))
-    
-    # Sort packs by earliest expiration
-    packs.sort(key=lambda b: b.expires_at or datetime.max.replace(tzinfo=timezone.utc))
-
-    ordered = rollover + subs + packs
+    # Sort subscription buckets by period_end (consume oldest period first)
+    # All buckets are now subscription type per pricing V1 model
+    ordered = sorted(buckets, key=lambda b: b.period_end or datetime.max.replace(tzinfo=timezone.utc))
 
     remaining = minutes_used
     breakdown: List[Dict[str, Any]] = []

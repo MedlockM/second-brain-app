@@ -2,10 +2,9 @@
 Script de test pour vérifier le système de gestion des minutes.
 
 Ce script teste :
-1. Création de buckets de différents types
-2. Consommation de minutes dans le bon ordre
-3. Rollover de minutes
-4. Nettoyage des holds expirés
+1. Création de buckets subscription
+2. Consommation de minutes dans le bon ordre (par period_end)
+3. Nettoyage des holds expirés
 
 Usage:
     python scripts/test_minutes_system.py
@@ -29,112 +28,102 @@ from media_summarizer.core.services import minute_pool
 
 
 async def test_bucket_creation():
-    """Test de création de buckets de différents types."""
+    """Test de création de buckets subscription."""
     print("\n" + "="*80)
-    print("TEST 1: Création de buckets")
+    print("TEST 1: Création de buckets subscription")
     print("="*80)
-    
+
     user_id = "test_user_minutes_system"
     now = datetime.now(timezone.utc)
-    
-    # Créer un bucket subscription
-    sub_bucket = MinuteBucket(
-        id=f"test_sub_{int(now.timestamp())}",
+
+    # Créer un bucket subscription pour la période actuelle
+    sub_bucket_1 = MinuteBucket(
+        id=f"test_sub_1_{int(now.timestamp())}",
         user_id=user_id,
         source_type=MinuteBucketSource.subscription,
-        source_ref="sub_test",
+        source_ref="sub_test_1",
         minutes_total=240,
         minutes_remaining=240,
         period_start=now,
         period_end=now + timedelta(days=30),
     )
-    await minute_db.create_minute_bucket(sub_bucket)
-    print(f"✅ Bucket subscription créé: {sub_bucket.id} (240 min)")
-    
-    # Créer un bucket pack
-    pack_bucket = MinuteBucket(
-        id=f"test_pack_{int(now.timestamp())}",
+    await minute_db.create_minute_bucket(sub_bucket_1)
+    print(f"✅ Bucket subscription 1 créé: {sub_bucket_1.id} (240 min, period +30d)")
+
+    # Créer un deuxième bucket subscription pour la période suivante
+    sub_bucket_2 = MinuteBucket(
+        id=f"test_sub_2_{int(now.timestamp())}",
         user_id=user_id,
-        source_type=MinuteBucketSource.pack,
-        source_ref="pack_300",
+        source_type=MinuteBucketSource.subscription,
+        source_ref="sub_test_2",
         minutes_total=300,
         minutes_remaining=300,
-        expires_at=now + timedelta(days=180),  # 6 mois
+        period_start=now + timedelta(days=30),
+        period_end=now + timedelta(days=60),
     )
-    await minute_db.create_minute_bucket(pack_bucket)
-    print(f"✅ Bucket pack créé: {pack_bucket.id} (300 min)")
-    
-    # Créer un bucket rollover
-    rollover_bucket = MinuteBucket(
-        id=f"test_rollover_{int(now.timestamp())}",
-        user_id=user_id,
-        source_type=MinuteBucketSource.rollover,
-        source_ref="sub_test",
-        minutes_total=50,
-        minutes_remaining=50,
-        expires_at=now + timedelta(days=30),  # 1 mois
-    )
-    await minute_db.create_minute_bucket(rollover_bucket)
-    print(f"✅ Bucket rollover créé: {rollover_bucket.id} (50 min)")
-    
+    await minute_db.create_minute_bucket(sub_bucket_2)
+    print(f"✅ Bucket subscription 2 créé: {sub_bucket_2.id} (300 min, period +30-60d)")
+
     # Vérifier le total
     total = await minute_pool.get_total_available_minutes(user_id)
     print(f"\n📊 Total minutes disponibles: {total} min")
-    assert total == 590, f"Expected 590, got {total}"
-    print("✅ Total correct (240 + 300 + 50 = 590)")
-    
-    return user_id, sub_bucket, pack_bucket, rollover_bucket
+    assert total == 540, f"Expected 540, got {total}"
+    print("✅ Total correct (240 + 300 = 540)")
+
+    return user_id, sub_bucket_1, sub_bucket_2
 
 
-async def test_consumption_order(user_id, sub_bucket, pack_bucket, rollover_bucket):
-    """Test de l'ordre de consommation."""
+async def test_consumption_order(user_id, sub_bucket_1, sub_bucket_2):
+    """Test de l'ordre de consommation par period_end."""
     print("\n" + "="*80)
-    print("TEST 2: Ordre de consommation")
+    print("TEST 2: Ordre de consommation (par period_end)")
     print("="*80)
-    
+
     # Créer un hold et le finaliser
     job_id = f"test_job_{int(datetime.now(timezone.utc).timestamp())}"
-    
-    # Allouer 30 minutes
-    await minute_pool.allocate_hold_for_job(user_id, job_id, minutes_estimated=30)
-    print(f"✅ Hold créé pour job {job_id} (30 min)")
-    
-    # Finaliser avec 30 minutes
-    success = await minute_pool.finalize_usage(job_id, minutes_used=30)
+
+    # Allouer et finaliser 100 minutes
+    await minute_pool.allocate_hold_for_job(user_id, job_id, minutes_estimated=100)
+    print(f"✅ Hold créé pour job {job_id} (100 min)")
+
+    success = await minute_pool.finalize_usage(job_id, minutes_used=100)
     assert success, "Finalization failed"
-    print(f"✅ Hold finalisé (30 min consommées)")
-    
-    # Vérifier que les minutes rollover ont été consommées en premier
-    rollover_updated = await minute_db.get_minute_buckets_by_user_id(user_id)
-    rollover_bucket_updated = next(b for b in rollover_updated if b.id == rollover_bucket.id)
-    
+    print(f"✅ Hold finalisé (100 min consommées)")
+
+    # Vérifier que les minutes du bucket 1 ont été consommées en premier (period_end plus ancien)
+    buckets_updated = await minute_db.get_minute_buckets_by_user_id(user_id)
+    sub_1_updated = next(b for b in buckets_updated if b.id == sub_bucket_1.id)
+    sub_2_updated = next(b for b in buckets_updated if b.id == sub_bucket_2.id)
+
     print(f"\n📊 Minutes restantes par bucket:")
-    print(f"  - Rollover: {rollover_bucket_updated.minutes_remaining}/50 (devrait être 20)")
-    
-    assert rollover_bucket_updated.minutes_remaining == 20, \
-        f"Expected rollover to have 20 min, got {rollover_bucket_updated.minutes_remaining}"
-    print("✅ Ordre de consommation correct (rollover consommé en premier)")
-    
-    # Consommer 40 minutes de plus (finir rollover + entamer subscription)
+    print(f"  - Subscription 1 (period +30d): {sub_1_updated.minutes_remaining}/240 (devrait être 140)")
+    print(f"  - Subscription 2 (period +30-60d): {sub_2_updated.minutes_remaining}/300 (devrait être 300)")
+
+    assert sub_1_updated.minutes_remaining == 140, \
+        f"Expected sub_1 to have 140 min, got {sub_1_updated.minutes_remaining}"
+    assert sub_2_updated.minutes_remaining == 300, \
+        f"Expected sub_2 to have 300 min, got {sub_2_updated.minutes_remaining}"
+    print("✅ Ordre de consommation correct (période la plus ancienne consommée en premier)")
+
+    # Consommer 200 minutes de plus (finir bucket 1 + entamer bucket 2)
     job_id_2 = f"test_job_2_{int(datetime.now(timezone.utc).timestamp())}"
-    await minute_pool.allocate_hold_for_job(user_id, job_id_2, minutes_estimated=40)
-    success = await minute_pool.finalize_usage(job_id_2, minutes_used=40)
+    await minute_pool.allocate_hold_for_job(user_id, job_id_2, minutes_estimated=200)
+    success = await minute_pool.finalize_usage(job_id_2, minutes_used=200)
     assert success, "Second finalization failed"
-    print(f"\n✅ 40 min supplémentaires consommées")
-    
+    print(f"\n✅ 200 min supplémentaires consommées")
+
     # Vérifier
-    buckets = await minute_db.get_minute_buckets_by_user_id(user_id)
-    rollover_final = next(b for b in buckets if b.id == rollover_bucket.id)
-    sub_final = next(b for b in buckets if b.id == sub_bucket.id)
-    
+    buckets_final = await minute_db.get_minute_buckets_by_user_id(user_id)
+    sub_1_final = next(b for b in buckets_final if b.id == sub_bucket_1.id)
+    sub_2_final = next(b for b in buckets_final if b.id == sub_bucket_2.id)
+
     print(f"\n📊 État final:")
-    print(f"  - Rollover: {rollover_final.minutes_remaining}/50 (devrait être 0)")
-    print(f"  - Subscription: {sub_final.minutes_remaining}/240 (devrait être 220)")
-    print(f"  - Pack: 300/300 (non touché)")
-    
-    assert rollover_final.minutes_remaining == 0, "Rollover should be empty"
-    assert sub_final.minutes_remaining == 220, "Subscription should have 220 min"
-    print("✅ Consommation correcte sur plusieurs buckets")
+    print(f"  - Subscription 1: {sub_1_final.minutes_remaining}/240 (devrait être 0)")
+    print(f"  - Subscription 2: {sub_2_final.minutes_remaining}/300 (devrait être 100)")
+
+    assert sub_1_final.minutes_remaining == 0, "Sub_1 should be empty"
+    assert sub_2_final.minutes_remaining == 100, "Sub_2 should have 100 min"
+    print("✅ Consommation correcte sur plusieurs buckets subscription")
 
 
 async def test_expired_holds():
@@ -142,11 +131,11 @@ async def test_expired_holds():
     print("\n" + "="*80)
     print("TEST 3: Nettoyage holds expirés")
     print("="*80)
-    
+
     # Créer un hold expiré
     user_id = "test_user_expired_holds"
     job_id = f"expired_job_{int(datetime.now(timezone.utc).timestamp())}"
-    
+
     expired_usage = MinuteUsage(
         id=f"mu_{job_id}",
         user_id=user_id,
@@ -157,20 +146,20 @@ async def test_expired_holds():
     )
     await minute_db.create_minute_usage(expired_usage)
     print(f"✅ Hold expiré créé: {expired_usage.id}")
-    
+
     # Scanner les holds expirés
     expired_holds = await minute_db.scan_expired_holds(limit=10)
     print(f"\n📊 Holds expirés trouvés: {len(expired_holds)}")
-    
+
     found_our_hold = any(h.id == expired_usage.id for h in expired_holds)
     assert found_our_hold, "Our expired hold should be found"
     print(f"✅ Notre hold expiré a été détecté")
-    
+
     # Marquer comme expiré
     expired_usage.status = MinuteUsageStatus.expired
     await minute_db.update_minute_usage(expired_usage)
     print(f"✅ Hold marqué comme expiré")
-    
+
     # Vérifier
     updated = await minute_db.get_minute_usage_by_job_id(job_id)
     assert updated.status == MinuteUsageStatus.expired, "Status should be expired"
@@ -193,25 +182,25 @@ async def main():
     print("="*80)
     print("\nCe script teste les fonctionnalités principales du système de minutes.")
     print("Assurez-vous que LocalStack est démarré et les tables créées.\n")
-    
+
     try:
         # Test 1: Création de buckets
-        user_id, sub_bucket, pack_bucket, rollover_bucket = await test_bucket_creation()
-        
+        user_id, sub_bucket_1, sub_bucket_2 = await test_bucket_creation()
+
         # Test 2: Ordre de consommation
-        await test_consumption_order(user_id, sub_bucket, pack_bucket, rollover_bucket)
-        
+        await test_consumption_order(user_id, sub_bucket_1, sub_bucket_2)
+
         # Test 3: Holds expirés
         await test_expired_holds()
-        
+
         # Nettoyage
         await cleanup_test_data()
-        
+
         print("\n" + "="*80)
         print("✅ TOUS LES TESTS SONT PASSÉS")
         print("="*80)
         print("\n🎉 Le système de gestion des minutes fonctionne correctement!\n")
-        
+
     except Exception as e:
         print("\n" + "="*80)
         print("❌ ÉCHEC DES TESTS")

@@ -99,9 +99,6 @@ class Subscription(BaseModel):
 
 class MinuteBucketSource(str, Enum):
     subscription = "subscription"
-    pack = "pack"
-    rollover = "rollover"
-    migration = "migration"
 
 
 class MinuteBucket(BaseModel):
@@ -113,7 +110,7 @@ class MinuteBucket(BaseModel):
     minutes_remaining: int = Field(..., ge=0)
     period_start: Optional[datetime] = None
     period_end: Optional[datetime] = None
-    expires_at: Optional[datetime] = None  # Used for TTL (packs, rollover)
+    expires_at: Optional[datetime] = None  # Optional TTL for bucket expiration
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
