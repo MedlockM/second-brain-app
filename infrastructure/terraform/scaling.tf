@@ -248,7 +248,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_policy" {
 
 # CloudWatch Log Groups
 resource "aws_cloudwatch_log_group" "workers" {
-  for_each = toset(["rss", "x", "youtube", "tiktok", "download", "deepgram", "whisper", "summarization"])
+  for_each = toset(["rss", "x", "youtube", "tiktok", "download", "deepgram", "summarization"])
 
   name              = "/ecs/${var.project_name}-${each.key}-worker"
   retention_in_days = 7
@@ -570,7 +570,6 @@ resource "aws_ecs_task_definition" "ephemeral_worker" {
     tiktok        = { cpu = 512, memory = 1024 }
     download      = { cpu = 512, memory = 1024 }
     deepgram      = { cpu = 1024, memory = 2048 }
-    whisper       = { cpu = 1024, memory = 2048 }
     summarization = { cpu = 512, memory = 1024 }
   }
 
@@ -602,7 +601,7 @@ resource "aws_ecs_task_definition" "ephemeral_worker" {
         },
         {
           name  = "MAX_PROCESSING_TIME"
-          value = contains(["whisper", "deepgram"], each.key) ? "3600" : "900"
+          value = contains(["deepgram"], each.key) ? "3600" : "900"
         },
         {
           name  = "HEARTBEAT_INTERVAL"
@@ -610,7 +609,7 @@ resource "aws_ecs_task_definition" "ephemeral_worker" {
         },
         {
           name  = "VISIBILITY_TIMEOUT"
-          value = contains(["whisper", "deepgram"], each.key) ? "1800" : "300"
+          value = contains(["deepgram"], each.key) ? "1800" : "300"
         }
       ]
 
@@ -803,7 +802,6 @@ resource "aws_lambda_function" "scaling_controller" {
       TIKTOK_TASK_DEFINITION_ARN      = aws_ecs_task_definition.ephemeral_worker["tiktok"].arn
       DOWNLOAD_TASK_DEFINITION_ARN    = aws_ecs_task_definition.ephemeral_worker["download"].arn
       DEEPGRAM_TASK_DEFINITION_ARN    = aws_ecs_task_definition.ephemeral_worker["deepgram"].arn
-      WHISPER_TASK_DEFINITION_ARN     = aws_ecs_task_definition.ephemeral_worker["whisper"].arn
       SUMMARIZATION_TASK_DEFINITION_ARN = aws_ecs_task_definition.ephemeral_worker["summarization"].arn
       SUBNET_IDS                      = join(",", var.subnet_ids)
       SECURITY_GROUP_IDS              = aws_security_group.fargate_tasks.id

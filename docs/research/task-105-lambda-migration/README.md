@@ -1,13 +1,13 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark: Lambda-only deployment for V1 backend (workers + FastAPI API)
 
 ## Owner Validation
 
-**Decision**: re-vérifier l'hypothèse ffmpeg
-**Validated at**: _(ISO date to be filled by owner)_
+**Decision**: Accept the recommendation as-is — Lambda functions deployed as **container images via ECR**, API Gateway HTTP API as front door, ARM/Graviton2, no VPC. The container format is retained **for dev/prod reproducibility** (single Dockerfile shared across local dev, CI and Lambda runtime, deterministic dep resolution, easier rollback, parity with the existing ECS Dockerfile we already maintain). The complement-response from 2026-05-30 confirmed that ffmpeg is not strictly required for V1 workloads, so a zip deployment would also fit under the 250 MB limit, but reproducibility wins over the marginal CI/cold-start gains of zip. Implementation should follow the architecture outlined in the Recommendation and Section 8/9 (Migration scope) of this README.
+**Validated at**: 2026-05-31
 
 ---
 
