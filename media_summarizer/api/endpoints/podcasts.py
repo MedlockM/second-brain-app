@@ -18,6 +18,11 @@ from media_summarizer.utils.database_async import get_db
 from media_summarizer.utils import database_async, sqs, podcast_index
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services import minute_pool
+from media_summarizer.core.services.quota_enforcer import (
+    check_submission_allowed,
+    record_submission,
+    estimate_submission_cost,
+)
 from media_summarizer.api.rate_limit import limiter, get_limit_from_env
 
 router = APIRouter()
@@ -193,7 +198,21 @@ async def submit_podcast_for_processing(
                 detail="Authenticated user not found",
             )
 
-        # (Removed legacy credits check) Minutes-based billing: availability enforced via minute holds.
+        # Quota enforcement check
+        # Determine source type: audio URL goes to deepgram (audio), otherwise RSS (audio/podcast)
+        submitted_url = (payload.podcast_url or "").strip()
+        _quota_platform = "audio" if _looks_like_audio_url(submitted_url) else "podcast"
+        quota_result = await check_submission_allowed(
+            user_id=user.id,
+            source_platform=_quota_platform,
+            duration_seconds=0,  # duration unknown at submission time
+        )
+        if not quota_result.allowed:
+            raise HTTPException(
+                status_code=quota_result.http_status,
+                detail=quota_result.message,
+                headers={"X-Quota-Error-Code": quota_result.error_code},
+            )
 
         # Create job (pending)
         job = ProcessingJob(
@@ -208,7 +227,6 @@ async def submit_podcast_for_processing(
             user_id=user.id, job_id=job.id, minutes_estimated=REQUIRED_MINUTES
         )
 
-        submitted_url = (payload.podcast_url or "").strip()
         if _looks_like_audio_url(submitted_url):
             # Direct audio URL path: send to Deepgram worker.
             await sqs.send_message(
@@ -234,6 +252,15 @@ async def submit_podcast_for_processing(
                     "source_platform": "rss",
                 },
             )
+
+        # Record quota usage after successful enqueue
+        estimated_cost = estimate_submission_cost(_quota_platform, duration_seconds=0)
+        await record_submission(
+            user_id=user.id,
+            source_platform=_quota_platform,
+            duration_seconds=0,
+            estimated_cost_eur=estimated_cost,
+        )
 
         return {"job_id": job.id, "status": job.status.value}
     except HTTPException:

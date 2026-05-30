@@ -26,6 +26,11 @@ from media_summarizer.core.services.minute_pool import (
     finalize_usage,
     get_total_available_minutes,
 )
+from media_summarizer.core.services.quota_enforcer import (
+    check_submission_allowed,
+    record_submission,
+    estimate_submission_cost,
+)
 
 
 async def submit_media_for_user(
@@ -63,6 +68,19 @@ async def submit_media_for_user(
             "message": f"Insufficient credits (Required: {minutes_required}, Available: {available})",
             "minutes_required": minutes_required,
             "minutes_available": available,
+        }
+
+    # 0b. Quota enforcement check (hard caps, rate limits, cost monitoring)
+    quota_result = await check_submission_allowed(
+        user_id=user.id,
+        source_platform=source or "audio",
+        duration_seconds=duration_seconds or 0,
+    )
+    if not quota_result.allowed:
+        return {
+            "status": "skipped",
+            "reason": quota_result.error_code,
+            "message": quota_result.message,
         }
 
     # Resolve folder_id: if provided, use it; otherwise leave None (assigned later or via default)
@@ -232,6 +250,15 @@ async def submit_media_for_user(
             "podcast_title": source_title,
             "episode_image": media_image,
         },
+    )
+
+    # Record submission in quota usage counters
+    estimated_cost = estimate_submission_cost(source or "audio", duration_seconds or 0)
+    await record_submission(
+        user_id=user.id,
+        source_platform=source or "audio",
+        duration_seconds=duration_seconds or 0,
+        estimated_cost_eur=estimated_cost,
     )
 
     return {
