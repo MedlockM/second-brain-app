@@ -3,7 +3,7 @@ id: task-112
 title: >-
   Use Apify Reel Scraper transcript field when available, fallback to Deepgram
   on downloadedVideo
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-31 21:57'
 labels:
