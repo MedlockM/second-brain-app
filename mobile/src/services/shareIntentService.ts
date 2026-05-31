@@ -1,4 +1,13 @@
 import { Platform } from "react-native";
+import type { SharedFileAttachment } from "../types/sharedContent";
+
+/**
+ * The type of content being shared.
+ * - "url": Text containing a URL (existing flow)
+ * - "text": Plain text with no URL (WhatsApp text message)
+ * - "audio": Audio file attachment (WhatsApp voice message)
+ */
+export type ShareContentType = "url" | "text" | "audio";
 
 /**
  * Represents a parsed share intent payload.
@@ -6,6 +15,10 @@ import { Platform } from "react-native";
 export interface ShareIntentPayload {
   /** The raw text/URL shared from the external app */
   text: string | null;
+  /** Audio file attachment, if an audio file was shared */
+  files: SharedFileAttachment[];
+  /** The detected content type of the share */
+  contentType: ShareContentType;
   /** The source app bundle ID or name, if available */
   sourceApp?: string;
   /** Timestamp when the share was received */
@@ -51,9 +64,18 @@ export class ShareIntentService {
    * Called when a share intent is received (from native module or URL scheme).
    * Dispatches to all registered listeners, or queues if none are registered yet.
    */
-  static receive(rawText: string | null, sourceApp?: string): void {
+  static receive(
+    rawText: string | null,
+    sourceApp?: string,
+    options?: {
+      files?: SharedFileAttachment[];
+      contentType?: ShareContentType;
+    },
+  ): void {
     const payload: ShareIntentPayload = {
       text: rawText,
+      files: options?.files ?? [],
+      contentType: options?.contentType ?? "url",
       sourceApp: sourceApp ?? this.getDefaultSourceApp(),
       receivedAt: new Date().toISOString(),
     };
@@ -66,6 +88,31 @@ export class ShareIntentService {
       // Queue for later consumption
       this.pendingPayload = payload;
     }
+  }
+
+  /**
+   * Called when an audio file is shared (WhatsApp voice message).
+   * Creates a payload with contentType "audio" and the file attachment.
+   */
+  static receiveAudioFile(
+    file: SharedFileAttachment,
+    sourceApp?: string,
+  ): void {
+    this.receive(null, sourceApp, {
+      files: [file],
+      contentType: "audio",
+    });
+  }
+
+  /**
+   * Called when plain text without a URL is shared (WhatsApp text message).
+   * Creates a payload with contentType "text".
+   */
+  static receiveText(text: string, sourceApp?: string): void {
+    this.receive(text, sourceApp, {
+      files: [],
+      contentType: "text",
+    });
   }
 
   /**

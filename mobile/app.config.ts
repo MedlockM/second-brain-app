@@ -41,6 +41,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         category: ["DEFAULT"],
         data: [{ mimeType: "text/plain" }],
       },
+      {
+        action: "SEND",
+        category: ["DEFAULT"],
+        data: [
+          { mimeType: "audio/*" },
+        ],
+      },
     ],
   },
   plugins: [
@@ -54,6 +61,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         iosActivationRules: {
           NSExtensionActivationSupportsWebURLWithMaxCount: 1,
           NSExtensionActivationSupportsText: true,
+          NSExtensionActivationSupportsFileWithMaxCount: 1,
         },
       },
     ],
