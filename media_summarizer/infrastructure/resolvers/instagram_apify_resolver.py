@@ -8,6 +8,11 @@ Orchestrates three Apify actors to cover all Instagram content types:
 
 All scrapers also return the caption field for text content.
 
+For Reels, when the Apify actor returns a `transcript` field of sufficient length
+(and the feature flag is enabled), the resolver populates `ResolvedMedia.raw_text`
+directly — bypassing Deepgram transcription entirely. Otherwise it falls back to
+`downloadedVideo` (or `videoUrl`) as `audio_url` for Deepgram.
+
 Environment variables:
     APIFY_API_TOKEN: API token for Apify (required)
     APIFY_INSTAGRAM_REEL_ACTOR_ID: Actor ID for Instagram Reel Scraper
@@ -19,6 +24,10 @@ Environment variables:
     APIFY_TIMEOUT_SECONDS: Request timeout (default 60)
     APIFY_POLL_INTERVAL_SECONDS: Poll interval for actor run status (default 3)
     APIFY_MAX_POLLS: Maximum number of poll attempts (default 40)
+    INSTAGRAM_TRANSCRIPT_MIN_LENGTH: Minimum transcript character count
+        to accept the Apify-provided transcript (default: 20)
+    INSTAGRAM_USE_APIFY_TRANSCRIPT: Feature flag to enable/disable transcript
+        bypass; when false, always falls back to Deepgram (default: true)
 """
 
 from __future__ import annotations
@@ -28,6 +37,7 @@ import logging
 import os
 from enum import Enum
 from typing import Any, Optional
+
 from urllib.parse import urlsplit
 
 import httpx
@@ -64,6 +74,14 @@ APIFY_POLL_INTERVAL_SECONDS = float(
     os.environ.get("APIFY_POLL_INTERVAL_SECONDS", "3")
 )
 APIFY_MAX_POLLS = int(os.environ.get("APIFY_MAX_POLLS", "40"))
+
+# Transcript bypass configuration (task-112)
+INSTAGRAM_TRANSCRIPT_MIN_LENGTH = int(
+    os.environ.get("INSTAGRAM_TRANSCRIPT_MIN_LENGTH", "20")
+)
+INSTAGRAM_USE_APIFY_TRANSCRIPT = os.environ.get(
+    "INSTAGRAM_USE_APIFY_TRANSCRIPT", "true"
+).strip().lower() in ("true", "1", "yes")
 
 
 class InstagramContentType(str, Enum):
@@ -119,6 +137,21 @@ def _detect_instagram_content_type(normalized_url: str) -> InstagramContentType:
     )
 
 
+def _is_valid_transcript(
+    transcript: Optional[str],
+    *,
+    min_length: int = INSTAGRAM_TRANSCRIPT_MIN_LENGTH,
+    use_apify_transcript: bool = INSTAGRAM_USE_APIFY_TRANSCRIPT,
+) -> bool:
+    """Check whether a transcript from Apify is usable."""
+    if not use_apify_transcript:
+        return False
+    if not transcript:
+        return False
+    stripped = transcript.strip()
+    return len(stripped) >= min_length
+
+
 def _extract_video_url_from_reel_result(item: dict[str, Any]) -> Optional[str]:
     """Extract the best video URL from an Apify Reel Scraper result item."""
     # Prefer the hosted downloadedVideo (3-day TTL, reliable)
@@ -132,6 +165,19 @@ def _extract_video_url_from_reel_result(item: dict[str, Any]) -> Optional[str]:
         return video_url.strip()
 
     return None
+
+
+def _select_transcript_source_from_fallback(item: dict[str, Any]) -> str:
+    """Determine the transcript_source label based on which video URL is used."""
+    downloaded = item.get("downloadedVideo")
+    if isinstance(downloaded, str) and downloaded.strip().startswith("http"):
+        return "deepgram_pending"
+
+    video_url = item.get("videoUrl")
+    if isinstance(video_url, str) and video_url.strip().startswith("http"):
+        return "deepgram_pending_cdn_fallback"
+
+    return "deepgram_pending"
 
 
 def _extract_video_url_from_post_result(item: dict[str, Any]) -> Optional[str]:
@@ -223,6 +269,11 @@ class InstagramApifyResolver(ContentResolverPort):
     Implements the ContentResolverPort interface. Orchestrates Apify actors
     to extract video URLs, image URLs, captions, and comments from Instagram
     content (Reels, Posts, Carousels, IGTV).
+
+    Transcript bypass (task-112):
+        For Reels, when the actor returns a non-empty `transcript` field meeting
+        the minimum length threshold (and the feature flag is enabled), the
+        resolver populates `raw_text` directly -- no Deepgram call needed.
     """
 
     def __init__(
@@ -232,12 +283,24 @@ class InstagramApifyResolver(ContentResolverPort):
         reel_actor_id: Optional[str] = None,
         post_actor_id: Optional[str] = None,
         comment_actor_id: Optional[str] = None,
+        transcript_min_length: Optional[int] = None,
+        use_apify_transcript: Optional[bool] = None,
     ):
         self._api_token = api_token or APIFY_API_TOKEN
         self._timeout = timeout or APIFY_TIMEOUT_SECONDS
         self._reel_actor_id = reel_actor_id or APIFY_INSTAGRAM_REEL_ACTOR_ID
         self._post_actor_id = post_actor_id or APIFY_INSTAGRAM_POST_ACTOR_ID
         self._comment_actor_id = comment_actor_id or APIFY_INSTAGRAM_COMMENT_ACTOR_ID
+        self._transcript_min_length = (
+            transcript_min_length
+            if transcript_min_length is not None
+            else INSTAGRAM_TRANSCRIPT_MIN_LENGTH
+        )
+        self._use_apify_transcript = (
+            use_apify_transcript
+            if use_apify_transcript is not None
+            else INSTAGRAM_USE_APIFY_TRANSCRIPT
+        )
 
     @property
     def key(self) -> str:
@@ -336,7 +399,12 @@ class InstagramApifyResolver(ContentResolverPort):
         context: ResolveContext,
         content_type: InstagramContentType,
     ) -> ResolvedMedia:
-        """Resolve a Reel or IGTV URL using the Reel Scraper actor."""
+        """Resolve a Reel or IGTV URL using the Reel Scraper actor.
+
+        If the actor returns a usable transcript (above minimum length threshold
+        and feature flag enabled), bypasses Deepgram by populating raw_text directly.
+        Otherwise falls back to audio_url for Deepgram transcription.
+        """
         results = await self._run_actor(
             actor_id=self._reel_actor_id,
             input_data={"directUrls": [context.normalized_url]},
@@ -348,28 +416,109 @@ class InstagramApifyResolver(ContentResolverPort):
             )
 
         item = results[0]
+        caption = _extract_caption(item)
+
+        # Extract transcript from Apify result
+        transcript_raw = item.get("transcript")
+        transcript_text = (
+            (transcript_raw or "").strip()
+            if isinstance(transcript_raw, str)
+            else ""
+        )
+
+        # Determine duration from Apify metadata (seconds)
+        video_duration = item.get("videoDuration") or item.get("duration")
+        duration_seconds: Optional[float] = None
+        if video_duration is not None:
+            try:
+                duration_seconds = float(video_duration)
+            except (ValueError, TypeError):
+                duration_seconds = None
+
+        # Fetch comments asynchronously (non-blocking for the main resolution)
+        comments = await self._fetch_comments(context.normalized_url)
+
+        # Check if we can bypass Deepgram with Apify's transcript
+        if _is_valid_transcript(
+            transcript_text,
+            min_length=self._transcript_min_length,
+            use_apify_transcript=self._use_apify_transcript,
+        ):
+            # Transcript bypass: skip Deepgram entirely
+            transcript_source = "apify_native"
+            metadata: dict[str, Any] = {
+                "resolver_version": "v2",
+                "provider": "apify",
+                "provider_actor": self._reel_actor_id,
+                "instagram_content_type": content_type.value,
+                "transcript_source": transcript_source,
+                "transcript_char_count": len(transcript_text),
+                "audio_url_available": False,
+                "resolution_mode": "apify_transcript_inline",
+                "caption": caption,
+                "comments": comments,
+                "comments_count": len(comments),
+            }
+            if duration_seconds is not None:
+                metadata["duration_seconds"] = duration_seconds
+
+            resolved = ResolvedMedia(
+                media_key=context.media_key,
+                normalized_url=context.normalized_url,
+                media_family=MediaFamily.SOCIAL_VIDEO,
+                media_type=MediaType.SHORT_VIDEO,
+                source_platform=SourcePlatform.INSTAGRAM,
+                resolver_key=self.key,
+                raw_text=transcript_text,
+                title=caption[:100] if caption else None,
+                metadata=metadata,
+            )
+
+            log_event(
+                logger,
+                logging.INFO,
+                "instagram.reel.transcript_source",
+                "Instagram reel resolved with Apify native transcript",
+                source_platform=SourcePlatform.INSTAGRAM.value,
+                resolver_key=self.key,
+                media_type=MediaType.SHORT_VIDEO.value,
+                provider="apify",
+                instagram_content_type=content_type.value,
+                transcript_source=transcript_source,
+                transcript_char_count=len(transcript_text),
+            )
+
+            return resolved
+
+        # Fallback: use video URL for Deepgram transcription
         video_url = _extract_video_url_from_reel_result(item)
         if not video_url:
             raise NonRetryableProviderResolutionError(
                 "Unable to resolve transcribable media from this Instagram URL."
             )
 
-        caption = _extract_caption(item)
+        transcript_source = _select_transcript_source_from_fallback(item)
 
-        # Fetch comments asynchronously (non-blocking for the main resolution)
-        comments = await self._fetch_comments(context.normalized_url)
-
-        metadata: dict[str, Any] = {
+        metadata = {
             "resolver_version": "v2",
             "provider": "apify",
             "provider_actor": self._reel_actor_id,
             "instagram_content_type": content_type.value,
+            "transcript_source": transcript_source,
             "audio_url_available": True,
             "resolution_mode": "provider_inline",
             "caption": caption,
             "comments": comments,
             "comments_count": len(comments),
         }
+        if duration_seconds is not None:
+            metadata["duration_seconds"] = duration_seconds
+        if transcript_raw is not None:
+            metadata["apify_transcript_available"] = bool(transcript_text)
+            metadata["apify_transcript_length"] = len(transcript_text)
+            metadata["apify_transcript_below_threshold"] = (
+                len(transcript_text) < self._transcript_min_length
+            )
 
         resolved = ResolvedMedia(
             media_key=context.media_key,
@@ -386,14 +535,15 @@ class InstagramApifyResolver(ContentResolverPort):
         log_event(
             logger,
             logging.INFO,
-            "resolver.completed",
-            "Instagram reel resolver completed via Apify",
+            "instagram.reel.transcript_source",
+            "Instagram reel resolved with audio fallback for Deepgram",
             source_platform=SourcePlatform.INSTAGRAM.value,
             resolver_key=self.key,
             media_type=MediaType.SHORT_VIDEO.value,
             provider="apify",
             instagram_content_type=content_type.value,
-            fallback_strategy="provider_inline",
+            transcript_source=transcript_source,
+            audio_url_available=True,
         )
 
         return resolved
