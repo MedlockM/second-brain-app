@@ -38,6 +38,8 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
     "requests>=2.31.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
 ]
 
 [build-system]

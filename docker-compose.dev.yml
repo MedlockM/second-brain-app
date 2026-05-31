@@ -43,53 +43,7 @@ services:
         condition: service_completed_successfully
     command: uvicorn media_summarizer.api.main:app --host 0.0.0.0 --port 8000
 
-  # Service de transcription Whisper
-  whisper:
-    profiles: [ "whisper", "workers", "full" ]
-    build:
-      context: .
-      dockerfile: infrastructure/docker/whisper.Dockerfile
-      args:
-        - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-tiny} # From .env.dev; default to tiny for speed build
-    volumes:
-      - .:/app
-    env_file:
-      - .env.dev
-    environment:
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - AWS_DEFAULT_REGION=us-east-1
-      - AWS_REGION=us-east-1
-      # Force small model at runtime; build preloads via arg but runtime uses this
-      - WHISPER_MODEL=small
-      - ENVIRONMENT=development
-      - SQS_MAX_MESSAGES=1
-      - SQS_WAIT_TIME=1
-      - SQS_VISIBILITY_TIMEOUT=120
-      - SQS_HEARTBEAT_INTERVAL=60
-      - ENABLE_FAST_POLLING=true
-      - TEST_MODE=true
-      # S3 Buckets
-      - AUDIO_BUCKET=media-summarizer-audio
-      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
-      - SUMMARY_BUCKET=media-summarizer-summaries
-      # DynamoDB Tables
-      - USERS_TABLE=users
-      - PROCESSING_JOBS_TABLE=processing_jobs
-      - CREDIT_TRANSACTIONS_TABLE=credit_transactions
-      # SQS Queues
-      - TRANSCRIPTION_QUEUE=transcription-queue
-      - SUMMARIZATION_QUEUE=summarization-queue
-      - NOTIFICATION_QUEUE=email-notification-queue
-    depends_on:
-      localstack:
-        condition: service_healthy
-      terraform:
-        condition: service_completed_successfully
-
-  # Worker de téléchargement audio
-# Worker de résumé LLM
+  # Worker de résumé LLM
   summarize-worker:
     profiles: [ "workers", "full" ]
     build:
@@ -243,7 +197,7 @@ services:
 
   # LocalStack pour simuler les services AWS (incluant DynamoDB)
   localstack:
-    profiles: [ "infrastructure", "api", "workers", "whisper", "full" ]
+    profiles: [ "infrastructure", "api", "workers", "full" ]
     image: localstack/localstack:3.0
     ports:
       - "4566:4566"

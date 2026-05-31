@@ -40,7 +40,6 @@ class Settings:
         self.FLASHCARDS_BUCKET = os.getenv("FLASHCARDS_BUCKET", "media-summarizer-flashcards")
 
         # SQS Queues
-        self.DOWNLOAD_QUEUE = os.getenv("DOWNLOAD_QUEUE", "download-queue")
         self.TRANSCRIPTION_QUEUE = os.getenv("TRANSCRIPTION_QUEUE", "transcription-queue")
         self.DEEPGRAM_TRANSCRIPTION_QUEUE = os.getenv(
             "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"

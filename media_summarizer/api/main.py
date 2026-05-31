@@ -26,7 +26,6 @@ from media_summarizer.api.endpoints import auth
 from media_summarizer.api.endpoints import auth_social
 from media_summarizer.api.endpoints import entitlements
 from media_summarizer.api.endpoints import revenucat_webhook
-from media_summarizer.api.endpoints import episodes
 from media_summarizer.api.endpoints import folders
 from media_summarizer.api.endpoints import search
 from media_summarizer.api.endpoints import feeds
@@ -149,7 +148,6 @@ app.include_router(
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(podcasts.router, prefix="/api/v1", tags=["podcasts"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
-app.include_router(episodes.router, prefix="/api/v1", tags=["episodes"])
 app.include_router(folders.router, prefix="/api/folders", tags=["folders"])
 app.include_router(review.router, prefix="/api", tags=["review"])
 app.include_router(tags.router, prefix="/api/tags", tags=["tags"])
