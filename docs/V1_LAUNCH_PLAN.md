@@ -1,7 +1,7 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-05-28.
+> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-05-31.
 
 ---
 
@@ -17,7 +17,7 @@
 | Audio file (upload direct) | OK | — |
 | **X (Twitter)** | OK — worker, resolver, classifier, orchestrator câblés | — (bearer token à renseigner dans `.env` local + AWS Secrets Manager prod) |
 | **TikTok** | OK — worker dédié + 2-tier rate limiter (pacing + quota horaire) | — |
-| **Instagram** | OK — Apify resolver (Reel/Post/Comment Scrapers) + orchestrator dispatch câblés | Clé Apify à fournir |
+| **Instagram** | OK — Apify resolver (Reel/Post/Comment Scrapers) + orchestrator dispatch câblés | OK (token + 3 actor IDs en local dans `.env`) |
 | Shared text | OK | — |
 | **Documents (PDF/DOCX/PPTX)** | OK — LlamaParse resolver (primary) + Unstructured resolver (fallback) + document_parsing worker câblés | — (clés LlamaParse + Unstructured à renseigner dans `.env` local + AWS Secrets Manager prod) |
 
@@ -52,7 +52,7 @@ Aucune tâche bloquante V1 ouverte côté code au 2026-05-20.
 | **Deepgram** | usage-based | Transcription audio | OK (compte créé, clé en local dans `.env`) |
 | **Algolia** | gratuit < 10k records | Search lexical | OK (App ID + Admin API key + index name en local dans `.env`) |
 | **PodcastIndex.org** | gratuit | Resolver podcasts | OK (compte créé, clé+secret en local dans `.env`) |
-| **Apify** | usage-based / API token | Resolver Instagram (Reel + Post + Comment Scrapers) | À créer |
+| **Apify** | usage-based / API token | Resolver Instagram (Reel + Post + Comment Scrapers) | OK (token + 3 actor IDs en local dans `.env`) |
 | **LlamaParse** (LlamaIndex Cloud) | gratuit free tier (1000 pages/jour) | Resolver documents primaire (PDF/DOCX/PPTX) | OK (compte créé, clé en local dans `.env`) |
 | **Unstructured.io** | 15 000 pages gratuites au début, puis usage-based | Resolver documents fallback | OK (compte créé, clé en local dans `.env`) |
 | **X (Developer Platform)** | Free tier OK pour V1 | Lecture API X | OK (compte créé, bearer token en local dans `.env`) |
@@ -204,7 +204,7 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 3. AWS account + IAM admin user + facturation alarms.
 4. Expo / EAS account + lien vers le repo.
 5. RevenueCat account + projet + apps iOS/Android (clés générées).
-6. Comptes API à créer : Apify. (OpenAI, Deepgram, PodcastIndex, X Developer, LlamaParse, Unstructured.io et Algolia déjà configurés — voir `.env` local.)
+6. Comptes API tiers : tous configurés au 2026-05-31 (clés présentes dans `.env`) — **OpenAI**, **Deepgram**, **PodcastIndex.org**, **X Developer Platform**, **Apify**, **LlamaParse**, **Unstructured.io**, **Algolia**. Restent à provisionner : **Apple Developer** (Sign in with Apple Service ID + Key .p8 + Team ID + Key ID), **Google Cloud Console** (3 OAuth Client IDs : iOS, Android, Web), **RevenueCat** (projet + 3 produits + webhook).
 7. **Google Cloud Console** : créer un projet, activer l'écran de consentement OAuth (External, scopes openid + email + profile), créer **3 OAuth Client IDs** : iOS (avec bundle id), Android (avec SHA-1 du keystore EAS), Web (utilisé par le backend pour vérifier le `aud` du id_token).
 8. **Apple Developer** : créer un **Sign in with Apple Service ID** (ex: `com.yourdomain.app.signinwithapple`), créer une **Sign in with Apple Key** (récupérer le `.p8` private key + Key ID), récupérer le Team ID, configurer le Return URL pour le backend.
 
@@ -324,18 +324,19 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 Une fois ces inscriptions faites, plus aucun blocage code :
 
 - [ ] Apple Developer Program activé (peut prendre 24-48h)
-- [ ] **Apple Sign in with Apple Service ID + Key (.p8) générés** + Team ID, Key ID renseignés
+- [ ] **Apple Sign in with Apple Service ID + Key (.p8) générés** + Team ID, Key ID renseignés (`APPLE_TEAM_ID` + `APPLE_KEY_ID` vides dans `.env` ; `APPLE_PRIVATE_KEY`, `APPLE_CLIENT_ID`, `APPLE_REDIRECT_URI` déjà renseignés)
 - [ ] Google Play Console activé (immédiat)
-- [ ] **Google Cloud Console : 3 OAuth Client IDs créés (iOS, Android, Web) + écran de consentement publié**
+- [ ] **Google Cloud Console : 3 OAuth Client IDs créés (iOS, Android, Web) + écran de consentement publié** (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` côté backend déjà renseignés ; les 3 client IDs mobile/web restent à créer côté Google Cloud)
 - [x] X Developer App approuvée + bearer token (en local dans `.env`)
-- [ ] Apify API token obtenu
+- [x] Apify API token + 3 actor IDs (Reel + Post + Comment Scrapers) obtenus — en local dans `.env`
 - [x] LlamaParse API key obtenue (free tier 1000 pages/jour) — en local dans `.env`
 - [x] Unstructured.io API key obtenue (15 000 pages gratuites au démarrage) — en local dans `.env`
 - [x] PodcastIndex API key + secret obtenus (en local dans `.env`)
 - [x] OpenAI API key + budget configuré (en local dans `.env`)
 - [x] Deepgram API key + budget configuré (en local dans `.env`)
-- [x] Algolia App créée + index `transcripts` configuré (App ID + Admin API key + index name en local dans `.env`)
-- [ ] RevenueCat projet + 3 produits par store + webhook configuré
+- [x] Algolia App créée + index configuré (App ID + Admin API key + index name en local dans `.env`)
+- [ ] RevenueCat projet + 3 produits par store + webhook configuré (`REVENUCAT_API_KEY` + `REVENUCAT_PROJECT_ID` + `REVENUCAT_WEBHOOK_SECRET` vides dans `.env`)
+- [ ] Pricing admin secret généré (`PRICING_ADMIN_SECRET` vide dans `.env`, requis pour `PUT /api/pricing/admin`)
 
 ---
 

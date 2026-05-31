@@ -1,7 +1,7 @@
 ---
 id: task-61
 title: Support WhatsApp shared text and audio ingestion in the share-first pipeline
-status: To Do
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-03-20 21:50'
