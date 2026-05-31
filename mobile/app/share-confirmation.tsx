@@ -24,16 +24,23 @@ import {
 
 /**
  * Share confirmation screen.
- * Displayed when a URL is shared into the app via Android share intent.
+ * Displayed when content is shared into the app via Android share intent
+ * or iOS share extension.
+ *
+ * Supports three content types:
+ * - URL: existing flow via ingest-url
+ * - Text: WhatsApp text messages via ingest-shared-content
+ * - Audio: WhatsApp voice messages via ingest-shared-content
  *
  * Layout follows the design reference (confirmation_de_partage_version_finale):
  * - Top bar: close button (left), title (center), save button (right)
- * - Media preview card with URL
+ * - Content preview card
  * - Feedback states: submitting, success, error
  */
 export default function ShareConfirmationScreen() {
   const router = useRouter();
-  const { intake, submitUrl, dismiss, retry } = useShareIntake();
+  const { intake, submitUrl, submitSharedContent, dismiss, retry } =
+    useShareIntake();
 
   // Auto-dismiss on success after a brief delay
   useEffect(() => {
@@ -55,7 +62,11 @@ export default function ShareConfirmationScreen() {
   };
 
   const handleSave = () => {
-    submitUrl();
+    if (intake.contentType === "url") {
+      submitUrl();
+    } else {
+      submitSharedContent();
+    }
   };
 
   const handleRetry = () => {
@@ -63,6 +74,13 @@ export default function ShareConfirmationScreen() {
   };
 
   const canSave = intake.status === "ready" || intake.status === "error";
+
+  const topBarTitle =
+    intake.contentType === "audio"
+      ? "Save Audio"
+      : intake.contentType === "text"
+        ? "Save Text"
+        : "Save Link";
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -77,7 +95,7 @@ export default function ShareConfirmationScreen() {
           <Ionicons name="close" size={24} color={Colors.textMain} />
         </Pressable>
 
-        <Text style={styles.topBarTitle}>Save Link</Text>
+        <Text style={styles.topBarTitle}>{topBarTitle}</Text>
 
         <Pressable
           style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
@@ -134,22 +152,51 @@ function ShareContent({
       );
 
     case "ready":
+      if (intake.contentType === "audio" && intake.audioFile) {
+        return (
+          <AudioPreviewCard
+            fileName={intake.audioFile.fileName}
+            mimeType={intake.audioFile.mimeType}
+            fileSize={intake.audioFile.fileSize}
+          />
+        );
+      }
+      if (intake.contentType === "text" && intake.rawText) {
+        return <TextPreviewCard text={intake.rawText} />;
+      }
       return <UrlPreviewCard url={intake.url!} />;
 
     case "submitting":
+      if (intake.contentType === "audio" && intake.audioFile) {
+        return (
+          <AudioPreviewCard
+            fileName={intake.audioFile.fileName}
+            mimeType={intake.audioFile.mimeType}
+            fileSize={intake.audioFile.fileSize}
+            isSubmitting
+          />
+        );
+      }
+      if (intake.contentType === "text" && intake.rawText) {
+        return <TextPreviewCard text={intake.rawText} isSubmitting />;
+      }
       return <UrlPreviewCard url={intake.url!} isSubmitting />;
 
     case "success":
       return (
         <View style={styles.centerContent}>
           <View style={styles.successIcon}>
-            <Ionicons name="checkmark-circle" size={48} color="#4caf50" />
+            <Ionicons name="checkmark-circle" size={48} color={Colors.primary} />
           </View>
           <Text style={styles.successTitle}>Saved!</Text>
           <Text style={styles.successMessage}>
             {intake.response?.deduplicated
-              ? "This link was already in your inbox."
-              : "Link added to your inbox. Processing will begin shortly."}
+              ? "This content was already in your inbox."
+              : intake.contentType === "audio"
+                ? "Audio saved. Transcription will begin shortly."
+                : intake.contentType === "text"
+                  ? "Text saved to your inbox."
+                  : "Link added to your inbox. Processing will begin shortly."}
           </Text>
         </View>
       );
@@ -162,7 +209,12 @@ function ShareContent({
           </View>
           <Text style={styles.errorTitle}>Save failed</Text>
           <Text style={styles.errorMessage}>{intake.message}</Text>
-          <Pressable style={styles.retryButton} onPress={onRetry}>
+          <Pressable
+            style={styles.retryButton}
+            onPress={onRetry}
+            accessibilityLabel="Try again"
+            accessibilityRole="button"
+          >
             <Ionicons name="refresh" size={18} color={Colors.textMain} />
             <Text style={styles.retryButtonText}>Try again</Text>
           </Pressable>
@@ -210,6 +262,83 @@ function UrlPreviewCard({
         <View style={styles.previewSubmitting}>
           <ActivityIndicator size="small" color={Colors.primary} />
           <Text style={styles.previewSubmittingText}>Saving...</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * Preview card for shared plain text (WhatsApp text message).
+ */
+function TextPreviewCard({
+  text,
+  isSubmitting = false,
+}: {
+  text: string;
+  isSubmitting?: boolean;
+}) {
+  return (
+    <View style={[styles.previewCard, isSubmitting && styles.previewCardMuted]}>
+      <View style={styles.previewCardContent}>
+        <View style={styles.previewTextSection}>
+          <Text style={styles.previewUrl} numberOfLines={5}>
+            {text}
+          </Text>
+          <Text style={styles.previewDomain}>WhatsApp text message</Text>
+        </View>
+        <View style={styles.previewIconContainer}>
+          <Ionicons name="chatbubble-outline" size={24} color={Colors.textMuted} />
+        </View>
+      </View>
+      {isSubmitting && (
+        <View style={styles.previewSubmitting}>
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <Text style={styles.previewSubmittingText}>Saving...</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * Preview card for shared audio file (WhatsApp voice message).
+ */
+function AudioPreviewCard({
+  fileName,
+  mimeType,
+  fileSize,
+  isSubmitting = false,
+}: {
+  fileName: string | null;
+  mimeType: string;
+  fileSize: number | null;
+  isSubmitting?: boolean;
+}) {
+  const displayName = fileName ?? "Voice message";
+  const displaySize = fileSize
+    ? fileSize > 1024 * 1024
+      ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
+      : `${Math.round(fileSize / 1024)} KB`
+    : mimeType;
+
+  return (
+    <View style={[styles.previewCard, isSubmitting && styles.previewCardMuted]}>
+      <View style={styles.previewCardContent}>
+        <View style={styles.previewTextSection}>
+          <Text style={styles.previewUrl} numberOfLines={2}>
+            {displayName}
+          </Text>
+          <Text style={styles.previewDomain}>{displaySize}</Text>
+        </View>
+        <View style={styles.previewIconContainer}>
+          <Ionicons name="mic-outline" size={24} color={Colors.textMuted} />
+        </View>
+      </View>
+      {isSubmitting && (
+        <View style={styles.previewSubmitting}>
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <Text style={styles.previewSubmittingText}>Uploading audio...</Text>
         </View>
       )}
     </View>
