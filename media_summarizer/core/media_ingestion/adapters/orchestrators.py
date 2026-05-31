@@ -229,7 +229,62 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             tiktok_ingestion_enqueued = False
             social_video_transcription_enqueued = False
             outcome_status = ProcessingLifecycleStatus.PENDING
-            if resolved.raw_text is not None and resolved.media_family == MediaFamily.TEXT:
+            if resolved.raw_text is not None and resolved.media_family == MediaFamily.SOCIAL_VIDEO:
+                # Apify transcript bypass: store transcript directly, skip Deepgram.
+                transcript_s3_key = f"{job.id}.txt"
+                transcript_text = resolved.raw_text.strip()
+                duration_seconds = resolved.metadata.get("duration_seconds", 0)
+                minutes_used = max(1, int((duration_seconds or 0) / 60) + (1 if (duration_seconds or 0) % 60 > 0 else 0))
+                transcription_metadata: Dict[str, Any] = {
+                    "provider": "apify_native",
+                    "language": "unknown",
+                    "segments_count": len(transcript_text.split()),
+                    "duration_seconds": duration_seconds or 0,
+                    "transcribed_at": _now_iso(),
+                    "transcript_source": resolved.metadata.get("transcript_source", "apify_native"),
+                }
+                await s3.upload_file_object(
+                    bucket=DEFAULT_TRANSCRIPT_BUCKET,
+                    key=transcript_s3_key,
+                    file_obj=BytesIO(transcript_text.encode("utf-8")),
+                    content_type="text/plain",
+                    metadata={
+                        "content-type": "text/plain",
+                        "provider": "apify_native",
+                        "source-platform": resolved.source_platform.value,
+                    },
+                )
+                job.set_transcription_location(transcript_s3_key)
+                job.set_transcription_metadata(transcription_metadata)
+                job.mark_completed()
+                await database_async.update_processing_job(job)
+                await sqs.send_message(
+                    queue_name=DEFAULT_EPISODE_COMPLETION_EVENTS_QUEUE,
+                    message_body={
+                        "event_type": "episode_completion_status",
+                        "status": "success",
+                        "media_key": resolved.media_key,
+                        "canonical_job_id": job.id,
+                        "minutes_used": minutes_used,
+                        "transcription_s3_key": transcript_s3_key,
+                        "transcription_metadata": transcription_metadata,
+                    },
+                )
+                pipeline_enqueued = True
+                outcome_status = ProcessingLifecycleStatus.COMPLETED
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "transcription.completed",
+                    "Social video transcript stored from Apify native transcript",
+                    job_id=job.id,
+                    media_item_id=job.id,
+                    resolver_key=resolved.resolver_key,
+                    source_platform=resolved.source_platform.value,
+                    transcript_source="apify_native",
+                    minutes_used=minutes_used,
+                )
+            elif resolved.raw_text is not None and resolved.media_family == MediaFamily.TEXT:
                 transcript_s3_key = f"{job.id}.txt"
                 transcript_text = resolved.raw_text.strip()
                 transcription_metadata = _shared_text_transcription_metadata(

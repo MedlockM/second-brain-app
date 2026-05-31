@@ -7,7 +7,6 @@ from typing import Iterable, Optional
 from media_summarizer.core.media_ingestion.adapters import (
     ArticleResolver,
     AudioResolver,
-    InstagramResolver,
     PodcastResolver,
     ProcessingJobSubmissionOrchestrator,
     RuleBasedUrlClassifier,
@@ -15,6 +14,9 @@ from media_summarizer.core.media_ingestion.adapters import (
     TikTokResolver,
     XPostResolver,
     YouTubeResolver,
+)
+from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
+    InstagramApifyResolver,
 )
 from media_summarizer.core.media_ingestion.ports import (
     ContentResolverPort,
@@ -40,7 +42,7 @@ def build_default_resolver_registry(
             XPostResolver(),
             ArticleResolver(),
             YouTubeResolver(),
-            InstagramResolver(),
+            InstagramApifyResolver(),
             TikTokResolver(),
             SocialVideoResolver(),
             AudioResolver(),

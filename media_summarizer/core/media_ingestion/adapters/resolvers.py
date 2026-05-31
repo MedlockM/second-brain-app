@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Final
 from urllib.parse import urlsplit
-
-import httpx
 
 from media_summarizer.core.media_ingestion.adapters.podcast_resolver_foundation import (
     PodcastPlatformResolverRegistry,
@@ -26,13 +23,7 @@ from media_summarizer.core.media_ingestion.domain import (
     ResolvedMedia,
     SourcePlatform,
 )
-from media_summarizer.core.media_ingestion.errors import (
-    DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE,
-    DEFAULT_INSTAGRAM_PROVIDER_TEMPORARY_MESSAGE,
-    NonRetryableProviderResolutionError,
-    RetryableProviderResolutionError,
-    UnsupportedUrlError,
-)
+from media_summarizer.core.media_ingestion.errors import UnsupportedUrlError
 from media_summarizer.core.media_ingestion.ports import ContentResolverPort
 from media_summarizer.utils.logging_config import log_event
 
@@ -44,105 +35,6 @@ _SUPPORTED_PODCAST_PLATFORMS: Final[set[SourcePlatform]] = {
     SourcePlatform.DEEZER,
     SourcePlatform.RSS,
 }
-_GETINSAVER_API_BASE_URL = os.environ.get(
-    "GETINSAVER_API_BASE_URL", "https://getinsaver.com/api/v1"
-).rstrip("/")
-_GETINSAVER_API_KEY = os.environ.get("GETINSAVER_API_KEY", "").strip()
-_GETINSAVER_TIMEOUT_SECONDS = float(
-    os.environ.get("GETINSAVER_TIMEOUT_SECONDS", "20")
-)
-_IMAGE_DOWNLOAD_EXTENSIONS: Final[tuple[str, ...]] = (
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".gif",
-    ".webp",
-)
-
-
-def _instagram_content_type_from_url(normalized_url: str) -> str:
-    path = (urlsplit(normalized_url).path or "").lower()
-    parts = [segment for segment in path.split("/") if segment]
-    if not parts:
-        raise NonRetryableProviderResolutionError(
-            DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE
-        )
-
-    content_type = parts[0]
-    if content_type == "reel":
-        return "reel"
-    if content_type == "p":
-        return "post"
-    if content_type == "tv":
-        return "igtv"
-    raise NonRetryableProviderResolutionError(
-        DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE
-    )
-
-
-def _looks_like_transcribable_download_url(candidate: str) -> bool:
-    value = (candidate or "").strip()
-    if not value.startswith(("http://", "https://")):
-        return False
-
-    path = (urlsplit(value).path or "").lower()
-    return not path.endswith(_IMAGE_DOWNLOAD_EXTENSIONS)
-
-
-def _extract_instagram_download_url(payload: dict[str, Any]) -> str:
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        raise NonRetryableProviderResolutionError(
-            DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE
-        )
-
-    provider_media_type = str(data.get("type") or "").strip().lower()
-    if provider_media_type in {"image", "photo"}:
-        raise NonRetryableProviderResolutionError(
-            DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE
-        )
-
-    downloads = data.get("downloads")
-    if not isinstance(downloads, list) or not downloads:
-        raise NonRetryableProviderResolutionError(
-            DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE
-        )
-
-    for item in downloads:
-        if not isinstance(item, dict):
-            continue
-        candidate = item.get("url")
-        if isinstance(candidate, str) and _looks_like_transcribable_download_url(
-            candidate
-        ):
-            return candidate.strip()
-
-    raise NonRetryableProviderResolutionError(
-        DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE
-    )
-
-
-def _build_instagram_request_headers() -> dict[str, str]:
-    if not _GETINSAVER_API_KEY:
-        raise RetryableProviderResolutionError(
-            DEFAULT_INSTAGRAM_PROVIDER_TEMPORARY_MESSAGE
-        )
-    return {
-        "Authorization": f"Bearer {_GETINSAVER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-
-def _normalize_getinsaver_error_message(payload: dict[str, Any]) -> str:
-    error = payload.get("error")
-    if isinstance(error, dict):
-        message = error.get("message")
-        if isinstance(message, str) and message.strip():
-            return message.strip()
-    message = payload.get("message")
-    if isinstance(message, str) and message.strip():
-        return message.strip()
-    return ""
 
 
 def _extract_x_post_id(normalized_url: str) -> str:
@@ -162,88 +54,6 @@ def _extract_x_post_id(normalized_url: str) -> str:
         return parts[2].strip()
     raise UnsupportedUrlError("Unsupported X/Twitter URL format.")
 
-
-async def _resolve_instagram_download_url(
-    *,
-    normalized_url: str,
-) -> tuple[str, dict[str, Any]]:
-    content_type = _instagram_content_type_from_url(normalized_url)
-    endpoint = f"{_GETINSAVER_API_BASE_URL}/download/instagram"
-    headers = _build_instagram_request_headers()
-    payload = {
-        "url": normalized_url,
-        "type": content_type,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=_GETINSAVER_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                endpoint,
-                json=payload,
-                headers=headers,
-            )
-    except (httpx.TimeoutException, httpx.TransportError) as exc:
-        log_event(
-            logger,
-            logging.WARNING,
-            "external_call.failed",
-            "Instagram provider transport request failed",
-            provider="getinsaver",
-            resolver_key="instagram.default",
-            source_platform=SourcePlatform.INSTAGRAM.value,
-            error_type=type(exc).__name__,
-            exc_info=exc,
-        )
-        raise RetryableProviderResolutionError(
-            DEFAULT_INSTAGRAM_PROVIDER_TEMPORARY_MESSAGE
-        ) from exc
-
-    try:
-        response_payload = response.json()
-    except ValueError:
-        response_payload = {}
-    if not isinstance(response_payload, dict):
-        response_payload = {}
-
-    status_code = response.status_code
-    if status_code in {400, 404, 422}:
-        raise NonRetryableProviderResolutionError(
-            DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE
-        )
-    if status_code in {401, 403, 429} or status_code >= 500:
-        log_event(
-            logger,
-            logging.WARNING,
-            "external_call.failed",
-            "Instagram provider returned a transient failure",
-            provider="getinsaver",
-            resolver_key="instagram.default",
-            source_platform=SourcePlatform.INSTAGRAM.value,
-            status=status_code,
-            detail=_normalize_getinsaver_error_message(response_payload),
-        )
-        raise RetryableProviderResolutionError(
-            DEFAULT_INSTAGRAM_PROVIDER_TEMPORARY_MESSAGE
-        )
-    if status_code >= 300:
-        raise NonRetryableProviderResolutionError(
-            DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE
-        )
-
-    if response_payload.get("success") is False:
-        raise NonRetryableProviderResolutionError(
-            DEFAULT_INSTAGRAM_PROVIDER_BAD_REQUEST_MESSAGE
-        )
-
-    download_url = _extract_instagram_download_url(response_payload)
-    return download_url, {
-        "instagram_content_type": content_type,
-        "provider_media_type": (
-            response_payload.get("data", {}).get("type")
-            if isinstance(response_payload.get("data"), dict)
-            else None
-        ),
-    }
 
 
 class PodcastResolver(ContentResolverPort):
@@ -456,49 +266,6 @@ class YouTubeResolver(ContentResolverPort):
             resolver_key=self.key,
             media_type=MediaType.YOUTUBE_VIDEO.value,
             fallback_strategy="manual_auto_audio",
-        )
-        return resolved
-
-
-class InstagramResolver(ContentResolverPort):
-    @property
-    def key(self) -> str:
-        return "instagram.default"
-
-    async def resolve(self, context: ResolveContext) -> ResolvedMedia:
-        audio_url, provider_metadata = await _resolve_instagram_download_url(
-            normalized_url=context.normalized_url,
-        )
-        resolved = ResolvedMedia(
-            media_key=context.media_key,
-            normalized_url=context.normalized_url,
-            media_family=MediaFamily.SOCIAL_VIDEO,
-            media_type=MediaType.SHORT_VIDEO,
-            source_platform=SourcePlatform.INSTAGRAM,
-            resolver_key=self.key,
-            audio_url=audio_url,
-            metadata={
-                "resolver_version": "v1",
-                "provider": "getinsaver",
-                "provider_endpoint": "instagram",
-                "instagram_content_type": provider_metadata.get(
-                    "instagram_content_type"
-                ),
-                "provider_media_type": provider_metadata.get("provider_media_type"),
-                "audio_url_available": True,
-                "resolution_mode": "provider_inline",
-            },
-        )
-        log_event(
-            logger,
-            logging.INFO,
-            "resolver.completed",
-            "Instagram resolver completed",
-            source_platform=SourcePlatform.INSTAGRAM.value,
-            resolver_key=self.key,
-            media_type=MediaType.SHORT_VIDEO.value,
-            provider="getinsaver",
-            fallback_strategy="provider_inline",
         )
         return resolved
 
