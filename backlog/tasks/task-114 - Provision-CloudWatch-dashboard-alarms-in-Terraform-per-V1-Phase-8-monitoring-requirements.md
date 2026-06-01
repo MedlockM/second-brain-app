@@ -3,7 +3,7 @@ id: task-114
 title: >-
   Provision CloudWatch dashboard + alarms in Terraform per V1 Phase 8 monitoring
   requirements
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-01 13:58'
 labels:
