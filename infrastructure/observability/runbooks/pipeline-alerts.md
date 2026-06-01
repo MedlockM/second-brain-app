@@ -1,350 +1,150 @@
 # Pipeline Alerts Runbook
 
-Operational runbook for the Media Summarizer share-first pipeline alerts.
+Operational runbook for the Media Summarizer pipeline alerts (Lambda architecture).
 Each section corresponds to a specific CloudWatch alarm defined in `infrastructure/terraform/pipeline_alerts.tf`.
 
 ---
 
 ## Table of Contents
 
-- [Ingestion Failures](#ingestion-failures)
-- [Resolver Failures](#resolver-failures)
-- [Resolver Retries](#resolver-retries)
-- [Transcription Failures](#transcription-failures)
-- [Transcription Latency](#transcription-latency)
-- [Artifact Generation Failures](#artifact-generation-failures)
-- [Artifact Generation Latency](#artifact-generation-latency)
+- [API Latency](#api-latency)
+- [API 5xx Rate](#api-5xx-rate)
 - [DLQ Messages](#dlq-messages)
-- [Pipeline Stalled](#pipeline-stalled)
+- [Lambda Errors](#lambda-errors)
+- [Lambda Throttles](#lambda-throttles)
+- [Deepgram Error Rate](#deepgram-error-rate)
+- [LlamaParse Fallback](#llamaparse-fallback)
 
 ---
 
-## Ingestion Failures
+## API Latency
 
-**Alarm:** `media-summarizer-ingestion-sustained-failures`
+**Alarm:** `media-summarizer-api-latency-p95-breach`
 **Severity:** High
-**Threshold:** >3 failures per 5-min period, sustained for 3 periods (15 min)
+**Threshold:** API Gateway p95 latency > `API_SLOW_REQUEST_THRESHOLD_MS` (default 3000ms) for 5 minutes
 
 ### Symptoms
 
-- Users receive 500 errors when sharing URLs
-- `media.ingest.failed` events in API logs
+- Users experiencing slow responses
+- Timeout errors on mobile clients
+- p95 latency climbing on the dashboard
 
 ### Investigation Steps
 
-1. **Check API health:**
+1. **Check API Gateway metrics:**
+   - CloudWatch -> API Gateway -> Latency by route
+   - Identify which route(s) are contributing to the high p95
+
+2. **Check Lambda API duration:**
    ```
-   CloudWatch Insights query on /ecs/media-summarizer-api:
-   fields @timestamp, error_type, error_code, source_platform
-   | filter event = "media.ingest.failed"
-   | sort @timestamp desc
-   | limit 20
+   CloudWatch -> Lambda -> media-summarizer-api -> Duration p95
    ```
+   - If Lambda Duration is high, the bottleneck is in the application code
+   - If API Gateway latency is high but Lambda is normal, check cold starts
 
-2. **Check DynamoDB availability:**
-   - CloudWatch -> AWS/DynamoDB -> `processing_jobs` table -> ThrottledRequests, SystemErrors
-   - If throttled: check provisioned capacity or on-demand scaling
+3. **Check downstream dependencies:**
+   - DynamoDB read/write latency (check ThrottledRequests)
+   - SQS SendMessage latency
 
-3. **Check SQS send failures:**
-   - Look for `external_call.failed` with `provider="sqs"` in API logs
-   - Verify queue exists and IAM permissions are correct
-
-4. **Check minute pool (quota):**
-   - If errors mention "insufficient minutes", check the `user_minute_pools` table
+4. **Check for cold starts:**
+   - CloudWatch Insights on `/aws/lambda/media-summarizer-api`:
+     ```
+     filter @type = "REPORT"
+     | fields @duration, @initDuration
+     | filter @initDuration > 0
+     | stats count(*), avg(@initDuration) by bin(5m)
+     ```
 
 ### First Response
 
-- If DynamoDB is throttled: scale capacity or switch to on-demand billing
-- If SQS is unreachable: check VPC endpoints and security groups
-- If auth-related: verify Cognito/JWT configuration is not expired
+- If cold start related: increase provisioned concurrency
+- If DynamoDB throttled: switch to on-demand billing or increase provisioned capacity
+- If specific route: check for N+1 queries or missing pagination
+- If widespread: check if Lambda memory is undersized (increase to 512MB+)
 
 ### Escalation
 
-- If issue persists >30 min: page backend on-call
-- If DynamoDB outage: check AWS Health Dashboard
+- If persists >30 min: page backend on-call
+- If caused by AWS service degradation: check AWS Health Dashboard
 
 ---
 
-## Resolver Failures
+## API 5xx Rate
 
-**Alarm:** `media-summarizer-{platform}-resolver-sustained-failures`
-**Severity:** High
-**Threshold:** >3 failures per 5-min period, sustained for 3 periods (15 min)
-**Platforms:** youtube, tiktok, rss
-
-### Symptoms
-
-- Jobs stuck in PROCESSING state
-- `worker.failed` events in resolver worker logs
-
-### Investigation Steps
-
-1. **Identify failing platform:**
-   ```
-   CloudWatch Insights on /ecs/media-summarizer-{platform}-worker:
-   fields @timestamp, job_id, error_type, error_code
-   | filter event = "worker.failed"
-   | sort @timestamp desc
-   | limit 20
-   ```
-
-2. **Platform-specific checks:**
-
-   **YouTube:**
-   - yt-dlp version may be outdated (YouTube frequently changes APIs)
-   - Check if YouTube is blocking IP range (429 responses)
-   - Verify `youtube-transcript-api` is returning transcripts
-
-   **TikTok:**
-   - yt-dlp version may need update for TikTok format changes
-   - Check for geo-blocking or rate limiting
-
-   **Podcast (RSS):**
-   - PodcastIndex API may be down: check https://status.podcastindex.org
-   - RSS feed may have changed format or be unreachable
-
-3. **Check network connectivity:**
-   - Verify Fargate tasks can reach external endpoints
-   - Check NAT Gateway / VPC egress configuration
-
-### First Response
-
-- **YouTube/TikTok:** Update yt-dlp package: `pip install -U yt-dlp`
-- **Podcast:** Test PodcastIndex API manually; check API key rotation
-- **All:** If rate-limited, reduce concurrency via scaling controller config
-
-### Escalation
-
-- If upstream API is confirmed down: communicate to users via status page
-- If yt-dlp update needed: deploy new worker image
-
----
-
-## Resolver Retries
-
-**Alarm:** `media-summarizer-{platform}-resolver-high-retry-rate`
-**Severity:** Medium
-**Threshold:** >10 retries per 5-min period, sustained for 2 periods
-
-### Symptoms
-
-- Increased latency for users (jobs taking longer)
-- `worker.retry_scheduled` events spiking
-
-### Investigation Steps
-
-1. **Check error patterns:**
-   ```
-   CloudWatch Insights on /ecs/media-summarizer-{platform}-worker:
-   fields @timestamp, job_id, error_type, attempt
-   | filter event = "worker.retry_scheduled"
-   | stats count(*) by error_type
-   ```
-
-2. **Determine if transient:**
-   - If retries succeed on 2nd/3rd attempt: likely transient network issue
-   - If retries always fail: will escalate to resolver failure alarm
-
-### First Response
-
-- Monitor for 15 minutes; retries are expected for transient errors
-- If retries consistently hit max: investigate as resolver failure
-- Check if external service has degraded performance (not full outage)
-
----
-
-## Transcription Failures
-
-**Alarm:** `media-summarizer-transcription-sustained-failures`, `media-summarizer-transcription-success-rate-breach`
+**Alarm:** `media-summarizer-api-5xx-rate-breach`
 **Severity:** Critical
-**Threshold:** >2 failures per 5-min period for 3 periods, OR success rate < 98%
+**Threshold:** 5xx / total requests > 1% over 5 minutes
 
 ### Symptoms
 
-- Jobs stuck after resolver completes
-- `worker.transcription.failed` events in Deepgram worker logs
-- DLQ accumulating messages
+- Users receiving server error responses
+- Mobile clients showing generic error messages
+- `api.request_error` events with status >= 500 in API logs
 
 ### Investigation Steps
 
-1. **Check Deepgram status:**
-   - https://status.deepgram.com
-   - Check for API key quota exhaustion
-
-2. **Examine failures:**
+1. **Identify error patterns:**
    ```
-   CloudWatch Insights on /ecs/media-summarizer-deepgram-worker:
-   fields @timestamp, job_id, error_type, error_code, duration_ms
-   | filter event = "worker.transcription.failed"
+   CloudWatch Insights on /aws/lambda/media-summarizer-api:
+   fields @timestamp, path, method, status, error_type, error_code
+   | filter status >= 500
    | sort @timestamp desc
    | limit 20
    ```
 
-3. **Common error types:**
-   - `DeepgramAPIError`: API returning errors (check status page, rate limits)
-   - `TimeoutError`: Audio files too large or network issues
-   - `AudioFormatError`: Unsupported audio format from resolver
+2. **Check if deployment related:**
+   - Was there a recent deployment? Check Lambda version aliases
+   - If yes: consider rollback to previous version
 
-4. **Check audio files:**
-   - Verify files exist in S3 `media-summarizer-audio` bucket
-   - Check file sizes (very large files may timeout)
+3. **Check dependencies:**
+   - DynamoDB: SystemErrors, ThrottledRequests
+   - SQS: check if queues are accessible
+   - Secrets Manager: check if secrets can be fetched
 
-### First Response
-
-- If Deepgram outage: no immediate fix; monitor for recovery
-- If rate limit: reduce concurrent Deepgram workers in scaling controller
-- If audio format errors: check resolver output format
-- If API key issue: rotate key in Secrets Manager
-
-### Escalation
-
-- Deepgram outage >1h: consider enabling Whisper fallback if available
-- API key quota exhausted: contact Deepgram support
-
----
-
-## Transcription Latency
-
-**Alarm:** `media-summarizer-transcription-latency-p95-breach`
-**Severity:** High
-**Threshold:** p95 > 120s for 3 consecutive 5-min periods
-
-### Symptoms
-
-- Users waiting longer than usual for results
-- p95 latency climbing on dashboard
-
-### Investigation Steps
-
-1. **Check latency distribution:**
-   ```
-   CloudWatch Insights on /ecs/media-summarizer-deepgram-worker:
-   fields @timestamp, job_id, duration_ms
-   | filter event = "worker.transcription.completed"
-   | stats avg(duration_ms), pct(duration_ms, 50), pct(duration_ms, 95), pct(duration_ms, 99) by bin(5m)
-   | sort bin desc
-   ```
-
-2. **Correlate with audio duration:**
-   - Very long audio files (>60 min) naturally take longer
-   - Check if a batch of long files is skewing p95
-
-3. **Check Deepgram response times:**
-   - May indicate Deepgram is under load
-   - Check Deepgram status page for degraded performance
+4. **Check Lambda errors:**
+   - Unhandled exceptions, out-of-memory, timeout
 
 ### First Response
 
-- If caused by a few very large files: expected behavior, monitor
-- If widespread latency increase: check Deepgram status
-- Consider raising visibility timeout if transcription workers are timing out
+- If post-deployment: rollback Lambda to previous version
+- If dependency outage: check AWS Health Dashboard
+- If code bug: identify and hotfix
+- If auth-related: check JWT secret rotation status
 
 ### Escalation
 
-- Sustained >1h: contact Deepgram if their service is degraded
-- If caused by our infrastructure: check network, NAT Gateway throughput
-
----
-
-## Artifact Generation Failures
-
-**Alarm:** `media-summarizer-artifact-generation-sustained-failures`, `media-summarizer-artifact-generation-success-rate-breach`
-**Severity:** High
-**Threshold:** >3 failures per 5-min period for 3 periods, OR success rate < 95%
-
-### Symptoms
-
-- Transcriptions complete but summaries/notes are not generated
-- `artifact.generation.failed` events in summarization worker logs
-
-### Investigation Steps
-
-1. **Check LLM API status:**
-   - OpenAI: https://status.openai.com
-   - Check API key validity and quota
-
-2. **Examine failures:**
-   ```
-   CloudWatch Insights on /ecs/media-summarizer-summarization-worker:
-   fields @timestamp, job_id, artifact_type, error_type, error_code
-   | filter event = "artifact.generation.failed" OR event = "worker.failed"
-   | sort @timestamp desc
-   | limit 20
-   ```
-
-3. **Common error patterns:**
-   - `LLMAPIError`: API returned error (rate limit, content policy, etc.)
-   - `TimeoutError`: LLM took too long to respond
-   - `JSONDecodeError`: LLM returned malformed JSON response
-   - `ContentPolicyError`: Content flagged by LLM safety filters
-
-4. **Check transcript availability:**
-   - Verify transcript exists in S3 before artifact generation starts
-
-### First Response
-
-- If LLM API rate limit: reduce concurrency, implement exponential backoff
-- If content policy: specific transcripts may be triggering filters (acceptable loss)
-- If API key quota: rotate/upgrade key
-- If timeout: increase `LLM_TIMEOUT_SECONDS` env var
-
-### Escalation
-
-- LLM provider outage >1h: consider switching to fallback model
-- Persistent JSON parsing failures: may need prompt engineering fix
-
----
-
-## Artifact Generation Latency
-
-**Alarm:** `media-summarizer-artifact-generation-latency-p95-breach`
-**Severity:** High
-**Threshold:** p95 > 30s for 3 consecutive 5-min periods
-
-### Symptoms
-
-- Artifacts taking unusually long to generate
-- Users see "generating" state for extended periods
-
-### Investigation Steps
-
-1. **Check latency by artifact type:**
-   ```
-   CloudWatch Insights on /ecs/media-summarizer-summarization-worker:
-   fields @timestamp, job_id, artifact_type, duration_ms
-   | filter event = "artifact.generation.completed"
-   | stats avg(duration_ms), pct(duration_ms, 95) by artifact_type
-   ```
-
-2. **Check LLM API response times:**
-   - summary_detailed naturally takes longer than summary_short
-   - Check if specific model (gpt-4o-mini) is experiencing latency
-
-3. **Check input transcript sizes:**
-   - Very long transcripts produce more tokens, increasing latency
-
-### First Response
-
-- If LLM provider is slow: monitor, typically self-resolves
-- If specific artifact type: may need model change or prompt optimization
-- Consider switching to a faster model for non-critical artifacts
-
-### Escalation
-
-- Sustained >1h: consider model fallback (e.g., gpt-4o-mini to gpt-3.5-turbo)
+- If 5xx rate > 10%: immediate escalation to backend team
+- If AWS service outage: communicate to users via status page
 
 ---
 
 ## DLQ Messages
 
-**Alarm:** `media-summarizer-{stage}-dlq-non-empty`
+**Alarm:** `media-summarizer-dlq-{dlq-name}-non-empty`
 **Severity:** Medium
-**Threshold:** Any message in DLQ (>0)
+**Threshold:** Any message in DLQ (>0) for 5 minutes
+
+### Affected DLQs
+
+| DLQ Name | Source Queue | Worker |
+|----------|-------------|--------|
+| `podcastindex-resolution-dlq` | `podcastindex-resolution-queue` | Podcast resolution |
+| `youtube-ingestion-dlq` | `youtube-ingestion-queue` | YouTube ingestion |
+| `tiktok-ingestion-dlq` | `tiktok-ingestion-queue` | TikTok ingestion |
+| `x-ingestion-dlq` | `x-ingestion-queue` | X (Twitter) ingestion |
+| `audio-download-dlq` | `audio-download-queue` | Audio download |
+| `deepgram-transcription-dlq` | `deepgram-transcription-queue` | Deepgram transcription |
+| `article-extraction-dlq` | `article-extraction-queue` | Article extraction |
+| `summarization-dlq` | `summarization-queue` | Summarization (LLM) |
+| `flashcards-dlq` | `flashcards-queue` | Flashcards generation |
+| `episode-completed-dlq` | `episode-completed-events` | Episode completed fan-out |
+| `push-notification-dlq` | `push-notification-queue` | Push notifications |
+| `spotify-sync-dlq` | `spotify-sync-queue` | Spotify sync |
 
 ### Symptoms
 
-- Messages that exhausted all retries
-- Usually indicates a persistent bug or data issue
+- Messages that exhausted all retries (default: 3 attempts)
+- Usually indicates a persistent bug or bad input data
 
 ### Investigation Steps
 
@@ -359,13 +159,14 @@ Each section corresponds to a specific CloudWatch alarm defined in `infrastructu
 
 2. **Correlate with job_id:**
    - Extract `job_id` from message body
-   - Check processing_jobs DynamoDB table for error details
-   - Check worker logs for the specific job_id
+   - Check `processing_jobs` DynamoDB table for error details
+   - Check worker Lambda logs for the specific job_id
 
 3. **Determine root cause:**
    - Bad input data (malformed URL, unsupported format)
-   - Transient failure that was not actually transient
+   - Transient failure that persisted across all retries
    - Bug in worker code
+   - External service consistently failing for specific inputs
 
 ### First Response
 
@@ -389,54 +190,195 @@ aws sqs start-message-move-task \
 
 ---
 
-## Pipeline Stalled
+## Lambda Errors
 
-**Alarm:** `media-summarizer-pipeline-stalled`
-**Severity:** Critical
-**Threshold:** Zero transcription completions for 30 minutes (6 x 5-min periods)
+**Alarm:** `media-summarizer-{worker}-lambda-error-rate`
+**Severity:** High
+**Threshold:** Error rate > 5% over 10 minutes (2 consecutive 5-min periods)
 
 ### Symptoms
 
-- Complete pipeline halt
-- Jobs ingested but never completing
-- All queues may be growing
+- Lambda function returning errors
+- Jobs failing without completing
+- Increased DLQ depth
 
 ### Investigation Steps
 
-1. **Check ECS task health:**
-   ```bash
-   aws ecs list-tasks --cluster media-summarizer-cluster --desired-status RUNNING
-   aws ecs describe-tasks --cluster media-summarizer-cluster --tasks <TASK_ARNS>
+1. **Check error pattern:**
+   ```
+   CloudWatch Insights on /aws/lambda/media-summarizer-{worker}:
+   fields @timestamp, event, error_type, error_code, job_id
+   | filter level = "ERROR"
+   | sort @timestamp desc
+   | limit 20
    ```
 
-2. **Check scaling controller:**
-   - Lambda function may have failed
-   - Check `/aws/lambda/media-summarizer-scaling-controller` logs
+2. **Check Lambda execution errors:**
+   - Timeouts (check Duration vs configured timeout)
+   - Out of memory (check Max Memory Used in REPORT lines)
+   - Permission errors (check IAM role)
 
-3. **Check queue visibility:**
-   - Messages may be invisible (being processed) but workers are dead
-   - Check `ApproximateNumberOfMessagesNotVisible` in SQS
+3. **Worker-specific checks:**
 
-4. **Check infrastructure:**
-   - VPC/subnet connectivity
-   - NAT Gateway status
-   - ECR image pull failures
+   **podcastindex-resolution:** PodcastIndex API down, API key expired
+   **youtube-ingestion:** yt-dlp outdated, YouTube blocking
+   **tiktok-ingestion:** Apify actor failing, rate limits
+   **x-ingestion:** X API rate limits, bearer token expired
+   **audio-download:** S3 permissions, source URL unreachable
+   **deepgram-transcription:** Deepgram API down, quota exhausted
+   **article-extraction:** Target site blocking, timeout
+   **document-parsing:** LlamaParse + Unstructured both failing
+   **summarization:** OpenAI API rate limit, content policy
+   **flashcards:** OpenAI API errors
+   **search-indexing:** Algolia API errors
 
 ### First Response
 
-1. Verify at least one worker task is running per queue type
-2. If no tasks running: manually trigger scaling controller
-3. If tasks running but not processing: check container logs for startup errors
-4. Force visibility timeout reset if messages are stuck invisible:
-   ```bash
-   # Messages will become visible again after timeout expires naturally
-   # Or reduce visibility timeout on the queue temporarily
-   ```
+- If timeout: increase Lambda timeout or optimize code
+- If memory: increase Lambda memory size
+- If external API: check provider status page
+- If permission: check IAM role policies
 
 ### Escalation
 
-- If infrastructure-level issue (VPC, NAT, ECS): page infrastructure on-call
-- If complete outage >15 min: communicate to users
+- If error rate > 20%: immediate page to backend on-call
+- If caused by external provider outage: communicate ETA to users
+
+---
+
+## Lambda Throttles
+
+**Alarm:** `media-summarizer-{worker}-lambda-throttled`
+**Severity:** High
+**Threshold:** Any throttle (>0) in 5 minutes
+
+### Symptoms
+
+- Lambda invocations being rejected
+- SQS messages remaining visible (not being consumed)
+- Increased queue depth without corresponding invocations
+
+### Investigation Steps
+
+1. **Check concurrency:**
+   ```
+   CloudWatch -> Lambda -> {function} -> ConcurrentExecutions
+   ```
+   - Compare with account-level concurrent execution limit (default: 1000)
+   - Check if reserved concurrency is set too low
+
+2. **Check account limits:**
+   ```bash
+   aws lambda get-account-settings
+   ```
+
+3. **Check if burst-related:**
+   - Initial burst limit is 500-3000 depending on region
+   - After burst, scaling rate is 500/minute
+
+### First Response
+
+- If reserved concurrency too low: increase it
+- If account limit reached: request limit increase via AWS Support
+- If burst-related: add SQS batching or increase batch window
+- Consider: adjust SQS event source mapping `MaximumConcurrency`
+
+### Escalation
+
+- If persistent throttling: request AWS Lambda concurrency limit increase
+- If multiple functions throttled: likely account-level limit hit
+
+---
+
+## Deepgram Error Rate
+
+**Alarm:** `media-summarizer-deepgram-error-rate-breach`
+**Severity:** High
+**Threshold:** Deepgram error rate > 5% over 15 minutes
+
+### Symptoms
+
+- Transcription jobs failing
+- `worker.transcription.failed` events with `transcript_source=deepgram`
+- DLQ for `deepgram-transcription-dlq` accumulating
+
+### Investigation Steps
+
+1. **Check Deepgram status:** https://status.deepgram.com
+
+2. **Examine error details:**
+   ```
+   CloudWatch Insights on /aws/lambda/media-summarizer-deepgram-transcription:
+   fields @timestamp, job_id, error_type, error_code, duration_ms
+   | filter event = "worker.transcription.failed" AND transcript_source = "deepgram"
+   | sort @timestamp desc
+   | limit 20
+   ```
+
+3. **Common error types:**
+   - `DeepgramAPIError`: API returning errors (rate limits, auth)
+   - `TimeoutError`: Audio files too large or network issues
+   - `AudioFormatError`: Unsupported audio format
+
+4. **Check quota:**
+   - Verify Deepgram API key quota and usage
+   - Check if concurrent request limit is reached
+
+### First Response
+
+- If Deepgram outage: wait for recovery, messages will retry
+- If rate limit: reduce Lambda reserved concurrency for deepgram-transcription
+- If audio format: check upstream resolver output
+- If API key issue: rotate key in Secrets Manager
+
+### Escalation
+
+- Deepgram outage > 1h: contact Deepgram support
+- API key quota exhausted: upgrade plan or contact support
+
+---
+
+## LlamaParse Fallback
+
+**Alarm:** `media-summarizer-llamaparse-fallback-rate-breach`
+**Severity:** Medium
+**Threshold:** Unstructured fallback triggered > N times/hour (configurable, default 20)
+
+### Symptoms
+
+- `document_parsing.primary_failed` events increasing
+- `document_parsing.fallback_success` events compensating
+- Documents still being parsed but via the fallback path (Unstructured API)
+
+### Investigation Steps
+
+1. **Check LlamaParse quota:**
+   - Free tier: 1000 pages/day
+   - Check daily usage at https://cloud.llamaindex.ai
+
+2. **Examine failure reasons:**
+   ```
+   CloudWatch Insights on /aws/lambda/media-summarizer-document-parsing:
+   fields @timestamp, job_id, error_code, provider
+   | filter event = "document_parsing.primary_failed"
+   | stats count(*) by error_code
+   ```
+
+3. **Common causes:**
+   - `RATE_LIMITED`: Daily quota exhausted
+   - `TIMEOUT`: LlamaParse taking too long (large documents)
+   - `AUTH_ERROR`: API key invalid or expired
+
+### First Response
+
+- If quota exhausted: the fallback (Unstructured) is handling it -- no immediate action needed, but monitor Unstructured costs
+- If auth error: check/rotate LLAMAPARSE_API_KEY in Secrets Manager
+- If timeout: consider splitting large documents before parsing
+
+### Escalation
+
+- If both LlamaParse AND Unstructured are failing: `document_parsing.all_failed` will fire Lambda error rate alarm
+- If cost concern: evaluate upgrading LlamaParse plan vs relying on Unstructured
 
 ---
 
@@ -445,29 +387,30 @@ aws sqs start-message-move-task \
 ### End-to-End Job Trace
 
 ```
-CloudWatch Insights (all log groups):
+CloudWatch Insights (all Lambda log groups):
 fields @timestamp, @logStream, event, message, duration_ms
 | filter job_id = "<JOB_ID>"
 | sort @timestamp asc
 ```
 
-### Error Rate by Stage (last 1h)
+### Error Rate by Worker (last 1h)
 
 ```
-CloudWatch Insights (all worker log groups):
+CloudWatch Insights (all worker Lambda log groups):
 fields event
 | filter level = "ERROR"
 | stats count(*) as errors by event
 | sort errors desc
 ```
 
-### SLO Budget Check (28-day window)
+### Lambda Cold Starts
 
 ```
-CloudWatch Insights on /ecs/media-summarizer-api:
-filter event in ["media.ingest.started", "media.ingest.created"]
-| stats count(*) as total, sum(event = "media.ingest.created") as successes by bin(1d)
-| sort bin asc
+CloudWatch Insights on /aws/lambda/media-summarizer-{function}:
+filter @type = "REPORT"
+| fields @duration, @initDuration, @maxMemoryUsed, @memorySize
+| filter @initDuration > 0
+| stats count(*) as cold_starts, avg(@initDuration) as avg_init_ms by bin(5m)
 ```
 
 ---
