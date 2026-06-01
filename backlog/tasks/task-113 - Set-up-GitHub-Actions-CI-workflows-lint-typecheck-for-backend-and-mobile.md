@@ -1,7 +1,7 @@
 ---
 id: task-113
 title: Set up GitHub Actions CI workflows (lint + typecheck) for backend and mobile
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-01 13:58'
 labels:
