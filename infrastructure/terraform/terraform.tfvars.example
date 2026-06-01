@@ -14,6 +14,11 @@ subnet_ids = ["subnet-aaaa", "subnet-bbbb"]
 openai_api_key   = "sk-..."
 deepgram_api_key = "..."
 
+# Monitoring (pipeline_alerts.tf / pipeline_dashboard.tf)
+alert_email                            = "ops@your-domain.com"
+api_slow_request_threshold_ms          = 3000
+llamaparse_fallback_threshold_per_hour = 20
+
 # Consolidated runtime secret payload. Every key listed here becomes an env var
 # inside Lambdas/ECS containers that mount this secret. Add or remove keys as
 # the V1 launch plan evolves.

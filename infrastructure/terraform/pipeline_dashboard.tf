@@ -1,621 +1,552 @@
 # =============================================================================
-# Pipeline Observability Dashboard
-# Covers: Ingestion -> Resolver -> Transcription -> Artifact Generation
+# Pipeline Observability Dashboard (Lambda Architecture)
+# Covers: API Gateway -> Lambda Workers -> SQS Queues -> External Providers
 #
-# All metrics are derived from structured JSON log events via CloudWatch
-# Metric Filters on the worker and API log groups.
+# Aligned with V1 Phase 8 monitoring requirements (task-114).
+# All ECS references have been removed post Lambda migration (task-106).
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Log Group for API (required for ingestion metrics)
+# Variables for monitoring
 # -----------------------------------------------------------------------------
-resource "aws_cloudwatch_log_group" "api" {
-  name              = "/ecs/${var.project_name}-api"
-  retention_in_days = 7
+variable "alert_email" {
+  description = "Email address for pipeline alert notifications"
+  type        = string
+  default     = "ops@media-summarizer.com"
+}
 
-  tags = {
-    Name        = "${var.project_name}-api-logs"
-    Environment = var.environment
-    Project     = var.project_name
+variable "api_slow_request_threshold_ms" {
+  description = "Threshold in ms for API p95 latency alarm"
+  type        = number
+  default     = 3000
+}
+
+variable "llamaparse_fallback_threshold_per_hour" {
+  description = "Max Unstructured fallback invocations per hour before alarm fires"
+  type        = number
+  default     = 20
+}
+
+# -----------------------------------------------------------------------------
+# Locals: Lambda function names and queue definitions
+# -----------------------------------------------------------------------------
+locals {
+  # Lambda worker function names (matching the Lambda architecture)
+  lambda_workers = [
+    "podcastindex-resolution",
+    "youtube-ingestion",
+    "tiktok-ingestion",
+    "x-ingestion",
+    "audio-download",
+    "deepgram-transcription",
+    "article-extraction",
+    "document-parsing",
+    "summarization",
+    "flashcards",
+    "search-indexing",
+    "episode-completed",
+    "push-notification",
+  ]
+
+  # API Lambda function name
+  lambda_api = "${var.project_name}-api"
+
+  # API Gateway name
+  api_gateway_name = "${var.project_name}-http-api"
+
+  # All queues and their DLQs (name -> DLQ name)
+  queue_dlq_map = {
+    "podcastindex-resolution-queue"  = "podcastindex-resolution-dlq"
+    "youtube-ingestion-queue"        = "youtube-ingestion-dlq"
+    "tiktok-ingestion-queue"         = "tiktok-ingestion-dlq"
+    "x-ingestion-queue"              = "x-ingestion-dlq"
+    "audio-download-queue"           = "audio-download-dlq"
+    "deepgram-transcription-queue"   = "deepgram-transcription-dlq"
+    "article-extraction-queue"       = "article-extraction-dlq"
+    "summarization-queue"            = "summarization-dlq"
+    "flashcards-queue"               = "flashcards-dlq"
+    "episode-completed-events"       = "episode-completed-dlq"
+    "push-notification-queue"        = "push-notification-dlq"
+    "spotify-sync-queue"             = "spotify-sync-dlq"
   }
+
+  # Log group names for Lambda functions
+  api_log_group    = "/aws/lambda/${local.lambda_api}"
+  worker_log_groups = { for w in local.lambda_workers : w => "/aws/lambda/${var.project_name}-${w}" }
 }
 
 # =============================================================================
-# METRIC FILTERS — Stage 1: Ingestion
+# LOG METRIC FILTERS -- Source Platform Counters
 # =============================================================================
 
-resource "aws_cloudwatch_log_metric_filter" "ingest_started" {
-  name           = "ingest-started"
-  log_group_name = aws_cloudwatch_log_group.api.name
-  pattern        = "{ $.event = \"media.ingest.started\" }"
+resource "aws_cloudwatch_log_metric_filter" "source_platform_counter" {
+  for_each = toset(["youtube", "tiktok", "instagram", "x", "podcast", "article", "document"])
+
+  name           = "source-platform-${each.key}"
+  log_group_name = aws_cloudwatch_log_group.lambda_api.name
+  pattern        = "{ $.source_platform = \"${each.key}\" && $.event = \"media.ingest.created\" }"
 
   metric_transformation {
-    name      = "IngestStarted"
-    namespace = "MediaSummarizer/Pipeline"
-    value     = "1"
-  }
-}
-
-resource "aws_cloudwatch_log_metric_filter" "ingest_created" {
-  name           = "ingest-created"
-  log_group_name = aws_cloudwatch_log_group.api.name
-  pattern        = "{ $.event = \"media.ingest.created\" }"
-
-  metric_transformation {
-    name      = "IngestCreated"
-    namespace = "MediaSummarizer/Pipeline"
-    value     = "1"
-  }
-}
-
-resource "aws_cloudwatch_log_metric_filter" "ingest_failed" {
-  name           = "ingest-failed"
-  log_group_name = aws_cloudwatch_log_group.api.name
-  pattern        = "{ $.event = \"media.ingest.failed\" }"
-
-  metric_transformation {
-    name      = "IngestFailed"
-    namespace = "MediaSummarizer/Pipeline"
-    value     = "1"
-  }
-}
-
-# =============================================================================
-# METRIC FILTERS — Stage 2: Resolver Success/Failure (per worker type)
-# =============================================================================
-
-resource "aws_cloudwatch_log_metric_filter" "resolver_success" {
-  for_each = toset(["rss", "youtube", "tiktok", "deepgram", "summarization"])
-
-  name           = "${each.key}-resolver-success"
-  log_group_name = aws_cloudwatch_log_group.workers[each.key].name
-  pattern        = "{ $.event = \"worker.message_completed\" }"
-
-  metric_transformation {
-    name      = "ResolverSuccess"
+    name      = "IngestByPlatform"
     namespace = "MediaSummarizer/Pipeline"
     value     = "1"
     dimensions = {
-      WorkerType = each.key
-    }
-  }
-}
-
-resource "aws_cloudwatch_log_metric_filter" "resolver_failed" {
-  for_each = toset(["rss", "youtube", "tiktok", "deepgram", "summarization"])
-
-  name           = "${each.key}-resolver-failed"
-  log_group_name = aws_cloudwatch_log_group.workers[each.key].name
-  pattern        = "{ $.event = \"worker.failed\" }"
-
-  metric_transformation {
-    name      = "ResolverFailed"
-    namespace = "MediaSummarizer/Pipeline"
-    value     = "1"
-    dimensions = {
-      WorkerType = each.key
-    }
-  }
-}
-
-resource "aws_cloudwatch_log_metric_filter" "resolver_retry" {
-  for_each = toset(["rss", "youtube", "tiktok", "deepgram", "summarization"])
-
-  name           = "${each.key}-resolver-retry"
-  log_group_name = aws_cloudwatch_log_group.workers[each.key].name
-  pattern        = "{ $.event = \"worker.retry_scheduled\" }"
-
-  metric_transformation {
-    name      = "ResolverRetry"
-    namespace = "MediaSummarizer/Pipeline"
-    value     = "1"
-    dimensions = {
-      WorkerType = each.key
+      SourcePlatform = each.key
     }
   }
 }
 
 # =============================================================================
-# METRIC FILTERS — Stage 3: Transcription
+# LOG METRIC FILTERS -- Parser Usage (LlamaParse vs Unstructured)
 # =============================================================================
 
-resource "aws_cloudwatch_log_metric_filter" "transcription_started" {
-  name           = "transcription-started"
-  log_group_name = aws_cloudwatch_log_group.workers["deepgram"].name
-  pattern        = "{ $.event = \"worker.transcription.started\" }"
+resource "aws_cloudwatch_log_metric_filter" "parser_llamaparse" {
+  name           = "parser-llamaparse-calls"
+  log_group_name = aws_cloudwatch_log_group.lambda_workers["document-parsing"].name
+  pattern        = "{ $.event = \"document_parsing.primary_success\" && $.provider = \"llamaparse\" }"
 
   metric_transformation {
-    name      = "TranscriptionStarted"
+    name      = "ParserCalls"
     namespace = "MediaSummarizer/Pipeline"
     value     = "1"
+    dimensions = {
+      Parser = "llamaparse"
+    }
   }
 }
 
-resource "aws_cloudwatch_log_metric_filter" "transcription_completed" {
-  name           = "transcription-completed"
-  log_group_name = aws_cloudwatch_log_group.workers["deepgram"].name
-  pattern        = "{ $.event = \"worker.transcription.completed\" }"
+resource "aws_cloudwatch_log_metric_filter" "parser_unstructured_fallback" {
+  name           = "parser-unstructured-fallback"
+  log_group_name = aws_cloudwatch_log_group.lambda_workers["document-parsing"].name
+  pattern        = "{ $.event = \"document_parsing.fallback_success\" && $.provider = \"unstructured\" }"
 
   metric_transformation {
-    name      = "TranscriptionCompleted"
+    name      = "ParserCalls"
     namespace = "MediaSummarizer/Pipeline"
     value     = "1"
+    dimensions = {
+      Parser = "unstructured"
+    }
   }
 }
 
-resource "aws_cloudwatch_log_metric_filter" "transcription_failed" {
-  name           = "transcription-failed"
-  log_group_name = aws_cloudwatch_log_group.workers["deepgram"].name
-  pattern        = "{ $.event = \"worker.transcription.failed\" }"
+resource "aws_cloudwatch_log_metric_filter" "unstructured_fallback_triggered" {
+  name           = "unstructured-fallback-triggered"
+  log_group_name = aws_cloudwatch_log_group.lambda_workers["document-parsing"].name
+  pattern        = "{ $.event = \"document_parsing.primary_failed\" }"
 
   metric_transformation {
-    name      = "TranscriptionFailed"
+    name      = "UnstructuredFallbackTriggered"
     namespace = "MediaSummarizer/Pipeline"
     value     = "1"
-  }
-}
-
-resource "aws_cloudwatch_log_metric_filter" "transcription_duration" {
-  name           = "transcription-duration"
-  log_group_name = aws_cloudwatch_log_group.workers["deepgram"].name
-  pattern        = "{ $.event = \"worker.transcription.completed\" && $.duration_ms = * }"
-
-  metric_transformation {
-    name      = "TranscriptionDurationMs"
-    namespace = "MediaSummarizer/Pipeline"
-    value     = "$.duration_ms"
   }
 }
 
 # =============================================================================
-# METRIC FILTERS — Stage 4: Artifact Generation
+# LOG METRIC FILTERS -- Apify Provider Calls
 # =============================================================================
 
-resource "aws_cloudwatch_log_metric_filter" "artifact_generation_completed" {
-  name           = "artifact-generation-completed"
-  log_group_name = aws_cloudwatch_log_group.workers["summarization"].name
-  pattern        = "{ $.event = \"artifact.generation.completed\" }"
+resource "aws_cloudwatch_log_metric_filter" "apify_calls" {
+  name           = "apify-provider-calls"
+  log_group_name = aws_cloudwatch_log_group.lambda_workers["tiktok-ingestion"].name
+  pattern        = "{ $.provider = \"apify\" }"
 
   metric_transformation {
-    name      = "ArtifactGenerationCompleted"
+    name      = "ApifyCalls"
     namespace = "MediaSummarizer/Pipeline"
     value     = "1"
   }
 }
 
-resource "aws_cloudwatch_log_metric_filter" "artifact_generation_failed" {
-  name           = "artifact-generation-failed"
-  log_group_name = aws_cloudwatch_log_group.workers["summarization"].name
-  pattern        = "{ $.event = \"artifact.generation.failed\" }"
+# =============================================================================
+# LOG METRIC FILTERS -- Deepgram Error Rate
+# =============================================================================
+
+resource "aws_cloudwatch_log_metric_filter" "deepgram_calls_total" {
+  name           = "deepgram-calls-total"
+  log_group_name = aws_cloudwatch_log_group.lambda_workers["deepgram-transcription"].name
+  pattern        = "{ $.transcript_source = \"deepgram\" && ($.event = \"worker.transcription.completed\" || $.event = \"worker.transcription.failed\") }"
 
   metric_transformation {
-    name      = "ArtifactGenerationFailed"
+    name      = "DeepgramCallsTotal"
     namespace = "MediaSummarizer/Pipeline"
     value     = "1"
   }
 }
 
-resource "aws_cloudwatch_log_metric_filter" "artifact_generation_duration" {
-  name           = "artifact-generation-duration"
-  log_group_name = aws_cloudwatch_log_group.workers["summarization"].name
-  pattern        = "{ $.event = \"artifact.generation.completed\" && $.duration_ms = * }"
+resource "aws_cloudwatch_log_metric_filter" "deepgram_errors" {
+  name           = "deepgram-errors"
+  log_group_name = aws_cloudwatch_log_group.lambda_workers["deepgram-transcription"].name
+  pattern        = "{ $.transcript_source = \"deepgram\" && $.event = \"worker.transcription.failed\" }"
 
   metric_transformation {
-    name      = "ArtifactGenerationDurationMs"
+    name      = "DeepgramErrors"
     namespace = "MediaSummarizer/Pipeline"
-    value     = "$.duration_ms"
+    value     = "1"
   }
 }
 
-# Note: DLQ monitoring uses native SQS metrics (ApproximateNumberOfVisibleMessages)
-# on the DLQ queues directly, defined in pipeline_alerts.tf. No log-based metric
-# filter needed since worker.failed events are already captured by resolver_failed.
-
 # =============================================================================
-# CLOUDWATCH DASHBOARD — Full Pipeline View
+# CLOUDWATCH DASHBOARD
 # =============================================================================
 
 resource "aws_cloudwatch_dashboard" "pipeline_observability" {
   dashboard_name = "${var.project_name}-pipeline-observability"
 
   dashboard_body = jsonencode({
-    widgets = [
+    widgets = concat(
       # -----------------------------------------------------------------------
-      # Row 0: Pipeline Overview (success rates across all stages)
+      # Row 0: Header
       # -----------------------------------------------------------------------
-      {
-        type   = "text"
-        x      = 0
-        y      = 0
-        width  = 24
-        height = 1
-        properties = {
-          markdown = "# Share-First Pipeline Observability\nIngestion -> Resolver -> Transcription -> Artifact Generation | [Runbook](https://github.com/your-org/media-summarizer/blob/main/infrastructure/observability/runbooks/pipeline-alerts.md) | [SLO Definitions](https://github.com/your-org/media-summarizer/blob/main/infrastructure/observability/slo-definitions.yaml)"
-        }
-      },
-
-      # -----------------------------------------------------------------------
-      # Row 1: Stage 1 - Ingestion
-      # -----------------------------------------------------------------------
-      {
-        type   = "text"
-        x      = 0
-        y      = 1
-        width  = 24
-        height = 1
-        properties = {
-          markdown = "## Stage 1: Ingestion (POST /api/media/ingest-url) | SLO: 99.5% success"
-        }
-      },
-      {
-        type   = "metric"
-        x      = 0
-        y      = 2
-        width  = 8
-        height = 6
-        properties = {
-          metrics = [
-            ["MediaSummarizer/Pipeline", "IngestCreated", { "stat": "Sum", "label": "Created (success)", "color": "#2ca02c" }],
-            ["MediaSummarizer/Pipeline", "IngestFailed", { "stat": "Sum", "label": "Failed", "color": "#d62728" }],
-            ["MediaSummarizer/Pipeline", "IngestStarted", { "stat": "Sum", "label": "Started (total)", "color": "#1f77b4" }]
-          ]
-          view    = "timeSeries"
-          stacked = false
-          region  = var.aws_region
-          title   = "Ingestion Volume"
-          period  = 300
-        }
-      },
-      {
-        type   = "metric"
-        x      = 8
-        y      = 2
-        width  = 8
-        height = 6
-        properties = {
-          metrics = [
-            [{ "expression": "100 * m1 / m2", "label": "Success Rate %", "id": "e1" }],
-            ["MediaSummarizer/Pipeline", "IngestCreated", { "stat": "Sum", "id": "m1", "visible": false }],
-            ["MediaSummarizer/Pipeline", "IngestStarted", { "stat": "Sum", "id": "m2", "visible": false }]
-          ]
-          view    = "timeSeries"
-          region  = var.aws_region
-          title   = "Ingestion Success Rate (SLO: 99.5%)"
-          period  = 300
-          yAxis   = { left = { min = 90, max = 100 } }
-          annotations = {
-            horizontal = [
-              { label = "SLO Target", value = 99.5, color = "#ff7f0e" }
-            ]
+      [
+        {
+          type   = "text"
+          x      = 0
+          y      = 0
+          width  = 24
+          height = 1
+          properties = {
+            markdown = "# Media Summarizer Pipeline (Lambda)\nAPI Gateway -> Lambda Workers -> SQS -> External Providers | [Runbook](https://github.com/your-org/media-summarizer/blob/main/infrastructure/observability/runbooks/pipeline-alerts.md)"
           }
         }
-      },
-      {
-        type   = "log"
-        x      = 16
-        y      = 2
-        width  = 8
-        height = 6
-        properties = {
-          query   = "SOURCE '${aws_cloudwatch_log_group.api.name}' | fields @timestamp, user_id, source_platform, error_code | filter event = 'media.ingest.failed' | sort @timestamp desc | limit 10"
-          region  = var.aws_region
-          title   = "Recent Ingestion Failures"
-          view    = "table"
-        }
-      },
+      ],
 
       # -----------------------------------------------------------------------
-      # Row 2: Stage 2 - Resolvers
+      # Row 1: API Gateway HTTP API
       # -----------------------------------------------------------------------
-      {
-        type   = "text"
-        x      = 0
-        y      = 8
-        width  = 24
-        height = 1
-        properties = {
-          markdown = "## Stage 2: Resolvers (YouTube, TikTok, Podcast, Article) | SLO: 97% success per platform"
-        }
-      },
-      {
-        type   = "metric"
-        x      = 0
-        y      = 9
-        width  = 12
-        height = 6
-        properties = {
-          metrics = [
-            ["MediaSummarizer/Pipeline", "ResolverSuccess", "WorkerType", "youtube", { "stat": "Sum", "label": "YouTube OK" }],
-            ["...", "tiktok", { "stat": "Sum", "label": "TikTok OK" }],
-            ["...", "rss", { "stat": "Sum", "label": "Podcast OK" }],
-            ["MediaSummarizer/Pipeline", "ResolverFailed", "WorkerType", "youtube", { "stat": "Sum", "label": "YouTube FAIL", "color": "#d62728" }],
-            ["...", "tiktok", { "stat": "Sum", "label": "TikTok FAIL", "color": "#ff7f0e" }],
-            ["...", "rss", { "stat": "Sum", "label": "Podcast FAIL", "color": "#9467bd" }]
-          ]
-          view    = "timeSeries"
-          stacked = false
-          region  = var.aws_region
-          title   = "Resolver Outcomes by Platform"
-          period  = 300
-        }
-      },
-      {
-        type   = "metric"
-        x      = 12
-        y      = 9
-        width  = 12
-        height = 6
-        properties = {
-          metrics = [
-            ["MediaSummarizer/Pipeline", "ResolverRetry", "WorkerType", "youtube", { "stat": "Sum", "label": "YouTube" }],
-            ["...", "tiktok", { "stat": "Sum", "label": "TikTok" }],
-            ["...", "rss", { "stat": "Sum", "label": "Podcast" }],
-            ["...", "deepgram", { "stat": "Sum", "label": "Deepgram" }]
-          ]
-          view    = "timeSeries"
-          stacked = true
-          region  = var.aws_region
-          title   = "Retries by Platform (leading indicator)"
-          period  = 300
-        }
-      },
-
-      # -----------------------------------------------------------------------
-      # Row 3: Stage 3 - Transcription (Deepgram)
-      # -----------------------------------------------------------------------
-      {
-        type   = "text"
-        x      = 0
-        y      = 15
-        width  = 24
-        height = 1
-        properties = {
-          markdown = "## Stage 3: Transcription (Deepgram) | SLO: 98% success, p95 < 120s"
-        }
-      },
-      {
-        type   = "metric"
-        x      = 0
-        y      = 16
-        width  = 8
-        height = 6
-        properties = {
-          metrics = [
-            ["MediaSummarizer/Pipeline", "TranscriptionCompleted", { "stat": "Sum", "label": "Completed", "color": "#2ca02c" }],
-            ["MediaSummarizer/Pipeline", "TranscriptionFailed", { "stat": "Sum", "label": "Failed", "color": "#d62728" }],
-            ["MediaSummarizer/Pipeline", "TranscriptionStarted", { "stat": "Sum", "label": "Started", "color": "#1f77b4" }]
-          ]
-          view    = "timeSeries"
-          stacked = false
-          region  = var.aws_region
-          title   = "Transcription Volume"
-          period  = 300
-        }
-      },
-      {
-        type   = "metric"
-        x      = 8
-        y      = 16
-        width  = 8
-        height = 6
-        properties = {
-          metrics = [
-            ["MediaSummarizer/Pipeline", "TranscriptionDurationMs", { "stat": "p95", "label": "p95 Latency (ms)", "color": "#d62728" }],
-            ["MediaSummarizer/Pipeline", "TranscriptionDurationMs", { "stat": "p50", "label": "p50 Latency (ms)", "color": "#2ca02c" }],
-            ["MediaSummarizer/Pipeline", "TranscriptionDurationMs", { "stat": "Average", "label": "Average (ms)", "color": "#1f77b4" }]
-          ]
-          view    = "timeSeries"
-          stacked = false
-          region  = var.aws_region
-          title   = "Transcription Latency (SLO p95 < 120s)"
-          period  = 300
-          annotations = {
-            horizontal = [
-              { label = "SLO p95 Target", value = 120000, color = "#ff7f0e" }
+      [
+        {
+          type   = "text"
+          x      = 0
+          y      = 1
+          width  = 24
+          height = 1
+          properties = {
+            markdown = "## API Gateway HTTP API - Latency & Errors"
+          }
+        },
+        {
+          type   = "metric"
+          x      = 0
+          y      = 2
+          width  = 8
+          height = 6
+          properties = {
+            metrics = [
+              ["AWS/ApiGateway", "Latency", "ApiId", local.api_gateway_name, { "stat" : "p50", "label" : "p50" }],
+              ["AWS/ApiGateway", "Latency", "ApiId", local.api_gateway_name, { "stat" : "p95", "label" : "p95", "color" : "#ff7f0e" }],
+              ["AWS/ApiGateway", "Latency", "ApiId", local.api_gateway_name, { "stat" : "p99", "label" : "p99", "color" : "#d62728" }]
             ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "API Latency (p50 / p95 / p99)"
+            period = 300
+          }
+        },
+        {
+          type   = "metric"
+          x      = 8
+          y      = 2
+          width  = 8
+          height = 6
+          properties = {
+            metrics = [
+              ["AWS/ApiGateway", "4xx", "ApiId", local.api_gateway_name, { "stat" : "Sum", "label" : "4xx", "color" : "#ff7f0e" }],
+              ["AWS/ApiGateway", "5xx", "ApiId", local.api_gateway_name, { "stat" : "Sum", "label" : "5xx", "color" : "#d62728" }],
+              ["AWS/ApiGateway", "Count", "ApiId", local.api_gateway_name, { "stat" : "Sum", "label" : "Total", "color" : "#1f77b4" }]
+            ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "API Request Count (4xx / 5xx / Total)"
+            period = 300
+          }
+        },
+        {
+          type   = "metric"
+          x      = 16
+          y      = 2
+          width  = 8
+          height = 6
+          properties = {
+            metrics = [
+              ["AWS/ApiGateway", "Count", "ApiId", local.api_gateway_name, "Resource", "/api/media/ingest-url", "Method", "POST", { "stat" : "Sum", "label" : "POST /ingest-url" }],
+              ["AWS/ApiGateway", "Count", "ApiId", local.api_gateway_name, "Resource", "/api/media/ingest-shared-content", "Method", "POST", { "stat" : "Sum", "label" : "POST /ingest-shared-content" }],
+              ["AWS/ApiGateway", "Count", "ApiId", local.api_gateway_name, "Resource", "/api/media/{id}", "Method", "GET", { "stat" : "Sum", "label" : "GET /media/{id}" }]
+            ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "Requests by Route"
+            period = 300
           }
         }
-      },
-      {
-        type   = "metric"
-        x      = 16
-        y      = 16
-        width  = 8
-        height = 6
-        properties = {
-          metrics = [
-            [{ "expression": "100 * m1 / (m1 + m2)", "label": "Success Rate %", "id": "e1" }],
-            ["MediaSummarizer/Pipeline", "TranscriptionCompleted", { "stat": "Sum", "id": "m1", "visible": false }],
-            ["MediaSummarizer/Pipeline", "TranscriptionFailed", { "stat": "Sum", "id": "m2", "visible": false }]
-          ]
-          view    = "timeSeries"
-          region  = var.aws_region
-          title   = "Transcription Success Rate (SLO: 98%)"
-          period  = 300
-          yAxis   = { left = { min = 85, max = 100 } }
-          annotations = {
-            horizontal = [
-              { label = "SLO Target", value = 98, color = "#ff7f0e" }
-            ]
-          }
-        }
-      },
+      ],
 
       # -----------------------------------------------------------------------
-      # Row 4: Stage 4 - Artifact Generation
+      # Row 2: Lambda Workers - Invocations, Errors, Duration, Throttles
       # -----------------------------------------------------------------------
-      {
-        type   = "text"
-        x      = 0
-        y      = 22
-        width  = 24
-        height = 1
-        properties = {
-          markdown = "## Stage 4: Artifact Generation (LLM) | SLO: 95% success, p95 < 30s"
-        }
-      },
-      {
-        type   = "metric"
-        x      = 0
-        y      = 23
-        width  = 8
-        height = 6
-        properties = {
-          metrics = [
-            ["MediaSummarizer/Pipeline", "ArtifactGenerationCompleted", { "stat": "Sum", "label": "Completed", "color": "#2ca02c" }],
-            ["MediaSummarizer/Pipeline", "ArtifactGenerationFailed", { "stat": "Sum", "label": "Failed", "color": "#d62728" }]
-          ]
-          view    = "timeSeries"
-          stacked = false
-          region  = var.aws_region
-          title   = "Artifact Generation Volume"
-          period  = 300
-        }
-      },
-      {
-        type   = "metric"
-        x      = 8
-        y      = 23
-        width  = 8
-        height = 6
-        properties = {
-          metrics = [
-            ["MediaSummarizer/Pipeline", "ArtifactGenerationDurationMs", { "stat": "p95", "label": "p95 (ms)", "color": "#d62728" }],
-            ["MediaSummarizer/Pipeline", "ArtifactGenerationDurationMs", { "stat": "p50", "label": "p50 (ms)", "color": "#2ca02c" }],
-            ["MediaSummarizer/Pipeline", "ArtifactGenerationDurationMs", { "stat": "Average", "label": "Average (ms)", "color": "#1f77b4" }]
-          ]
-          view    = "timeSeries"
-          stacked = false
-          region  = var.aws_region
-          title   = "Artifact Generation Latency (SLO p95 < 30s)"
-          period  = 300
-          annotations = {
-            horizontal = [
-              { label = "SLO p95 Target", value = 30000, color = "#ff7f0e" }
+      [
+        {
+          type   = "text"
+          x      = 0
+          y      = 8
+          width  = 24
+          height = 1
+          properties = {
+            markdown = "## Lambda Workers - Invocations / Errors / Duration p95 / Throttles"
+          }
+        },
+        {
+          type   = "metric"
+          x      = 0
+          y      = 9
+          width  = 12
+          height = 6
+          properties = {
+            metrics = [
+              for w in local.lambda_workers :
+              ["AWS/Lambda", "Invocations", "FunctionName", "${var.project_name}-${w}", { "stat" : "Sum", "label" : w }]
             ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "Lambda Invocations (per function)"
+            period = 300
+          }
+        },
+        {
+          type   = "metric"
+          x      = 12
+          y      = 9
+          width  = 12
+          height = 6
+          properties = {
+            metrics = [
+              for w in local.lambda_workers :
+              ["AWS/Lambda", "Errors", "FunctionName", "${var.project_name}-${w}", { "stat" : "Sum", "label" : w }]
+            ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "Lambda Errors (per function)"
+            period = 300
+          }
+        },
+        {
+          type   = "metric"
+          x      = 0
+          y      = 15
+          width  = 12
+          height = 6
+          properties = {
+            metrics = [
+              for w in local.lambda_workers :
+              ["AWS/Lambda", "Duration", "FunctionName", "${var.project_name}-${w}", { "stat" : "p95", "label" : w }]
+            ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "Lambda Duration p95 (per function)"
+            period = 300
+          }
+        },
+        {
+          type   = "metric"
+          x      = 12
+          y      = 15
+          width  = 12
+          height = 6
+          properties = {
+            metrics = concat(
+              [
+                for w in local.lambda_workers :
+                ["AWS/Lambda", "Throttles", "FunctionName", "${var.project_name}-${w}", { "stat" : "Sum", "label" : w }]
+              ],
+              [
+                for w in local.lambda_workers :
+                ["AWS/Lambda", "ConcurrentExecutions", "FunctionName", "${var.project_name}-${w}", { "stat" : "Maximum", "label" : "${w} (concurrency)", "yAxis" : "right" }]
+              ]
+            )
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "Lambda Throttles & Concurrent Executions"
+            period = 300
           }
         }
-      },
-      {
-        type   = "metric"
-        x      = 16
-        y      = 23
-        width  = 8
-        height = 6
-        properties = {
-          metrics = [
-            [{ "expression": "100 * m1 / (m1 + m2)", "label": "Success Rate %", "id": "e1" }],
-            ["MediaSummarizer/Pipeline", "ArtifactGenerationCompleted", { "stat": "Sum", "id": "m1", "visible": false }],
-            ["MediaSummarizer/Pipeline", "ArtifactGenerationFailed", { "stat": "Sum", "id": "m2", "visible": false }]
-          ]
-          view    = "timeSeries"
-          region  = var.aws_region
-          title   = "Artifact Success Rate (SLO: 95%)"
-          period  = 300
-          yAxis   = { left = { min = 80, max = 100 } }
-          annotations = {
-            horizontal = [
-              { label = "SLO Target", value = 95, color = "#ff7f0e" }
+      ],
+
+      # -----------------------------------------------------------------------
+      # Row 3: SQS Queue Depth (main queues + DLQs)
+      # -----------------------------------------------------------------------
+      [
+        {
+          type   = "text"
+          x      = 0
+          y      = 21
+          width  = 24
+          height = 1
+          properties = {
+            markdown = "## SQS Queue Depth - Main Queues & Dead Letter Queues"
+          }
+        },
+        {
+          type   = "metric"
+          x      = 0
+          y      = 22
+          width  = 12
+          height = 6
+          properties = {
+            metrics = [
+              for q_name, _ in local.queue_dlq_map :
+              ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", q_name, { "stat" : "Average", "period" : 60, "label" : q_name }]
             ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "Queue Backlog (Visible Messages)"
+          }
+        },
+        {
+          type   = "metric"
+          x      = 12
+          y      = 22
+          width  = 12
+          height = 6
+          properties = {
+            metrics = [
+              for _, dlq_name in local.queue_dlq_map :
+              ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", dlq_name, { "stat" : "Sum", "period" : 300, "label" : dlq_name }]
+            ]
+            view    = "timeSeries"
+            stacked = true
+            region  = var.aws_region
+            title   = "Dead Letter Queue Depth"
           }
         }
-      },
+      ],
 
       # -----------------------------------------------------------------------
-      # Row 5: Queue Health (infrastructure)
+      # Row 4: Ingestion by Source Platform (stacked area)
       # -----------------------------------------------------------------------
-      {
-        type   = "text"
-        x      = 0
-        y      = 29
-        width  = 24
-        height = 1
-        properties = {
-          markdown = "## Infrastructure: Queue Depth and DLQ"
+      [
+        {
+          type   = "text"
+          x      = 0
+          y      = 28
+          width  = 24
+          height = 1
+          properties = {
+            markdown = "## Ingestion by Source Platform & Provider Quotas"
+          }
+        },
+        {
+          type   = "metric"
+          x      = 0
+          y      = 29
+          width  = 8
+          height = 6
+          properties = {
+            metrics = [
+              ["MediaSummarizer/Pipeline", "IngestByPlatform", "SourcePlatform", "youtube", { "stat" : "Sum", "label" : "YouTube" }],
+              ["MediaSummarizer/Pipeline", "IngestByPlatform", "SourcePlatform", "tiktok", { "stat" : "Sum", "label" : "TikTok" }],
+              ["MediaSummarizer/Pipeline", "IngestByPlatform", "SourcePlatform", "instagram", { "stat" : "Sum", "label" : "Instagram" }],
+              ["MediaSummarizer/Pipeline", "IngestByPlatform", "SourcePlatform", "x", { "stat" : "Sum", "label" : "X (Twitter)" }],
+              ["MediaSummarizer/Pipeline", "IngestByPlatform", "SourcePlatform", "podcast", { "stat" : "Sum", "label" : "Podcast" }],
+              ["MediaSummarizer/Pipeline", "IngestByPlatform", "SourcePlatform", "article", { "stat" : "Sum", "label" : "Article" }],
+              ["MediaSummarizer/Pipeline", "IngestByPlatform", "SourcePlatform", "document", { "stat" : "Sum", "label" : "Document" }]
+            ]
+            view    = "timeSeries"
+            stacked = true
+            region  = var.aws_region
+            title   = "Ingestion Volume by Platform (5min)"
+            period  = 300
+          }
+        },
+        {
+          type   = "metric"
+          x      = 8
+          y      = 29
+          width  = 8
+          height = 6
+          properties = {
+            metrics = [
+              ["MediaSummarizer/Pipeline", "ParserCalls", "Parser", "llamaparse", { "stat" : "Sum", "label" : "LlamaParse" }],
+              ["MediaSummarizer/Pipeline", "ParserCalls", "Parser", "unstructured", { "stat" : "Sum", "label" : "Unstructured (fallback)" }]
+            ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "Document Parser Usage (LlamaParse vs Unstructured)"
+            period = 300
+          }
+        },
+        {
+          type   = "metric"
+          x      = 16
+          y      = 29
+          width  = 8
+          height = 6
+          properties = {
+            metrics = [
+              ["MediaSummarizer/Pipeline", "ApifyCalls", { "stat" : "Sum", "label" : "Apify Calls" }]
+            ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "Apify Provider Calls (TikTok/Instagram)"
+            period = 300
+          }
         }
-      },
-      {
-        type   = "metric"
-        x      = 0
-        y      = 30
-        width  = 12
-        height = 6
-        properties = {
-          metrics = [
-            ["AWS/SQS", "ApproximateNumberOfVisibleMessages", "QueueName", "podcastindex-resolution-queue", { "stat": "Average", "period": 60 }],
-            ["...", "youtube-ingestion-queue", { "stat": "Average", "period": 60 }],
-            ["...", "tiktok-ingestion-queue", { "stat": "Average", "period": 60 }],
-            ["...", "deepgram-transcription-queue", { "stat": "Average", "period": 60 }],
-            ["...", "summarization-queue", { "stat": "Average", "period": 60 }],
-            ["...", "article-extraction-queue", { "stat": "Average", "period": 60 }]
-          ]
-          view    = "timeSeries"
-          stacked = false
-          region  = var.aws_region
-          title   = "Queue Backlog (Visible Messages)"
-        }
-      },
-      {
-        type   = "metric"
-        x      = 12
-        y      = 30
-        width  = 12
-        height = 6
-        properties = {
-          metrics = [
-            ["AWS/SQS", "ApproximateNumberOfVisibleMessages", "QueueName", "transcription-dlq", { "stat": "Sum", "period": 300, "label": "Transcription DLQ" }],
-            ["...", "summarization-dlq", { "stat": "Sum", "period": 300, "label": "Summarization DLQ" }],
-            ["...", "youtube-ingestion-dlq", { "stat": "Sum", "period": 300, "label": "YouTube DLQ" }],
-            ["...", "tiktok-ingestion-dlq", { "stat": "Sum", "period": 300, "label": "TikTok DLQ" }],
-            ["...", "deepgram-transcription-dlq", { "stat": "Sum", "period": 300, "label": "Deepgram DLQ" }],
-            ["...", "audio-download-dlq", { "stat": "Sum", "period": 300, "label": "Download DLQ" }]
-          ]
-          view    = "timeSeries"
-          stacked = true
-          region  = var.aws_region
-          title   = "Dead Letter Queue Depth (poison messages)"
-        }
-      },
+      ],
 
       # -----------------------------------------------------------------------
-      # Row 6: Useful Queries
+      # Row 5: Deepgram & Transcription Metrics
       # -----------------------------------------------------------------------
-      {
-        type   = "text"
-        x      = 0
-        y      = 36
-        width  = 24
-        height = 1
-        properties = {
-          markdown = "## Diagnostic Queries"
+      [
+        {
+          type   = "text"
+          x      = 0
+          y      = 35
+          width  = 24
+          height = 1
+          properties = {
+            markdown = "## Transcription (Deepgram) & Error Rates"
+          }
+        },
+        {
+          type   = "metric"
+          x      = 0
+          y      = 36
+          width  = 12
+          height = 6
+          properties = {
+            metrics = [
+              ["MediaSummarizer/Pipeline", "DeepgramCallsTotal", { "stat" : "Sum", "label" : "Total Calls", "color" : "#1f77b4" }],
+              ["MediaSummarizer/Pipeline", "DeepgramErrors", { "stat" : "Sum", "label" : "Errors", "color" : "#d62728" }]
+            ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "Deepgram Calls vs Errors"
+            period = 300
+          }
+        },
+        {
+          type   = "metric"
+          x      = 12
+          y      = 36
+          width  = 12
+          height = 6
+          properties = {
+            metrics = [
+              [{ "expression" : "IF(m2 > 0, 100 * m1 / m2, 0)", "label" : "Deepgram Error Rate %", "id" : "e1" }],
+              ["MediaSummarizer/Pipeline", "DeepgramErrors", { "stat" : "Sum", "id" : "m1", "visible" : false }],
+              ["MediaSummarizer/Pipeline", "DeepgramCallsTotal", { "stat" : "Sum", "id" : "m2", "visible" : false }]
+            ]
+            view   = "timeSeries"
+            region = var.aws_region
+            title  = "Deepgram Error Rate % (alarm > 5%)"
+            period = 900
+            annotations = {
+              horizontal = [
+                { label = "Alarm Threshold", value = 5, color = "#d62728" }
+              ]
+            }
+          }
         }
-      },
-      {
-        type   = "log"
-        x      = 0
-        y      = 37
-        width  = 12
-        height = 6
-        properties = {
-          query   = "SOURCE '/ecs/${var.project_name}-deepgram-worker' | SOURCE '/ecs/${var.project_name}-summarization-worker' | SOURCE '/ecs/${var.project_name}-youtube-worker' | SOURCE '/ecs/${var.project_name}-tiktok-worker' | SOURCE '/ecs/${var.project_name}-rss-worker' | fields @timestamp, event, job_id, error_type, error_code | filter level = 'ERROR' | sort @timestamp desc | limit 20"
-          region  = var.aws_region
-          title   = "All Worker Errors (last 20)"
-          view    = "table"
-        }
-      },
-      {
-        type   = "log"
-        x      = 12
-        y      = 37
-        width  = 12
-        height = 6
-        properties = {
-          query   = "SOURCE '/ecs/${var.project_name}-deepgram-worker' | stats avg(duration_ms) as avg_ms, pct(duration_ms, 95) as p95_ms, count(*) as total by bin(5m) | filter event = 'worker.transcription.completed' | sort bin desc | limit 24"
-          region  = var.aws_region
-          title   = "Transcription Latency Distribution (5min buckets)"
-          view    = "table"
-        }
-      }
-    ]
+      ]
+    )
   })
 }
