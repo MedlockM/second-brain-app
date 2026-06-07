@@ -151,3 +151,23 @@ Un document unique à `docs/research/task-XX-app-name/README.md` (remplacer XX p
 - [ ] #8 #8 Aucun nom de la conversation préalable (Sift, Recap, Drift, Pith, Stash, Cache, Trace, Echo, Mnemo, Cortex, Tether, Drop, Brief, Gist, etc.) n'est repris tel quel sans avoir été regénéré indépendamment depuis les angles thématiques (anti-bias)
 - [ ] #9 #9 Section 7 (Decision) est vide, prête pour l'owner
 <!-- AC:END -->
+
+## Implementation Notes
+
+**Mode**: initial (first research pass — no prior `docs/research/task-115-app-name/` directory existed)
+
+**Produced**: `docs/research/task-115-app-name/README.md` — full benchmark deliverable containing:
+- 40 raw candidates across 8 thematic angles (memory, digest, curation, calm, light, botanical, invented words, foreign languages)
+- 12 detailed finalist evaluations with 9-criteria scoring and availability verification
+- Top 5 shortlist: Culma (43/45), Shimiru (40/45), Steepen (38/45), Humus (38/45), Nureru (37/45)
+- Final recommendation: **Culma** — invented word (calm + Latin -ma), 5 letters, zero App Store/Play Store conflicts, multiple domains available (.app, .io, .co)
+
+**Availability verification methods used**:
+- iTunes Search API (automated, 2026-06-07)
+- Google Play Store search (automated, 2026-06-07)
+- DNS resolution via `dig +short` for .com/.app/.io/.co domains (automated, 2026-06-07)
+- Brave Search and DuckDuckGo for trademark/brand existence checks (2026-06-07)
+
+**Note**: USPTO TESS and EUIPO TMView are not programmatically accessible (return 403/captcha). Trademark verification was done indirectly via web search. Owner should confirm via manual TESS/TMView search before filing.
+
+**Recommendation awaits owner validation** via `owner_decision` field in the README front-matter.
