@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: more
 ---
 
 # Benchmark : Nom marketing de l'app (V1 launch branding)
 
 ## Owner Validation
 
-**Decision**: _(a remplir par l'owner apres relecture)_
+**Decision**: en fait je veux un nom qui sonne bien en anglais certes mais aussi en français puisque ce sera mon premier marché cible. Or culma contient le mot cul... Steepen est pas mal dans l'idée (intensifier l'infusion j'aime bien) mais j'aimerais que tu me proposes d'uatres options avant que je fasse mon choix
 **Validated at**: _(date ISO a remplir par l'owner)_
 
 ---
