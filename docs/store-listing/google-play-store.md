@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | App Name (max 30) | Media Summarizer |
-| Package Name | com.mediasummarizer.app |
+| Package Name | com.secondbrainlabs.core |
 | Category | Productivity |
 | Content Rating | Everyone |
 

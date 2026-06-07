@@ -6,8 +6,8 @@
 |-------|-------|
 | App Name | Media Summarizer |
 | Subtitle | Your Second Brain for Media |
-| Bundle ID | com.mediasummarizer.app |
-| SKU | com-mediasummarizer-app-v1 |
+| Bundle ID | com.secondbrainlabs.core |
+| SKU | com-secondbrainlabs-core-v1 |
 | Primary Category | Productivity |
 | Secondary Category | Education |
 

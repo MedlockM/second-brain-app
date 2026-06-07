@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 # These product IDs should match what is configured in the RevenueCat dashboard
 PRODUCT_TIER_MAP: Dict[str, SubscriptionTier] = {
     # iOS product IDs
-    "com.mediasummarizer.text_only_monthly": SubscriptionTier.S,
-    "com.mediasummarizer.mix_monthly": SubscriptionTier.M,
-    "com.mediasummarizer.audio_heavy_monthly": SubscriptionTier.L,
+    "com.secondbrainlabs.core.text_only_monthly": SubscriptionTier.S,
+    "com.secondbrainlabs.core.mix_monthly": SubscriptionTier.M,
+    "com.secondbrainlabs.core.audio_heavy_monthly": SubscriptionTier.L,
     # Android product IDs
     "text_only_monthly": SubscriptionTier.S,
     "mix_monthly": SubscriptionTier.M,

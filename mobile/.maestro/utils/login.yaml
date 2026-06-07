@@ -1,6 +1,6 @@
 # Reusable login sub-flow
 # Called by other flows that require authentication
-appId: com.mediasummarizer.app
+appId: com.secondbrainlabs.core
 
 ---
 

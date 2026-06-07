@@ -5,7 +5,7 @@
 # - Processing status badges are visible
 # - Pull-to-refresh works
 # - Empty state is properly replaced by content
-appId: com.mediasummarizer.app
+appId: com.secondbrainlabs.core
 tags:
   - critical
   - share-first

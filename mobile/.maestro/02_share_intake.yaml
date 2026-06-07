@@ -6,7 +6,7 @@
 # - Android: deep link via custom scheme (media-summarizer://share?url=...)
 # - iOS: note that native share extension automation is limited in Maestro;
 #   see E2E_TESTING.md for the fallback Appium strategy.
-appId: com.mediasummarizer.app
+appId: com.secondbrainlabs.core
 tags:
   - critical
   - share-first

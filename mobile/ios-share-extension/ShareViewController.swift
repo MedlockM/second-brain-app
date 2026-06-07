@@ -16,7 +16,7 @@ import UniformTypeIdentifiers
 /// then opens the main app with the appropriate media-summarizer:// scheme parameters.
 class ShareViewController: UIViewController {
 
-    private let appGroupIdentifier = "group.com.mediasummarizer.app"
+    private let appGroupIdentifier = "group.com.secondbrainlabs.core"
     private let sharedUrlKey = "SharedURL"
     private let appScheme = "media-summarizer"
 
@@ -313,7 +313,7 @@ class ShareViewController: UIViewController {
 
     private func completeWithError() {
         DispatchQueue.main.async {
-            let error = NSError(domain: "com.mediasummarizer.share", code: 0, userInfo: [
+            let error = NSError(domain: "com.secondbrainlabs.core.share", code: 0, userInfo: [
                 NSLocalizedDescriptionKey: "Unable to process shared content"
             ])
             self.extensionContext?.cancelRequest(withError: error)

@@ -4,7 +4,7 @@
 # - Transcript section shows processing status
 # - AI Artifacts section is present and expandable
 # - Back navigation works
-appId: com.mediasummarizer.app
+appId: com.secondbrainlabs.core
 tags:
   - critical
   - share-first

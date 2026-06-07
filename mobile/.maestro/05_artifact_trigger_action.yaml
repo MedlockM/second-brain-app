@@ -6,7 +6,7 @@
 # - Tap "Generate" on a summary artifact
 # - Verify the artifact enters "Queued" then "Generating" state
 # - Verify completion or progress indication
-appId: com.mediasummarizer.app
+appId: com.secondbrainlabs.core
 tags:
   - critical
   - share-first

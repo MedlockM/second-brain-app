@@ -14,7 +14,7 @@ function withShareExtension(config) {
   // Add App Groups entitlement to the main app target
   config = withEntitlementsPlist(config, (modConfig) => {
     modConfig.modResults["com.apple.security.application-groups"] = [
-      "group.com.mediasummarizer.app",
+      "group.com.secondbrainlabs.core",
     ];
     return modConfig;
   });
@@ -31,7 +31,7 @@ function withShareExtension(config) {
     if (!hasScheme) {
       existingSchemes.push({
         CFBundleURLSchemes: ["media-summarizer"],
-        CFBundleURLName: "com.mediasummarizer.app",
+        CFBundleURLName: "com.secondbrainlabs.core",
       });
       modConfig.modResults.CFBundleURLTypes = existingSchemes;
     }

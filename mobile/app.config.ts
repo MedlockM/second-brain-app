@@ -16,7 +16,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   ios: {
     supportsTablet: false,
-    bundleIdentifier: "com.mediasummarizer.app",
+    bundleIdentifier: "com.secondbrainlabs.core",
     usesAppleSignIn: true,
     infoPlist: {
       NSPhotoLibraryUsageDescription:
@@ -25,7 +25,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // App Groups for sharing data between the main app and the share extension
     entitlements: {
       "com.apple.security.application-groups": [
-        "group.com.mediasummarizer.app",
+        "group.com.secondbrainlabs.core",
       ],
     },
   },
@@ -34,7 +34,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#fcf9f6",
     },
-    package: "com.mediasummarizer.app",
+    package: "com.secondbrainlabs.core",
     intentFilters: [
       {
         action: "SEND",

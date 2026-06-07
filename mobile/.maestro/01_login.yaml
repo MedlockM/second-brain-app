@@ -1,7 +1,7 @@
 # Flow 01: Login Authentication
 # Verifies that a user can authenticate and reach the inbox screen.
 # This flow is a prerequisite for all other share-first flows.
-appId: com.mediasummarizer.app
+appId: com.secondbrainlabs.core
 tags:
   - critical
   - auth

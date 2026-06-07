@@ -95,14 +95,14 @@ eas credentials --platform android
 
 ### 4. App Store Connect Setup
 
-1. Create the app in App Store Connect (bundle ID: `com.mediasummarizer.app`)
+1. Create the app in App Store Connect (bundle ID: `com.secondbrainlabs.core`)
 2. Enable TestFlight for the app
 3. Add internal testers in TestFlight > Internal Testing > Add group
 4. Note the numeric App ID for `ASC_APP_ID`
 
 ### 5. Google Play Console Setup
 
-1. Create the app in Google Play Console (package: `com.mediasummarizer.app`)
+1. Create the app in Google Play Console (package: `com.secondbrainlabs.core`)
 2. Complete the app content declarations
 3. Create an Internal Testing track
 4. Add internal testers (email list or Google Group)

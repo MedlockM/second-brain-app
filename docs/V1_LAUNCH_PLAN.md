@@ -1,7 +1,7 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-06-01.
+> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-06-07 (Bundle ID figé `com.secondbrainlabs.core`).
 
 ---
 
@@ -108,7 +108,7 @@ GOOGLE_REDIRECT_URI=https://api.<your-domain>/api/v1/auth/google/callback
 APPLE_TEAM_ID=...                      # Visible dans Apple Developer Account → Membership
 APPLE_KEY_ID=...                       # Du Sign in with Apple Key généré dans Apple Developer
 APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-APPLE_CLIENT_ID=...                    # Service ID (ex: com.yourdomain.app.signinwithapple)
+APPLE_CLIENT_ID=...                    # Service ID (ex: com.secondbrainlabs.core.signinwithapple)
 APPLE_REDIRECT_URI=https://api.<your-domain>/api/v1/auth/apple/callback
 ```
 
@@ -205,8 +205,21 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 4. Expo / EAS account + lien vers le repo.
 5. RevenueCat account + projet + apps iOS/Android (clés générées).
 6. Comptes API tiers : tous configurés au 2026-06-01 (clés présentes dans `.env`) — **OpenAI**, **Deepgram**, **PodcastIndex.org**, **X Developer Platform**, **Apify**, **LlamaParse**, **Unstructured.io**, **Algolia**. **Google OAuth backend** également déjà provisionné (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` en local dans `.env`). **Apple OAuth backend NON provisionné** : `.env` ne contient que des placeholders du template (`APPLE_CLIENT_ID` placeholder, `APPLE_PRIVATE_KEY` placeholder, `APPLE_REDIRECT_URI` URL localhost de dev) ; `APPLE_TEAM_ID` + `APPLE_KEY_ID` vides. Restent à provisionner : **toute la chaîne Apple Developer** (Service ID `APPLE_CLIENT_ID`, Sign in with Apple Key `.p8` → `APPLE_PRIVATE_KEY`, Team ID, Key ID, Return URL prod `APPLE_REDIRECT_URI`), **3 OAuth Client IDs publics** (iOS, Android, Web Expo) + écran de consentement publié côté **Google Cloud Console**, **RevenueCat** (projet + 3 produits + webhook), `PRICING_ADMIN_SECRET` (à générer localement avec `openssl rand -hex 32`).
-7. **Google Cloud Console** : créer un projet, activer l'écran de consentement OAuth (External, scopes openid + email + profile), créer **3 OAuth Client IDs** : iOS (avec bundle id), Android (avec SHA-1 du keystore EAS), Web (utilisé par le backend pour vérifier le `aud` du id_token).
-8. **Apple Developer** : créer un **Sign in with Apple Service ID** (ex: `com.yourdomain.app.signinwithapple`), créer une **Sign in with Apple Key** (récupérer le `.p8` private key + Key ID), récupérer le Team ID, configurer le Return URL pour le backend.
+7. **Google Cloud Console** (console.cloud.google.com) :
+   - **Créer un projet** (ex: `Second Brain`). Le nom du projet est un identifiant interne, peu visible aux users.
+   - **APIs & Services → OAuth consent screen (Audience)** : Type **External** (les apps Workspace internes seraient `Internal` mais nécessitent un domaine Google Workspace). Scopes : `openid`, `email`, `profile` uniquement (les scopes "sensitive/restricted" déclencheraient une vérification Google de 4-6 semaines).
+   - **OAuth consent screen → Branding** : remplir App name (ex: `Second Brain` — c'est ce que les users voient sur l'écran de consentement, **pas** le nom du projet GCP), logo, user support email, developer contact email.
+   - **Audience** : laisser en mode `Test` pendant le développement (max 100 utilisateurs whitelistés) et **s'ajouter soi-même comme "utilisateur test"** pour pouvoir se connecter en dev. La publication en `Production` est faite plus tard, en Phase 10.
+   - **APIs & Services → Credentials → 3 OAuth Client IDs** :
+     - **Web** (utilisé par le backend pour vérifier l'`aud` du id_token, ET réutilisé côté mobile via `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`) → `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`.
+     - **iOS** (avec bundle id du `mobile/app.config.ts`) → `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`.
+     - **Android** (avec package name + SHA-1 du keystore EAS) → `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`. **À différer en Phase 5** une fois `eas build:configure` exécuté pour récupérer le SHA-1 production.
+8. **Apple Developer Portal** (developer.apple.com → Certificates, Identifiers & Profiles) :
+   - **Bundle ID figé : `com.secondbrainlabs.core`** (décidé 2026-06-07, propagé dans `mobile/app.config.ts`, `mobile/plugins/withShareExtension.js`, `mobile/ios-share-extension/`, RevenueCat product IDs). Identique côté Apple (App ID + Service ID radical) et Google Play (package name) pour la cohérence cross-platform et les liens universels.
+   - **Identifiers → App IDs** : créer un App ID avec `com.secondbrainlabs.core`, et **activer la capability "Sign in with Apple"** dans la liste des capabilities.
+   - **Identifiers → Services IDs** : créer le Service ID `com.secondbrainlabs.core.signinwithapple` → c'est la valeur de `APPLE_CLIENT_ID`. Configurer son return URL backend (ex: `https://api.<your-domain>/api/v1/auth/apple/callback`) → c'est la valeur de `APPLE_REDIRECT_URI`. Associer au App ID créé ci-dessus.
+   - **Keys → Sign in with Apple Key** : générer une clé associée à l'App ID. Télécharger le fichier `.p8` (=> `APPLE_PRIVATE_KEY`, le contenu PEM single-line avec `\n`) et noter le **Key ID** (=> `APPLE_KEY_ID`). ⚠ **Téléchargement unique** — sauvegarder le `.p8` immédiatement, Apple ne le re-génère pas.
+   - **Membership** : récupérer le **Team ID** (=> `APPLE_TEAM_ID`) visible dans le menu Account → Membership.
 
 ### Phase 3 — Infrastructure AWS (jour 2-3)
 
@@ -303,19 +316,28 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 
 ### Phase 10 — Pré-lancement (jour 10+)
 
-1. **Apple App Store** :
-   - App Store Connect : screenshots (5 par device), description, mots-clés, politique de confidentialité.
-   - Compléter le App Privacy questionnaire.
-   - Soumettre pour review (1-3 jours).
+1. **Apple App Store Connect** (appstoreconnect.apple.com) :
+   - **App Information** : nom marketing affiché aux users (à figer en Phase 10 ; ≠ Bundle ID `com.secondbrainlabs.core`), sous-titre (30 chars max), catégorie primaire/secondaire, contact info, copyright. C'est l'équivalent Apple du "Branding" Google OAuth.
+   - **Pricing & Availability** : free vs paid, pays/régions, App Store distribution.
+   - **App Privacy** : remplir le questionnaire détaillé sur les données collectées + leur usage. Apple est strict — toute imprécision peut entraîner un rejet ou un retrait post-launch.
+   - **App Review Information** : compte de démo (login + password) pour le reviewer Apple, notes éventuelles, contact.
+   - **Version 1.0** : screenshots (5 par device-size requis : 6.9", 6.5", iPad), description (4000 chars), promotional text, mots-clés (100 chars), URL support, URL marketing, URL politique de confidentialité publiquement hébergée.
+   - **Build** : sélectionner la build TestFlight déjà uploadée + validée.
+   - **Soumettre pour review** (1-3 jours, parfois plus).
 2. **Google Play Store** :
    - Play Console : assets, description, classification, politique de confidentialité.
    - Closed Testing → Open Testing → Production rollout.
-3. **Légal** :
+3. **Google Auth Platform (OAuth consent screen → Audience)** :
+   - Vérifier le **Branding** : App name = nom marketing (ex. `Second Brain`, **pas** le nom interne du projet GCP), logo, support email, developer contact email.
+   - Confirmer que les **scopes** demandés sont uniquement `openid`, `email`, `profile` (non-sensitive). Si d'autres scopes sont ajoutés (Drive, Gmail, etc.), prévoir 4-6 semaines de **vérification Google** + politique de confidentialité publique + vidéo de démo.
+   - Section **État de la publication** : cliquer **« Publier l'application »** pour passer de `Test` (limité aux 100 utilisateurs whitelistés) à `Production` (n'importe qui peut se connecter avec Google).
+   - Pour les scopes basiques (notre cas), la publication est immédiate sans validation Google supplémentaire — un avertissement "App non vérifiée" peut apparaître initialement chez certains users, à monitorer.
+4. **Légal** :
    - Politique de confidentialité hébergée publiquement.
    - CGU avec mention RevenueCat / abonnements.
    - Conformité RGPD : droit à l'oubli, export des données.
-4. **Site landing minimal** (optionnel) : `<your-domain>` avec CTA App Store / Play Store.
-5. **Soft launch** : un seul pays, 100 users, observer 1 semaine avant rollout global.
+5. **Site landing minimal** (optionnel) : `<your-domain>` avec CTA App Store / Play Store.
+6. **Soft launch** : un seul pays, 100 users, observer 1 semaine avant rollout global.
 
 ---
 
@@ -323,10 +345,13 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 
 Une fois ces inscriptions faites, plus aucun blocage code :
 
-- [ ] Apple Developer Program activé (peut prendre 24-48h)
-- [ ] **Apple Sign in with Apple Service ID + Key (.p8) générés** + Team ID, Key ID renseignés (toutes les vars Apple sont des placeholders du template dans `.env` : `APPLE_CLIENT_ID` placeholder `com.yourdomain.app.signinwithapple`, `APPLE_PRIVATE_KEY` placeholder PEM, `APPLE_REDIRECT_URI` URL localhost de dev, `APPLE_TEAM_ID` + `APPLE_KEY_ID` vides)
-- [ ] Google Play Console activé (immédiat)
-- [ ] **Google Cloud Console : 3 OAuth Client IDs créés (iOS, Android, Web) + écran de consentement publié** (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` côté backend déjà renseignés ; les 3 client IDs mobile/web restent à créer côté Google Cloud)
+- [x] AWS account + IAM admin user `second-brain-app-admin` (AdministratorAccess) + alarme billing $50/mois (us-east-1) configurée
+- [ ] Apple Developer Program **payé ($99) au 2026-06-01, en attente de validation Apple** (24-48h, parfois plus)
+- [ ] **Apple Sign in with Apple Service ID + Key (.p8) + App ID + Team ID + Key ID** : à provisionner dès que la validation Apple Developer arrive (cf. Phase 2.8 pour le parcours détaillé). Au 2026-06-01, toutes les vars Apple dans `.env` sont placeholders/vides : `APPLE_CLIENT_ID` placeholder, `APPLE_PRIVATE_KEY` placeholder PEM, `APPLE_REDIRECT_URI` URL localhost dev, `APPLE_TEAM_ID` + `APPLE_KEY_ID` vides.
+- [ ] Google Play Console **payé ($25) au 2026-06-01, KYC en cours** (vérification d'identité quelques jours)
+- [x] Google Cloud Console : projet `media-summarizer` créé, OAuth consent screen configuré (Branding `Second Brain`, External, scopes openid+email+profile), mode Test avec utilisateur test ajouté, **2 OAuth Client IDs créés (Web backend + iOS)** — `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` + `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` + `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` renseignés dans `.env`
+- [ ] Google Cloud Console **Android OAuth Client ID** à créer en Phase 5 après `eas build:configure` (SHA-1 keystore EAS requis) → `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`
+- [ ] Google Cloud Console **publication OAuth (Test → Production)** à faire en Phase 10 juste avant le lancement
 - [x] X Developer App approuvée + bearer token (en local dans `.env`)
 - [x] Apify API token + 3 actor IDs (Reel + Post + Comment Scrapers) obtenus — en local dans `.env`
 - [x] LlamaParse API key obtenue (free tier 1000 pages/jour) — en local dans `.env`
