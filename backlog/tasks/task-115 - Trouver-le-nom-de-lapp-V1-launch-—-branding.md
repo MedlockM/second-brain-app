@@ -171,3 +171,22 @@ Un document unique à `docs/research/task-XX-app-name/README.md` (remplacer XX p
 **Note**: USPTO TESS and EUIPO TMView are not programmatically accessible (return 403/captcha). Trademark verification was done indirectly via web search. Owner should confirm via manual TESS/TMView search before filing.
 
 **Recommendation awaits owner validation** via `owner_decision` field in the README front-matter.
+
+---
+
+**Mode**: complement (2026-06-08) — responding to owner's `more` request
+
+**Owner feedback integrated**:
+- Culma eliminated: "cul" substring unacceptable for French-first market
+- Steepen direction appreciated (infusion/intensification metaphor)
+- Request for more alternatives before final decision
+
+**Produced**: `docs/research/task-115-app-name/complement-response-2026-06-08.md` containing:
+- 22 new raw candidates (all generated from scratch with FR linguistic sensitivity filter)
+- 8 scored finalists with full 9-criteria evaluation and availability verification
+- New recommendation: **Imbura** (44/45) — fusion of EN "imbue" + FR "imbiber", 6 letters, ALL domains free (.app/.com/.io/.co), zero French sensitivity issue, bilingual semantic resonance
+- Full shortlist: Imbura (44), Macena (42), Imbuva (42), Fondma (41), Steepra (39), Tremoa (39), Fonsma (38), Steepen (38)
+
+**Key improvement over initial pass**: Imbura (44/45) outscores all original candidates including Culma (43/45), with zero French language issues and exceptional commercial availability (all 4 TLDs free including .com — extremely rare for a 6-letter name).
+
+**Recommendation awaits owner validation** via `owner_decision` field in the main README front-matter.
