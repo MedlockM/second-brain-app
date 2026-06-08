@@ -1,7 +1,7 @@
 ---
 id: task-121
 title: Fix summarization worker still requires deprecated email field — discovered during Phase 4
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-08 22:00'
 labels:
