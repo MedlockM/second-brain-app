@@ -1,7 +1,7 @@
 ---
 id: task-119
 title: Cleanup legacy ops_alerts SNS topic and leftover pipeline_alerts references in Terraform
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-08 18:00'
 labels:
