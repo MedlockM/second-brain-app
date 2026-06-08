@@ -103,14 +103,25 @@ def _log_dynamodb_error(
 
 
 def get_session():
-    """Get or create aioboto3 session with current environment variables."""
+    """Get or create aioboto3 session with current environment variables.
+
+    On Lambda, AWS injects credentials via the standard chain (including
+    AWS_SESSION_TOKEN). Passing only access_key_id + secret_access_key without
+    the session token yields UnrecognizedClientException, so we let aioboto3
+    resolve credentials itself when no explicit static creds are present.
+    """
     global _session
     if _session is None:
-        _session = aioboto3.Session(
-            region_name=os.environ.get("AWS_REGION", "us-east-1"),
-            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-        )
+        kwargs = {"region_name": os.environ.get("AWS_REGION", "us-east-1")}
+        access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+        secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+        session_token = os.environ.get("AWS_SESSION_TOKEN")
+        if access_key and secret_key:
+            kwargs["aws_access_key_id"] = access_key
+            kwargs["aws_secret_access_key"] = secret_key
+            if session_token:
+                kwargs["aws_session_token"] = session_token
+        _session = aioboto3.Session(**kwargs)
     return _session
 
 

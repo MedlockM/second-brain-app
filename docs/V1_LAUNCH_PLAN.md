@@ -1,7 +1,7 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-06-08 (Apple Sign in with Apple chaîne complète provisionnée + `PRICING_ADMIN_SECRET` généré + RevenueCat iOS app configurée : `.p8` + Key ID + Issuer ID renseignés, `EXPO_PUBLIC_REVENUCAT_APPLE_KEY` en local dans `mobile/.env` ; correctif naming `EXPO_PUBLIC_GOOGLE_CLIENT_ID_<PLATFORM>` aligné avec `mobile/app.config.ts`).
+> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-06-08 (Apple Sign in with Apple chaîne complète provisionnée + `PRICING_ADMIN_SECRET` généré + RevenueCat iOS app configurée : `.p8` + Key ID + Issuer ID renseignés, `EXPO_PUBLIC_REVENUCAT_APPLE_KEY` en local dans `mobile/.env` ; correctif naming `EXPO_PUBLIC_GOOGLE_CLIENT_ID_<PLATFORM>` aligné avec `mobile/app.config.ts` ; **Phase 3 AWS dev déployée** : 140 ressources Terraform créées en `eu-west-3`, image Lambda ARM64 pushée dans ECR, API Gateway répond `HTTP 200` sur `/api/v1/health/`).
 
 ---
 
@@ -222,15 +222,27 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    - **Keys → Sign in with Apple Key** : générer une clé associée à l'App ID. Télécharger le fichier `.p8` (=> `APPLE_PRIVATE_KEY`, le contenu PEM single-line avec `\n`) et noter le **Key ID** (=> `APPLE_KEY_ID`). ⚠ **Téléchargement unique** — sauvegarder le `.p8` immédiatement, Apple ne le re-génère pas.
    - **Membership** : récupérer le **Team ID** (=> `APPLE_TEAM_ID`) visible dans le menu Account → Membership.
 
-### Phase 3 — Infrastructure AWS (jour 2-3)
+### Phase 3 — Infrastructure AWS (jour 2-3) — **DEV : DONE 2026-06-08**
 
-1. `cp infrastructure/terraform/terraform.tfvars.example infrastructure/terraform/terraform.tfvars` puis remplir : `environment`, **et tout `secret_payload`** (modèle complet dans le fichier example, voir `infrastructure/terraform/README.md`).
-2. `terraform init && terraform plan` sur l'environnement dev.
-3. `terraform apply` → DynamoDB tables, S3 buckets, SQS queues, Lambda functions (workers + API), API Gateway HTTP API, ECR repository, **secret consolidé `media-summarizer-runtime-<env>`** créé par `secrets.tf`.
-4. Build and push the Lambda container image: `docker build -f infrastructure/docker/lambda.Dockerfile -t <ecr-url>:worker-latest . && docker push`. Tag as `api-latest` as well (same image, different CMD).
-5. Vérifier que `aws_secretsmanager_secret.runtime` contient bien toutes les clés (Console AWS → Secrets Manager). Le `lifecycle { ignore_changes }` permet une rotation manuelle ultérieure sans replan.
-6. Confirmer que l'IAM policies `lambda-worker-policy` et `lambda-api-policy` sont attachées aux Lambda execution roles.
-7. Vérifier que les queues SQS DLQ sont câblées et que chaque queue a un event source mapping vers sa Lambda.
+Étapes exécutées (dev) :
+
+1. ✅ `infrastructure/terraform/terraform.tfvars` généré depuis `.env` racine (29 clés `secret_payload`, mode 0600, gitignored par `*.tfvars`). Région `eu-west-3`, `enable_alarms = false` (économise ~$4.20/mois en dev — toggle réversible pour staging/prod).
+2. ✅ `terraform init` (provider AWS 5.100.0) puis `terraform plan -out=tfplan-dev` → 139 ressources (185 - 46 alarmes désactivées).
+3. ✅ `terraform apply` → **140 ressources créées** : 19 DynamoDB tables, 4 S3 buckets + lifecycle, 25 SQS queues + DLQs, 15 Lambda functions (1 API + 14 workers), 14 SQS event source mappings, API Gateway HTTP API, ECR repository, secret consolidé `media-summarizer-runtime-dev` (29 clés), 13 metric filters, 28 log groups, 7 IAM (roles/policies/attachments), CloudWatch dashboard.
+4. ✅ Build + push image Lambda : `docker buildx build --platform linux/arm64 --provenance=false --sbom=false ...` (l'absence de `--provenance=false` produit des manifestes OCI que Lambda refuse). Tags `worker-latest` + `api-latest` poussés dans ECR.
+5. ✅ Bugs Terraform corrigés en route : (a) bloc `required_providers` dupliqué dans `dynamodb_quota_tables.tf`, (b) `aws_cloudwatch_log_group.lambda_api` dupliqué dans `monitoring.tf`, (c) 37 blocs `attribute {}` single-line invalides reformatés multi-line, (d) `AWS_DEFAULT_REGION` (env var réservée Lambda) retirée de `lambda_workers.tf` + `lambda_api.tf`, (e) 3 metric filters avec dimensions hardcodées corrigées en JSON path selectors `$.field`.
+6. ✅ Bug Dockerfile permissions corrigé (`chmod -R a+rX ${LAMBDA_TASK_ROOT}`) — sans ce fix, l'umask 0600 de l'host propage dans l'image et la Lambda runtime user ne peut pas lire les fichiers.
+7. ✅ Bug `media_summarizer/utils/database_async.py:get_session()` corrigé : passait `aws_access_key_id` + `aws_secret_access_key` sans le `aws_session_token` que Lambda injecte → `UnrecognizedClientException`. Maintenant on laisse aioboto3 résoudre les credentials via la chaîne standard (sauf si static creds explicites).
+8. ✅ IAM `dynamodb:ListTables` ajoutée (action account-wide) au role `media-summarizer-lambda-api` (utilisée par le `/health` check).
+
+**Résultats dev** :
+- API endpoint : `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com`
+- Health check : `GET /api/v1/health/` → `HTTP 200 {"status":"healthy","database":"connected"}` ✨
+- ECR repository : `125313707865.dkr.ecr.eu-west-3.amazonaws.com/media-summarizer-lambda`
+- Runtime secret ARN : `arn:aws:secretsmanager:eu-west-3:125313707865:secret:media-summarizer-runtime-dev-OyXaYL`
+- Coût mensuel attendu (dev sans trafic) : ~$0.50-1/mois (Secrets Manager $0.40 fixe + reste négligeable).
+
+**Pour staging/prod** : recopier `terraform.tfvars` avec `environment = "staging"` ou `"prod"`, mettre `enable_alarms = true` (réactive les 42 alarmes + SNS topics + email subscriptions), réutiliser la même image Lambda dans le même ECR (multi-env partagé).
 
 ### Phase 4 — Tests d'intégration contre AWS dev (jour 3-4)
 
@@ -361,7 +373,7 @@ Une fois ces inscriptions faites, plus aucun blocage code :
 - [x] OpenAI API key + budget configuré (en local dans `.env`)
 - [x] Deepgram API key + budget configuré (en local dans `.env`)
 - [x] Algolia App créée + index configuré (App ID + Admin API key + index name en local dans `.env`)
-- [~] RevenueCat — **partiellement provisionné au 2026-06-08** : projet `Second Brain Labs` créé, app iOS configurée (Bundle ID `com.secondbrainlabs.core` + In-App Purchase Key `.p8` + Key ID + Issuer ID), Public iOS API key `appl_...` renseignée dans `mobile/.env` comme `EXPO_PUBLIC_REVENUCAT_APPLE_KEY`. **Restent à faire** : (a) générer la **Secret API key backend** → `REVENUCAT_API_KEY` + noter `REVENUCAT_PROJECT_ID` ; (b) configurer le **webhook** une fois l'API déployée Phase 3 (URL `https://api.<your-domain>/api/webhooks/revenucat`) → `REVENUCAT_WEBHOOK_SECRET` ; (c) créer **3 produits IAP iOS** dans App Store Connect (Phase 6) : `com.secondbrainlabs.core.text_only_monthly`, `.mix_monthly`, `.audio_heavy_monthly` ; (d) importer les produits dans RC + créer **Entitlements + Offerings** ; (e) app Android RC + 3 produits Android (différé)
+- [~] RevenueCat — **partiellement provisionné au 2026-06-08** : projet `Second Brain Labs` créé, app iOS configurée (Bundle ID `com.secondbrainlabs.core` + In-App Purchase Key `.p8` + Key ID + Issuer ID), Public iOS API key `appl_...` renseignée dans `mobile/.env` comme `EXPO_PUBLIC_REVENUCAT_APPLE_KEY`, **Secret API key backend `sk_...` créée** (scopes least-privilege : Customers/Subscriptions/Purchases `read` + Entitlements `read`) → `REVENUCAT_API_KEY` + `REVENUCAT_PROJECT_ID` renseignés dans `.env` racine. **Restent à faire** : (a) configurer le **webhook** maintenant que l'API est déployée Phase 3 (URL `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com/api/webhooks/revenucat`) → `REVENUCAT_WEBHOOK_SECRET` ; (b) créer **3 produits IAP iOS** dans App Store Connect (Phase 6) : `com.secondbrainlabs.core.text_only_monthly`, `.mix_monthly`, `.audio_heavy_monthly` ; (c) importer les produits dans RC + créer **Entitlements + Offerings** ; (d) app Android RC + 3 produits Android (différé)
 - [x] Pricing admin secret généré au 2026-06-08 (`PRICING_ADMIN_SECRET` en local dans `.env`, requis pour `PUT /api/pricing/admin`)
 
 ---

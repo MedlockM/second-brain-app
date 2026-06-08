@@ -108,6 +108,12 @@ resource "aws_iam_policy" "lambda_worker" {
         Resource = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/*"
       },
       {
+        # ListTables is account-wide (no per-table ARN). Used by /health check.
+        Effect   = "Allow"
+        Action   = ["dynamodb:ListTables"]
+        Resource = "*"
+      },
+      {
         Effect = "Allow"
         Action = [
           "secretsmanager:GetSecretValue",
@@ -239,6 +245,12 @@ resource "aws_iam_policy" "lambda_api" {
           "dynamodb:BatchWriteItem"
         ]
         Resource = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/*"
+      },
+      {
+        # ListTables is account-wide (no per-table ARN). Used by /health check.
+        Effect   = "Allow"
+        Action   = ["dynamodb:ListTables"]
+        Resource = "*"
       },
       {
         Effect = "Allow"
