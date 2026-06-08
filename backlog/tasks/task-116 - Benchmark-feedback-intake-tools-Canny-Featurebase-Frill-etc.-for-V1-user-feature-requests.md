@@ -3,7 +3,7 @@ id: task-116
 title: >-
   Benchmark feedback intake tools (Canny, Featurebase, Frill, etc.) for V1 user
   feature requests
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-08 10:51'
 labels:

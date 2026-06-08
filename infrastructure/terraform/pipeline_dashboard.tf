@@ -91,7 +91,7 @@ resource "aws_cloudwatch_log_metric_filter" "source_platform_counter" {
     namespace = "MediaSummarizer/Pipeline"
     value     = "1"
     dimensions = {
-      SourcePlatform = each.key
+      SourcePlatform = "$.source_platform"
     }
   }
 }
@@ -110,7 +110,7 @@ resource "aws_cloudwatch_log_metric_filter" "parser_llamaparse" {
     namespace = "MediaSummarizer/Pipeline"
     value     = "1"
     dimensions = {
-      Parser = "llamaparse"
+      Parser = "$.provider"
     }
   }
 }
@@ -125,7 +125,7 @@ resource "aws_cloudwatch_log_metric_filter" "parser_unstructured_fallback" {
     namespace = "MediaSummarizer/Pipeline"
     value     = "1"
     dimensions = {
-      Parser = "unstructured"
+      Parser = "$.provider"
     }
   }
 }

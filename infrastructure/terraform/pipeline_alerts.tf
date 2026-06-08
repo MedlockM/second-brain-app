@@ -14,7 +14,8 @@
 # =============================================================================
 
 resource "aws_sns_topic" "pipeline_alerts" {
-  name = "${var.project_name}-pipeline-alerts-${var.environment}"
+  count = var.enable_alarms ? 1 : 0
+  name  = "${var.project_name}-pipeline-alerts-${var.environment}"
 
   tags = {
     Name        = "${var.project_name}-pipeline-alerts"
@@ -24,7 +25,8 @@ resource "aws_sns_topic" "pipeline_alerts" {
 }
 
 resource "aws_sns_topic_subscription" "pipeline_alerts_email" {
-  topic_arn = aws_sns_topic.pipeline_alerts.arn
+  count     = var.enable_alarms ? 1 : 0
+  topic_arn = aws_sns_topic.pipeline_alerts[0].arn
   protocol  = "email"
   endpoint  = var.alert_email
 }
@@ -34,13 +36,14 @@ resource "aws_sns_topic_subscription" "pipeline_alerts_email" {
 # =============================================================================
 
 resource "aws_cloudwatch_metric_alarm" "api_latency_p95" {
+  count               = var.enable_alarms ? 1 : 0
   alarm_name          = "${var.project_name}-api-latency-p95-breach"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = var.api_slow_request_threshold_ms
   alarm_description   = "API Gateway p95 latency exceeded ${var.api_slow_request_threshold_ms}ms for 5 minutes. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#api-latency"
-  alarm_actions       = [aws_sns_topic.pipeline_alerts.arn]
-  ok_actions          = [aws_sns_topic.pipeline_alerts.arn]
+  alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
+  ok_actions          = [aws_sns_topic.pipeline_alerts[0].arn]
   treat_missing_data  = "notBreaching"
 
   metric_name        = "Latency"
@@ -65,13 +68,14 @@ resource "aws_cloudwatch_metric_alarm" "api_latency_p95" {
 # =============================================================================
 
 resource "aws_cloudwatch_metric_alarm" "api_5xx_rate" {
+  count               = var.enable_alarms ? 1 : 0
   alarm_name          = "${var.project_name}-api-5xx-rate-breach"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = "1"
   alarm_description   = "API Gateway 5xx error rate exceeded 1% over 5 minutes. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#api-5xx-rate"
-  alarm_actions       = [aws_sns_topic.pipeline_alerts.arn]
-  ok_actions          = [aws_sns_topic.pipeline_alerts.arn]
+  alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
+  ok_actions          = [aws_sns_topic.pipeline_alerts[0].arn]
   treat_missing_data  = "notBreaching"
 
   metric_query {
@@ -120,14 +124,14 @@ resource "aws_cloudwatch_metric_alarm" "api_5xx_rate" {
 # =============================================================================
 
 resource "aws_cloudwatch_metric_alarm" "dlq_depth" {
-  for_each = local.queue_dlq_map
+  for_each = var.enable_alarms ? local.queue_dlq_map : {}
 
   alarm_name          = "${var.project_name}-dlq-${each.value}-non-empty"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = "0"
   alarm_description   = "DLQ ${each.value} has messages (source queue: ${each.key}). Poison messages require investigation. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#dlq-messages"
-  alarm_actions       = [aws_sns_topic.pipeline_alerts.arn]
+  alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
   treat_missing_data  = "notBreaching"
 
   metric_name = "ApproximateNumberOfMessagesVisible"
@@ -152,15 +156,15 @@ resource "aws_cloudwatch_metric_alarm" "dlq_depth" {
 # =============================================================================
 
 resource "aws_cloudwatch_metric_alarm" "lambda_error_rate" {
-  for_each = toset(local.lambda_workers)
+  for_each = var.enable_alarms ? toset(local.lambda_workers) : toset([])
 
   alarm_name          = "${var.project_name}-${each.key}-lambda-error-rate"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "2"
   threshold           = "5"
   alarm_description   = "Lambda ${each.key} error rate exceeded 5% over 10 minutes. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#lambda-errors"
-  alarm_actions       = [aws_sns_topic.pipeline_alerts.arn]
-  ok_actions          = [aws_sns_topic.pipeline_alerts.arn]
+  alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
+  ok_actions          = [aws_sns_topic.pipeline_alerts[0].arn]
   treat_missing_data  = "notBreaching"
 
   metric_query {
@@ -209,14 +213,14 @@ resource "aws_cloudwatch_metric_alarm" "lambda_error_rate" {
 # =============================================================================
 
 resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
-  for_each = toset(local.lambda_workers)
+  for_each = var.enable_alarms ? toset(local.lambda_workers) : toset([])
 
   alarm_name          = "${var.project_name}-${each.key}-lambda-throttled"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = "0"
   alarm_description   = "Lambda ${each.key} was throttled in the last 5 minutes. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#lambda-throttles"
-  alarm_actions       = [aws_sns_topic.pipeline_alerts.arn]
+  alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
   treat_missing_data  = "notBreaching"
 
   metric_name = "Throttles"
@@ -241,13 +245,14 @@ resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
 # =============================================================================
 
 resource "aws_cloudwatch_metric_alarm" "deepgram_error_rate" {
+  count               = var.enable_alarms ? 1 : 0
   alarm_name          = "${var.project_name}-deepgram-error-rate-breach"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = "5"
   alarm_description   = "Deepgram transcription error rate exceeded 5% over 15 minutes. Possible Deepgram outage or quota exhaustion. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#deepgram-error-rate"
-  alarm_actions       = [aws_sns_topic.pipeline_alerts.arn]
-  ok_actions          = [aws_sns_topic.pipeline_alerts.arn]
+  alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
+  ok_actions          = [aws_sns_topic.pipeline_alerts[0].arn]
   treat_missing_data  = "notBreaching"
 
   metric_query {
@@ -290,13 +295,14 @@ resource "aws_cloudwatch_metric_alarm" "deepgram_error_rate" {
 # =============================================================================
 
 resource "aws_cloudwatch_metric_alarm" "llamaparse_fallback_rate" {
+  count               = var.enable_alarms ? 1 : 0
   alarm_name          = "${var.project_name}-llamaparse-fallback-rate-breach"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = var.llamaparse_fallback_threshold_per_hour
   alarm_description   = "Unstructured fallback triggered more than ${var.llamaparse_fallback_threshold_per_hour} times in 1 hour. LlamaParse quota may be exhausted. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#llamaparse-fallback"
-  alarm_actions       = [aws_sns_topic.pipeline_alerts.arn]
-  ok_actions          = [aws_sns_topic.pipeline_alerts.arn]
+  alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
+  ok_actions          = [aws_sns_topic.pipeline_alerts[0].arn]
   treat_missing_data  = "notBreaching"
 
   metric_name = "UnstructuredFallbackTriggered"

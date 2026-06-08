@@ -52,7 +52,9 @@ resource "aws_lambda_function" "api" {
     variables = {
       ENVIRONMENT         = var.environment
       RUNTIME_SECRET_NAME = aws_secretsmanager_secret.runtime.name
-      AWS_DEFAULT_REGION  = var.aws_region
+      # AWS_DEFAULT_REGION is reserved by Lambda runtime; boto3 reads it automatically
+      # from the execution context. See:
+      # https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-runtime
       # Disable the S3 preflight check on Lambda (infra is guaranteed by Terraform)
       PRESTART_INFRA_CHECK = "0"
     }

@@ -12,7 +12,8 @@
 
 # SNS Topic for Ops Alerts (legacy -- retained for backward compatibility)
 resource "aws_sns_topic" "ops_alerts" {
-  name = "${var.project_name}-ops-alerts"
+  count = var.enable_alarms ? 1 : 0
+  name  = "${var.project_name}-ops-alerts"
 
   tags = {
     Name        = "${var.project_name}-ops-alerts"
@@ -22,7 +23,8 @@ resource "aws_sns_topic" "ops_alerts" {
 }
 
 resource "aws_sns_topic_subscription" "ops_email" {
-  topic_arn = aws_sns_topic.ops_alerts.arn
+  count     = var.enable_alarms ? 1 : 0
+  topic_arn = aws_sns_topic.ops_alerts[0].arn
   protocol  = "email"
   endpoint  = var.alert_email
 }
@@ -32,17 +34,6 @@ resource "aws_sns_topic_subscription" "ops_email" {
 # These log groups are created automatically by AWS Lambda on first invocation,
 # but we declare them here to control retention and enable metric filters.
 # -----------------------------------------------------------------------------
-
-resource "aws_cloudwatch_log_group" "lambda_api" {
-  name              = "/aws/lambda/${var.project_name}-api"
-  retention_in_days = 14
-
-  tags = {
-    Name        = "${var.project_name}-api-logs"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
 
 resource "aws_cloudwatch_log_group" "lambda_workers" {
   for_each = toset(local.lambda_workers)

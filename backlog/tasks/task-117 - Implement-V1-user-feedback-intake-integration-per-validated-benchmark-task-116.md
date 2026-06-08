@@ -3,7 +3,7 @@ id: task-117
 title: >-
   Implement V1 user feedback intake integration per validated benchmark
   (task-116)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-08 10:52'
 labels:

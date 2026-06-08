@@ -6,8 +6,14 @@ resource "aws_dynamodb_table" "users_v2" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
-  attribute { name = "id"    type = "S" }
-  attribute { name = "email" type = "S" }
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "email"
+    type = "S"
+  }
 
   global_secondary_index {
     name            = "email-index"
@@ -28,9 +34,18 @@ resource "aws_dynamodb_table" "processing_jobs_v1" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
-  attribute { name = "id"         type = "S" }
-  attribute { name = "user_id"    type = "S" }
-  attribute { name = "job_status" type = "S" }
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "job_status"
+    type = "S"
+  }
 
   global_secondary_index {
     name            = "user-index"
@@ -68,10 +83,22 @@ resource "aws_dynamodb_table" "auth_tokens_v1" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
-  attribute { name = "id"         type = "S" }
-  attribute { name = "token"      type = "S" }
-  attribute { name = "user_id"    type = "S" }
-  attribute { name = "token_type" type = "S" }
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "token"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "token_type"
+    type = "S"
+  }
 
   global_secondary_index {
     name            = "token-index"
@@ -105,7 +132,10 @@ resource "aws_dynamodb_table" "episode_idempotence_v1" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "episode_guid"
 
-  attribute { name = "episode_guid" type = "S" }
+  attribute {
+    name = "episode_guid"
+    type = "S"
+  }
 
   tags = {
     Name        = "episode_idempotence"
@@ -121,8 +151,14 @@ resource "aws_dynamodb_table" "user_episode_submissions_v1" {
   hash_key     = "user_id"
   range_key    = "episode_guid"
 
-  attribute { name = "user_id"     type = "S" }
-  attribute { name = "episode_guid" type = "S" }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "episode_guid"
+    type = "S"
+  }
 
   tags = {
     Name        = "user_episode_submissions"
@@ -155,8 +191,14 @@ resource "aws_dynamodb_table" "episode_watchers_v1" {
   hash_key     = "episode_guid"
   range_key    = "user_id"
 
-  attribute { name = "episode_guid" type = "S" }
-  attribute { name = "user_id"      type = "S" }
+  attribute {
+    name = "episode_guid"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
 
   tags = {
     Name        = "episode_watchers"
@@ -181,8 +223,14 @@ resource "aws_dynamodb_table" "user_tags_v1" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
-  attribute { name = "id"      type = "S" }
-  attribute { name = "user_id" type = "S" }
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
 
   global_secondary_index {
     name            = "user-index"
@@ -208,8 +256,14 @@ resource "aws_dynamodb_table" "user_folders_v1" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
-  attribute { name = "id"      type = "S" }
-  attribute { name = "user_id" type = "S" }
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
 
   global_secondary_index {
     name            = "user-index"
@@ -235,7 +289,10 @@ resource "aws_dynamodb_table" "pricing_config_v1" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "config_key"
 
-  attribute { name = "config_key" type = "S" }
+  attribute {
+    name = "config_key"
+    type = "S"
+  }
 
   tags = {
     Name        = "pricing_config"

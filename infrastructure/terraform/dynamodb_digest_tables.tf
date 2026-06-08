@@ -7,8 +7,14 @@ resource "aws_dynamodb_table" "user_digests_v1" {
   hash_key     = "user_id"
   range_key    = "digest_key"
 
-  attribute { name = "user_id"    type = "S" }
-  attribute { name = "digest_key" type = "S" }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "digest_key"
+    type = "S"
+  }
 
   tags = {
     Name        = "user_digests"
@@ -23,7 +29,10 @@ resource "aws_dynamodb_table" "user_digest_settings_v1" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
 
-  attribute { name = "user_id" type = "S" }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
 
   tags = {
     Name        = "user_digest_settings"

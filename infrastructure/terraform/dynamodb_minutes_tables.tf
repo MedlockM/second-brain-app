@@ -6,8 +6,14 @@ resource "aws_dynamodb_table" "subscriptions" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
-  attribute { name = "id"                     type = "S" }
-  attribute { name = "user_id"                type = "S" }
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
 
   # GSI: user-index
   global_secondary_index {
@@ -29,9 +35,18 @@ resource "aws_dynamodb_table" "minute_buckets" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
-  attribute { name = "id"        type = "S" }
-  attribute { name = "user_id"   type = "S" }
-  attribute { name = "expires_at" type = "S" }
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "expires_at"
+    type = "S"
+  }
 
   # GSI: user-index
   global_secondary_index {
@@ -60,9 +75,18 @@ resource "aws_dynamodb_table" "minute_usage" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
-  attribute { name = "id"      type = "S" }
-  attribute { name = "user_id" type = "S" }
-  attribute { name = "job_id"  type = "S" }
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "job_id"
+    type = "S"
+  }
 
   # GSI: user-index
   global_secondary_index {
@@ -92,8 +116,14 @@ resource "aws_dynamodb_table" "follows" {
   hash_key     = "user_id"
   range_key    = "feed_id"
 
-  attribute { name = "user_id" type = "S" }
-  attribute { name = "feed_id" type = "S" }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "feed_id"
+    type = "S"
+  }
 
   tags = {
     Name        = "follows"
@@ -109,8 +139,14 @@ resource "aws_dynamodb_table" "feed_forecasts" {
   hash_key     = "feed_id"
   range_key    = "month_key"
 
-  attribute { name = "feed_id"  type = "S" }
-  attribute { name = "month_key" type = "S" }
+  attribute {
+    name = "feed_id"
+    type = "S"
+  }
+  attribute {
+    name = "month_key"
+    type = "S"
+  }
 
   ttl {
     attribute_name = "ttl"

@@ -1,15 +1,5 @@
 # DynamoDB tables for quota enforcement (user usage counters)
 
-terraform {
-  required_version = ">= 1.0"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
 # Monthly usage counters per user (hard caps enforcement)
 resource "aws_dynamodb_table" "user_usage_monthly" {
   name         = "user_usage_monthly"
@@ -17,8 +7,14 @@ resource "aws_dynamodb_table" "user_usage_monthly" {
   hash_key     = "user_id"
   range_key    = "period"
 
-  attribute { name = "user_id" type = "S" }
-  attribute { name = "period"  type = "S" }  # format: YYYY-MM
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "period"
+    type = "S"  # format: YYYY-MM
+  }
 
   tags = {
     Name        = "user_usage_monthly"
@@ -34,8 +30,14 @@ resource "aws_dynamodb_table" "user_usage_daily" {
   hash_key     = "user_id"
   range_key    = "date"
 
-  attribute { name = "user_id" type = "S" }
-  attribute { name = "date"    type = "S" }  # format: YYYY-MM-DD
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "date"
+    type = "S"  # format: YYYY-MM-DD
+  }
 
   ttl {
     attribute_name = "ttl_epoch"

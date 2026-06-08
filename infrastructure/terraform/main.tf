@@ -37,6 +37,12 @@ variable "project_name" {
   default     = "media-summarizer"
 }
 
+variable "enable_alarms" {
+  description = "Provision CloudWatch alarms + SNS topics. Off in dev to save ~$4.20/mo (42 alarms × $0.10). Enable for staging/prod."
+  type        = bool
+  default     = false
+}
+
 # =============================================================================
 # Data Sources
 # =============================================================================

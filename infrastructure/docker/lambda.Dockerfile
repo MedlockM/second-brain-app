@@ -24,5 +24,10 @@ RUN uv pip install --system --no-cache-dir ".[default]" 2>/dev/null || \
 # Copy application code
 COPY media_summarizer/ ./media_summarizer/
 
+# Lambda runs as a non-root user. Restrictive umask on the host (e.g. 0600 files)
+# propagates through COPY, so the runtime user can't read the files. Fix by
+# making everything world-readable (and dirs world-executable) inside the image.
+RUN chmod -R a+rX ${LAMBDA_TASK_ROOT}
+
 # Default CMD is the API handler; overridden per worker in Terraform
 CMD ["media_summarizer.api.lambda_handler.handler"]
