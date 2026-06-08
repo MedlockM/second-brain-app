@@ -40,13 +40,6 @@ class SummarizationWorker:
 
 # Configuration
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
-FLASHCARDS_QUEUE = os.environ.get("FLASHCARDS_QUEUE", "flashcards-queue")
-FLASHCARDS_AUTO_GENERATE = os.environ.get(
-    "FLASHCARDS_AUTO_GENERATE", "true"
-).lower() == "true"
 
 
 # LLM timeout from env (seconds)
@@ -309,60 +302,6 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
             job.set_summary_location(summary_s3_key)
             job.set_processing_duration("summarization", int(summarization_duration))
             await database_async.update_processing_job(job)
-
-        # Finalize minute usage based on audio duration if provided; fallback to heuristic
-        try:
-            from math import ceil
-
-            provided_duration = message_body.get("audio_duration_seconds")
-            if isinstance(provided_duration, (int, float)) and provided_duration > 0:
-                minutes_used = max(1, ceil(provided_duration / 60))
-            else:
-                # Fallback heuristic if duration missing
-                minutes_used = max(1, int(len(transcription_text) / 800))
-            from media_summarizer.core.services.minute_pool import finalize_usage
-
-            await finalize_usage(job_id, minutes_used)
-
-            # Publish episode-completed event for watchers fan-out
-            try:
-                await sqs.send_message(
-                    queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
-                    message_body={
-                        "event_type": "episode_completed",
-                        "episode_guid": message_body.get("episode_guid"),
-                        "canonical_job_id": job_id,
-                        "summary_s3_key": summary_s3_key,
-                        "podcast_title": message_body.get("podcast_title"),
-                        "episode_title": message_body.get("episode_title"),
-                        "minutes_used": minutes_used,
-                    },
-                )
-            except Exception as ee:
-                logger.warning(
-                    f"Failed to publish episode-completed event for job {job_id}: {ee}"
-                )
-
-            # Auto-trigger flashcards generation after transcript completion
-            if FLASHCARDS_AUTO_GENERATE:
-                try:
-                    from media_summarizer.core.services.artifact_service import (
-                        request_artifact_generation,
-                    )
-                    from media_summarizer.core.models.media_artifact import MediaArtifactType
-
-                    await request_artifact_generation(
-                        media_item_id=job_id,
-                        job=job,
-                        artifact_type=MediaArtifactType.FLASHCARDS,
-                    )
-                    logger.info(f"Auto-triggered flashcards generation for job {job_id}")
-                except Exception as fc_err:
-                    logger.warning(
-                        f"Failed to auto-trigger flashcards for job {job_id}: {fc_err}"
-                    )
-        except Exception as e:
-            logger.warning(f"Failed to finalize minute usage for job {job_id}: {e}")
 
         # Generate summary URL (presigned URL for access)
         try:

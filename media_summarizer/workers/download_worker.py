@@ -20,6 +20,7 @@ import httpx
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context, setup_logging
 from media_summarizer.utils.rss_transcript import fetch_rss_transcript
+from media_summarizer.core.services.minute_pool import finalize_usage
 from media_summarizer.workers.base_worker import (
     process_message_with_retry,
     get_sqs_receive_params,
@@ -62,6 +63,9 @@ DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
 )
 EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+)
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
 SEARCH_INDEXING_QUEUE = os.environ.get("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 
@@ -228,6 +232,32 @@ async def process_message(message):
                 )
             except Exception as search_err:
                 logger.warning(f"Failed to emit search indexing message for job {job_id}: {search_err}")
+
+            # Finalize minute usage for the canonical submitter after transcription succeeds.
+            try:
+                await finalize_usage(job_id, minutes_used)
+            except Exception as e:
+                logger.warning(f"Failed to finalize minute usage for job {job_id}: {e}")
+
+            # Mark the canonical job as completed now that transcription is done.
+            if job:
+                job.mark_completed()
+                await database_async.update_processing_job(job)
+
+            # Publish episode_completed event for watcher fan-out via media_completed_worker.
+            try:
+                await sqs.send_message(
+                    queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
+                    message_body={
+                        "event_type": "episode_completed",
+                        "media_key": body.get("media_key"),
+                        "canonical_job_id": job_id,
+                        "minutes_used": minutes_used,
+                        "transcription_s3_key": transcript_s3_key,
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"Failed to publish episode_completed event for job {job_id}: {e}")
 
             log_event(
                 logger,
