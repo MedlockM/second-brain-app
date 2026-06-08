@@ -173,10 +173,22 @@ resource "aws_dynamodb_table" "media_artifacts_v1" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "artifact_id"
 
-  attribute { name = "artifact_id"             type = "S" }
-  attribute { name = "media_item_id"           type = "S" }
-  attribute { name = "request_fingerprint"     type = "S" }
-  attribute { name = "generation_fingerprint"  type = "S" }
+  attribute {
+    name = "artifact_id"
+    type = "S"
+  }
+  attribute {
+    name = "media_item_id"
+    type = "S"
+  }
+  attribute {
+    name = "request_fingerprint"
+    type = "S"
+  }
+  attribute {
+    name = "generation_fingerprint"
+    type = "S"
+  }
 
   global_secondary_index {
     name            = "media-item-index"
@@ -209,7 +221,10 @@ resource "aws_dynamodb_table" "artifact_idempotence_v1" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "generation_fingerprint"
 
-  attribute { name = "generation_fingerprint" type = "S" }
+  attribute {
+    name = "generation_fingerprint"
+    type = "S"
+  }
 
   tags = {
     Name        = "artifact_idempotence"
