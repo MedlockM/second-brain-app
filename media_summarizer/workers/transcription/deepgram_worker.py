@@ -37,6 +37,7 @@ from media_summarizer.utils.logging_config import (
     reset_log_context,
     setup_logging,
 )
+from media_summarizer.core.services.minute_pool import finalize_usage
 from media_summarizer.workers.base_worker import process_message_with_retry
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,9 @@ TRANSCRIPT_BUCKET = os.environ.get(
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
 EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+)
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
@@ -454,6 +458,51 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
             "transcription_metadata": transcription_metadata,
         },
     )
+
+    # Finalize minute usage for the canonical submitter after transcription succeeds.
+    # This is the billing event tied to transcription (the expensive step).
+    try:
+        await finalize_usage(job_id, minutes_used)
+    except Exception as e:
+        log_event(
+            logger,
+            logging.WARNING,
+            "billing.finalize_failed",
+            "Failed to finalize minute usage after transcription",
+            job_id=job_id,
+            minutes_used=minutes_used,
+            exc_info=e,
+        )
+
+    # Mark the canonical job as completed now that transcription is done.
+    if job:
+        job.mark_completed()
+        await database_async.update_processing_job(job)
+
+    # Publish episode_completed event for watcher fan-out via media_completed_worker.
+    # This enables watchers of shared media keys to get their jobs finalized.
+    try:
+        await sqs.send_message(
+            queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
+            message_body={
+                "event_type": "episode_completed",
+                "media_key": message_body.get("media_key"),
+                "canonical_job_id": job_id,
+                "minutes_used": minutes_used,
+                "transcription_s3_key": transcript_s3_key,
+            },
+        )
+    except Exception as e:
+        log_event(
+            logger,
+            logging.WARNING,
+            "event.publish_failed",
+            "Failed to publish episode_completed event for watcher fan-out",
+            job_id=job_id,
+            media_key=message_body.get("media_key"),
+            exc_info=e,
+        )
+
     log_event(
         logger,
         logging.INFO,
