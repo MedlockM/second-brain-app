@@ -390,6 +390,37 @@ resource "aws_sqs_queue" "notes" {
 }
 
 # =============================================================================
+# Quiz
+# =============================================================================
+
+resource "aws_sqs_queue" "quiz_dlq" {
+  name = "quiz-dlq"
+
+  tags = {
+    Name        = "quiz-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "quiz" {
+  name                       = "quiz-queue"
+  visibility_timeout_seconds = 1800
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.quiz_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "quiz-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# =============================================================================
 # Outputs
 # =============================================================================
 
@@ -409,5 +440,6 @@ output "queue_urls" {
     media_completed_events  = aws_sqs_queue.media_completed_events.url
     flashcards              = aws_sqs_queue.flashcards.url
     notes                   = aws_sqs_queue.notes.url
+    quiz                    = aws_sqs_queue.quiz.url
   }
 }

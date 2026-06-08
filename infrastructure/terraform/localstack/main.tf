@@ -786,6 +786,28 @@ resource "aws_sqs_queue" "flashcards" {
   })
 }
 
+# Notes artifact generation queue
+resource "aws_sqs_queue" "notes_dlq" { name = "notes-dlq" }
+resource "aws_sqs_queue" "notes" {
+  name = "notes-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.notes_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+# Quiz artifact generation queue
+resource "aws_sqs_queue" "quiz_dlq" { name = "quiz-dlq" }
+resource "aws_sqs_queue" "quiz" {
+  name = "quiz-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.quiz_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
 
 # Episode completed events (fan-out to watchers)
 resource "aws_sqs_queue" "episode_completed_dlq" { name = "episode-completed-dlq" }
@@ -837,6 +859,8 @@ output "sqs_queues" {
     aws_sqs_queue.tiktok_ingestion.name,
     aws_sqs_queue.summarization.name,
     aws_sqs_queue.flashcards.name,
+    aws_sqs_queue.notes.name,
+    aws_sqs_queue.quiz.name,
     aws_sqs_queue.episode_completed.name,
     aws_sqs_queue.push_notification.name,
     aws_sqs_queue.spotify_sync.name,

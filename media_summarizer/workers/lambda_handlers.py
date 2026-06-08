@@ -143,3 +143,7 @@ flashcards_handler = _build_handler(
 notes_handler = _build_handler(
     "media_summarizer.workers.notes.worker"
 )
+
+quiz_handler = _build_handler(
+    "media_summarizer.workers.quiz.worker"
+)

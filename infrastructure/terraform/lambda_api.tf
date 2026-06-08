@@ -69,6 +69,10 @@ resource "aws_lambda_function" "api" {
       QUIZ_BUCKET             = aws_s3_bucket.quiz.bucket
       DOCUMENT_BUCKET         = aws_s3_bucket.documents.bucket
       ARCHIVE_BUCKET          = aws_s3_bucket.archives.bucket
+
+      # DynamoDB table names for artifact persistence
+      MEDIA_ARTIFACTS_TABLE       = aws_dynamodb_table.media_artifacts_v1.name
+      ARTIFACT_IDEMPOTENCE_TABLE  = aws_dynamodb_table.artifact_idempotence_v1.name
     }
   }
 
