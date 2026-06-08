@@ -26,12 +26,36 @@ Where the env var comes from depends on the runtime:
 The single source of truth in production is the `media-summarizer-runtime-<env>`
 Secrets Manager entry created by `secrets.tf`.
 
+## CloudWatch Alarms and Monitoring
+
+### Enabling Alarms (enable_alarms variable)
+
+By default, CloudWatch alarms are **disabled** (`enable_alarms = false`) to minimize costs in dev environments (~$4.20/month per environment when enabled).
+
+To enable alarms for staging and production:
+
+```bash
+# Edit terraform.tfvars and set:
+enable_alarms = true
+```
+
+When enabled:
+- 42 CloudWatch alarms are provisioned (one per stage, per worker type, for SQS DLQs, etc.)
+- 1 SNS topic (`pipeline_alerts`) is created for routing all alarm notifications
+- Monthly cost: approximately $4.20 per environment (42 alarms × $0.10/alarm)
+
+When disabled:
+- All alarms and the SNS topic are skipped (zero cost for monitoring infrastructure)
+- Log groups for Lambda functions are still created and retained
+
+See `pipeline_alerts.tf` for the complete list of alarms and their SLOs.
+
 ## Bootstrapping a new environment
 
 ```bash
 cd infrastructure/terraform
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars: set environment (dev/staging/prod), secret_payload
+# Edit terraform.tfvars: set environment (dev/staging/prod), secret_payload, enable_alarms
 terraform init
 terraform plan
 terraform apply
@@ -75,11 +99,10 @@ This is automated by `.github/workflows/deploy-lambda.yml` on push to main.
 | `s3.tf` | S3 buckets for media pipeline |
 | `ecr.tf` | ECR repository for Lambda container images |
 | `iam_lambda.tf` | IAM roles and policies for Lambda functions |
-| `lambda_workers.tf` | Worker Lambda functions + SQS event source mappings |
-| `lambda_api.tf` | API Lambda + API Gateway HTTP API |
+| `lambda_workers.tf` | Worker Lambda functions + SQS event source mappings + CloudWatch log groups |
+| `lambda_api.tf` | API Lambda + API Gateway HTTP API + CloudWatch log group |
 | `dynamodb_*.tf` | DynamoDB tables |
-| `monitoring.tf` | CloudWatch alarms, metric filters, dashboard |
-| `pipeline_alerts.tf` | Pipeline-specific alerting rules |
+| `pipeline_alerts.tf` | Pipeline-specific alerting rules + SNS topic for alerts |
 | `pipeline_dashboard.tf` | Pipeline observability dashboard + metric filters |
 | `archiving.tf` | Archive bucket + lifecycle + archiver Lambda |
 | `localstack/` | Stripped-down stack used by `docker-compose.dev.yml` for offline dev |

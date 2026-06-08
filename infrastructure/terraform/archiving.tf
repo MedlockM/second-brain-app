@@ -19,6 +19,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "archives" {
     id     = "archive-to-glacier"
     status = "Enabled"
 
+    # Empty filter matches all objects in the bucket
+    filter {}
+
     transition {
       days          = 0 # Move immediately upon creation
       storage_class = "GLACIER_IR" # Instant Retrieval (good balance for occasional audit)
