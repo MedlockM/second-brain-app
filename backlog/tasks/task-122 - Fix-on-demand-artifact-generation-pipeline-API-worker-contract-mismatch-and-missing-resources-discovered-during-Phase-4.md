@@ -1,7 +1,7 @@
 ---
 id: task-122
 title: Fix on-demand artifact generation pipeline (API↔worker contract mismatch + missing media_artifacts table + missing quiz worker) — discovered during Phase 4
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 00:00'
 labels:
