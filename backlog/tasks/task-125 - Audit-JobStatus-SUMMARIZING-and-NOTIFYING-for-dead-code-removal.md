@@ -1,7 +1,7 @@
 ---
 id: task-125
 title: Audit JobStatus.SUMMARIZING and JobStatus.NOTIFYING for dead code removal
-status: To Do
+status: Done
 priority: low
 labels: [tech-debt, backend]
 created: 2026-06-09

@@ -1,7 +1,7 @@
 ---
 id: task-124
 title: Move finalize_usage and episode_completed event out of summarization lifecycle
-status: To Do
+status: Done
 priority: medium
 labels: [bug, backend, tech-debt]
 created: 2026-06-09
