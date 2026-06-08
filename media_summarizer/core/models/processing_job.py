@@ -17,7 +17,6 @@ class JobStatus(str, Enum):
     DOWNLOADING = "downloading"
     TRANSCRIBING = "transcribing"
     SUMMARIZING = "summarizing"
-    NOTIFYING = "notifying"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -249,10 +248,6 @@ class ProcessingJob(BaseModel):
         """Mark the job as summarizing."""
         self.update_status(JobStatus.SUMMARIZING)
 
-    def mark_notifying(self) -> None:
-        """Mark the job as sending notifications."""
-        self.update_status(JobStatus.NOTIFYING)
-
     def mark_completed(self) -> None:
         """Mark the job as completed."""
         self.update_status(JobStatus.COMPLETED)
@@ -314,7 +309,6 @@ class ProcessingJob(BaseModel):
             JobStatus.DOWNLOADING,
             JobStatus.TRANSCRIBING,
             JobStatus.SUMMARIZING,
-            JobStatus.NOTIFYING,
         ]
 
     def get_progress_percentage(self) -> int:
@@ -324,8 +318,7 @@ class ProcessingJob(BaseModel):
             JobStatus.RSS_RESOLVING: 10,
             JobStatus.DOWNLOADING: 25,
             JobStatus.TRANSCRIBING: 50,
-            JobStatus.SUMMARIZING: 75,
-            JobStatus.NOTIFYING: 90,
+            JobStatus.SUMMARIZING: 80,
             JobStatus.COMPLETED: 100,
             JobStatus.FAILED: 0,
             JobStatus.CANCELLED: 0,
