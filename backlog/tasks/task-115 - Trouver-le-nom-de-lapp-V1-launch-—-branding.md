@@ -190,3 +190,30 @@ Un document unique à `docs/research/task-XX-app-name/README.md` (remplacer XX p
 **Key improvement over initial pass**: Imbura (44/45) outscores all original candidates including Culma (43/45), with zero French language issues and exceptional commercial availability (all 4 TLDs free including .com — extremely rare for a 6-letter name).
 
 **Recommendation awaits owner validation** via `owner_decision` field in the main README front-matter.
+
+---
+
+**Mode**: redo (2026-06-08) — fresh benchmark after owner rejected both the initial pass and the complement
+
+**Owner feedback integrated in this redo**:
+1. French is PRIMARY market — name must sound great in French first, then English
+2. "Cul" substring fatal — verified all candidates with FR sensitivity filter
+3. Complement was bad: too many "-ra" suffix names, options were "peu parlantes" (not evocative)
+4. Owner wants IMMEDIATELY EVOCATIVE names (not obscure invented words)
+5. Diversity of structures required (not all same suffix pattern)
+6. "Steepen" direction still valid but needs genuine alternatives
+
+**Produced**: `docs/research/task-115-app-name/README.md` (NEW, replaces archived version) containing:
+- 35 raw candidates across 6 thematic angles (percolation, distillation, material/receptacle, retention, organic growth, intensification)
+- 12 detailed finalist evaluations with full 9-criteria scoring and availability verification
+- Top 5 shortlist: Percole (43/45), Retenso (41/45), Macerer (39/45), Buvard (39/45), Steepen (38/45)
+- Final recommendation: **Percole** — real word (FR/IT conjugated form of "percoler"), transparent in both FR and EN ("percolate"), ALL domains free (.com/.app/.io/.co), zero App Store conflict, zero trademark
+
+**Key improvements over previous passes**:
+- ALL names are "parlant" (immediately evocative): real French/English words or ultra-transparent Latin roots
+- NO repeated suffix patterns: diverse structures (verbe conjugue, verbe infinitif, nom commun, mot invente, verbe anglais)
+- French sensitivity verified for every candidate
+- None of the rejected names reused (Culma, Imbura, Macena, Imbuva, Fondma, Steepra, Tremoa, Fonsma)
+- Percole beats all previous recommendations in bilingual transparency: FR and EN speakers BOTH understand it immediately
+
+**Recommendation awaits owner validation** via `owner_decision` field in the README front-matter.
