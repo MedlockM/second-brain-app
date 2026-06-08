@@ -132,3 +132,13 @@ Document unique à `docs/research/task-XX-feedback-intake/README.md` avec :
 - [ ] #8 #8 Section 7 (Decision) est vide, prête pour l'owner
 - [ ] #9 #9 Aucun fichier modifié hors de `docs/research/task-XX-feedback-intake/`
 <!-- AC:END -->
+
+## Implementation Notes
+
+**Mode**: initial (no prior research existed for this task).
+
+**Produced**: `docs/research/task-116-feedback-intake/README.md` — comprehensive benchmark of 8 feedback intake tools (Canny, Featurebase, Frill, Sleekplan, Upvoty, FeedBear, GitHub Discussions, Discord) with 12-criterion scoring matrix, detailed fiches for top 3 finalists (Canny, Sleekplan, Upvoty), and a concrete V1 integration plan.
+
+**Recommendation**: Canny.io Free tier as primary (unique JWT SSO + full API on free tier + dedicated mobile WebView), Upvoty $15/mo as alternative (if unlimited users + full branding from day 1 is needed).
+
+**Status**: Recommendation awaits owner validation (`owner_decision: pending`).
