@@ -1,12 +1,12 @@
 ---
-owner_decision: more
+owner_decision: redo
 ---
 
 # Benchmark : Nom marketing de l'app (V1 launch branding)
 
 ## Owner Validation
 
-**Decision**: en fait je veux un nom qui sonne bien en anglais certes mais aussi en français puisque ce sera mon premier marché cible. Or culma contient le mot cul... Steepen est pas mal dans l'idée (intensifier l'infusion j'aime bien) mais j'aimerais que tu me proposes d'uatres options avant que je fasse mon choix
+**Decision**: en fait je veux un nom qui sonne bien en anglais certes mais aussi en français puisque ce sera mon premier marché cible. Or culma contient le mot cul... Steepen est pas mal dans l'idée (intensifier l'infusion j'aime bien) mais j'aimerais que tu me proposes d'uatres options avant que je fasse mon choix. J'aime beaucoup moins le complément produit. Tu as seulement proposé des options avec -ra en suffixe. Et de plus les options sont peu parlantes, quel que soit la langue du destinataire.
 **Validated at**: _(date ISO a remplir par l'owner)_
 
 ---
