@@ -1,7 +1,10 @@
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
+import { useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as WebBrowser from "expo-web-browser";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/contexts/AuthContext";
+import { FeedbackService } from "../../src/services/feedbackService";
 import {
   Colors,
   Typography,
@@ -17,7 +20,8 @@ import {
  * Full implementation (stats, integrations, appearance) deferred to later tasks.
  */
 export default function AccountScreen() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
+  const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
 
   const handleLogout = () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
@@ -28,6 +32,25 @@ export default function AccountScreen() {
         onPress: () => logout(),
       },
     ]);
+  };
+
+  const handleFeedback = async () => {
+    setIsFeedbackLoading(true);
+    try {
+      let url: string;
+      if (token) {
+        url = await FeedbackService.getFeedbackUrl(token);
+      } else {
+        url = FeedbackService.getFallbackUrl();
+      }
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      // Fallback: open the board without SSO if the token endpoint fails
+      const fallbackUrl = FeedbackService.getFallbackUrl();
+      await WebBrowser.openBrowserAsync(fallbackUrl);
+    } finally {
+      setIsFeedbackLoading(false);
+    }
   };
 
   return (
@@ -56,11 +79,19 @@ export default function AccountScreen() {
           label="Export Data"
           onPress={() => {}}
         />
+        <MenuItem
+          icon="bulb-outline"
+          label="Feature Requests"
+          onPress={handleFeedback}
+          isLoading={isFeedbackLoading}
+        />
         <View style={styles.menuDivider} />
         <TouchableOpacity
           style={styles.menuItem}
           onPress={handleLogout}
           activeOpacity={0.7}
+          accessibilityLabel="Sign Out"
+          accessibilityRole="button"
         >
           <View style={[styles.menuIcon, styles.menuIconDanger]}>
             <Ionicons name="log-out-outline" size={18} color={Colors.error} />
@@ -78,27 +109,36 @@ function MenuItem({
   icon,
   label,
   onPress,
+  isLoading,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
   onPress: () => void;
+  isLoading?: boolean;
 }) {
   return (
     <TouchableOpacity
       style={styles.menuItem}
       onPress={onPress}
       activeOpacity={0.7}
+      disabled={isLoading}
+      accessibilityLabel={label}
+      accessibilityRole="button"
     >
       <View style={styles.menuIcon}>
         <Ionicons name={icon} size={18} color={Colors.primary} />
       </View>
       <Text style={styles.menuLabel}>{label}</Text>
-      <Ionicons
-        name="chevron-forward"
-        size={18}
-        color={Colors.textMuted}
-        style={styles.menuChevron}
-      />
+      {isLoading ? (
+        <ActivityIndicator size="small" color={Colors.textMuted} />
+      ) : (
+        <Ionicons
+          name="chevron-forward"
+          size={18}
+          color={Colors.textMuted}
+          style={styles.menuChevron}
+        />
+      )}
     </TouchableOpacity>
   );
 }

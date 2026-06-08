@@ -63,4 +63,8 @@ secret_payload = {
   REVENUCAT_API_KEY        = ""
   REVENUCAT_PROJECT_ID     = ""
   REVENUCAT_WEBHOOK_SECRET = ""
+
+  # Canny feedback board (SSO for auto-login)
+  CANNY_SSO_PRIVATE_KEY = ""
+  CANNY_BOARD_TOKEN     = ""
 }
