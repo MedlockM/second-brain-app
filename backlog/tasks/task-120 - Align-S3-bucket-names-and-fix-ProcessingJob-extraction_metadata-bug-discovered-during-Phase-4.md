@@ -1,7 +1,7 @@
 ---
 id: task-120
 title: Align S3 bucket names env↔terraform and fix ProcessingJob.extraction_metadata bug discovered during Phase 4
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-08 21:30'
 labels:

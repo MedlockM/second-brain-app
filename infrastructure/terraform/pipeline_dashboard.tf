@@ -102,7 +102,7 @@ resource "aws_cloudwatch_log_metric_filter" "source_platform_counter" {
 
 resource "aws_cloudwatch_log_metric_filter" "parser_llamaparse" {
   name           = "parser-llamaparse-calls"
-  log_group_name = aws_cloudwatch_log_group.lambda_workers["document-parsing"].name
+  log_group_name = aws_cloudwatch_log_group.lambda_worker["document_parsing"].name
   pattern        = "{ $.event = \"document_parsing.primary_success\" && $.provider = \"llamaparse\" }"
 
   metric_transformation {
@@ -117,7 +117,7 @@ resource "aws_cloudwatch_log_metric_filter" "parser_llamaparse" {
 
 resource "aws_cloudwatch_log_metric_filter" "parser_unstructured_fallback" {
   name           = "parser-unstructured-fallback"
-  log_group_name = aws_cloudwatch_log_group.lambda_workers["document-parsing"].name
+  log_group_name = aws_cloudwatch_log_group.lambda_worker["document_parsing"].name
   pattern        = "{ $.event = \"document_parsing.fallback_success\" && $.provider = \"unstructured\" }"
 
   metric_transformation {
@@ -132,7 +132,7 @@ resource "aws_cloudwatch_log_metric_filter" "parser_unstructured_fallback" {
 
 resource "aws_cloudwatch_log_metric_filter" "unstructured_fallback_triggered" {
   name           = "unstructured-fallback-triggered"
-  log_group_name = aws_cloudwatch_log_group.lambda_workers["document-parsing"].name
+  log_group_name = aws_cloudwatch_log_group.lambda_worker["document_parsing"].name
   pattern        = "{ $.event = \"document_parsing.primary_failed\" }"
 
   metric_transformation {
@@ -148,7 +148,7 @@ resource "aws_cloudwatch_log_metric_filter" "unstructured_fallback_triggered" {
 
 resource "aws_cloudwatch_log_metric_filter" "apify_calls" {
   name           = "apify-provider-calls"
-  log_group_name = aws_cloudwatch_log_group.lambda_workers["tiktok-ingestion"].name
+  log_group_name = aws_cloudwatch_log_group.lambda_worker["tiktok_ingestion"].name
   pattern        = "{ $.provider = \"apify\" }"
 
   metric_transformation {
@@ -164,7 +164,7 @@ resource "aws_cloudwatch_log_metric_filter" "apify_calls" {
 
 resource "aws_cloudwatch_log_metric_filter" "deepgram_calls_total" {
   name           = "deepgram-calls-total"
-  log_group_name = aws_cloudwatch_log_group.lambda_workers["deepgram-transcription"].name
+  log_group_name = aws_cloudwatch_log_group.lambda_worker["deepgram_transcription"].name
   pattern        = "{ $.transcript_source = \"deepgram\" && ($.event = \"worker.transcription.completed\" || $.event = \"worker.transcription.failed\") }"
 
   metric_transformation {
@@ -176,7 +176,7 @@ resource "aws_cloudwatch_log_metric_filter" "deepgram_calls_total" {
 
 resource "aws_cloudwatch_log_metric_filter" "deepgram_errors" {
   name           = "deepgram-errors"
-  log_group_name = aws_cloudwatch_log_group.lambda_workers["deepgram-transcription"].name
+  log_group_name = aws_cloudwatch_log_group.lambda_worker["deepgram_transcription"].name
   pattern        = "{ $.transcript_source = \"deepgram\" && $.event = \"worker.transcription.failed\" }"
 
   metric_transformation {
