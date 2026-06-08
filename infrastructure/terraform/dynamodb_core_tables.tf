@@ -131,10 +131,71 @@ resource "aws_dynamodb_table" "user_episode_submissions_v1" {
   }
 }
 
+# Media artifacts table (canonical artifact records + request pointers)
+resource "aws_dynamodb_table" "media_artifacts_v1" {
+  name         = "media_artifacts"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "artifact_id"
+
+  attribute { name = "artifact_id"             type = "S" }
+  attribute { name = "media_item_id"           type = "S" }
+  attribute { name = "request_fingerprint"     type = "S" }
+  attribute { name = "generation_fingerprint"  type = "S" }
+
+  global_secondary_index {
+    name            = "media-item-index"
+    hash_key        = "media_item_id"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "request-fingerprint-index"
+    hash_key        = "request_fingerprint"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "generation-fingerprint-index"
+    hash_key        = "generation_fingerprint"
+    projection_type = "ALL"
+  }
+
+  tags = {
+    Name        = "media_artifacts"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# Artifact idempotence table (generation locks for deduplication)
+resource "aws_dynamodb_table" "artifact_idempotence_v1" {
+  name         = "artifact_idempotence"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "generation_fingerprint"
+
+  attribute { name = "generation_fingerprint" type = "S" }
+
+  tags = {
+    Name        = "artifact_idempotence"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 # Outputs
 output "users_table_name" {
   value       = aws_dynamodb_table.users_v2.name
   description = "Users table name"
+}
+
+output "media_artifacts_table_name" {
+  value       = aws_dynamodb_table.media_artifacts_v1.name
+  description = "Media artifacts table name"
+}
+
+output "artifact_idempotence_table_name" {
+  value       = aws_dynamodb_table.artifact_idempotence_v1.name
+  description = "Artifact idempotence table name"
 }
 
 output "processing_jobs_table_name" {

@@ -180,7 +180,10 @@ resource "aws_iam_policy" "ecs_task_policy" {
           aws_sqs_queue.tiktok_ingestion.arn,
           aws_sqs_queue.deepgram_transcription.arn,
           aws_sqs_queue.transcription.arn,
-          aws_sqs_queue.summarization.arn
+          aws_sqs_queue.summarization.arn,
+          aws_sqs_queue.notes.arn,
+          aws_sqs_queue.flashcards.arn,
+          aws_sqs_queue.quiz.arn
         ]
       },
       {
@@ -193,7 +196,10 @@ resource "aws_iam_policy" "ecs_task_policy" {
         Resource = [
           "${aws_s3_bucket.audio.arn}/*",
           "${aws_s3_bucket.transcripts.arn}/*",
-          "${aws_s3_bucket.summaries.arn}/*"
+          "${aws_s3_bucket.summaries.arn}/*",
+          "${aws_s3_bucket.notes.arn}/*",
+          "${aws_s3_bucket.flashcards.arn}/*",
+          "${aws_s3_bucket.quizzes.arn}/*"
         ]
       },
       {
@@ -204,7 +210,10 @@ resource "aws_iam_policy" "ecs_task_policy" {
         Resource = [
           aws_s3_bucket.audio.arn,
           aws_s3_bucket.transcripts.arn,
-          aws_s3_bucket.summaries.arn
+          aws_s3_bucket.summaries.arn,
+          aws_s3_bucket.notes.arn,
+          aws_s3_bucket.flashcards.arn,
+          aws_s3_bucket.quizzes.arn
         ]
       },
       {
@@ -470,6 +479,90 @@ resource "aws_sqs_queue" "summarization" {
   }
 }
 
+# Dead-letter queue for notes artifact generation
+resource "aws_sqs_queue" "notes_dlq" {
+  name = "notes-dlq"
+
+  tags = {
+    Name        = "notes-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "notes" {
+  name                       = "notes-queue"
+  visibility_timeout_seconds = 300
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.notes_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "notes-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# Dead-letter queue for flashcards artifact generation
+resource "aws_sqs_queue" "flashcards_dlq" {
+  name = "flashcards-dlq"
+
+  tags = {
+    Name        = "flashcards-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "flashcards" {
+  name                       = "flashcards-queue"
+  visibility_timeout_seconds = 300
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.flashcards_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "flashcards-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# Dead-letter queue for quiz artifact generation
+resource "aws_sqs_queue" "quiz_dlq" {
+  name = "quiz-dlq"
+
+  tags = {
+    Name        = "quiz-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "quiz" {
+  name                       = "quiz-queue"
+  visibility_timeout_seconds = 300
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.quiz_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "quiz-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 # S3 Buckets for media storage (prod): unique names per account/env
 resource "aws_s3_bucket" "audio" {
   bucket = "${var.project_name}-audio-${data.aws_caller_identity.current.account_id}-${var.environment}"
@@ -493,6 +586,33 @@ resource "aws_s3_bucket" "summaries" {
   bucket = "${var.project_name}-summaries-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
     Name        = "${var.project_name}-summaries"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_s3_bucket" "notes" {
+  bucket = "${var.project_name}-notes-${data.aws_caller_identity.current.account_id}-${var.environment}"
+  tags = {
+    Name        = "${var.project_name}-notes"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_s3_bucket" "flashcards" {
+  bucket = "${var.project_name}-flashcards-${data.aws_caller_identity.current.account_id}-${var.environment}"
+  tags = {
+    Name        = "${var.project_name}-flashcards"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_s3_bucket" "quizzes" {
+  bucket = "${var.project_name}-quizzes-${data.aws_caller_identity.current.account_id}-${var.environment}"
+  tags = {
+    Name        = "${var.project_name}-quizzes"
     Environment = var.environment
     Project     = var.project_name
   }
@@ -978,6 +1098,9 @@ output "queue_urls" {
     tiktok_ingestion   = aws_sqs_queue.tiktok_ingestion.url
     deepgram_transcription = aws_sqs_queue.deepgram_transcription.url
     summarization      = aws_sqs_queue.summarization.url
+    notes              = aws_sqs_queue.notes.url
+    flashcards         = aws_sqs_queue.flashcards.url
+    quiz               = aws_sqs_queue.quiz.url
   }
 }
 

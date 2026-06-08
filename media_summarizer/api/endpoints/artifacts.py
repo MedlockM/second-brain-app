@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -9,43 +8,24 @@ from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.utils import database_async, sqs
+from media_summarizer.core.services.artifact_service import (
+    ArtifactGenerationDisabledError,
+    ArtifactTranscriptNotReadyError,
+    ArtifactTypeNotEnabledError,
+    get_media_artifact_record,
+    list_media_artifact_records,
+    request_artifact_generation,
+)
+from media_summarizer.utils import database_async
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
-SUMMARY_SHORT_QUEUE = os.environ.get("SUMMARY_SHORT_QUEUE", "summary-short-queue")
-SUMMARY_DETAILED_QUEUE = os.environ.get("SUMMARY_DETAILED_QUEUE", "summary-detailed-queue")
-NOTES_QUEUE = os.environ.get("NOTES_QUEUE", "notes-queue")
-QUIZ_QUEUE = os.environ.get("QUIZ_QUEUE", "quiz-queue")
-FLASHCARDS_QUEUE = os.environ.get("FLASHCARDS_QUEUE", "flashcards-queue")
-
-_ARTIFACT_TYPE_TO_QUEUE = {
-    "summary": SUMMARIZATION_QUEUE,  # Legacy, kept for backward compatibility
-    "summary_short": SUMMARY_SHORT_QUEUE,
-    "summary_detailed": SUMMARY_DETAILED_QUEUE,
-    "notes": NOTES_QUEUE,
-    "quiz": QUIZ_QUEUE,
-    "flashcards": FLASHCARDS_QUEUE,
-}
-_ARTIFACT_TYPE_TO_S3_KEY_ATTR = {
-    "summary": "summary_s3_key",  # Legacy
-    "summary_short": None,
-    "summary_detailed": None,
-    "notes": None,
-    "quiz": None,
-    "flashcards": None,
-}
-
-_ALLOWED_ARTIFACT_TYPES = frozenset(
-    t.strip() for t in os.environ.get("ARTIFACT_TYPES_ALLOWED", "summary,summary_short,summary_detailed,notes,quiz,flashcards").split(",")
-)
-
 
 class ArtifactCreateRequest(BaseModel):
-    artifact_type: str = Field(..., description="Type of artifact: summary, notes, quiz, flashcards")
+    artifact_type: str = Field(..., description="Type of artifact: summary, summary_short, summary_detailed, notes, quiz, flashcards")
+    parameters: Optional[dict] = Field(default=None, description="Optional parameters for artifact generation")
 
 
 class ArtifactResponse(BaseModel):
@@ -84,52 +64,61 @@ async def create_artifact(
         artifact_type=artifact_type,
     )
     try:
-        if artifact_type not in _ALLOWED_ARTIFACT_TYPES:
-            log_event(
-                logger,
-                logging.WARNING,
-                "artifact.create.invalid_type",
-                "Invalid artifact type requested",
-                artifact_type=artifact_type,
-                error_code="INVALID_ARTIFACT_TYPE",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid artifact_type '{artifact_type}'. Allowed: {sorted(_ALLOWED_ARTIFACT_TYPES)}",
-            )
-
         job = await _get_job_for_user(media_item_id, current_user.id)
 
-        queue = _ARTIFACT_TYPE_TO_QUEUE.get(artifact_type, SUMMARIZATION_QUEUE)
-        await sqs.send_message(
-            queue_name=queue,
-            message_body={
-                "job_id": job.id,
-                "media_item_id": job.id,
-                "artifact_type": artifact_type,
-                "user_id": current_user.id,
-                "transcript_s3_key": job.transcription_s3_key,
-            },
+        record, reused = await request_artifact_generation(
+            media_item_id=media_item_id,
+            job=job,
+            artifact_type=artifact_type,
+            parameters=payload.parameters,
         )
 
         log_event(
             logger,
             logging.INFO,
             "artifact.create.requested",
-            "Artifact generation queued",
+            "Artifact generation queued" if not reused else "Artifact reused from cache",
             media_item_id=media_item_id,
-            artifact_id=job.id,
+            artifact_id=record.artifact_id,
             artifact_type=artifact_type,
-            queue=queue,
+            reused=reused,
         )
+
+        s3_key: Optional[str] = None
+        if record.storage is not None:
+            s3_key = record.storage.key
 
         return ArtifactResponse(
-            artifact_id=job.id,
-            artifact_type=artifact_type,
+            artifact_id=record.artifact_id,
+            artifact_type=record.artifact_type.value,
             media_item_id=media_item_id,
-            status="queued",
+            status=record.status.value,
+            s3_key=s3_key,
         )
 
+    except ArtifactTypeNotEnabledError as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "artifact.create.invalid_type",
+            "Invalid artifact type requested",
+            artifact_type=artifact_type,
+            error_code="INVALID_ARTIFACT_TYPE",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except ArtifactGenerationDisabledError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Artifact generation is currently disabled",
+        )
+    except ArtifactTranscriptNotReadyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -160,17 +149,24 @@ async def list_artifacts(
 ):
     token = bind_log_context(user_id=current_user.id, media_item_id=media_item_id)
     try:
-        job = await _get_job_for_user(media_item_id, current_user.id)
+        await _get_job_for_user(media_item_id, current_user.id)
 
+        records = await list_media_artifact_records(media_item_id)
         artifacts = []
-        if job.summary_s3_key:
+        for record in records:
+            # Skip request pointers (they start with "request#")
+            if record.artifact_id.startswith("request#"):
+                continue
+            s3_key: Optional[str] = None
+            if record.storage is not None:
+                s3_key = record.storage.key
             artifacts.append(
                 ArtifactResponse(
-                    artifact_id=f"{job.id}:summary",
-                    artifact_type="summary",
+                    artifact_id=record.artifact_id,
+                    artifact_type=record.artifact_type.value,
                     media_item_id=media_item_id,
-                    status="completed",
-                    s3_key=job.summary_s3_key,
+                    status=record.status.value,
+                    s3_key=s3_key,
                 )
             )
 
@@ -214,36 +210,24 @@ async def get_artifact(
 ):
     token = bind_log_context(user_id=current_user.id, artifact_id=artifact_id)
     try:
-        # artifact_id uses the format "{media_item_id}:{artifact_type}" or plain job id for summary
-        if ":" in artifact_id:
-            media_item_id, artifact_type = artifact_id.split(":", 1)
-        else:
-            media_item_id = artifact_id
-            artifact_type = "summary"
-
-        job = await _get_job_for_user(media_item_id, current_user.id)
-
-        s3_key: Optional[str] = None
-        artifact_status = "not_found"
-
-        if artifact_type == "summary" and job.summary_s3_key:
-            s3_key = job.summary_s3_key
-            artifact_status = "completed"
-        elif artifact_type == "summary":
-            artifact_status = "pending"
-
-        if artifact_status == "not_found":
+        record = await get_media_artifact_record(artifact_id)
+        if record is None:
             log_event(
                 logger,
                 logging.WARNING,
                 "artifact.get.not_found",
                 "Artifact not found",
                 artifact_id=artifact_id,
-                artifact_type=artifact_type,
-                media_item_id=media_item_id,
                 error_code="ARTIFACT_NOT_FOUND",
             )
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
+
+        # Verify ownership
+        await _get_job_for_user(record.media_item_id, current_user.id)
+
+        s3_key: Optional[str] = None
+        if record.storage is not None:
+            s3_key = record.storage.key
 
         log_event(
             logger,
@@ -251,16 +235,16 @@ async def get_artifact(
             "artifact.get.succeeded",
             "Artifact retrieved",
             artifact_id=artifact_id,
-            artifact_type=artifact_type,
-            media_item_id=media_item_id,
-            status=artifact_status,
+            artifact_type=record.artifact_type.value,
+            media_item_id=record.media_item_id,
+            status=record.status.value,
         )
 
         return ArtifactResponse(
-            artifact_id=artifact_id,
-            artifact_type=artifact_type,
-            media_item_id=media_item_id,
-            status=artifact_status,
+            artifact_id=record.artifact_id,
+            artifact_type=record.artifact_type.value,
+            media_item_id=record.media_item_id,
+            status=record.status.value,
             s3_key=s3_key,
         )
 
