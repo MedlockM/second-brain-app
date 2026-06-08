@@ -1,7 +1,7 @@
 ---
 id: task-123
 title: Align summarization worker with new artifact_id contract from task-122 — discovered during Phase 4
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 00:50'
 labels:
