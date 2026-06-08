@@ -1,7 +1,7 @@
 ---
 id: task-115
 title: Trouver le nom de l'app (V1 launch — branding)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-07 21:32'
 labels:
