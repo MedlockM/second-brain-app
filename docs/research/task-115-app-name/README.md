@@ -1,5 +1,5 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark : Nom marketing de l'app (V1 launch branding) — REDO
