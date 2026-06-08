@@ -34,20 +34,29 @@ export default function AccountScreen() {
     ]);
   };
 
+  const openFeedbackFallback = async (): Promise<void> => {
+    const fallbackUrl = FeedbackService.getFallbackUrl();
+    if (!fallbackUrl) {
+      Alert.alert(
+        "Feedback unavailable",
+        "The feedback board is not configured yet. Please try again later.",
+      );
+      return;
+    }
+    await WebBrowser.openBrowserAsync(fallbackUrl);
+  };
+
   const handleFeedback = async () => {
     setIsFeedbackLoading(true);
     try {
-      let url: string;
       if (token) {
-        url = await FeedbackService.getFeedbackUrl(token);
+        const url = await FeedbackService.getFeedbackUrl(token);
+        await WebBrowser.openBrowserAsync(url);
       } else {
-        url = FeedbackService.getFallbackUrl();
+        await openFeedbackFallback();
       }
-      await WebBrowser.openBrowserAsync(url);
     } catch {
-      // Fallback: open the board without SSO if the token endpoint fails
-      const fallbackUrl = FeedbackService.getFallbackUrl();
-      await WebBrowser.openBrowserAsync(fallbackUrl);
+      await openFeedbackFallback();
     } finally {
       setIsFeedbackLoading(false);
     }

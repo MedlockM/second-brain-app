@@ -40,8 +40,11 @@ export class FeedbackService {
   /**
    * Get the fallback feedback URL (no SSO, user may need to log in on Canny).
    * Used when the SSO endpoint is unavailable or errors out.
+   *
+   * Returns null if EXPO_PUBLIC_FEEDBACK_URL is not configured — callers must
+   * handle this and surface a user-visible error instead of opening "".
    */
-  static getFallbackUrl(): string {
-    return Config.FEEDBACK_URL;
+  static getFallbackUrl(): string | null {
+    return Config.FEEDBACK_URL || null;
   }
 }

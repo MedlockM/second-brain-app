@@ -13,5 +13,5 @@ export const Config = {
   GOOGLE_CLIENT_ID_ANDROID: extra.googleClientIdAndroid as string || "",
   REVENUCAT_APPLE_KEY: extra.revenueCatAppleKey as string || "",
   REVENUCAT_GOOGLE_KEY: extra.revenueCatGoogleKey as string || "",
-  FEEDBACK_URL: extra.feedbackUrl as string || "https://percole.canny.io",
+  FEEDBACK_URL: (extra.feedbackUrl as string) || "",
 } as const;

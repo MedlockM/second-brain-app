@@ -74,7 +74,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     googleClientIdAndroid: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || "",
     revenueCatAppleKey: process.env.EXPO_PUBLIC_REVENUCAT_APPLE_KEY || "",
     revenueCatGoogleKey: process.env.EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY || "",
-    feedbackUrl: process.env.EXPO_PUBLIC_FEEDBACK_URL || "https://percole.canny.io",
+    feedbackUrl: process.env.EXPO_PUBLIC_FEEDBACK_URL || "",
     eas: {
       projectId: process.env.EAS_PROJECT_ID || "placeholder-project-id",
     },
