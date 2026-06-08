@@ -1,7 +1,7 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-06-07 (Bundle ID figé `com.secondbrainlabs.core`).
+> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-06-08 (Apple Sign in with Apple chaîne complète provisionnée + `PRICING_ADMIN_SECRET` généré + RevenueCat iOS app configurée : `.p8` + Key ID + Issuer ID renseignés, `EXPO_PUBLIC_REVENUCAT_APPLE_KEY` en local dans `mobile/.env` ; correctif naming `EXPO_PUBLIC_GOOGLE_CLIENT_ID_<PLATFORM>` aligné avec `mobile/app.config.ts`).
 
 ---
 
@@ -26,7 +26,7 @@
 | Méthode | Statut | Bloquant V1 |
 |---|---|---|
 | Email + password | OK (backend + mobile) | — |
-| **Sign in with Apple** | Code OK — backend + mobile câblés. Obligatoire App Store car Google login présent | Toute la chaîne Apple Developer à provisionner : Service ID, Sign in with Apple Key (.p8), Team ID, Key ID, Return URL prod |
+| **Sign in with Apple** | Code OK — backend + mobile câblés. Obligatoire App Store car Google login présent | OK (chaîne Apple Developer complète provisionnée 2026-06-08 : Service ID, Sign in with Apple Key `.p8`, Team ID, Key ID, Return URL prod renseignés dans `.env`) |
 | **Continue with Google** | Code OK — backend + mobile câblés. Backend Web client ID + secret OK dans `.env` | 3 OAuth Client IDs publics (iOS, Android, Web Expo) + écran de consentement publié dans Google Cloud Console |
 
 ---
@@ -116,9 +116,10 @@ Côté mobile (`mobile/.env` ou EAS secrets) :
 
 ```bash
 # Google OAuth client IDs créés dans Google Cloud Console
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=...
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=...
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=...   # même valeur que GOOGLE_CLIENT_ID côté backend
+# Naming attendu par mobile/app.config.ts : suffixe _<PLATFORM>, pas infixe.
+EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB=...    # même valeur que GOOGLE_CLIENT_ID côté backend
+EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS=...
+EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID=...
 ```
 
 ### 3.3 LLM / Transcription
@@ -173,11 +174,11 @@ REVENUCAT_PROJECT_ID=...
 REVENUCAT_WEBHOOK_SECRET=...         # configuré dans le dashboard RC
 ```
 
-Côté mobile (`mobile/.env` ou EAS secrets) :
+Côté mobile (`mobile/.env` ou EAS secrets) — naming attendu par `mobile/app.config.ts` :
 
 ```bash
-REVENUECAT_IOS_API_KEY=appl_...      # public key iOS
-REVENUECAT_ANDROID_API_KEY=goog_...  # public key Android
+EXPO_PUBLIC_REVENUCAT_APPLE_KEY=appl_...    # public key iOS (RevenueCat dashboard → Apps → ton app iOS)
+EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY=goog_...   # public key Android (à différer)
 ```
 
 ### 3.7 Mobile (Expo / EAS)
@@ -204,7 +205,7 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 3. AWS account + IAM admin user + facturation alarms.
 4. Expo / EAS account + lien vers le repo.
 5. RevenueCat account + projet + apps iOS/Android (clés générées).
-6. Comptes API tiers : tous configurés au 2026-06-01 (clés présentes dans `.env`) — **OpenAI**, **Deepgram**, **PodcastIndex.org**, **X Developer Platform**, **Apify**, **LlamaParse**, **Unstructured.io**, **Algolia**. **Google OAuth backend** également déjà provisionné (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` en local dans `.env`). **Apple OAuth backend NON provisionné** : `.env` ne contient que des placeholders du template (`APPLE_CLIENT_ID` placeholder, `APPLE_PRIVATE_KEY` placeholder, `APPLE_REDIRECT_URI` URL localhost de dev) ; `APPLE_TEAM_ID` + `APPLE_KEY_ID` vides. Restent à provisionner : **toute la chaîne Apple Developer** (Service ID `APPLE_CLIENT_ID`, Sign in with Apple Key `.p8` → `APPLE_PRIVATE_KEY`, Team ID, Key ID, Return URL prod `APPLE_REDIRECT_URI`), **3 OAuth Client IDs publics** (iOS, Android, Web Expo) + écran de consentement publié côté **Google Cloud Console**, **RevenueCat** (projet + 3 produits + webhook), `PRICING_ADMIN_SECRET` (à générer localement avec `openssl rand -hex 32`).
+6. Comptes API tiers : tous configurés au 2026-06-01 (clés présentes dans `.env`) — **OpenAI**, **Deepgram**, **PodcastIndex.org**, **X Developer Platform**, **Apify**, **LlamaParse**, **Unstructured.io**, **Algolia**. **Google OAuth backend** également déjà provisionné (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` en local dans `.env`). **Apple OAuth backend OK au 2026-06-08** : chaîne complète provisionnée — `APPLE_CLIENT_ID` (Service ID), `APPLE_PRIVATE_KEY` (`.p8` PEM single-line), `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_REDIRECT_URI` prod renseignés dans `.env`. **`PRICING_ADMIN_SECRET` généré au 2026-06-08** (`openssl rand -hex 32`, en local dans `.env`). Restent à provisionner : **Android OAuth Client ID** (à différer en Phase 5 après `eas build:configure`) + **publication écran de consentement Test → Production** côté **Google Cloud Console** (Phase 10), **RevenueCat** (projet + 3 produits + webhook).
 7. **Google Cloud Console** (console.cloud.google.com) :
    - **Créer un projet** (ex: `Second Brain`). Le nom du projet est un identifiant interne, peu visible aux users.
    - **APIs & Services → OAuth consent screen (Audience)** : Type **External** (les apps Workspace internes seraient `Internal` mais nécessitent un domaine Google Workspace). Scopes : `openid`, `email`, `profile` uniquement (les scopes "sensitive/restricted" déclencheraient une vérification Google de 4-6 semaines).
@@ -346,11 +347,11 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 Une fois ces inscriptions faites, plus aucun blocage code :
 
 - [x] AWS account + IAM admin user `second-brain-app-admin` (AdministratorAccess) + alarme billing $50/mois (us-east-1) configurée
-- [ ] Apple Developer Program **payé ($99) au 2026-06-01, en attente de validation Apple** (24-48h, parfois plus)
-- [ ] **Apple Sign in with Apple Service ID + Key (.p8) + App ID + Team ID + Key ID** : à provisionner dès que la validation Apple Developer arrive (cf. Phase 2.8 pour le parcours détaillé). Au 2026-06-01, toutes les vars Apple dans `.env` sont placeholders/vides : `APPLE_CLIENT_ID` placeholder, `APPLE_PRIVATE_KEY` placeholder PEM, `APPLE_REDIRECT_URI` URL localhost dev, `APPLE_TEAM_ID` + `APPLE_KEY_ID` vides.
+- [x] Apple Developer Program payé ($99) au 2026-06-01, validé par Apple
+- [x] **Apple Sign in with Apple Service ID + Key (.p8) + App ID + Team ID + Key ID** provisionnés au 2026-06-08 (cf. Phase 2.8) — toutes les vars Apple dans `.env` renseignées : `APPLE_CLIENT_ID` (Service ID), `APPLE_PRIVATE_KEY` (PEM single-line), `APPLE_REDIRECT_URI` prod, `APPLE_TEAM_ID`, `APPLE_KEY_ID`.
 - [ ] Google Play Console **payé ($25) au 2026-06-01, KYC en cours** (vérification d'identité quelques jours)
-- [x] Google Cloud Console : projet `media-summarizer` créé, OAuth consent screen configuré (Branding `Second Brain`, External, scopes openid+email+profile), mode Test avec utilisateur test ajouté, **2 OAuth Client IDs créés (Web backend + iOS)** — `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` + `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` + `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` renseignés dans `.env`
-- [ ] Google Cloud Console **Android OAuth Client ID** à créer en Phase 5 après `eas build:configure` (SHA-1 keystore EAS requis) → `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`
+- [x] Google Cloud Console : projet `media-summarizer` créé, OAuth consent screen configuré (Branding `Second Brain`, External, scopes openid+email+profile), mode Test avec utilisateur test ajouté, **2 OAuth Client IDs créés (Web backend + iOS)** — `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` dans `.env` racine ; `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB` + `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS` dans `mobile/.env` (naming aligné avec `mobile/app.config.ts`, corrigé 2026-06-08)
+- [ ] Google Cloud Console **Android OAuth Client ID** à créer en Phase 5 après `eas build:configure` (SHA-1 keystore EAS requis) → `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`
 - [ ] Google Cloud Console **publication OAuth (Test → Production)** à faire en Phase 10 juste avant le lancement
 - [x] X Developer App approuvée + bearer token (en local dans `.env`)
 - [x] Apify API token + 3 actor IDs (Reel + Post + Comment Scrapers) obtenus — en local dans `.env`
@@ -360,8 +361,8 @@ Une fois ces inscriptions faites, plus aucun blocage code :
 - [x] OpenAI API key + budget configuré (en local dans `.env`)
 - [x] Deepgram API key + budget configuré (en local dans `.env`)
 - [x] Algolia App créée + index configuré (App ID + Admin API key + index name en local dans `.env`)
-- [ ] RevenueCat projet + 3 produits par store + webhook configuré (`REVENUCAT_API_KEY` + `REVENUCAT_PROJECT_ID` + `REVENUCAT_WEBHOOK_SECRET` vides dans `.env`)
-- [ ] Pricing admin secret généré (`PRICING_ADMIN_SECRET` vide dans `.env`, requis pour `PUT /api/pricing/admin`)
+- [~] RevenueCat — **partiellement provisionné au 2026-06-08** : projet `Second Brain Labs` créé, app iOS configurée (Bundle ID `com.secondbrainlabs.core` + In-App Purchase Key `.p8` + Key ID + Issuer ID), Public iOS API key `appl_...` renseignée dans `mobile/.env` comme `EXPO_PUBLIC_REVENUCAT_APPLE_KEY`. **Restent à faire** : (a) générer la **Secret API key backend** → `REVENUCAT_API_KEY` + noter `REVENUCAT_PROJECT_ID` ; (b) configurer le **webhook** une fois l'API déployée Phase 3 (URL `https://api.<your-domain>/api/webhooks/revenucat`) → `REVENUCAT_WEBHOOK_SECRET` ; (c) créer **3 produits IAP iOS** dans App Store Connect (Phase 6) : `com.secondbrainlabs.core.text_only_monthly`, `.mix_monthly`, `.audio_heavy_monthly` ; (d) importer les produits dans RC + créer **Entitlements + Offerings** ; (e) app Android RC + 3 produits Android (différé)
+- [x] Pricing admin secret généré au 2026-06-08 (`PRICING_ADMIN_SECRET` en local dans `.env`, requis pour `PUT /api/pricing/admin`)
 
 ---
 
