@@ -100,3 +100,15 @@ Decide and document the strategy the V1 backend will use to extract YouTube tran
 - [ ] #6 Sketch of migration plan for the recommended strategy: code changes, infra changes, testing, rollback
 - [ ] #7 README explicitly addresses what happens for YouTube URLs that no strategy can handle (graceful failure UX, error messaging, retry semantics)
 <!-- AC:END -->
+
+## Implementation Notes
+
+**Mode**: initial (no prior research existed for this task).
+
+**Research produced**: `docs/research/task-126-youtube-extraction/README.md`
+
+**Summary**: Comprehensive benchmark of 10 candidate strategies for YouTube transcript extraction from AWS Lambda, given that YouTube blocks all major cloud provider IP ranges. The benchmark confirms that both `youtube-transcript-api` and `yt-dlp` are non-functional from Lambda without external infrastructure. Strategies evaluated include residential proxies (Webshare, Decodo), managed transcript APIs (Supadata), PO Token servers, audio+Deepgram fallback, YouTube Data API v3, client-side extraction, headless browser, and feature removal.
+
+**Recommendation**: Supadata transcript API (managed third-party, $47/month Mega plan for V1 scale) as primary, with existing Deepgram fallback retained for edge cases. Supadata handles all anti-blocking infrastructure, provides AI (Whisper) fallback for videos without native captions, and requires minimal code changes.
+
+**Recommendation awaits owner validation** — the owner should review the trade-offs surfaced in the README (particularly the Supadata vendor dependency and cost vs. the self-managed Webshare proxy alternative at $4-7/month but without AI fallback coverage).
