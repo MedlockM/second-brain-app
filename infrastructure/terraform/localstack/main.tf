@@ -615,6 +615,7 @@ resource "aws_dynamodb_table" "pricing_config" {
 }
 
 # -------------------- S3 Buckets --------------------
+# Local-dev bucket names match .env.example values (no account_id/environment suffix).
 resource "aws_s3_bucket" "audio" {
   bucket        = "media-summarizer-audio"
   force_destroy = true
@@ -622,7 +623,7 @@ resource "aws_s3_bucket" "audio" {
 }
 
 resource "aws_s3_bucket" "transcripts" {
-  bucket        = "media-summarizer-transcriptions"
+  bucket        = "media-summarizer-transcripts"
   force_destroy = true
   tags          = { Name = "transcripts", Environment = local.environment, Project = local.project }
 }
@@ -633,10 +634,46 @@ resource "aws_s3_bucket" "summaries" {
   tags          = { Name = "summaries", Environment = local.environment, Project = local.project }
 }
 
+resource "aws_s3_bucket" "summary_short" {
+  bucket        = "media-summarizer-summary-short"
+  force_destroy = true
+  tags          = { Name = "summary-short", Environment = local.environment, Project = local.project }
+}
+
+resource "aws_s3_bucket" "summary_detailed" {
+  bucket        = "media-summarizer-summary-detailed"
+  force_destroy = true
+  tags          = { Name = "summary-detailed", Environment = local.environment, Project = local.project }
+}
+
+resource "aws_s3_bucket" "notes" {
+  bucket        = "media-summarizer-notes"
+  force_destroy = true
+  tags          = { Name = "notes", Environment = local.environment, Project = local.project }
+}
+
 resource "aws_s3_bucket" "flashcards" {
   bucket        = "media-summarizer-flashcards"
   force_destroy = true
   tags          = { Name = "flashcards", Environment = local.environment, Project = local.project }
+}
+
+resource "aws_s3_bucket" "quiz" {
+  bucket        = "media-summarizer-quiz"
+  force_destroy = true
+  tags          = { Name = "quiz", Environment = local.environment, Project = local.project }
+}
+
+resource "aws_s3_bucket" "documents" {
+  bucket        = "media-summarizer-documents"
+  force_destroy = true
+  tags          = { Name = "documents", Environment = local.environment, Project = local.project }
+}
+
+resource "aws_s3_bucket" "archives" {
+  bucket        = "media-summarizer-archives"
+  force_destroy = true
+  tags          = { Name = "archives", Environment = local.environment, Project = local.project }
 }
 
 # -------------------- SQS Queues (+ DLQs) --------------------
@@ -992,7 +1029,13 @@ output "s3_buckets" {
     aws_s3_bucket.audio.id,
     aws_s3_bucket.transcripts.id,
     aws_s3_bucket.summaries.id,
+    aws_s3_bucket.summary_short.id,
+    aws_s3_bucket.summary_detailed.id,
+    aws_s3_bucket.notes.id,
     aws_s3_bucket.flashcards.id,
+    aws_s3_bucket.quiz.id,
+    aws_s3_bucket.documents.id,
+    aws_s3_bucket.archives.id,
   ]
 }
 

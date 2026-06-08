@@ -23,7 +23,7 @@ services:
       - AWS_REGION=us-east-1
       # S3 Buckets
       - AUDIO_BUCKET=media-summarizer-audio
-      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - TRANSCRIPT_BUCKET=media-summarizer-transcripts
       - SUMMARY_BUCKET=media-summarizer-summaries
       # DynamoDB Tables
       - USERS_TABLE=users
@@ -61,7 +61,7 @@ services:
       - AWS_REGION=us-east-1
       # S3 Buckets
       - AUDIO_BUCKET=media-summarizer-audio
-      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - TRANSCRIPT_BUCKET=media-summarizer-transcripts
       - SUMMARY_BUCKET=media-summarizer-summaries
       # DynamoDB Tables
       - USERS_TABLE=users
@@ -97,7 +97,7 @@ services:
       - AWS_REGION=us-east-1
       # S3 Buckets
       - AUDIO_BUCKET=media-summarizer-audio
-      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - TRANSCRIPT_BUCKET=media-summarizer-transcripts
       - SUMMARY_BUCKET=media-summarizer-summaries
       # DynamoDB Tables
       - USERS_TABLE=users
@@ -132,7 +132,7 @@ services:
       - AWS_REGION=us-east-1
       # S3 Buckets
       - AUDIO_BUCKET=media-summarizer-audio
-      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - TRANSCRIPT_BUCKET=media-summarizer-transcripts
       - SUMMARY_BUCKET=media-summarizer-summaries
       # DynamoDB Tables
       - USERS_TABLE=users
@@ -166,7 +166,7 @@ services:
       - AWS_REGION=us-east-1
       # S3 Buckets
       - AUDIO_BUCKET=media-summarizer-audio
-      - TRANSCRIPT_BUCKET=media-summarizer-transcriptions
+      - TRANSCRIPT_BUCKET=media-summarizer-transcripts
       - SUMMARY_BUCKET=media-summarizer-summaries
       - FLASHCARDS_BUCKET=media-summarizer-flashcards
       # DynamoDB Tables

@@ -57,6 +57,18 @@ resource "aws_lambda_function" "api" {
       # https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-runtime
       # Disable the S3 preflight check on Lambda (infra is guaranteed by Terraform)
       PRESTART_INFRA_CHECK = "0"
+
+      # S3 bucket names — injected by Terraform, NOT via Secrets Manager.
+      AUDIO_BUCKET            = aws_s3_bucket.audio.bucket
+      TRANSCRIPT_BUCKET       = aws_s3_bucket.transcripts.bucket
+      SUMMARY_BUCKET          = aws_s3_bucket.summaries.bucket
+      SUMMARY_SHORT_BUCKET    = aws_s3_bucket.summary_short.bucket
+      SUMMARY_DETAILED_BUCKET = aws_s3_bucket.summary_detailed.bucket
+      NOTES_BUCKET            = aws_s3_bucket.notes.bucket
+      FLASHCARDS_BUCKET       = aws_s3_bucket.flashcards.bucket
+      QUIZ_BUCKET             = aws_s3_bucket.quiz.bucket
+      DOCUMENT_BUCKET         = aws_s3_bucket.documents.bucket
+      ARCHIVE_BUCKET          = aws_s3_bucket.archives.bucket
     }
   }
 

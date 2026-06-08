@@ -20,7 +20,7 @@ from media_summarizer.utils import s3
 logger = logging.getLogger(__name__)
 
 TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 
 

@@ -59,6 +59,10 @@ class ProcessingJob(BaseModel):
     # Media metadata
     media_date_published: Optional[int] = None  # Unix timestamp - when content was published
 
+    # Extraction and transcription metadata (stored in DynamoDB as JSON maps)
+    extraction_metadata: Optional[Dict[str, Any]] = None
+    transcription_metadata: Optional[Dict[str, Any]] = None
+
     # Error handling
     error_message: Optional[str] = None
     error_step: Optional[str] = None
@@ -143,6 +147,8 @@ class ProcessingJob(BaseModel):
             "quiz_s3_key",
             "folder_id",
             "media_date_published",
+            "extraction_metadata",
+            "transcription_metadata",
             "error_message",
             "error_step",
             "download_duration",
@@ -284,6 +290,11 @@ class ProcessingJob(BaseModel):
     def set_summary_location(self, s3_key: str) -> None:
         """Set the S3 location of the summary."""
         self.summary_s3_key = s3_key
+        self.updated_at = datetime.now(timezone.utc)
+
+    def set_transcription_metadata(self, metadata: Dict[str, Any]) -> None:
+        """Set transcription metadata (provider, model, language, etc.)."""
+        self.transcription_metadata = metadata
         self.updated_at = datetime.now(timezone.utc)
 
     def set_processing_duration(self, step: str, duration: int) -> None:

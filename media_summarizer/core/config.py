@@ -30,12 +30,12 @@ class Settings:
         self.EPISODES_TABLE = os.getenv("EPISODES_TABLE", "episodes")
 
         # S3 Buckets
-        self.AUDIO_BUCKET = os.getenv("AUDIO_BUCKET", "media-files")
-        self.TRANSCRIPT_BUCKET = os.getenv("TRANSCRIPT_BUCKET", "transcripts")
-        self.SUMMARY_BUCKET = os.getenv("SUMMARY_BUCKET", "summaries")
-        self.SUMMARY_SHORT_BUCKET = os.getenv("SUMMARY_SHORT_BUCKET", "media-summarizer-summaries-short")
-        self.SUMMARY_DETAILED_BUCKET = os.getenv("SUMMARY_DETAILED_BUCKET", "media-summarizer-summaries-detailed")
-        self.QUIZ_BUCKET = os.getenv("QUIZ_BUCKET", "media-summarizer-quizzes")
+        self.AUDIO_BUCKET = os.getenv("AUDIO_BUCKET", "media-summarizer-audio")
+        self.TRANSCRIPT_BUCKET = os.getenv("TRANSCRIPT_BUCKET", "media-summarizer-transcripts")
+        self.SUMMARY_BUCKET = os.getenv("SUMMARY_BUCKET", "media-summarizer-summaries")
+        self.SUMMARY_SHORT_BUCKET = os.getenv("SUMMARY_SHORT_BUCKET", "media-summarizer-summary-short")
+        self.SUMMARY_DETAILED_BUCKET = os.getenv("SUMMARY_DETAILED_BUCKET", "media-summarizer-summary-detailed")
+        self.QUIZ_BUCKET = os.getenv("QUIZ_BUCKET", "media-summarizer-quiz")
         self.NOTES_BUCKET = os.getenv("NOTES_BUCKET", "media-summarizer-notes")
         self.FLASHCARDS_BUCKET = os.getenv("FLASHCARDS_BUCKET", "media-summarizer-flashcards")
 

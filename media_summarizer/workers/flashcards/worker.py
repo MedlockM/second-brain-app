@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 FLASHCARDS_QUEUE = os.environ.get("FLASHCARDS_QUEUE", "flashcards-queue")
 TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 LLM_API_URL = os.environ.get(
     "LLM_API_URL", "https://api.openai.com/v1/chat/completions"

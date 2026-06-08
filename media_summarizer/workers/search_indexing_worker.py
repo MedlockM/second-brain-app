@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 SEARCH_INDEXING_QUEUE = os.environ.get("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 
 # Backoff

@@ -43,7 +43,7 @@ from media_summarizer.workers.base_worker import (
 logger = logging.getLogger(__name__)
 
 TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 TIKTOK_INGESTION_QUEUE = os.environ.get(
     "TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue"

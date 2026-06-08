@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 SUMMARY_SHORT_QUEUE = os.environ.get("SUMMARY_SHORT_QUEUE", "summary-short-queue")
 SUMMARY_DETAILED_QUEUE = os.environ.get("SUMMARY_DETAILED_QUEUE", "summary-detailed-queue")
 TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 LLM_API_URL = os.environ.get(
     "LLM_API_URL", "https://api.openai.com/v1/chat/completions"

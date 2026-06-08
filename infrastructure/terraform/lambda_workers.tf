@@ -122,6 +122,18 @@ resource "aws_lambda_function" "worker" {
       # AWS_DEFAULT_REGION is reserved by Lambda runtime; boto3 reads it automatically
       # from the execution context. See:
       # https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-runtime
+
+      # S3 bucket names — injected by Terraform, NOT via Secrets Manager.
+      AUDIO_BUCKET            = aws_s3_bucket.audio.bucket
+      TRANSCRIPT_BUCKET       = aws_s3_bucket.transcripts.bucket
+      SUMMARY_BUCKET          = aws_s3_bucket.summaries.bucket
+      SUMMARY_SHORT_BUCKET    = aws_s3_bucket.summary_short.bucket
+      SUMMARY_DETAILED_BUCKET = aws_s3_bucket.summary_detailed.bucket
+      NOTES_BUCKET            = aws_s3_bucket.notes.bucket
+      FLASHCARDS_BUCKET       = aws_s3_bucket.flashcards.bucket
+      QUIZ_BUCKET             = aws_s3_bucket.quiz.bucket
+      DOCUMENT_BUCKET         = aws_s3_bucket.documents.bucket
+      ARCHIVE_BUCKET          = aws_s3_bucket.archives.bucket
     }
   }
 

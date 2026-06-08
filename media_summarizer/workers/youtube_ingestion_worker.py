@@ -49,7 +49,7 @@ from media_summarizer.workers.base_worker import (
 logger = logging.getLogger(__name__)
 
 TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 YOUTUBE_INGESTION_QUEUE = os.environ.get(
     "YOUTUBE_INGESTION_QUEUE", "youtube-ingestion-queue"

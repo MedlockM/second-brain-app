@@ -57,7 +57,7 @@ NEWSLETTER_INGESTION_QUEUE = os.environ.get(
     "NEWSLETTER_INGESTION_QUEUE", "newsletter-ingestion-queue"
 )
 TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
 

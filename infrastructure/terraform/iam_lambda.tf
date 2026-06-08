@@ -79,7 +79,14 @@ resource "aws_iam_policy" "lambda_worker" {
         Resource = [
           "${aws_s3_bucket.audio.arn}/*",
           "${aws_s3_bucket.transcripts.arn}/*",
-          "${aws_s3_bucket.summaries.arn}/*"
+          "${aws_s3_bucket.summaries.arn}/*",
+          "${aws_s3_bucket.summary_short.arn}/*",
+          "${aws_s3_bucket.summary_detailed.arn}/*",
+          "${aws_s3_bucket.notes.arn}/*",
+          "${aws_s3_bucket.flashcards.arn}/*",
+          "${aws_s3_bucket.quiz.arn}/*",
+          "${aws_s3_bucket.documents.arn}/*",
+          "${aws_s3_bucket.archives.arn}/*"
         ]
       },
       {
@@ -90,7 +97,14 @@ resource "aws_iam_policy" "lambda_worker" {
         Resource = [
           aws_s3_bucket.audio.arn,
           aws_s3_bucket.transcripts.arn,
-          aws_s3_bucket.summaries.arn
+          aws_s3_bucket.summaries.arn,
+          aws_s3_bucket.summary_short.arn,
+          aws_s3_bucket.summary_detailed.arn,
+          aws_s3_bucket.notes.arn,
+          aws_s3_bucket.flashcards.arn,
+          aws_s3_bucket.quiz.arn,
+          aws_s3_bucket.documents.arn,
+          aws_s3_bucket.archives.arn
         ]
       },
       {
@@ -218,7 +232,14 @@ resource "aws_iam_policy" "lambda_api" {
         Resource = [
           "${aws_s3_bucket.audio.arn}/*",
           "${aws_s3_bucket.transcripts.arn}/*",
-          "${aws_s3_bucket.summaries.arn}/*"
+          "${aws_s3_bucket.summaries.arn}/*",
+          "${aws_s3_bucket.summary_short.arn}/*",
+          "${aws_s3_bucket.summary_detailed.arn}/*",
+          "${aws_s3_bucket.notes.arn}/*",
+          "${aws_s3_bucket.flashcards.arn}/*",
+          "${aws_s3_bucket.quiz.arn}/*",
+          "${aws_s3_bucket.documents.arn}/*",
+          "${aws_s3_bucket.archives.arn}/*"
         ]
       },
       {
@@ -229,7 +250,14 @@ resource "aws_iam_policy" "lambda_api" {
         Resource = [
           aws_s3_bucket.audio.arn,
           aws_s3_bucket.transcripts.arn,
-          aws_s3_bucket.summaries.arn
+          aws_s3_bucket.summaries.arn,
+          aws_s3_bucket.summary_short.arn,
+          aws_s3_bucket.summary_detailed.arn,
+          aws_s3_bucket.notes.arn,
+          aws_s3_bucket.flashcards.arn,
+          aws_s3_bucket.quiz.arn,
+          aws_s3_bucket.documents.arn,
+          aws_s3_bucket.archives.arn
         ]
       },
       {

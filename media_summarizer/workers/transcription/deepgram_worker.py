@@ -51,7 +51,7 @@ class RetryableDeepgramError(Exception):
 
 
 TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
 EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(

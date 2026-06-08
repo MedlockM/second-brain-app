@@ -31,12 +31,12 @@ ARTIFACT_GENERATION_ENABLED = os.environ.get(
     "ARTIFACT_GENERATION_ENABLED", "true"
 ).lower() == "true"
 TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
-SUMMARY_SHORT_BUCKET = os.environ.get("SUMMARY_SHORT_BUCKET", "media-summarizer-summaries-short")
-SUMMARY_DETAILED_BUCKET = os.environ.get("SUMMARY_DETAILED_BUCKET", "media-summarizer-summaries-detailed")
-QUIZ_BUCKET = os.environ.get("QUIZ_BUCKET", "media-summarizer-quizzes")
+SUMMARY_SHORT_BUCKET = os.environ.get("SUMMARY_SHORT_BUCKET", "media-summarizer-summary-short")
+SUMMARY_DETAILED_BUCKET = os.environ.get("SUMMARY_DETAILED_BUCKET", "media-summarizer-summary-detailed")
+QUIZ_BUCKET = os.environ.get("QUIZ_BUCKET", "media-summarizer-quiz")
 NOTES_BUCKET = os.environ.get("NOTES_BUCKET", "media-summarizer-notes")
 FLASHCARDS_BUCKET = os.environ.get("FLASHCARDS_BUCKET", "media-summarizer-flashcards")
 SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")

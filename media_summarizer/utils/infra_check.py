@@ -28,9 +28,9 @@ def required_s3_buckets_from_env() -> List[str]:
     }
     buckets = [
         os.environ.get("AUDIO_BUCKET", "media-summarizer-audio"),
-        os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"),
+        os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcripts"),
         os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries"),
-        os.environ.get("QUIZ_BUCKET", "media-summarizer-quizzes"),
+        os.environ.get("QUIZ_BUCKET", "media-summarizer-quiz"),
     ]
     if "notes" in allowed_artifact_types:
         buckets.append(os.environ.get("NOTES_BUCKET", "media-summarizer-notes"))

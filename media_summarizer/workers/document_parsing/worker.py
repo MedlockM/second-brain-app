@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 DOCUMENT_BUCKET = os.environ.get("DOCUMENT_BUCKET", "media-summarizer-documents")
-TRANSCRIPT_BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcriptions")
+TRANSCRIPT_BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcripts")
 DOCUMENT_PARSING_QUEUE = os.environ.get("DOCUMENT_PARSING_QUEUE", "document-parsing-queue")
 EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"

@@ -52,7 +52,7 @@ DEFAULT_EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
 )
 DEFAULT_TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 
 

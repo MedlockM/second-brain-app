@@ -237,7 +237,7 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
     job_id = message_body.get("job_id")
     transcript_s3_key = message_body.get("transcript_s3_key")
     transcript_bucket = message_body.get(
-        "transcript_bucket", "media-summarizer-transcriptions"
+        "transcript_bucket", "media-summarizer-transcripts"
     )
     email = message_body.get("email")
 
