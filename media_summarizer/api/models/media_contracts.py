@@ -84,10 +84,9 @@ LEGACY_PROCESSING_JOB_STATUS_MAP: Dict[str, ProcessingJobLifecycleStatus] = {
     "rss_resolving": ProcessingJobLifecycleStatus.RESOLVING,
     "downloading": ProcessingJobLifecycleStatus.DOWNLOADING,
     "transcribing": ProcessingJobLifecycleStatus.TRANSCRIBING,
-    # Legacy automatic summarization stage maps to transcript-ready in canonical flow.
+    # Summarization stage: used by both the summarization worker and the newsletter
+    # worker to indicate LLM artifact generation is in progress.
     "summarizing": ProcessingJobLifecycleStatus.READY_FOR_ARTIFACTS,
-    # Legacy email-coupled terminal stage is treated as completed in canonical flow.
-    "notifying": ProcessingJobLifecycleStatus.COMPLETED,
     "completed": ProcessingJobLifecycleStatus.COMPLETED,
     "failed": ProcessingJobLifecycleStatus.FAILED,
     "cancelled": ProcessingJobLifecycleStatus.CANCELLED,
