@@ -40,6 +40,7 @@ class SummarizationWorker:
 
 # Configuration
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
+TRANSCRIPT_BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "")
 EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
@@ -236,21 +237,19 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
     """
     job_id = message_body.get("job_id")
     transcript_s3_key = message_body.get("transcript_s3_key")
-    transcript_bucket = message_body.get(
-        "transcript_bucket", "media-summarizer-transcriptions"
-    )
-    email = message_body.get("email")
+    transcript_bucket = message_body.get("transcript_bucket") or TRANSCRIPT_BUCKET
 
-    if not all([job_id, transcript_s3_key, email]):
+    if not all([job_id, transcript_s3_key]):
         logger.error(f"Missing required fields in message: {message_body}")
         raise ValueError("Missing required fields in summarization message")
 
+    if not transcript_bucket:
+        raise ValueError(
+            "transcript_bucket not provided in message and TRANSCRIPT_BUCKET env var is not set"
+        )
+
     # Ensure all required fields are strings
-    if (
-        not isinstance(job_id, str)
-        or not isinstance(transcript_s3_key, str)
-        or not isinstance(email, str)
-    ):
+    if not isinstance(job_id, str) or not isinstance(transcript_s3_key, str):
         logger.error(f"Invalid field types in message: {message_body}")
         raise ValueError("Invalid field types in summarization message")
 
