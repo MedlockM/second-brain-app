@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark : Feedback Intake Tools for V1 User Feature Requests
 
 ## Owner Validation
 
-**Decision**: _(a remplir par l'owner apres relecture)_
+**Decision**: canny (voir documentation pour une implémentation correcte)
 **Validated at**: _(date ISO a remplir par l'owner)_
 
 ---
