@@ -8,9 +8,12 @@ Cost per run (approx.):
 - TikTok Apify fallback: ~$0.005-0.01 (Apify actor call)
 - Instagram Deepgram fallback: ~$0.01-0.02 (Apify call + Deepgram 90s max)
 - Document Unstructured fallback: ~$0.001 (LlamaParse forced failure + Unstructured)
+- Deepgram push-mode fallback: ~$0.005 (Lambda download + Deepgram push-mode)
 
-IMPORTANT: The document fallback test requires FORCE_LLAMAPARSE_FAILURE=1 to be
-set on the document-parsing **worker** Lambda, not on the test runner.
+IMPORTANT: Some tests require specific environment variables on the **worker**
+Lambda (not the test runner):
+- Document fallback: FORCE_LLAMAPARSE_FAILURE=1 on document-parsing worker
+- Deepgram push-mode fallback: FORCE_DEEPGRAM_PUSH_MODE=1 on Deepgram worker
 
 Naming convention: test_<source>_<fallback_name>
 """
@@ -241,4 +244,75 @@ async def test_document_unstructured_fallback(
     assert provider == "unstructured", (
         f"Expected fallback provider 'unstructured', got: '{provider}'. "
         f"Ensure FORCE_LLAMAPARSE_FAILURE=1 is set on the document-parsing worker."
+    )
+
+
+# =============================================================================
+# Deepgram: pull-mode CDN 403 -> push-mode binary upload fallback (task-139)
+# =============================================================================
+
+# Fixture rationale:
+# We use a short, stable audio URL from archive.org (LibriVox public domain).
+# The Deepgram worker receives this URL and attempts pull-mode transcription.
+#
+# To deterministically trigger the push-mode fallback WITHOUT depending on
+# external CDN IP-blocking behavior (which is unreliable for CI), the
+# Deepgram worker Lambda must have FORCE_DEEPGRAM_PUSH_MODE=1 set in its
+# environment. This forces a simulated RemoteContentError on pull-mode,
+# causing the worker to download the audio in Lambda and POST bytes to
+# Deepgram via push-mode -- exactly the same code path that fires when a
+# real CDN (e.g. TikTok) blocks Deepgram's IPs.
+#
+# Why a direct audio URL (not TikTok):
+#   - TikTok URLs go through the TikTok ingestion worker first, which may
+#     take the Apify fallback path (yt-dlp IP-blocked) and never reach the
+#     Deepgram worker at all.
+#   - A direct audio URL goes straight to the Deepgram transcription queue,
+#     isolating the pull-to-push fallback logic under test.
+#   - archive.org URLs are permanent and always accessible from Lambda IPs.
+#
+# Cost: ~$0.005 per run (Deepgram push-mode, ~1 min audio excerpt).
+DEEPGRAM_PUSH_MODE_FIXTURE_URL = (
+    "https://archive.org/download/"
+    "count_monte_cristo_0711_librivox/"
+    "count_of_monte_cristo_001_dumas_64kb.mp3"
+)
+
+
+@pytest.mark.e2e
+@pytest.mark.timeout(60)
+async def test_deepgram_pushmode_fallback(
+    http_client: httpx.AsyncClient,
+    auth_headers: Dict[str, str],
+) -> None:
+    """Deepgram pull-mode 403 -> push-mode binary upload succeeds.
+
+    Prerequisites:
+        The Deepgram worker Lambda must have FORCE_DEEPGRAM_PUSH_MODE=1 set
+        in its environment. This simulates a REMOTE_CONTENT_ERROR on pull-mode
+        (as if the source CDN blocked Deepgram's IPs), forcing the push-mode
+        fallback path.
+
+    Asserts:
+    - Job completes successfully (status == "completed")
+    - transcription_metadata.deepgram_mode == "push" (proving push-mode was used,
+      not pull-mode)
+    """
+    media_item_id = await _ingest_and_wait(
+        http_client,
+        auth_headers,
+        DEEPGRAM_PUSH_MODE_FIXTURE_URL,
+        timeout_s=60,
+    )
+
+    detail = await _get_media_item(http_client, auth_headers, media_item_id)
+
+    # AC #3: Assert BOTH status == completed AND deepgram_mode == "push"
+    transcription_meta = detail.get("transcription_metadata") or {}
+    deepgram_mode = transcription_meta.get("deepgram_mode")
+    assert deepgram_mode == "push", (
+        f"Expected transcription_metadata.deepgram_mode == 'push' "
+        f"(proving push-mode fallback fired), got: '{deepgram_mode}'. "
+        f"Ensure FORCE_DEEPGRAM_PUSH_MODE=1 is set on the Deepgram worker Lambda. "
+        f"transcription_metadata={transcription_meta}"
     )

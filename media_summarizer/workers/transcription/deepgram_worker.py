@@ -98,6 +98,12 @@ DEEPGRAM_VISIBILITY_TIMEOUT = int(
     os.environ.get("DEEPGRAM_VISIBILITY_TIMEOUT", "1800")
 )
 
+# Testing flag: when set to "1", forces the push-mode fallback path by
+# simulating a RemoteContentError on every pull-mode attempt. Used by E2E
+# tests to deterministically exercise the push-mode path without depending
+# on external CDN IP-blocking behavior.
+FORCE_DEEPGRAM_PUSH_MODE = os.environ.get("FORCE_DEEPGRAM_PUSH_MODE", "").strip() == "1"
+
 
 def _build_deepgram_query_params() -> Dict[str, str]:
     return {
@@ -510,9 +516,14 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
         audio_s3_key = getattr(job, "audio_s3_key", None)
 
     deepgram_payload: Dict[str, Any]
+    deepgram_mode: str = "pull"  # Track whether pull-mode or push-mode was used
     started = time.time()
     if isinstance(audio_url, str) and audio_url.strip():
         try:
+            if FORCE_DEEPGRAM_PUSH_MODE:
+                raise RemoteContentError(
+                    "Forced push-mode via FORCE_DEEPGRAM_PUSH_MODE=1"
+                )
             deepgram_payload = await call_deepgram_api(
                 audio_url=audio_url.strip(),
                 job_id=job_id,
@@ -540,6 +551,7 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
                 content_type=content_type,
                 job_id=job_id,
             )
+            deepgram_mode = "push"
             log_event(
                 logger,
                 logging.INFO,
@@ -560,6 +572,7 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
             content_type=content_type,
             job_id=job_id,
         )
+        deepgram_mode = "push"
     else:
         raise NonRetryableDeepgramError(
             "Missing required field: audio_url or audio_s3_key"
@@ -573,6 +586,7 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
 
     transcription_metadata = {
         "provider": "deepgram",
+        "deepgram_mode": deepgram_mode,
         "request_id": transcript.get("request_id"),
         "model_used": DEEPGRAM_MODEL,
         "language": transcript.get("language"),
