@@ -16,12 +16,8 @@ class Settings:
         self.ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
         self.DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
-        # LocalStack configuration
-        self.USE_LOCALSTACK = os.getenv("USE_LOCALSTACK", "true").lower() == "true"
-
         # AWS Configuration
-        self.AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-        self.AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
+        self.AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "eu-west-3")
 
         # Database tables
         self.USERS_TABLE = os.getenv("USERS_TABLE", "users")
@@ -30,17 +26,16 @@ class Settings:
         self.EPISODES_TABLE = os.getenv("EPISODES_TABLE", "episodes")
 
         # S3 Buckets
-        self.AUDIO_BUCKET = os.getenv("AUDIO_BUCKET", "media-files")
-        self.TRANSCRIPT_BUCKET = os.getenv("TRANSCRIPT_BUCKET", "transcripts")
-        self.SUMMARY_BUCKET = os.getenv("SUMMARY_BUCKET", "summaries")
-        self.SUMMARY_SHORT_BUCKET = os.getenv("SUMMARY_SHORT_BUCKET", "media-summarizer-summaries-short")
-        self.SUMMARY_DETAILED_BUCKET = os.getenv("SUMMARY_DETAILED_BUCKET", "media-summarizer-summaries-detailed")
-        self.QUIZ_BUCKET = os.getenv("QUIZ_BUCKET", "media-summarizer-quizzes")
+        self.AUDIO_BUCKET = os.getenv("AUDIO_BUCKET", "media-summarizer-audio")
+        self.TRANSCRIPT_BUCKET = os.getenv("TRANSCRIPT_BUCKET", "media-summarizer-transcripts")
+        self.SUMMARY_BUCKET = os.getenv("SUMMARY_BUCKET", "media-summarizer-summaries")
+        self.SUMMARY_SHORT_BUCKET = os.getenv("SUMMARY_SHORT_BUCKET", "media-summarizer-summary-short")
+        self.SUMMARY_DETAILED_BUCKET = os.getenv("SUMMARY_DETAILED_BUCKET", "media-summarizer-summary-detailed")
+        self.QUIZ_BUCKET = os.getenv("QUIZ_BUCKET", "media-summarizer-quiz")
         self.NOTES_BUCKET = os.getenv("NOTES_BUCKET", "media-summarizer-notes")
         self.FLASHCARDS_BUCKET = os.getenv("FLASHCARDS_BUCKET", "media-summarizer-flashcards")
 
         # SQS Queues
-        self.DOWNLOAD_QUEUE = os.getenv("DOWNLOAD_QUEUE", "download-queue")
         self.TRANSCRIPTION_QUEUE = os.getenv("TRANSCRIPTION_QUEUE", "transcription-queue")
         self.DEEPGRAM_TRANSCRIPTION_QUEUE = os.getenv(
             "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
@@ -91,12 +86,31 @@ class Settings:
         self.YTDLP_TIMEOUT_SECONDS = float(
             os.getenv("YTDLP_TIMEOUT_SECONDS", "30")
         )
+        self.APIFY_INSTAGRAM_API_TOKEN = os.getenv("APIFY_INSTAGRAM_API_TOKEN", "")
+        self.APIFY_YOUTUBE_API_TOKEN = os.getenv("APIFY_YOUTUBE_API_TOKEN", "")
+        self.APIFY_INSTAGRAM_REEL_ACTOR_ID = os.getenv(
+            "APIFY_INSTAGRAM_REEL_ACTOR_ID", "apify~instagram-reel-scraper"
+        )
+        self.APIFY_INSTAGRAM_POST_ACTOR_ID = os.getenv(
+            "APIFY_INSTAGRAM_POST_ACTOR_ID", "apify~instagram-post-scraper"
+        )
+        self.APIFY_INSTAGRAM_COMMENT_ACTOR_ID = os.getenv(
+            "APIFY_INSTAGRAM_COMMENT_ACTOR_ID", "apify~instagram-comment-scraper"
+        )
+        self.APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = os.getenv(
+            "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID", ""
+        )
+        self.APIFY_TIMEOUT_SECONDS = int(
+            os.getenv("APIFY_TIMEOUT_SECONDS", "60")
+        )
+        self.APIFY_POLL_INTERVAL_SECONDS = float(
+            os.getenv("APIFY_POLL_INTERVAL_SECONDS", "3")
+        )
+        self.APIFY_MAX_POLLS = int(
+            os.getenv("APIFY_MAX_POLLS", "40")
+        )
         self.GETINSAVER_API_BASE_URL = os.getenv(
             "GETINSAVER_API_BASE_URL", "https://getinsaver.com/api/v1"
-        )
-        self.GETINSAVER_API_KEY = os.getenv("GETINSAVER_API_KEY", "")
-        self.GETINSAVER_TIMEOUT_SECONDS = int(
-            os.getenv("GETINSAVER_TIMEOUT_SECONDS", "20")
         )
 
         # Document Parsing Configuration
