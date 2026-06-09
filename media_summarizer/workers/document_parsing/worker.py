@@ -256,6 +256,12 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
         if job:
             job.set_transcription_location(transcript_s3_key)
             job.set_processing_duration("transcription", int(parse_duration))
+            job.set_transcription_metadata({
+                "provider": result.provider,
+                "source": "document_upload",
+                "page_count": result.page_count,
+                "parse_duration_seconds": int(parse_duration),
+            })
             job.title = media_title
             job.source_platform = "document"
             job.media_type = "document"

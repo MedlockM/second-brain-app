@@ -115,6 +115,7 @@ class MediaItemResponse(BaseModel):
     source_platform: Optional[str] = None
     error_message: Optional[str] = None
     progress: int
+    provider: Optional[str] = None
 
 
 # ---------- Folder assignment models ----------
@@ -776,12 +777,18 @@ async def get_media_item(
             status=job.status.value,
         )
 
+        # Extract provider from transcription_metadata if available
+        provider = None
+        if job.transcription_metadata and isinstance(job.transcription_metadata, dict):
+            provider = job.transcription_metadata.get("provider")
+
         return MediaItemResponse(
             media_item_id=job.id,
             status=job.status.value,
-            source_platform=None,
+            source_platform=job.source_platform,
             error_message=job.error_message,
             progress=job.get_progress_percentage(),
+            provider=provider,
         )
 
     except HTTPException:
