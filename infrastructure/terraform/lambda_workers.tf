@@ -150,6 +150,9 @@ resource "aws_lambda_function" "worker" {
       # DynamoDB table names for artifact persistence
       MEDIA_ARTIFACTS_TABLE       = aws_dynamodb_table.media_artifacts_v1.name
       ARTIFACT_IDEMPOTENCE_TABLE  = aws_dynamodb_table.artifact_idempotence_v1.name
+
+      # DynamoDB table names for media flow
+      MEDIA_WATCHERS_TABLE        = aws_dynamodb_table.media_watchers_v1.name
     }
   }
 
