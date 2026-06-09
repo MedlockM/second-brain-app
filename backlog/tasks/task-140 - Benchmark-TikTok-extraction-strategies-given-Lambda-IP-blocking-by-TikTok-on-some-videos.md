@@ -105,3 +105,21 @@ Even if yt-dlp from Lambda succeeds, the Deepgram fallback path may fail because
 - [ ] #6 Sketch of migration plan for the recommended strategy
 - [ ] #7 README explicitly addresses what happens for TikTok URLs no strategy can handle (graceful failure UX, error messaging, retry semantics)
 <!-- AC:END -->
+
+## Implementation Notes
+
+**2026-06-09 — Research agent (initial mode)**
+
+Produced `docs/research/task-140-tiktok-extraction/README.md` containing:
+
+- Front-matter with `owner_decision: pending`
+- Analysis of TikTok's multi-layer anti-bot architecture (IP reputation, TLS fingerprinting, JS challenges, device fingerprinting)
+- 8 candidate strategies evaluated: (A) Residential proxy for yt-dlp, (B) Apify TikTok scraper, (C) curl_cffi browser impersonation, (D) Bright Data Web Unlocker, (E) TikTok Research API, (F) Headless browser, (G) Client-side delegation, (H) Accept partial coverage
+- Each strategy evaluated against: reliability, coverage, latency, cost, operational complexity, legal/ToS, pipeline fit
+- Comparative matrix across all criteria
+- Recommendation: Hybrid yt-dlp with Webshare residential proxy fallback (try direct first, retry with proxy on IP block)
+- Detailed migration plan sketch (5 phases: curl_cffi install, proxy fallback code, infra/secrets, testing, monitoring)
+- Graceful failure UX: error classification table, retry semantics, user messaging strategy
+- 17 cited sources with URLs
+
+**Recommendation awaits owner validation.**
