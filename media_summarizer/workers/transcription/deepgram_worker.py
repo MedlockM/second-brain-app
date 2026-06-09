@@ -47,6 +47,15 @@ class NonRetryableDeepgramError(Exception):
     """Raised for non-retryable Deepgram request failures."""
 
 
+class RemoteContentError(NonRetryableDeepgramError):
+    """Raised when Deepgram cannot fetch audio from a remote URL (e.g. CDN 403).
+
+    This is a subclass of NonRetryableDeepgramError so existing handlers still
+    catch it, but the process_deepgram_message function intercepts it to attempt
+    a push-mode fallback (download audio locally, then POST bytes to Deepgram).
+    """
+
+
 class RetryableDeepgramError(Exception):
     """Raised for transient/retryable Deepgram request failures."""
 
@@ -182,8 +191,19 @@ async def call_deepgram_api(*, audio_url: str, job_id: str) -> Dict[str, Any]:
     status = response.status_code
 
     if status in (401, 403, 400, 404, 415, 422):
+        # Detect REMOTE_CONTENT_ERROR: Deepgram could not fetch the audio URL
+        # (e.g. source CDN blocks cloud SaaS IPs with HTTP 403).
+        # Raise RemoteContentError so callers can fall back to push-mode.
+        response_text = response.text[:500]
+        if "REMOTE_CONTENT_ERROR" in response_text or (
+            status == 400 and "403" in response_text
+        ):
+            raise RemoteContentError(
+                f"Deepgram remote content fetch blocked "
+                f"(HTTP {status}): {response_text}"
+            )
         raise NonRetryableDeepgramError(
-            f"Deepgram non-retryable HTTP {status}: {response.text[:500]}"
+            f"Deepgram non-retryable HTTP {status}: {response_text}"
         )
     if status == 429 or status >= 500:
         raise RetryableDeepgramError(
@@ -216,6 +236,112 @@ async def call_deepgram_api(*, audio_url: str, job_id: str) -> Dict[str, Any]:
         audio_url=audio_url,
     )
     return payload
+
+
+# Maximum audio file size for push-mode fallback (250 MB).
+# Larger files should not be held in Lambda memory.
+_PUSH_MODE_MAX_BYTES = 250 * 1024 * 1024
+
+# Timeout for downloading audio from source CDN (seconds).
+_AUDIO_DOWNLOAD_TIMEOUT = 120
+
+
+async def _download_audio_for_push_fallback(
+    audio_url: str,
+    job_id: str,
+) -> tuple[bytes, str]:
+    """Download audio from a URL for push-mode Deepgram fallback.
+
+    This is invoked when Deepgram's pull-mode fails because the source CDN
+    blocks cloud SaaS IP ranges. Lambda downloads the audio itself, then we
+    POST the bytes directly to Deepgram.
+
+    Returns:
+        Tuple of (audio_bytes, content_type).
+
+    Raises:
+        NonRetryableDeepgramError: If the download fails (expired URL, blocked, etc.).
+
+    Cost note: This adds Lambda execution time for the download (~1-30s depending
+    on file size and network) plus memory usage to hold the full audio in RAM.
+    For typical social media audio (<50 MB) this is well within Lambda 512 MB limits.
+    """
+    log_event(
+        logger,
+        logging.INFO,
+        "transcription.push_fallback.download_start",
+        "Downloading audio for push-mode fallback (source CDN blocked Deepgram)",
+        provider="deepgram",
+        job_id=job_id,
+        audio_url=audio_url,
+    )
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=_AUDIO_DOWNLOAD_TIMEOUT,
+            follow_redirects=True,
+        ) as client:
+            response = await client.get(audio_url)
+
+        if response.status_code == 403:
+            raise NonRetryableDeepgramError(
+                "Lambda also blocked by source CDN (HTTP 403) "
+                f"for audio URL: {audio_url[:200]}"
+            )
+        if response.status_code == 404:
+            raise NonRetryableDeepgramError(
+                "Audio URL expired or not found (HTTP 404): "
+                f"{audio_url[:200]}"
+            )
+        if response.status_code >= 400:
+            raise NonRetryableDeepgramError(
+                f"Failed to download audio "
+                f"(HTTP {response.status_code}): {audio_url[:200]}"
+            )
+
+        audio_bytes = response.content
+        if not audio_bytes:
+            raise NonRetryableDeepgramError(
+                f"Downloaded audio is empty (0 bytes) from: {audio_url[:200]}"
+            )
+        if len(audio_bytes) > _PUSH_MODE_MAX_BYTES:
+            raise NonRetryableDeepgramError(
+                f"Audio too large for push-mode fallback "
+                f"({len(audio_bytes)} bytes > {_PUSH_MODE_MAX_BYTES} limit)"
+            )
+
+        # Determine content type from response headers or URL
+        raw_ct = response.headers.get("content-type") or ""
+        content_type = raw_ct.split(";")[0].strip()
+        if not content_type or content_type == "application/octet-stream":
+            # Try to guess from URL path
+            guessed, _ = mimetypes.guess_type(audio_url.split("?")[0])
+            content_type = guessed or "audio/mpeg"
+
+        log_event(
+            logger,
+            logging.INFO,
+            "transcription.push_fallback.download_complete",
+            "Audio downloaded for push-mode fallback",
+            provider="deepgram",
+            job_id=job_id,
+            audio_size_bytes=len(audio_bytes),
+            content_type=content_type,
+        )
+        return audio_bytes, content_type
+
+    except NonRetryableDeepgramError:
+        raise
+    except httpx.TimeoutException:
+        raise NonRetryableDeepgramError(
+            "Timeout downloading audio for push-mode fallback "
+            f"after {_AUDIO_DOWNLOAD_TIMEOUT}s: {audio_url[:200]}"
+        )
+    except Exception as exc:
+        raise NonRetryableDeepgramError(
+            f"Unexpected error downloading audio for push-mode fallback: "
+            f"{type(exc).__name__}: {str(exc)[:200]}"
+        ) from exc
 
 
 def _resolve_audio_content_type(
@@ -386,10 +512,43 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
     deepgram_payload: Dict[str, Any]
     started = time.time()
     if isinstance(audio_url, str) and audio_url.strip():
-        deepgram_payload = await call_deepgram_api(
-            audio_url=audio_url.strip(),
-            job_id=job_id,
-        )
+        try:
+            deepgram_payload = await call_deepgram_api(
+                audio_url=audio_url.strip(),
+                job_id=job_id,
+            )
+        except RemoteContentError as remote_err:
+            # Deepgram could not fetch the audio URL (source CDN blocks cloud IPs).
+            # Fallback: download audio in Lambda, then push bytes directly to Deepgram.
+            log_event(
+                logger,
+                logging.WARNING,
+                "transcription.push_fallback.triggered",
+                "Deepgram URL-mode failed with REMOTE_CONTENT_ERROR; "
+                "attempting push-mode fallback",
+                provider="deepgram",
+                job_id=job_id,
+                audio_url=audio_url.strip(),
+                original_error=str(remote_err)[:300],
+            )
+            audio_bytes, content_type = await _download_audio_for_push_fallback(
+                audio_url=audio_url.strip(),
+                job_id=job_id,
+            )
+            deepgram_payload = await call_deepgram_api_from_bytes(
+                audio_bytes=audio_bytes,
+                content_type=content_type,
+                job_id=job_id,
+            )
+            log_event(
+                logger,
+                logging.INFO,
+                "transcription.push_fallback.succeeded",
+                "Push-mode fallback transcription succeeded",
+                provider="deepgram",
+                job_id=job_id,
+                audio_size_bytes=len(audio_bytes),
+            )
     elif isinstance(audio_s3_key, str) and audio_s3_key.strip():
         audio_bytes = await s3.download_file_to_memory(AUDIO_BUCKET, audio_s3_key.strip())
         content_type = _resolve_audio_content_type(
