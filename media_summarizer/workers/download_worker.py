@@ -60,8 +60,8 @@ DOWNLOAD_QUEUE = os.environ.get("AUDIO_DOWNLOAD_QUEUE", "audio-download-queue")
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
 )
-EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
 SEARCH_INDEXING_QUEUE = os.environ.get("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 
@@ -193,7 +193,7 @@ async def process_message(message):
             )
 
             await sqs.send_message(
-                queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+                queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
                 message_body={
                     "event_type": "episode_completion_status",
                     "status": "success",
@@ -298,7 +298,7 @@ async def process_message(message):
         # Publish failure event to unblock watchers
         try:
             await sqs.send_message(
-                queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+                queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
                 message_body={
                     "event_type": "episode_completion_status",
                     "status": "failure",

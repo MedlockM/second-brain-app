@@ -43,8 +43,8 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
-EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
 SEARCH_INDEXING_QUEUE = os.environ.get("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 TRANSCRIPT_BUCKET = os.environ.get(
@@ -253,7 +253,7 @@ async def process_transcription_message(message_body: Dict[str, Any]) -> None:
             )
 
             await sqs.send_message(
-                queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+                queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
                 message_body={
                     "event_type": "episode_completion_status",
                     "status": "success",
@@ -354,7 +354,7 @@ async def process_message(message: Dict[str, Any]) -> None:
             job_id = b.get("job_id")
             if job_id:
                 await sqs.send_message(
-                    queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+                    queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
                     message_body={
                         "event_type": "episode_completion_status",
                         "status": "failure",

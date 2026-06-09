@@ -57,8 +57,8 @@ YOUTUBE_INGESTION_QUEUE = os.environ.get(
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
 )
-EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
 YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS = float(
     os.environ.get("YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS", "20")
@@ -466,7 +466,7 @@ async def _publish_success_event(
     transcription_metadata: Dict[str, Any],
 ) -> None:
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "success",
@@ -488,7 +488,7 @@ async def _publish_failure_event(
     if not job_id:
         return
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "failure",

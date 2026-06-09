@@ -39,8 +39,8 @@ TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
 )
 X_INGESTION_QUEUE = os.environ.get("X_INGESTION_QUEUE", "x-ingestion-queue")
-EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
 X_API_TIMEOUT_SECONDS = float(os.environ.get("X_API_TIMEOUT_SECONDS", "20"))
 X_WORKER_MAX_RETRIES = max(1, int(os.environ.get("X_WORKER_MAX_RETRIES", "3")))
@@ -320,7 +320,7 @@ async def _publish_success_event(
     transcription_metadata: Dict[str, Any],
 ) -> None:
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "success",
@@ -342,7 +342,7 @@ async def _publish_failure_event(
     if not job_id:
         return
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "failure",
