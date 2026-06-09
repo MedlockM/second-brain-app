@@ -65,3 +65,12 @@ check_untyped_defs = false
 disallow_untyped_calls = false
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
+
+[tool.pytest.ini_options]
+markers = [
+    "e2e: end-to-end integration tests against AWS dev (skipped by default; run via `pytest -m e2e`)",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = "-m 'not e2e'"
