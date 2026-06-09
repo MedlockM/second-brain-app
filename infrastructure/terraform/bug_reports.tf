@@ -11,9 +11,18 @@ resource "aws_dynamodb_table" "bug_reports" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
-  attribute { name = "id"      type = "S" }
-  attribute { name = "user_id" type = "S" }
-  attribute { name = "status"  type = "S" }
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "user_id"
+    type = "S"
+  }
+  attribute {
+    name = "status"
+    type = "S"
+  }
 
   global_secondary_index {
     name            = "user-index"
@@ -101,9 +110,16 @@ resource "aws_iam_policy" "bug_reports_s3" {
   })
 }
 
-# Attach to ECS task execution role (the API runs on ECS/Lambda)
-resource "aws_iam_role_policy_attachment" "ecs_bug_reports_s3" {
-  role       = aws_iam_role.ecs_task_execution.name
+# Attach to Lambda API + worker execution roles (ECS removed in task-106).
+# Both need access: API writes user-submitted bug reports; workers may write
+# error contexts for failed jobs.
+resource "aws_iam_role_policy_attachment" "lambda_api_bug_reports_s3" {
+  role       = aws_iam_role.lambda_api.name
+  policy_arn = aws_iam_policy.bug_reports_s3.arn
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_worker_bug_reports_s3" {
+  role       = aws_iam_role.lambda_worker.name
   policy_arn = aws_iam_policy.bug_reports_s3.arn
 }
 

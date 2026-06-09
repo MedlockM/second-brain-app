@@ -12,9 +12,9 @@ from typing import List
 
 from aiobotocore.session import get_session
 
-logger = logging.getLogger(__name__)
+from media_summarizer.utils.database_async import AWS_REGION
 
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+logger = logging.getLogger(__name__)
 
 
 def required_s3_buckets_from_env() -> List[str]:

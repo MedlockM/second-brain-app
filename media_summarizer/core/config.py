@@ -17,7 +17,7 @@ class Settings:
         self.DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
         # AWS Configuration
-        self.AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+        self.AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "eu-west-3")
 
         # Database tables
         self.USERS_TABLE = os.getenv("USERS_TABLE", "users")

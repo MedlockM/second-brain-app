@@ -23,8 +23,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--region",
-        default=os.environ.get("AWS_REGION", "us-east-1"),
-        help="AWS region (default: us-east-1).",
+        default=os.environ.get("AWS_DEFAULT_REGION", "eu-west-3"),
+        help="AWS region (default: eu-west-3).",
     )
     return parser.parse_args()
 

@@ -22,8 +22,15 @@ from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
-# AWS configuration
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+# AWS region resolution: prefer AWS_REGION (Lambda runtime sets this) and fall
+# back to AWS_DEFAULT_REGION (CLI/dev convention). botocore itself only reads
+# AWS_DEFAULT_REGION, so we resolve once here and pass region_name=AWS_REGION
+# explicitly everywhere a boto/aioboto resource is opened.
+AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+if not AWS_REGION:
+    raise RuntimeError(
+        "AWS region not configured: set AWS_REGION or AWS_DEFAULT_REGION."
+    )
 
 # Table names (can be overridden by environment variables for testing)
 USERS_TABLE = os.environ.get("USERS_TABLE", "users")
@@ -43,9 +50,7 @@ _session = None
 
 
 def _dynamodb_client_kwargs() -> Dict[str, Any]:
-    return {
-        "region_name": AWS_REGION,
-    }
+    return {"region_name": AWS_REGION}
 
 
 def _log_dynamodb_success(
@@ -96,7 +101,7 @@ def get_session():
     """
     global _session
     if _session is None:
-        kwargs = {"region_name": os.environ.get("AWS_REGION", "us-east-1")}
+        kwargs: Dict[str, Any] = {"region_name": AWS_REGION}
         access_key = os.environ.get("AWS_ACCESS_KEY_ID")
         secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
         session_token = os.environ.get("AWS_SESSION_TOKEN")

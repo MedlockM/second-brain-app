@@ -8,15 +8,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any, Dict, List, Optional, Union
 
+from media_summarizer.utils.database_async import AWS_REGION
 from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
-
-# AWS configuration
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
 # Import AWS session
 try:

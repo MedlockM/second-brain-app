@@ -281,7 +281,7 @@ async def _delete_artifacts_for_media(media_item_id: str) -> None:
 
     from media_summarizer.utils.media_artifacts import MEDIA_ARTIFACTS_TABLE
 
-    region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+    region = os.getenv("AWS_DEFAULT_REGION", "eu-west-3")
     session = aioboto3.Session(region_name=region)
     async with session.resource("dynamodb") as dynamodb:
         table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
@@ -300,7 +300,7 @@ async def _delete_item(table_name: str, key_name: str, key_value: str) -> None:
     """Delete a single item by primary key from any DynamoDB table."""
     import aioboto3
 
-    region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+    region = os.getenv("AWS_DEFAULT_REGION", "eu-west-3")
     session = aioboto3.Session(region_name=region)
     async with session.resource("dynamodb") as dynamodb:
         table = await dynamodb.Table(table_name)

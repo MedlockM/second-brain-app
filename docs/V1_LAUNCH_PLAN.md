@@ -78,7 +78,7 @@ numérotées). Les anciens `.env.dev` et `.env.prod` sont **legacy et gitignoré
 ### 3.1 AWS infra
 
 ```bash
-AWS_DEFAULT_REGION=eu-west-3       # ou us-east-1, à figer
+AWS_DEFAULT_REGION=eu-west-3
 AWS_ACCESS_KEY_ID=...              # clé IAM dédiée backend (production hors Lambda)
 AWS_SECRET_ACCESS_KEY=...
 ARCHIVE_BUCKET=...

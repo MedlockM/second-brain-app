@@ -59,7 +59,6 @@ async def get_monthly_usage(user_id: str, period: Optional[str] = None) -> Dict[
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(USER_USAGE_MONTHLY_TABLE)
@@ -104,7 +103,6 @@ async def increment_monthly_usage(
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(USER_USAGE_MONTHLY_TABLE)
@@ -163,7 +161,6 @@ async def get_daily_usage(user_id: str, date: Optional[str] = None) -> Dict[str,
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(USER_USAGE_DAILY_TABLE)
@@ -206,7 +203,6 @@ async def increment_daily_usage(
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(USER_USAGE_DAILY_TABLE)
@@ -265,7 +261,6 @@ async def record_import_timestamp(
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(USER_USAGE_DAILY_TABLE)
