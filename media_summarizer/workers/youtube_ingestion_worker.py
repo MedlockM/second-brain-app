@@ -217,9 +217,10 @@ async def _fetch_apify_transcript(video_id: str, source_url: str) -> Dict[str, A
         "Content-Type": "application/json",
     }
 
+    # Actor input schema requires "videoUrls" (array of YouTube URLs).
+    # See https://apify.com/scrape-creators/best-youtube-transcripts-scraper
     input_data = {
-        "urls": [source_url],
-        "videoId": video_id,
+        "videoUrls": [source_url],
     }
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -366,10 +367,12 @@ def _normalize_apify_result(
     """
     Normalize Apify actor output to the downstream transcript contract.
 
-    Expected item shape (actor-dependent):
-    - Timed segments: [{text, start, duration}, ...]
-    - Flat text: {text: "...", ...} or transcript field as string
-    - Error signals: {error: "...", ...} with possible unavailable/geo/age markers
+    Actor: scrape-creators/best-youtube-transcripts-scraper
+    Expected output item shape:
+    - "transcript_only_text": plain text transcript (primary output)
+    - "transcript": [{text, startMs, endMs, startTimeText}, ...] (timed segments)
+    - "id", "url", "title", "description": video metadata
+    - "error"/"errorMessage": error signals with unavailable/geo/age markers
     """
     if not items:
         raise YouTubeIngestionError(
@@ -413,39 +416,50 @@ def _normalize_apify_result(
             user_message=_TEMPORARY_APIFY_MESSAGE,
         )
 
-    # Extract transcript text
-    # Try timed segments first (list of dicts with "text" key)
-    transcript_segments = item.get("transcript") or item.get("captions") or item.get("subtitles")
+    # Extract transcript text.
+    # The actor "scrape-creators/best-youtube-transcripts-scraper" outputs:
+    #   - "transcript_only_text": plain text transcript (primary)
+    #   - "transcript": array of {text, startMs, endMs, startTimeText} segments
+    # We prefer transcript_only_text when available, fall back to timed segments.
     language = item.get("language") or item.get("lang") or None
     language_code = item.get("languageCode") or item.get("language_code") or language or None
 
     text = ""
     segments_count = 0
 
-    if isinstance(transcript_segments, list) and transcript_segments:
-        # Timed segments: fuse into text
-        lines = []
-        for seg in transcript_segments:
-            if isinstance(seg, dict):
-                seg_text = (seg.get("text") or "").strip()
-                if seg_text:
-                    lines.append(seg_text)
-            elif isinstance(seg, str):
-                seg_text = seg.strip()
-                if seg_text:
-                    lines.append(seg_text)
-        text = "\n".join(lines).strip()
-        segments_count = len(lines)
-    elif isinstance(transcript_segments, str) and transcript_segments.strip():
-        # Flat text from actor
-        text = transcript_segments.strip()
+    # Primary: use transcript_only_text (flat text from actor)
+    transcript_only_text = item.get("transcript_only_text")
+    if isinstance(transcript_only_text, str) and transcript_only_text.strip():
+        text = transcript_only_text.strip()
         segments_count = 0
     else:
-        # Try top-level "text" field
-        top_text = item.get("text") or item.get("content") or ""
-        if isinstance(top_text, str) and top_text.strip():
-            text = top_text.strip()
+        # Fallback: timed segments array
+        transcript_segments = item.get("transcript") or item.get("captions") or item.get("subtitles")
+
+        if isinstance(transcript_segments, list) and transcript_segments:
+            # Timed segments: fuse into text
+            lines = []
+            for seg in transcript_segments:
+                if isinstance(seg, dict):
+                    seg_text = (seg.get("text") or "").strip()
+                    if seg_text:
+                        lines.append(seg_text)
+                elif isinstance(seg, str):
+                    seg_text = seg.strip()
+                    if seg_text:
+                        lines.append(seg_text)
+            text = "\n".join(lines).strip()
+            segments_count = len(lines)
+        elif isinstance(transcript_segments, str) and transcript_segments.strip():
+            # Flat text from actor
+            text = transcript_segments.strip()
             segments_count = 0
+        else:
+            # Last resort: top-level "text" or "content" field
+            top_text = item.get("text") or item.get("content") or ""
+            if isinstance(top_text, str) and top_text.strip():
+                text = top_text.strip()
+                segments_count = 0
 
     if not text:
         raise YouTubeIngestionError(
