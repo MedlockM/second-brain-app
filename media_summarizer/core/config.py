@@ -91,6 +91,29 @@ class Settings:
         self.YTDLP_TIMEOUT_SECONDS = float(
             os.getenv("YTDLP_TIMEOUT_SECONDS", "30")
         )
+        self.APIFY_INSTAGRAM_API_TOKEN = os.getenv("APIFY_INSTAGRAM_API_TOKEN", "")
+        self.APIFY_YOUTUBE_API_TOKEN = os.getenv("APIFY_YOUTUBE_API_TOKEN", "")
+        self.APIFY_INSTAGRAM_REEL_ACTOR_ID = os.getenv(
+            "APIFY_INSTAGRAM_REEL_ACTOR_ID", "apify~instagram-reel-scraper"
+        )
+        self.APIFY_INSTAGRAM_POST_ACTOR_ID = os.getenv(
+            "APIFY_INSTAGRAM_POST_ACTOR_ID", "apify~instagram-post-scraper"
+        )
+        self.APIFY_INSTAGRAM_COMMENT_ACTOR_ID = os.getenv(
+            "APIFY_INSTAGRAM_COMMENT_ACTOR_ID", "apify~instagram-comment-scraper"
+        )
+        self.APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = os.getenv(
+            "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID", ""
+        )
+        self.APIFY_TIMEOUT_SECONDS = int(
+            os.getenv("APIFY_TIMEOUT_SECONDS", "60")
+        )
+        self.APIFY_POLL_INTERVAL_SECONDS = float(
+            os.getenv("APIFY_POLL_INTERVAL_SECONDS", "3")
+        )
+        self.APIFY_MAX_POLLS = int(
+            os.getenv("APIFY_MAX_POLLS", "40")
+        )
         self.GETINSAVER_API_BASE_URL = os.getenv(
             "GETINSAVER_API_BASE_URL", "https://getinsaver.com/api/v1"
         )
