@@ -521,9 +521,9 @@ async def request_artifact_generation(
             "transcript_bucket": TRANSCRIPT_BUCKET,
             "generation_fingerprint": generation_fingerprint,
             "generator_version": generator_version,
-            "podcast_title": getattr(job, "podcast_title", None),
-            "episode_title": getattr(job, "episode_title", None),
-            "episode_image": getattr(job, "episode_image", None),
+            "source_title": getattr(job, "title", None),
+            "media_title": getattr(job, "title", None),
+            "media_image": getattr(job, "media_image", None),
         }
         try:
             await sqs.send_message(

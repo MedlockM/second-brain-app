@@ -387,7 +387,7 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             user_message=_DEFAULT_TEMPORARY_MESSAGE,
         )
 
-    job.mark_extracting()
+    job.mark_downloading()
     await database_async.update_processing_job(job)
 
     download_url, provider_metadata = await _resolve_instagram_download_url(
@@ -403,7 +403,7 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
     )
 
     job.extraction_metadata = extraction_metadata
-    job.episode_url = download_url
+    job.media_url = download_url
     job.mark_transcribing()
     await database_async.update_processing_job(job)
 
@@ -415,8 +415,12 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             "audio_url": download_url,
             "media_key": message_body.get("media_key"),
             "normalized_url": normalized_url,
-            "episode_title": message_body.get("episode_title") or job.episode_title,
-            "podcast_title": message_body.get("podcast_title") or job.podcast_title,
+            "episode_title": (
+                message_body.get("episode_title")
+                or job.title
+                or "Instagram video"
+            ),
+            "podcast_title": message_body.get("podcast_title") or "Instagram",
             "audio_duration_seconds": 0,
         },
     )
