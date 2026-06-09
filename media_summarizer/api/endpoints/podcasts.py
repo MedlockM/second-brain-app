@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 REQUIRED_MINUTES = 1
 SEARCH_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_SEARCH", "60/minute")
 _AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
+_SPOTIFY_HOSTS = {"open.spotify.com", "www.open.spotify.com"}
+_APPLE_HOSTS = {"podcasts.apple.com", "www.podcasts.apple.com"}
+_DEEZER_HOSTS = {"www.deezer.com", "deezer.com"}
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
 )
@@ -49,6 +52,26 @@ def _looks_like_audio_url(url: str) -> bool:
     except ValueError:
         path = value
     return path.endswith(_AUDIO_EXTENSIONS)
+
+
+def _classify_podcast_source_platform(url: str) -> str:
+    """Classify a podcast URL into its source platform string value.
+
+    Maps known podcast platform hosts to their SourcePlatform enum values.
+    Falls back to "rss" for unrecognized hosts (generic RSS feed URLs).
+    """
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return "rss"
+
+    if host in _APPLE_HOSTS:
+        return "apple_podcasts"
+    if host in _SPOTIFY_HOSTS:
+        return "spotify"
+    if host in _DEEZER_HOSTS:
+        return "deezer"
+    return "rss"
 
 
 class PodcastSubmitRequest(BaseModel):
@@ -240,7 +263,9 @@ async def submit_podcast_for_processing(
             )
         else:
             # Non-audio URL path: resolve enclosure URL first, then route to Deepgram.
-            # Pass feed_url so the resolution worker can provide it for RSS transcript lookup.
+            # Classify the URL host to pick the correct platform-specific resolver
+            # downstream (Apple Podcasts, Spotify, Deezer, or generic RSS).
+            source_platform = _classify_podcast_source_platform(submitted_url)
             await sqs.send_message(
                 queue_name=PODCASTINDEX_RESOLUTION_QUEUE,
                 message_body={
@@ -249,7 +274,7 @@ async def submit_podcast_for_processing(
                     "user_id": user.id,
                     "normalized_url": submitted_url,
                     "feed_url": submitted_url,
-                    "source_platform": "rss",
+                    "source_platform": source_platform,
                 },
             )
 
