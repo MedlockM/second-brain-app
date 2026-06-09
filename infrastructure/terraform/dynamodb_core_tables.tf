@@ -260,15 +260,18 @@ output "auth_tokens_table_name" {
   description = "Auth tokens table name"
 }
 
-# Episode watchers table (pending notifications fan-out)
-resource "aws_dynamodb_table" "episode_watchers_v1" {
-  name         = "episode_watchers"
+# Media watchers table (pending notifications fan-out)
+# Renamed from legacy "episode_watchers" (episode_guid PK) to align with
+# media_summarizer/utils/media_watchers.py which uses media_key as the
+# canonical identity key for all media types (podcasts, docs, videos, etc.).
+resource "aws_dynamodb_table" "media_watchers_v1" {
+  name         = "media_watchers"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "episode_guid"
+  hash_key     = "media_key"
   range_key    = "user_id"
 
   attribute {
-    name = "episode_guid"
+    name = "media_key"
     type = "S"
   }
   attribute {
@@ -277,7 +280,7 @@ resource "aws_dynamodb_table" "episode_watchers_v1" {
   }
 
   tags = {
-    Name        = "episode_watchers"
+    Name        = "media_watchers"
     Environment = var.environment
     Project     = var.project_name
   }
@@ -288,9 +291,9 @@ output "episode_idempotence_table_name" {
 description = "Episode idempotence table name"
 }
 
-output "episode_watchers_table_name" {
-  value       = aws_dynamodb_table.episode_watchers_v1.name
-  description = "Episode watchers table name"
+output "media_watchers_table_name" {
+  value       = aws_dynamodb_table.media_watchers_v1.name
+  description = "Media watchers table name"
 }
 
 # User tags table (private per-user tags for media labeling)

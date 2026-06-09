@@ -252,13 +252,14 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
             },
         )
 
-        # Update job metadata
+        # Update job metadata and mark completed
         if job:
             job.set_transcription_location(transcript_s3_key)
             job.set_processing_duration("transcription", int(parse_duration))
             job.title = media_title
             job.source_platform = "document"
             job.media_type = "document"
+            job.mark_completed()
             await database_async.update_processing_job(job)
 
         # Emit completion event for downstream pipeline
