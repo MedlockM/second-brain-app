@@ -407,7 +407,7 @@ class InstagramApifyResolver(ContentResolverPort):
         """
         results = await self._run_actor(
             actor_id=self._reel_actor_id,
-            input_data={"directUrls": [context.normalized_url]},
+            input_data={"username": [context.normalized_url], "resultsLimit": 1},
         )
 
         if not results:
@@ -561,7 +561,7 @@ class InstagramApifyResolver(ContentResolverPort):
         """
         results = await self._run_actor(
             actor_id=self._post_actor_id,
-            input_data={"directUrls": [context.normalized_url]},
+            input_data={"username": [context.normalized_url], "resultsLimit": 1},
         )
 
         if not results:
@@ -673,7 +673,7 @@ class InstagramApifyResolver(ContentResolverPort):
         try:
             results = await self._run_actor(
                 actor_id=self._comment_actor_id,
-                input_data={"directUrls": [url], "resultsLimit": 50},
+                input_data={"username": [url], "resultsLimit": 50},
             )
             if results:
                 return _extract_comments(results)
