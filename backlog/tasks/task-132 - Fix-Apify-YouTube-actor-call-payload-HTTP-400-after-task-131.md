@@ -1,7 +1,7 @@
 ---
 id: task-132
 title: Fix Apify YouTube actor call payload — HTTP 400 — discovered after task-131
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 12:50'
 labels:
