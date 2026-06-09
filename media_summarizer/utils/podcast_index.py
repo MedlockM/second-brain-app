@@ -37,8 +37,34 @@ def _get_env_stripped(name: str) -> Optional[str]:
     return v.strip()
 
 
-API_KEY = _get_env_stripped("PODCASTINDEXORG_API_KEY")
-API_SECRET = _get_env_stripped("PODCASTINDEXORG_API_SECRET")
+# ---------------------------------------------------------------------------
+# Lazy credential loading
+# ---------------------------------------------------------------------------
+# Credentials are read on first use rather than at module-import time.
+# This is critical because media_summarizer/utils/__init__.py eagerly imports
+# this module (triggering module-level code), but in the Lambda deployment the
+# secrets are injected into os.environ by lambda_handlers.py AFTER the utils
+# package has already been imported.  Reading at module level would always see
+# empty values, causing every PodcastIndex API call to fail.
+
+
+def _get_credentials() -> tuple[Optional[str], Optional[str]]:
+    """Return (API_KEY, API_SECRET) read lazily from os.environ."""
+    return (
+        _get_env_stripped("PODCASTINDEXORG_API_KEY"),
+        _get_env_stripped("PODCASTINDEXORG_API_SECRET"),
+    )
+
+
+# Backward-compatible module-level attribute access (e.g. podcast_index.API_KEY)
+# via module __getattr__ (PEP 562).
+def __getattr__(name: str):
+    if name == "API_KEY":
+        return _get_env_stripped("PODCASTINDEXORG_API_KEY")
+    if name == "API_SECRET":
+        return _get_env_stripped("PODCASTINDEXORG_API_SECRET")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # HTTP client configuration (durcissement: timeouts explicites)
 PODCAST_INDEX_TIMEOUT_SECONDS = int(os.getenv("PODCAST_INDEX_TIMEOUT_SECONDS", "20"))
@@ -52,9 +78,10 @@ def _generate_headers() -> Dict[str, str]:
     Returns:
         Dict containing required headers for authentication
     """
-    if not API_KEY or not API_SECRET:
+    api_key, api_secret = _get_credentials()
+    if not api_key or not api_secret:
         # For test mode
-        if API_KEY == "test_key" and API_SECRET == "test_secret":
+        if api_key == "test_key" and api_secret == "test_secret":
             return {
                 "User-Agent": "MediaSummarizer/1.0",
                 "Content-Type": "application/json",
@@ -67,12 +94,12 @@ def _generate_headers() -> Dict[str, str]:
     unix_time = str(int(time.time()))
 
     # Create authorization hash: SHA1(api_key + api_secret + unix_time)
-    hash_string = API_KEY + API_SECRET + unix_time
+    hash_string = api_key + api_secret + unix_time
     authorization_hash = hashlib.sha1(hash_string.encode()).hexdigest()
 
     return {
         "X-Auth-Date": unix_time,
-        "X-Auth-Key": API_KEY,
+        "X-Auth-Key": api_key,
         # Some clients/libraries/infra expect either Authorization or X-Auth-Hash; include both.
         "Authorization": authorization_hash,
         "X-Auth-Hash": authorization_hash,
