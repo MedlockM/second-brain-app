@@ -32,7 +32,7 @@ async def get_all_config() -> Dict[str, Any]:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(PRICING_CONFIG_TABLE)
@@ -54,7 +54,7 @@ async def get_config_value(config_key: str) -> Optional[Any]:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(PRICING_CONFIG_TABLE)
@@ -74,7 +74,7 @@ async def put_config_value(config_key: str, value: Any) -> None:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(PRICING_CONFIG_TABLE)
@@ -92,7 +92,7 @@ async def put_config_batch(items: Dict[str, Any]) -> None:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(PRICING_CONFIG_TABLE)
@@ -113,7 +113,7 @@ async def delete_config_value(config_key: str) -> None:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(PRICING_CONFIG_TABLE)

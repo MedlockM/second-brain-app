@@ -2,8 +2,7 @@
 Infrastructure preflight checks.
 
 Current scope: verify that required S3 buckets exist. Terraform is expected to provision
-all buckets in both development (LocalStack) and production. The app should fail fast if
-buckets are missing.
+all buckets in development and production. The app should fail fast if buckets are missing.
 """
 from __future__ import annotations
 
@@ -16,7 +15,6 @@ from aiobotocore.session import get_session
 logger = logging.getLogger(__name__)
 
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
 
 
 def required_s3_buckets_from_env() -> List[str]:
@@ -57,7 +55,7 @@ async def s3_preflight_check() -> List[str]:
 
     session = get_session()
     async with session.create_client(
-        "s3", region_name=AWS_REGION, endpoint_url=AWS_ENDPOINT_URL
+        "s3", region_name=AWS_REGION
     ) as s3:
         try:
             resp = await s3.list_buckets()

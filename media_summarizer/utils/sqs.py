@@ -11,17 +11,12 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Union
 
-from media_summarizer.utils.logging_config import (
-    get_runtime_aws_endpoint_url,
-    log_event,
-)
+from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
 # AWS configuration
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-_IMPORT_TIME_AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
-AWS_ENDPOINT_URL = _IMPORT_TIME_AWS_ENDPOINT_URL
 
 # Import AWS session
 try:
@@ -43,13 +38,6 @@ except ImportError:
 _QUEUE_URL_CACHE: Dict[str, str] = {}
 
 
-def _runtime_aws_endpoint_url() -> Optional[str]:
-    configured = AWS_ENDPOINT_URL
-    if configured == _IMPORT_TIME_AWS_ENDPOINT_URL:
-        configured = os.environ.get("AWS_ENDPOINT_URL", _IMPORT_TIME_AWS_ENDPOINT_URL)
-    return get_runtime_aws_endpoint_url(configured_value=configured, consumer="sqs")
-
-
 def get_queue_url(queue_name: str) -> str:
     """
     Get the URL for a queue.
@@ -60,25 +48,7 @@ def get_queue_url(queue_name: str) -> str:
     Returns:
         Queue URL
     """
-    # For local development with LocalStack
-    runtime_endpoint = _runtime_aws_endpoint_url()
-    if runtime_endpoint:
-        # Prefer host-style SQS endpoint (http://sqs.<region>.localhost:4566) for compatibility with SDKs
-        try:
-            from urllib.parse import urlparse
-            parsed = urlparse(runtime_endpoint)
-            host = parsed.hostname or "localhost"
-            port = parsed.port or 4566
-            scheme = parsed.scheme or "http"
-            if host in ("localhost", "127.0.0.1"):
-                return f"{scheme}://sqs.{AWS_REGION}.{host}:{port}/000000000000/{queue_name}"
-            else:
-                # Fallback to path-style when using non-local hostnames
-                return f"{runtime_endpoint}/000000000000/{queue_name}"
-        except Exception:
-            return f"{runtime_endpoint}/000000000000/{queue_name}"
-
-    # For AWS, resolve the full QueueUrl via the API (cached per process)
+    # Resolve the full QueueUrl via the API (cached per process)
     if queue_name in _QUEUE_URL_CACHE:
         return _QUEUE_URL_CACHE[queue_name]
 
@@ -128,11 +98,9 @@ async def send_message(
         message_params["MessageAttributes"] = message_attributes
 
     try:
-        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.send_message(**message_params)
             log_event(
@@ -190,11 +158,9 @@ async def receive_messages(
     }
 
     try:
-        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.receive_message(**receive_params)
             messages = response.get("Messages", [])
@@ -235,11 +201,9 @@ async def delete_message(queue_name: str, receipt_handle: str) -> Dict[str, Any]
     }
 
     try:
-        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.delete_message(**delete_params)
             return response
@@ -277,11 +241,9 @@ async def purge_queue(queue_name: str) -> Dict[str, Any]:
     }
 
     try:
-        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.purge_queue(**purge_params)
             return response
@@ -324,11 +286,9 @@ async def get_queue_attributes(
     }
 
     try:
-        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.get_queue_attributes(**attribute_params)
             attributes = response.get("Attributes", {})
@@ -383,11 +343,9 @@ async def send_messages_batch(
         entries.append(entry)
 
     try:
-        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=runtime_endpoint
         ) as sqs:
             response = await sqs.send_message_batch(
                 QueueUrl=queue_url,
@@ -429,7 +387,6 @@ def get_sync_sqs_client():
     return boto3.client(
         'sqs',
         region_name=AWS_REGION,
-        endpoint_url=_runtime_aws_endpoint_url()
     )
 
 
@@ -460,11 +417,9 @@ async def change_message_visibility(
     }
 
     try:
-        runtime_endpoint = _runtime_aws_endpoint_url()
         async with session.create_client(
             'sqs',
             region_name=AWS_REGION,
-            endpoint_url=runtime_endpoint
         ) as sqs_client:
             response = await sqs_client.change_message_visibility(**params)
             return response

@@ -26,7 +26,7 @@ async def _run():
     # Full table scan (dev/local). For production, replace with paginated/user-index strategies as needed.
     from media_summarizer.utils import database_async
     session = database_async.get_session()
-    async with session.resource('dynamodb', endpoint_url=database_async.AWS_ENDPOINT_URL, region_name=database_async.AWS_REGION) as dynamodb:
+    async with session.resource('dynamodb', region_name=database_async.AWS_REGION) as dynamodb:
         table = await dynamodb.Table(minute_db.FOLLOWS_TABLE)
         scan_kwargs = {}
         while True:

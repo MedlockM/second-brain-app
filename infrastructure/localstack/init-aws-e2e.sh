@@ -1,1 +1,0 @@
-init-e2e-aws.sh

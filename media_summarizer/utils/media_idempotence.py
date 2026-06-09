@@ -36,7 +36,7 @@ async def _get_item(*, table_name: str, key_attr: str, key_value: str) -> Option
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(table_name)
@@ -70,7 +70,7 @@ async def reserve_or_skip(
         session = database_async.get_session()
         async with session.resource(
             "dynamodb",
-            endpoint_url=database_async.AWS_ENDPOINT_URL,
+            
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
             table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)
@@ -114,7 +114,7 @@ async def mark_processed(
         session = database_async.get_session()
         async with session.resource(
             "dynamodb",
-            endpoint_url=database_async.AWS_ENDPOINT_URL,
+            
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
             table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)
@@ -148,7 +148,7 @@ async def mark_failed(
         session = database_async.get_session()
         async with session.resource(
             "dynamodb",
-            endpoint_url=database_async.AWS_ENDPOINT_URL,
+            
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
             table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)
@@ -184,7 +184,7 @@ async def release_reservation(
         session = database_async.get_session()
         async with session.resource(
             "dynamodb",
-            endpoint_url=database_async.AWS_ENDPOINT_URL,
+            
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
             table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)

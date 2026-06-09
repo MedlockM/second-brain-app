@@ -105,4 +105,3 @@ This is automated by `.github/workflows/deploy-lambda.yml` on push to main.
 | `pipeline_alerts.tf` | Pipeline-specific alerting rules + SNS topic for alerts |
 | `pipeline_dashboard.tf` | Pipeline observability dashboard + metric filters |
 | `archiving.tf` | Archive bucket + lifecycle + archiver Lambda |
-| `localstack/` | Stripped-down stack used by `docker-compose.dev.yml` for offline dev |

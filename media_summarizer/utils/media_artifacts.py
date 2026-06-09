@@ -43,7 +43,7 @@ async def create_media_artifact(record: MediaArtifactRecord) -> MediaArtifactRec
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
@@ -58,7 +58,7 @@ async def update_media_artifact(record: MediaArtifactRecord) -> MediaArtifactRec
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
@@ -70,7 +70,7 @@ async def get_media_artifact_by_id(artifact_id: str) -> Optional[MediaArtifactRe
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
@@ -88,7 +88,7 @@ async def get_request_pointer(request_fingerprint: str) -> Optional[Dict[str, An
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
@@ -117,7 +117,7 @@ async def reserve_request_pointer(
     try:
         async with session.resource(
             "dynamodb",
-            endpoint_url=database_async.AWS_ENDPOINT_URL,
+            
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
             table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
@@ -153,7 +153,7 @@ async def save_request_pointer(
     }
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
@@ -173,7 +173,7 @@ async def _query_all(
     items = []
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)

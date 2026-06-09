@@ -58,7 +58,7 @@ async def _check_idempotency(event_id: str) -> bool:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(REVENUCAT_EVENTS_TABLE)
@@ -75,7 +75,7 @@ async def _record_event(event_id: str, event_type: str, user_id: str) -> None:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(REVENUCAT_EVENTS_TABLE)

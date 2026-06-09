@@ -98,29 +98,6 @@ async def system_status():
         "message": "System status check completed"
     }
 
-    # Check LocalStack
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as http_client:
-            response = await http_client.get("http://localhost:4566/_localstack/health")
-            if response.status_code == 200:
-                localstack_data = response.json()
-                system_status["infrastructure"]["localstack"] = {
-                    "status": "healthy",
-                    "services": localstack_data.get("services", {})
-                }
-            else:
-                system_status["infrastructure"]["localstack"] = {
-                    "status": "unhealthy",
-                    "error": f"HTTP {response.status_code}"
-                }
-                system_status["status"] = "degraded"
-    except Exception as e:
-        system_status["infrastructure"]["localstack"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-        system_status["status"] = "degraded"
-
     # Check API health (self-check)
     system_status["infrastructure"]["api"] = {
         "status": "healthy",

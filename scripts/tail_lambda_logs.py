@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Tail LocalStack CloudWatch logs for a Lambda function."
+        description="Tail CloudWatch logs for a Lambda function."
     )
     parser.add_argument(
         "--function",
@@ -20,11 +20,6 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=10,
         help="Look back window in minutes (default: 10).",
-    )
-    parser.add_argument(
-        "--endpoint-url",
-        default=os.environ.get("AWS_ENDPOINT_URL", "http://localhost:4566"),
-        help="AWS/LocalStack endpoint URL (default: http://localhost:4566).",
     )
     parser.add_argument(
         "--region",
@@ -46,10 +41,7 @@ def main() -> int:
 
     logs = boto3.client(
         "logs",
-        endpoint_url=args.endpoint_url,
         region_name=args.region,
-        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "test"),
-        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", "test"),
     )
 
     log_group = f"/aws/lambda/{args.function}"
