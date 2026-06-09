@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import logging
 import os
-import uuid
 from typing import List, Optional
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File, status
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
@@ -48,6 +47,10 @@ PODCASTINDEX_RESOLUTION_QUEUE = os.environ.get("PODCASTINDEX_RESOLUTION_QUEUE", 
 ARTICLE_EXTRACTION_QUEUE = os.environ.get("ARTICLE_EXTRACTION_QUEUE", "article-extraction-queue")
 DOCUMENT_PARSING_QUEUE = os.environ.get("DOCUMENT_PARSING_QUEUE", "document-parsing-queue")
 DOCUMENT_BUCKET = os.environ.get("DOCUMENT_BUCKET", "media-summarizer-documents")
+AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
+
+# Pre-signed URL validity for audio uploads (10 minutes)
+AUDIO_PRESIGNED_URL_EXPIRATION = int(os.environ.get("AUDIO_PRESIGNED_URL_EXPIRATION", "600"))
 
 # Max upload size: 50MB
 MAX_UPLOAD_SIZE_BYTES = int(os.environ.get("MAX_UPLOAD_SIZE_BYTES", str(50 * 1024 * 1024)))
@@ -93,6 +96,12 @@ class UploadDocumentResponse(BaseModel):
     status: str
     source_platform: str = "document"
     file_name: str
+
+
+class UploadAudioResponse(BaseModel):
+    media_item_id: str
+    status: str
+    source_platform: str = "audio"
 
 
 class MediaItemResponse(BaseModel):
@@ -499,6 +508,179 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload document",
+        )
+    finally:
+        reset_log_context(token)
+
+
+@router.post("/upload-audio", response_model=UploadAudioResponse, status_code=status.HTTP_202_ACCEPTED)
+async def upload_audio(
+    file: UploadFile = File(...),
+    tag_ids: Optional[str] = Form(None),
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """
+    Upload an audio file for transcription via Deepgram.
+
+    Supported formats: MP3, M4A, AAC, OGG, WAV, FLAC, OPUS.
+    The audio file is uploaded to S3, then a pre-signed URL is generated
+    and sent to the Deepgram transcription worker.
+
+    Returns 202 Accepted with the media_item_id to poll for status.
+    """
+    file_name = file.filename or "audio"
+    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+
+    token = bind_log_context(user_id=current_user.id, source_platform="audio")
+    try:
+        # Validate file extension
+        if not ext or f".{ext}" not in _AUDIO_EXTENSIONS:
+            supported = ", ".join(_AUDIO_EXTENSIONS)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported audio format: '.{ext}'. Supported formats: {supported}",
+            )
+
+        # Read file content (with size check)
+        content = await file.read()
+        if len(content) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty",
+            )
+        if len(content) > MAX_UPLOAD_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large. Maximum size: {MAX_UPLOAD_SIZE_BYTES // (1024*1024)}MB",
+            )
+
+        user = await database_async.get_user_by_id(current_user.id)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+        # Create processing job
+        job = ProcessingJob(
+            user_id=user.id,
+            user_email=user.email,
+            source_url="",
+            source_platform="audio",
+            media_type="audio",
+            title=file_name,
+        )
+
+        # Parse and validate tag_ids if provided
+        parsed_tag_ids: Optional[List[str]] = None
+        if tag_ids:
+            import json as _json
+
+            try:
+                parsed_tag_ids = _json.loads(tag_ids)
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="tag_ids must be a valid JSON array of strings",
+                )
+            if not isinstance(parsed_tag_ids, list):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="tag_ids must be a JSON array",
+                )
+
+        if parsed_tag_ids:
+            from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
+
+            unique_tag_ids = list(dict.fromkeys(parsed_tag_ids))
+            if len(unique_tag_ids) > MAX_TAGS_PER_MEDIA:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot assign more than {MAX_TAGS_PER_MEDIA} tags",
+                )
+            # Validate tags belong to user
+            user_tags = await database_async.get_tags_by_user_id(user.id)
+            user_tag_ids = {t.id for t in user_tags}
+            invalid_ids = [tid for tid in unique_tag_ids if tid not in user_tag_ids]
+            if invalid_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
+                )
+            job.tag_ids = unique_tag_ids
+
+        job = await database_async.create_processing_job(job)
+
+        # Allocate minute pool hold
+        await minute_pool.allocate_hold_for_job(
+            user_id=user.id,
+            job_id=job.id,
+            minutes_estimated=REQUIRED_MINUTES,
+        )
+
+        # Upload audio file to S3
+        audio_s3_key = f"{job.id}.{ext}"
+        from io import BytesIO
+
+        await s3.upload_file_object(
+            bucket=AUDIO_BUCKET,
+            key=audio_s3_key,
+            file_obj=BytesIO(content),
+            content_type=file.content_type or "application/octet-stream",
+            metadata={"original-filename": file_name},
+        )
+
+        # Generate pre-signed S3 GET URL (10 min validity)
+        presigned_url = await s3.generate_presigned_url(
+            bucket=AUDIO_BUCKET,
+            key=audio_s3_key,
+            expiration=AUDIO_PRESIGNED_URL_EXPIRATION,
+            http_method="GET",
+        )
+
+        # Enqueue transcription message with the pre-signed URL
+        await sqs.send_message(
+            queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
+            message_body={
+                "job_id": job.id,
+                "user_id": user.id,
+                "source_platform": "audio",
+                "audio_url": presigned_url,
+                "audio_s3_key": audio_s3_key,
+                "original_name": file_name,
+            },
+        )
+
+        log_event(
+            logger,
+            logging.INFO,
+            "media.upload_audio.created",
+            "Audio file uploaded and queued for transcription",
+            media_item_id=job.id,
+            source_platform="audio",
+            file_name=file_name,
+            file_size_bytes=len(content),
+            audio_s3_key=audio_s3_key,
+        )
+
+        return UploadAudioResponse(
+            media_item_id=job.id,
+            status=job.status.value,
+            source_platform="audio",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.upload_audio.failed",
+            "Audio upload failed",
+            error_type=type(exc).__name__,
+            error_code="AUDIO_UPLOAD_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload audio file",
         )
     finally:
         reset_log_context(token)
