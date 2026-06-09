@@ -3,8 +3,11 @@ Queue-first Instagram ingestion worker.
 
 Pipeline:
 - Consumes messages from INSTAGRAM_INGESTION_QUEUE
-- Resolves the video download URL via GetInSaver API
-- Queues the resolved audio URL to the Deepgram transcription queue
+- Resolves content via InstagramApifyResolver (Apify Reel/Post/Comment Scrapers)
+- If the resolver returns raw_text (Apify native transcript for Reels):
+    uploads transcript to S3 and publishes a completion event directly
+- If the resolver returns audio_url (video URL for Deepgram fallback):
+    queues the resolved audio URL to the Deepgram transcription queue
 - Marks the processing job as extracting/transcribing along the way
 """
 
@@ -14,13 +17,27 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
+from io import BytesIO
 import os
 from typing import Any, Dict, Optional
-from urllib.parse import urlsplit
 
-import httpx
-
-from media_summarizer.utils import database_async, sqs
+from media_summarizer.core.media_ingestion.domain import (
+    ClassifiedUrl,
+    IngestUrlCommand,
+    IngestUrlRequest,
+    MediaFamily,
+    ResolveContext,
+    SourcePlatform,
+    UserContext,
+)
+from media_summarizer.core.media_ingestion.errors import (
+    NonRetryableProviderResolutionError,
+    RetryableProviderResolutionError,
+)
+from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
+    InstagramApifyResolver,
+)
+from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -40,26 +57,14 @@ INSTAGRAM_INGESTION_QUEUE = os.environ.get(
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
 )
-EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
-GETINSAVER_API_BASE_URL = os.environ.get(
-    "GETINSAVER_API_BASE_URL", "https://getinsaver.com/api/v1"
-).rstrip("/")
-GETINSAVER_API_KEY = os.environ.get("GETINSAVER_API_KEY", "").strip()
-GETINSAVER_TIMEOUT_SECONDS = float(
-    os.environ.get("GETINSAVER_TIMEOUT_SECONDS", "20")
+TRANSCRIPT_BUCKET = os.environ.get(
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 INSTAGRAM_WORKER_MAX_RETRIES = max(
     1, int(os.environ.get("INSTAGRAM_WORKER_MAX_RETRIES", "3"))
-)
-
-_IMAGE_DOWNLOAD_EXTENSIONS = (
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".gif",
-    ".webp",
 )
 
 _DEFAULT_TEMPORARY_MESSAGE = (
@@ -93,195 +98,26 @@ def _now_iso_utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _instagram_content_type_from_url(normalized_url: str) -> str:
-    """Determine Instagram content type from URL path."""
-    path = (urlsplit(normalized_url).path or "").lower()
-    parts = [segment for segment in path.split("/") if segment]
-    if not parts:
-        raise InstagramIngestionError(
-            "unsupported_content",
-            details="empty_path",
-            retryable=False,
-            user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
-        )
-
-    content_type = parts[0]
-    if content_type == "reel":
-        return "reel"
-    if content_type == "p":
-        return "post"
-    if content_type == "tv":
-        return "igtv"
-    raise InstagramIngestionError(
-        "unsupported_content",
-        details=f"unrecognized_content_type:{content_type}",
-        retryable=False,
-        user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
-    )
-
-
-def _looks_like_transcribable_download_url(candidate: str) -> bool:
-    value = (candidate or "").strip()
-    if not value.startswith(("http://", "https://")):
-        return False
-    path = (urlsplit(value).path or "").lower()
-    return not path.endswith(_IMAGE_DOWNLOAD_EXTENSIONS)
-
-
-def _extract_download_url(payload: Dict[str, Any]) -> str:
-    """Extract the video download URL from GetInSaver response."""
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        raise InstagramIngestionError(
-            "unsupported_content",
-            details="missing_data_field",
-            retryable=False,
-            user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
-        )
-
-    provider_media_type = str(data.get("type") or "").strip().lower()
-    if provider_media_type in {"image", "photo"}:
-        raise InstagramIngestionError(
-            "unsupported_content",
-            details="image_content_not_transcribable",
-            retryable=False,
-            user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
-        )
-
-    downloads = data.get("downloads")
-    if not isinstance(downloads, list) or not downloads:
-        raise InstagramIngestionError(
-            "unsupported_content",
-            details="no_downloads_available",
-            retryable=False,
-            user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
-        )
-
-    for item in downloads:
-        if not isinstance(item, dict):
-            continue
-        candidate = item.get("url")
-        if isinstance(candidate, str) and _looks_like_transcribable_download_url(
-            candidate
-        ):
-            return candidate.strip()
-
-    raise InstagramIngestionError(
-        "unsupported_content",
-        details="no_transcribable_download_url",
-        retryable=False,
-        user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
-    )
-
-
-async def _resolve_instagram_download_url(
+def _build_resolve_context(
+    *,
     normalized_url: str,
-) -> tuple[str, Dict[str, Any]]:
-    """Call GetInSaver API to resolve the video download URL."""
-    content_type = _instagram_content_type_from_url(normalized_url)
-    endpoint = f"{GETINSAVER_API_BASE_URL}/download/instagram"
-
-    if not GETINSAVER_API_KEY:
-        raise InstagramIngestionError(
-            "auth_failed",
-            details="missing_getinsaver_api_key",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
-        )
-
-    headers = {
-        "Authorization": f"Bearer {GETINSAVER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    request_payload = {
-        "url": normalized_url,
-        "type": content_type,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=GETINSAVER_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                endpoint,
-                json=request_payload,
-                headers=headers,
-            )
-    except httpx.TimeoutException as exc:
-        raise InstagramIngestionError(
-            "provider_timeout",
-            details=type(exc).__name__,
-            retryable=True,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
-        ) from exc
-    except httpx.TransportError as exc:
-        raise InstagramIngestionError(
-            "provider_transport_error",
-            details=type(exc).__name__,
-            retryable=True,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
-        ) from exc
-
-    try:
-        response_payload = response.json()
-    except ValueError:
-        response_payload = {}
-    if not isinstance(response_payload, dict):
-        response_payload = {}
-
-    status_code = response.status_code
-    if status_code in {400, 404, 422}:
-        raise InstagramIngestionError(
-            "unsupported_content",
-            details=f"provider_status:{status_code}",
-            retryable=False,
-            user_message=_DEFAULT_UNAVAILABLE_MESSAGE,
-        )
-    if status_code in {401, 403}:
-        raise InstagramIngestionError(
-            "auth_failed",
-            details=f"provider_status:{status_code}",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
-        )
-    if status_code == 429:
-        raise InstagramIngestionError(
-            "rate_limited",
-            details="provider_status:429",
-            retryable=True,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
-        )
-    if status_code >= 500:
-        raise InstagramIngestionError(
-            "provider_error",
-            details=f"provider_status:{status_code}",
-            retryable=True,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
-        )
-    if status_code >= 300:
-        raise InstagramIngestionError(
-            "unsupported_content",
-            details=f"provider_status:{status_code}",
-            retryable=False,
-            user_message=_DEFAULT_UNAVAILABLE_MESSAGE,
-        )
-
-    if response_payload.get("success") is False:
-        raise InstagramIngestionError(
-            "unsupported_content",
-            details="provider_success_false",
-            retryable=False,
-            user_message=_DEFAULT_UNAVAILABLE_MESSAGE,
-        )
-
-    download_url = _extract_download_url(response_payload)
-    provider_metadata = {
-        "instagram_content_type": content_type,
-        "provider_media_type": (
-            response_payload.get("data", {}).get("type")
-            if isinstance(response_payload.get("data"), dict)
-            else None
+    media_key: str,
+    user_id: str,
+) -> ResolveContext:
+    """Build a minimal ResolveContext for the InstagramApifyResolver."""
+    return ResolveContext(
+        command=IngestUrlCommand(
+            user=UserContext(user_id=user_id, user_email=""),
+            request=IngestUrlRequest(url=normalized_url),
         ),
-    }
-    return download_url, provider_metadata
+        normalized_url=normalized_url,
+        media_key=media_key,
+        classification=ClassifiedUrl(
+            media_family=MediaFamily.SOCIAL_VIDEO,
+            source_platform=SourcePlatform.INSTAGRAM,
+            resolver_key="instagram.default",
+        ),
+    )
 
 
 def _build_extraction_metadata(
@@ -289,27 +125,63 @@ def _build_extraction_metadata(
     source_url: str,
     download_url: Optional[str] = None,
     content_type: Optional[str] = None,
-    provider_metadata: Optional[Dict[str, Any]] = None,
+    transcript_source: Optional[str] = None,
+    resolver_metadata: Optional[Dict[str, Any]] = None,
     last_error_code: Optional[str] = None,
     failure_details: Optional[str] = None,
 ) -> Dict[str, Any]:
     return {
         "source_platform": "instagram",
         "extractor": "instagram_ingestion_worker",
-        "extractor_version": "v1",
-        "provider": "getinsaver",
+        "extractor_version": "v2",
+        "provider": "apify",
         "source_url": source_url,
         "resolved_url": download_url,
         "instagram_content_type": content_type,
-        "provider_media_type": (
-            provider_metadata.get("provider_media_type")
-            if provider_metadata
-            else None
-        ),
+        "transcript_source": transcript_source,
+        "resolver_metadata": resolver_metadata,
         "last_error_code": last_error_code,
         "failure_details": failure_details,
         "resolved_at": _now_iso_utc(),
     }
+
+
+async def _upload_transcript(job_id: str, text: str) -> str:
+    """Upload transcript text to S3 and return the S3 key."""
+    transcript_s3_key = f"{job_id}.txt"
+    await s3.upload_file_object(
+        bucket=TRANSCRIPT_BUCKET,
+        key=transcript_s3_key,
+        file_obj=BytesIO(text.encode("utf-8")),
+        content_type="text/plain",
+        metadata={
+            "content-type": "text/plain",
+            "job-type": "instagram-transcript",
+            "provider": "apify_native",
+        },
+    )
+    return transcript_s3_key
+
+
+async def _publish_success_event(
+    *,
+    job_id: str,
+    media_key: Optional[str],
+    transcript_s3_key: str,
+    transcription_metadata: Dict[str, Any],
+) -> None:
+    await sqs.send_message(
+        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
+        message_body={
+            "event_type": "episode_completion_status",
+            "status": "success",
+            "media_key": media_key,
+            "canonical_job_id": job_id,
+            "minutes_used": 1,
+            "transcription_s3_key": transcript_s3_key,
+            "transcription_metadata": transcription_metadata,
+        },
+    )
 
 
 async def _publish_failure_event(
@@ -321,7 +193,7 @@ async def _publish_failure_event(
     if not job_id:
         return
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "failure",
@@ -359,9 +231,11 @@ async def _mark_job_failed(
 
 
 async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, Any]:
-    """Process an Instagram ingestion message: resolve download URL and queue to Deepgram."""
+    """Process an Instagram ingestion message: resolve via Apify and route accordingly."""
     job_id = (message_body.get("job_id") or "").strip()
     normalized_url = (message_body.get("normalized_url") or "").strip()
+    media_key = (message_body.get("media_key") or "").strip()
+    user_id = (message_body.get("user_id") or "").strip()
 
     if not job_id:
         raise InstagramIngestionError(
@@ -390,20 +264,110 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
     job.mark_downloading()
     await database_async.update_processing_job(job)
 
-    download_url, provider_metadata = await _resolve_instagram_download_url(
-        normalized_url
+    # Resolve via InstagramApifyResolver
+    resolver = InstagramApifyResolver()
+    context = _build_resolve_context(
+        normalized_url=normalized_url,
+        media_key=media_key or job_id,
+        user_id=user_id or "unknown",
     )
 
-    content_type = provider_metadata.get("instagram_content_type")
+    try:
+        resolved = await resolver.resolve(context)
+    except RetryableProviderResolutionError as exc:
+        raise InstagramIngestionError(
+            "provider_error",
+            details=f"apify_retryable:{exc}",
+            retryable=True,
+            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+        ) from exc
+    except NonRetryableProviderResolutionError as exc:
+        raise InstagramIngestionError(
+            "unsupported_content",
+            details=f"apify_non_retryable:{exc}",
+            retryable=False,
+            user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
+        ) from exc
+
+    # Extract metadata from resolver result
+    resolver_metadata = resolved.metadata or {}
+    content_type = resolver_metadata.get("instagram_content_type")
+    transcript_source = resolver_metadata.get("transcript_source")
+
+    # Path A: Apify returned raw_text (native transcript available)
+    if resolved.raw_text:
+        transcript_s3_key = await _upload_transcript(job_id, resolved.raw_text)
+
+        extraction_metadata = _build_extraction_metadata(
+            source_url=normalized_url,
+            content_type=content_type,
+            transcript_source=transcript_source or "apify_native",
+            resolver_metadata=resolver_metadata,
+        )
+        job.extraction_metadata = extraction_metadata
+        job.media_url = normalized_url
+        job.mark_transcribing()
+        await database_async.update_processing_job(job)
+
+        transcription_metadata = {
+            "provider": "apify_native",
+            "model_used": "apify_instagram_reel_scraper",
+            "language": None,
+            "segments_count": len(
+                [line for line in resolved.raw_text.splitlines() if line.strip()]
+            ),
+            "duration_seconds": resolver_metadata.get("duration_seconds", 0),
+            "transcript_char_count": len(resolved.raw_text),
+            "source_url": normalized_url,
+        }
+
+        await _publish_success_event(
+            job_id=job_id,
+            media_key=media_key,
+            transcript_s3_key=transcript_s3_key,
+            transcription_metadata=transcription_metadata,
+        )
+
+        log_event(
+            logger,
+            logging.INFO,
+            "transcription.completed_inline",
+            "Instagram video resolved with Apify native transcript",
+            job_id=job_id,
+            media_item_id=job_id,
+            transcript_source="apify_native",
+            instagram_content_type=content_type,
+            transcript_char_count=len(resolved.raw_text),
+        )
+
+        return {
+            "job_id": job_id,
+            "media_key": media_key,
+            "content_type": content_type,
+            "transcript_source": "apify_native",
+            "routed_to": "completion_event",
+        }
+
+    # Path B: Apify returned audio_url (needs Deepgram transcription)
+    audio_url = resolved.audio_url
+    if not audio_url:
+        raise InstagramIngestionError(
+            "unsupported_content",
+            details="no_audio_url_or_transcript",
+            retryable=False,
+            user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
+        )
+
     extraction_metadata = _build_extraction_metadata(
         source_url=normalized_url,
-        download_url=download_url,
+        download_url=audio_url,
         content_type=content_type,
-        provider_metadata=provider_metadata,
+        transcript_source=transcript_source or "deepgram_pending",
+        resolver_metadata=resolver_metadata,
     )
 
     job.extraction_metadata = extraction_metadata
-    job.media_url = download_url
+    job.media_url = audio_url
     job.mark_transcribing()
     await database_async.update_processing_job(job)
 
@@ -411,25 +375,40 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
         queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
         message_body={
             "job_id": job.id,
-            "user_id": message_body.get("user_id"),
-            "audio_url": download_url,
-            "media_key": message_body.get("media_key"),
+            "user_id": user_id,
+            "audio_url": audio_url,
+            "media_key": media_key,
             "normalized_url": normalized_url,
             "episode_title": (
                 message_body.get("episode_title")
                 or job.title
+                or resolved.title
                 or "Instagram video"
             ),
             "podcast_title": message_body.get("podcast_title") or "Instagram",
-            "audio_duration_seconds": 0,
+            "audio_duration_seconds": resolver_metadata.get("duration_seconds", 0),
         },
+    )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "transcription.enqueued",
+        "Instagram video resolved and queued for Deepgram transcription",
+        job_id=job_id,
+        media_item_id=job_id,
+        queue=DEEPGRAM_TRANSCRIPTION_QUEUE,
+        transcript_source="deepgram",
+        instagram_content_type=content_type,
     )
 
     return {
         "job_id": job_id,
-        "media_key": message_body.get("media_key"),
-        "download_url": download_url,
+        "media_key": media_key,
+        "download_url": audio_url,
         "content_type": content_type,
+        "transcript_source": "deepgram_pending",
+        "routed_to": "deepgram_queue",
     }
 
 
@@ -455,7 +434,7 @@ async def process_message(message: Dict[str, Any]) -> None:
         queue=INSTAGRAM_INGESTION_QUEUE,
         resolver_key="instagram.default",
         source_platform="instagram",
-        provider="getinsaver",
+        provider="apify",
     )
 
     receive_count = int(
@@ -463,18 +442,7 @@ async def process_message(message: Dict[str, Any]) -> None:
     )
 
     try:
-        result = await process_instagram_message(body)
-        log_event(
-            logger,
-            logging.INFO,
-            "transcription.enqueued",
-            "Instagram video resolved and queued for Deepgram transcription",
-            job_id=result["job_id"],
-            media_item_id=result["job_id"],
-            queue=DEEPGRAM_TRANSCRIPTION_QUEUE,
-            transcript_source="deepgram",
-            instagram_content_type=result.get("content_type"),
-        )
+        await process_instagram_message(body)
     except InstagramIngestionError as exc:
         should_retry = exc.retryable and receive_count < INSTAGRAM_WORKER_MAX_RETRIES
         if should_retry:

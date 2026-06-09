@@ -110,9 +110,6 @@ class Settings:
         self.APIFY_MAX_POLLS = int(
             os.getenv("APIFY_MAX_POLLS", "40")
         )
-        self.GETINSAVER_API_BASE_URL = os.getenv(
-            "GETINSAVER_API_BASE_URL", "https://getinsaver.com/api/v1"
-        )
 
         # Document Parsing Configuration
         self.LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY", "")
