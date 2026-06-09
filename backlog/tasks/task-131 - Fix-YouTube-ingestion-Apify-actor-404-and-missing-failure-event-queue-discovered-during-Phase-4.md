@@ -1,7 +1,7 @@
 ---
 id: task-131
 title: Fix YouTube ingestion — Apify actor 404 + missing failure event queue — discovered during Phase 4
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 12:35'
 labels:
