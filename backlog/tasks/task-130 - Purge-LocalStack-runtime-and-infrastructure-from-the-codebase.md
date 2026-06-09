@@ -1,7 +1,7 @@
 ---
 id: task-130
 title: Purge LocalStack runtime and infrastructure from the codebase
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 02:00'
 labels:
