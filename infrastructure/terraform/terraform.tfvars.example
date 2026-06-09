@@ -1,5 +1,11 @@
 # Example terraform.tfvars -- copy to terraform.tfvars (gitignored) and fill in.
 # `terraform apply` reads it automatically.
+#
+# WARNING: Never put comments INSIDE quoted string values. Terraform treats
+# everything between the quotes as the literal value — including any trailing
+# comment text. Always place comments OUTSIDE the closing quote:
+#   GOOD: ALGOLIA_API_KEY = "abc123"  # admin key
+#   BAD:  ALGOLIA_API_KEY = "abc123   # admin key"
 
 aws_region   = "eu-west-3"
 environment  = "dev"        # or "staging", "prod"
