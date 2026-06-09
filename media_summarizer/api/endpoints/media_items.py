@@ -88,14 +88,14 @@ async def get_my_episodes(
 
                 # Extract relevant fields
                 # created_at: when user submitted the job (for sorting)
-                # episode_date_published: when the episode was published (for display)
+                # media_date_published: when the content was published (for display)
                 episode_response = EpisodeResponse(
                     job_id=job.id,
                     podcast_title=summary_data.get("podcast_title", "Unknown Podcast"),
-                    podcast_id=job.podcast_id or "",
+                    podcast_id=job.source_id or "",
                     episode_title=summary_data.get("episode_title", "Unknown Episode"),
                     episode_image=summary_data.get("episode_image", ""),
-                    episode_date_published=job.episode_date_published or 0,
+                    episode_date_published=job.media_date_published or 0,
                     created_at=int(job.created_at.timestamp()),
                     completed_at=int(job.completed_at.timestamp()) if job.completed_at else None,
                     summary=summary_data.get("summary", {}),

@@ -449,8 +449,7 @@ async def process_x_message(message_body: Dict[str, Any]) -> Dict[str, Any]:
         lookup_result=lookup_result,
     )
 
-    job.podcast_title = podcast_title
-    job.episode_title = episode_title
+    job.title = episode_title
     job.set_transcription_location(transcript_s3_key)
     job.set_transcription_metadata(transcription_metadata)
     job.extraction_metadata = extraction_metadata

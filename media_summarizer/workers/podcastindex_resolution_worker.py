@@ -159,12 +159,15 @@ async def process_message(message: dict) -> None:
         if not audio_url:
             raise RuntimeError("PodcastIndex resolution returned no audio URL.")
 
-        job.episode_url = audio_url
-        job.podcast_title = resolution.get("podcast_title") or job.podcast_title
-        job.episode_title = resolution.get("episode_title") or job.episode_title
-        job.episode_image = resolution.get("episode_image") or job.episode_image
+        episode_title = resolution.get("episode_title") or job.title or "Podcast episode"
+        podcast_title = resolution.get("podcast_title") or "Podcast"
+        episode_image = resolution.get("episode_image") or job.media_image or ""
+
+        job.media_url = audio_url
+        job.title = episode_title
+        job.media_image = resolution.get("episode_image") or job.media_image
         if resolution.get("episode_date_published"):
-            job.episode_date_published = int(resolution["episode_date_published"])
+            job.media_date_published = int(resolution["episode_date_published"])
         await database_async.update_processing_job(job)
 
         await sqs.send_message(
@@ -174,11 +177,11 @@ async def process_message(message: dict) -> None:
                 "user_id": body.get("user_id"),
                 "user_email": body.get("user_email"),
                 "audio_url": audio_url,
-                "episode_title": job.episode_title or "Podcast episode",
-                "podcast_title": job.podcast_title or "Podcast",
+                "episode_title": episode_title,
+                "podcast_title": podcast_title,
                 "media_key": body.get("media_key"),
                 "normalized_url": body.get("normalized_url"),
-                "episode_image": job.episode_image or "",
+                "episode_image": episode_image,
                 "audio_duration_seconds": resolution.get("audio_duration_seconds") or 0,
             },
         )
