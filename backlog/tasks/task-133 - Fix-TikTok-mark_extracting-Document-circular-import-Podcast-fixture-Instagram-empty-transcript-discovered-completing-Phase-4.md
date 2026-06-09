@@ -1,7 +1,7 @@
 ---
 id: task-133
 title: Fix 4 source bugs blocking Phase 4 completion (TikTok mark_extracting, document circular import, podcast fixture, Instagram empty transcript)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 14:00'
 labels:

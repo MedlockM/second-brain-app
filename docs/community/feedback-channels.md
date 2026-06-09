@@ -2,7 +2,7 @@
 
 ## Primary: Canny.io Feedback Board
 
-**Board URL (Free tier):** https://percole.canny.io
+**Board URL (Free tier):** https://second-brain-labs.canny.io
 **Board URL (Core tier, custom domain):** https://feedback.percole.app (when upgraded)
 
 ### Why Canny
@@ -13,7 +13,7 @@ proven at scale (ClickUp, Ahrefs, Mercury, CircleCI, Typeform).
 
 ### Board Configuration
 
-- **Subdomain:** `percole.canny.io` (Free tier) / `feedback.percole.app` (Core $19/mo, custom domain via CNAME)
+- **Subdomain:** `second-brain-labs.canny.io` (Free tier) / `feedback.percole.app` (Core $19/mo, custom domain via CNAME)
 - **Branding:** Second Brain Labs / Percole logo, warm-neutral color scheme
 - **Statuses (default on Free):**
   - Open
@@ -76,8 +76,8 @@ CNAME feedback.percole.app -> cname.canny.io
 
 Manual steps required (cannot be automated):
 
-1. [ ] Create Canny account at https://canny.io/signup with Second Brain Labs email
-2. [ ] Set company name to "Percole" and subdomain to `percole`
+1. [x] Create Canny account at https://canny.io/signup with Second Brain Labs email
+2. [x] Set company subdomain to `second-brain-labs` (account already provisioned at `second-brain-labs.canny.io`)
 3. [ ] Create board named "Feature Requests"
 4. [ ] Configure SSO: Settings > SSO > Enable JWT SSO > copy private key to `CANNY_SSO_PRIVATE_KEY`
 5. [ ] Copy board token: Settings > Board Tokens > copy to `CANNY_BOARD_TOKEN`
