@@ -122,19 +122,23 @@ async def test_podcast_via_podcastindex(
 ) -> None:
     """End-to-end podcast pipeline:
 
-      Apple Podcasts URL → /api/v1/podcasts/submit → PodcastIndex resolver
-      → audio enclosure URL → Deepgram → completed.
+      Apple Podcasts EPISODE URL → /api/v1/podcasts/submit → PodcastIndex
+      resolver → audio enclosure URL → Deepgram → completed.
 
-    Picks a podcast known for short episodes (≤ 5 min) to keep Deepgram cost
-    bounded. The fixture URL must be a real podcast page (not a direct MP3),
-    otherwise the resolver path is skipped.
+    Fixture is an episode-level URL (with `?i=<episode_id>`). Show-level
+    URLs (without `?i=`) may also work but force the resolver to pick "the
+    most recent episode" which is non-deterministic and may surface short
+    spoken-word episodes randomly. Episode-level URLs are deterministic —
+    the resolver normalizes the episode ID and queries PodcastIndex
+    directly for that specific episode.
     """
-    # The Daily — NYT has a known short trailer ~1-2 min, stable URL.
-    # Replace with a more stable fixture if NYT migrates.
+    # French podcast episode "Pépite — Ils ont le bracelet, ils mangent tout"
+    # show_id=369369012, episode_id=1000771893347 — owner-provided fixture
+    # 2026-06-09. Stable URL pattern (Apple Podcasts URLs are immutable).
     await _submit_podcast_and_wait(
         http_client,
         auth_headers,
-        "https://podcasts.apple.com/us/podcast/the-daily/id1200361736",
+        "https://podcasts.apple.com/fr/podcast/p%C3%A9pite-ils-ont-le-bracelet-ils-mangent-tout-az-d%C3%A9teste/id369369012?i=1000771893347",
     )
 
 
