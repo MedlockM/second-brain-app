@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark: YouTube Transcript Extraction Strategies Given Lambda IP Blocking
 
 ## Owner Validation
 
-**Decision**: _(to be filled by the owner after review)_
+**Decision**: apify actor
 **Validated at**: _(ISO date to be filled by the owner)_
 
 ---
