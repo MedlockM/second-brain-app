@@ -48,8 +48,8 @@ DEFAULT_TIKTOK_INGESTION_QUEUE = os.environ.get(
 DEFAULT_INSTAGRAM_IMAGE_QUEUE = os.environ.get(
     "INSTAGRAM_IMAGE_QUEUE", "instagram-image-queue"
 )
-DEFAULT_EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+DEFAULT_EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
 DEFAULT_TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
@@ -265,7 +265,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 job.mark_completed()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
-                    queue_name=DEFAULT_EPISODE_COMPLETION_EVENTS_QUEUE,
+                    queue_name=DEFAULT_EPISODE_COMPLETED_EVENTS_QUEUE,
                     message_body={
                         "event_type": "episode_completion_status",
                         "status": "success",
@@ -312,7 +312,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 job.mark_completed()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
-                    queue_name=DEFAULT_EPISODE_COMPLETION_EVENTS_QUEUE,
+                    queue_name=DEFAULT_EPISODE_COMPLETED_EVENTS_QUEUE,
                     message_body={
                         "event_type": "episode_completion_status",
                         "status": "success",

@@ -50,8 +50,8 @@ logger = logging.getLogger(__name__)
 DOCUMENT_BUCKET = os.environ.get("DOCUMENT_BUCKET", "media-summarizer-documents")
 TRANSCRIPT_BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcripts")
 DOCUMENT_PARSING_QUEUE = os.environ.get("DOCUMENT_PARSING_QUEUE", "document-parsing-queue")
-EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
 SEARCH_INDEXING_QUEUE = os.environ.get("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 
@@ -263,7 +263,7 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
 
         # Emit completion event for downstream pipeline
         await sqs.send_message(
-            queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+            queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
             message_body={
                 "event_type": "episode_completion_status",
                 "status": "success",

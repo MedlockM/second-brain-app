@@ -55,8 +55,8 @@ TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
-EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
 EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
@@ -350,7 +350,7 @@ async def publish_failure_event(
     if not job_id:
         return
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "failure",
@@ -447,7 +447,7 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
     )
 
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "success",
@@ -597,7 +597,7 @@ async def process_message(message: Dict[str, Any]) -> None:
                     "external_call.failed",
                     "Failed to publish final Deepgram failure event",
                     provider="sqs",
-                    queue=EPISODE_COMPLETION_EVENTS_QUEUE,
+                    queue=EPISODE_COMPLETED_EVENTS_QUEUE,
                     job_id=body.get("job_id"),
                     exc_info=publish_error,
                 )

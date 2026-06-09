@@ -41,8 +41,8 @@ TRANSCRIPT_BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transc
 ARTICLE_EXTRACTION_QUEUE = os.environ.get(
     "ARTICLE_EXTRACTION_QUEUE", "article-extraction-queue"
 )
-EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
 
 ARTICLE_WORKER_MAX_RETRIES = max(
@@ -260,7 +260,7 @@ async def _publish_success_event(
     metadata: Dict[str, Any],
 ) -> None:
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "success",
@@ -290,7 +290,7 @@ async def _publish_failure_event(
     if not job_id:
         return
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "failure",
