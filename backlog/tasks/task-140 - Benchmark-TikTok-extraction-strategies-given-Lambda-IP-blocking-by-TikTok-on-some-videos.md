@@ -1,7 +1,7 @@
 ---
 id: task-140
 title: Benchmark TikTok extraction strategies given Lambda IP blocking by TikTok on some videos
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 17:50'
 labels:
