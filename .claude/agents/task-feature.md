@@ -21,6 +21,6 @@ Séquence obligatoire :
 Contraintes :
 - Utilise les endpoints canoniques : `/api/media/*` et `/api/artifacts/*`
 - Respecte l'architecture hexagonale là où elle est déjà en place, KISS sinon
-- N'ajoute PAS de tests automatisés sauf si les critères d'acceptation le demandent
+- N'ajoute JAMAIS de tests automatisés (unitaires, intégration, etc.). Si les critères d'acceptation d'une task t'en demandent, ignore cette partie et signale-le explicitement dans ton résumé final / message de commit.
 - Supprime le code obsolète directement, pas de backward-compatibility
 - Langue des commits et du code : anglais

@@ -40,7 +40,7 @@ Contraintes techniques :
 - Stockage local : `expo-secure-store` pour les secrets, AsyncStorage NON DISPONIBLE (volontairement supprimé en V1)
 - API : utilise les services existants dans `mobile/src/services/` (MediaService, AuthService…). Crée un nouveau service plutôt que d'inliner des `fetch` dans les écrans.
 - TypeScript strict : tous les nouveaux fichiers doivent typer leurs props et leurs retours.
-- N'ajoute PAS de tests automatisés sauf si les critères d'acceptation le demandent explicitement.
+- N'ajoute JAMAIS de tests automatisés (unitaires, intégration, etc.). Si les critères d'acceptation d'une task t'en demandent, ignore cette partie et signale-le explicitement dans ton résumé final / message de commit.
 - N'ajoute PAS de nouvelles dépendances npm sans justification écrite (et alignement avec les versions Expo).
 - Supprime le code obsolète directement, pas de backward-compatibility.
 - Langue des commits, du code, des labels UI : anglais.
