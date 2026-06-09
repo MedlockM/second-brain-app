@@ -81,6 +81,14 @@ export default function RootLayout() {
                   gestureEnabled: true,
                 }}
               />
+              <Stack.Screen
+                name="bug-report"
+                options={{
+                  presentation: "modal",
+                  animation: "slide_from_bottom",
+                  gestureEnabled: true,
+                }}
+              />
             </Stack>
           </InboxProvider>
         </ShareIntentProvider>

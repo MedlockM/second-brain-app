@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import {
   Colors,
@@ -18,6 +19,11 @@ import {
  */
 export default function AccountScreen() {
   const { user, logout } = useAuth();
+  const router = useRouter();
+
+  const handleBugReport = () => {
+    router.push("/bug-report");
+  };
 
   const handleLogout = () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
@@ -55,6 +61,11 @@ export default function AccountScreen() {
           icon="download-outline"
           label="Export Data"
           onPress={() => {}}
+        />
+        <MenuItem
+          icon="bug-outline"
+          label="Report a Bug"
+          onPress={handleBugReport}
         />
         <View style={styles.menuDivider} />
         <TouchableOpacity
