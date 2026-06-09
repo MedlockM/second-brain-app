@@ -28,6 +28,12 @@ locals {
       queue_arn   = aws_sqs_queue.youtube_ingestion.arn
       handler     = "media_summarizer.workers.lambda_handlers.youtube_ingestion_handler"
     }
+    instagram_ingestion = {
+      memory_size = 512
+      timeout     = 120
+      queue_arn   = aws_sqs_queue.instagram_ingestion.arn
+      handler     = "media_summarizer.workers.lambda_handlers.instagram_ingestion_handler"
+    }
     tiktok_ingestion = {
       memory_size = 512
       timeout     = 120

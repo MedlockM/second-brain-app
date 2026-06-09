@@ -111,6 +111,37 @@ resource "aws_sqs_queue" "youtube_ingestion" {
 }
 
 # =============================================================================
+# Instagram Ingestion
+# =============================================================================
+
+resource "aws_sqs_queue" "instagram_ingestion_dlq" {
+  name = "instagram-ingestion-dlq"
+
+  tags = {
+    Name        = "instagram-ingestion-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "instagram_ingestion" {
+  name                       = "instagram-ingestion-queue"
+  visibility_timeout_seconds = 720
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.instagram_ingestion_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "instagram-ingestion-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# =============================================================================
 # TikTok Ingestion
 # =============================================================================
 
@@ -462,6 +493,7 @@ output "queue_urls" {
     article_extraction         = aws_sqs_queue.article_extraction.url
     x_ingestion                = aws_sqs_queue.x_ingestion.url
     youtube_ingestion          = aws_sqs_queue.youtube_ingestion.url
+    instagram_ingestion         = aws_sqs_queue.instagram_ingestion.url
     tiktok_ingestion           = aws_sqs_queue.tiktok_ingestion.url
     deepgram_transcription     = aws_sqs_queue.deepgram_transcription.url
     summarization              = aws_sqs_queue.summarization.url
