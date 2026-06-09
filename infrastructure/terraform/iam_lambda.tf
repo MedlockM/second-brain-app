@@ -69,6 +69,7 @@ resource "aws_iam_policy" "lambda_worker" {
           aws_sqs_queue.flashcards.arn,
           aws_sqs_queue.notes.arn,
           aws_sqs_queue.quiz.arn,
+          aws_sqs_queue.instagram_ingestion.arn,
         ]
       },
       {
@@ -224,6 +225,7 @@ resource "aws_iam_policy" "lambda_api" {
           aws_sqs_queue.flashcards.arn,
           aws_sqs_queue.notes.arn,
           aws_sqs_queue.quiz.arn,
+          aws_sqs_queue.instagram_ingestion.arn,
         ]
       },
       {
