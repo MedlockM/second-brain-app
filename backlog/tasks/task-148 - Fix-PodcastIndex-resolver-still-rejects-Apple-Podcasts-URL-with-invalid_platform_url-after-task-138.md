@@ -1,7 +1,7 @@
 ---
 id: task-148
 title: Fix PodcastIndex resolver — still rejects Apple Podcasts URL with invalid_platform_url after task-138
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 21:30'
 labels:

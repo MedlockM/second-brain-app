@@ -1,7 +1,7 @@
 ---
 id: task-146
 title: Migrate Instagram worker from legacy GetInsaver code to existing InstagramApifyResolver
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 21:35'
 labels:
