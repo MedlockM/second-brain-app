@@ -3,7 +3,7 @@ id: task-144
 title: >-
   Add Apify TikTok fallback to ingestion worker per validated benchmark
   (task-140)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 17:48'
 labels:
