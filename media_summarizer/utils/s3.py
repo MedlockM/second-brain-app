@@ -15,17 +15,12 @@ import mimetypes
 import os
 from typing import Any, BinaryIO, Dict, List, Optional, Union
 
-from media_summarizer.utils.logging_config import (
-    get_runtime_aws_endpoint_url,
-    log_event,
-)
+from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
 # AWS configuration
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-_IMPORT_TIME_AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
-AWS_ENDPOINT_URL = _IMPORT_TIME_AWS_ENDPOINT_URL
 
 # Import AWS session
 try:
@@ -44,17 +39,9 @@ except ImportError:
     raise
 
 
-def _runtime_aws_endpoint_url() -> Optional[str]:
-    configured = AWS_ENDPOINT_URL
-    if configured == _IMPORT_TIME_AWS_ENDPOINT_URL:
-        configured = os.environ.get("AWS_ENDPOINT_URL", _IMPORT_TIME_AWS_ENDPOINT_URL)
-    return get_runtime_aws_endpoint_url(configured_value=configured, consumer="s3")
-
-
 def _client_kwargs() -> Dict[str, Any]:
     return {
         "region_name": AWS_REGION,
-        "endpoint_url": _runtime_aws_endpoint_url(),
     }
 
 
@@ -115,48 +102,8 @@ async def upload_file(
             content_type = "application/octet-stream"
 
     try:
-        # Fallback to boto3 for LocalStack to avoid known checksum issues in aiobotocore with S3 v3 provider
-        endpoint_url = _runtime_aws_endpoint_url()
-        if endpoint_url:
-            import boto3  # Local import to avoid heavy dependency at module import
-
-            with open(file_path, "rb") as f:
-                file_bytes = f.read()
-
-            def _put_object_sync():
-                s3_client = boto3.client(
-                    "s3",
-                    region_name=AWS_REGION,
-                    endpoint_url=endpoint_url,
-                    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "test"),
-                    aws_secret_access_key=os.environ.get(
-                        "AWS_SECRET_ACCESS_KEY", "test"
-                    ),
-                )
-                return s3_client.put_object(
-                    Bucket=bucket,
-                    Key=key,
-                    Body=file_bytes,
-                    ContentType=content_type,
-                    **({"Metadata": metadata} if metadata else {}),
-                )
-
-            response = await asyncio.to_thread(_put_object_sync)
-            log_event(
-                logger,
-                logging.DEBUG,
-                "external_call.succeeded",
-                "S3 upload completed via boto3 fallback",
-                provider="s3",
-                bucket=bucket,
-                key=key,
-            )
-            return response
-
-        # Default path: use aiobotocore
         async with session.create_client("s3", **_client_kwargs()) as s3:
             with open(file_path, "rb") as f:
-                # Read into memory to provide as raw bytes (workaround for LocalStack S3 v3 checksum handling)
                 file_bytes = f.read()
 
                 upload_params = {

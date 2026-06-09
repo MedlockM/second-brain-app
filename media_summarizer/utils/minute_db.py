@@ -46,7 +46,6 @@ async def create_subscription(subscription: Subscription) -> Subscription:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(SUBSCRIPTIONS_TABLE)
@@ -61,7 +60,6 @@ async def get_subscriptions_by_user_id(user_id: str) -> List[Subscription]:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(SUBSCRIPTIONS_TABLE)
@@ -76,7 +74,6 @@ async def update_subscription(subscription: Subscription) -> Subscription:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(SUBSCRIPTIONS_TABLE)
@@ -91,7 +88,6 @@ async def create_minute_bucket(bucket: MinuteBucket) -> MinuteBucket:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
@@ -106,7 +102,6 @@ async def get_minute_buckets_by_user_id(user_id: str) -> List[MinuteBucket]:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
@@ -114,17 +109,6 @@ async def get_minute_buckets_by_user_id(user_id: str) -> List[MinuteBucket]:
             IndexName="user-index", KeyConditionExpression=Key("user_id").eq(user_id)
         )
         items = response.get("Items", [])
-        # Fallback scan for LocalStack eventual GSI consistency during tests
-        if not items and (database_async.AWS_ENDPOINT_URL or "").startswith(
-            "http://localhost:4566"
-        ):
-            try:
-                scan_resp = await table.scan(
-                    FilterExpression=Attr("user_id").eq(user_id)
-                )
-                items = scan_resp.get("Items", [])
-            except Exception:
-                pass
         return [MinuteBucket.from_dynamodb_item(it) for it in items]
 
 
@@ -132,7 +116,6 @@ async def update_minute_bucket(bucket: MinuteBucket) -> MinuteBucket:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
@@ -145,7 +128,6 @@ async def delete_minute_bucket(bucket_id: str) -> bool:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
@@ -163,7 +145,6 @@ async def create_minute_usage(usage: MinuteUsage) -> MinuteUsage:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MINUTE_USAGE_TABLE)
@@ -178,7 +159,6 @@ async def get_minute_usage_by_job_id(job_id: str) -> Optional[MinuteUsage]:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MINUTE_USAGE_TABLE)
@@ -195,7 +175,6 @@ async def update_minute_usage(usage: MinuteUsage) -> MinuteUsage:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MINUTE_USAGE_TABLE)
@@ -227,7 +206,6 @@ async def scan_expired_holds(limit: int = 100) -> List[MinuteUsage]:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MINUTE_USAGE_TABLE)
@@ -257,7 +235,6 @@ async def upsert_follow(follow: Follow) -> Follow:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(FOLLOWS_TABLE)
@@ -269,7 +246,6 @@ async def get_follows_by_user_id(user_id: str) -> List[Follow]:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(FOLLOWS_TABLE)
@@ -287,7 +263,6 @@ async def get_feed_forecast(feed_id: str, month_key: str) -> Optional[Dict[str, 
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(FEED_FORECASTS_TABLE)
@@ -309,7 +284,6 @@ async def upsert_feed_forecast(
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(FEED_FORECASTS_TABLE)
@@ -350,7 +324,6 @@ async def delete_follow(user_id: str, feed_id: str) -> bool:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(FOLLOWS_TABLE)

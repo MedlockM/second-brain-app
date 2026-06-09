@@ -45,7 +45,7 @@ async def has_user_already_submitted(user_id: str, media_key: str) -> bool:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(USER_MEDIA_SUBMISSIONS_TABLE)
@@ -130,7 +130,7 @@ async def mark_user_submission(
     try:
         async with session.resource(
             "dynamodb",
-            endpoint_url=database_async.AWS_ENDPOINT_URL,
+            
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
             table = await dynamodb.Table(USER_MEDIA_SUBMISSIONS_TABLE)

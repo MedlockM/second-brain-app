@@ -20,7 +20,6 @@ _LOGGING_STATE: Dict[str, Any] = {
     "version": None,
 }
 _CONFIGURED_SIGNATURE: Optional[tuple[str, str, Optional[str], int]] = None
-_AWS_ENDPOINT_WARNINGS: set[tuple[str, str, str]] = set()
 
 _REDACTED = "[REDACTED]"
 _EMAIL_RE = re.compile(r"\b([A-Z0-9._%+\-]+)@([A-Z0-9.\-]+\.[A-Z]{2,})\b", re.I)
@@ -262,38 +261,6 @@ def log_event(
     extra = dict(fields)
     extra["event"] = event
     logger.log(level, message, extra=extra, exc_info=exc_info)
-
-
-def get_runtime_aws_endpoint_url(
-    *,
-    configured_value: Optional[str] = None,
-    consumer: str = "aws",
-) -> Optional[str]:
-    raw = (
-        configured_value
-        if configured_value is not None
-        else os.environ.get("AWS_ENDPOINT_URL")
-    )
-    value = (raw or "").strip()
-    if not value:
-        return None
-
-    env = normalize_environment()
-    if env == "dev":
-        return value
-
-    warning_key = (consumer, env, value)
-    if warning_key not in _AWS_ENDPOINT_WARNINGS:
-        _AWS_ENDPOINT_WARNINGS.add(warning_key)
-        log_event(
-            logging.getLogger(__name__),
-            logging.WARNING,
-            "runtime.aws_endpoint_ignored",
-            "Ignoring AWS endpoint override outside dev",
-            provider="aws",
-            error_code="AWS_ENDPOINT_URL_IGNORED",
-        )
-    return None
 
 
 def should_disable_access_logs(env: Optional[str] = None) -> bool:

@@ -21,7 +21,6 @@ from media_summarizer.workers.base_worker import process_message_with_retry
 
 # Re-export commonly patched attributes for test compatibility
 from media_summarizer.utils.sqs import session as _aio_session  # type: ignore
-from media_summarizer.utils.sqs import AWS_ENDPOINT_URL as AWS_ENDPOINT_URL  # type: ignore
 from media_summarizer.utils.sqs import AWS_REGION as AWS_REGION  # type: ignore
 
 

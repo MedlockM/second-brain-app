@@ -26,7 +26,7 @@ async def get_generation_lock(
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(ARTIFACT_IDEMPOTENCE_TABLE)
@@ -45,7 +45,7 @@ async def reserve_generation(lock: ArtifactGenerationLock) -> bool:
     try:
         async with session.resource(
             "dynamodb",
-            endpoint_url=database_async.AWS_ENDPOINT_URL,
+            
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
             table = await dynamodb.Table(ARTIFACT_IDEMPOTENCE_TABLE)
@@ -68,7 +68,7 @@ async def save_generation_lock(lock: ArtifactGenerationLock) -> ArtifactGenerati
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(ARTIFACT_IDEMPOTENCE_TABLE)

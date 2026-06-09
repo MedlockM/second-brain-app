@@ -17,18 +17,13 @@ from botocore.exceptions import ClientError
 
 from media_summarizer.core.models import User, ProcessingJob, JobStatus, Folder, Tag, UserRssFeed
 from media_summarizer.core.models.auth import AuthToken, TokenType
-from media_summarizer.utils.logging_config import (
-    get_runtime_aws_endpoint_url,
-    log_event,
-)
+from media_summarizer.utils.logging_config import log_event
 # Removed CreditTransaction import (legacy credits system fully deprecated)
 
 logger = logging.getLogger(__name__)
 
 # AWS configuration
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-_IMPORT_TIME_AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")
-AWS_ENDPOINT_URL = _IMPORT_TIME_AWS_ENDPOINT_URL
 
 # Table names (can be overridden by environment variables for testing)
 USERS_TABLE = os.environ.get("USERS_TABLE", "users")
@@ -47,19 +42,8 @@ USER_RSS_FEEDS_TABLE = os.environ.get("USER_RSS_FEEDS_TABLE", "user_rss_feeds")
 _session = None
 
 
-def _runtime_aws_endpoint_url() -> Optional[str]:
-    configured = AWS_ENDPOINT_URL
-    if configured == _IMPORT_TIME_AWS_ENDPOINT_URL:
-        configured = os.environ.get("AWS_ENDPOINT_URL", _IMPORT_TIME_AWS_ENDPOINT_URL)
-    return get_runtime_aws_endpoint_url(
-        configured_value=configured,
-        consumer="dynamodb",
-    )
-
-
 def _dynamodb_client_kwargs() -> Dict[str, Any]:
     return {
-        "endpoint_url": _runtime_aws_endpoint_url(),
         "region_name": AWS_REGION,
     }
 
@@ -124,22 +108,17 @@ class DynamoDBConnection:
     """Async DynamoDB connection manager."""
 
     def __init__(self):
-        self.endpoint_url = _runtime_aws_endpoint_url()
         self.region_name = AWS_REGION
 
     async def get_client(self):
         """Return an async DynamoDB client."""
         session = get_session()
-        return session.client(
-            "dynamodb", endpoint_url=self.endpoint_url, region_name=self.region_name
-        )
+        return session.client("dynamodb", region_name=self.region_name)
 
     async def get_resource(self):
         """Return an async DynamoDB resource."""
         session = get_session()
-        return session.resource(
-            "dynamodb", endpoint_url=self.endpoint_url, region_name=self.region_name
-        )
+        return session.resource("dynamodb", region_name=self.region_name)
 
 
 async def get_db():

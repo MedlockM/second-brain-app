@@ -37,7 +37,7 @@ async def _query_watchers(table_name: str, key_attr: str, key_value: str) -> Lis
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(table_name)
@@ -60,7 +60,7 @@ async def add_watcher(
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MEDIA_WATCHERS_TABLE)
@@ -109,7 +109,7 @@ async def _update_status(
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        endpoint_url=database_async.AWS_ENDPOINT_URL,
+        
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MEDIA_WATCHERS_TABLE)

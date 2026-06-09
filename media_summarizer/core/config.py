@@ -16,12 +16,8 @@ class Settings:
         self.ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
         self.DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
-        # LocalStack configuration
-        self.USE_LOCALSTACK = os.getenv("USE_LOCALSTACK", "true").lower() == "true"
-
         # AWS Configuration
         self.AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-        self.AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 
         # Database tables
         self.USERS_TABLE = os.getenv("USERS_TABLE", "users")

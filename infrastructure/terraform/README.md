@@ -103,4 +103,3 @@ The `:KEY::` suffix tells ECS to pull a single field out of the JSON secret.
 | `dynamodb_*.tf` | DynamoDB tables |
 | `monitoring.tf`, `pipeline_*.tf` | CloudWatch dashboards, alarms |
 | `archiving.tf` | Archive bucket + lifecycle |
-| `localstack/` | Stripped-down stack used by `docker-compose.dev.yml` for offline dev |

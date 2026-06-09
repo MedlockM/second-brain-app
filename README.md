@@ -33,19 +33,16 @@ uv pip install -e ".[dev]"
 
 # Copier et configurer l'environnement
 cp .env.example .env
+# Fill in AWS credentials for the dev environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
 
-# Démarrer tous les services (API + Workers + LocalStack)
-docker-compose -f docker-compose.dev.yml --profile full up -d
-
-# Ou via Makefile
-make dev-full
+# Run E2E tests
+pytest -m e2e
 ```
 
 ## Services (dev)
 
 - **API** : http://localhost:8000
 - **Docs API** : http://localhost:8000/docs
-- **LocalStack** : http://localhost:4566
 
 ## Tests
 
@@ -57,12 +54,12 @@ make test-all           # Tous les tests
 
 ## Stack
 
-- **Backend** : Python, FastAPI, DynamoDB, SQS, S3
+- **Backend** : Python, FastAPI, AWS (DynamoDB, SQS, S3, Lambda)
 - **Transcription** : Deepgram Nova-3
 - **LLM** : configurable (à benchmarker)
 - **Paiements** : RevenueCat (mobile) + server-side entitlements
 - **Mobile** : React Native + Expo (repo séparé via Stitch, sera intégré ici)
-- **Dev local** : Docker + LocalStack
+- **Dev workflow** : AWS dev environment (eu-west-3)
 
 ## Licence
 
