@@ -4,6 +4,10 @@ Each test targets a specific fallback path (primary extractor fails, secondary
 takes over) and asserts BOTH completion AND a metadata field that proves the
 fallback path was actually exercised.
 
+Cost per run (approx.):
+- TikTok Apify fallback: ~$0.005-0.01 (Apify actor call)
+- Instagram Deepgram fallback: ~$0.01-0.02 (Apify call + Deepgram 90s max)
+
 Naming convention: test_<source>_<fallback_name>
 """
 
@@ -13,6 +17,7 @@ import httpx
 import pytest
 
 from tests.e2e.conftest import poll_until
+
 
 # =============================================================================
 # Helpers
@@ -107,4 +112,61 @@ async def test_tiktok_apify_fallback(
         f"Expected Apify fallback to fire, but metadata shows otherwise. "
         f"extraction_metadata={extraction_meta}, "
         f"transcription_metadata={transcription_meta}"
+    )
+
+
+# =============================================================================
+# Instagram: Apify transcript -> Deepgram fallback
+# =============================================================================
+
+# Fixture rationale:
+# This reel is a short visual/music-focused Instagram Reel from BBC Earth
+# that has no spoken narration or creator-provided captions. The Apify
+# instagram-reel-scraper returns an empty or below-threshold transcript field
+# for such reels, triggering the Deepgram audio fallback path.
+#
+# Selection criteria:
+#   1. Must be a public, stable Reel (not Stories, not deleted)
+#   2. Must NOT have native captions in Apify response (triggers fallback)
+#   3. Must have audible content (even ambient/music) so Deepgram returns
+#      a non-empty result and the pipeline completes successfully
+#   4. Short duration (<30s) to minimize Deepgram cost
+#
+# If this fixture becomes unstable (deleted, made private, or Apify starts
+# returning captions for it), replace with another music/visual reel from
+# a major media account (@bbcearth, @natgeo, @discoverynature).
+INSTAGRAM_DEEPGRAM_FALLBACK_FIXTURE_URL = (
+    "https://www.instagram.com/reel/CwHSCpMoe7Z/"
+)
+
+
+@pytest.mark.e2e
+@pytest.mark.timeout(60)
+async def test_instagram_deepgram_fallback(
+    http_client: httpx.AsyncClient,
+    auth_headers: Dict[str, str],
+) -> None:
+    """Instagram Reel without Apify auto-caption triggers Deepgram fallback.
+
+    Verifies:
+    - The ingestion pipeline completes (status == "completed")
+    - The transcript was obtained via Deepgram (transcript_source == "deepgram")
+      rather than the primary Apify native transcript path
+    """
+    media_item_id = await _ingest_and_wait(
+        http_client,
+        auth_headers,
+        INSTAGRAM_DEEPGRAM_FALLBACK_FIXTURE_URL,
+        timeout_s=60,
+    )
+
+    detail = await _get_media_item(http_client, auth_headers, media_item_id)
+
+    # AC #3: Assert transcript_source indicates Deepgram fallback was used
+    assert detail.get("transcript_source") == "deepgram", (
+        f"Expected transcript_source 'deepgram' (fallback path), "
+        f"got '{detail.get('transcript_source')}'. "
+        f"This means the Apify native transcript was used instead of the "
+        f"Deepgram fallback, or the fixture reel now has captions. "
+        f"Full response: {detail}"
     )

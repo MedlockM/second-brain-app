@@ -117,6 +117,13 @@ class MediaItemResponse(BaseModel):
     progress: int
     extraction_metadata: Optional[dict] = None
     transcription_metadata: Optional[dict] = None
+    transcript_source: Optional[str] = Field(
+        None,
+        description=(
+            "How the transcript was obtained "
+            "(e.g. 'deepgram', 'apify_native', 'yt-dlp_native')"
+        ),
+    )
 
 
 # ---------- Folder assignment models ----------
@@ -778,6 +785,24 @@ async def get_media_item(
             status=job.status.value,
         )
 
+        # Derive transcript_source from extraction or transcription metadata
+        transcript_source: Optional[str] = None
+        ext_meta = job.extraction_metadata
+        if ext_meta and isinstance(ext_meta, dict):
+            ts = ext_meta.get("transcript_source")
+            if isinstance(ts, str) and ts.strip():
+                # Normalize pending states to the final provider name
+                transcript_source = (
+                    ts.strip()
+                    .removesuffix("_pending")
+                    .removesuffix("_pending_cdn_fallback")
+                )
+        tx_meta = job.transcription_metadata
+        if not transcript_source and tx_meta and isinstance(tx_meta, dict):
+            provider = tx_meta.get("provider")
+            if isinstance(provider, str) and provider.strip():
+                transcript_source = provider.strip()
+
         return MediaItemResponse(
             media_item_id=job.id,
             status=job.status.value,
@@ -786,6 +811,7 @@ async def get_media_item(
             progress=job.get_progress_percentage(),
             extraction_metadata=job.extraction_metadata,
             transcription_metadata=job.transcription_metadata,
+            transcript_source=transcript_source,
         )
 
     except HTTPException:
