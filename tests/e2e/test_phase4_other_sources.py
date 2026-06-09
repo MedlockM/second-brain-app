@@ -193,14 +193,12 @@ async def test_instagram_ingestion(
     """Instagram Reel via Apify. Reels are capped at 90s by IG, so cost is bounded.
     Uses Apify's native transcript field when available (no Deepgram cost).
 
-    Fixture: NatGeo educational reel with clear English narration (not music-only).
-    Previous fixture (CtMSAg9JqWZ) had no speech, causing empty transcript.
+    Fixture: owner-provided stable public Reel (2026-06-09).
     """
-    # NatGeo short educational reel with clear English narration.
     await _ingest_and_wait(
         http_client,
         auth_headers,
-        "https://www.instagram.com/reel/CzHnAVRo6Cf/",
+        "https://www.instagram.com/reel/DZXolnGNeAG/",
     )
 
 
