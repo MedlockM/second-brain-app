@@ -160,6 +160,7 @@ localstack-data/
 .claude/dispatch-runs/
 .claude/worktrees/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # =============================================================================
 # Scratchpads / one-off planning docs at repo root
