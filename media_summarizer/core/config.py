@@ -130,6 +130,21 @@ class Settings:
         self.REVENUCAT_PROJECT_ID = os.getenv("REVENUCAT_PROJECT_ID", "")
         self.REVENUCAT_EVENTS_TABLE = os.getenv("REVENUCAT_EVENTS_TABLE", "revenucat_events")
 
+        # Apify TikTok Configuration
+        self.APIFY_TIKTOK_API_TOKEN = os.getenv("APIFY_TIKTOK_API_TOKEN", "")
+        self.APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID = os.getenv(
+            "APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID", ""
+        )
+        self.APIFY_TIKTOK_TIMEOUT_SECONDS = float(
+            os.getenv("APIFY_TIKTOK_TIMEOUT_SECONDS", "60")
+        )
+        self.APIFY_TIKTOK_POLL_INTERVAL_SECONDS = float(
+            os.getenv("APIFY_TIKTOK_POLL_INTERVAL_SECONDS", "3")
+        )
+        self.APIFY_TIKTOK_MAX_POLLS = int(
+            os.getenv("APIFY_TIKTOK_MAX_POLLS", "40")
+        )
+
         # Test Configuration
         self.TEST_ENVIRONMENT = os.getenv("TEST_ENVIRONMENT", "")
         self.E2E_CLEANUP = os.getenv("E2E_CLEANUP", "true").lower() == "true"

@@ -38,40 +38,59 @@ Rationale:
 - l'objectif pour Instagram est de convertir rapidement l'URL source en URL media directement exploitable
 - on evite d'ajouter une seconde chaine de resolution tant que ce provider couvre le besoin
 
-### TikTok
-Strategie retenue:
-- voie principale: utiliser l'approche A via `yt-dlp` en mode sous-titres natifs seuls
-- fallback: reutiliser `yt-dlp` en mode extraction `audio_only`
+### TikTok (superseded -- see V1 below)
 
-Cascade de fallback:
-1. tenter l'extraction des sous-titres natifs avec `yt-dlp`
-2. si la methode A echoue, relancer via `yt-dlp` en extraction audio seule
-3. envoyer l'audio obtenu au pipeline de transcription existant
+> **NOTE**: The section below is the original V0 strategy retained at initial ADR creation.
+> It has been superseded by the V1 strategy that follows, validated via task-140 benchmark.
 
-Details de l'approche A:
-- execution attendue en mode `--write-subs --skip-download`, avec conversion vers un format exploitable (`srt` ou `vtt`) sans telecharger la video complete
-- l'integration programmatique doit privilegier l'usage de `yt-dlp` comme bibliotheque plutot que comme simple CLI, afin de recuperer les metadonnees et les sous-titres demandes en memoire
-- `yt-dlp` est retenu car il implemente deja une cascade interne de recuperation des captions TikTok sur trois chemins:
-  - `video.cla_info.caption_infos` comme source principale
-  - `video.subtitleInfos` comme fallback de compatibilite
-  - les donnees web issues de `__UNIVERSAL_DATA_FOR_REHYDRATION__` en dernier recours
-- les formats natifs TikTok peuvent etre du JSON proprietaire ou du `WebVTT`; la conversion en format standard fait partie du perimetre de l'outil choisi
+~~Strategie retenue:~~
+~~- voie principale: utiliser l'approche A via `yt-dlp` en mode sous-titres natifs seuls~~
+~~- fallback: reutiliser `yt-dlp` en mode extraction `audio_only`~~
 
-Conditions de succes:
-- si des sous-titres natifs sont recuperes via l'approche A, ils deviennent la source `native_transcript` et le pipeline s'arrete sans extraction audio
-- l'absence de captions natives doit etre distingee d'un echec technique d'acces TikTok, afin de declencher le bon fallback et de conserver une observabilite exploitable
+### TikTok extraction (V1, post-task-140)
 
-Contraintes de rate limiting:
+Strategie retenue apres validation du benchmark task-140 (owner decision: hybrid yt-dlp + Apify actor en fallback pour la V1):
+
+**Primary path**: yt-dlp native subtitle extraction (unchanged from V0)
+
+**Cascade de fallback (3 branches selon le type d'echec)**:
+
+| Etape | Condition | Action |
+| --- | --- | --- |
+| 1 | yt-dlp reussit | Extraire sous-titres natifs ou audio URL (existant) |
+| 2a | yt-dlp echoue avec IP block (status 10204 / "IP address is blocked") | Appeler l'acteur Apify TikTok transcript via `APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID` |
+| 2b | yt-dlp echoue pour toute autre raison (geo, deleted, rate limit, parse error) | Deepgram URL fallback via extraction audio yt-dlp (existant) |
+| 3 | Apify echoue apres IP block | Marquer le job comme echec non-retryable avec message utilisateur explicite |
+
+**Pourquoi Apify en fallback IP-block uniquement**:
+- La majorite des videos TikTok passent toujours via yt-dlp depuis les IPs Lambda
+- Le blocage IP (status 10204) est specifique aux videos recentes/populaires depuis des IPs datacenter
+- Apify ajoute 3-10s de latence et un cout par appel -- ne doit etre declenche que sur echec IP confirme
+- Les autres echecs yt-dlp (video privee, geo-restriction) ne seraient pas resolus par Apify
+
+**Configuration**:
+- `APIFY_TIKTOK_API_TOKEN`: token API Apify (secret)
+- `APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID`: identifiant de l'acteur Apify a invoquer
+- `APIFY_TIKTOK_TIMEOUT_SECONDS`, `APIFY_TIKTOK_POLL_INTERVAL_SECONDS`, `APIFY_TIKTOK_MAX_POLLS`
+
+**Codes d'erreur ajoutes**:
+- `apify_actor_failed` (non-retryable: auth 401/403, config invalide)
+- `apify_quota_exceeded` (retryable: 429)
+- `apify_timeout` (retryable: 5xx, network, poll exhausted)
+- `tiktok_ip_blocked_unrecoverable` (non-retryable: yt-dlp ET Apify ont echoue)
+
+**V2 (task-145)**: Migration vers residential proxy comme fallback primaire au lieu d'Apify, avec Apify comme escalation de dernier recours.
+
+Contraintes de rate limiting (inchangees):
 - imposer un plafond global de `100 requetes / heure` vers TikTok
 - traiter cette contrainte comme un garde-fou d'architecture, au meme niveau que la protection deja mise en place pour Podcasts
 - eviter que des rafales de partages provoquent des echecs par quota ou des comportements non deterministes
 - completer ce garde-fou par un debit cible de l'ordre de `1 requete toutes les 2 a 3 secondes` par IP lorsque l'execution sort du chemin purement synchrone
-- prevoir la reutilisation de cookies/session et la possibilite de proxies residents rotatifs si TikTok durcit ses mecanismes anti-bot
 
 Implication d'implementation:
 - les appels TikTok via `yt-dlp` doivent passer par une strategie gouvernee de rate limiting global
 - l'attente de quota ne doit pas degrader inutilement le chemin synchrone de prise en charge de l'URL
-- la distinction entre `native_subtitles_found`, `native_subtitles_absent`, `rate_limited` et `extractor_failed` doit etre exposee dans les resultats d'ingestion
+- la distinction entre `native_subtitles_found`, `native_subtitles_absent`, `rate_limited`, `extractor_failed`, `apify_tiktok` doit etre exposee dans les resultats d'ingestion
 - `yt-dlp` doit etre maintenu a jour regulierement, car la robustesse de cette approche depend directement des evolutions de son extracteur TikTok
 
 ### YouTube
