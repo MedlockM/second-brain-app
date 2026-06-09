@@ -1,12 +1,13 @@
 ---
-owner_decision: pending
----
+owner_decision: ok
 
 # Benchmark: TikTok Extraction Strategies Given Lambda IP Blocking
 
 ## Owner Validation
 
-**Decision**: _(to be filled by the owner after review)_
+**Decision**: hybrid yt-dlp et apify actor en fallback pour la V1 mais on passera en fallback residential proxy en V2 (à consigner quelque part). J'ai renseigné # Tik Tok (via Apify actor)
+APIFY_TIKTOK_API_TOKEN=
+APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID= dans .env.example et les valeur sassociées dans .env
 **Validated at**: _(ISO date to be filled by the owner)_
 
 ---
