@@ -379,7 +379,7 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
         await database_async.update_processing_job(job)
 
     if not audio_url and job:
-        audio_url = getattr(job, "episode_url", None)
+        audio_url = getattr(job, "media_url", None)
     if not audio_s3_key and job:
         audio_s3_key = getattr(job, "audio_s3_key", None)
 

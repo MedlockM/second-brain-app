@@ -87,7 +87,7 @@ async def _get_media_items_for_period(
         media_items.append(
             DigestMediaItem(
                 media_item_id=job.id,
-                title=getattr(job, "title", None) or getattr(job, "episode_title", None),
+                title=getattr(job, "title", None),
                 media_type=getattr(job, "media_type", None),
                 source_platform=getattr(job, "source_platform", None),
                 added_at=job.created_at.isoformat(),

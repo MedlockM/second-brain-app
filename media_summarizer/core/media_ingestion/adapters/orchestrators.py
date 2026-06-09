@@ -174,12 +174,12 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         job = ProcessingJob(
             user_id=command.user.user_id,
             user_email=command.user.user_email,
-            podcast_url=resolved.normalized_url,
-            episode_url=resolved.audio_url,
+            source_url=resolved.normalized_url,
+            media_url=resolved.audio_url,
             media_key=resolved.media_key,
-            normalized_url=resolved.normalized_url,
-            podcast_title=title,
-            episode_title=title,
+            title=title,
+            source_platform=resolved.source_platform.value,
+            media_type=resolved.media_type.value,
         )
 
         reservation_created = False
@@ -373,7 +373,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             elif resolved.media_type == MediaType.IMAGE_POST:
                 # Instagram image posts (single + carousel) — dispatch to image/OCR queue
                 # Caption is persisted in metadata; images sent for visual processing
-                job.mark_extracting()
+                job.mark_downloading()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
                     queue_name=self._instagram_image_queue,
@@ -527,7 +527,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     source_platform=resolved.source_platform.value,
                 )
             elif resolved.resolver_key == "tiktok.default":
-                job.mark_extracting()
+                job.mark_downloading()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
                     queue_name=self._tiktok_ingestion_queue,
