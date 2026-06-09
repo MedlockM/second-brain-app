@@ -1,0 +1,61 @@
+# CloudWatch Alarms for YouTube Apify ingestion (task-129)
+#
+# These alarms monitor the Apify YouTube Transcript actor integration.
+# Metrics are emitted by youtube_ingestion_worker.py via _emit_metric().
+
+namespace: MediaSummarizer/YouTube
+
+metrics:
+  - name: apify_youtube_api_calls
+    description: >
+      Count of Apify YouTube actor invocations, dimensioned by outcome.
+    dimensions:
+      outcome:
+        - success
+        - actor_failed
+        - quota_exceeded
+        - timeout
+        - unavailable
+    unit: Count
+
+  - name: apify_youtube_credits_consumed
+    description: >
+      Number of Apify credits consumed per YouTube transcript fetch.
+      Default 1 per call; actual cost from actor payload when available.
+    unit: Count
+
+alarms:
+
+  - name: apify-youtube-failure-rate-high
+    description: >
+      YouTube Apify actor failure rate exceeds 10% over 5 minutes.
+      Triggers a warning to the ops channel.
+    metric_math:
+      expression: "(actor_failed + quota_exceeded + timeout) / total * 100"
+      metrics:
+        actor_failed:
+          metric: apify_youtube_api_calls
+          dimension: {outcome: actor_failed}
+          stat: Sum
+          period: 300
+        quota_exceeded:
+          metric: apify_youtube_api_calls
+          dimension: {outcome: quota_exceeded}
+          stat: Sum
+          period: 300
+        timeout:
+          metric: apify_youtube_api_calls
+          dimension: {outcome: timeout}
+          stat: Sum
+          period: 300
+        total:
+          metric: apify_youtube_api_calls
+          stat: Sum
+          period: 300
+    threshold: 10
+    comparison: GreaterThanThreshold
+    evaluation_periods: 1
+    datapoints_to_alarm: 1
+    treat_missing_data: notBreaching
+    actions:
+      - sns:warn-channel

@@ -107,6 +107,15 @@ class Settings:
         self.APIFY_TIMEOUT_SECONDS = int(
             os.getenv("APIFY_TIMEOUT_SECONDS", "60")
         )
+        self.APIFY_POLL_INTERVAL_SECONDS = float(
+            os.getenv("APIFY_POLL_INTERVAL_SECONDS", "3")
+        )
+        self.APIFY_MAX_POLLS = int(
+            os.getenv("APIFY_MAX_POLLS", "40")
+        )
+        self.GETINSAVER_API_BASE_URL = os.getenv(
+            "GETINSAVER_API_BASE_URL", "https://getinsaver.com/api/v1"
+        )
 
         # Document Parsing Configuration
         self.LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY", "")

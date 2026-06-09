@@ -77,23 +77,48 @@ Implication d'implementation:
 - la distinction entre `native_subtitles_found`, `native_subtitles_absent`, `rate_limited` et `extractor_failed` doit etre exposee dans les resultats d'ingestion
 - `yt-dlp` doit etre maintenu a jour regulierement, car la robustesse de cette approche depend directement des evolutions de son extracteur TikTok
 
-### YouTube
-Strategie retenue:
-- utiliser une cascade en trois niveaux
-- privilegier les sous-titres avant toute extraction audio
+### YouTube (SUPERSEDED -- see V1 post-task-126 section below)
 
-Ordre des fallbacks:
+~~Strategie retenue:~~
+~~- utiliser une cascade en trois niveaux~~
+~~- privilegier les sous-titres avant toute extraction audio~~
+
+~~Ordre des fallbacks:~~
 
 | Niveau | Source | Outil | Declencheur du fallback |
 | --- | --- | --- | --- |
-| 1 | Sous-titres manuels | `youtube-transcript-api` | Aucun transcript manuel trouve |
-| 2 | Sous-titres auto-generes | `youtube-transcript-api` | Aucun transcript auto trouve |
-| 3 | Transcription audio | `yt-dlp` + Deepgram | Dernier recours |
+| ~~1~~ | ~~Sous-titres manuels~~ | ~~`youtube-transcript-api`~~ | ~~Aucun transcript manuel trouve~~ |
+| ~~2~~ | ~~Sous-titres auto-generes~~ | ~~`youtube-transcript-api`~~ | ~~Aucun transcript auto trouve~~ |
+| ~~3~~ | ~~Transcription audio~~ | ~~`yt-dlp` + Deepgram~~ | ~~Dernier recours~~ |
 
-Regles d'usage:
-- si un transcript manuel est disponible, il est utilise sans passer aux niveaux suivants
-- si aucun transcript manuel n'est disponible, tenter les sous-titres auto-generes
-- si aucun transcript exploitable n'est disponible via `youtube-transcript-api`, extraire l'audio avec `yt-dlp` puis transcrire via Deepgram
+**Status: SUPERSEDED by task-126/task-129 (June 2026). YouTube now blocks all cloud provider IPs, making `youtube-transcript-api` and `yt-dlp` non-functional from Lambda.**
+
+### YouTube extraction (V1, post-task-126)
+
+Strategie retenue:
+- Apify YouTube Transcript actor as primary and sole extraction method
+- Deepgram fallback only if the Apify actor exposes a usable audio URL (currently: no)
+- `youtube-transcript-api` and `yt-dlp` removed from the YouTube pipeline entirely
+
+Contexte:
+- YouTube systematically blocks AWS Lambda IP ranges (`eu-west-3`), making both `youtube-transcript-api` and `yt-dlp` non-functional from cloud environments
+- task-126 benchmarked 10 strategies; owner chose Apify for infrastructure consolidation (already used for Instagram via task-108) and billing isolation via separate Apify accounts
+
+Principe:
+- Single call to the Apify YouTube Transcript actor (configured via `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID`)
+- Actor handles anti-bot measures internally (residential proxies, browser attestation)
+- Returns transcript as timed segments or flat text
+- On actor failure: job marked as failed with appropriate user message
+- No audio fallback path (the actor does not expose raw audio URLs)
+
+Observabilite:
+- CloudWatch metric `apify_youtube_api_calls{outcome}` tracks success/failure rates
+- CloudWatch metric `apify_youtube_credits_consumed` tracks per-call cost
+- Alarm on failure rate > 10% over 5 minutes
+
+References:
+- `docs/research/task-126-youtube-extraction/README.md` (benchmark and owner decision)
+- `media_summarizer/workers/youtube_ingestion_worker.py` (implementation)
 
 ## Principes transverses
 - `native_transcript` reste la source prioritaire chaque fois qu'elle existe
