@@ -18,10 +18,24 @@ PODCASTINDEXORG_API_KEY, GOOGLE_CLIENT_ID, APPLE_PRIVATE_KEY, etc.).
 
 Pass via terraform.tfvars or -var-file. Empty by default so plan/apply on a
 fresh checkout doesn't fail; populate before any real deploy.
+
+IMPORTANT: Never place comments inside quoted string values in terraform.tfvars.
+A value like:
+  ALGOLIA_API_KEY = "abc123   # admin key"
+stores the comment as part of the secret. Always put comments OUTSIDE quotes:
+  ALGOLIA_API_KEY = "abc123"  # admin key
 EOT
   type        = map(string)
   default     = {}
   sensitive   = true
+
+  validation {
+    condition = alltrue([
+      for k, v in var.secret_payload :
+      length(regexall("\\s+#\\s", v)) == 0
+    ])
+    error_message = "One or more secret_payload values contain a trailing comment inside the string (pattern: whitespace + '#' + space). Move comments outside the quotes in terraform.tfvars."
+  }
 }
 
 resource "aws_secretsmanager_secret" "runtime" {

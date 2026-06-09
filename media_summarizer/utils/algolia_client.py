@@ -20,10 +20,12 @@ from algoliasearch.search.client import SearchClientSync
 
 logger = logging.getLogger(__name__)
 
-# Configuration from environment
-ALGOLIA_APP_ID = os.environ.get("ALGOLIA_APP_ID", "")
-ALGOLIA_API_KEY = os.environ.get("ALGOLIA_API_KEY", "")
-ALGOLIA_INDEX_NAME = os.environ.get("ALGOLIA_INDEX_NAME", "transcripts")
+# Configuration from environment.
+# strip() guards against corrupted values (e.g. trailing comment accidentally
+# stored inside the secret string in Secrets Manager).
+ALGOLIA_APP_ID = os.environ.get("ALGOLIA_APP_ID", "").strip()
+ALGOLIA_API_KEY = os.environ.get("ALGOLIA_API_KEY", "").strip()
+ALGOLIA_INDEX_NAME = os.environ.get("ALGOLIA_INDEX_NAME", "transcripts").strip()
 
 # Singleton client instance
 _client: Optional[SearchClientSync] = None
