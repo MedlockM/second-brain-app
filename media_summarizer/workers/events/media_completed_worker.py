@@ -1,7 +1,8 @@
 """
 Media completed events consumer -- fan-out to media watchers.
 
-- Consumes events from MEDIA_COMPLETED_EVENTS_QUEUE (episode-completed-events, legacy queue name)
+- Consumes events from MEDIA_COMPLETED_EVENTS_QUEUE (episode-completion-events)
+- Canonical event_type: episode_completion_status (with status: success/failure)
 - For each media key, fetches watchers, marks processing state, and finalizes their minute usage
 - In V1, all user notifications are via mobile app polling; email notifications disabled
 """
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 MEDIA_COMPLETED_EVENTS_QUEUE = os.environ.get(
     "MEDIA_COMPLETED_EVENTS_QUEUE",
-    os.environ.get("EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"),
+    os.environ.get("EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"),
 )
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
 
@@ -50,14 +51,15 @@ async def _load_summary_content(summary_s3_key: Optional[str]) -> Optional[Dict[
 
 async def process_event(message: Dict[str, Any]) -> None:
     body = json.loads(message.get("Body", "{}"))
-    # Accept both new and legacy event types
+    # Accept canonical and legacy event types
     event_type = body.get("event_type")
-    if event_type not in ("media_completed", "episode_completed"):
+    if event_type not in ("episode_completion_status", "media_completed", "episode_completed"):
         logger.warning(f"Ignoring unknown event type: {event_type}")
         return
 
     # Accept both new and legacy field names
     media_key = body.get("media_key") or body.get("episode_guid")
+    status = body.get("status", "success")  # legacy events have no status field; treat as success
     minutes_used = int(body.get("minutes_used") or 0)
     source_title = body.get("source_title") or body.get("podcast_title")
     media_title = body.get("media_title") or body.get("episode_title")
@@ -67,14 +69,25 @@ async def process_event(message: Dict[str, Any]) -> None:
         logger.error(f"Missing media_key in event: {body}")
         return
 
-    # Load summary content once for all watchers
-    summary_content = await _load_summary_content(summary_s3_key)
-
     # Fetch watchers
     watchers = await media_watchers.list_watchers(media_key)
     if not watchers:
         logger.info(f"No watchers for media key {media_key}")
         return
+
+    # Handle failure events: mark all watchers as failed and return early
+    if status == "failure":
+        failure_reason = body.get("error_message", "upstream_pipeline_failure")
+        logger.warning(f"Processing failure event for media_key={media_key}: {failure_reason}")
+        for w in watchers:
+            try:
+                await media_watchers.mark_watcher_failed(media_key, w.get("user_id"), reason=failure_reason)
+            except Exception as e:
+                logger.error(f"Failed to mark watcher {w.get('user_id')} as failed: {e}")
+        return
+
+    # Load summary content once for all watchers
+    summary_content = await _load_summary_content(summary_s3_key)
 
     # Fan-out
     for w in watchers:

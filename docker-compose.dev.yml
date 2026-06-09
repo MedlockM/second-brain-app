@@ -155,7 +155,7 @@ services:
       - TRANSCRIPTION_QUEUE=transcription-queue
       - SUMMARIZATION_QUEUE=summarization-queue
       - NOTIFICATION_QUEUE=email-notification-queue
-      - EPISODE_COMPLETED_EVENTS_QUEUE=episode-completed-events
+      - EPISODE_COMPLETION_EVENTS_QUEUE=episode-completion-events
     depends_on:
       localstack:
         condition: service_healthy
@@ -224,7 +224,7 @@ services:
       - PROCESSING_JOBS_TABLE=processing_jobs
       - CREDIT_TRANSACTIONS_TABLE=credit_transactions
       # SQS Queues
-      - EPISODE_COMPLETED_EVENTS_QUEUE=episode-completed-events
+      - EPISODE_COMPLETION_EVENTS_QUEUE=episode-completion-events
       - NOTIFICATION_QUEUE=email-notification-queue
     depends_on:
       localstack:

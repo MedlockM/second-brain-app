@@ -40,8 +40,8 @@ class SummarizationWorker:
 
 # Configuration
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
+EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
 )
 FLASHCARDS_QUEUE = os.environ.get("FLASHCARDS_QUEUE", "flashcards-queue")
 FLASHCARDS_AUTO_GENERATE = os.environ.get(
@@ -324,23 +324,24 @@ async def process_summarization_message(message_body: Dict[str, Any]) -> None:
 
             await finalize_usage(job_id, minutes_used)
 
-            # Publish episode-completed event for watchers fan-out
+            # Publish completion event for watchers fan-out
             try:
                 await sqs.send_message(
-                    queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
+                    queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
                     message_body={
-                        "event_type": "episode_completed",
-                        "episode_guid": message_body.get("episode_guid"),
+                        "event_type": "episode_completion_status",
+                        "status": "success",
+                        "media_key": message_body.get("episode_guid"),
                         "canonical_job_id": job_id,
                         "summary_s3_key": summary_s3_key,
-                        "podcast_title": message_body.get("podcast_title"),
-                        "episode_title": message_body.get("episode_title"),
+                        "source_title": message_body.get("podcast_title"),
+                        "media_title": message_body.get("episode_title"),
                         "minutes_used": minutes_used,
                     },
                 )
             except Exception as ee:
                 logger.warning(
-                    f"Failed to publish episode-completed event for job {job_id}: {ee}"
+                    f"Failed to publish episode-completion-status event for job {job_id}: {ee}"
                 )
 
             # Auto-trigger flashcards generation after transcript completion

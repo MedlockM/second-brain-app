@@ -763,13 +763,13 @@ resource "aws_sqs_queue" "flashcards" {
 }
 
 
-# Episode completed events (fan-out to watchers)
-resource "aws_sqs_queue" "episode_completed_dlq" { name = "episode-completed-dlq" }
-resource "aws_sqs_queue" "episode_completed" {
-  name = "episode-completed-events"
+# Episode completion events (fan-out to watchers)
+resource "aws_sqs_queue" "episode_completion_dlq" { name = "episode-completion-dlq" }
+resource "aws_sqs_queue" "episode_completion" {
+  name = "episode-completion-events"
 
   redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.episode_completed_dlq.arn
+    deadLetterTargetArn = aws_sqs_queue.episode_completion_dlq.arn
     maxReceiveCount     = 3
   })
 }
@@ -814,7 +814,7 @@ output "sqs_queues" {
     aws_sqs_queue.tiktok_ingestion.name,
     aws_sqs_queue.summarization.name,
     aws_sqs_queue.flashcards.name,
-    aws_sqs_queue.episode_completed.name,
+    aws_sqs_queue.episode_completion.name,
     aws_sqs_queue.push_notification.name,
     aws_sqs_queue.spotify_sync.name,
   ]
