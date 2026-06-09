@@ -1,7 +1,7 @@
 ---
 id: task-126
 title: Benchmark YouTube transcript extraction strategies given Lambda IP blocking by YouTube
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 01:30'
 labels:
