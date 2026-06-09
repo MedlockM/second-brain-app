@@ -1,9 +1,10 @@
 ---
 id: task-136
 title: Fix document search indexing — Algolia API key corrupted by trailing comment in Secrets Manager
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 16:50'
+updated_date: '2026-06-09'
 labels:
   - bug
   - infrastructure

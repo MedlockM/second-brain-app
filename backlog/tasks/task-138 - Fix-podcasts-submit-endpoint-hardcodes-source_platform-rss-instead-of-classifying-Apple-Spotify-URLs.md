@@ -1,9 +1,10 @@
 ---
 id: task-138
 title: Fix /api/v1/podcasts/submit — endpoint hardcodes source_platform=rss instead of classifying Apple/Spotify URLs
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 16:50'
+updated_date: '2026-06-09'
 labels:
   - bug
   - backend

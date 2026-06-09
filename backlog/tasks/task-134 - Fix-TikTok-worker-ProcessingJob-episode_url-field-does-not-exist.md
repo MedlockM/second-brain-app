@@ -1,9 +1,10 @@
 ---
 id: task-134
 title: Fix TikTok worker — ProcessingJob has no field "episode_url"
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 16:50'
+updated_date: '2026-06-09'
 labels:
   - bug
   - backend

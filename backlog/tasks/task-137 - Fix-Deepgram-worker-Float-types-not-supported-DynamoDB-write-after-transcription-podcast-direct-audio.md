@@ -1,9 +1,10 @@
 ---
 id: task-137
 title: Fix Deepgram worker — Float types not supported. Use Decimal types instead. (DynamoDB write after transcription)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 16:50'
+updated_date: '2026-06-09'
 labels:
   - bug
   - backend

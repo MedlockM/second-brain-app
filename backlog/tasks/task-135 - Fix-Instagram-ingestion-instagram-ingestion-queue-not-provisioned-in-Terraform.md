@@ -1,9 +1,10 @@
 ---
 id: task-135
 title: Fix Instagram ingestion — instagram-ingestion-queue not provisioned in Terraform
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 16:50'
+updated_date: '2026-06-09'
 labels:
   - bug
   - infrastructure
