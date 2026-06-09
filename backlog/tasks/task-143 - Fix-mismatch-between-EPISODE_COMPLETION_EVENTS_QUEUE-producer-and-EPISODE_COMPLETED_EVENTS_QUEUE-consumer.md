@@ -1,7 +1,7 @@
 ---
 id: task-143
 title: Fix mismatch between EPISODE_COMPLETION_EVENTS_QUEUE (producer) and EPISODE_COMPLETED_EVENTS_QUEUE (consumer)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 19:30'
 labels:

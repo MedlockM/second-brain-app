@@ -1,7 +1,7 @@
 ---
 id: task-139
 title: Fix Deepgram fallback — 403 Forbidden when fetching CDN URLs blocked by source platform IP policies
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 17:30'
 labels:

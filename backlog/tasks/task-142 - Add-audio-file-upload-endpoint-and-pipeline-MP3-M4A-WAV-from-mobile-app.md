@@ -1,7 +1,7 @@
 ---
 id: task-142
 title: Add audio file upload endpoint and pipeline (MP3/M4A/WAV) from mobile app
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 18:50'
 labels:
