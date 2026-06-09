@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } fr
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { FeedbackService } from "../../src/services/feedbackService";
 import {
@@ -22,6 +23,11 @@ import {
 export default function AccountScreen() {
   const { user, token, logout } = useAuth();
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
+  const router = useRouter();
+
+  const handleBugReport = () => {
+    router.push("/bug-report");
+  };
 
   const handleLogout = () => {
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
@@ -93,6 +99,11 @@ export default function AccountScreen() {
           label="Feature Requests"
           onPress={handleFeedback}
           isLoading={isFeedbackLoading}
+        />
+        <MenuItem
+          icon="bug-outline"
+          label="Report a Bug"
+          onPress={handleBugReport}
         />
         <View style={styles.menuDivider} />
         <TouchableOpacity
