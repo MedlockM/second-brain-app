@@ -1,7 +1,7 @@
 ---
 id: task-154
 title: Fix media_completed_events worker — media_watchers DynamoDB table not provisioned
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 23:00'
 labels:

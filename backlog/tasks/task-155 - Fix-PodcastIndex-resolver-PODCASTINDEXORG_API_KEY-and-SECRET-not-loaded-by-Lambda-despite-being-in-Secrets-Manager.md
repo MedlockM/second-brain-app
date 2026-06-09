@@ -1,7 +1,7 @@
 ---
 id: task-155
 title: Fix PodcastIndex resolver — PODCASTINDEXORG_API_KEY/SECRET not loaded by Lambda despite being in Secrets Manager
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 23:00'
 labels:

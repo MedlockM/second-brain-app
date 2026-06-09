@@ -1,7 +1,7 @@
 ---
 id: task-149
 title: Add E2E test for TikTok yt-dlp → Apify fallback chain
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 22:30'
 labels:

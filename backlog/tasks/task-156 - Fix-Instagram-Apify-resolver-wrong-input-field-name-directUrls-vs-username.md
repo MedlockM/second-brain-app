@@ -1,7 +1,7 @@
 ---
 id: task-156
 title: Fix Instagram Apify resolver — wrong input field name (directUrls vs username)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 00:00'
 labels:

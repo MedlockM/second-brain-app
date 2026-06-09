@@ -1,7 +1,7 @@
 ---
 id: task-151
 title: Add E2E test for document LlamaParse → Unstructured fallback chain
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 22:30'
 labels:
