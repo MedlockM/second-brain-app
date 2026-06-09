@@ -14,8 +14,18 @@ Configuration:
 
 from __future__ import annotations
 
-import asyncio
 import os
+
+# Force AWS_REGION to match the dev env BEFORE any media_summarizer import.
+# Reason: python-dotenv loads .env with override=False, so a shell-exported
+# AWS_REGION (e.g. AWS_REGION=us-east-1 from the developer's shell init) wins
+# over .env's AWS_REGION=eu-west-3. The teardown then queries DynamoDB tables
+# in the wrong region and gets ResourceNotFoundException.
+# Override here to make E2E runs robust regardless of shell state.
+os.environ["AWS_REGION"] = os.getenv("E2E_AWS_REGION", "eu-west-3")
+os.environ["AWS_DEFAULT_REGION"] = os.environ["AWS_REGION"]
+
+import asyncio
 import time
 import uuid
 from typing import Any, Awaitable, Callable, Dict, Optional

@@ -1,7 +1,7 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-06-08 (Apple Sign in with Apple chaîne complète provisionnée + `PRICING_ADMIN_SECRET` généré + RevenueCat iOS app configurée : `.p8` + Key ID + Issuer ID renseignés, `EXPO_PUBLIC_REVENUCAT_APPLE_KEY` en local dans `mobile/.env` ; correctif naming `EXPO_PUBLIC_GOOGLE_CLIENT_ID_<PLATFORM>` aligné avec `mobile/app.config.ts` ; **Phase 3 AWS dev déployée** : 140 ressources Terraform créées en `eu-west-3`, image Lambda ARM64 pushée dans ECR, API Gateway répond `HTTP 200` sur `/api/v1/health/`).
+> Date de rédaction : 2026-05-19. Dernière mise à jour : 2026-06-09 (Phase 3 AWS dev déployée + **Phase 4 article + 4 artifacts + YouTube validés E2E** via la suite pytest `tests/e2e/`). Sources V1 restantes à valider : podcast, X, TikTok, Instagram, PDF.
 
 ---
 
@@ -244,29 +244,57 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 
 **Pour staging/prod** : recopier `terraform.tfvars` avec `environment = "staging"` ou `"prod"`, mettre `enable_alarms = true` (réactive les 42 alarmes + SNS topics + email subscriptions), réutiliser la même image Lambda dans le même ECR (multi-env partagé).
 
-### Phase 4 — Tests d'intégration contre AWS dev (jour 3-4)
+### Phase 4 — Tests d'intégration contre AWS dev (jour 3-4) — **PARTIELLEMENT DONE 2026-06-09**
 
-> **Décision 2026-05-28** : on n'utilise pas LocalStack en V1. Pour un projet solo,
-> les coûts AWS dev (DynamoDB on-demand + S3 + SQS + Lambda) sont négligeables
-> face aux coûts variables OpenAI/Deepgram/LlamaParse qui sont identiques local
-> ou cloud, et LocalStack introduit des écarts de fidélité (IAM, EventBridge,
-> Secrets Manager, edge cases SQS) qui font perdre plus de temps qu'ils n'en
-> économisent. On lance l'API + workers Python en local avec un `.env` pointant
-> directement sur l'environnement AWS `dev`.
+> **Décision 2026-05-28 puis 2026-06-09** : pas de LocalStack (purgé via task-130). Tests E2E directement contre l'API Gateway dev.
+>
+> **Évolution 2026-06-09** : on n'utilise plus uvicorn local pour les tests d'intégration. L'API + les 14 workers tournent en Lambda sur AWS dev (Phase 3) ; on tape directement l'API Gateway via une suite pytest E2E versionnée (`tests/e2e/`). Un re-run prend 30-50 secondes, idempotent, avec teardown automatique.
 
-1. Renseigner le `.env` racine avec les credentials AWS dev (gabarit complet dans `.env.example`). `python-dotenv` le charge automatiquement à l'import via `media_summarizer/__init__.py` ; en prod les vraies env vars priment (`override=False`).
-2. Lancer l'API et les workers Python en local (hot-reload), pointant sur les vraies ressources AWS dev (DynamoDB, S3, SQS, Secrets Manager).
-3. Tester chaque source d'ingestion via `POST /api/media/ingest` :
-   - URL article → vérifier extraction → artifacts générés
-   - URL YouTube → vérifier transcript → artifacts
-   - URL podcast (Apple Podcasts ou Spotify) → resolver PodcastIndex → transcript → artifacts
-   - URL X (post avec vidéo) → resolver X → transcript → artifacts
-   - URL TikTok → worker TikTok → subtitles natifs ou Deepgram → artifacts
-   - **URL Instagram (reel)** → resolver Instagram → Deepgram → artifacts
-   - **Upload PDF/DOCX/PPTX** → worker `document_parsing` → LlamaParse (primaire) ou Unstructured (fallback) → artifacts
-4. Vérifier les états du job dans DynamoDB dev : `pending → resolving → transcribing → ready_for_artifacts → completed`.
-5. Tester le digest journalier (EventBridge rule sur l'env dev).
-6. Nettoyer périodiquement les données dev (script de purge ou TTL DynamoDB) pour éviter d'accumuler du bruit entre les sessions de test.
+#### Suite E2E pytest (`tests/e2e/`)
+
+- `pytest -m e2e` lance toute la suite contre `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com` (override via `API_BASE_URL`).
+- `tests/e2e/conftest.py` crée un user de test (email horodaté `e2e-test-<ts>-<uuid>@test.local`) au début de session, ingère un article Wikipedia partagé pour les tests d'artifacts, supprime tout en teardown (user + auth_tokens + processing_jobs + artifacts + tags + folders).
+- Marqueur `@pytest.mark.e2e` ; suite skipped par défaut (`pytest` sans `-m` lance uniquement les unit tests).
+- Détails et runbook : `tests/e2e/README.md`.
+
+#### Statut par source au 2026-06-09
+
+| Source | Statut E2E | Référence |
+|---|---|---|
+| Health check API | ✅ passing | `tests/e2e/test_health.py` |
+| **Article web** (Wikipedia) | ✅ passing en 15s | `test_phase4_ingestion.py::test_article_reaches_completed` |
+| **Artifacts on-demand** : summary, notes, flashcards, quiz | ✅ tous les 4 passing en ~5s chacun | `test_phase4_ingestion.py::test_artifact_*_e2e` |
+| **YouTube** (Apify) | ✅ passing depuis task-132 (2026-06-09) | `test_phase4_other_sources.py::test_youtube_ingestion` |
+| Podcast | ⏭ skip — jamais validé E2E | `test_phase4_other_sources.py::test_podcast_ingestion` |
+| X (Twitter) | ⏭ skip — jamais validé E2E | idem |
+| TikTok | ⏭ skip — jamais validé E2E | idem |
+| Instagram | ⏭ skip — jamais validé E2E | idem |
+| Document upload (PDF/DOCX/PPTX) | ⏭ skip — utilise endpoint multipart différent (`/api/media/upload`) | idem |
+
+#### Bugs détectés et fixés en route
+
+Phase 4 a déclenché une cascade de fixes infra/backend :
+
+- **task-119** — Cleanup legacy `ops_alerts` SNS topic + log group dupliqué + `attribute {}` HCL invalide ✅
+- **task-120** — Align S3 bucket names env↔terraform + `ProcessingJob.extraction_metadata` field ✅
+- **task-121** — Remove deprecated `email` field from summarization worker (legacy SMTP path) ✅
+- **task-122** — On-demand artifact pipeline : contract `artifact_id` API↔workers + `media_artifacts` DynamoDB table + worker `quiz` (queue + Lambda + IAM) ✅
+- **task-123** — Migrate summarization worker to `artifact_id` contract ✅
+- **task-124** — Move `finalize_usage` + `episode_completed` event out of summarization (correctness) ✅
+- **task-125** — Audit `JobStatus.SUMMARIZING/NOTIFYING` for dead code removal ✅
+- **task-126** — Benchmark YouTube extraction strategies given Lambda IP block ✅
+- **task-127** — Split `APIFY_API_TOKEN` per source (Instagram + YouTube separately) ✅
+- **task-128** — In-app bug reporting infra ✅
+- **task-129** — Migrate YouTube ingestion worker to Apify ✅
+- **task-130** — Purge LocalStack runtime + infrastructure ✅
+- **task-131** — Fix Apify YouTube actor URL `~` separator + missing `_publish_failure_event` queue ✅
+- **task-132** — Fix Apify YouTube actor input payload (HTTP 400 → 200) ✅
+
+#### Reste à faire
+
+1. **Valider les 5 sources skipped** : podcast, X, TikTok, Instagram, document upload. Pour chacune, soumettre une URL réelle, puis flipper le test de `skip` à `e2e` dans `test_phase4_other_sources.py`.
+2. **Tester le digest journalier** (EventBridge rule). Pas couvert par l'E2E actuelle.
+3. **Mettre en place une purge automatique** des artifacts E2E orphelins en cas de crash pytest non-recoverable (Ctrl-C). Aujourd'hui le teardown manque ce cas — script de cleanup à ajouter dans `scripts/`.
 
 ### Phase 5 — Mobile dev build (jour 4-5)
 

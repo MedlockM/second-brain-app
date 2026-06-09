@@ -53,38 +53,86 @@ async def test_youtube_ingestion(
     )
 
 
+async def _submit_podcast_and_wait(
+    http_client: httpx.AsyncClient,
+    auth_headers: Dict[str, str],
+    podcast_url: str,
+    timeout_s: float = 300,
+) -> str:
+    """Submit a podcast URL via /api/v1/podcasts/submit, then poll /api/media/{id}.
+
+    The podcasts/submit endpoint exercises the full pipeline:
+    URL → PodcastIndex resolver → audio_url enclosure → Deepgram → artifacts.
+    Returns job_id (== media_item_id).
+    """
+    resp = await http_client.post(
+        "/api/v1/podcasts/submit",
+        json={"podcast_url": podcast_url},
+        headers=auth_headers,
+    )
+    resp.raise_for_status()
+    job_id = resp.json()["job_id"]
+    body = await poll_until(
+        client=http_client,
+        url=f"/api/media/{job_id}",
+        headers=auth_headers,
+        predicate=lambda b: b.get("status") in ("completed", "failed"),
+        timeout_s=timeout_s,
+        interval_s=5,
+    )
+    assert body.get("status") == "completed", (
+        f"podcast ingestion stayed in {body.get('status')}: {body}"
+    )
+    return job_id
+
+
 @pytest.mark.e2e
-@pytest.mark.skip(reason="podcast E2E never validated; flip to active when ready")
-async def test_podcast_ingestion(
+async def test_podcast_via_podcastindex(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
 ) -> None:
-    await _ingest_and_wait(
+    """End-to-end podcast pipeline:
+
+      Apple Podcasts URL → /api/v1/podcasts/submit → PodcastIndex resolver
+      → audio enclosure URL → Deepgram → completed.
+
+    Picks a podcast known for short episodes (≤ 5 min) to keep Deepgram cost
+    bounded. The fixture URL must be a real podcast page (not a direct MP3),
+    otherwise the resolver path is skipped.
+    """
+    # The Daily — NYT has a known short trailer ~1-2 min, stable URL.
+    # Replace with a more stable fixture if NYT migrates.
+    await _submit_podcast_and_wait(
         http_client,
         auth_headers,
-        "https://podcasts.apple.com/us/podcast/the-knowledge-project/id990149481",
+        "https://podcasts.apple.com/us/podcast/the-daily/id1200361736",
     )
 
 
 @pytest.mark.e2e
-@pytest.mark.skip(reason="X (Twitter) E2E never validated; flip to active when ready")
 async def test_x_ingestion(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
 ) -> None:
+    """Text-only tweet via X API. No Deepgram cost (text content only).
+
+    Stable target: Jack Dorsey's first-ever tweet (immutable, public, text-only).
+    """
     await _ingest_and_wait(
         http_client,
         auth_headers,
-        "https://x.com/elonmusk/status/1234567890",
+        "https://x.com/jack/status/20",
     )
 
 
 @pytest.mark.e2e
-@pytest.mark.skip(reason="TikTok E2E never validated; flip to active when ready")
 async def test_tiktok_ingestion(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
 ) -> None:
+    """TikTok ingestion. Picks a short stable public video to minimize Deepgram
+    cost (worker uses native subtitles when available, falls back to Deepgram).
+    """
     await _ingest_and_wait(
         http_client,
         auth_headers,
@@ -93,11 +141,12 @@ async def test_tiktok_ingestion(
 
 
 @pytest.mark.e2e
-@pytest.mark.skip(reason="Instagram E2E never validated; flip to active when ready")
 async def test_instagram_ingestion(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
 ) -> None:
+    """Instagram Reel via Apify. Reels are capped at 90s by IG, so cost is bounded.
+    Uses Apify's native transcript field when available (no Deepgram cost)."""
     await _ingest_and_wait(
         http_client,
         auth_headers,
@@ -106,14 +155,34 @@ async def test_instagram_ingestion(
 
 
 @pytest.mark.e2e
-@pytest.mark.skip(reason="PDF/DOCX/PPTX upload E2E never validated; uses a different endpoint")
 async def test_document_upload(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
 ) -> None:
-    """Document upload uses POST /api/media/upload (multipart), not ingest-url.
+    """Document upload via POST /api/media/upload (multipart). Uses a tiny
+    1-page PDF fixture (~640 bytes) to keep LlamaParse cost minimal."""
+    from pathlib import Path
 
-    When activated, this test should upload a small PDF fixture and poll until
-    completion via the same status flow.
-    """
-    raise NotImplementedError("document upload skeleton, fill in when ready")
+    fixture = Path(__file__).parent / "fixtures" / "sample.pdf"
+    with fixture.open("rb") as f:
+        files = {"file": ("sample.pdf", f, "application/pdf")}
+        resp = await http_client.post(
+            "/api/media/upload",
+            files=files,
+            headers=auth_headers,
+        )
+    assert resp.status_code == 202, (
+        f"upload failed: {resp.status_code} {resp.text}"
+    )
+    media_item_id = resp.json()["media_item_id"]
+    body = await poll_until(
+        client=http_client,
+        url=f"/api/media/{media_item_id}",
+        headers=auth_headers,
+        predicate=lambda b: b.get("status") in ("completed", "failed"),
+        timeout_s=180,
+        interval_s=5,
+    )
+    assert body.get("status") == "completed", (
+        f"document upload stayed in {body.get('status')}: {body}"
+    )
