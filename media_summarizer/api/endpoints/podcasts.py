@@ -26,6 +26,14 @@ logger = logging.getLogger(__name__)
 REQUIRED_MINUTES = 1
 SEARCH_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_SEARCH", "60/minute")
 _AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
+
+_PLATFORM_HOST_MAP: dict[str, str] = {
+    "open.spotify.com": "spotify",
+    "podcasts.apple.com": "apple_podcasts",
+    "itunes.apple.com": "apple_podcasts",
+    "www.deezer.com": "deezer",
+    "deezer.com": "deezer",
+}
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
 )
@@ -44,6 +52,19 @@ def _looks_like_audio_url(url: str) -> bool:
     except ValueError:
         path = value
     return path.endswith(_AUDIO_EXTENSIONS)
+
+
+def _classify_podcast_source_platform(url: str) -> str:
+    """Classify a podcast URL into a source platform based on its host.
+
+    Returns a SourcePlatform enum value string (e.g. "apple_podcasts", "spotify").
+    Falls back to "rss" for unrecognized hosts.
+    """
+    try:
+        host = (urlsplit(url).hostname or "").strip().lower()
+    except ValueError:
+        return "rss"
+    return _PLATFORM_HOST_MAP.get(host, "rss")
 
 
 class PodcastSubmitRequest(BaseModel):
@@ -222,17 +243,20 @@ async def submit_podcast_for_processing(
             )
         else:
             # Non-audio URL path: resolve enclosure URL first, then route to Deepgram.
-            # Pass feed_url so the resolution worker can provide it for RSS transcript lookup.
+            platform = _classify_podcast_source_platform(submitted_url)
+            message_body: dict = {
+                "job_id": job.id,
+                "user_email": user.email,
+                "user_id": user.id,
+                "normalized_url": submitted_url,
+                "source_platform": platform,
+            }
+            # Only pass feed_url for RSS sources (platform-specific URLs are not feeds).
+            if platform == "rss":
+                message_body["feed_url"] = submitted_url
             await sqs.send_message(
                 queue_name=PODCASTINDEX_RESOLUTION_QUEUE,
-                message_body={
-                    "job_id": job.id,
-                    "user_email": user.email,
-                    "user_id": user.id,
-                    "normalized_url": submitted_url,
-                    "feed_url": submitted_url,
-                    "source_platform": "rss",
-                },
+                message_body=message_body,
             )
 
         return {"job_id": job.id, "status": job.status.value}
