@@ -112,8 +112,8 @@ async def ingested_article(
         url=f"/api/media/{media_item_id}",
         headers=auth_headers,
         predicate=lambda body: body.get("status") in ("completed", "failed"),
-        timeout_s=120,
-        interval_s=3,
+        timeout_s=30,
+        interval_s=2,
     )
     final_status = (await http_client.get(
         f"/api/media/{media_item_id}", headers=auth_headers

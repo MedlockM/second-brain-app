@@ -18,8 +18,15 @@ async def _ingest_and_wait(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
     url: str,
-    timeout_s: float = 180,
+    timeout_s: float = 30,
 ) -> str:
+    """Submit a URL and poll until the job reaches completed/failed.
+
+    Default 30s timeout (was 180s): if a happy-path E2E takes more than 30s,
+    something is genuinely wrong (bot detection, CDN block, etc.) and we want
+    the test to fail fast rather than hang. Override per-test if needed for
+    sources with legitimately longer transcription times.
+    """
     resp = await http_client.post(
         "/api/media/ingest-url",
         json={"url": url},
@@ -33,7 +40,7 @@ async def _ingest_and_wait(
         headers=auth_headers,
         predicate=lambda b: b.get("status") in ("completed", "failed"),
         timeout_s=timeout_s,
-        interval_s=5,
+        interval_s=3,
     )
     assert body.get("status") == "completed", (
         f"ingestion stayed in {body.get('status')}: {body}"
@@ -57,7 +64,7 @@ async def _submit_podcast_and_wait(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
     podcast_url: str,
-    timeout_s: float = 300,
+    timeout_s: float = 60,
 ) -> str:
     """Submit a podcast URL via /api/v1/podcasts/submit, then poll /api/media/{id}.
 
@@ -152,13 +159,25 @@ async def test_tiktok_ingestion(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
 ) -> None:
-    """TikTok ingestion. Picks a short stable public video to minimize Deepgram
-    cost (worker uses native subtitles when available, falls back to Deepgram).
+    """TikTok ingestion happy path with native auto-captions.
+
+    Fixture: NatGeo TikTok with English voiceover and auto-captions enabled.
+    yt-dlp from Lambda picks up the native captions, no Deepgram fallback
+    needed.
+
+    Caveats:
+    - TikTok sometimes blocks AWS Lambda IPs on certain videos (cf. task-140).
+      If this fixture starts failing with "IP address is blocked", swap for
+      another stable account (@cnn, @washingtonpost, @ted) — most major media
+      accounts work.
+    - Videos without native auto-captions force a Deepgram fallback that fails
+      with 403 from TikTok's CDN (cf. task-139). Always pick a fixture with
+      auto-captions for happy-path E2E.
     """
     await _ingest_and_wait(
         http_client,
         auth_headers,
-        "https://www.tiktok.com/@scout2015/video/6718335390845095173",
+        "https://www.tiktok.com/@natgeo/video/7164880277226016043",
     )
 
 
@@ -207,8 +226,8 @@ async def test_document_upload(
         url=f"/api/media/{media_item_id}",
         headers=auth_headers,
         predicate=lambda b: b.get("status") in ("completed", "failed"),
-        timeout_s=180,
-        interval_s=5,
+        timeout_s=60,
+        interval_s=3,
     )
     assert body.get("status") == "completed", (
         f"document upload stayed in {body.get('status')}: {body}"
