@@ -3,10 +3,26 @@ Processing job model for tracking media processing jobs using DynamoDB.
 """
 
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, field_validator, model_validator
 import uuid
 from enum import Enum
+
+
+def _sanitize_floats_for_dynamodb(value: Any) -> Any:
+    """Recursively convert float values to Decimal for DynamoDB compatibility.
+
+    DynamoDB does not accept Python float types; they must be converted to
+    Decimal(str(v)) before writing.
+    """
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {k: _sanitize_floats_for_dynamodb(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_floats_for_dynamodb(item) for item in value]
+    return value
 
 
 class JobStatus(str, Enum):
@@ -159,7 +175,11 @@ class ProcessingJob(BaseModel):
         for field in optional_fields:
             value = getattr(self, field)
             if value is not None:
-                item[field] = value
+                # Sanitize dict/list fields to convert floats to Decimal for DynamoDB
+                if isinstance(value, (dict, list)):
+                    item[field] = _sanitize_floats_for_dynamodb(value)
+                else:
+                    item[field] = value
 
         # Handle list fields (store only when non-empty)
         if self.tag_ids:
@@ -288,9 +308,21 @@ class ProcessingJob(BaseModel):
         self.updated_at = datetime.now(timezone.utc)
 
     def set_transcription_metadata(self, metadata: Dict[str, Any]) -> None:
-        """Set transcription metadata (provider, model, language, etc.)."""
+        """Set transcription metadata (provider, model, language, duration, etc.).
+
+        Float values will be sanitized to Decimal during DynamoDB serialization.
+        """
         self.transcription_metadata = metadata
         self.updated_at = datetime.now(timezone.utc)
+
+    def set_extraction_metadata(self, metadata: Dict[str, Any]) -> None:
+        """Set extraction metadata (provider, page_count, etc.).
+
+        Float values will be sanitized to Decimal during DynamoDB serialization.
+        """
+        self.extraction_metadata = metadata
+        self.updated_at = datetime.now(timezone.utc)
+
 
     def set_processing_duration(self, step: str, duration: int) -> None:
         """Set the processing duration for a specific step."""
