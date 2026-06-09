@@ -14,7 +14,7 @@ directly — bypassing Deepgram transcription entirely. Otherwise it falls back 
 `downloadedVideo` (or `videoUrl`) as `audio_url` for Deepgram.
 
 Environment variables:
-    APIFY_API_TOKEN: API token for Apify (required)
+    APIFY_INSTAGRAM_API_TOKEN: API token for the Instagram Apify account (required)
     APIFY_INSTAGRAM_REEL_ACTOR_ID: Actor ID for Instagram Reel Scraper
         (default: apify/instagram-reel-scraper)
     APIFY_INSTAGRAM_POST_ACTOR_ID: Actor ID for Instagram Post Scraper
@@ -58,7 +58,7 @@ from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
-APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN", "").strip()
+APIFY_INSTAGRAM_API_TOKEN = os.environ.get("APIFY_INSTAGRAM_API_TOKEN", "").strip()
 APIFY_API_BASE_URL = "https://api.apify.com/v2"
 APIFY_INSTAGRAM_REEL_ACTOR_ID = os.environ.get(
     "APIFY_INSTAGRAM_REEL_ACTOR_ID", "apify~instagram-reel-scraper"
@@ -286,7 +286,7 @@ class InstagramApifyResolver(ContentResolverPort):
         transcript_min_length: Optional[int] = None,
         use_apify_transcript: Optional[bool] = None,
     ):
-        self._api_token = api_token or APIFY_API_TOKEN
+        self._api_token = api_token or APIFY_INSTAGRAM_API_TOKEN
         self._timeout = timeout or APIFY_TIMEOUT_SECONDS
         self._reel_actor_id = reel_actor_id or APIFY_INSTAGRAM_REEL_ACTOR_ID
         self._post_actor_id = post_actor_id or APIFY_INSTAGRAM_POST_ACTOR_ID

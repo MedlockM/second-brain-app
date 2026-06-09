@@ -37,7 +37,11 @@ secret_payload = {
   X_API_BEARER_TOKEN = ""
 
   # Instagram (Apify)
-  APIFY_API_TOKEN = ""
+  APIFY_INSTAGRAM_API_TOKEN = ""
+
+  # YouTube (Apify)
+  APIFY_YOUTUBE_API_TOKEN = ""
+  APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = ""
 
   # Document parsing (LlamaParse primary + Unstructured fallback)
   LLAMAPARSE_API_KEY    = ""

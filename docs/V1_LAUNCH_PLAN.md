@@ -153,7 +153,7 @@ X_API_BEARER_TOKEN=...               # OAuth 2.0 bearer
 TIKTOK_RATE_LIMIT_PER_HOUR=200       # par défaut, à ajuster
 
 # Instagram (via Apify actors)
-APIFY_API_TOKEN=...
+APIFY_INSTAGRAM_API_TOKEN=...
 APIFY_TIMEOUT_SECONDS=60
 
 # Documents — LlamaParse primaire + Unstructured fallback

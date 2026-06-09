@@ -90,7 +90,8 @@ class Settings:
         self.YTDLP_TIMEOUT_SECONDS = float(
             os.getenv("YTDLP_TIMEOUT_SECONDS", "30")
         )
-        self.APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
+        self.APIFY_INSTAGRAM_API_TOKEN = os.getenv("APIFY_INSTAGRAM_API_TOKEN", "")
+        self.APIFY_YOUTUBE_API_TOKEN = os.getenv("APIFY_YOUTUBE_API_TOKEN", "")
         self.APIFY_INSTAGRAM_REEL_ACTOR_ID = os.getenv(
             "APIFY_INSTAGRAM_REEL_ACTOR_ID", "apify~instagram-reel-scraper"
         )
@@ -99,6 +100,9 @@ class Settings:
         )
         self.APIFY_INSTAGRAM_COMMENT_ACTOR_ID = os.getenv(
             "APIFY_INSTAGRAM_COMMENT_ACTOR_ID", "apify~instagram-comment-scraper"
+        )
+        self.APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = os.getenv(
+            "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID", ""
         )
         self.APIFY_TIMEOUT_SECONDS = int(
             os.getenv("APIFY_TIMEOUT_SECONDS", "60")
