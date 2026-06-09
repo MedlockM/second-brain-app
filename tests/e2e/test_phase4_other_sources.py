@@ -87,6 +87,28 @@ async def _submit_podcast_and_wait(
 
 
 @pytest.mark.e2e
+async def test_podcast_via_direct_audio_url(
+    http_client: httpx.AsyncClient,
+    auth_headers: Dict[str, str],
+) -> None:
+    """Direct audio URL ingestion (bypasses RSS/PodcastIndex, goes straight to
+    Deepgram transcription).
+
+    Uses a short (7s) spoken-word recording from the Internet Archive's
+    permanently-archived LibriVox collection. Archive.org URLs are designed to
+    be permanent (no link rot risk).
+    """
+    # LibriVox "Short Nonfiction Collection" - opening 7s reading (public domain).
+    # This is a direct MP3 download URL from archive.org — permanent by design.
+    await _ingest_and_wait(
+        http_client,
+        auth_headers,
+        "https://archive.org/download/count_monte_cristo_0711_librivox/count_of_monte_cristo_001_dumas_64kb.mp3",
+        timeout_s=300,
+    )
+
+
+@pytest.mark.e2e
 async def test_podcast_via_podcastindex(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
@@ -146,11 +168,16 @@ async def test_instagram_ingestion(
     auth_headers: Dict[str, str],
 ) -> None:
     """Instagram Reel via Apify. Reels are capped at 90s by IG, so cost is bounded.
-    Uses Apify's native transcript field when available (no Deepgram cost)."""
+    Uses Apify's native transcript field when available (no Deepgram cost).
+
+    Fixture: NatGeo educational reel with clear English narration (not music-only).
+    Previous fixture (CtMSAg9JqWZ) had no speech, causing empty transcript.
+    """
+    # NatGeo short educational reel with clear English narration.
     await _ingest_and_wait(
         http_client,
         auth_headers,
-        "https://www.instagram.com/reel/CtMSAg9JqWZ/",
+        "https://www.instagram.com/reel/CzHnAVRo6Cf/",
     )
 
 

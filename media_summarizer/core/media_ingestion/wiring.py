@@ -15,9 +15,6 @@ from media_summarizer.core.media_ingestion.adapters import (
     XPostResolver,
     YouTubeResolver,
 )
-from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
-    InstagramApifyResolver,
-)
 from media_summarizer.core.media_ingestion.ports import (
     ContentResolverPort,
     SubmissionOrchestratorPort,
@@ -35,6 +32,13 @@ def build_default_resolver_registry(
     *,
     extra_resolvers: Optional[Iterable[ContentResolverPort]] = None,
 ) -> ResolverRegistry:
+    # Lazy import to break circular dependency:
+    # instagram_apify_resolver -> core.media_ingestion.domain
+    #   -> core.media_ingestion.__init__ -> .wiring -> instagram_apify_resolver
+    from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
+        InstagramApifyResolver,
+    )
+
     registry = ResolverRegistry()
     registry.register_many(
         [

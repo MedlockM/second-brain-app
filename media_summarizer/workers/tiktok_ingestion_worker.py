@@ -754,7 +754,7 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
         )
 
-    job.mark_extracting()
+    job.mark_downloading()
     await database_async.update_processing_job(job)
 
     tiktok_id = _extract_tiktok_id(normalized_url)
