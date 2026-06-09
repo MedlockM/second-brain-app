@@ -741,6 +741,19 @@ resource "aws_sqs_queue" "tiktok_ingestion" {
   })
 }
 
+resource "aws_sqs_queue" "instagram_ingestion_dlq" {
+  name = "instagram-ingestion-dlq"
+}
+
+resource "aws_sqs_queue" "instagram_ingestion" {
+  name = "instagram-ingestion-queue"
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.instagram_ingestion_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
 resource "aws_sqs_queue" "summarization_dlq" { name = "summarization-dlq" }
 resource "aws_sqs_queue" "summarization" {
   name = "summarization-queue"
@@ -812,6 +825,7 @@ output "sqs_queues" {
     aws_sqs_queue.x_ingestion.name,
     aws_sqs_queue.youtube_ingestion.name,
     aws_sqs_queue.tiktok_ingestion.name,
+    aws_sqs_queue.instagram_ingestion.name,
     aws_sqs_queue.summarization.name,
     aws_sqs_queue.flashcards.name,
     aws_sqs_queue.episode_completed.name,
