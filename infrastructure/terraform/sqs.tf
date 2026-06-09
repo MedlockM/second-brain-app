@@ -297,7 +297,38 @@ resource "aws_sqs_queue" "rss_feed_poll" {
 }
 
 # =============================================================================
-# Media Completed Events
+# Episode Completion Events (emitted by ingestion workers on success/failure)
+# =============================================================================
+
+resource "aws_sqs_queue" "episode_completion_events_dlq" {
+  name = "episode-completion-events-dlq"
+
+  tags = {
+    Name        = "episode-completion-events-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "episode_completion_events" {
+  name                       = "episode-completion-events"
+  visibility_timeout_seconds = 360
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.episode_completion_events_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "episode-completion-events"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# =============================================================================
+# Media Completed Events (consumed by summarization + media_completed workers)
 # =============================================================================
 
 resource "aws_sqs_queue" "media_completed_events_dlq" {
@@ -427,19 +458,20 @@ resource "aws_sqs_queue" "quiz" {
 output "queue_urls" {
   description = "URLs of the SQS queues"
   value = {
-    podcastindex_resolution = aws_sqs_queue.rss_resolution.url
-    article_extraction      = aws_sqs_queue.article_extraction.url
-    x_ingestion             = aws_sqs_queue.x_ingestion.url
-    youtube_ingestion       = aws_sqs_queue.youtube_ingestion.url
-    tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion.url
-    deepgram_transcription  = aws_sqs_queue.deepgram_transcription.url
-    summarization           = aws_sqs_queue.summarization.url
-    document_parsing        = aws_sqs_queue.document_parsing.url
-    search_indexing         = aws_sqs_queue.search_indexing.url
-    rss_feed_poll           = aws_sqs_queue.rss_feed_poll.url
-    media_completed_events  = aws_sqs_queue.media_completed_events.url
-    flashcards              = aws_sqs_queue.flashcards.url
-    notes                   = aws_sqs_queue.notes.url
-    quiz                    = aws_sqs_queue.quiz.url
+    podcastindex_resolution    = aws_sqs_queue.rss_resolution.url
+    article_extraction         = aws_sqs_queue.article_extraction.url
+    x_ingestion                = aws_sqs_queue.x_ingestion.url
+    youtube_ingestion          = aws_sqs_queue.youtube_ingestion.url
+    tiktok_ingestion           = aws_sqs_queue.tiktok_ingestion.url
+    deepgram_transcription     = aws_sqs_queue.deepgram_transcription.url
+    summarization              = aws_sqs_queue.summarization.url
+    document_parsing           = aws_sqs_queue.document_parsing.url
+    search_indexing            = aws_sqs_queue.search_indexing.url
+    rss_feed_poll              = aws_sqs_queue.rss_feed_poll.url
+    episode_completion_events  = aws_sqs_queue.episode_completion_events.url
+    media_completed_events     = aws_sqs_queue.media_completed_events.url
+    flashcards                 = aws_sqs_queue.flashcards.url
+    notes                      = aws_sqs_queue.notes.url
+    quiz                       = aws_sqs_queue.quiz.url
   }
 }

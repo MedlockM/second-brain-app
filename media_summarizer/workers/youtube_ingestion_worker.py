@@ -208,6 +208,10 @@ async def _fetch_apify_transcript(video_id: str, source_url: str) -> Dict[str, A
             user_message=_TEMPORARY_APIFY_MESSAGE,
         )
 
+    # Apify uses ~ as the namespace separator in URL paths (e.g. owner~actor-name).
+    # Normalize common misconfiguration where / is used instead.
+    normalized_actor_id = actor_id.replace("/", "~")
+
     headers = {
         "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json",
@@ -220,7 +224,7 @@ async def _fetch_apify_transcript(video_id: str, source_url: str) -> Dict[str, A
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         # Step 1: Start the actor run
-        run_url = f"{APIFY_API_BASE_URL}/acts/{actor_id}/runs"
+        run_url = f"{APIFY_API_BASE_URL}/acts/{normalized_actor_id}/runs"
         try:
             response = await client.post(run_url, headers=headers, json=input_data)
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
