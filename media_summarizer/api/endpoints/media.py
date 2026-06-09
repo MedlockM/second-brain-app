@@ -124,6 +124,7 @@ class MediaItemResponse(BaseModel):
             "(e.g. 'deepgram', 'apify_native', 'yt-dlp_native')"
         ),
     )
+    provider: Optional[str] = None
 
 
 # ---------- Folder assignment models ----------
@@ -799,9 +800,14 @@ async def get_media_item(
                 )
         tx_meta = job.transcription_metadata
         if not transcript_source and tx_meta and isinstance(tx_meta, dict):
-            provider = tx_meta.get("provider")
-            if isinstance(provider, str) and provider.strip():
-                transcript_source = provider.strip()
+            provider_val = tx_meta.get("provider")
+            if isinstance(provider_val, str) and provider_val.strip():
+                transcript_source = provider_val.strip()
+
+        # Extract provider from transcription_metadata if available
+        provider = None
+        if job.transcription_metadata and isinstance(job.transcription_metadata, dict):
+            provider = job.transcription_metadata.get("provider")
 
         return MediaItemResponse(
             media_item_id=job.id,
@@ -812,6 +818,7 @@ async def get_media_item(
             extraction_metadata=job.extraction_metadata,
             transcription_metadata=job.transcription_metadata,
             transcript_source=transcript_source,
+            provider=provider,
         )
 
     except HTTPException:

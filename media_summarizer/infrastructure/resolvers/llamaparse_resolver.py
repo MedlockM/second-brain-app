@@ -69,7 +69,20 @@ class LlamaParseResolver(DocumentParserPort):
         1. POST /upload with the file
         2. Poll GET /job/{job_id} until status is SUCCESS or ERROR
         3. GET /job/{job_id}/result/markdown to retrieve the content
+
+        Set FORCE_LLAMAPARSE_FAILURE=1 to force a simulated rate-limit error
+        (used by E2E tests to exercise the Unstructured fallback path).
         """
+        # Allow E2E tests to deterministically force a failure
+        if os.environ.get("FORCE_LLAMAPARSE_FAILURE", "").lower() in ("1", "true"):
+            logger.info("FORCE_LLAMAPARSE_FAILURE is set; returning simulated rate-limit error")
+            return ParseError(
+                code=ParseErrorCode.RATE_LIMITED,
+                message="Simulated LlamaParse failure (FORCE_LLAMAPARSE_FAILURE=1)",
+                provider=self.provider_name,
+                retryable=True,
+            )
+
         if not self._api_key:
             return ParseError(
                 code=ParseErrorCode.AUTHENTICATION_ERROR,

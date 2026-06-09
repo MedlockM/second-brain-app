@@ -7,10 +7,17 @@ fallback path was actually exercised.
 Cost per run (approx.):
 - TikTok Apify fallback: ~$0.005-0.01 (Apify actor call)
 - Instagram Deepgram fallback: ~$0.01-0.02 (Apify call + Deepgram 90s max)
+- Document Unstructured fallback: ~$0.001 (LlamaParse forced failure + Unstructured)
+
+IMPORTANT: The document fallback test requires FORCE_LLAMAPARSE_FAILURE=1 to be
+set on the document-parsing **worker** Lambda, not on the test runner.
 
 Naming convention: test_<source>_<fallback_name>
 """
 
+from __future__ import annotations
+
+from pathlib import Path
 from typing import Any, Dict
 
 import httpx
@@ -169,4 +176,69 @@ async def test_instagram_deepgram_fallback(
         f"This means the Apify native transcript was used instead of the "
         f"Deepgram fallback, or the fixture reel now has captions. "
         f"Full response: {detail}"
+    )
+
+
+# =============================================================================
+# Document: LlamaParse -> Unstructured fallback
+# =============================================================================
+
+
+@pytest.mark.e2e
+async def test_document_unstructured_fallback(
+    http_client: httpx.AsyncClient,
+    auth_headers: Dict[str, str],
+) -> None:
+    """Document upload where LlamaParse fails -> Unstructured fallback succeeds.
+
+    Prerequisites:
+        The document-parsing worker must have FORCE_LLAMAPARSE_FAILURE=1 set
+        in its environment. This causes LlamaParse to return a simulated
+        rate-limit error, triggering the Unstructured fallback path.
+
+    Assertions:
+        - Job reaches status == "completed"
+        - provider == "unstructured" (proving the fallback fired)
+
+    Fixture:
+        tests/e2e/fixtures/sample.pdf -- the same 1-page PDF used by the
+        happy-path test. Any valid PDF works since the failure is forced via
+        environment variable, not file content.
+    """
+    fixture = Path(__file__).parent / "fixtures" / "sample.pdf"
+    assert fixture.exists(), f"Fixture not found: {fixture}"
+
+    with fixture.open("rb") as f:
+        files = {"file": ("sample.pdf", f, "application/pdf")}
+        resp = await http_client.post(
+            "/api/media/upload",
+            files=files,
+            headers=auth_headers,
+        )
+
+    assert resp.status_code == 202, (
+        f"upload failed: {resp.status_code} {resp.text}"
+    )
+    media_item_id = resp.json()["media_item_id"]
+
+    # Poll until terminal state (completed or failed)
+    body = await poll_until(
+        client=http_client,
+        url=f"/api/media/{media_item_id}",
+        headers=auth_headers,
+        predicate=lambda b: b.get("status") in ("completed", "failed"),
+        timeout_s=30,
+        interval_s=3,
+    )
+
+    assert body.get("status") == "completed", (
+        f"document parsing did not complete: status={body.get('status')}, "
+        f"error={body.get('error_message')}"
+    )
+
+    # Verify the fallback provider was used
+    provider = body.get("provider")
+    assert provider == "unstructured", (
+        f"Expected fallback provider 'unstructured', got: '{provider}'. "
+        f"Ensure FORCE_LLAMAPARSE_FAILURE=1 is set on the document-parsing worker."
     )
