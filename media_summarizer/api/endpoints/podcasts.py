@@ -31,9 +31,16 @@ logger = logging.getLogger(__name__)
 REQUIRED_MINUTES = 1
 SEARCH_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_SEARCH", "60/minute")
 _AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
-_SPOTIFY_HOSTS = {"open.spotify.com", "www.open.spotify.com"}
-_APPLE_HOSTS = {"podcasts.apple.com", "www.podcasts.apple.com"}
-_DEEZER_HOSTS = {"www.deezer.com", "deezer.com"}
+
+_PLATFORM_HOST_MAP: dict[str, str] = {
+    "open.spotify.com": "spotify",
+    "www.open.spotify.com": "spotify",
+    "podcasts.apple.com": "apple_podcasts",
+    "www.podcasts.apple.com": "apple_podcasts",
+    "itunes.apple.com": "apple_podcasts",
+    "www.deezer.com": "deezer",
+    "deezer.com": "deezer",
+}
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
 )
@@ -55,23 +62,16 @@ def _looks_like_audio_url(url: str) -> bool:
 
 
 def _classify_podcast_source_platform(url: str) -> str:
-    """Classify a podcast URL into its source platform string value.
+    """Classify a podcast URL into a source platform based on its host.
 
-    Maps known podcast platform hosts to their SourcePlatform enum values.
-    Falls back to "rss" for unrecognized hosts (generic RSS feed URLs).
+    Returns a SourcePlatform enum value string (e.g. "apple_podcasts", "spotify").
+    Falls back to "rss" for unrecognized hosts.
     """
     try:
-        host = (urlsplit(url).hostname or "").lower()
+        host = (urlsplit(url).hostname or "").strip().lower()
     except ValueError:
         return "rss"
-
-    if host in _APPLE_HOSTS:
-        return "apple_podcasts"
-    if host in _SPOTIFY_HOSTS:
-        return "spotify"
-    if host in _DEEZER_HOSTS:
-        return "deezer"
-    return "rss"
+    return _PLATFORM_HOST_MAP.get(host, "rss")
 
 
 class PodcastSubmitRequest(BaseModel):
@@ -265,17 +265,20 @@ async def submit_podcast_for_processing(
             # Non-audio URL path: resolve enclosure URL first, then route to Deepgram.
             # Classify the URL host to pick the correct platform-specific resolver
             # downstream (Apple Podcasts, Spotify, Deezer, or generic RSS).
-            source_platform = _classify_podcast_source_platform(submitted_url)
+            platform = _classify_podcast_source_platform(submitted_url)
+            message_body: dict = {
+                "job_id": job.id,
+                "user_email": user.email,
+                "user_id": user.id,
+                "normalized_url": submitted_url,
+                "source_platform": platform,
+            }
+            # Only pass feed_url for RSS sources (platform-specific URLs are not feeds).
+            if platform == "rss":
+                message_body["feed_url"] = submitted_url
             await sqs.send_message(
                 queue_name=PODCASTINDEX_RESOLUTION_QUEUE,
-                message_body={
-                    "job_id": job.id,
-                    "user_email": user.email,
-                    "user_id": user.id,
-                    "normalized_url": submitted_url,
-                    "feed_url": submitted_url,
-                    "source_platform": source_platform,
-                },
+                message_body=message_body,
             )
 
         # Record quota usage after successful enqueue
