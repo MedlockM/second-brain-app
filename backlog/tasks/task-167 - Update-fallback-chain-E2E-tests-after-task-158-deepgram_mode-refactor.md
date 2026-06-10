@@ -1,7 +1,7 @@
 ---
 id: task-167
 title: Update fallback chain E2E tests (test_fallback_chains.py) after task-158 deepgram_mode refactor
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 06:00'
 labels:

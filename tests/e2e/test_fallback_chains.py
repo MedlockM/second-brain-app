@@ -6,28 +6,43 @@ fallback path was actually exercised.
 
 Cost per run (approx.):
 - TikTok Apify fallback: ~$0.005-0.01 (Apify actor call)
-- Instagram Deepgram fallback: ~$0.01-0.02 (Apify call + Deepgram 90s max)
-- Document Unstructured fallback: ~$0.001 (LlamaParse forced failure + Unstructured)
-- Deepgram push-mode fallback: ~$0.005 (Lambda download + Deepgram push-mode)
+- Instagram Deepgram fallback: ~$0.01-0.02 (Apify post scraper + Deepgram push)
+- Document Unstructured fallback: ~$0.001 (FORCE_LLAMAPARSE_FAILURE + Unstructured)
 
-IMPORTANT: Some tests require specific environment variables on the **worker**
-Lambda (not the test runner):
-- Document fallback: FORCE_LLAMAPARSE_FAILURE=1 on document-parsing worker
-- Deepgram push-mode fallback: FORCE_DEEPGRAM_PUSH_MODE=1 on Deepgram worker
-  (only affects pull_with_push_fallback mode; push/pull modes are unaffected)
+Architecture notes (post task-158):
+- TikTok: yt-dlp (primary) -> Apify (fallback on Lambda IP block)
+- Instagram video posts: Apify Post Scraper returns audio_url -> Deepgram push mode
+- Instagram Reels: Apify subtitle extractor (native-only, no Deepgram fallback)
+- Documents: LlamaParse (primary) -> Unstructured (fallback on any parse failure)
+- Deepgram modes are now explicit per producer (push/pull), no automatic fallback
 
 Naming convention: test_<source>_<fallback_name>
 """
 
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict
 
+import boto3
 import httpx
 import pytest
 
 from tests.e2e.conftest import poll_until
+
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+# Lambda function name for the document-parsing worker.
+# Pattern: {project_name}-worker-{worker_key} (from Terraform lambda_workers.tf)
+DOCUMENT_PARSING_LAMBDA = os.environ.get(
+    "DOCUMENT_PARSING_LAMBDA_NAME", "media-summarizer-worker-document_parsing"
+)
+AWS_REGION = os.environ.get("AWS_REGION", "eu-west-3")
 
 
 # =============================================================================
@@ -80,6 +95,33 @@ async def _get_media_item(
     return resp.json()
 
 
+def _set_lambda_env_var(function_name: str, key: str, value: str) -> Dict[str, str]:
+    """Add/update an environment variable on a Lambda function.
+
+    Returns the previous environment variables dict (for restore).
+    """
+    client = boto3.client("lambda", region_name=AWS_REGION)
+    config = client.get_function_configuration(FunctionName=function_name)
+    env_vars = (config.get("Environment") or {}).get("Variables", {})
+    original_env = dict(env_vars)
+
+    env_vars[key] = value
+    client.update_function_configuration(
+        FunctionName=function_name,
+        Environment={"Variables": env_vars},
+    )
+    return original_env
+
+
+def _restore_lambda_env(function_name: str, env_vars: Dict[str, str]) -> None:
+    """Restore Lambda environment variables to a previous state."""
+    client = boto3.client("lambda", region_name=AWS_REGION)
+    client.update_function_configuration(
+        FunctionName=function_name,
+        Environment={"Variables": env_vars},
+    )
+
+
 # =============================================================================
 # TikTok: yt-dlp IP-blocked -> Apify fallback
 # =============================================================================
@@ -96,15 +138,21 @@ async def test_tiktok_apify_fallback(
     from accessing this post' when fetched from AWS Lambda IPs.
     Picked from task-140 evidence (BBC TikTok video).
 
+    Timeout set to 120s to account for:
+    - yt-dlp slow-fail on IP block detection (up to 30s with internal retries)
+    - Apify actor cold-start + TikTok scraping (20-30s)
+    - SQS polling + Lambda cold-start overhead
+
     Asserts:
     - Job completes successfully (status == completed)
     - extraction_metadata.provider == "apify" (proving yt-dlp was NOT used)
+    - extraction_metadata.strategy_used == "apify_tiktok_ip_block_fallback"
     """
     media_item_id = await _ingest_and_wait(
         http_client,
         auth_headers,
         "https://www.tiktok.com/@bbc/video/7335731145619360992",
-        timeout_s=60,
+        timeout_s=120,
     )
 
     detail = await _get_media_item(http_client, auth_headers, media_item_id)
@@ -127,6 +175,78 @@ async def test_tiktok_apify_fallback(
 
 
 # =============================================================================
+# Instagram: video post -> Deepgram push-mode transcription
+# =============================================================================
+
+
+@pytest.mark.e2e
+async def test_instagram_deepgram_fallback(
+    http_client: httpx.AsyncClient,
+    auth_headers: Dict[str, str],
+) -> None:
+    """Instagram video post -> Apify Post Scraper returns audio_url -> Deepgram.
+
+    Post task-158 architecture:
+    - Reels/IGTV use the subtitle extractor (native-only, no Deepgram fallback)
+    - Video posts use the Post Scraper which returns audio_url, routed to
+      Deepgram with deepgram_mode="push" (explicit, per task-158)
+
+    This test exercises the video post -> Deepgram path. The fixture is a
+    public Instagram video post from a major media account (stable URL).
+
+    Fixture: National Geographic Instagram video post with English narration.
+    Using /p/ URL (post) rather than /reel/ to ensure the Post Scraper path
+    is exercised.
+
+    Timeout set to 120s to account for:
+    - Apify Post Scraper resolution (10-20s)
+    - Deepgram push-mode transcription (30-60s for short video)
+    - SQS polling + Lambda cold-start overhead
+
+    Asserts:
+    - Job completes successfully (status == completed)
+    - transcript_source includes "deepgram" (proving Deepgram was used)
+    - source_platform == "instagram"
+    """
+    # NatGeo Instagram video post - public, stable, English narration
+    # This is a /p/ (post) URL which routes through the Post Scraper actor,
+    # returning audio_url for Deepgram transcription rather than native captions.
+    media_item_id = await _ingest_and_wait(
+        http_client,
+        auth_headers,
+        "https://www.instagram.com/p/C0X2WJJrBqP/",
+        timeout_s=120,
+    )
+
+    detail = await _get_media_item(http_client, auth_headers, media_item_id)
+
+    # Verify Instagram source
+    assert detail.get("source_platform") == "instagram", (
+        f"Expected source_platform='instagram', got: '{detail.get('source_platform')}'"
+    )
+
+    # The Instagram worker routes video posts to Deepgram with
+    # deepgram_mode="push". After completion, the transcription_metadata
+    # should show provider="deepgram" and the extraction_metadata should
+    # show transcript_source="deepgram" (normalized from "deepgram_pending").
+    extraction_meta = detail.get("extraction_metadata") or {}
+    transcription_meta = detail.get("transcription_metadata") or {}
+    transcript_source = detail.get("transcript_source") or ""
+
+    deepgram_used = (
+        transcript_source == "deepgram"
+        or transcription_meta.get("provider") == "deepgram"
+        or extraction_meta.get("transcript_source") in ("deepgram", "deepgram_pending")
+    )
+    assert deepgram_used, (
+        f"Expected Deepgram transcription path, but metadata shows otherwise. "
+        f"transcript_source='{transcript_source}', "
+        f"extraction_metadata={extraction_meta}, "
+        f"transcription_metadata={transcription_meta}"
+    )
+
+
+# =============================================================================
 # Document: LlamaParse -> Unstructured fallback
 # =============================================================================
 
@@ -138,62 +258,98 @@ async def test_document_unstructured_fallback(
 ) -> None:
     """Document upload where LlamaParse fails -> Unstructured fallback succeeds.
 
+    Strategy: The test temporarily sets FORCE_LLAMAPARSE_FAILURE=1 on the
+    document-parsing worker Lambda, submits a PDF, verifies the Unstructured
+    fallback fires, then restores the original Lambda configuration.
+
+    This ensures:
+    - The fallback path (LlamaParse failure -> Unstructured) is exercised
+    - No FORCE_* flags persist on the production Lambda after the test
+    - The test is self-contained and does not depend on external setup
+
     Prerequisites:
-        The document-parsing worker must have FORCE_LLAMAPARSE_FAILURE=1 set
-        in its environment. This causes LlamaParse to return a simulated
-        rate-limit error, triggering the Unstructured fallback path.
+    - AWS credentials with permission to call lambda:GetFunctionConfiguration
+      and lambda:UpdateFunctionConfiguration on the document-parsing worker
+    - DOCUMENT_PARSING_LAMBDA_NAME env var (default: media-summarizer-worker-document_parsing)
 
     Assertions:
         - Job reaches status == "completed"
         - provider == "unstructured" (proving the fallback fired)
-
-    Fixture:
-        tests/e2e/fixtures/sample.pdf -- the same 1-page PDF used by the
-        happy-path test. Any valid PDF works since the failure is forced via
-        environment variable, not file content.
     """
     fixture = Path(__file__).parent / "fixtures" / "sample.pdf"
     assert fixture.exists(), f"Fixture not found: {fixture}"
 
-    with fixture.open("rb") as f:
-        files = {"file": ("sample.pdf", f, "application/pdf")}
-        resp = await http_client.post(
-            "/api/media/upload",
-            files=files,
-            headers=auth_headers,
+    # Temporarily set the force-failure flag on the Lambda
+    original_env: Dict[str, str] | None = None
+    try:
+        original_env = _set_lambda_env_var(
+            DOCUMENT_PARSING_LAMBDA, "FORCE_LLAMAPARSE_FAILURE", "1"
+        )
+    except Exception as exc:
+        pytest.skip(
+            f"Cannot set FORCE_LLAMAPARSE_FAILURE on Lambda "
+            f"'{DOCUMENT_PARSING_LAMBDA}': {exc!r}. "
+            f"Ensure AWS credentials have lambda:UpdateFunctionConfiguration permission."
         )
 
-    assert resp.status_code == 202, (
-        f"upload failed: {resp.status_code} {resp.text}"
-    )
-    media_item_id = resp.json()["media_item_id"]
+    try:
+        with fixture.open("rb") as f:
+            files = {"file": ("sample.pdf", f, "application/pdf")}
+            resp = await http_client.post(
+                "/api/media/upload",
+                files=files,
+                headers=auth_headers,
+            )
 
-    # Poll until terminal state (completed or failed)
-    body = await poll_until(
-        client=http_client,
-        url=f"/api/media/{media_item_id}",
-        headers=auth_headers,
-        predicate=lambda b: b.get("status") in ("completed", "failed"),
-        timeout_s=30,
-        interval_s=3,
-    )
+        assert resp.status_code == 202, (
+            f"upload failed: {resp.status_code} {resp.text}"
+        )
+        media_item_id = resp.json()["media_item_id"]
 
-    assert body.get("status") == "completed", (
-        f"document parsing did not complete: status={body.get('status')}, "
-        f"error={body.get('error_message')}"
-    )
+        # Poll until terminal state (completed or failed)
+        body = await poll_until(
+            client=http_client,
+            url=f"/api/media/{media_item_id}",
+            headers=auth_headers,
+            predicate=lambda b: b.get("status") in ("completed", "failed"),
+            timeout_s=60,
+            interval_s=3,
+        )
 
-    # Verify the fallback provider was used
-    provider = body.get("provider")
-    assert provider == "unstructured", (
-        f"Expected fallback provider 'unstructured', got: '{provider}'. "
-        f"Ensure FORCE_LLAMAPARSE_FAILURE=1 is set on the document-parsing worker."
-    )
+        assert body.get("status") == "completed", (
+            f"document parsing did not complete: status={body.get('status')}, "
+            f"error={body.get('error_message')}"
+        )
+
+        # Verify the fallback provider was used
+        provider = body.get("provider")
+        assert provider == "unstructured", (
+            f"Expected fallback provider 'unstructured', got: '{provider}'. "
+            f"The FORCE_LLAMAPARSE_FAILURE flag may not have taken effect yet "
+            f"(Lambda cold-start with old env). Retry the test."
+        )
+
+    finally:
+        # Always restore the original Lambda configuration
+        if original_env is not None:
+            try:
+                _restore_lambda_env(DOCUMENT_PARSING_LAMBDA, original_env)
+            except Exception as restore_exc:
+                # Log but do not mask the test failure
+                print(
+                    f"[WARNING] Failed to restore Lambda env for "
+                    f"'{DOCUMENT_PARSING_LAMBDA}': {restore_exc!r}. "
+                    f"Manually remove FORCE_LLAMAPARSE_FAILURE from the Lambda."
+                )
 
 
-# Note: a previous `test_deepgram_pushmode_fallback` exercising the
-# pull_with_push_fallback branch was removed 2026-06-10 after the task-158
-# refactor. Producers (TikTok, Instagram, X) that hit CDN blocks now declare
-# deepgram_mode="push" directly, bypassing the fallback branch entirely.
-# The fallback branch only triggers on user-pasted .mp3 URLs (an unstable,
-# unpredictable path that no fixture can reliably exercise).
+# =============================================================================
+# Removed tests (post task-158)
+# =============================================================================
+
+# Note: `test_deepgram_pushmode_fallback` was removed 2026-06-10 after the
+# task-158 refactor. Producers (TikTok, Instagram, X) that hit CDN blocks now
+# declare deepgram_mode="push" directly, bypassing the pull_with_push_fallback
+# branch entirely. That branch is a defensive fallback for unknown sources
+# (user-pasted .mp3 URLs) -- an unstable, unpredictable path that no fixture
+# can reliably exercise.
