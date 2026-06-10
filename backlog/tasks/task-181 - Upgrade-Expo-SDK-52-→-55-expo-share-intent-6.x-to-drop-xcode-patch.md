@@ -1,9 +1,10 @@
 ---
 id: task-181
 title: Upgrade Expo SDK 52 → 55 + expo-share-intent 6.x to drop xcode patch
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 14:04'
+updated_date: '2026-06-10 14:46'
 labels:
   - mobile
   - release
@@ -12,7 +13,6 @@ labels:
   - blocker-160
 dependencies: []
 priority: high
-dispatchable: false
 ---
 
 ## Description
@@ -73,12 +73,12 @@ Cette tâche **bloque task-160** (prebuild manuel). Une fois cette tâche Done, 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 expo dans mobile/package.json est >= 55.0.0 et toutes les deps expo-* sont alignées via npx expo install --fix
-- [ ] #2 react-native est sur la version recommandée par Expo SDK 55 (cf. expo upgrade helper)
-- [ ] #3 expo-share-intent est >= 6.1.0
-- [ ] #4 Aucun mobile/patches/ ni script postinstall ni dépendance patch-package dans mobile/package.json
-- [ ] #5 npx expo prebuild --clean termine sans erreur (ni TypeError correctForPath, ni warning bloquant)
+- [x] #1 expo dans mobile/package.json est >= 55.0.0 et toutes les deps expo-* sont alignées via npx expo install --fix
+- [x] #2 react-native est sur la version recommandée par Expo SDK 55 (cf. expo upgrade helper)
+- [x] #3 expo-share-intent est >= 6.1.0
+- [x] #4 Aucun mobile/patches/ ni script postinstall ni dépendance patch-package dans mobile/package.json
+- [x] #5 npx expo prebuild --clean termine sans erreur (ni TypeError correctForPath, ni warning bloquant)
 - [ ] #6 Tests manuels OK : auth Google + Apple, share extension iOS (texte + audio + URL), ingestion media (TikTok / Instagram / WhatsApp / RSS), RevenueCat sandbox, deep links scheme media-summarizer
-- [ ] #7 scripts/mobile_release_check.sh est mis à jour pour valider Expo SDK 55
-- [ ] #8 bash scripts/mobile_release_check.sh passe sans FAIL
+- [x] #7 scripts/mobile_release_check.sh est mis à jour pour valider Expo SDK 55
+- [x] #8 bash scripts/mobile_release_check.sh passe sans FAIL
 <!-- AC:END -->
