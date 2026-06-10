@@ -7,13 +7,13 @@ import React, {
   useState,
 } from "react";
 import { Platform } from "react-native";
-import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
+import { useShareIntentContext } from "expo-share-intent";
+import type { ShareIntent } from "expo-share-intent";
 import { useAuth } from "./AuthContext";
 import {
   validateShareIntentPayload,
   getShareIntentErrorMessage,
-  extractUrlFromSharedText,
 } from "../lib/urlValidation";
 import { MediaService } from "../services/mediaService";
 import {
@@ -23,7 +23,14 @@ import {
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 import type { IngestUrlResponse } from "../types/media";
 import type { SharedFileAttachment } from "../types/sharedContent";
-import type { ShareContentType } from "../services/shareIntentService";
+
+/**
+ * The type of content being shared.
+ * - "url": Text containing a URL (existing flow)
+ * - "text": Plain text with no URL (WhatsApp text message)
+ * - "audio": Audio file attachment (WhatsApp voice message)
+ */
+export type ShareContentType = "url" | "text" | "audio";
 
 export type ShareIntakeStatus =
   | "idle"
@@ -71,16 +78,22 @@ const INITIAL_STATE: ShareIntakeState = {
 const ShareIntentContext = createContext<ShareIntentContextValue | null>(null);
 
 /**
- * Provider that listens for Android share intents at the app level.
- * When a valid URL is shared, navigates to the share-confirmation screen.
+ * Provider that consumes the official expo-share-intent package context
+ * and maps its resolved ShareIntent data to our app's ShareIntakeState.
  *
- * Handles two scenarios:
- * 1. User is authenticated: processes intent immediately and navigates.
- * 2. User is not authenticated: stores the pending text and processes it
- *    once authentication completes.
+ * The expo-share-intent package handles:
+ * - Intercepting scheme URLs (media-summarizer://dataUrl=<key>?nonce=...)
+ * - Resolving data from iOS App Groups via the native module
+ * - Listening for Android intent data
+ * - App state transitions (foreground/background reset)
  *
- * Must be placed inside AuthProvider (for useAuth) and within the navigation
- * container (expo-router Stack provides this).
+ * This provider handles:
+ * - Auth gating (queues intent while unauthenticated)
+ * - Mapping the package's ShareIntent shape to our ShareIntakeState
+ * - Navigation to the share-confirmation screen
+ * - Submission logic (ingest URL, text, or audio to backend)
+ *
+ * Must be placed inside AuthProvider and the package's ShareIntentProvider.
  */
 export function ShareIntentProvider({
   children,
@@ -90,71 +103,124 @@ export function ShareIntentProvider({
   const { token, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
   const [intake, setIntake] = useState<ShareIntakeState>(INITIAL_STATE);
-  const processedRef = useRef<Set<string>>(new Set());
   const hasNavigatedRef = useRef(false);
-  const pendingTextRef = useRef<string | null>(null);
+  const lastProcessedKeyRef = useRef<string | null>(null);
+  const pendingIntentRef = useRef<ShareIntent | null>(null);
+
+  // Consume the official expo-share-intent package context
+  const { hasShareIntent, shareIntent, resetShareIntent } =
+    useShareIntentContext();
 
   /**
-   * Process a raw text payload from a share intent.
-   * Now supports three paths: URL (existing), plain text (WhatsApp), audio (WhatsApp).
+   * Map an expo-share-intent ShareIntent object to our ShareIntakeState
+   * and navigate to the confirmation screen.
    */
-  const processIncomingText = useCallback(
-    (text: string, overrideContentType?: ShareContentType) => {
-      if (!text || text.trim().length === 0) return;
+  const processShareIntent = useCallback(
+    (intent: ShareIntent) => {
+      // Deduplication: build a key from the intent content
+      const intentKey = JSON.stringify({
+        type: intent.type,
+        text: intent.text,
+        webUrl: intent.webUrl,
+        files: intent.files?.map((f) => f.path),
+      });
+      if (lastProcessedKeyRef.current === intentKey) return;
+      lastProcessedKeyRef.current = intentKey;
 
-      const key = text.trim();
-      if (processedRef.current.has(key)) return;
-      processedRef.current.add(key);
-
-      // Expire dedup guard after 5 seconds to allow re-sharing
+      // Clear dedup after 5 seconds to allow re-sharing the same content
       setTimeout(() => {
-        processedRef.current.delete(key);
+        if (lastProcessedKeyRef.current === intentKey) {
+          lastProcessedKeyRef.current = null;
+        }
       }, 5000);
 
-      // If caller explicitly says this is text-only (no URL), skip URL extraction
-      if (overrideContentType === "text") {
-        setIntake({
-          status: "ready",
-          url: null,
-          rawText: text,
-          message: null,
-          response: null,
-          contentType: "text",
-          audioFile: null,
-        });
-      } else {
-        // Try to extract a URL (existing behavior)
-        const result = validateShareIntentPayload(text);
-
+      // Map the package ShareIntent to our ShareIntakeState
+      if (intent.type === "weburl" && intent.webUrl) {
+        // Web URL share (Safari, Instagram Reel, etc.)
+        const result = validateShareIntentPayload(intent.webUrl);
         if (!result.valid) {
-          // No URL found -- treat as shared text (WhatsApp text without URL)
-          if (result.reason === "no_url_found") {
-            setIntake({
-              status: "ready",
-              url: null,
-              rawText: text,
-              message: null,
-              response: null,
-              contentType: "text",
-              audioFile: null,
-            });
-          } else {
-            setIntake({
-              status: "invalid",
-              url: null,
-              rawText: text,
-              message: getShareIntentErrorMessage(result.reason),
-              response: null,
-              contentType: "url",
-              audioFile: null,
-            });
-          }
+          setIntake({
+            status: "invalid",
+            url: null,
+            rawText: intent.webUrl,
+            message: getShareIntentErrorMessage(result.reason),
+            response: null,
+            contentType: "url",
+            audioFile: null,
+          });
         } else {
           setIntake({
             status: "ready",
             url: result.url,
-            rawText: text,
+            rawText: intent.text ?? intent.webUrl,
             message: null,
+            response: null,
+            contentType: "url",
+            audioFile: null,
+          });
+        }
+      } else if (intent.type === "file" || intent.type === "media") {
+        // File share - check if audio
+        const file = intent.files?.[0];
+        if (file && file.mimeType?.startsWith("audio/")) {
+          const audioFile: SharedFileAttachment = {
+            uri: file.path,
+            mimeType: file.mimeType,
+            fileName: file.fileName ?? null,
+            fileSize: file.size ?? null,
+          };
+          setIntake({
+            status: "ready",
+            url: null,
+            rawText: null,
+            message: null,
+            response: null,
+            contentType: "audio",
+            audioFile,
+          });
+        } else if (file) {
+          // Non-audio file - not currently supported
+          setIntake({
+            status: "invalid",
+            url: null,
+            rawText: null,
+            message: "This file type is not supported yet.",
+            response: null,
+            contentType: "url",
+            audioFile: null,
+          });
+        }
+      } else if (intent.type === "text" && intent.text) {
+        // Plain text share - check if it contains a URL
+        const result = validateShareIntentPayload(intent.text);
+        if (result.valid) {
+          // Text contains a URL
+          setIntake({
+            status: "ready",
+            url: result.url,
+            rawText: intent.text,
+            message: null,
+            response: null,
+            contentType: "url",
+            audioFile: null,
+          });
+        } else if (result.reason === "no_url_found") {
+          // Pure text share (WhatsApp text message without URL)
+          setIntake({
+            status: "ready",
+            url: null,
+            rawText: intent.text,
+            message: null,
+            response: null,
+            contentType: "text",
+            audioFile: null,
+          });
+        } else {
+          setIntake({
+            status: "invalid",
+            url: null,
+            rawText: intent.text,
+            message: getShareIntentErrorMessage(result.reason),
             response: null,
             contentType: "url",
             audioFile: null,
@@ -175,196 +241,32 @@ export function ShareIntentProvider({
   );
 
   /**
-   * Process an incoming audio file from a share intent (WhatsApp voice message).
+   * React to share intent changes from the package.
+   * If authenticated, process immediately. Otherwise, queue for later.
    */
-  const processIncomingAudioFile = useCallback(
-    (file: SharedFileAttachment) => {
-      const key = `audio:${file.uri}`;
-      if (processedRef.current.has(key)) return;
-      processedRef.current.add(key);
-
-      // Expire dedup guard after 5 seconds
-      setTimeout(() => {
-        processedRef.current.delete(key);
-      }, 5000);
-
-      setIntake({
-        status: "ready",
-        url: null,
-        rawText: null,
-        message: null,
-        response: null,
-        contentType: "audio",
-        audioFile: file,
-      });
-
-      // Navigate to share confirmation screen
-      if (!hasNavigatedRef.current) {
-        hasNavigatedRef.current = true;
-        setTimeout(() => {
-          router.push("/share-confirmation");
-          hasNavigatedRef.current = false;
-        }, 0);
-      }
-    },
-    [router],
-  );
-
-  /**
-   * Extract shared text from an incoming URL event (Android intent).
-   * Handles various intent formats.
-   */
-  const parseIntentUrl = useCallback(
-    (url: string): { text: string | null; contentType?: ShareContentType } => {
-      try {
-        const parsed = Linking.parse(url);
-
-        // Check for audio file shared via our custom scheme
-        if (parsed.queryParams?.contentType === "audio" && parsed.queryParams?.fileUri) {
-          // Audio file intent: will be handled separately
-          return { text: null, contentType: "audio" };
-        }
-
-        // Check for explicit text-only content type
-        if (parsed.queryParams?.contentType === "text" && parsed.queryParams?.text) {
-          return { text: String(parsed.queryParams.text), contentType: "text" };
-        }
-
-        // Android SEND intents pass text in query params
-        if (parsed.queryParams?.text) {
-          return { text: String(parsed.queryParams.text) };
-        }
-
-        // Some launchers pass EXTRA_TEXT
-        if (parsed.queryParams?.["android.intent.extra.TEXT"]) {
-          return { text: String(parsed.queryParams["android.intent.extra.TEXT"]) };
-        }
-
-        // The entire URL is a plain http(s) link being shared
-        if (url.startsWith("http://") || url.startsWith("https://")) {
-          return { text: url };
-        }
-
-        // Last resort: extract URL from raw string
-        return { text: extractUrlFromSharedText(url) };
-      } catch {
-        return { text: extractUrlFromSharedText(url) };
-      }
-    },
-    [],
-  );
-
-  /**
-   * Handle an incoming URL event (Android intent or iOS custom scheme).
-   */
-  const handleIncomingUrl = useCallback(
-    (url: string | null) => {
-      if (!url) return;
-
-      // iOS share extension passes data via custom scheme
-      if (url.startsWith("media-summarizer://")) {
-        const parsed = Linking.parse(url);
-
-        // Handle audio file from iOS share extension
-        if (parsed.queryParams?.contentType === "audio" && parsed.queryParams?.fileUri) {
-          const file: SharedFileAttachment = {
-            uri: decodeURIComponent(String(parsed.queryParams.fileUri)),
-            mimeType: String(parsed.queryParams.mimeType ?? "audio/mp4"),
-            fileName: parsed.queryParams.fileName
-              ? String(parsed.queryParams.fileName)
-              : null,
-            fileSize: parsed.queryParams.fileSize
-              ? Number(parsed.queryParams.fileSize)
-              : null,
-          };
-
-          if (!isAuthenticated) {
-            pendingTextRef.current = `__audio__:${JSON.stringify(file)}`;
-            return;
-          }
-
-          processIncomingAudioFile(file);
-          return;
-        }
-
-        // Handle text-only from iOS share extension
-        if (parsed.queryParams?.contentType === "text" && parsed.queryParams?.text) {
-          const text = String(parsed.queryParams.text);
-          if (!isAuthenticated) {
-            pendingTextRef.current = `__text__:${text}`;
-            return;
-          }
-          processIncomingText(text, "text");
-          return;
-        }
-      }
-
-      if (Platform.OS !== "android" && !url.startsWith("media-summarizer://")) return;
-
-      const result = parseIntentUrl(url);
-      if (!result.text) return;
-
-      if (!isAuthenticated) {
-        // Store for later processing after login
-        if (result.contentType === "text") {
-          pendingTextRef.current = `__text__:${result.text}`;
-        } else {
-          pendingTextRef.current = result.text;
-        }
-        return;
-      }
-
-      processIncomingText(result.text, result.contentType);
-    },
-    [isAuthenticated, processIncomingText, processIncomingAudioFile, parseIntentUrl],
-  );
-
-  // Process pending intent after authentication completes
   useEffect(() => {
-    if (isAuthenticated && !isLoading && pendingTextRef.current) {
-      const pending = pendingTextRef.current;
-      pendingTextRef.current = null;
-
-      // Check for special prefixes indicating content type
-      if (pending.startsWith("__audio__:")) {
-        try {
-          const file = JSON.parse(pending.slice("__audio__:".length)) as SharedFileAttachment;
-          processIncomingAudioFile(file);
-        } catch {
-          // Malformed audio payload, ignore
-        }
-      } else if (pending.startsWith("__text__:")) {
-        processIncomingText(pending.slice("__text__:".length), "text");
-      } else {
-        processIncomingText(pending);
-      }
-    }
-  }, [isAuthenticated, isLoading, processIncomingText, processIncomingAudioFile]);
-
-  // Check initial URL on mount (cold start from share intent)
-  useEffect(() => {
+    if (!hasShareIntent) return;
     if (isLoading) return;
 
-    const checkInitial = async () => {
-      const initialUrl = await Linking.getInitialURL();
-      if (initialUrl) {
-        handleIncomingUrl(initialUrl);
-      }
-    };
+    if (!isAuthenticated) {
+      // Store pending intent for processing after auth
+      pendingIntentRef.current = { ...shareIntent };
+      return;
+    }
 
-    checkInitial();
-  }, [isLoading, handleIncomingUrl]);
+    processShareIntent(shareIntent);
+  }, [hasShareIntent, shareIntent, isAuthenticated, isLoading, processShareIntent]);
 
-  // Listen for URL events (warm start: app already running)
+  /**
+   * Process pending intent after authentication completes.
+   */
   useEffect(() => {
-    const subscription = Linking.addEventListener("url", (event) => {
-      handleIncomingUrl(event.url);
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [handleIncomingUrl]);
+    if (isAuthenticated && !isLoading && pendingIntentRef.current) {
+      const pending = pendingIntentRef.current;
+      pendingIntentRef.current = null;
+      processShareIntent(pending);
+    }
+  }, [isAuthenticated, isLoading, processShareIntent]);
 
   /**
    * Submit the validated URL to the backend.
@@ -386,7 +288,10 @@ export function ShareIntentProvider({
     try {
       const response = await MediaService.ingestUrl(token, {
         url,
-        source_app: "android_share",
+        source_app:
+          Platform.OS === "ios"
+            ? "ios-share-extension"
+            : "android-share-intent",
       });
 
       setIntake({
@@ -533,10 +438,13 @@ export function ShareIntentProvider({
 
   /**
    * Dismiss the share intent and reset state.
+   * Also clears the native module's stored intent to prevent re-processing.
    */
   const dismiss = useCallback(() => {
     setIntake(INITIAL_STATE);
-  }, []);
+    lastProcessedKeyRef.current = null;
+    resetShareIntent();
+  }, [resetShareIntent]);
 
   /**
    * Retry after an error - go back to ready state.
