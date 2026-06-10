@@ -258,7 +258,7 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             user_message=_DEFAULT_TEMPORARY_MESSAGE,
         )
 
-    job.mark_downloading()
+    job.mark_extracting()
     await database_async.update_processing_job(job)
 
     # Resolve via InstagramApifyResolver

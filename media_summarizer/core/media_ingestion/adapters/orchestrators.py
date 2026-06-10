@@ -374,7 +374,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             elif resolved.media_type == MediaType.IMAGE_POST:
                 # Instagram image posts (single + carousel) — dispatch to image/OCR queue
                 # Caption is persisted in metadata; images sent for visual processing
-                job.mark_downloading()
+                job.mark_extracting()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
                     queue_name=self._instagram_image_queue,
@@ -531,7 +531,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     source_platform=resolved.source_platform.value,
                 )
             elif resolved.resolver_key == "tiktok.default":
-                job.mark_downloading()
+                job.mark_extracting()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
                     queue_name=self._tiktok_ingestion_queue,

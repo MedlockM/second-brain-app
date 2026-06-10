@@ -204,7 +204,11 @@ class ProcessingJob(BaseModel):
 
         # Convert status string to enum
         if "job_status" in item:
-            item["status"] = JobStatus(item["job_status"])
+            status_value = item["job_status"]
+            # Backwards-compatible handling: legacy "downloading" status maps to "extracting"
+            if status_value == "downloading":
+                status_value = "extracting"
+            item["status"] = JobStatus(status_value)
             # Remove the DynamoDB field name so it doesn't interfere with model creation
             del item["job_status"]
             
