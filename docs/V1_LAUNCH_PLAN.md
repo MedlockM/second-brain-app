@@ -359,6 +359,15 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 
 0. **Rebrand mobile placeholder name** (cf. task-186) — l'app utilise actuellement le nom legacy `Media Summarizer` partout (display name, slug Expo, scheme deep link, share extension iOS). À exécuter **avant** la sous-étape 1 ci-dessous : tous les textes Apple App Store Connect (App Information, screenshots) et Google Play Console + Google OAuth Branding consomment le nom marketing définitif. Coût ~30 min en pré-distribution, beaucoup plus élevé une fois publié. Ne touche pas le bundle id `com.secondbrainlabs.core` (figé). Voir `task-186` pour la checklist exacte des 8-9 endroits à mettre à jour.
 
+0bis. **Couper l'API du custom domain `api.secondbrainlabs.com`** — pendant le dev (Phase 5), l'app mobile + Apple Sign-In Service ID + `APPLE_REDIRECT_URI` côté backend tapent tous l'URL brute API Gateway `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com`. En Phase 10, on bascule sur le custom domain. Étapes :
+   - Créer le record DNS Cloudflare `api.secondbrainlabs.com` → CNAME vers le `target_domain_name` que Terraform sortira après set de `api_custom_domain` + `api_zone_id` dans `terraform.tfvars`.
+   - Provisionner le certificat ACM us-east-1 (requis pour API Gateway custom domain) — ajouter le bloc `aws_acm_certificate` dans `infrastructure/terraform/lambda_api.tf`.
+   - `terraform apply` puis vérifier `curl https://api.secondbrainlabs.com/api/v1/auth/apple/callback` → HTTP 302.
+   - **Apple Developer Portal** → Identifiers → Service IDs → `com.secondbrainlabs.core.signinwithapple` → Configure → ajouter Domain `secondbrainlabs.com` (déjà présent) et Return URL `https://api.secondbrainlabs.com/api/v1/auth/apple/callback` (déjà présent), **retirer** les entrées `jji077bi8e.execute-api.*` ajoutées en Phase 5.
+   - **AWS Secrets Manager** → mettre à jour `APPLE_REDIRECT_URI` vers `https://api.secondbrainlabs.com/api/v1/auth/apple/callback`.
+   - **`mobile/eas.json`** → profile `development` et `preview` : `EXPO_PUBLIC_API_BASE_URL` repasse à `https://api.secondbrainlabs.com`. Profile `production` est déjà sur le custom domain.
+   - Rebuild EAS dev + preview pour propager la nouvelle URL aux binaires.
+
 1. **Apple App Store Connect** (appstoreconnect.apple.com) :
    - **App Information** : nom marketing affiché aux users (à figer en Phase 10 ; ≠ Bundle ID `com.secondbrainlabs.core`), sous-titre (30 chars max), catégorie primaire/secondaire, contact info, copyright. C'est l'équivalent Apple du "Branding" Google OAuth.
    - **Pricing & Availability** : free vs paid, pays/régions, App Store distribution.

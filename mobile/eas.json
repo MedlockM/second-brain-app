@@ -8,7 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://api-staging.mediasummarizer.com"
+        "EXPO_PUBLIC_API_BASE_URL": "https://jji077bi8e.execute-api.eu-west-3.amazonaws.com"
       }
     },
     "development-simulator": {
@@ -26,7 +26,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://api-staging.mediasummarizer.com"
+        "EXPO_PUBLIC_API_BASE_URL": "https://jji077bi8e.execute-api.eu-west-3.amazonaws.com"
       }
     },
     "production": {
