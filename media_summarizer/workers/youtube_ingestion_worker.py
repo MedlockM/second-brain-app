@@ -1,11 +1,13 @@
 """
 Queue-first YouTube ingestion worker.
 
-Pipeline:
+Pipeline (yt-dlp primary, Apify fallback for IP blocks):
 - Consumes messages from YOUTUBE_INGESTION_QUEUE
-- Fetches transcript via Apify YouTube Transcript actor
-- Uploads transcript text to S3 and publishes completion events on success
-- Marks jobs as failed when transcript cannot be retrieved
+- Runs yt-dlp extract_info with subtitle options first
+  - If native/auto subtitles found: upload transcript, complete
+  - If no subtitles but media URL available: enqueue Deepgram (push mode)
+  - If IP-blocked: fall back to Apify YouTube Transcript actor
+- Apify fallback returns transcript text or fails terminally
 """
 
 from __future__ import annotations
@@ -20,14 +22,22 @@ from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
+import yt_dlp
 
-from media_summarizer.core.config import settings
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
     reset_log_context,
     setup_logging,
+)
+from media_summarizer.utils.ytdlp_helpers import (
+    MediaStreamUnavailableError,
+    SubtitleFetchError,
+    SubtitleUnavailableError,
+    collect_subtitle_candidates,
+    fetch_subtitle_candidate,
+    resolve_direct_media_url,
 )
 from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
@@ -37,7 +47,7 @@ from media_summarizer.workers.base_worker import (
 logger = logging.getLogger(__name__)
 
 TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
 )
 YOUTUBE_INGESTION_QUEUE = os.environ.get(
     "YOUTUBE_INGESTION_QUEUE", "youtube-ingestion-queue"
@@ -45,26 +55,47 @@ YOUTUBE_INGESTION_QUEUE = os.environ.get(
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
 )
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
+EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
+)
+YTDLP_TIMEOUT_SECONDS = float(os.environ.get("YTDLP_TIMEOUT_SECONDS", "30"))
+YOUTUBE_SUBTITLE_FETCH_TIMEOUT_SECONDS = float(
+    os.environ.get("YOUTUBE_SUBTITLE_FETCH_TIMEOUT_SECONDS", "20")
 )
 YOUTUBE_WORKER_MAX_RETRIES = 3
 
-APIFY_API_BASE_URL = "https://api.apify.com/v2"
+# Apify configuration
+APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
+APIFY_YOUTUBE_TRANSCRIPT_ACTOR = os.environ.get(
+    "APIFY_YOUTUBE_TRANSCRIPT_ACTOR",
+    "scrape-creators~best-youtube-transcripts-scraper",
+)
+APIFY_API_BASE = "https://api.apify.com/v2"
+APIFY_TIMEOUT_SECONDS = float(os.environ.get("APIFY_TIMEOUT_SECONDS", "60"))
+
+_YTDLP_EXTRACTOR_VERSION = "v1"
 
 _UNAVAILABLE_MESSAGE = "This YouTube video is unavailable or cannot be processed."
-_TEMPORARY_APIFY_MESSAGE = (
-    "YouTube transcript retrieval is temporarily unavailable. Please retry."
-)
-_QUOTA_EXCEEDED_MESSAGE = (
-    "YouTube processing is temporarily at capacity. Please try again later."
-)
-_AGE_RESTRICTED_MESSAGE = (
-    "This video requires authentication that we cannot provide."
+_TEMPORARY_MESSAGE = (
+    "YouTube extraction is temporarily unavailable. Please retry."
 )
 _GEO_RESTRICTED_MESSAGE = (
-    "This video is not available in our processing region."
+    "This YouTube video is geo-restricted and cannot be accessed."
 )
+_AGE_RESTRICTED_MESSAGE = (
+    "This YouTube video is age-restricted and cannot be processed."
+)
+
+
+# ---------------------------------------------------------------------------
+# Error classes
+# ---------------------------------------------------------------------------
+
+
+class NativeSubtitlesUnavailable(Exception):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 class YouTubeIngestionError(Exception):
@@ -83,70 +114,13 @@ class YouTubeIngestionError(Exception):
         self.user_message = user_message or "Unable to process this YouTube URL."
 
 
-# -- Apify run status codes --
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-class ApifyRunStatus:
-    SUCCEEDED = "SUCCEEDED"
-    FAILED = "FAILED"
-    ABORTED = "ABORTED"
-    TIMED_OUT = "TIMED-OUT"
-
-
-# -- Observability helpers --
-
-_CLOUDWATCH_NAMESPACE = "MediaSummarizer/YouTube"
-
-
-async def _emit_metric(metric_name: str, value: float = 1.0, dimensions: Optional[Dict[str, str]] = None) -> None:
-    """Emit a CloudWatch metric. Best-effort, never raises."""
-    try:
-        import aioboto3
-
-        session = aioboto3.Session()
-        async with session.client(
-            "cloudwatch",
-            region_name=os.environ.get("AWS_DEFAULT_REGION", "eu-west-3"),
-        ) as cw:
-            metric_data: Dict[str, Any] = {
-                "MetricName": metric_name,
-                "Value": value,
-                "Unit": "Count",
-            }
-            if dimensions:
-                metric_data["Dimensions"] = [
-                    {"Name": k, "Value": v} for k, v in dimensions.items()
-                ]
-            await cw.put_metric_data(
-                Namespace=_CLOUDWATCH_NAMESPACE,
-                MetricData=[metric_data],
-            )
-    except Exception:
-        pass
-
-
-# -- Utility functions --
 
 def _now_iso_utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _looks_like_unavailable_error(message: str) -> bool:
-    normalized = (message or "").lower()
-    return any(
-        token in normalized
-        for token in (
-            "unavailable",
-            "unplayable",
-            "private video",
-            "private",
-            "deleted",
-            "removed",
-            "age-restricted",
-            "age restricted",
-            "members-only",
-            "members only",
-        )
-    )
 
 
 def _extract_video_id(normalized_url: str) -> str:
@@ -173,316 +147,323 @@ def _extract_video_id(normalized_url: str) -> str:
     )
 
 
-# -- Apify transcript fetcher --
+def _is_ip_blocked_youtube_error(exc: Exception) -> bool:
+    """Detect YouTube IP-block / login-wall errors from yt-dlp."""
+    msg = str(exc).lower()
+    return any(
+        token in msg
+        for token in (
+            "sign in to confirm you're not a bot",
+            "confirm you're not a bot",
+            "failed to extract any player response",
+        )
+    )
+
+
+def _is_geo_restricted_error(exc: Exception) -> bool:
+    """Detect geo-restriction errors."""
+    msg = str(exc).lower()
+    return any(
+        token in msg
+        for token in (
+            "geo restricted",
+            "geo-restricted",
+            "not available in your country",
+            "blocked in your country",
+            "video is not available in your region",
+        )
+    )
+
+
+def _is_age_restricted_error(exc: Exception) -> bool:
+    """Detect age-restriction errors."""
+    msg = str(exc).lower()
+    return any(
+        token in msg
+        for token in (
+            "age-restricted",
+            "age restricted",
+            "sign in to confirm your age",
+            "confirm your age",
+            "age gate",
+            "age_gate",
+        )
+    )
+
+
+def _is_unavailable_error(exc: Exception) -> bool:
+    """Detect video unavailable/deleted/private errors."""
+    msg = str(exc).lower()
+    return any(
+        token in msg
+        for token in (
+            "unavailable",
+            "private video",
+            "private",
+            "deleted",
+            "removed",
+            "members-only",
+            "members only",
+            "video is no longer available",
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# yt-dlp primary extraction
+# ---------------------------------------------------------------------------
+
+
+async def _extract_youtube_info(normalized_url: str) -> Dict[str, Any]:
+    """
+    Run yt-dlp extract_info with subtitle retrieval options.
+
+    Returns the info dict on success.
+    Raises YouTubeIngestionError with specific codes on failure.
+    Sets a flag on the raised error if it's an IP-block (caller should fallback to Apify).
+    """
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": ["all"],
+        "socket_timeout": YTDLP_TIMEOUT_SECONDS,
+    }
+
+    def _extract() -> Dict[str, Any]:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            return ydl.extract_info(normalized_url, download=False)
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_extract),
+            timeout=YTDLP_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        raise YouTubeIngestionError(
+            "youtube_ytdlp_timeout",
+            details="yt_dlp_timeout",
+            retryable=True,
+            user_message=_TEMPORARY_MESSAGE,
+        ) from exc
+    except (yt_dlp.utils.DownloadError, Exception) as exc:
+        if _is_ip_blocked_youtube_error(exc):
+            raise YouTubeIPBlockedError(str(exc)) from exc
+        if _is_geo_restricted_error(exc):
+            raise YouTubeIngestionError(
+                "youtube_geo_restricted",
+                details=f"yt_dlp:{type(exc).__name__}",
+                retryable=False,
+                user_message=_GEO_RESTRICTED_MESSAGE,
+            ) from exc
+        if _is_age_restricted_error(exc):
+            raise YouTubeIngestionError(
+                "youtube_age_restricted",
+                details=f"yt_dlp:{type(exc).__name__}",
+                retryable=False,
+                user_message=_AGE_RESTRICTED_MESSAGE,
+            ) from exc
+        if _is_unavailable_error(exc):
+            raise YouTubeIngestionError(
+                "youtube_unavailable",
+                details=f"yt_dlp:{type(exc).__name__}",
+                retryable=False,
+                user_message=_UNAVAILABLE_MESSAGE,
+            ) from exc
+        # Other yt-dlp errors: fail terminally
+        raise YouTubeIngestionError(
+            "youtube_ytdlp_failed",
+            details=f"yt_dlp:{type(exc).__name__}",
+            retryable=False,
+            user_message=_UNAVAILABLE_MESSAGE,
+        ) from exc
+
+
+class YouTubeIPBlockedError(Exception):
+    """Raised when yt-dlp detects a YouTube IP block / login wall."""
+
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Subtitle fetching from yt-dlp info
+# ---------------------------------------------------------------------------
+
+
+async def _fetch_native_subtitles(info: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Try to extract subtitles from yt-dlp info dict.
+
+    Prefers manual subtitles over auto-generated captions.
+    Raises NativeSubtitlesUnavailable if no subtitles can be resolved.
+    """
+    candidates = collect_subtitle_candidates(info)
+    if not candidates:
+        raise NativeSubtitlesUnavailable("no_subtitles_in_info")
+
+    last_unavailable_reason = "no_subtitles_in_info"
+    for candidate in candidates:
+        try:
+            result = await fetch_subtitle_candidate(
+                candidate,
+                timeout_seconds=YOUTUBE_SUBTITLE_FETCH_TIMEOUT_SECONDS,
+                platform_label="youtube",
+            )
+            result["fetched_at"] = _now_iso_utc()
+            return result
+        except SubtitleUnavailableError as exc:
+            last_unavailable_reason = exc.reason
+            continue
+        except SubtitleFetchError as exc:
+            raise YouTubeIngestionError(
+                "youtube_subtitle_fetch_failed",
+                details=exc.details,
+                retryable=exc.retryable,
+                user_message=_TEMPORARY_MESSAGE,
+            ) from exc
+    raise NativeSubtitlesUnavailable(last_unavailable_reason)
+
+
+# ---------------------------------------------------------------------------
+# Apify YouTube Transcript fallback
+# ---------------------------------------------------------------------------
+
 
 async def _fetch_apify_transcript(video_id: str, source_url: str) -> Dict[str, Any]:
     """
-    Fetch transcript via Apify YouTube Transcript actor.
+    Call the Apify YouTube Transcript actor to retrieve transcript text.
 
-    Workflow:
-    1. POST /v2/acts/{actor_id}/runs to start the actor
-    2. Poll GET /v2/actor-runs/{runId} until terminal status
-    3. GET /v2/datasets/{datasetId}/items to retrieve transcript data
-    4. Normalize to downstream contract
-
-    Reads config at call time (no module-level reads).
+    Returns a dict with text, language, segments_count, source_detail, fetched_at.
+    Raises YouTubeIngestionError if Apify fails or returns no transcript.
     """
-    api_token = settings.APIFY_YOUTUBE_API_TOKEN
-    actor_id = settings.APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID
-    timeout_seconds = settings.APIFY_TIMEOUT_SECONDS
-    poll_interval = settings.APIFY_POLL_INTERVAL_SECONDS
-    max_polls = settings.APIFY_MAX_POLLS
-
-    if not api_token:
-        raise YouTubeIngestionError(
-            "apify_actor_failed",
-            details="missing_apify_youtube_api_token",
-            retryable=False,
-            user_message=_TEMPORARY_APIFY_MESSAGE,
-        )
-    if not actor_id:
-        raise YouTubeIngestionError(
-            "apify_actor_failed",
-            details="missing_apify_youtube_transcript_actor_id",
-            retryable=False,
-            user_message=_TEMPORARY_APIFY_MESSAGE,
-        )
-
-    # Apify uses ~ as the namespace separator in URL paths (e.g. owner~actor-name).
-    # Normalize common misconfiguration where / is used instead.
-    normalized_actor_id = actor_id.replace("/", "~")
-
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json",
-    }
-
-    # Actor input schema requires "videoUrls" (array of YouTube URLs).
-    # See https://apify.com/scrape-creators/best-youtube-transcripts-scraper
-    input_data = {
-        "videoUrls": [source_url],
-    }
-
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        # Step 1: Start the actor run
-        run_url = f"{APIFY_API_BASE_URL}/acts/{normalized_actor_id}/runs"
-        try:
-            response = await client.post(run_url, headers=headers, json=input_data)
-        except (httpx.TimeoutException, httpx.ConnectError) as exc:
-            await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "timeout"})
-            raise YouTubeIngestionError(
-                "apify_timeout",
-                details=f"actor_start_timeout:{type(exc).__name__}",
-                retryable=True,
-                user_message=_TEMPORARY_APIFY_MESSAGE,
-            ) from exc
-
-        # Map HTTP status codes to error types
-        if response.status_code in (401, 403):
-            await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "actor_failed"})
-            raise YouTubeIngestionError(
-                "apify_actor_failed",
-                details=f"http_{response.status_code}",
-                retryable=False,
-                user_message=_TEMPORARY_APIFY_MESSAGE,
-            )
-        if response.status_code == 429:
-            await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "quota_exceeded"})
-            raise YouTubeIngestionError(
-                "apify_quota_exceeded",
-                details="http_429",
-                retryable=True,
-                user_message=_QUOTA_EXCEEDED_MESSAGE,
-            )
-        if response.status_code >= 500:
-            await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "timeout"})
-            raise YouTubeIngestionError(
-                "apify_timeout",
-                details=f"http_{response.status_code}",
-                retryable=True,
-                user_message=_TEMPORARY_APIFY_MESSAGE,
-            )
-        if response.status_code >= 400:
-            await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "actor_failed"})
-            raise YouTubeIngestionError(
-                "apify_actor_failed",
-                details=f"http_{response.status_code}",
-                retryable=False,
-                user_message=_TEMPORARY_APIFY_MESSAGE,
-            )
-
-        run_data = response.json().get("data", {})
-        run_id = run_data.get("id")
-        if not run_id:
-            await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "actor_failed"})
-            raise YouTubeIngestionError(
-                "apify_actor_failed",
-                details="missing_run_id",
-                retryable=True,
-                user_message=_TEMPORARY_APIFY_MESSAGE,
-            )
-
-        # Step 2: Poll until the run completes
-        run_status_url = f"{APIFY_API_BASE_URL}/actor-runs/{run_id}"
-        dataset_id: Optional[str] = None
-
-        for _ in range(max_polls):
-            await asyncio.sleep(poll_interval)
-
-            try:
-                status_response = await client.get(run_status_url, headers=headers)
-            except (httpx.TimeoutException, httpx.ConnectError):
-                continue
-
-            if status_response.status_code != 200:
-                continue
-
-            status_data = status_response.json().get("data", {})
-            run_status = status_data.get("status", "")
-
-            if run_status == ApifyRunStatus.SUCCEEDED:
-                dataset_id = status_data.get("defaultDatasetId")
-                break
-            elif run_status in (
-                ApifyRunStatus.FAILED,
-                ApifyRunStatus.ABORTED,
-                ApifyRunStatus.TIMED_OUT,
-            ):
-                await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "actor_failed"})
-                raise YouTubeIngestionError(
-                    "apify_actor_failed",
-                    details=f"run_status_{run_status}",
-                    retryable=False,
-                    user_message=_TEMPORARY_APIFY_MESSAGE,
-                )
-
-        if not dataset_id:
-            await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "timeout"})
-            raise YouTubeIngestionError(
-                "apify_timeout",
-                details="polling_exhausted",
-                retryable=True,
-                user_message=_TEMPORARY_APIFY_MESSAGE,
-            )
-
-        # Step 3: Retrieve dataset items
-        dataset_url = f"{APIFY_API_BASE_URL}/datasets/{dataset_id}/items?format=json&limit=100"
-        try:
-            dataset_response = await client.get(dataset_url, headers=headers)
-        except (httpx.TimeoutException, httpx.ConnectError) as exc:
-            await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "timeout"})
-            raise YouTubeIngestionError(
-                "apify_timeout",
-                details=f"dataset_fetch_timeout:{type(exc).__name__}",
-                retryable=True,
-                user_message=_TEMPORARY_APIFY_MESSAGE,
-            ) from exc
-
-        if dataset_response.status_code != 200:
-            await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "actor_failed"})
-            raise YouTubeIngestionError(
-                "apify_actor_failed",
-                details=f"dataset_http_{dataset_response.status_code}",
-                retryable=True,
-                user_message=_TEMPORARY_APIFY_MESSAGE,
-            )
-
-        items = dataset_response.json()
-        if not isinstance(items, list):
-            items = []
-
-    # Emit success metric and credits consumed
-    await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": "success"})
-    await _emit_metric("apify_youtube_credits_consumed", value=1.0)
-
-    # Step 4: Normalize the result
-    return _normalize_apify_result(items, source_url, video_id)
-
-
-def _normalize_apify_result(
-    items: list[Dict[str, Any]],
-    source_url: str,
-    video_id: str,
-) -> Dict[str, Any]:
-    """
-    Normalize Apify actor output to the downstream transcript contract.
-
-    Actor: scrape-creators/best-youtube-transcripts-scraper
-    Expected output item shape:
-    - "transcript_only_text": plain text transcript (primary output)
-    - "transcript": [{text, startMs, endMs, startTimeText}, ...] (timed segments)
-    - "id", "url", "title", "description": video metadata
-    - "error"/"errorMessage": error signals with unavailable/geo/age markers
-    """
-    if not items:
+    if not APIFY_API_TOKEN:
         raise YouTubeIngestionError(
             "youtube_unavailable",
-            details="empty_dataset",
+            details="apify_token_missing",
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
 
-    item = items[0]
+    run_url = (
+        f"{APIFY_API_BASE}/acts/{APIFY_YOUTUBE_TRANSCRIPT_ACTOR}/run-sync-get-dataset-items"
+    )
+    params = {"token": APIFY_API_TOKEN}
+    payload = {
+        "urls": [source_url],
+        "outputFormat": "singleStringText",
+    }
 
-    # Check for actor-emitted error signals
-    error_signal = item.get("error") or item.get("errorMessage") or ""
-    if error_signal:
-        error_lower = str(error_signal).lower()
-        if any(kw in error_lower for kw in ("unavailable", "private", "deleted", "removed")):
-            raise YouTubeIngestionError(
-                "youtube_unavailable",
-                details=f"actor_signal:{error_signal[:200]}",
-                retryable=False,
-                user_message=_UNAVAILABLE_MESSAGE,
+    try:
+        async with httpx.AsyncClient(timeout=APIFY_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                run_url,
+                params=params,
+                json=payload,
             )
-        if "geo" in error_lower:
-            raise YouTubeIngestionError(
-                "youtube_geo_restricted",
-                details=f"actor_signal:{error_signal[:200]}",
-                retryable=False,
-                user_message=_GEO_RESTRICTED_MESSAGE,
-            )
-        if any(kw in error_lower for kw in ("age", "restricted", "members")):
-            raise YouTubeIngestionError(
-                "youtube_age_restricted",
-                details=f"actor_signal:{error_signal[:200]}",
-                retryable=False,
-                user_message=_AGE_RESTRICTED_MESSAGE,
-            )
+    except (httpx.TimeoutException, httpx.TransportError) as exc:
         raise YouTubeIngestionError(
-            "apify_actor_failed",
-            details=f"actor_error:{error_signal[:200]}",
+            "youtube_apify_failed",
+            details=f"apify_network:{type(exc).__name__}",
+            retryable=True,
+            user_message=_TEMPORARY_MESSAGE,
+        ) from exc
+
+    if response.status_code == 402:
+        raise YouTubeIngestionError(
+            "youtube_apify_failed",
+            details="apify_payment_required",
             retryable=False,
-            user_message=_TEMPORARY_APIFY_MESSAGE,
+            user_message=_UNAVAILABLE_MESSAGE,
+        )
+    if response.status_code == 401 or response.status_code == 403:
+        raise YouTubeIngestionError(
+            "youtube_apify_failed",
+            details=f"apify_auth_error:{response.status_code}",
+            retryable=False,
+            user_message=_UNAVAILABLE_MESSAGE,
+        )
+    if response.status_code >= 500:
+        raise YouTubeIngestionError(
+            "youtube_apify_failed",
+            details=f"apify_server_error:{response.status_code}",
+            retryable=True,
+            user_message=_TEMPORARY_MESSAGE,
+        )
+    if response.status_code >= 400:
+        raise YouTubeIngestionError(
+            "youtube_apify_failed",
+            details=f"apify_client_error:{response.status_code}",
+            retryable=False,
+            user_message=_UNAVAILABLE_MESSAGE,
         )
 
-    # Extract transcript text.
-    # The actor "scrape-creators/best-youtube-transcripts-scraper" outputs:
-    #   - "transcript_only_text": plain text transcript (primary)
-    #   - "transcript": array of {text, startMs, endMs, startTimeText} segments
-    # We prefer transcript_only_text when available, fall back to timed segments.
-    language = item.get("language") or item.get("lang") or None
-    language_code = item.get("languageCode") or item.get("language_code") or language or None
+    try:
+        items = response.json()
+    except Exception:
+        raise YouTubeIngestionError(
+            "youtube_apify_failed",
+            details="apify_invalid_json",
+            retryable=False,
+            user_message=_UNAVAILABLE_MESSAGE,
+        )
 
-    text = ""
-    segments_count = 0
-
-    # Primary: use transcript_only_text (flat text from actor)
-    transcript_only_text = item.get("transcript_only_text")
-    if isinstance(transcript_only_text, str) and transcript_only_text.strip():
-        text = transcript_only_text.strip()
-        segments_count = 0
-    else:
-        # Fallback: timed segments array
-        transcript_segments = item.get("transcript") or item.get("captions") or item.get("subtitles")
-
-        if isinstance(transcript_segments, list) and transcript_segments:
-            # Timed segments: fuse into text
-            lines = []
-            for seg in transcript_segments:
-                if isinstance(seg, dict):
-                    seg_text = (seg.get("text") or "").strip()
-                    if seg_text:
-                        lines.append(seg_text)
-                elif isinstance(seg, str):
-                    seg_text = seg.strip()
-                    if seg_text:
-                        lines.append(seg_text)
-            text = "\n".join(lines).strip()
-            segments_count = len(lines)
-        elif isinstance(transcript_segments, str) and transcript_segments.strip():
-            # Flat text from actor
-            text = transcript_segments.strip()
-            segments_count = 0
-        else:
-            # Last resort: top-level "text" or "content" field
-            top_text = item.get("text") or item.get("content") or ""
-            if isinstance(top_text, str) and top_text.strip():
-                text = top_text.strip()
-                segments_count = 0
-
-    if not text:
+    if not isinstance(items, list) or not items:
         raise YouTubeIngestionError(
             "youtube_unavailable",
-            details="no_transcript_in_payload",
+            details="apify_no_results",
+            retryable=False,
+            user_message=_UNAVAILABLE_MESSAGE,
+        )
+
+    # Extract transcript text from the first result
+    first_item = items[0]
+    transcript_text = ""
+
+    # The actor may return transcript_only_text or transcript array
+    if isinstance(first_item.get("transcript_only_text"), str):
+        transcript_text = first_item["transcript_only_text"].strip()
+    elif isinstance(first_item.get("transcript"), list):
+        lines = []
+        for segment in first_item["transcript"]:
+            if isinstance(segment, dict):
+                text = str(segment.get("text") or "").strip()
+                if text:
+                    lines.append(text)
+            elif isinstance(segment, str):
+                text = segment.strip()
+                if text:
+                    lines.append(text)
+        transcript_text = "\n".join(lines).strip()
+
+    if not transcript_text:
+        raise YouTubeIngestionError(
+            "youtube_unavailable",
+            details="apify_empty_transcript",
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
 
     return {
-        "text": text,
-        "language": language or language_code,
-        "language_code": language_code,
-        "segments_count": segments_count,
-        "source_detail": "apify_youtube",
+        "text": transcript_text,
+        "language": first_item.get("language") or None,
+        "segments_count": len(
+            [line for line in transcript_text.splitlines() if line.strip()]
+        ),
+        "source_detail": "apify_youtube_transcript",
         "source_url": source_url,
         "fetched_at": _now_iso_utc(),
+        "is_automatic": False,
     }
 
 
-# -- S3 upload and event helpers --
+# ---------------------------------------------------------------------------
+# S3 upload + event publishing
+# ---------------------------------------------------------------------------
 
-async def _upload_native_transcript(job_id: str, text: str) -> str:
+
+async def _upload_transcript(job_id: str, text: str) -> str:
     transcript_s3_key = f"{job_id}.txt"
     await s3.upload_file_object(
         bucket=TRANSCRIPT_BUCKET,
@@ -492,7 +473,7 @@ async def _upload_native_transcript(job_id: str, text: str) -> str:
         metadata={
             "content-type": "text/plain",
             "job-type": "youtube-transcript",
-            "provider": "apify_youtube",
+            "provider": "native_transcript",
         },
     )
     return transcript_s3_key
@@ -506,7 +487,7 @@ async def _publish_success_event(
     transcription_metadata: Dict[str, Any],
 ) -> None:
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "success",
@@ -528,7 +509,7 @@ async def _publish_failure_event(
     if not job_id:
         return
     await sqs.send_message(
-        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
+        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
         message_body={
             "event_type": "episode_completion_status",
             "status": "failure",
@@ -539,39 +520,109 @@ async def _publish_failure_event(
     )
 
 
-def _build_extraction_metadata(
+# ---------------------------------------------------------------------------
+# Metadata builders
+# ---------------------------------------------------------------------------
+
+
+def _build_native_subtitle_extraction_metadata(
     *,
     video_id: str,
     source_url: str,
-    transcript_result: Dict[str, Any],
+    native_result: Dict[str, Any],
 ) -> Dict[str, Any]:
     return {
-        "extractor": "apify_youtube",
-        "extractor_version": "v1",
-        "selected_strategy": "apify_transcript",
+        "provider": "yt-dlp",
+        "extractor": "yt_dlp",
+        "extractor_version": _YTDLP_EXTRACTOR_VERSION,
+        "strategy_used": "native_subtitles",
         "video_id": video_id,
         "source_url": source_url,
-        "transcript_source_detail": transcript_result["source_detail"],
-        "language_code": transcript_result.get("language_code"),
-        "segments_count": transcript_result.get("segments_count"),
-        "fetched_at": transcript_result["fetched_at"],
+        "subtitle_language": native_result.get("language"),
+        "subtitle_ext": native_result.get("ext"),
+        "is_automatic_caption": native_result.get("is_automatic", False),
+        "segments_count": native_result.get("segments_count"),
+        "fetched_at": native_result["fetched_at"],
     }
 
 
-def _build_transcription_metadata(
+def _build_native_subtitle_transcription_metadata(
     *,
-    transcript_result: Dict[str, Any],
+    native_result: Dict[str, Any],
 ) -> Dict[str, Any]:
     return {
-        "provider": "apify_youtube",
-        "model_used": "apify_youtube_transcript",
-        "language": transcript_result.get("language"),
-        "segments_count": transcript_result.get("segments_count"),
+        "provider": "native_transcript",
+        "model_used": "yt_dlp_youtube_subtitles",
+        "language": native_result.get("language"),
+        "segments_count": native_result.get("segments_count"),
         "duration_seconds": 0,
-        "source_url": transcript_result["source_url"],
-        "transcribed_at": transcript_result["fetched_at"],
-        "source_detail": transcript_result["source_detail"],
+        "source_url": native_result.get("source_url"),
+        "transcribed_at": native_result["fetched_at"],
+        "source_detail": native_result["source_detail"],
     }
+
+
+def _build_apify_extraction_metadata(
+    *,
+    video_id: str,
+    source_url: str,
+    apify_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "provider": "apify",
+        "extractor": "apify_youtube_transcript",
+        "extractor_version": "v1",
+        "strategy_used": "apify_transcript",
+        "video_id": video_id,
+        "source_url": source_url,
+        "segments_count": apify_result.get("segments_count"),
+        "fetched_at": apify_result["fetched_at"],
+    }
+
+
+def _build_apify_transcription_metadata(
+    *,
+    apify_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "provider": "apify_transcript",
+        "model_used": "apify_youtube_transcript_scraper",
+        "language": apify_result.get("language"),
+        "segments_count": apify_result.get("segments_count"),
+        "duration_seconds": 0,
+        "source_url": apify_result.get("source_url"),
+        "transcribed_at": apify_result["fetched_at"],
+        "source_detail": apify_result["source_detail"],
+    }
+
+
+def _build_deepgram_fallback_extraction_metadata(
+    *,
+    video_id: str,
+    source_url: str,
+    fallback_reason: str,
+    audio_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "provider": "yt-dlp",
+        "extractor": "yt_dlp",
+        "extractor_version": _YTDLP_EXTRACTOR_VERSION,
+        "strategy_used": "deepgram_via_ytdlp_url",
+        "video_id": video_id,
+        "source_url": source_url,
+        "audio_url": audio_result["audio_url"],
+        "audio_duration_seconds": audio_result["audio_duration_seconds"],
+        "native_subtitle_fallback_reason": fallback_reason,
+        "yt_dlp_format_id": audio_result.get("format_id"),
+        "yt_dlp_format_note": audio_result.get("format_note"),
+        "yt_dlp_ext": audio_result.get("ext"),
+        "queued_at": _now_iso_utc(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Job state management
+# ---------------------------------------------------------------------------
 
 
 async def _mark_job_failed(
@@ -589,9 +640,10 @@ async def _mark_job_failed(
         return
 
     job.extraction_metadata = {
+        "provider": "youtube_ingestion_worker",
         "extractor": "youtube_ingestion_worker",
-        "extractor_version": "v2",
-        "selected_strategy": "failed",
+        "extractor_version": "v1",
+        "strategy_used": "failed",
         "source_url": normalized_url,
         "video_id": video_id,
         "last_error_code": error.code,
@@ -605,7 +657,10 @@ async def _mark_job_failed(
     await database_async.update_processing_job(job)
 
 
-# -- Main processing --
+# ---------------------------------------------------------------------------
+# Main message processor
+# ---------------------------------------------------------------------------
+
 
 async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any]:
     job_id = (message_body.get("job_id") or "").strip()
@@ -613,44 +668,143 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
 
     if not job_id:
         raise YouTubeIngestionError(
-            "apify_actor_failed",
+            "youtube_unavailable",
             details="missing_job_id",
             retryable=False,
-            user_message=_TEMPORARY_APIFY_MESSAGE,
+            user_message=_UNAVAILABLE_MESSAGE,
         )
     if not normalized_url:
         raise YouTubeIngestionError(
-            "apify_actor_failed",
+            "youtube_unavailable",
             details="missing_normalized_url",
             retryable=False,
-            user_message=_TEMPORARY_APIFY_MESSAGE,
+            user_message=_UNAVAILABLE_MESSAGE,
         )
 
     job = await database_async.get_processing_job_by_id(job_id)
     if not job:
         raise YouTubeIngestionError(
-            "apify_actor_failed",
+            "youtube_unavailable",
             details=f"processing_job_not_found:{job_id}",
             retryable=False,
-            user_message=_TEMPORARY_APIFY_MESSAGE,
+            user_message=_UNAVAILABLE_MESSAGE,
         )
 
     video_id = _extract_video_id(normalized_url)
 
-    # Primary path: fetch transcript via Apify
-    transcript_result = await _fetch_apify_transcript(video_id, normalized_url)
+    # -----------------------------------------------------------------------
+    # PRIMARY PATH: yt-dlp extract_info
+    # -----------------------------------------------------------------------
+    ip_blocked = False
+    info: Optional[Dict[str, Any]] = None
 
-    # Upload to S3 and publish completion event
-    transcript_s3_key = await _upload_native_transcript(job_id, transcript_result["text"])
-    transcription_metadata = _build_transcription_metadata(
-        transcript_result=transcript_result
+    try:
+        info = await _extract_youtube_info(normalized_url)
+    except YouTubeIPBlockedError:
+        ip_blocked = True
+    # Other YouTubeIngestionError (geo, age, unavailable, etc.) propagate up
+
+    # -----------------------------------------------------------------------
+    # IP-BLOCKED BRANCH: Apify fallback
+    # -----------------------------------------------------------------------
+    if ip_blocked:
+        apify_result = await _fetch_apify_transcript(video_id, normalized_url)
+
+        transcript_s3_key = await _upload_transcript(job_id, apify_result["text"])
+        transcription_metadata = _build_apify_transcription_metadata(
+            apify_result=apify_result,
+        )
+        job.set_transcription_location(transcript_s3_key)
+        job.set_transcription_metadata(transcription_metadata)
+        job.extraction_metadata = _build_apify_extraction_metadata(
+            video_id=video_id,
+            source_url=normalized_url,
+            apify_result=apify_result,
+        )
+        job.mark_completed()
+        await database_async.update_processing_job(job)
+
+        await _publish_success_event(
+            job_id=job_id,
+            media_key=message_body.get("media_key"),
+            transcript_s3_key=transcript_s3_key,
+            transcription_metadata=transcription_metadata,
+        )
+
+        return {
+            "mode": "apify_transcript",
+            "job_id": job_id,
+            "media_key": message_body.get("media_key"),
+            "video_id": video_id,
+            "source_detail": "apify_youtube_transcript",
+        }
+
+    # -----------------------------------------------------------------------
+    # YT-DLP SUCCEEDED: try native subtitles
+    # -----------------------------------------------------------------------
+    assert info is not None
+
+    try:
+        native_result = await _fetch_native_subtitles(info)
+    except NativeSubtitlesUnavailable as exc:
+        # No subtitles available: resolve media URL and enqueue Deepgram
+        try:
+            audio_result = resolve_direct_media_url(info)
+        except MediaStreamUnavailableError as media_exc:
+            raise YouTubeIngestionError(
+                "youtube_unavailable",
+                details=f"no_media_url:{media_exc.reason}",
+                retryable=False,
+                user_message=_UNAVAILABLE_MESSAGE,
+            ) from media_exc
+
+        extraction_metadata = _build_deepgram_fallback_extraction_metadata(
+            video_id=video_id,
+            source_url=normalized_url,
+            fallback_reason=exc.reason,
+            audio_result=audio_result,
+        )
+        job.extraction_metadata = extraction_metadata
+        job.episode_url = audio_result["audio_url"]
+        await database_async.update_processing_job(job)
+
+        await sqs.send_message(
+            queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
+            message_body={
+                "job_id": job.id,
+                "user_id": message_body.get("user_id"),
+                "user_email": message_body.get("user_email"),
+                "audio_url": audio_result["audio_url"],
+                "media_key": message_body.get("media_key"),
+                "normalized_url": normalized_url,
+                "episode_title": message_body.get("episode_title") or job.episode_title,
+                "podcast_title": message_body.get("podcast_title") or job.podcast_title,
+                "audio_duration_seconds": audio_result["audio_duration_seconds"],
+                "deepgram_mode": "push",
+            },
+        )
+
+        return {
+            "mode": "deepgram_via_ytdlp_url",
+            "job_id": job.id,
+            "media_key": message_body.get("media_key"),
+            "video_id": video_id,
+            "fallback_reason": exc.reason,
+        }
+
+    # -----------------------------------------------------------------------
+    # YT-DLP SUCCEEDED WITH SUBTITLES: upload and complete
+    # -----------------------------------------------------------------------
+    transcript_s3_key = await _upload_transcript(job_id, native_result["text"])
+    transcription_metadata = _build_native_subtitle_transcription_metadata(
+        native_result=native_result,
     )
     job.set_transcription_location(transcript_s3_key)
     job.set_transcription_metadata(transcription_metadata)
-    job.extraction_metadata = _build_extraction_metadata(
+    job.extraction_metadata = _build_native_subtitle_extraction_metadata(
         video_id=video_id,
         source_url=normalized_url,
-        transcript_result=transcript_result,
+        native_result=native_result,
     )
     job.mark_completed()
     await database_async.update_processing_job(job)
@@ -663,12 +817,17 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
     )
 
     return {
-        "mode": "apify_transcript",
+        "mode": "native_subtitles",
         "job_id": job_id,
         "media_key": message_body.get("media_key"),
         "video_id": video_id,
-        "source_detail": transcript_result["source_detail"],
+        "source_detail": native_result["source_detail"],
     }
+
+
+# ---------------------------------------------------------------------------
+# SQS message handler
+# ---------------------------------------------------------------------------
 
 
 async def process_message(message: Dict[str, Any]) -> None:
@@ -701,16 +860,42 @@ async def process_message(message: Dict[str, Any]) -> None:
 
     try:
         result = await process_youtube_message(body)
-        log_event(
-            logger,
-            logging.INFO,
-            "transcription.completed",
-            "YouTube Apify transcript completed",
-            job_id=result["job_id"],
-            media_item_id=result["job_id"],
-            transcript_source="apify_youtube",
-            fallback_strategy=result["source_detail"],
-        )
+        mode = result["mode"]
+
+        if mode == "native_subtitles":
+            log_event(
+                logger,
+                logging.INFO,
+                "transcription.completed",
+                "YouTube native subtitles completed via yt-dlp",
+                job_id=result["job_id"],
+                media_item_id=result["job_id"],
+                transcript_source="native_subtitles",
+                fallback_strategy=result.get("source_detail"),
+            )
+        elif mode == "apify_transcript":
+            log_event(
+                logger,
+                logging.INFO,
+                "transcription.completed",
+                "YouTube transcript completed via Apify fallback",
+                job_id=result["job_id"],
+                media_item_id=result["job_id"],
+                transcript_source="apify_transcript",
+                fallback_strategy="ip_blocked_apify_fallback",
+            )
+        elif mode == "deepgram_via_ytdlp_url":
+            log_event(
+                logger,
+                logging.INFO,
+                "transcription.enqueued",
+                "YouTube queued Deepgram after no subtitles found in yt-dlp",
+                job_id=result["job_id"],
+                media_item_id=result["job_id"],
+                queue=DEEPGRAM_TRANSCRIPTION_QUEUE,
+                transcript_source="deepgram",
+                fallback_strategy=result.get("fallback_reason"),
+            )
     except YouTubeIngestionError as exc:
         should_retry = exc.retryable and receive_count < YOUTUBE_WORKER_MAX_RETRIES
         if should_retry:
@@ -746,17 +931,15 @@ async def process_message(message: Dict[str, Any]) -> None:
             error_code=exc.code,
             detail=exc.details,
         )
-        # Emit failure metric
-        await _emit_metric("apify_youtube_api_calls", dimensions={"outcome": exc.code})
     except Exception as exc:
         if receive_count < YOUTUBE_WORKER_MAX_RETRIES:
             raise
 
         final_error = YouTubeIngestionError(
-            "apify_actor_failed",
+            "youtube_unavailable",
             details=f"unexpected:{type(exc).__name__}",
             retryable=False,
-            user_message=_TEMPORARY_APIFY_MESSAGE,
+            user_message=_UNAVAILABLE_MESSAGE,
         )
         video_id = None
         normalized_url = (body.get("normalized_url") or "").strip()
@@ -788,6 +971,11 @@ async def process_message(message: Dict[str, Any]) -> None:
         )
     finally:
         reset_log_context(context_token)
+
+
+# ---------------------------------------------------------------------------
+# Queue polling loop
+# ---------------------------------------------------------------------------
 
 
 async def poll_queue() -> None:
