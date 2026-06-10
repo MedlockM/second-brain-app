@@ -11,11 +11,15 @@ labels:
   - blocker-store-submission
 dependencies: []
 priority: high
+dispatchable: false
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+> ⚠️ **MANUAL — OWNER ONLY. NEVER DISPATCH TO A SUBAGENT.**
+> Cette tâche relève de la création de visuels (design + outils graphiques propriétaires) et ne peut pas être exécutée par un agent. Toute tentative de dispatch doit être ignorée.
+
 ## Description
 
 Pendant la task-160 (`expo prebuild` manuel), `mobile/assets/icon.png`, `mobile/assets/splash.png` et `mobile/assets/adaptive-icon.png` étaient absents alors que `mobile/app.config.ts` (lignes 9, 13, 34) les référence. Pour débloquer le prebuild, des **placeholders** ont été générés et commités : 3 PNG 1024×1024 warm-white (#fcf9f6) avec un cercle « SB » centré.
