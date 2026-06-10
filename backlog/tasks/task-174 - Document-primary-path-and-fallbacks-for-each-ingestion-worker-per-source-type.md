@@ -3,7 +3,7 @@ id: task-174
 title: >-
   Document primary path and fallbacks for each ingestion worker (per source
   type)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 08:23'
 labels:

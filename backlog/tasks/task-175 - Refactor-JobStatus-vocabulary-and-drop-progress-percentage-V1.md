@@ -1,7 +1,7 @@
 ---
 id: task-175
 title: Refactor JobStatus vocabulary (generic per-source stages) and drop progress percentage for V1
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 15:00'
 labels:

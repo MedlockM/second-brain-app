@@ -1,7 +1,7 @@
 ---
 id: task-159
 title: Add mobile_release_check.sh script to validate EAS build prerequisites
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 05:36'
 labels:
