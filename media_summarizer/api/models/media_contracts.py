@@ -69,7 +69,6 @@ class ProcessingJobLifecycleStatus(str, Enum):
     PENDING = "pending"
     CLASSIFYING = "classifying"
     RESOLVING = "resolving"
-    DOWNLOADING = "downloading"
     EXTRACTING = "extracting"
     TRANSCRIBING = "transcribing"
     READY_FOR_ARTIFACTS = "ready_for_artifacts"
@@ -81,8 +80,7 @@ class ProcessingJobLifecycleStatus(str, Enum):
 # Transitional helper for current ProcessingJob values still present in runtime.
 LEGACY_PROCESSING_JOB_STATUS_MAP: Dict[str, ProcessingJobLifecycleStatus] = {
     "pending": ProcessingJobLifecycleStatus.PENDING,
-    "rss_resolving": ProcessingJobLifecycleStatus.RESOLVING,
-    "downloading": ProcessingJobLifecycleStatus.DOWNLOADING,
+    "extracting": ProcessingJobLifecycleStatus.EXTRACTING,
     "transcribing": ProcessingJobLifecycleStatus.TRANSCRIBING,
     # Summarization stage: used by both the summarization worker and the newsletter
     # worker to indicate LLM artifact generation is in progress.

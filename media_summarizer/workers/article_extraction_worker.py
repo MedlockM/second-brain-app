@@ -350,7 +350,7 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
             retryable=False,
         )
 
-    job.mark_transcribing()
+    job.mark_extracting()
     await database_async.update_processing_job(job)
 
     fetch_result = await _fetch_article_html(normalized_url)

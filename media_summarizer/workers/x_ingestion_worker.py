@@ -428,7 +428,7 @@ async def process_x_message(message_body: Dict[str, Any]) -> Dict[str, Any]:
             user_message=_DEFAULT_TEMPORARY_MESSAGE,
         )
 
-    job.mark_transcribing()
+    job.mark_extracting()
     await database_async.update_processing_job(job)
 
     lookup_result = await _lookup_post(tweet_id)

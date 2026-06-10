@@ -29,8 +29,7 @@ class JobStatus(str, Enum):
     """Enumeration of possible job statuses."""
 
     PENDING = "pending"
-    RSS_RESOLVING = "rss_resolving"
-    DOWNLOADING = "downloading"
+    EXTRACTING = "extracting"
     TRANSCRIBING = "transcribing"
     SUMMARIZING = "summarizing"
     COMPLETED = "completed"
@@ -257,14 +256,9 @@ class ProcessingJob(BaseModel):
         """Check if the job can be retried."""
         return self.retry_count < self.max_retries and self.status == JobStatus.FAILED
 
-    def mark_started(self) -> None:
-        """Mark the job as started."""
-        if self.status == JobStatus.PENDING:
-            self.update_status(JobStatus.RSS_RESOLVING)
-
-    def mark_downloading(self) -> None:
-        """Mark the job as downloading."""
-        self.update_status(JobStatus.DOWNLOADING)
+    def mark_extracting(self) -> None:
+        """Mark the job as extracting content."""
+        self.update_status(JobStatus.EXTRACTING)
 
     def mark_transcribing(self) -> None:
         """Mark the job as transcribing."""
@@ -348,25 +342,10 @@ class ProcessingJob(BaseModel):
     def is_processing(self) -> bool:
         """Check if the job is currently being processed."""
         return self.status in [
-            JobStatus.RSS_RESOLVING,
-            JobStatus.DOWNLOADING,
+            JobStatus.EXTRACTING,
             JobStatus.TRANSCRIBING,
             JobStatus.SUMMARIZING,
         ]
-
-    def get_progress_percentage(self) -> int:
-        """Get the progress percentage based on current status."""
-        progress_map = {
-            JobStatus.PENDING: 0,
-            JobStatus.RSS_RESOLVING: 10,
-            JobStatus.DOWNLOADING: 25,
-            JobStatus.TRANSCRIBING: 50,
-            JobStatus.SUMMARIZING: 80,
-            JobStatus.COMPLETED: 100,
-            JobStatus.FAILED: 0,
-            JobStatus.CANCELLED: 0,
-        }
-        return progress_map.get(self.status, 0)
 
     def update(self, **kwargs):
         """Update job attributes."""

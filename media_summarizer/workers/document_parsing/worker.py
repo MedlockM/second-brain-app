@@ -199,10 +199,10 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
                 f"Supported: {', '.join(sorted(DocumentFormat.supported_extensions()))}"
             )
 
-        # Update job status to transcribing (document parsing is analogous)
+        # Update job status to extracting (document parsing extracts content)
         job = await database_async.get_processing_job_by_id(job_id)
         if job:
-            job.mark_transcribing()
+            job.mark_extracting()
             await database_async.update_processing_job(job)
 
         # Download document from S3

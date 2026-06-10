@@ -149,9 +149,9 @@ async def process_message(message: dict) -> None:
         if not job:
             raise ValueError(f"Job not found for id={job_id}")
 
-        # Keep resolving stage explicit when this worker starts handling the job.
+        # Keep extracting stage explicit when this worker starts handling the job.
         if job.status.value == "pending":
-            job.mark_started()
+            job.mark_extracting()
             await database_async.update_processing_job(job)
 
         resolution = await _resolve_audio_url(body)

@@ -560,7 +560,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     source_platform=resolved.source_platform.value,
                 )
             elif resolved.media_family == MediaFamily.YOUTUBE:
-                job.mark_started()
+                job.mark_extracting()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
                     queue_name=self._youtube_ingestion_queue,
@@ -590,7 +590,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 )
             elif resolved.media_family == MediaFamily.PODCAST:
                 # Queue-first PodcastIndex resolution to absorb bursts off API path.
-                job.mark_started()
+                job.mark_extracting()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
                     queue_name=self._podcastindex_resolution_queue,

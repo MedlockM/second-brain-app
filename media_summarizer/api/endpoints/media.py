@@ -114,7 +114,6 @@ class MediaItemResponse(BaseModel):
     status: str
     source_platform: Optional[str] = None
     error_message: Optional[str] = None
-    progress: int
     extraction_metadata: Optional[dict] = None
     transcription_metadata: Optional[dict] = None
     transcript_source: Optional[str] = Field(
@@ -173,7 +172,6 @@ class MediaSearchItem(BaseModel):
     created_at: str
     updated_at: str
     completed_at: Optional[str] = None
-    progress: int
     error_message: Optional[str] = None
 
 
@@ -815,7 +813,6 @@ async def get_media_item(
             status=job.status.value,
             source_platform=job.source_platform,
             error_message=job.error_message,
-            progress=job.get_progress_percentage(),
             extraction_metadata=job.extraction_metadata,
             transcription_metadata=job.transcription_metadata,
             transcript_source=transcript_source,
