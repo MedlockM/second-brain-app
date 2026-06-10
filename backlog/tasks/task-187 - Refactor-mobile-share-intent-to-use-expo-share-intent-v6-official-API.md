@@ -1,7 +1,7 @@
 ---
 id: task-187
 title: Refactor mobile share intent to use expo-share-intent v6 official API
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 21:51'
 labels:
