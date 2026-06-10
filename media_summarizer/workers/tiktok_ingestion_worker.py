@@ -171,11 +171,24 @@ def _looks_like_unavailable_error(message: str) -> bool:
 
 
 def _looks_like_ip_blocked_error(message: str) -> bool:
-    """Detect TikTok IP-block errors (status 10204 or explicit geo-block signals)."""
+    """Detect TikTok IP-block errors.
+
+    yt-dlp surfaces TikTok's IP block under several phrasings: the legacy
+    status code 10204, generic ip/geo-block tokens, and the modern message
+    "Your IP address is blocked from accessing this post" observed in
+    CloudWatch on AWS Lambda runs (task-182).
+    """
     normalized = (message or "").lower()
     return any(
         token in normalized
-        for token in ("10204", "ip block", "ip-block", "geo block", "geo-block")
+        for token in (
+            "ip address is blocked",
+            "10204",
+            "ip block",
+            "ip-block",
+            "geo block",
+            "geo-block",
+        )
     )
 
 

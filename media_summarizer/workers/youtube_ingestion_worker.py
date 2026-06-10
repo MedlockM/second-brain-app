@@ -148,8 +148,13 @@ def _extract_video_id(normalized_url: str) -> str:
 
 
 def _is_ip_blocked_youtube_error(exc: Exception) -> bool:
-    """Detect YouTube IP-block / login-wall errors from yt-dlp."""
-    msg = str(exc).lower()
+    """Detect YouTube IP-block / login-wall errors from yt-dlp.
+
+    yt-dlp may emit the message with a Unicode right single quotation mark
+    (U+2019, e.g. "Sign in to confirm you’re not a bot") instead of an ASCII
+    apostrophe. Normalize both before substring matching.
+    """
+    msg = str(exc).lower().replace("’", "'")
     return any(
         token in msg
         for token in (
