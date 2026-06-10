@@ -89,7 +89,7 @@ class Settings:
         self.APIFY_INSTAGRAM_API_TOKEN = os.getenv("APIFY_INSTAGRAM_API_TOKEN", "")
         self.APIFY_YOUTUBE_API_TOKEN = os.getenv("APIFY_YOUTUBE_API_TOKEN", "")
         self.APIFY_INSTAGRAM_REEL_ACTOR_ID = os.getenv(
-            "APIFY_INSTAGRAM_REEL_ACTOR_ID", "apify~instagram-reel-scraper"
+            "APIFY_INSTAGRAM_REEL_ACTOR_ID", "khadinakbar~video-subtitle-extractor"
         )
         self.APIFY_INSTAGRAM_POST_ACTOR_ID = os.getenv(
             "APIFY_INSTAGRAM_POST_ACTOR_ID", "apify~instagram-post-scraper"
