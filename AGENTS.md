@@ -44,6 +44,7 @@ Read `README.md` for project overview and V1 scope. Read `docs/CANONICAL_MEDIA_A
 - Hexagonal architecture when already in place. KISS otherwise.
 - Benchmarks must be exhaustive and based on internet research.
 - LLM model, OCR service, cloud provider, and pricing model are all open choices — never hardcode a specific solution without a benchmark justifying it.
+- Debug instrumentation is temporary. When you add `console.log` / `console.error` / `print` / extra log lines to diagnose a specific bug, **remove them as soon as the bug is fixed**, in the same session. Do not leave them in the codebase as "useful future logs" — they pollute the signal in real logs and rot. Keep only logs that belong to the permanent observability story (structured logger calls, telemetry events) and were already there before the investigation.
 
 ## Task creation convention
 
