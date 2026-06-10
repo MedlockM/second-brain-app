@@ -1,10 +1,10 @@
 ---
 id: task-160
 title: Run expo prebuild to generate native iOS/Android directories
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 05:36'
-updated_date: '2026-06-10 14:04'
+updated_date: '2026-06-10 14:53'
 labels:
   - phase-5
   - mobile
@@ -48,8 +48,8 @@ Phase 5 du V1_LAUNCH_PLAN, étape 1 : `cd mobile && npx expo prebuild` génère 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 expo prebuild --clean termine sans erreur
-- [ ] #2 git status reste propre après prebuild (mobile/ios/ et mobile/android/ gitignored)
-- [ ] #3 mobile/ios/ et mobile/android/ existent et contiennent le natif généré
-- [ ] #4 Bundle ID com.secondbrainlabs.core présent dans le natif iOS (project.pbxproj) et Android (AndroidManifest.xml ou build.gradle)
+- [x] #1 expo prebuild --clean termine sans erreur
+- [x] #2 git status reste propre après prebuild (mobile/ios/ et mobile/android/ gitignored)
+- [x] #3 mobile/ios/ et mobile/android/ existent et contiennent le natif généré
+- [x] #4 Bundle ID com.secondbrainlabs.core présent dans le natif iOS (project.pbxproj) et Android (AndroidManifest.xml ou build.gradle)
 <!-- AC:END -->
