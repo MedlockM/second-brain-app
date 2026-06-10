@@ -1,7 +1,7 @@
 ---
 id: task-179
 title: Update docs/INGESTION_WORKERS_PROVIDERS.md after tasks 176/177/178 land
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 16:15'
 labels:
