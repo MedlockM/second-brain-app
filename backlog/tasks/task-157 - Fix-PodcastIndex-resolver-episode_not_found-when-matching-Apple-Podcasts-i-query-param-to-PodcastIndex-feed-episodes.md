@@ -1,7 +1,7 @@
 ---
 id: task-157
 title: Fix PodcastIndex resolver — episode_not_found when matching Apple Podcasts ?i= to feed episodes
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 00:30'
 labels:
