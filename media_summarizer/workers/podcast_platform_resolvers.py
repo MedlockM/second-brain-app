@@ -537,6 +537,10 @@ class SpotifyPodcastPlatformResolver(PodcastPlatformResolver):
                 title=match.get("title") or episode_title,
                 metadata={
                     "feed_id": normalized_feed_id,
+                    "feed_url": (feed.get("url") or "").strip(),
+                    "episode_guid": (
+                        match.get("episodeGuid") or match.get("guid") or ""
+                    ).strip(),
                     "podcast_title": match.get("feedTitle")
                     or feed.get("title")
                     or show_title,
@@ -905,6 +909,12 @@ class ApplePodcastsPlatformResolver(PodcastPlatformResolver):
                 title=match.get("title") or episode_title or "Podcast episode",
                 metadata={
                     "feed_id": feed_id,
+                    "feed_url": (
+                        feed_metadata_by_id.get(feed_id, {}).get("url") or ""
+                    ).strip(),
+                    "episode_guid": (
+                        match.get("episodeGuid") or match.get("guid") or ""
+                    ).strip(),
                     "podcast_title": match.get("feedTitle")
                     or (feed_metadata_by_id.get(feed_id, {}).get("title") or "")
                     or show_title
@@ -1253,6 +1263,10 @@ class DeezerPodcastPlatformResolver(PodcastPlatformResolver):
                 title=match.get("title") or episode_title,
                 metadata={
                     "feed_id": normalized_feed_id,
+                    "feed_url": (feed.get("url") or "").strip(),
+                    "episode_guid": (
+                        match.get("episodeGuid") or match.get("guid") or ""
+                    ).strip(),
                     "podcast_title": match.get("feedTitle")
                     or feed.get("title")
                     or show_title,
@@ -1497,6 +1511,7 @@ class RssPodcastPlatformResolver(PodcastPlatformResolver):
                 {
                     "audio_url": audio_url,
                     "episode_title": episode_title,
+                    "episode_guid": self._extract_episode_guid(item),
                     "episode_image": self._extract_episode_image(
                         item,
                         feed_url=feed_url,
@@ -1530,6 +1545,8 @@ class RssPodcastPlatformResolver(PodcastPlatformResolver):
             "audio_url": selected["audio_url"],
             "title": selected["episode_title"],
             "metadata": {
+                "feed_url": feed_url,
+                "episode_guid": selected.get("episode_guid") or "",
                 "podcast_title": podcast_title,
                 "episode_title": selected["episode_title"],
                 "episode_image": selected["episode_image"],
@@ -1675,6 +1692,9 @@ class RssPodcastPlatformResolver(PodcastPlatformResolver):
         date_text = _first_direct_text(item, ("pubdate", "published", "updated"))
         return _parse_timestamp_seconds(date_text)
 
+    def _extract_episode_guid(self, item: ET.Element) -> str:
+        return _first_direct_text(item, ("guid",))
+
     def _extract_episode_duration(self, item: ET.Element) -> int:
         duration_text = _first_direct_text(item, ("duration",))
         return _parse_duration_seconds(duration_text)
@@ -1734,6 +1754,9 @@ class RssPodcastPlatformResolver(PodcastPlatformResolver):
             return enrichment
 
         enrichment["episode_title"] = (episode.get("title") or "").strip()
+        enrichment["episode_guid"] = (
+            episode.get("episodeGuid") or episode.get("guid") or ""
+        ).strip()
         enrichment["episode_image"] = (
             (episode.get("image") or "").strip()
             or (episode.get("feedImage") or "").strip()
@@ -1780,6 +1803,12 @@ class RssPodcastPlatformResolver(PodcastPlatformResolver):
         merged["podcastindex_enriched"] = True
         if enrichment.get("feed_id") is not None:
             merged["feed_id"] = enrichment["feed_id"]
+
+        # Prefer enrichment episode_guid if the direct-parsed one is empty
+        if not (merged.get("episode_guid") or "").strip():
+            episode_guid = (enrichment.get("episode_guid") or "").strip()
+            if episode_guid:
+                merged["episode_guid"] = episode_guid
 
         if (
             not (merged.get("podcast_title") or "").strip()
