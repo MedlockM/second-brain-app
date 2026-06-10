@@ -129,7 +129,7 @@ fi
 # ------------------------------------------------------------------
 # 4. Bundle ID intact across config files
 # ------------------------------------------------------------------
-BUNDLE_ID="com.mediasummarizer.app"
+BUNDLE_ID="com.secondbrainlabs.core"
 
 BUNDLE_FILES=(
   "mobile/app.config.ts"
