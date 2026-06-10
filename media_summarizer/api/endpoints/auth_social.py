@@ -54,6 +54,9 @@ APPLE_PRIVATE_KEY = os.environ.get("APPLE_PRIVATE_KEY")
 APPLE_REDIRECT_URI = os.environ.get("APPLE_REDIRECT_URI") or os.environ.get(
     "APPLE_REDIRECT_URI", "http://localhost:8000/api/v1/auth/apple/callback"
 )
+# Apple native (iOS app) audience — equals the iOS app bundle id, distinct
+# from APPLE_CLIENT_ID (Services ID) used for the web callback flow.
+APPLE_NATIVE_AUDIENCE = os.environ.get("APPLE_NATIVE_AUDIENCE")
 
 
 # Helpers
@@ -308,11 +311,19 @@ async def _apple_verify_id_token(id_token: str) -> Dict[str, Any]:
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
 
+    # Apple uses different audiences for web (Services ID) vs native (Bundle ID).
+    # PyJWT accepts a list and matches if any of them is in the token's `aud`.
+    accepted_audiences: list[str] = []
+    if APPLE_CLIENT_ID:
+        accepted_audiences.append(APPLE_CLIENT_ID)
+    if APPLE_NATIVE_AUDIENCE and APPLE_NATIVE_AUDIENCE not in accepted_audiences:
+        accepted_audiences.append(APPLE_NATIVE_AUDIENCE)
+
     claims = jwt.decode(
         id_token,
         pem,
         algorithms=["RS256"],
-        audience=APPLE_CLIENT_ID,
+        audience=accepted_audiences if accepted_audiences else APPLE_CLIENT_ID,
         issuer="https://appleid.apple.com",
     )
     return claims
