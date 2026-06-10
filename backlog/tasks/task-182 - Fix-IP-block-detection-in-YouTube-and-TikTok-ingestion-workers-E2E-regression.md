@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-06-10 14:25'
-updated_date: '2026-06-10 15:05'
+updated_date: '2026-06-10 15:13'
 labels:
   - bug
   - ingestion
@@ -50,4 +50,8 @@ Both detection helpers must accept the real-world error messages so the Apify fa
 
 <!-- SECTION:NOTES:BEGIN -->
 No-op merge (2026-06-10): task-182's agent commit (37875fd) was branched from a stale base (ebf51f1, ~2 weeks old). Cherry-pick conflicts revealed that main already carries an equivalent or better IP-block detection: `TikTokIPBlocked` exception + `_process_apify_fallback` in tiktok_ingestion_worker.py and the YouTube counterpart, with finer-grained `apify_native_transcript` / `deepgram_via_apify_tiktok_url` modes. The fix landed via Phase 5 ingestion work prior to dispatch. Cherry-pick skipped; HEAD kept on both files.
+
+[2026-06-10] Reopened: previous no-op decision (e531b92 era) was wrong. The structural fallback code (TikTokIPBlocked / _process_apify_fallback) existed on main but the matchers themselves never recognised the real-world error strings — Unicode apostrophe in YouTube ('you’re' U+2019) bypasses the ASCII-only matcher, and 'IP address is blocked' from TikTok contains none of the (10204, ip block, ip-block, geo block, geo-block) tokens. Re-applying the matcher fix from agent commit 37875fd.
+
+[2026-06-10] Fix re-applied as commit 7f58c0b on main. Surgical edit — only touched the two matcher functions (Phase 5 already wired the fallback paths). Smoke-tested both matchers against the real strings: YouTube ASCII + Unicode apostrophe both match, TikTok 'Your IP address is blocked from accessing this post' matches, legacy 10204 still matches, unrelated 'Video unavailable' correctly rejected. AC#1, #2, #5 satisfied; AC#3, #4 require AWS dev E2E run; AC#6 (unit tests) deferred per agent's prior note.
 <!-- SECTION:NOTES:END -->
