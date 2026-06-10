@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+from io import BytesIO
 
 from media_summarizer.core.media_ingestion.adapters.podcast_resolver_foundation import (
     DEFAULT_PODCAST_RESOLUTION_FAILED_MESSAGE,
@@ -19,13 +20,14 @@ from media_summarizer.core.media_ingestion.adapters.podcast_resolver_foundation 
     normalize_podcast_source_url,
 )
 from media_summarizer.core.media_ingestion.domain import SourcePlatform
-from media_summarizer.utils import database_async, sqs
+from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
     reset_log_context,
     setup_logging,
 )
+from media_summarizer.utils.rss_transcript import fetch_rss_transcript
 from media_summarizer.workers.podcast_platform_resolvers import (
     build_worker_podcast_platform_resolver_registry,
 )
@@ -41,6 +43,12 @@ PODCASTINDEX_RESOLUTION_QUEUE = os.environ.get(
 )
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
+)
+TRANSCRIPT_BUCKET = os.environ.get(
+    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
+)
+EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
+    "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
 )
 PODCASTINDEX_MAX_RETRIES = max(1, int(os.environ.get("PODCASTINDEX_MAX_RETRIES", "3")))
 PODCASTINDEX_WORKER_MAX_RETRIES = max(
@@ -124,7 +132,133 @@ async def _resolve_audio_url(message_body: dict) -> dict:
         "episode_date_published": int(outcome.metadata.get("episode_date_published") or 0),
         "audio_duration_seconds": int(outcome.metadata.get("audio_duration_seconds") or 0),
         "feed_id": outcome.metadata.get("feed_id"),
+        "feed_url": (outcome.metadata.get("feed_url") or "").strip(),
+        "episode_guid": (outcome.metadata.get("episode_guid") or "").strip(),
     }
+
+
+async def _try_rss_transcript_short_circuit(
+    *,
+    job,
+    body: dict,
+    resolution: dict,
+) -> bool:
+    """
+    Attempt to fetch a pre-existing transcript from the RSS feed's
+    <podcast:transcript> tag (Podcasting 2.0 spec).
+
+    Returns True if the short-circuit succeeded (job completed inline),
+    False if we should fall back to the Deepgram path.
+    """
+    feed_url = resolution.get("feed_url") or ""
+    episode_guid = resolution.get("episode_guid") or ""
+
+    if not feed_url:
+        log_event(
+            logger,
+            logging.DEBUG,
+            "transcription.transcript_short_circuit_skipped",
+            "No feed_url available for RSS transcript lookup",
+            job_id=job.id,
+            reason="no_feed_url",
+        )
+        return False
+
+    if not episode_guid:
+        log_event(
+            logger,
+            logging.DEBUG,
+            "transcription.transcript_short_circuit_skipped",
+            "No episode_guid available for RSS transcript lookup",
+            job_id=job.id,
+            reason="no_guid",
+        )
+        return False
+
+    try:
+        transcript_text = await fetch_rss_transcript(
+            feed_url=feed_url,
+            episode_guid=episode_guid,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.DEBUG,
+            "transcription.transcript_short_circuit_skipped",
+            "fetch_rss_transcript raised an exception",
+            job_id=job.id,
+            reason="fetch_failed",
+            error=str(exc),
+        )
+        return False
+
+    if not transcript_text or not transcript_text.strip():
+        log_event(
+            logger,
+            logging.DEBUG,
+            "transcription.transcript_short_circuit_skipped",
+            "RSS transcript tag absent or returned empty payload",
+            job_id=job.id,
+            reason="tag_absent",
+        )
+        return False
+
+    # Upload transcript to S3
+    transcript_s3_key = f"{job.id}.txt"
+    transcript_bytes = transcript_text.encode("utf-8")
+    await s3.upload_file_object(
+        bucket=TRANSCRIPT_BUCKET,
+        key=transcript_s3_key,
+        file_obj=BytesIO(transcript_bytes),
+        content_type="text/plain",
+        metadata={
+            "content-type": "text/plain",
+            "job-type": "podcast-transcription",
+            "provider": "podcasting_2.0",
+        },
+    )
+
+    # Update job metadata and mark completed
+    transcription_metadata = {
+        "provider": "podcasting_2.0",
+        "transcript_format": "txt",
+        "source_detail": "rss_podcast_transcript_tag",
+        "language": None,
+        "duration_seconds": 0,
+    }
+
+    job.set_transcription_location(transcript_s3_key)
+    job.set_transcription_metadata(transcription_metadata)
+    job.mark_completed()
+    await database_async.update_processing_job(job)
+
+    # Publish success event
+    await sqs.send_message(
+        queue_name=EPISODE_COMPLETION_EVENTS_QUEUE,
+        message_body={
+            "event_type": "episode_completion_status",
+            "status": "success",
+            "media_key": body.get("media_key"),
+            "canonical_job_id": job.id,
+            "minutes_used": 1,
+            "transcription_s3_key": transcript_s3_key,
+            "transcription_metadata": transcription_metadata,
+        },
+    )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "transcription.completed_inline",
+        "Podcast transcript fetched from RSS feed (Podcasting 2.0 short-circuit)",
+        job_id=job.id,
+        media_item_id=job.id,
+        transcript_source="podcasting_2.0",
+        feed_url=feed_url,
+        episode_guid=episode_guid,
+    )
+
+    return True
 
 
 async def process_message(message: dict) -> None:
@@ -170,6 +304,18 @@ async def process_message(message: dict) -> None:
             job.media_date_published = int(resolution["episode_date_published"])
         await database_async.update_processing_job(job)
 
+        # --- Podcasting 2.0 transcript short-circuit (primary path) ---
+        # Attempt to fetch a pre-existing transcript from the RSS feed before
+        # paying for Deepgram audio transcription.
+        short_circuited = await _try_rss_transcript_short_circuit(
+            job=job,
+            body=body,
+            resolution=resolution,
+        )
+        if short_circuited:
+            return
+
+        # --- Fallback: enqueue to Deepgram for audio transcription ---
         await sqs.send_message(
             queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
             message_body={
