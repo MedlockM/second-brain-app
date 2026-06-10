@@ -89,7 +89,14 @@ Ref: `podcastindex_resolution_worker.py::_resolve_audio_url`, `podcast_platform_
 
 ### Fallback chain
 
-No automatic transcript fallback at the podcast layer — once the audio URL is resolved, transcription is delegated entirely to Deepgram (pull mode). The historical `download_worker` and Podcasting 2.0 `<podcast:transcript>` short-circuit are **not wired** into this path today (the `utils/rss_transcript.py` helper exists but has no live caller in production code).
+| Step | Trigger condition | Action |
+|---|---|---|
+| 1 (primary) | `feed_url` + `episode_guid` present in message AND RSS `<podcast:transcript>` tag yields valid transcript | Upload pre-existing transcript to S3, publish completion event, skip Deepgram entirely (provider=`podcasting_2.0`) |
+| 2 (fallback) | Tag absent / fetch fails / transcript too short / no `feed_url` or `episode_guid` | Enqueue to `deepgram-transcription-queue` with `deepgram_mode="pull"` (Deepgram fetches the audio enclosure URL directly) |
+
+The Podcasting 2.0 short-circuit is implemented in `podcastindex_resolution_worker.py::_try_rss_transcript_short_circuit` (line 140) which calls `utils/rss_transcript.py::fetch_rss_transcript()`. When successful, the completion event carries `"provider": "podcasting_2.0"` in its `transcription_metadata`.
+
+Ref: `podcastindex_resolution_worker.py::_try_rss_transcript_short_circuit` (line 140), `utils/rss_transcript.py::fetch_rss_transcript`
 
 ### Terminal failure mode
 
@@ -114,34 +121,42 @@ Hands off to `deepgram-transcription-queue` with `deepgram_mode="pull"` (Deepgra
 
 | Provider/library | Identifier | Extracts | Key env vars |
 |---|---|---|---|
-| Apify YouTube Transcript actor | `scrape-creators/best-youtube-transcripts-scraper` (configurable via `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID`) | Native captions (manual or auto-generated) as plain text | `APIFY_YOUTUBE_API_TOKEN`, `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID`, `APIFY_TIMEOUT_SECONDS`, `APIFY_POLL_INTERVAL_SECONDS`, `APIFY_MAX_POLLS`, `YOUTUBE_INGESTION_QUEUE`, `TRANSCRIPT_BUCKET` |
+| yt-dlp | `yt_dlp.YoutubeDL` with `writesubtitles=True`, `subtitleslangs=["en", "en-US", "auto"]` | Native subtitle text (VTT / SRT / JSON) from YouTube CDN | `YOUTUBE_INGESTION_QUEUE`, `YTDLP_TIMEOUT_SECONDS`, `TRANSCRIPT_BUCKET` |
 
 Workflow:
 1. Extract `video_id` from the normalized URL
-2. POST to `https://api.apify.com/v2/acts/{actor_id}/runs` with `{"videoUrls": [source_url]}`
-3. Poll `GET /v2/actor-runs/{runId}` until `SUCCEEDED` (or terminal failure status)
-4. GET `/v2/datasets/{datasetId}/items` and read `transcript_only_text` (preferred) or `transcript[].text` (timed segments)
-5. Upload to S3 as `{job_id}.txt`, mark job completed, publish success event
+2. Run `yt-dlp.extract_info(url, download=False)` with subtitle options (line 219)
+3. Collect `requested_subtitles` + `subtitles` candidates via `_fetch_native_subtitles()` (line 295)
+4. If subtitles found: fetch, parse, upload to S3 as `{job_id}.txt`, publish success event with `strategy_used="native_subtitles"`
 
-Ref: `youtube_ingestion_worker.py::_fetch_apify_transcript`, `youtube_ingestion_worker.py::_normalize_apify_result`, `youtube_ingestion_worker.py::process_youtube_message`
+Ref: `youtube_ingestion_worker.py::_extract_youtube_info` (line 213), `youtube_ingestion_worker.py::_fetch_native_subtitles` (line 295)
 
 ### Fallback chain
 
-No fallback — failure is terminal. The Apify actor is the single provider; there is **no yt-dlp + Deepgram fallback** in the current code (an earlier `YouTubeTranscriptApi` + yt-dlp fallback architecture existed but was removed when the Apify actor became the sole primary path).
+| Step | Trigger condition | Action |
+|---|---|---|
+| 1 (primary) | yt-dlp extraction succeeds AND subtitles present | Fetch and parse native subtitles, upload transcript to S3 (`strategy_used="native_subtitles"`) |
+| 2 | yt-dlp raises with YouTube IP-block / login-wall error (`_is_ip_blocked_error`) | Apify YouTube Transcript actor (`APIFY_YOUTUBE_TRANSCRIPT_ACTOR`) via `_fetch_apify_transcript()` — synchronous run, read dataset items (`strategy_used="apify_transcript"`) |
+| 3 | yt-dlp succeeded but no subtitles found (NativeSubtitlesUnavailable) | Resolve audio URL from yt-dlp info dict, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` (`strategy_used="deepgram_via_ytdlp_url"`) |
+
+The IP-block detection (`_is_ip_blocked_error`, line 151) is intentionally narrow — it does NOT match geo restrictions, deleted videos, rate limits, or generic yt-dlp errors.
+
+Ref: `youtube_ingestion_worker.py::process_youtube_message` (line 696), `youtube_ingestion_worker.py::_fetch_apify_transcript` (line 334), `youtube_ingestion_worker.py::_is_ip_blocked_error` (line 151)
 
 ### Terminal failure mode
 
 - `YouTubeIngestionError` after max retries (`YOUTUBE_WORKER_MAX_RETRIES`, default 3)
 - Mark job failed (`error_step="youtube_ingestion"`)
 - Publish `episode_completion_status(status=failure)`
-- Non-retryable codes: `youtube_unavailable` (deleted/private/age-restricted/geo signals from the actor), `youtube_age_restricted`, `youtube_geo_restricted`, `apify_actor_failed`
-- Retryable codes: `apify_timeout`, `apify_quota_exceeded` (HTTP 429 from Apify), `apify_actor_failed` with retryable=True for transient run failures
+- Non-retryable codes: `youtube_unavailable` (deleted/private/age-restricted), `youtube_age_restricted`, `youtube_geo_restricted`, `youtube_apify_failed` (Apify also failed after IP-block)
+- Retryable codes: `apify_timeout`, `apify_quota_exceeded` (HTTP 429 from Apify), `youtube_timeout` (yt-dlp timeout)
 
-Ref: `youtube_ingestion_worker.py::YouTubeIngestionError`, `youtube_ingestion_worker.py::_normalize_apify_result`
+Ref: `youtube_ingestion_worker.py::YouTubeIngestionError`
 
 ### Downstream dependencies
 
-Publishes to `EPISODE_COMPLETED_EVENTS_QUEUE` (terminates inline with success/failure event). Never enqueues to Deepgram.
+- Native subtitles / Apify transcript success: `EPISODE_COMPLETED_EVENTS_QUEUE` (inline)
+- yt-dlp succeeded + no captions: `deepgram-transcription-queue` (push mode, then Deepgram publishes the completion event)
 
 ---
 
@@ -248,12 +263,13 @@ Ref: `tiktok_ingestion_worker.py::_extract_tiktok_info`, `tiktok_ingestion_worke
 
 | Step | Trigger condition | Action |
 |---|---|---|
-| 1 | yt-dlp raises with TikTok status `10204` / `"IP address is blocked"` (Lambda-IP block) | Apify TikTok Transcript actor (`APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID`) — start run, poll, read dataset, upload as native transcript |
-| 2 | yt-dlp succeeded but `NativeSubtitlesUnavailable` (no captions on the video) | Resolve direct media URL from yt-dlp `info`, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` |
+| 1 | yt-dlp raises with TikTok status `10204` / `"IP address is blocked"` (Lambda-IP block) | Apify TikTok Transcript actor (`APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID`) — start run, poll, read dataset, upload as native transcript (`strategy_used="apify_transcript"`) |
+| 1b | Apify ran but returned no transcript (empty dataset or transcript too short) | Resolve media URL from Apify response, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` (`strategy_used="deepgram_via_apify_tiktok_url"`) |
+| 2 | yt-dlp succeeded but `NativeSubtitlesUnavailable` (no captions on the video) | Resolve direct media URL from yt-dlp `info`, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` (`strategy_used="direct_media_url_fallback"`) |
 
 The IP-block detection is intentionally narrow (`_is_ip_blocked_error`) — it does NOT match geo restrictions, deleted videos, rate limits, or generic yt-dlp errors, those propagate as-is.
 
-Ref: `tiktok_ingestion_worker.py::process_tiktok_message` (lines 1098–1205), `tiktok_ingestion_worker.py::_fetch_apify_tiktok_transcript`, `tiktok_ingestion_worker.py::_resolve_direct_media_url`
+Ref: `tiktok_ingestion_worker.py::process_tiktok_message` (lines 1098–1205), `tiktok_ingestion_worker.py::_fetch_apify_tiktok_dataset` (line 604), `tiktok_ingestion_worker.py::_resolve_direct_media_url`
 
 ### Terminal failure mode
 
@@ -266,7 +282,8 @@ Ref: `tiktok_ingestion_worker.py::_mark_job_failed`, `tiktok_ingestion_worker.py
 ### Downstream dependencies
 
 - Native subtitle success: `EPISODE_COMPLETED_EVENTS_QUEUE` (inline)
-- Apify fallback success: `EPISODE_COMPLETED_EVENTS_QUEUE` (inline)
+- Apify transcript fallback success: `EPISODE_COMPLETED_EVENTS_QUEUE` (inline)
+- Apify ran + no transcript → Deepgram on Apify media URL: `deepgram-transcription-queue` (push mode, `strategy_used="deepgram_via_apify_tiktok_url"`)
 - yt-dlp succeeded + no captions: `deepgram-transcription-queue` (push mode, then Deepgram publishes the completion event)
 
 ---
@@ -446,7 +463,9 @@ Since task-158, each producer worker / endpoint declares an explicit `deepgram_m
 
 | Producer worker / call site | `deepgram_mode` | Source |
 |---|---|---|
+| YouTube ingestion worker (yt-dlp succeeded, no subtitles found) | `push` | `youtube_ingestion_worker.py:783` |
 | TikTok ingestion worker (yt-dlp succeeded, no native captions) | `push` | `tiktok_ingestion_worker.py:1195` |
+| TikTok ingestion worker (Apify ran, no transcript → Deepgram on Apify URL) | `push` | `tiktok_ingestion_worker.py:1212` |
 | Instagram orchestrator branch (`SOCIAL_VIDEO` with `audio_url`) | `push` | `orchestrators.py:435` |
 | Orchestrator: `audio_s3_key` present (staged audio) | `pull` | `orchestrators.py:357` |
 | Orchestrator: generic `audio_url` fallback | `pull_with_push_fallback` | `orchestrators.py:465` |
@@ -513,13 +532,18 @@ index-     ingest-    ingest-              -queue   ingest-  transcr-   extract-
 queue      queue      queue                         queue    queue      queue
    |          |           |                   |        |        |          |
    v          v           v                   v        v        v          v
-[Deepgram  [Apify    [Apify subtitle      [X API  [yt-dlp     [Deepgram [Trafilatura]
- pull]      YouTube   extractor;          v2]    native;       pull /
-            transcript no fallback;             Apify on       push /
-            actor]     fail if no                IP block;     pull_with_
-                       transcript]               Deepgram      push_
-                                                 push if no    fallback]
-                                                 captions]
+[RSS 2.0   [yt-dlp    [Apify subtitle      [X API  [yt-dlp     [Deepgram [Trafilatura]
+ short-     native;    extractor;           v2]     native;      pull /
+ circuit    Apify on   no fallback;               Apify on       push /
+ OR         IP block;  fail if no                 IP block;      pull_with_
+ Deepgram   Deepgram   transcript]                Apify→         push_
+ pull]      push if                               Deepgram       fallback]
+            no subs]                              push if no
+                                                  transcript;
+                                                  yt-dlp→
+                                                  Deepgram
+                                                  push if no
+                                                  captions]
 ```
 
 ---
@@ -546,7 +570,7 @@ queue      queue      queue                         queue    queue      queue
 | `document_parsing/worker` | `media_summarizer/workers/document_parsing/worker.py` |
 | `podcastindex_resolution_worker` | `media_summarizer/workers/podcastindex_resolution_worker.py` |
 | `rss_feed_poll_worker` | `media_summarizer/workers/rss_feed_poll_worker.py` |
-| `rss_transcript` (utility, not currently wired into the live pipeline) | `media_summarizer/utils/rss_transcript.py` |
+| `rss_transcript` (utility, wired via `podcastindex_resolution_worker._try_rss_transcript_short_circuit`) | `media_summarizer/utils/rss_transcript.py` |
 | `tiktok_limiter` | `media_summarizer/utils/tiktok_limiter.py` |
 
 ### Benchmark / decision READMEs
