@@ -183,6 +183,7 @@ async def process_message(message: dict) -> None:
                 "normalized_url": body.get("normalized_url"),
                 "episode_image": episode_image,
                 "audio_duration_seconds": resolution.get("audio_duration_seconds") or 0,
+                "deepgram_mode": "pull",
             },
         )
 

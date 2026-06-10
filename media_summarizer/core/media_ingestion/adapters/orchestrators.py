@@ -354,6 +354,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                         "content_mime_type": resolved.metadata.get("content_mime_type"),
                         "original_name": resolved.metadata.get("original_name"),
                         "content_size_bytes": resolved.metadata.get("content_size_bytes"),
+                        "deepgram_mode": "pull",
                     },
                 )
                 pipeline_enqueued = True
@@ -411,7 +412,8 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     image_count=resolved.metadata.get("image_count", 0),
                 )
             elif resolved.media_family == MediaFamily.SOCIAL_VIDEO and resolved.audio_url:
-                # Instagram reels/video posts and other social video with a remote audio URL
+                # Instagram reels/video posts and other social video with a remote audio URL.
+                # Social video CDNs (Instagram, TikTok, X) block Deepgram IPs -> push mode.
                 job.mark_transcribing()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
@@ -430,6 +432,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                         "caption": resolved.metadata.get("caption"),
                         "comments": resolved.metadata.get("comments", []),
                         "comments_count": resolved.metadata.get("comments_count", 0),
+                        "deepgram_mode": "push",
                     },
                 )
                 pipeline_enqueued = True
@@ -459,6 +462,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                         "normalized_url": resolved.normalized_url,
                         "episode_title": title,
                         "podcast_title": title,
+                        "deepgram_mode": "pull_with_push_fallback",
                     },
                 )
                 pipeline_enqueued = True

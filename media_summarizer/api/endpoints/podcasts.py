@@ -252,6 +252,7 @@ async def submit_podcast_for_processing(
 
         if _looks_like_audio_url(submitted_url):
             # Direct audio URL path: send to Deepgram worker.
+            # User-pasted URL from unknown source -> use pull_with_push_fallback.
             await sqs.send_message(
                 queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
                 message_body={
@@ -259,6 +260,7 @@ async def submit_podcast_for_processing(
                     "audio_url": submitted_url,
                     "user_email": user.email,
                     "user_id": user.id,
+                    "deepgram_mode": "pull_with_push_fallback",
                 },
             )
         else:

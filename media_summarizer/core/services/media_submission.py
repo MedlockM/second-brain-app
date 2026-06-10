@@ -245,6 +245,8 @@ async def submit_media_for_user(
             # RSS feed URL for Podcasting 2.0 transcript lookup
             "feed_url": feed_url,
             "episode_guid": media_key,
+            # Podcast audio from known open CDNs -> pull mode
+            "deepgram_mode": "pull",
             # Deprecated aliases for downstream workers that may still read old keys
             "episode_title": media_title,
             "podcast_title": source_title,

@@ -14,6 +14,7 @@ IMPORTANT: Some tests require specific environment variables on the **worker**
 Lambda (not the test runner):
 - Document fallback: FORCE_LLAMAPARSE_FAILURE=1 on document-parsing worker
 - Deepgram push-mode fallback: FORCE_DEEPGRAM_PUSH_MODE=1 on Deepgram worker
+  (only affects pull_with_push_fallback mode; push/pull modes are unaffected)
 
 Naming convention: test_<source>_<fallback_name>
 """
@@ -248,27 +249,32 @@ async def test_document_unstructured_fallback(
 
 
 # =============================================================================
-# Deepgram: pull-mode CDN 403 -> push-mode binary upload fallback (task-139)
+# Deepgram: pull_with_push_fallback mode exercises push-mode path (task-139/158)
 # =============================================================================
 
 # Fixture rationale:
 # We use a short, stable audio URL from archive.org (LibriVox public domain).
-# The Deepgram worker receives this URL and attempts pull-mode transcription.
+# This URL is submitted via /api/media/ingest-url which classifies it as
+# source_platform="audio" and sets deepgram_mode="pull_with_push_fallback".
+#
+# Architecture (task-158):
+# - Each producer worker declares an explicit deepgram_mode in the message body.
+# - "pull_with_push_fallback" is used for user-pasted URLs of unknown provenance.
+# - "push" is used for CDNs known to block Deepgram (TikTok, Instagram, X).
+# - "pull" is used for open CDNs (podcasts, S3 pre-signed URLs).
 #
 # To deterministically trigger the push-mode fallback WITHOUT depending on
 # external CDN IP-blocking behavior (which is unreliable for CI), the
 # Deepgram worker Lambda must have FORCE_DEEPGRAM_PUSH_MODE=1 set in its
-# environment. This forces a simulated RemoteContentError on pull-mode,
-# causing the worker to download the audio in Lambda and POST bytes to
-# Deepgram via push-mode -- exactly the same code path that fires when a
-# real CDN (e.g. TikTok) blocks Deepgram's IPs.
+# environment. This forces a simulated RemoteContentError on
+# pull_with_push_fallback messages, causing the worker to download the audio
+# in Lambda and POST bytes to Deepgram via push-mode.
 #
 # Why a direct audio URL (not TikTok):
-#   - TikTok URLs go through the TikTok ingestion worker first, which may
-#     take the Apify fallback path (yt-dlp IP-blocked) and never reach the
-#     Deepgram worker at all.
-#   - A direct audio URL goes straight to the Deepgram transcription queue,
-#     isolating the pull-to-push fallback logic under test.
+#   - After task-158, TikTok uses deepgram_mode="push" directly (no fallback).
+#   - A direct audio URL via /api/media/ingest-url gets
+#     deepgram_mode="pull_with_push_fallback", which is the only mode that
+#     exercises the fallback logic.
 #   - archive.org URLs are permanent and always accessible from Lambda IPs.
 #
 # Cost: ~$0.005 per run (Deepgram push-mode, ~1 min audio excerpt).
@@ -285,13 +291,17 @@ async def test_deepgram_pushmode_fallback(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
 ) -> None:
-    """Deepgram pull-mode 403 -> push-mode binary upload succeeds.
+    """Deepgram pull_with_push_fallback mode exercises push-mode path.
+
+    After task-158, the automatic pull-to-push fallback only fires for
+    messages with deepgram_mode="pull_with_push_fallback" (user-pasted URLs).
+    TikTok/Instagram producers now declare deepgram_mode="push" directly.
 
     Prerequisites:
         The Deepgram worker Lambda must have FORCE_DEEPGRAM_PUSH_MODE=1 set
-        in its environment. This simulates a REMOTE_CONTENT_ERROR on pull-mode
-        (as if the source CDN blocked Deepgram's IPs), forcing the push-mode
-        fallback path.
+        in its environment. This simulates a REMOTE_CONTENT_ERROR on the
+        pull attempt within pull_with_push_fallback mode, forcing the
+        push-mode fallback path.
 
     Asserts:
     - Job completes successfully (status == "completed")
@@ -307,12 +317,13 @@ async def test_deepgram_pushmode_fallback(
 
     detail = await _get_media_item(http_client, auth_headers, media_item_id)
 
-    # AC #3: Assert BOTH status == completed AND deepgram_mode == "push"
+    # Assert BOTH status == completed AND deepgram_mode == "push"
     transcription_meta = detail.get("transcription_metadata") or {}
     deepgram_mode = transcription_meta.get("deepgram_mode")
     assert deepgram_mode == "push", (
         f"Expected transcription_metadata.deepgram_mode == 'push' "
-        f"(proving push-mode fallback fired), got: '{deepgram_mode}'. "
+        f"(proving push-mode fallback fired within pull_with_push_fallback mode), "
+        f"got: '{deepgram_mode}'. "
         f"Ensure FORCE_DEEPGRAM_PUSH_MODE=1 is set on the Deepgram worker Lambda. "
         f"transcription_metadata={transcription_meta}"
     )

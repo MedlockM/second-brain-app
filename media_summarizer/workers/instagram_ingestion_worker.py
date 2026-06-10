@@ -387,6 +387,7 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             ),
             "podcast_title": message_body.get("podcast_title") or "Instagram",
             "audio_duration_seconds": resolver_metadata.get("duration_seconds", 0),
+            "deepgram_mode": "push",
         },
     )
 

@@ -1192,6 +1192,7 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
                 "episode_title": message_body.get("episode_title") or job.title or "TikTok video",
                 "podcast_title": message_body.get("podcast_title") or "TikTok",
                 "audio_duration_seconds": audio_result["audio_duration_seconds"],
+                "deepgram_mode": "push",
             },
         )
 

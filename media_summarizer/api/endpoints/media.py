@@ -357,7 +357,7 @@ async def ingest_url(
         elif source_platform == "audio":
             await sqs.send_message(
                 queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
-                message_body={**base_payload, "audio_url": url},
+                message_body={**base_payload, "audio_url": url, "deepgram_mode": "pull_with_push_fallback"},
             )
         elif source_platform == "web":
             await sqs.send_message(queue_name=ARTICLE_EXTRACTION_QUEUE, message_body=base_payload)
@@ -704,6 +704,7 @@ async def upload_audio(
                 "audio_url": presigned_url,
                 "audio_s3_key": audio_s3_key,
                 "original_name": file_name,
+                "deepgram_mode": "pull",
             },
         )
 

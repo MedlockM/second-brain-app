@@ -82,6 +82,7 @@ async def _route_item_to_pipeline(
                 "episode_title": title,
                 "normalized_url": audio_url,
                 "source_platform": "rss_feed",
+                "deepgram_mode": "pull",
             },
         )
         log_event(

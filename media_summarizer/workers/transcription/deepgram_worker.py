@@ -98,10 +98,16 @@ DEEPGRAM_VISIBILITY_TIMEOUT = int(
     os.environ.get("DEEPGRAM_VISIBILITY_TIMEOUT", "1800")
 )
 
-# Testing flag: when set to "1", forces the push-mode fallback path by
-# simulating a RemoteContentError on every pull-mode attempt. Used by E2E
-# tests to deterministically exercise the push-mode path without depending
-# on external CDN IP-blocking behavior.
+# Valid deepgram_mode values declared by producer workers in the message body.
+# "pull" = Deepgram fetches the URL (fail loudly on 403 -- producer misrouted)
+# "push" = Lambda downloads audio and POSTs bytes to Deepgram (for CDNs that block Deepgram)
+# "pull_with_push_fallback" = Try pull first, fall back to push on RemoteContentError
+VALID_DEEPGRAM_MODES = ("pull", "push", "pull_with_push_fallback")
+
+# Testing flag: when set to "1", forces the push-mode fallback path on
+# pull_with_push_fallback messages by simulating a RemoteContentError on pull-mode.
+# Used by E2E tests to deterministically exercise the push-mode fallback
+# without depending on external CDN IP-blocking behavior.
 FORCE_DEEPGRAM_PUSH_MODE = os.environ.get("FORCE_DEEPGRAM_PUSH_MODE", "").strip() == "1"
 
 
@@ -503,6 +509,27 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
     if not isinstance(job_id, str):
         raise NonRetryableDeepgramError("Invalid field types in transcription message")
 
+    # Read explicit deepgram_mode declared by the producer worker.
+    # Default to "pull" for backward compatibility with messages already in-flight.
+    requested_mode = message_body.get("deepgram_mode")
+    if requested_mode is None:
+        log_event(
+            logger,
+            logging.WARNING,
+            "transcription.missing_deepgram_mode",
+            "Received Deepgram message with no deepgram_mode field; "
+            "defaulting to 'pull'. Update the producer to set deepgram_mode explicitly.",
+            provider="deepgram",
+            job_id=job_id,
+            source_platform=message_body.get("source_platform"),
+        )
+        requested_mode = "pull"
+    elif requested_mode not in VALID_DEEPGRAM_MODES:
+        raise NonRetryableDeepgramError(
+            f"Invalid deepgram_mode '{requested_mode}'; "
+            f"must be one of {VALID_DEEPGRAM_MODES}"
+        )
+
     from media_summarizer.utils import database_async
 
     job = await database_async.get_processing_job_by_id(job_id)
@@ -516,52 +543,11 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
         audio_s3_key = getattr(job, "audio_s3_key", None)
 
     deepgram_payload: Dict[str, Any]
-    deepgram_mode: str = "pull"  # Track whether pull-mode or push-mode was used
+    deepgram_mode_used: str = requested_mode
     started = time.time()
-    if isinstance(audio_url, str) and audio_url.strip():
-        try:
-            if FORCE_DEEPGRAM_PUSH_MODE:
-                raise RemoteContentError(
-                    "Forced push-mode via FORCE_DEEPGRAM_PUSH_MODE=1"
-                )
-            deepgram_payload = await call_deepgram_api(
-                audio_url=audio_url.strip(),
-                job_id=job_id,
-            )
-        except RemoteContentError as remote_err:
-            # Deepgram could not fetch the audio URL (source CDN blocks cloud IPs).
-            # Fallback: download audio in Lambda, then push bytes directly to Deepgram.
-            log_event(
-                logger,
-                logging.WARNING,
-                "transcription.push_fallback.triggered",
-                "Deepgram URL-mode failed with REMOTE_CONTENT_ERROR; "
-                "attempting push-mode fallback",
-                provider="deepgram",
-                job_id=job_id,
-                audio_url=audio_url.strip(),
-                original_error=str(remote_err)[:300],
-            )
-            audio_bytes, content_type = await _download_audio_for_push_fallback(
-                audio_url=audio_url.strip(),
-                job_id=job_id,
-            )
-            deepgram_payload = await call_deepgram_api_from_bytes(
-                audio_bytes=audio_bytes,
-                content_type=content_type,
-                job_id=job_id,
-            )
-            deepgram_mode = "push"
-            log_event(
-                logger,
-                logging.INFO,
-                "transcription.push_fallback.succeeded",
-                "Push-mode fallback transcription succeeded",
-                provider="deepgram",
-                job_id=job_id,
-                audio_size_bytes=len(audio_bytes),
-            )
-    elif isinstance(audio_s3_key, str) and audio_s3_key.strip():
+
+    if isinstance(audio_s3_key, str) and audio_s3_key.strip():
+        # S3-based audio always uses push-mode (bytes already available)
         audio_bytes = await s3.download_file_to_memory(AUDIO_BUCKET, audio_s3_key.strip())
         content_type = _resolve_audio_content_type(
             content_mime_type=message_body.get("content_mime_type"),
@@ -572,7 +558,80 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
             content_type=content_type,
             job_id=job_id,
         )
-        deepgram_mode = "push"
+        deepgram_mode_used = "push"
+    elif isinstance(audio_url, str) and audio_url.strip():
+        if requested_mode == "push":
+            # Producer declared push-mode: skip pull entirely, download and push bytes.
+            audio_bytes, content_type = await _download_audio_for_push_fallback(
+                audio_url=audio_url.strip(),
+                job_id=job_id,
+            )
+            deepgram_payload = await call_deepgram_api_from_bytes(
+                audio_bytes=audio_bytes,
+                content_type=content_type,
+                job_id=job_id,
+            )
+            deepgram_mode_used = "push"
+        elif requested_mode == "pull":
+            # Producer declared pull-mode: fail loudly on RemoteContentError.
+            try:
+                deepgram_payload = await call_deepgram_api(
+                    audio_url=audio_url.strip(),
+                    job_id=job_id,
+                )
+            except RemoteContentError as remote_err:
+                raise NonRetryableDeepgramError(
+                    f"Deepgram pull-mode failed with REMOTE_CONTENT_ERROR "
+                    f"(producer declared deepgram_mode='pull' but source CDN "
+                    f"blocks Deepgram; update the producer to use 'push' mode). "
+                    f"source_platform={message_body.get('source_platform')}, "
+                    f"audio_url={audio_url.strip()[:200]}, "
+                    f"original_error={str(remote_err)[:200]}"
+                ) from remote_err
+            deepgram_mode_used = "pull"
+        else:
+            # "pull_with_push_fallback": try pull, fall back to push on CDN block.
+            try:
+                if FORCE_DEEPGRAM_PUSH_MODE:
+                    raise RemoteContentError(
+                        "Forced push-mode via FORCE_DEEPGRAM_PUSH_MODE=1 (E2E testing)"
+                    )
+                deepgram_payload = await call_deepgram_api(
+                    audio_url=audio_url.strip(),
+                    job_id=job_id,
+                )
+                deepgram_mode_used = "pull"
+            except RemoteContentError as remote_err:
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "transcription.push_fallback.triggered",
+                    "Deepgram pull-mode failed with REMOTE_CONTENT_ERROR; "
+                    "attempting push-mode fallback (mode=pull_with_push_fallback)",
+                    provider="deepgram",
+                    job_id=job_id,
+                    audio_url=audio_url.strip(),
+                    original_error=str(remote_err)[:300],
+                )
+                audio_bytes, content_type = await _download_audio_for_push_fallback(
+                    audio_url=audio_url.strip(),
+                    job_id=job_id,
+                )
+                deepgram_payload = await call_deepgram_api_from_bytes(
+                    audio_bytes=audio_bytes,
+                    content_type=content_type,
+                    job_id=job_id,
+                )
+                deepgram_mode_used = "push"
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "transcription.push_fallback.succeeded",
+                    "Push-mode fallback transcription succeeded",
+                    provider="deepgram",
+                    job_id=job_id,
+                    audio_size_bytes=len(audio_bytes),
+                )
     else:
         raise NonRetryableDeepgramError(
             "Missing required field: audio_url or audio_s3_key"
@@ -586,7 +645,7 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
 
     transcription_metadata = {
         "provider": "deepgram",
-        "deepgram_mode": deepgram_mode,
+        "deepgram_mode": deepgram_mode_used,
         "request_id": transcript.get("request_id"),
         "model_used": DEEPGRAM_MODEL,
         "language": transcript.get("language"),
