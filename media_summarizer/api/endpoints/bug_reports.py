@@ -115,7 +115,7 @@ class CreateBugReportResponse(BaseModel):
 
 
 @router.post(
-    "/bug-reports/upload-url",
+    "/upload-url",
     response_model=RequestUploadUrlResponse,
     status_code=status.HTTP_200_OK,
     summary="Get presigned upload URL for bug report attachment",
@@ -178,7 +178,7 @@ async def request_upload_url(
 
 
 @router.post(
-    "/bug-reports",
+    "",
     response_model=CreateBugReportResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Submit a bug report",
