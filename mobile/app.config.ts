@@ -76,7 +76,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     revenueCatGoogleKey: process.env.EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY || "",
     feedbackUrl: process.env.EXPO_PUBLIC_FEEDBACK_URL || "",
     eas: {
-      projectId: process.env.EAS_PROJECT_ID || "placeholder-project-id",
+      projectId: "fad6e877-590d-4143-bbaa-fdd013b01c43",
     },
   },
 });
