@@ -4,11 +4,14 @@ Queue-first Instagram ingestion worker.
 Pipeline:
 - Consumes messages from INSTAGRAM_INGESTION_QUEUE
 - Resolves content via InstagramApifyResolver (Apify Reel/Post Scrapers)
-- If the resolver returns raw_text (Apify native transcript for Reels):
-    uploads transcript to S3 and publishes a completion event directly
-- Fails with NonRetryableProviderResolutionError if neither raw_text nor
-    image-post payload is present (no audio_url fallback to Deepgram)
-- Marks the processing job as extracting/transcribing along the way
+- For reels: enqueues a Deepgram transcription job pointing at the resolved
+  audio URL (or video URL fallback) with deepgram_mode="pull_with_push_fallback".
+  The Deepgram worker tries pull first and falls back to push when the IG CDN
+  blocks Deepgram.
+- If the resolver populates raw_text (kept for forward compatibility with a
+  potential native transcript path), uploads the transcript and completes inline.
+- Fails terminally when neither raw_text nor an audio URL is available.
+- Marks the processing job as extracting/transcribing along the way.
 """
 
 from __future__ import annotations
@@ -17,7 +20,6 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from io import BytesIO
 import os
 from typing import Any, Dict, Optional
 
@@ -37,7 +39,8 @@ from media_summarizer.core.media_ingestion.errors import (
 from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
     InstagramApifyResolver,
 )
-from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils import database_async, sqs
+from media_summarizer.utils.deepgram_dispatch import enqueue_deepgram_transcription
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -56,9 +59,6 @@ INSTAGRAM_INGESTION_QUEUE = os.environ.get(
 )
 EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
 INSTAGRAM_WORKER_MAX_RETRIES = max(
     1, int(os.environ.get("INSTAGRAM_WORKER_MAX_RETRIES", "3"))
@@ -141,44 +141,6 @@ def _build_extraction_metadata(
         "failure_details": failure_details,
         "resolved_at": _now_iso_utc(),
     }
-
-
-async def _upload_transcript(job_id: str, text: str) -> str:
-    """Upload transcript text to S3 and return the S3 key."""
-    transcript_s3_key = f"{job_id}.txt"
-    await s3.upload_file_object(
-        bucket=TRANSCRIPT_BUCKET,
-        key=transcript_s3_key,
-        file_obj=BytesIO(text.encode("utf-8")),
-        content_type="text/plain",
-        metadata={
-            "content-type": "text/plain",
-            "job-type": "instagram-transcript",
-            "provider": "apify_native",
-        },
-    )
-    return transcript_s3_key
-
-
-async def _publish_success_event(
-    *,
-    job_id: str,
-    media_key: Optional[str],
-    transcript_s3_key: str,
-    transcription_metadata: Dict[str, Any],
-) -> None:
-    await sqs.send_message(
-        queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,
-        message_body={
-            "event_type": "episode_completion_status",
-            "status": "success",
-            "media_key": media_key,
-            "canonical_job_id": job_id,
-            "minutes_used": 1,
-            "transcription_s3_key": transcript_s3_key,
-            "transcription_metadata": transcription_metadata,
-        },
-    )
 
 
 async def _publish_failure_event(
@@ -291,65 +253,65 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
     content_type = resolver_metadata.get("instagram_content_type")
     transcript_source = resolver_metadata.get("transcript_source")
 
-    # Path A: Apify returned raw_text (native transcript available)
-    if resolved.raw_text:
-        transcript_s3_key = await _upload_transcript(job_id, resolved.raw_text)
+    # The resolver returns audio_url for reels -> hand off to Deepgram with
+    # pull-with-push-fallback (the IG CDN sometimes blocks Deepgram pull).
+    if resolved.audio_url:
+        duration_value = resolver_metadata.get("duration_seconds") or 0
+        try:
+            audio_duration_seconds = int(float(duration_value))
+        except (TypeError, ValueError):
+            audio_duration_seconds = 0
 
         extraction_metadata = _build_extraction_metadata(
             source_url=normalized_url,
+            download_url=resolved.audio_url,
             content_type=content_type,
-            transcript_source=transcript_source or "apify_native",
+            transcript_source=transcript_source or "deepgram_pending",
             resolver_metadata=resolver_metadata,
         )
         job.extraction_metadata = extraction_metadata
-        job.media_url = normalized_url
+        job.media_url = resolved.audio_url
         job.mark_transcribing()
         await database_async.update_processing_job(job)
 
-        transcription_metadata = {
-            "provider": "apify_native",
-            "model_used": "apify_instagram_reel_scraper",
-            "language": None,
-            "segments_count": len(
-                [line for line in resolved.raw_text.splitlines() if line.strip()]
-            ),
-            "duration_seconds": resolver_metadata.get("duration_seconds", 0),
-            "transcript_char_count": len(resolved.raw_text),
-            "source_url": normalized_url,
-        }
-
-        await _publish_success_event(
+        await enqueue_deepgram_transcription(
             job_id=job_id,
+            audio_url=resolved.audio_url,
+            deepgram_mode="pull_with_push_fallback",
+            source_platform="instagram",
             media_key=media_key,
-            transcript_s3_key=transcript_s3_key,
-            transcription_metadata=transcription_metadata,
+            user_id=user_id,
+            user_email=message_body.get("user_email"),
+            normalized_url=normalized_url,
+            episode_title=resolved.title,
+            audio_duration_seconds=audio_duration_seconds,
         )
 
         log_event(
             logger,
             logging.INFO,
-            "transcription.completed_inline",
-            "Instagram video resolved with Apify native transcript",
+            "transcription.enqueued",
+            "Instagram reel queued for Deepgram (pull-with-push-fallback)",
             job_id=job_id,
             media_item_id=job_id,
-            transcript_source="apify_native",
             instagram_content_type=content_type,
-            transcript_char_count=len(resolved.raw_text),
+            transcript_source="deepgram_pending",
+            audio_url_kind=resolver_metadata.get("audio_url_kind"),
         )
 
         return {
             "job_id": job_id,
             "media_key": media_key,
             "content_type": content_type,
-            "transcript_source": "apify_native",
-            "routed_to": "completion_event",
+            "transcript_source": "deepgram_pending",
+            "routed_to": "deepgram_queue",
         }
 
     # If we reach here, the resolver returned neither raw_text nor an
-    # image-post payload. This is unsupported — fail hard.
+    # audio URL. This is unsupported — fail hard.
     raise InstagramIngestionError(
         "unsupported_content",
-        details="no_transcript_or_image_payload",
+        details="no_transcript_or_audio_url",
         retryable=False,
         user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
     )

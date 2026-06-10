@@ -198,7 +198,7 @@ async def test_instagram_ingestion(
     await _ingest_and_wait(
         http_client,
         auth_headers,
-        "https://www.instagram.com/reel/DZXolnGNeAG/",
+        "https://www.instagram.com/natgeo/reel/DZaHxtTglqb/?hl=fr",
     )
 
 

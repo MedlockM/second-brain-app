@@ -65,9 +65,9 @@ YOUTUBE_SUBTITLE_FETCH_TIMEOUT_SECONDS = float(
 YOUTUBE_WORKER_MAX_RETRIES = 3
 
 # Apify configuration
-APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
-APIFY_YOUTUBE_TRANSCRIPT_ACTOR = os.environ.get(
-    "APIFY_YOUTUBE_TRANSCRIPT_ACTOR",
+APIFY_YOUTUBE_API_TOKEN = os.environ.get("APIFY_YOUTUBE_API_TOKEN", "")
+APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = os.environ.get(
+    "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID",
     "scrape-creators~best-youtube-transcripts-scraper",
 )
 APIFY_API_BASE = "https://api.apify.com/v2"
@@ -343,7 +343,7 @@ async def _fetch_apify_transcript(video_id: str, source_url: str) -> Dict[str, A
     Returns a dict with text, language, segments_count, source_detail, fetched_at.
     Raises YouTubeIngestionError if Apify fails or returns no transcript.
     """
-    if not APIFY_API_TOKEN:
+    if not APIFY_YOUTUBE_API_TOKEN:
         raise YouTubeIngestionError(
             "youtube_unavailable",
             details="apify_token_missing",
@@ -352,13 +352,10 @@ async def _fetch_apify_transcript(video_id: str, source_url: str) -> Dict[str, A
         )
 
     run_url = (
-        f"{APIFY_API_BASE}/acts/{APIFY_YOUTUBE_TRANSCRIPT_ACTOR}/run-sync-get-dataset-items"
+        f"{APIFY_API_BASE}/acts/{APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID}/run-sync-get-dataset-items"
     )
-    params = {"token": APIFY_API_TOKEN}
-    payload = {
-        "urls": [source_url],
-        "outputFormat": "singleStringText",
-    }
+    params = {"token": APIFY_YOUTUBE_API_TOKEN}
+    payload = {"videoUrls": [source_url]}
 
     try:
         async with httpx.AsyncClient(timeout=APIFY_TIMEOUT_SECONDS) as client:

@@ -5,10 +5,10 @@ Pipeline:
 - Consumes messages from TIKTOK_INGESTION_QUEUE
 - Attempts native subtitle retrieval through yt-dlp metadata first
 - Uploads native transcript text to S3 and publishes completion events on success
-- Falls back to a direct remote media URL and reuses the Deepgram queue
-- When yt-dlp is IP-blocked (status 10204), falls back to Apify TikTok Scraper
-- When Apify returns no transcript, resolves media URL from actor response and
-  dispatches to Deepgram in push mode
+- When yt-dlp succeeds without captions, falls back to the resolved media URL
+  and reuses the Deepgram queue (push mode)
+- When yt-dlp is IP-blocked, falls back to the Apify TikTok transcript actor;
+  on usable transcript the job completes, otherwise it fails terminally
 """
 
 from __future__ import annotations
@@ -28,6 +28,13 @@ import httpx
 import yt_dlp
 
 from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.deepgram_dispatch import (
+    DEEPGRAM_TRANSCRIPTION_QUEUE,
+    enqueue_deepgram_transcription,
+)
+from media_summarizer.utils.ingestion_sentinels import (
+    strip_e2e_force_ip_block_sentinel,
+)
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -51,9 +58,6 @@ TRANSCRIPT_BUCKET = os.environ.get(
 TIKTOK_INGESTION_QUEUE = os.environ.get(
     "TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue"
 )
-DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
-    "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
-)
 EPISODE_COMPLETION_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"
 )
@@ -65,19 +69,20 @@ TIKTOK_WORKER_MAX_RETRIES = max(
     1, int(os.environ.get("TIKTOK_WORKER_MAX_RETRIES", "3"))
 )
 
-# Apify configuration for TikTok Scraper fallback
-APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
-APIFY_TIKTOK_ACTOR_ID = os.environ.get(
-    "APIFY_TIKTOK_ACTOR_ID", "clockworks~tiktok-scraper"
+# Apify configuration for TikTok transcript fallback.
+# The actor (scrape-creators~best-tiktok-transcripts-scraper by default) takes
+# `{"videos": [<url>]}` as input and returns a list of items with a `success`
+# flag plus a `transcript` string in WEBVTT format (or empty/missing on failure).
+APIFY_TIKTOK_API_TOKEN = os.environ.get("APIFY_TIKTOK_API_TOKEN", "")
+APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID = os.environ.get(
+    "APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID",
+    "scrape-creators~best-tiktok-transcripts-scraper",
 )
 APIFY_API_BASE_URL = os.environ.get(
     "APIFY_API_BASE_URL", "https://api.apify.com/v2"
 )
 APIFY_TIKTOK_TIMEOUT_SECONDS = float(
     os.environ.get("APIFY_TIKTOK_TIMEOUT_SECONDS", "120")
-)
-APIFY_TIKTOK_POLL_INTERVAL = float(
-    os.environ.get("APIFY_TIKTOK_POLL_INTERVAL", "5")
 )
 
 _YTDLP_EXTRACTOR_VERSION = "v1"
@@ -616,30 +621,26 @@ def _resolve_direct_media_url(info: Dict[str, Any]) -> Dict[str, Any]:
 
 async def _fetch_apify_tiktok_dataset(normalized_url: str) -> list[Dict[str, Any]]:
     """
-    Call the Apify TikTok Scraper actor synchronously and return dataset items.
+    Call the Apify TikTok transcript actor synchronously and return dataset items.
 
     Uses the actor run-sync endpoint which starts the actor, waits for completion,
-    and returns the dataset items in one call.
+    and returns the dataset items in one call. Each item carries `success`,
+    `id`, `url`, and `transcript` (WEBVTT string when success is true).
     """
-    if not APIFY_API_TOKEN:
+    if not APIFY_TIKTOK_API_TOKEN:
         raise TikTokIngestionError(
             "apify_actor_failed",
-            details="missing_apify_api_token",
+            details="missing_apify_tiktok_api_token",
             retryable=False,
             user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
         )
 
     run_url = (
-        f"{APIFY_API_BASE_URL}/acts/{APIFY_TIKTOK_ACTOR_ID}/run-sync-get-dataset-items"
+        f"{APIFY_API_BASE_URL}/acts/{APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID}"
+        f"/run-sync-get-dataset-items"
     )
-    params = {"token": APIFY_API_TOKEN}
-    payload = {
-        "postURLs": [normalized_url],
-        "shouldDownloadVideos": False,
-        "shouldDownloadCovers": False,
-        "maxProfilesPerQuery": 1,
-        "resultsPerPage": 1,
-    }
+    params = {"token": APIFY_TIKTOK_API_TOKEN}
+    payload = {"videos": [normalized_url]}
 
     try:
         async with httpx.AsyncClient(
@@ -699,12 +700,12 @@ async def _fetch_apify_tiktok_dataset(normalized_url: str) -> list[Dict[str, Any
 
 def _extract_apify_transcript_text(items: list[Dict[str, Any]]) -> Optional[str]:
     """
-    Extract transcript text from Apify TikTok Scraper dataset items.
+    Extract transcript text from Apify TikTok transcript actor dataset items.
 
-    Looks for subtitle links in videoMeta.subtitleLinks[].downloadLink and
-    returns the raw text content if any subtitle is found inline. For URL-based
-    subtitles, returns None (would need an additional fetch -- handled by the
-    existing subtitle download flow when available).
+    Each item carries `success` (bool) and `transcript` (WEBVTT string) per the
+    actor schema. We strip the VTT cues (timestamps, NOTE/STYLE blocks) and
+    keep only the spoken lines, joined by newlines. Returns None when the
+    actor signalled failure or the transcript is empty.
     """
     if not items:
         return None
@@ -713,55 +714,15 @@ def _extract_apify_transcript_text(items: list[Dict[str, Any]]) -> Optional[str]
     if not isinstance(item, dict):
         return None
 
-    # Check for inline subtitle/caption text from the actor
-    video_meta = item.get("videoMeta")
-    if isinstance(video_meta, dict):
-        subtitle_links = video_meta.get("subtitleLinks")
-        if isinstance(subtitle_links, list):
-            for sub in subtitle_links:
-                if not isinstance(sub, dict):
-                    continue
-                # Some actor versions include inline text
-                text = sub.get("text") or sub.get("content")
-                if isinstance(text, str) and text.strip():
-                    return text.strip()
-
-    # Check for direct text/description as fallback transcript source
-    # (some TikTok videos contain the full transcript in the description)
-    # -- We do NOT use description as transcript, it's unreliable.
-
-    return None
-
-
-def _resolve_apify_tiktok_media_url(items: list[Dict[str, Any]]) -> Optional[str]:
-    """
-    Extract a direct audio/media URL from Apify TikTok Scraper dataset items.
-
-    Primary: musicMeta.playUrl (CDN URL of the audio track, expires after hours).
-    Fallback: mediaUrls[0] if available (Apify-hosted permanent MP4, paid feature).
-    """
-    if not items:
+    if item.get("success") is False:
         return None
 
-    item = items[0]
-    if not isinstance(item, dict):
+    raw = item.get("transcript")
+    if not isinstance(raw, str) or not raw.strip():
         return None
 
-    # Primary: musicMeta.playUrl
-    music_meta = item.get("musicMeta")
-    if isinstance(music_meta, dict):
-        play_url = music_meta.get("playUrl")
-        if isinstance(play_url, str) and _is_valid_http_url(play_url):
-            return play_url.strip()
-
-    # Fallback: mediaUrls (only available with shouldDownloadVideos: true)
-    media_urls = item.get("mediaUrls")
-    if isinstance(media_urls, list):
-        for url in media_urls:
-            if isinstance(url, str) and _is_valid_http_url(url):
-                return url.strip()
-
-    return None
+    text = _parse_timed_text_payload(raw)
+    return text or None
 
 
 def _build_apify_native_extraction_metadata(
@@ -773,7 +734,7 @@ def _build_apify_native_extraction_metadata(
     """Build extraction metadata for the Apify native transcript path."""
     return {
         "provider": "apify",
-        "extractor": "clockworks_tiktok_scraper",
+        "extractor": "scrape_creators_tiktok_transcripts",
         "extractor_version": "v1",
         "strategy_used": "apify_native_transcript",
         "selected_strategy": "apify_native_transcript",
@@ -797,39 +758,13 @@ def _build_apify_native_transcription_metadata(
     """Build transcription metadata for the Apify native transcript path."""
     return {
         "provider": "apify_native_transcript",
-        "model_used": "clockworks_tiktok_scraper",
+        "model_used": "scrape_creators_tiktok_transcripts",
         "language": None,
         "segments_count": len([line for line in transcript_text.splitlines() if line.strip()]),
         "duration_seconds": 0,
         "source_url": source_url,
         "transcribed_at": _now_iso_utc(),
-        "source_detail": "apify_tiktok_scraper_subtitles",
-    }
-
-
-def _build_apify_deepgram_fallback_extraction_metadata(
-    *,
-    tiktok_id: str,
-    source_url: str,
-    audio_url: str,
-) -> Dict[str, Any]:
-    """Build extraction metadata for the Apify -> Deepgram fallback path."""
-    return {
-        "provider": "apify",
-        "extractor": "clockworks_tiktok_scraper",
-        "extractor_version": "v1",
-        "strategy_used": "deepgram_via_apify_tiktok_url",
-        "selected_strategy": "deepgram_via_apify_tiktok_url",
-        "source_url": source_url,
-        "tiktok_id": tiktok_id,
-        "subtitle_status": "apify_no_transcript",
-        "direct_media_url_present": True,
-        "direct_media_url_status": "apify_media_url_resolved",
-        "resolved_url": audio_url,
-        "audio_duration_seconds": 0,
-        "native_subtitle_fallback_reason": "ip_blocked_apify_no_transcript",
-        "last_error_code": None,
-        "queued_at": _now_iso_utc(),
+        "source_detail": "apify_tiktok_transcript",
     }
 
 
@@ -1032,7 +967,26 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
     job.mark_extracting()
     await database_async.update_processing_job(job)
 
+    normalized_url, force_ip_block = strip_e2e_force_ip_block_sentinel(normalized_url)
     tiktok_id = _extract_tiktok_id(normalized_url)
+
+    if force_ip_block:
+        log_event(
+            logger,
+            logging.WARNING,
+            "extraction.ip_blocked",
+            "E2E sentinel forced IP-block path; routing to Apify fallback",
+            job_id=job_id,
+            tiktok_id=tiktok_id,
+            detail="e2e_sentinel_force_ip_block",
+        )
+        return await _process_apify_fallback(
+            job=job,
+            job_id=job_id,
+            tiktok_id=tiktok_id,
+            normalized_url=normalized_url,
+            message_body=message_body,
+        )
 
     # Attempt yt-dlp extraction; on IP-block, fall through to Apify path
     try:
@@ -1070,19 +1024,18 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
         job.mark_transcribing()
         await database_async.update_processing_job(job)
 
-        await sqs.send_message(
-            queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
-            message_body={
-                "job_id": job.id,
-                "user_id": message_body.get("user_id"),
-                "user_email": message_body.get("user_email"),
-                "audio_url": audio_result["audio_url"],
-                "media_key": message_body.get("media_key"),
-                "normalized_url": normalized_url,
-                "episode_title": message_body.get("episode_title") or job.episode_title,
-                "podcast_title": message_body.get("podcast_title") or job.podcast_title,
-                "audio_duration_seconds": audio_result["audio_duration_seconds"],
-            },
+        await enqueue_deepgram_transcription(
+            job_id=job.id,
+            audio_url=audio_result["audio_url"],
+            deepgram_mode="pull_with_push_fallback",
+            source_platform="tiktok",
+            media_key=message_body.get("media_key"),
+            user_id=message_body.get("user_id"),
+            user_email=message_body.get("user_email"),
+            normalized_url=normalized_url,
+            episode_title=message_body.get("episode_title") or job.episode_title,
+            podcast_title=message_body.get("podcast_title") or job.podcast_title,
+            audio_duration_seconds=audio_result["audio_duration_seconds"],
         )
 
         return {
@@ -1133,113 +1086,63 @@ async def _process_apify_fallback(
     message_body: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Apify fallback path: called when yt-dlp is IP-blocked (status 10204).
+    Apify fallback path: called when yt-dlp is IP-blocked.
 
-    1. Fetch dataset from Apify TikTok Scraper actor
-    2. If actor returns transcript text -> upload and complete
-    3. If no transcript but media URL found -> enqueue Deepgram (push mode)
-    4. If neither -> fail terminally
+    Fetches the Apify transcript actor dataset; on a usable transcript the job
+    completes. On any other outcome (no transcript, success=false, missing
+    field) the job fails terminally — the actor does not expose a media URL,
+    so there is no Deepgram fallback chained from here.
     """
     items = await _fetch_apify_tiktok_dataset(normalized_url)
     transcript_text = _extract_apify_transcript_text(items)
 
-    if transcript_text:
-        # Apify returned a usable transcript
-        transcript_s3_key = await _upload_native_transcript(job_id, transcript_text)
-        transcription_metadata = _build_apify_native_transcription_metadata(
-            source_url=normalized_url,
-            transcript_text=transcript_text,
-        )
-        job.set_transcription_location(transcript_s3_key)
-        job.set_transcription_metadata(transcription_metadata)
-        job.extraction_metadata = _build_apify_native_extraction_metadata(
-            tiktok_id=tiktok_id,
-            source_url=normalized_url,
-            transcript_text=transcript_text,
-        )
-        job.mark_completed()
-        await database_async.update_processing_job(job)
-
-        await _publish_success_event(
-            job_id=job_id,
-            media_key=message_body.get("media_key"),
-            transcript_s3_key=transcript_s3_key,
-            transcription_metadata=transcription_metadata,
+    if not transcript_text:
+        raise TikTokIngestionError(
+            "apify_actor_failed",
+            details="apify_no_transcript",
+            retryable=False,
+            user_message=_UNSUPPORTED_MESSAGE,
         )
 
-        log_event(
-            logger,
-            logging.INFO,
-            "transcription.completed",
-            "TikTok Apify native transcript completed",
-            job_id=job_id,
-            tiktok_id=tiktok_id,
-            fallback_strategy="apify_native_transcript",
-        )
-
-        return {
-            "mode": "apify_native_transcript",
-            "job_id": job_id,
-            "media_key": message_body.get("media_key"),
-            "tiktok_id": tiktok_id,
-            "source_detail": "apify_tiktok_scraper_subtitles",
-        }
-
-    # No transcript from Apify -- try to resolve a media URL for Deepgram
-    audio_url = _resolve_apify_tiktok_media_url(items)
-
-    if audio_url:
-        job.extraction_metadata = _build_apify_deepgram_fallback_extraction_metadata(
-            tiktok_id=tiktok_id,
-            source_url=normalized_url,
-            audio_url=audio_url,
-        )
-        job.episode_url = audio_url
-        job.mark_transcribing()
-        await database_async.update_processing_job(job)
-
-        await sqs.send_message(
-            queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
-            message_body={
-                "job_id": job.id,
-                "user_id": message_body.get("user_id"),
-                "user_email": message_body.get("user_email"),
-                "audio_url": audio_url,
-                "media_key": message_body.get("media_key"),
-                "normalized_url": normalized_url,
-                "episode_title": message_body.get("episode_title") or job.episode_title,
-                "podcast_title": message_body.get("podcast_title") or job.podcast_title,
-                "audio_duration_seconds": 0,
-                "deepgram_mode": "push",
-            },
-        )
-
-        log_event(
-            logger,
-            logging.INFO,
-            "transcription.enqueued",
-            "TikTok queued Deepgram via Apify-resolved media URL",
-            job_id=job_id,
-            tiktok_id=tiktok_id,
-            queue=DEEPGRAM_TRANSCRIPTION_QUEUE,
-            fallback_strategy="deepgram_via_apify_tiktok_url",
-        )
-
-        return {
-            "mode": "deepgram_via_apify_tiktok_url",
-            "job_id": job.id,
-            "media_key": message_body.get("media_key"),
-            "tiktok_id": tiktok_id,
-            "fallback_reason": "ip_blocked_apify_no_transcript",
-        }
-
-    # Terminal failure: no transcript and no media URL from Apify
-    raise TikTokIngestionError(
-        "apify_actor_failed",
-        details="no_transcript_and_no_media_url_in_actor_output",
-        retryable=False,
-        user_message=_UNSUPPORTED_MESSAGE,
+    transcript_s3_key = await _upload_native_transcript(job_id, transcript_text)
+    transcription_metadata = _build_apify_native_transcription_metadata(
+        source_url=normalized_url,
+        transcript_text=transcript_text,
     )
+    job.set_transcription_location(transcript_s3_key)
+    job.set_transcription_metadata(transcription_metadata)
+    job.extraction_metadata = _build_apify_native_extraction_metadata(
+        tiktok_id=tiktok_id,
+        source_url=normalized_url,
+        transcript_text=transcript_text,
+    )
+    job.mark_completed()
+    await database_async.update_processing_job(job)
+
+    await _publish_success_event(
+        job_id=job_id,
+        media_key=message_body.get("media_key"),
+        transcript_s3_key=transcript_s3_key,
+        transcription_metadata=transcription_metadata,
+    )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "transcription.completed",
+        "TikTok Apify native transcript completed",
+        job_id=job_id,
+        tiktok_id=tiktok_id,
+        fallback_strategy="apify_native_transcript",
+    )
+
+    return {
+        "mode": "apify_native_transcript",
+        "job_id": job_id,
+        "media_key": message_body.get("media_key"),
+        "tiktok_id": tiktok_id,
+        "source_detail": "apify_tiktok_transcript",
+    }
 
 
 async def process_message(message: Dict[str, Any]) -> None:
@@ -1293,18 +1196,6 @@ async def process_message(message: Dict[str, Any]) -> None:
                 media_item_id=result["job_id"],
                 transcript_source="apify_native_transcript",
                 fallback_strategy=result["source_detail"],
-            )
-        elif result["mode"] == "deepgram_via_apify_tiktok_url":
-            log_event(
-                logger,
-                logging.INFO,
-                "transcription.enqueued",
-                "TikTok queued Deepgram via Apify-resolved media URL",
-                job_id=result["job_id"],
-                media_item_id=result["job_id"],
-                queue=DEEPGRAM_TRANSCRIPTION_QUEUE,
-                transcript_source="deepgram",
-                fallback_strategy="deepgram_via_apify_tiktok_url",
             )
         else:
             log_event(

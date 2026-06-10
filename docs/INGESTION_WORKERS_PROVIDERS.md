@@ -4,7 +4,7 @@ Authoritative reference for the ingestion pipeline. Lists each source type's
 primary extraction path, fallback chain, terminal failure behavior, and
 downstream hand-off.
 
-Last verified against codebase: 2026-06-10.
+Last verified against codebase: 2026-06-10 (post task-185 + Apify actor migrations + Deepgram dispatch helper).
 
 ---
 
@@ -121,42 +121,44 @@ Hands off to `deepgram-transcription-queue` with `deepgram_mode="pull"` (Deepgra
 
 | Provider/library | Identifier | Extracts | Key env vars |
 |---|---|---|---|
-| yt-dlp | `yt_dlp.YoutubeDL` with `writesubtitles=True`, `subtitleslangs=["en", "en-US", "auto"]` | Native subtitle text (VTT / SRT / JSON) from YouTube CDN | `YOUTUBE_INGESTION_QUEUE`, `YTDLP_TIMEOUT_SECONDS`, `TRANSCRIPT_BUCKET` |
+| yt-dlp | `yt_dlp.YoutubeDL` with `writesubtitles=True`, `writeautomaticsub=True`, `subtitleslangs=["all"]` | Native + auto-generated subtitle text (VTT / SRT / JSON) from YouTube CDN | `YOUTUBE_INGESTION_QUEUE`, `YTDLP_TIMEOUT_SECONDS`, `TRANSCRIPT_BUCKET` |
 
 Workflow:
 1. Extract `video_id` from the normalized URL
-2. Run `yt-dlp.extract_info(url, download=False)` with subtitle options (line 219)
-3. Collect `requested_subtitles` + `subtitles` candidates via `_fetch_native_subtitles()` (line 295)
+2. Run `yt_dlp.YoutubeDL.extract_info(url, download=False)` with subtitle options
+3. Collect candidates via `collect_subtitle_candidates(info)` from `utils/ytdlp_helpers.py`
 4. If subtitles found: fetch, parse, upload to S3 as `{job_id}.txt`, publish success event with `strategy_used="native_subtitles"`
 
-Ref: `youtube_ingestion_worker.py::_extract_youtube_info` (line 213), `youtube_ingestion_worker.py::_fetch_native_subtitles` (line 295)
+Ref: `youtube_ingestion_worker.py::_extract_youtube_info`, `youtube_ingestion_worker.py::_fetch_native_subtitles`, `utils/ytdlp_helpers.py::collect_subtitle_candidates`
 
 ### Fallback chain
 
 | Step | Trigger condition | Action |
 |---|---|---|
 | 1 (primary) | yt-dlp extraction succeeds AND subtitles present | Fetch and parse native subtitles, upload transcript to S3 (`strategy_used="native_subtitles"`) |
-| 2 | yt-dlp raises with YouTube IP-block / login-wall error (`_is_ip_blocked_error`) | Apify YouTube Transcript actor (`APIFY_YOUTUBE_TRANSCRIPT_ACTOR`) via `_fetch_apify_transcript()` — synchronous run, read dataset items (`strategy_used="apify_transcript"`) |
-| 3 | yt-dlp succeeded but no subtitles found (NativeSubtitlesUnavailable) | Resolve audio URL from yt-dlp info dict, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` (`strategy_used="deepgram_via_ytdlp_url"`) |
+| 2 | yt-dlp raises with YouTube IP-block / login-wall error (`_is_ip_blocked_youtube_error`) | Apify YouTube Transcript actor (`APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID`, default `scrape-creators~best-youtube-transcripts-scraper`) via `_fetch_apify_transcript()` — synchronous run, read dataset items, prefer `transcript_only_text` field, fall back to joined `transcript[].text` segments (`strategy_used="apify_transcript"`) |
+| 3 | yt-dlp succeeded but no subtitles found (`NativeSubtitlesUnavailable`) | Resolve audio URL from yt-dlp info dict via `resolve_direct_media_url(info)`, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` (`strategy_used="deepgram_via_ytdlp_url"`) |
 
-The IP-block detection (`_is_ip_blocked_error`, line 151) is intentionally narrow — it does NOT match geo restrictions, deleted videos, rate limits, or generic yt-dlp errors.
+The IP-block matcher normalises Unicode `'` (U+2019) to ASCII `'` before substring matching so phrasings like `Sign in to confirm you're not a bot` match alongside the ASCII variant. It does NOT match geo restrictions, deleted videos, rate limits, or generic yt-dlp errors — those propagate as terminal `youtube_*` failures.
 
-Ref: `youtube_ingestion_worker.py::process_youtube_message` (line 696), `youtube_ingestion_worker.py::_fetch_apify_transcript` (line 334), `youtube_ingestion_worker.py::_is_ip_blocked_error` (line 151)
+Apify call uses dedicated credentials: `APIFY_YOUTUBE_API_TOKEN` (token) and `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` (actor). The request payload is `{"videoUrls": [<url>]}` — note the camelCase `videoUrls`, not `urls`, and the `~` separator in the actor ID (Apify Console UI shows `/`, but the API requires `~`).
+
+Ref: `youtube_ingestion_worker.py::process_youtube_message`, `youtube_ingestion_worker.py::_fetch_apify_transcript`, `youtube_ingestion_worker.py::_is_ip_blocked_youtube_error`
 
 ### Terminal failure mode
 
 - `YouTubeIngestionError` after max retries (`YOUTUBE_WORKER_MAX_RETRIES`, default 3)
 - Mark job failed (`error_step="youtube_ingestion"`)
 - Publish `episode_completion_status(status=failure)`
-- Non-retryable codes: `youtube_unavailable` (deleted/private/age-restricted), `youtube_age_restricted`, `youtube_geo_restricted`, `youtube_apify_failed` (Apify also failed after IP-block)
-- Retryable codes: `apify_timeout`, `apify_quota_exceeded` (HTTP 429 from Apify), `youtube_timeout` (yt-dlp timeout)
+- Non-retryable codes: `youtube_unavailable` (deleted/private), `youtube_age_restricted`, `youtube_geo_restricted`, `youtube_apify_failed` (Apify also failed after IP-block), `youtube_subtitle_fetch_failed`
+- Retryable codes: `youtube_ytdlp_timeout`, `youtube_apify_failed` with `retryable=True` (Apify network / 5xx)
 
 Ref: `youtube_ingestion_worker.py::YouTubeIngestionError`
 
 ### Downstream dependencies
 
-- Native subtitles / Apify transcript success: `EPISODE_COMPLETED_EVENTS_QUEUE` (inline)
-- yt-dlp succeeded + no captions: `deepgram-transcription-queue` (push mode, then Deepgram publishes the completion event)
+- Native subtitles / Apify transcript success: `EPISODE_COMPLETION_EVENTS_QUEUE` env var, default queue `episode-completion-events` (inline)
+- yt-dlp succeeded + no captions: `deepgram-transcription-queue` (push mode, then Deepgram publishes the completion event to its own `EPISODE_COMPLETED_EVENTS_QUEUE` — see drift note in Cross-cutting section)
 
 ---
 
@@ -170,31 +172,35 @@ Ref: `youtube_ingestion_worker.py::YouTubeIngestionError`
 
 | Provider/library | Identifier | Extracts | Key env vars |
 |---|---|---|---|
-| Apify Video Subtitle Extractor | `khadinakbar~video-subtitle-extractor` (configurable via `APIFY_INSTAGRAM_REEL_ACTOR_ID`) | Native subtitle/caption track for Reels/IGTV (Whisper fallback DISABLED at the actor level) | `APIFY_INSTAGRAM_API_TOKEN`, `APIFY_INSTAGRAM_REEL_ACTOR_ID`, `APIFY_TIMEOUT_SECONDS`, `APIFY_POLL_INTERVAL_SECONDS`, `APIFY_MAX_POLLS`, `INSTAGRAM_TRANSCRIPT_MIN_LENGTH`, `INSTAGRAM_INGESTION_QUEUE` |
+| yt-dlp | `yt_dlp.YoutubeDL.extract_info(url, download=False)` | Direct audio URL (best audio-only DASH/HTTPS stream) | `INSTAGRAM_INGESTION_QUEUE`, `YTDLP_TIMEOUT_SECONDS` |
 
 Workflow:
-1. `instagram_ingestion_worker` consumes `instagram-ingestion-queue`
-2. Marks job `EXTRACTING` (post task-175 — historically `mark_downloading`)
-3. `InstagramApifyResolver` invokes the subtitle extractor with `useWhisperFallback=false` and `preferredLanguages=["auto"]`
-4. If the actor returns a transcript ≥ `INSTAGRAM_TRANSCRIPT_MIN_LENGTH` characters → upload to S3 as `{job_id}.txt`, publish success event with `transcript_source="apify_native"`
+1. `instagram_ingestion_worker` consumes `instagram-ingestion-queue` and marks the job `EXTRACTING`
+2. `InstagramApifyResolver.resolve()` strips any sentinel from the URL, classifies the content type, then for Reels/IGTV invokes `_resolve_reel_via_ytdlp(...)` first
+3. yt-dlp runs without cookies; on success the resolver picks the best audio stream via `resolve_direct_media_url(info)` and returns a `ResolvedMedia` with `audio_url` populated
+4. The worker hands the URL to the Deepgram queue with `deepgram_mode="pull_with_push_fallback"` (Instagram CDN sometimes blocks Deepgram pull, so the worker falls back to push automatically)
 
-Ref: `instagram_ingestion_worker.py::process_instagram_message` (Path A: `if resolved.raw_text`), `instagram_apify_resolver.py::InstagramApifyResolver.resolve`
+Ref: `instagram_apify_resolver.py::InstagramApifyResolver.resolve`, `instagram_apify_resolver.py::_resolve_reel_via_ytdlp`, `utils/ytdlp_helpers.py::resolve_direct_media_url`, `instagram_ingestion_worker.py::process_instagram_message`
 
 ### Fallback chain
 
-No automatic Deepgram fallback. The resolver explicitly disables Whisper inside the actor and the worker fails when the actor returns no usable transcript:
+| Step | Trigger condition | Action |
+|---|---|---|
+| 1 (primary) | yt-dlp extracts a usable audio stream | Hand off to Deepgram via the `enqueue_deepgram_transcription` helper with `deepgram_mode="pull_with_push_fallback"` |
+| 2 | yt-dlp raises with an Instagram login-wall / rate-limit / restricted-content error (`_looks_like_ig_ip_blocked_error`), or any other yt-dlp failure | Catch as internal `_InstagramYtdlpBlocked`, fall back to the Apify Reel Scraper path |
+| 3 (Apify fallback) | yt-dlp blocked OR sentinel forces it | `apify~instagram-reel-scraper` (configurable via `APIFY_INSTAGRAM_REEL_ACTOR_ID`) with input `{"username": [<url>], "resultsLimit": 1}` returns reel metadata. Resolver picks `audioUrl` (preferred) or `videoUrl` (fallback) and emits a `ResolvedMedia` with `audio_url` populated |
+| 4 (Deepgram handoff) | Either primary or Apify produced an `audio_url` | `enqueue_deepgram_transcription(..., deepgram_mode="pull_with_push_fallback", source_platform="instagram")` |
 
-| Condition | Behavior |
-|---|---|
-| Actor returns `raw_text` ≥ min length | Path A success — transcript uploaded directly, no Deepgram |
-| Actor returns no `raw_text` (silent reel, music-only, captions absent) | `NonRetryableProviderResolutionError` → worker fails with `unsupported_content` |
+The yt-dlp "blocked" detector is intentionally permissive — any `DownloadError` or unexpected exception is treated as a soft block so the Apify branch always gets a chance. This mirrors the deliberate simplification: Instagram from Lambda is hostile enough that paying for Apify on uncertain failures is cheaper than triaging dozens of error phrasings.
 
-Note: a separate orchestrator branch (`orchestrators.py:414`, `MediaFamily.SOCIAL_VIDEO with audio_url`) routes Instagram-style messages to Deepgram in push mode. That branch is **not exercised by the queue-first Instagram pipeline** today — it's reachable only when a non-Instagram caller (e.g. shared-content ingestion) populates `audio_url` directly. The live Instagram path stops at the Apify subtitle extractor.
+E2E test seam: a sentinel query param `__e2e_force_ip_block__=1` in the submitted URL skips yt-dlp entirely and routes straight to the Apify branch. Same convention as the TikTok worker — the helper lives in `utils/ingestion_sentinels.py::strip_e2e_force_ip_block_sentinel`.
+
+Ref: `instagram_apify_resolver.py::_looks_like_ig_ip_blocked_error`, `instagram_apify_resolver.py::_resolve_reel`, `utils/ingestion_sentinels.py`
 
 ### Terminal failure mode
 
-- `InstagramIngestionError` codes:
-  - `unsupported_content` (`apify_non_retryable:*` from resolver, no transcript or image payload)
+- `InstagramIngestionError` codes (raised by the worker):
+  - `unsupported_content` (`apify_non_retryable:*` from resolver, neither yt-dlp nor Apify produced an `audio_url`)
   - `provider_error` (`apify_retryable:*` from resolver after retries exhausted, or unexpected exception)
   - `invalid_message` (missing job_id / normalized_url / job not found)
 - After max retries (`INSTAGRAM_WORKER_MAX_RETRIES`, default 3), the job is marked failed (`error_step="instagram_ingestion"`) and a failure event is published
@@ -203,7 +209,8 @@ Ref: `instagram_ingestion_worker.py::InstagramIngestionError`, `instagram_ingest
 
 ### Downstream dependencies
 
-Publishes to `EPISODE_COMPLETED_EVENTS_QUEUE`. No Deepgram, no separate transcription queue.
+- yt-dlp or Apify produced an `audio_url`: `deepgram-transcription-queue` (`pull_with_push_fallback`, then Deepgram publishes the completion event)
+- All terminal errors: `EPISODE_COMPLETED_EVENTS_QUEUE` env var, default queue `episode-completed-events` (failure event)
 
 ---
 
@@ -218,24 +225,26 @@ Publishes to `EPISODE_COMPLETED_EVENTS_QUEUE`. No Deepgram, no separate transcri
 |---|---|---|---|
 | Apify Instagram Post Scraper | `apify~instagram-post-scraper` (configurable via `APIFY_INSTAGRAM_POST_ACTOR_ID`) | Image URLs, caption, comments, post type (single / carousel / video-post) | `APIFY_INSTAGRAM_API_TOKEN`, `APIFY_INSTAGRAM_POST_ACTOR_ID` (+ shared `APIFY_TIMEOUT_*`) |
 
-Workflow split inside the resolver:
-- **URL path `/p/...` with no video** → returns `MediaType.IMAGE_POST` payload (image URLs + caption). The orchestrator (`orchestrators.py:374`) then enqueues to `instagram-image-queue` for OCR/vision processing (out of scope of the V1 transcription pipeline).
-- **URL path `/p/...` with video** → falls back to the subtitle-extractor flow described in the Reel section above.
+URL classification scans every path segment for a known indicator (`reel`, `p`, `tv`) so both `/p/<id>/` and `/<username>/p/<id>/` shapes resolve to the same content type.
 
-Ref: `instagram_apify_resolver.py::_detect_instagram_content_type`, `orchestrators.py:374` (`MediaType.IMAGE_POST` branch)
+Workflow split inside the resolver:
+- **URL path `/p/...` (image post or carousel)** → returns `MediaType.IMAGE_POST` payload (image URLs + caption). The orchestrator's `IMAGE_POST` branch enqueues to `instagram-image-queue` for OCR/vision processing (out of scope of the V1 transcription pipeline).
+- **URL path `/p/...` containing video** → currently treated as `IMAGE_POST` by the post scraper (the V1 pipeline does not split video posts from image posts; video posts surface only via `/reel/...` URLs).
+
+Ref: `instagram_apify_resolver.py::_detect_instagram_content_type`, `instagram_apify_resolver.py::_resolve_post`, `orchestrators.py` (`MediaType.IMAGE_POST` branch)
 
 ### Fallback chain
 
-For videos: same as Instagram Reel (no Deepgram fallback). For image posts: dispatched to `instagram-image-queue` — image worker pipeline is not part of this document.
+No fallback — failure is terminal. Image posts dispatched to `instagram-image-queue` are processed by the image worker pipeline (not covered here).
 
 ### Terminal failure mode
 
-Same as Instagram Reel for video paths. Image-post failures surface from the post-scraper actor (auth, quota, content-type rejection).
+Image-post failures surface from the post-scraper actor (auth, quota, content-type rejection) and are reported as `unsupported_content` / `provider_error` (same `InstagramIngestionError` taxonomy as Reels).
 
 ### Downstream dependencies
 
-- Video posts → `EPISODE_COMPLETED_EVENTS_QUEUE` (success) or job failure
 - Image posts → `instagram-image-queue` (OCR/vision pipeline, not covered here)
+- Errors → `EPISODE_COMPLETED_EVENTS_QUEUE` env var, default queue `episode-completed-events` (failure event)
 
 ---
 
@@ -251,40 +260,45 @@ Same as Instagram Reel for video paths. Image-post failures surface from the pos
 | yt-dlp | `yt_dlp.YoutubeDL` with `writesubtitles=True`, `subtitleslangs=["all"]` | Native subtitle text (VTT / SRT / JSON) from TikTok CDN | `TIKTOK_INGESTION_QUEUE`, `YTDLP_TIMEOUT_SECONDS`, `TIKTOK_SUBTITLE_FETCH_TIMEOUT_SECONDS`, `TIKTOK_WORKER_MAX_RETRIES` (rate limiter via `tiktok_limiter`) |
 
 Workflow:
-1. Marks job `EXTRACTING` (post task-175 — historically `mark_downloading`)
-2. Acquire rate-limit slot via `tiktok_limiter.acquire_tiktok_slot()`
-3. Run `yt-dlp.extract_info(url, download=False)` with subtitle options
-4. Collect `requested_subtitles` + `subtitles` candidates, fetch and parse the best-priority one
-5. Upload transcript to S3 as `{job_id}.txt`
+1. `tiktok_ingestion_worker` consumes `tiktok-ingestion-queue` and marks the job `EXTRACTING`
+2. Strip the `__e2e_force_ip_block__` sentinel via `strip_e2e_force_ip_block_sentinel(...)` (skips yt-dlp and goes straight to Apify when present)
+3. Acquire a rate-limit slot via `tiktok_limiter.acquire_tiktok_slot()`
+4. Run `yt_dlp.YoutubeDL.extract_info(url, download=False)` with subtitle options
+5. Collect `requested_subtitles` + `subtitles` candidates, fetch and parse the best-priority one
+6. Upload transcript to S3 as `{job_id}.txt`
 
-Ref: `tiktok_ingestion_worker.py::_extract_tiktok_info`, `tiktok_ingestion_worker.py::_fetch_native_subtitles`, `tiktok_ingestion_worker.py::_parse_caption_payload`
+Ref: `tiktok_ingestion_worker.py::_extract_tiktok_info`, `tiktok_ingestion_worker.py::_fetch_native_subtitles`, `tiktok_ingestion_worker.py::_parse_caption_payload`, `utils/ingestion_sentinels.py::strip_e2e_force_ip_block_sentinel`
 
 ### Fallback chain
 
 | Step | Trigger condition | Action |
 |---|---|---|
-| 1 | yt-dlp raises with TikTok status `10204` / `"IP address is blocked"` (Lambda-IP block) | Apify TikTok Transcript actor (`APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID`) — start run, poll, read dataset, upload as native transcript (`strategy_used="apify_transcript"`) |
-| 1b | Apify ran but returned no transcript (empty dataset or transcript too short) | Resolve media URL from Apify response, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` (`strategy_used="deepgram_via_apify_tiktok_url"`) |
-| 2 | yt-dlp succeeded but `NativeSubtitlesUnavailable` (no captions on the video) | Resolve direct media URL from yt-dlp `info`, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` (`strategy_used="direct_media_url_fallback"`) |
+| 1 | yt-dlp raises with TikTok status `10204` / `"IP address is blocked"` (`_looks_like_ip_blocked_error`), OR sentinel forces it | Apify TikTok Transcript actor (`APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID`, default `scrape-creators~best-tiktok-transcripts-scraper`) via `_fetch_apify_tiktok_dataset()` — POST `{"videos": [<url>]}` to `run-sync-get-dataset-items`, parse the WEBVTT `transcript` field via `_parse_timed_text_payload`, upload as native transcript (`strategy_used="apify_native_transcript"`) |
+| 2 | yt-dlp succeeded but `NativeSubtitlesUnavailable` (no captions on the video) | Resolve direct media URL from yt-dlp `info` via `resolve_direct_media_url`, hand off via `enqueue_deepgram_transcription` with `deepgram_mode="pull_with_push_fallback"` (`strategy_used` from `_build_fallback_extraction_metadata`) |
 
-The IP-block detection is intentionally narrow (`_is_ip_blocked_error`) — it does NOT match geo restrictions, deleted videos, rate limits, or generic yt-dlp errors, those propagate as-is.
+When the Apify actor returns `success=false` or no transcript, the job fails terminally — the new actor does not expose a media URL, so there is no chained Deepgram path from the IP-block branch.
 
-Ref: `tiktok_ingestion_worker.py::process_tiktok_message` (lines 1098–1205), `tiktok_ingestion_worker.py::_fetch_apify_tiktok_dataset` (line 604), `tiktok_ingestion_worker.py::_resolve_direct_media_url`
+The IP-block matcher accepts both the legacy `10204` token and the modern phrasings (`ip address is blocked`, `ip block`, `geo block`). It does NOT match geo restrictions, deleted videos, rate limits, or generic yt-dlp errors — those propagate as terminal `extractor_failed` / `unsupported_content`.
+
+E2E test seam: a sentinel query param `__e2e_force_ip_block__=1` forces the Apify branch. The shared helper lives in `utils/ingestion_sentinels.py`.
+
+Apify call uses dedicated credentials: `APIFY_TIKTOK_API_TOKEN` (token) and `APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID` (actor). The actor ID separator is `~`, not `/` (Apify Console UI shows `/`, but the API requires `~`).
+
+Ref: `tiktok_ingestion_worker.py::process_tiktok_message`, `tiktok_ingestion_worker.py::_fetch_apify_tiktok_dataset`, `tiktok_ingestion_worker.py::_extract_apify_transcript_text`, `tiktok_ingestion_worker.py::_looks_like_ip_blocked_error`, `utils/ytdlp_helpers.py::resolve_direct_media_url`
 
 ### Terminal failure mode
 
 - `TikTokIngestionError` after max retries (`TIKTOK_WORKER_MAX_RETRIES`, default 3)
-- Non-retryable codes: `unsupported_content` (private/deleted/live), `no_direct_media_url`, `tiktok_ip_blocked_unrecoverable` (yt-dlp IP-blocked AND Apify also failed), `apify_actor_failed` (with `retryable=False` for explicit actor failure)
-- Retryable codes: `rate_limited`, `extractor_failed`, `apify_timeout`, `apify_quota_exceeded`
+- Non-retryable codes: `unsupported_content` (private/deleted/live), `apify_actor_failed` with details `apify_no_transcript` (actor ran but returned nothing usable), `apify_actor_failed` with `apify_client_error:*` (actor schema rejection)
+- Retryable codes: `rate_limited`, `extractor_failed`, `apify_actor_failed` with `apify_network_error:*` / `apify_server_error:*`
 
 Ref: `tiktok_ingestion_worker.py::_mark_job_failed`, `tiktok_ingestion_worker.py::TikTokIngestionError`
 
 ### Downstream dependencies
 
-- Native subtitle success: `EPISODE_COMPLETED_EVENTS_QUEUE` (inline)
-- Apify transcript fallback success: `EPISODE_COMPLETED_EVENTS_QUEUE` (inline)
-- Apify ran + no transcript → Deepgram on Apify media URL: `deepgram-transcription-queue` (push mode, `strategy_used="deepgram_via_apify_tiktok_url"`)
-- yt-dlp succeeded + no captions: `deepgram-transcription-queue` (push mode, then Deepgram publishes the completion event)
+- Native subtitle success: `EPISODE_COMPLETION_EVENTS_QUEUE` env var, default `episode-completion-events` (inline)
+- Apify transcript fallback success: `EPISODE_COMPLETION_EVENTS_QUEUE` (inline)
+- yt-dlp succeeded + no captions: `deepgram-transcription-queue` (`pull_with_push_fallback`, then Deepgram publishes the completion event)
 
 ---
 
@@ -451,6 +465,8 @@ Ref: `rss_feed_poll_worker.py::_route_item_to_pipeline`, `rss_feed_poll_worker.p
 
 Since task-158, each producer worker / endpoint declares an explicit `deepgram_mode` in the SQS message body sent to `deepgram-transcription-queue`. This eliminates wasted pull-attempt timeouts for sources where Deepgram cannot fetch audio directly (CDN IP-blocking).
 
+The `media_summarizer/utils/deepgram_dispatch.py` helper centralises the SQS payload construction. All workers that hand off to Deepgram should call `enqueue_deepgram_transcription(...)` rather than building the message body inline — the helper enforces the canonical schema (`job_id`, `audio_url`, `deepgram_mode`, `source_platform`, ...) and prevents drift.
+
 ### Mode definitions
 
 | Mode | Behavior |
@@ -463,23 +479,27 @@ Since task-158, each producer worker / endpoint declares an explicit `deepgram_m
 
 | Producer worker / call site | `deepgram_mode` | Source |
 |---|---|---|
-| YouTube ingestion worker (yt-dlp succeeded, no subtitles found) | `push` | `youtube_ingestion_worker.py:783` |
-| TikTok ingestion worker (yt-dlp succeeded, no native captions) | `push` | `tiktok_ingestion_worker.py:1195` |
-| TikTok ingestion worker (Apify ran, no transcript → Deepgram on Apify URL) | `push` | `tiktok_ingestion_worker.py:1212` |
-| Instagram orchestrator branch (`SOCIAL_VIDEO` with `audio_url`) | `push` | `orchestrators.py:435` |
-| Orchestrator: `audio_s3_key` present (staged audio) | `pull` | `orchestrators.py:357` |
-| Orchestrator: generic `audio_url` fallback | `pull_with_push_fallback` | `orchestrators.py:465` |
-| PodcastIndex resolution worker | `pull` | `podcastindex_resolution_worker.py:186` |
-| RSS feed poll worker (audio item) | `pull` | `rss_feed_poll_worker.py:85` |
-| `POST /api/v1/podcasts/submit` (user-pasted audio URL) | `pull_with_push_fallback` | `api/endpoints/podcasts.py:263` |
-| `POST /api/media/ingest-url` (audio source platform) | `pull_with_push_fallback` | `api/endpoints/media.py:358` |
-| `POST /api/media/upload-audio` (S3 pre-signed URL) | `pull` | `api/endpoints/media.py:705` |
+| YouTube ingestion worker (yt-dlp succeeded, no subtitles found) | `push` | `youtube_ingestion_worker.py` |
+| TikTok ingestion worker (yt-dlp succeeded, no native captions) | `pull_with_push_fallback` | `tiktok_ingestion_worker.py` (via `enqueue_deepgram_transcription`) |
+| Instagram ingestion worker (yt-dlp or Apify produced an `audio_url`) | `pull_with_push_fallback` | `instagram_ingestion_worker.py` (via `enqueue_deepgram_transcription`) |
+| Orchestrator: `audio_s3_key` present (staged audio) | `pull` | `orchestrators.py` (`audio_s3_key` branch) |
+| Orchestrator: `SOCIAL_VIDEO` with `audio_url` (legacy direct path) | `push` | `orchestrators.py` (`SOCIAL_VIDEO` branch) |
+| Orchestrator: generic `audio_url` fallback | `pull_with_push_fallback` | `orchestrators.py` (generic audio_url branch) |
+| PodcastIndex resolution worker | `pull` | `podcastindex_resolution_worker.py` |
+| RSS feed poll worker (audio item) | `pull` | `rss_feed_poll_worker.py` |
+| `POST /api/v1/podcasts/submit` (user-pasted audio URL) | `pull_with_push_fallback` | `api/endpoints/podcasts.py` |
+| `POST /api/media/ingest-url` (audio source platform) | `pull_with_push_fallback` | `api/endpoints/media.py` |
+| `POST /api/media/upload-audio` (S3 pre-signed URL) | `pull` | `api/endpoints/media.py` |
 
 ### Backward compatibility
 
 Messages with no `deepgram_mode` field default to `pull` and trigger a `WARNING` log (`transcription.missing_deepgram_mode`) to flag missed call sites.
 
-Ref: `transcription/deepgram_worker.py::VALID_DEEPGRAM_MODES`, `transcription/deepgram_worker.py::process_deepgram_message`
+Ref: `transcription/deepgram_worker.py::VALID_DEEPGRAM_MODES`, `transcription/deepgram_worker.py::process_deepgram_message`, `utils/deepgram_dispatch.py::enqueue_deepgram_transcription`
+
+### Known drift: completion-events queue name
+
+Two env-var names exist in the codebase for what is logically the same downstream queue: `EPISODE_COMPLETION_EVENTS_QUEUE` (default queue `episode-completion-events`, used by TikTok / YouTube / PodcastIndex workers) and `EPISODE_COMPLETED_EVENTS_QUEUE` (default queue `episode-completed-events`, used by Article / Instagram / X / Document / Deepgram workers). In each environment one of the two values is set so that all producers actually publish to the same SQS queue, but the inconsistency is real and should be unified in a future cleanup task.
 
 ---
 
@@ -532,18 +552,17 @@ index-     ingest-    ingest-              -queue   ingest-  transcr-   extract-
 queue      queue      queue                         queue    queue      queue
    |          |           |                   |        |        |          |
    v          v           v                   v        v        v          v
-[RSS 2.0   [yt-dlp    [Apify subtitle      [X API  [yt-dlp     [Deepgram [Trafilatura]
- short-     native;    extractor;           v2]     native;      pull /
- circuit    Apify on   no fallback;               Apify on       push /
- OR         IP block;  fail if no                 IP block;      pull_with_
- Deepgram   Deepgram   transcript]                Apify→         push_
- pull]      push if                               Deepgram       fallback]
-            no subs]                              push if no
-                                                  transcript;
-                                                  yt-dlp→
-                                                  Deepgram
-                                                  push if no
-                                                  captions]
+[RSS 2.0   [yt-dlp    [yt-dlp →            [X API  [yt-dlp     [Deepgram [Trafilatura]
+ short-     native;    Apify Reel           v2]     native;      pull /
+ circuit    Apify on   Scraper →                   Apify on      push /
+ OR         IP block;  audio_url →                 IP block;     pull_with_
+ Deepgram   Deepgram   Deepgram                    Apify         push_
+ pull]      push if    pull_with_                  WEBVTT;       fallback]
+            no subs]   push_fallback]              yt-dlp→
+                                                   Deepgram
+                                                   pull_with_
+                                                   push_fallback
+                                                   if no captions]
 ```
 
 ---
@@ -572,6 +591,9 @@ queue      queue      queue                         queue    queue      queue
 | `rss_feed_poll_worker` | `media_summarizer/workers/rss_feed_poll_worker.py` |
 | `rss_transcript` (utility, wired via `podcastindex_resolution_worker._try_rss_transcript_short_circuit`) | `media_summarizer/utils/rss_transcript.py` |
 | `tiktok_limiter` | `media_summarizer/utils/tiktok_limiter.py` |
+| `ytdlp_helpers` (shared subtitle + media-URL helpers used by YouTube/TikTok/Instagram resolvers) | `media_summarizer/utils/ytdlp_helpers.py` |
+| `deepgram_dispatch` (canonical SQS payload builder for Deepgram producers) | `media_summarizer/utils/deepgram_dispatch.py` |
+| `ingestion_sentinels` (per-request E2E test seam for forcing the IP-block branch) | `media_summarizer/utils/ingestion_sentinels.py` |
 
 ### Benchmark / decision READMEs
 
@@ -580,6 +602,8 @@ queue      queue      queue                         queue    queue      queue
 | task-90 | Document parsing provider selection (LlamaParse → Unstructured) | `docs/research/task-90-document-parser-benchmark/README.md` |
 | task-158 | Deepgram explicit mode routing | (no research README — direct implementation) |
 | task-175 | JobStatus vocabulary refactor (drop `RSS_RESOLVING` / `DOWNLOADING`, introduce `EXTRACTING`, drop progress percentage) | `backlog/tasks/task-175 - ...md` |
+| task-184 | LlamaParse fallback test seam — replace Lambda env-var toggle with per-request filename sentinel | `backlog/tasks/task-184 - ...md` |
+| task-185 | TikTok IP-block fallback test seam — sentinel URL + migration to Apify TikTok transcript actor | `backlog/tasks/task-185 - ...md` |
 
 ### Domain models
 

@@ -91,16 +91,22 @@ async def test_tiktok_apify_fallback(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
 ) -> None:
-    """TikTok IP-blocked URL -> yt-dlp fails -> Apify fallback succeeds.
+    """yt-dlp IP-block forced -> Apify fallback succeeds.
 
-    Fixture: a TikTok URL known to trigger 'Your IP address is blocked
-    from accessing this post' when fetched from AWS Lambda IPs.
-    Picked from task-140 evidence (BBC TikTok video).
+    The submitted URL carries the `__e2e_force_ip_block__=1` sentinel that
+    the TikTok worker strips in-flight and treats as an immediate IP-block
+    signal (see `_strip_e2e_force_ip_block_sentinel` in
+    `media_summarizer/workers/tiktok_ingestion_worker.py`). This bypasses
+    yt-dlp entirely and routes the job to the Apify fallback path
+    deterministically — no dependency on which TikTok videos are currently
+    geo-blocked from Lambda IPs.
 
-    Timeout set to 120s to account for:
-    - yt-dlp slow-fail on IP block detection (up to 30s with internal retries)
-    - Apify actor cold-start + TikTok scraping (20-30s)
-    - SQS polling + Lambda cold-start overhead
+    The video itself (`@natgeo/.../7649753579829333262`) is picked because
+    the Apify TikTok actor reliably returns content for it.
+
+    Timeout set to 90s — no yt-dlp retries to wait for since the sentinel
+    short-circuits before yt-dlp runs, but the Apify TikTok actor cold-start
+    plus scraping plus SQS overhead can take 45-75s end-to-end.
 
     Asserts:
     - Job completes successfully (status == completed)
@@ -110,8 +116,8 @@ async def test_tiktok_apify_fallback(
     media_item_id = await _ingest_and_wait(
         http_client,
         auth_headers,
-        "https://www.tiktok.com/@bbc/video/7335731145619360992",
-        timeout_s=120,
+        "https://www.tiktok.com/@natgeo/video/7649753579829333262?__e2e_force_ip_block__=1",
+        timeout_s=90,
     )
 
     detail = await _get_media_item(http_client, auth_headers, media_item_id)
@@ -134,14 +140,44 @@ async def test_tiktok_apify_fallback(
 
 
 # =============================================================================
-# Instagram: video post support removed (task-173)
+# Instagram: yt-dlp IP-blocked -> Apify Reel Scraper fallback
 # =============================================================================
-# Note: test_instagram_deepgram_fallback was removed after task-173.
-# Instagram video posts are no longer supported. The resolver only handles:
-# - Reels/IGTV: native transcript via Video Subtitle Extractor (no Deepgram fallback)
-# - Posts: image/carousel via Post Scraper (OCR worker, no Deepgram fallback)
-# See task-173: Simplify Instagram resolver — drop Comment Scraper and legacy
-# post-video branch.
+
+
+@pytest.mark.e2e
+async def test_instagram_apify_fallback(
+    http_client: httpx.AsyncClient,
+    auth_headers: Dict[str, str],
+) -> None:
+    """yt-dlp IP-block forced -> Apify Reel Scraper fallback succeeds.
+
+    The submitted URL carries the `__e2e_force_ip_block__=1` sentinel that
+    the Instagram resolver strips in-flight and treats as an immediate
+    IP-block signal (see `_strip_e2e_force_ip_block_sentinel` in
+    `media_summarizer/infrastructure/resolvers/instagram_apify_resolver.py`).
+    This bypasses yt-dlp entirely and routes the job to the Apify Reel
+    Scraper, which exposes `audioUrl` for downstream Deepgram transcription
+    in `pull_with_push_fallback` mode.
+
+    Asserts:
+    - Job completes successfully (status == completed)
+    - extraction_metadata.provider == "apify" (proving yt-dlp was NOT used)
+    """
+    media_item_id = await _ingest_and_wait(
+        http_client,
+        auth_headers,
+        "https://www.instagram.com/natgeo/reel/DZaHxtTglqb/?__e2e_force_ip_block__=1",
+        timeout_s=120,
+    )
+
+    detail = await _get_media_item(http_client, auth_headers, media_item_id)
+    extraction_meta = detail.get("extraction_metadata") or {}
+    resolver_meta = (extraction_meta.get("resolver_metadata") or {})
+
+    assert resolver_meta.get("provider") == "apify", (
+        f"Expected Apify fallback to fire (resolver_metadata.provider == 'apify'), "
+        f"got: extraction_metadata={extraction_meta}"
+    )
 
 
 # =============================================================================

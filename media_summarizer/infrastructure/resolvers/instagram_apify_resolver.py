@@ -2,28 +2,25 @@
 Instagram Apify resolver -- Apify-based Instagram content extraction adapter.
 
 Orchestrates two Apify actors to cover all Instagram content types:
-- Video Subtitle Extractor (khadinakbar/video-subtitle-extractor): extracts
-  the native subtitle/caption track for Reels/IGTV. Whisper fallback is
-  disabled — the resolver only accepts native captions and fails otherwise.
+- Instagram Reel Scraper (apify/instagram-reel-scraper): returns reel metadata
+  with `audioUrl` (direct audio CDN) and `videoUrl` (full video CDN). The
+  resolver surfaces the audio URL for downstream Deepgram transcription
+  (pull-with-push-fallback mode — the IG CDN sometimes blocks Deepgram).
 - Instagram Post Scraper: extracts high-resolution image URLs for posts/carousels
 
-For Reels, the resolver invokes the subtitle extractor with
-`useWhisperFallback=false` and `preferredLanguages=["auto"]` so that any
-available native language is accepted but no AI transcription is performed.
-When a usable transcript is returned, `ResolvedMedia.raw_text` is populated
-directly. Otherwise the resolution fails (no Deepgram fallback for Reels).
+For Reels, the resolver does NOT attempt to extract a native transcript: it
+hands the audio URL to the Deepgram pipeline which decides between pull and
+push based on whether the CDN responds.
 
 Environment variables:
     APIFY_INSTAGRAM_API_TOKEN: API token for the Instagram Apify account (required)
-    APIFY_INSTAGRAM_REEL_ACTOR_ID: Actor ID for the video subtitle extractor
-        (default: khadinakbar~video-subtitle-extractor)
+    APIFY_INSTAGRAM_REEL_ACTOR_ID: Actor ID for the reel scraper
+        (default: apify~instagram-reel-scraper)
     APIFY_INSTAGRAM_POST_ACTOR_ID: Actor ID for Instagram Post Scraper
         (default: apify~instagram-post-scraper)
     APIFY_TIMEOUT_SECONDS: Request timeout (default 60)
     APIFY_POLL_INTERVAL_SECONDS: Poll interval for actor run status (default 3)
     APIFY_MAX_POLLS: Maximum number of poll attempts (default 40)
-    INSTAGRAM_TRANSCRIPT_MIN_LENGTH: Minimum transcript character count
-        to accept the Apify-provided transcript (default: 20)
 """
 
 from __future__ import annotations
@@ -37,6 +34,7 @@ from typing import Any, Optional
 from urllib.parse import urlsplit
 
 import httpx
+import yt_dlp
 
 from media_summarizer.core.media_ingestion.domain import (
     MediaFamily,
@@ -50,14 +48,21 @@ from media_summarizer.core.media_ingestion.errors import (
     RetryableProviderResolutionError,
 )
 from media_summarizer.core.media_ingestion.ports import ContentResolverPort
+from media_summarizer.utils.ingestion_sentinels import (
+    strip_e2e_force_ip_block_sentinel,
+)
 from media_summarizer.utils.logging_config import log_event
+from media_summarizer.utils.ytdlp_helpers import (
+    MediaStreamUnavailableError,
+    resolve_direct_media_url,
+)
 
 logger = logging.getLogger(__name__)
 
 APIFY_INSTAGRAM_API_TOKEN = os.environ.get("APIFY_INSTAGRAM_API_TOKEN", "").strip()
 APIFY_API_BASE_URL = "https://api.apify.com/v2"
 APIFY_INSTAGRAM_REEL_ACTOR_ID = os.environ.get(
-    "APIFY_INSTAGRAM_REEL_ACTOR_ID", "khadinakbar~video-subtitle-extractor"
+    "APIFY_INSTAGRAM_REEL_ACTOR_ID", "apify~instagram-reel-scraper"
 )
 APIFY_INSTAGRAM_POST_ACTOR_ID = os.environ.get(
     "APIFY_INSTAGRAM_POST_ACTOR_ID", "apify~instagram-post-scraper"
@@ -68,9 +73,10 @@ APIFY_POLL_INTERVAL_SECONDS = float(
 )
 APIFY_MAX_POLLS = int(os.environ.get("APIFY_MAX_POLLS", "40"))
 
-INSTAGRAM_TRANSCRIPT_MIN_LENGTH = int(
-    os.environ.get("INSTAGRAM_TRANSCRIPT_MIN_LENGTH", "20")
-)
+# yt-dlp Instagram primary path: tries to extract a direct audio URL gratis
+# before falling back to Apify. Lambda IPs are sometimes blocked; on block
+# we fall through to the Apify branch transparently.
+YTDLP_TIMEOUT_SECONDS = float(os.environ.get("YTDLP_TIMEOUT_SECONDS", "30"))
 
 
 class InstagramContentType(str, Enum):
@@ -106,59 +112,28 @@ class ApifyErrorCode(str, Enum):
 
 
 def _detect_instagram_content_type(normalized_url: str) -> InstagramContentType:
-    """Determine Instagram content type from the URL path."""
+    """Determine Instagram content type from the URL path.
+
+    Instagram URLs come in two shapes:
+    - `/<indicator>/<id>/`  e.g. `/reel/abc/`, `/p/abc/`, `/tv/abc/`
+    - `/<username>/<indicator>/<id>/`  e.g. `/natgeo/reel/abc/`
+    Both must resolve to the same content type, so we scan every segment
+    instead of only inspecting the first.
+    """
     path = (urlsplit(normalized_url).path or "").lower()
     parts = [segment for segment in path.split("/") if segment]
-    if not parts:
-        raise NonRetryableProviderResolutionError(
-            "Unable to determine Instagram content type from URL."
-        )
 
-    content_indicator = parts[0]
-    if content_indicator == "reel":
-        return InstagramContentType.REEL
-    if content_indicator == "p":
-        return InstagramContentType.POST
-    if content_indicator == "tv":
-        return InstagramContentType.IGTV
+    indicators = {
+        "reel": InstagramContentType.REEL,
+        "p": InstagramContentType.POST,
+        "tv": InstagramContentType.IGTV,
+    }
+    for segment in parts:
+        if segment in indicators:
+            return indicators[segment]
     raise NonRetryableProviderResolutionError(
         "Unable to determine Instagram content type from URL."
     )
-
-
-def _is_valid_transcript(
-    transcript: Optional[str],
-    *,
-    min_length: int = INSTAGRAM_TRANSCRIPT_MIN_LENGTH,
-) -> bool:
-    """Check whether a transcript returned by the Apify actor is usable."""
-    if not transcript:
-        return False
-    stripped = transcript.strip()
-    return len(stripped) >= min_length
-
-
-def _extract_transcript_text(item: dict[str, Any]) -> str:
-    """Extract the transcript text from a Video Subtitle Extractor result item.
-
-    The actor returns the transcript either as a formatted string (when
-    `outputFormat` is text/srt/vtt/markdown) or as an array of
-    `{start, end, text}` segments (when `outputFormat` is json). We request
-    plain text by default but tolerate both shapes defensively.
-    """
-    transcript_raw = item.get("transcript")
-    if isinstance(transcript_raw, str):
-        return transcript_raw.strip()
-    if isinstance(transcript_raw, list):
-        parts: list[str] = []
-        for segment in transcript_raw:
-            if not isinstance(segment, dict):
-                continue
-            text = segment.get("text")
-            if isinstance(text, str) and text.strip():
-                parts.append(text.strip())
-        return "\n".join(parts).strip()
-    return ""
 
 
 def _extract_image_urls_from_post_result(item: dict[str, Any]) -> list[str]:
@@ -214,19 +189,56 @@ def _extract_caption(item: dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _looks_like_ig_ip_blocked_error(exc: Exception) -> bool:
+    """Detect Instagram IP-block / login-wall errors from yt-dlp.
+
+    Instagram uses several phrasings depending on the rate-limiting reason:
+    a generic login wall ("login required"), restricted videos requiring
+    authentication, or rate-limit responses on residential CDNs. We treat
+    all of them as "primary path blocked, fall back to Apify".
+    """
+    msg = str(exc).lower()
+    return any(
+        token in msg
+        for token in (
+            "login required",
+            "login_required",
+            "rate-limit",
+            "rate limit",
+            "this content isn't available",
+            "this content is not available",
+            "restricted video",
+            "requested content is not available",
+            "please wait a few minutes",
+        )
+    )
+
+
+class _InstagramYtdlpBlocked(Exception):
+    """Internal signal raised by the yt-dlp primary path when blocked.
+
+    The caller catches this and falls back to Apify. Carries the original
+    yt-dlp error string for observability.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class InstagramApifyResolver(ContentResolverPort):
     """
     Apify-based Instagram content resolver.
 
     Implements the ContentResolverPort interface. Orchestrates Apify actors
-    to extract native subtitles, image URLs, and captions from Instagram
-    content (Reels, Posts, Carousels, IGTV).
+    to extract media URLs, image URLs, and captions from Instagram content
+    (Reels, Posts, Carousels, IGTV).
 
-    Reels are resolved through `khadinakbar/video-subtitle-extractor` with
-    `useWhisperFallback=false` and `preferredLanguages=["auto"]`: the resolver
-    only accepts native captions in any available language and never triggers
-    the actor's Whisper fallback. When no usable transcript is returned, the
-    resolution fails — there is no Deepgram fallback for Reels.
+    Reels and IGTV are resolved through `apify/instagram-reel-scraper` and
+    surface either an `audioUrl` (preferred) or `videoUrl` (fallback) for
+    downstream Deepgram transcription. There is no native transcript path —
+    consumers must enqueue Deepgram with `pull_with_push_fallback` mode so
+    push-mode kicks in when the IG CDN blocks Deepgram pull.
     """
 
     def __init__(
@@ -235,17 +247,11 @@ class InstagramApifyResolver(ContentResolverPort):
         timeout: Optional[float] = None,
         reel_actor_id: Optional[str] = None,
         post_actor_id: Optional[str] = None,
-        transcript_min_length: Optional[int] = None,
     ):
         self._api_token = api_token or APIFY_INSTAGRAM_API_TOKEN
         self._timeout = timeout or APIFY_TIMEOUT_SECONDS
         self._reel_actor_id = reel_actor_id or APIFY_INSTAGRAM_REEL_ACTOR_ID
         self._post_actor_id = post_actor_id or APIFY_INSTAGRAM_POST_ACTOR_ID
-        self._transcript_min_length = (
-            transcript_min_length
-            if transcript_min_length is not None
-            else INSTAGRAM_TRANSCRIPT_MIN_LENGTH
-        )
 
     @property
     def key(self) -> str:
@@ -266,6 +272,15 @@ class InstagramApifyResolver(ContentResolverPort):
                 "Instagram media resolution is temporarily unavailable."
             )
 
+        clean_url, force_apify_fallback = strip_e2e_force_ip_block_sentinel(
+            context.normalized_url
+        )
+        # Stash the clean URL so downstream actor calls don't see the sentinel.
+        # `ResolveContext` is a frozen dataclass; rebuild it instead of mutating.
+        if clean_url != context.normalized_url:
+            from dataclasses import replace
+            context = replace(context, normalized_url=clean_url)
+
         content_type = _detect_instagram_content_type(context.normalized_url)
 
         log_event(
@@ -279,15 +294,42 @@ class InstagramApifyResolver(ContentResolverPort):
             instagram_content_type=content_type.value,
         )
 
+        is_video = content_type in (
+            InstagramContentType.REEL,
+            InstagramContentType.IGTV,
+        )
+
         try:
-            if content_type == InstagramContentType.REEL:
+            if is_video and not force_apify_fallback:
+                # Primary: try yt-dlp gratis. Fall back to Apify only on IP block.
+                try:
+                    return await self._resolve_reel_via_ytdlp(context, content_type)
+                except _InstagramYtdlpBlocked as block_exc:
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        "instagram.reel.ytdlp_ip_blocked",
+                        "yt-dlp IP-blocked on Instagram, falling back to Apify",
+                        source_platform=SourcePlatform.INSTAGRAM.value,
+                        resolver_key=self.key,
+                        instagram_content_type=content_type.value,
+                        detail=block_exc.reason,
+                    )
+                    return await self._resolve_reel(context, content_type)
+            if is_video and force_apify_fallback:
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "instagram.reel.ytdlp_ip_blocked",
+                    "E2E sentinel forced Apify fallback path",
+                    source_platform=SourcePlatform.INSTAGRAM.value,
+                    resolver_key=self.key,
+                    instagram_content_type=content_type.value,
+                    detail="e2e_sentinel_force_ip_block",
+                )
                 return await self._resolve_reel(context, content_type)
-            elif content_type == InstagramContentType.IGTV:
-                # IGTV uses the same Reel Scraper (video content)
-                return await self._resolve_reel(context, content_type)
-            else:
-                # POST: could be video or image, use Post Scraper to determine
-                return await self._resolve_post(context, content_type)
+            # POST: could be video or image, use Post Scraper to determine
+            return await self._resolve_post(context, content_type)
 
         except (
             NonRetryableProviderResolutionError,
@@ -338,27 +380,135 @@ class InstagramApifyResolver(ContentResolverPort):
                 "Instagram media resolution is temporarily unavailable."
             ) from exc
 
+    async def _resolve_reel_via_ytdlp(
+        self,
+        context: ResolveContext,
+        content_type: InstagramContentType,
+    ) -> ResolvedMedia:
+        """Primary path: extract a direct audio URL via yt-dlp (no Apify cost).
+
+        Returns a ResolvedMedia carrying the audio URL for downstream
+        Deepgram transcription. Raises ``_InstagramYtdlpBlocked`` on Lambda
+        IP-block / login-wall errors so the caller can fall back to Apify.
+        Other errors (live content, no media stream, geo-restriction)
+        propagate as ``NonRetryableProviderResolutionError``.
+        """
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "socket_timeout": YTDLP_TIMEOUT_SECONDS,
+        }
+
+        def _extract() -> dict[str, Any]:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                return ydl.extract_info(context.normalized_url, download=False)
+
+        try:
+            info = await asyncio.wait_for(
+                asyncio.to_thread(_extract),
+                timeout=YTDLP_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            # Treat timeouts as a soft block so we still try Apify.
+            raise _InstagramYtdlpBlocked("ytdlp_timeout") from exc
+        except yt_dlp.utils.DownloadError as exc:
+            if _looks_like_ig_ip_blocked_error(exc):
+                raise _InstagramYtdlpBlocked(
+                    f"ytdlp_ip_blocked:{type(exc).__name__}"
+                ) from exc
+            # Unknown yt-dlp failure — defer to Apify rather than fail outright.
+            raise _InstagramYtdlpBlocked(
+                f"ytdlp_download_error:{type(exc).__name__}"
+            ) from exc
+        except Exception as exc:
+            if _looks_like_ig_ip_blocked_error(exc):
+                raise _InstagramYtdlpBlocked(
+                    f"ytdlp_ip_blocked:{type(exc).__name__}"
+                ) from exc
+            raise _InstagramYtdlpBlocked(
+                f"ytdlp_unexpected:{type(exc).__name__}"
+            ) from exc
+
+        try:
+            audio_result = resolve_direct_media_url(info)
+        except MediaStreamUnavailableError as exc:
+            # yt-dlp returned info but no usable audio stream — Apify probably
+            # won't do better, but try anyway for parity with TikTok/YouTube.
+            raise _InstagramYtdlpBlocked(
+                f"ytdlp_no_media_stream:{exc.reason}"
+            ) from exc
+
+        caption_value = info.get("description") or info.get("title")
+        caption = (
+            caption_value.strip()
+            if isinstance(caption_value, str) and caption_value.strip()
+            else None
+        )
+        title_value = info.get("uploader") or info.get("channel")
+        title = (
+            title_value.strip()
+            if isinstance(title_value, str) and title_value.strip()
+            else None
+        )
+
+        metadata: dict[str, Any] = {
+            "resolver_version": "v5",
+            "provider": "yt-dlp",
+            "instagram_content_type": content_type.value,
+            "transcript_source": "deepgram_pending",
+            "audio_url_available": True,
+            "audio_url_kind": "audio_ytdlp",
+            "resolution_mode": "deepgram_via_ytdlp_audio_url",
+            "caption": caption,
+            "duration_seconds": audio_result.get("audio_duration_seconds", 0),
+            "yt_dlp_format_id": audio_result.get("format_id"),
+            "yt_dlp_ext": audio_result.get("ext"),
+        }
+
+        log_event(
+            logger,
+            logging.INFO,
+            "instagram.reel.transcript_source",
+            "Instagram reel resolved with yt-dlp audio URL for Deepgram",
+            source_platform=SourcePlatform.INSTAGRAM.value,
+            resolver_key=self.key,
+            media_type=MediaType.SHORT_VIDEO.value,
+            provider="yt-dlp",
+            instagram_content_type=content_type.value,
+            audio_url_kind="audio_ytdlp",
+        )
+
+        return ResolvedMedia(
+            media_key=context.media_key,
+            normalized_url=context.normalized_url,
+            media_family=MediaFamily.SOCIAL_VIDEO,
+            media_type=MediaType.SHORT_VIDEO,
+            source_platform=SourcePlatform.INSTAGRAM,
+            resolver_key=self.key,
+            audio_url=audio_result["audio_url"],
+            title=title or (caption[:100] if caption else None),
+            metadata=metadata,
+        )
+
     async def _resolve_reel(
         self,
         context: ResolveContext,
         content_type: InstagramContentType,
     ) -> ResolvedMedia:
-        """Resolve a Reel or IGTV URL using the Video Subtitle Extractor actor.
+        """Resolve a Reel or IGTV URL using the Apify Reel Scraper.
 
-        Calls `khadinakbar/video-subtitle-extractor` with native-only mode
-        (`useWhisperFallback=false`) and accepts any available language
-        (`preferredLanguages=["auto"]`). When a usable transcript is returned,
-        `raw_text` is populated directly. Otherwise the resolution fails — no
-        Deepgram fallback is attempted for Reels.
+        Calls `apify/instagram-reel-scraper` and surfaces the audio URL
+        (preferred) or video URL (fallback) for downstream Deepgram
+        transcription. The downstream worker decides between pull and push
+        modes — Instagram CDNs sometimes block Deepgram, so callers should
+        use ``deepgram_mode="pull_with_push_fallback"``.
         """
         results = await self._run_actor(
             actor_id=self._reel_actor_id,
             input_data={
-                "videoUrls": [{"url": context.normalized_url}],
-                "preferredLanguages": ["auto"],
-                "useWhisperFallback": False,
-                "outputFormat": "text",
-                "includeMetadata": True,
+                "username": [context.normalized_url],
+                "resultsLimit": 1,
             },
         )
 
@@ -373,60 +523,52 @@ class InstagramApifyResolver(ContentResolverPort):
                 "Unable to resolve transcribable media from this Instagram URL."
             )
 
-        transcript_text = _extract_transcript_text(item)
+        audio_url_raw = item.get("audioUrl")
+        video_url_raw = item.get("videoUrl")
+        audio_url = (
+            audio_url_raw.strip()
+            if isinstance(audio_url_raw, str) and audio_url_raw.strip()
+            else None
+        )
+        video_url = (
+            video_url_raw.strip()
+            if isinstance(video_url_raw, str) and video_url_raw.strip()
+            else None
+        )
+        # The scraper sometimes omits audioUrl on shorts where the video track
+        # carries the audio inline; fall back to videoUrl so Deepgram can pull
+        # the muxed stream.
+        chosen_url = audio_url or video_url
+        if not chosen_url:
+            raise NonRetryableProviderResolutionError(
+                "Unable to resolve transcribable media from this Instagram URL."
+            )
 
         duration_seconds: Optional[float] = None
-        raw_duration = item.get("durationSeconds") or item.get("duration")
+        raw_duration = item.get("videoDuration") or item.get("duration")
         if raw_duration is not None:
             try:
                 duration_seconds = float(raw_duration)
             except (ValueError, TypeError):
                 duration_seconds = None
 
-        title_value = item.get("title")
-        title = title_value.strip() if isinstance(title_value, str) else None
-        description_value = item.get("description")
-        caption = (
-            description_value.strip()
-            if isinstance(description_value, str) and description_value.strip()
+        caption = _extract_caption(item)
+        title_value = item.get("ownerFullName") or item.get("ownerUsername")
+        title = (
+            title_value.strip()
+            if isinstance(title_value, str) and title_value.strip()
             else None
         )
 
-        if not _is_valid_transcript(
-            transcript_text,
-            min_length=self._transcript_min_length,
-        ):
-            log_event(
-                logger,
-                logging.WARNING,
-                "instagram.reel.no_native_transcript",
-                "Instagram reel has no usable native transcript and Whisper fallback is disabled",
-                source_platform=SourcePlatform.INSTAGRAM.value,
-                resolver_key=self.key,
-                provider="apify",
-                provider_actor=self._reel_actor_id,
-                instagram_content_type=content_type.value,
-                transcript_char_count=len(transcript_text),
-                transcript_language=item.get("language"),
-                transcript_source_label=item.get("transcriptSource"),
-            )
-            raise NonRetryableProviderResolutionError(
-                "Unable to resolve transcribable media from this Instagram URL."
-            )
-
-        transcript_source = "apify_native"
         metadata: dict[str, Any] = {
-            "resolver_version": "v3",
+            "resolver_version": "v4",
             "provider": "apify",
             "provider_actor": self._reel_actor_id,
             "instagram_content_type": content_type.value,
-            "transcript_source": transcript_source,
-            "transcript_char_count": len(transcript_text),
-            "transcript_language": item.get("language"),
-            "transcript_source_label": item.get("transcriptSource"),
-            "transcript_is_auto_generated": item.get("isAutoGenerated"),
-            "audio_url_available": False,
-            "resolution_mode": "apify_transcript_inline",
+            "transcript_source": "deepgram_pending",
+            "audio_url_available": True,
+            "audio_url_kind": "audio" if audio_url else "video",
+            "resolution_mode": "deepgram_via_apify_audio_url",
             "caption": caption,
         }
         if duration_seconds is not None:
@@ -439,7 +581,7 @@ class InstagramApifyResolver(ContentResolverPort):
             media_type=MediaType.SHORT_VIDEO,
             source_platform=SourcePlatform.INSTAGRAM,
             resolver_key=self.key,
-            raw_text=transcript_text,
+            audio_url=chosen_url,
             title=title or (caption[:100] if caption else None),
             metadata=metadata,
         )
@@ -448,16 +590,14 @@ class InstagramApifyResolver(ContentResolverPort):
             logger,
             logging.INFO,
             "instagram.reel.transcript_source",
-            "Instagram reel resolved with Apify native transcript",
+            "Instagram reel resolved with audio URL for Deepgram",
             source_platform=SourcePlatform.INSTAGRAM.value,
             resolver_key=self.key,
             media_type=MediaType.SHORT_VIDEO.value,
             provider="apify",
             provider_actor=self._reel_actor_id,
             instagram_content_type=content_type.value,
-            transcript_source=transcript_source,
-            transcript_char_count=len(transcript_text),
-            transcript_language=item.get("language"),
+            audio_url_kind=metadata["audio_url_kind"],
         )
 
         return resolved
