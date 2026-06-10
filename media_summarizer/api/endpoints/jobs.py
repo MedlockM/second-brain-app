@@ -22,7 +22,6 @@ class JobStatusResponse(BaseModel):
 
     job_id: str
     status: str
-    progress_percentage: int
     created_at: str
     updated_at: str
     started_at: Optional[str] = None
@@ -101,7 +100,6 @@ async def get_job_status(
         response = JobStatusResponse(
             job_id=job.id,
             status=job.status.value,
-            progress_percentage=job.get_progress_percentage(),
             created_at=job.created_at.isoformat(),
             updated_at=job.updated_at.isoformat(),
             started_at=job.started_at.isoformat() if job.started_at else None,
@@ -173,7 +171,6 @@ async def get_user_jobs(
             response = JobStatusResponse(
                 job_id=job.id,
                 status=job.status.value,
-                progress_percentage=job.get_progress_percentage(),
                 created_at=job.created_at.isoformat(),
                 updated_at=job.updated_at.isoformat(),
                 started_at=job.started_at.isoformat() if job.started_at else None,

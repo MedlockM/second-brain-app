@@ -100,7 +100,6 @@ class MediaItemResponse(BaseModel):
     status: str
     source_platform: Optional[str] = None
     error_message: Optional[str] = None
-    progress: int
 
 
 # ---------- Folder assignment models ----------
@@ -149,7 +148,6 @@ class MediaSearchItem(BaseModel):
     created_at: str
     updated_at: str
     completed_at: Optional[str] = None
-    progress: int
     error_message: Optional[str] = None
 
 
@@ -550,7 +548,6 @@ async def get_media_item(
             status=job.status.value,
             source_platform=None,
             error_message=job.error_message,
-            progress=job.get_progress_percentage(),
         )
 
     except HTTPException:

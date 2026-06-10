@@ -229,6 +229,5 @@ def _job_to_search_result(job: ProcessingJob) -> Dict[str, Any]:
         "created_at": job.created_at.isoformat(),
         "updated_at": job.updated_at.isoformat(),
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-        "progress": job.get_progress_percentage(),
         "error_message": job.error_message,
     }

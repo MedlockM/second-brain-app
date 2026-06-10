@@ -118,12 +118,12 @@ async def process_message(message):
     if not audio_url:
         raise ValueError("empty audio URL provided")
 
-    # Update job status to downloading
+    # Update job status to extracting
     from media_summarizer.utils import database_async
 
     job = await database_async.get_processing_job_by_id(job_id)
     if job:
-        job.mark_downloading()
+        job.mark_extracting()
         await database_async.update_processing_job(job)
 
     # --- Podcasting 2.0 RSS Transcript Check ---
