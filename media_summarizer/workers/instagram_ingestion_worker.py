@@ -54,9 +54,6 @@ logger = logging.getLogger(__name__)
 INSTAGRAM_INGESTION_QUEUE = os.environ.get(
     "INSTAGRAM_INGESTION_QUEUE", "instagram-ingestion-queue"
 )
-DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
-    "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
-)
 EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
