@@ -94,9 +94,6 @@ class Settings:
         self.APIFY_INSTAGRAM_POST_ACTOR_ID = os.getenv(
             "APIFY_INSTAGRAM_POST_ACTOR_ID", "apify~instagram-post-scraper"
         )
-        self.APIFY_INSTAGRAM_COMMENT_ACTOR_ID = os.getenv(
-            "APIFY_INSTAGRAM_COMMENT_ACTOR_ID", "apify~instagram-comment-scraper"
-        )
         self.APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = os.getenv(
             "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID",
             "scrape-creators~best-youtube-transcripts-scraper",

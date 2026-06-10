@@ -1,12 +1,11 @@
 """
 Instagram Apify resolver -- Apify-based Instagram content extraction adapter.
 
-Orchestrates three Apify actors to cover all Instagram content types:
+Orchestrates two Apify actors to cover all Instagram content types:
 - Video Subtitle Extractor (khadinakbar/video-subtitle-extractor): extracts
   the native subtitle/caption track for Reels/IGTV. Whisper fallback is
   disabled — the resolver only accepts native captions and fails otherwise.
 - Instagram Post Scraper: extracts high-resolution image URLs for posts/carousels
-- Instagram Comment Scraper: extracts comments with pagination
 
 For Reels, the resolver invokes the subtitle extractor with
 `useWhisperFallback=false` and `preferredLanguages=["auto"]` so that any
@@ -20,8 +19,6 @@ Environment variables:
         (default: khadinakbar~video-subtitle-extractor)
     APIFY_INSTAGRAM_POST_ACTOR_ID: Actor ID for Instagram Post Scraper
         (default: apify~instagram-post-scraper)
-    APIFY_INSTAGRAM_COMMENT_ACTOR_ID: Actor ID for Instagram Comment Scraper
-        (default: apify~instagram-comment-scraper)
     APIFY_TIMEOUT_SECONDS: Request timeout (default 60)
     APIFY_POLL_INTERVAL_SECONDS: Poll interval for actor run status (default 3)
     APIFY_MAX_POLLS: Maximum number of poll attempts (default 40)
@@ -64,9 +61,6 @@ APIFY_INSTAGRAM_REEL_ACTOR_ID = os.environ.get(
 )
 APIFY_INSTAGRAM_POST_ACTOR_ID = os.environ.get(
     "APIFY_INSTAGRAM_POST_ACTOR_ID", "apify~instagram-post-scraper"
-)
-APIFY_INSTAGRAM_COMMENT_ACTOR_ID = os.environ.get(
-    "APIFY_INSTAGRAM_COMMENT_ACTOR_ID", "apify~instagram-comment-scraper"
 )
 APIFY_TIMEOUT_SECONDS = float(os.environ.get("APIFY_TIMEOUT_SECONDS", "60"))
 APIFY_POLL_INTERVAL_SECONDS = float(
@@ -167,14 +161,6 @@ def _extract_transcript_text(item: dict[str, Any]) -> str:
     return ""
 
 
-def _extract_video_url_from_post_result(item: dict[str, Any]) -> Optional[str]:
-    """Extract video URL from an Apify Post Scraper result item (video posts)."""
-    video_url = item.get("videoUrl")
-    if isinstance(video_url, str) and video_url.strip().startswith("http"):
-        return video_url.strip()
-    return None
-
-
 def _extract_image_urls_from_post_result(item: dict[str, Any]) -> list[str]:
     """Extract high-resolution image URLs from an Apify Post Scraper result item."""
     urls: list[str] = []
@@ -228,34 +214,13 @@ def _extract_caption(item: dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _extract_comments(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Extract and normalize comments from Apify Comment Scraper results."""
-    comments: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        text = item.get("text") or item.get("comment")
-        if not isinstance(text, str) or not text.strip():
-            continue
-        comments.append(
-            {
-                "text": text.strip(),
-                "owner_username": item.get("ownerUsername") or item.get("owner", {}).get("username"),
-                "timestamp": item.get("timestamp"),
-                "likes_count": item.get("likesCount", 0),
-                "replies_count": item.get("repliesCount", 0),
-            }
-        )
-    return comments
-
-
 class InstagramApifyResolver(ContentResolverPort):
     """
     Apify-based Instagram content resolver.
 
     Implements the ContentResolverPort interface. Orchestrates Apify actors
-    to extract native subtitles, image URLs, captions, and comments from
-    Instagram content (Reels, Posts, Carousels, IGTV).
+    to extract native subtitles, image URLs, and captions from Instagram
+    content (Reels, Posts, Carousels, IGTV).
 
     Reels are resolved through `khadinakbar/video-subtitle-extractor` with
     `useWhisperFallback=false` and `preferredLanguages=["auto"]`: the resolver
@@ -270,14 +235,12 @@ class InstagramApifyResolver(ContentResolverPort):
         timeout: Optional[float] = None,
         reel_actor_id: Optional[str] = None,
         post_actor_id: Optional[str] = None,
-        comment_actor_id: Optional[str] = None,
         transcript_min_length: Optional[int] = None,
     ):
         self._api_token = api_token or APIFY_INSTAGRAM_API_TOKEN
         self._timeout = timeout or APIFY_TIMEOUT_SECONDS
         self._reel_actor_id = reel_actor_id or APIFY_INSTAGRAM_REEL_ACTOR_ID
         self._post_actor_id = post_actor_id or APIFY_INSTAGRAM_POST_ACTOR_ID
-        self._comment_actor_id = comment_actor_id or APIFY_INSTAGRAM_COMMENT_ACTOR_ID
         self._transcript_min_length = (
             transcript_min_length
             if transcript_min_length is not None
@@ -296,8 +259,7 @@ class InstagramApifyResolver(ContentResolverPort):
         1. Detect content type (reel/post/igtv) from URL
         2. Run appropriate Apify actor (Reel Scraper or Post Scraper)
         3. Extract media URLs, caption, and metadata
-        4. Optionally fetch comments via Comment Scraper
-        5. Return ResolvedMedia with all extracted content
+        4. Return ResolvedMedia with all extracted content
         """
         if not self._api_token:
             raise RetryableProviderResolutionError(
@@ -430,8 +392,6 @@ class InstagramApifyResolver(ContentResolverPort):
             else None
         )
 
-        comments = await self._fetch_comments(context.normalized_url)
-
         if not _is_valid_transcript(
             transcript_text,
             min_length=self._transcript_min_length,
@@ -468,8 +428,6 @@ class InstagramApifyResolver(ContentResolverPort):
             "audio_url_available": False,
             "resolution_mode": "apify_transcript_inline",
             "caption": caption,
-            "comments": comments,
-            "comments_count": len(comments),
         }
         if duration_seconds is not None:
             metadata["duration_seconds"] = duration_seconds
@@ -527,51 +485,6 @@ class InstagramApifyResolver(ContentResolverPort):
 
         item = results[0]
         caption = _extract_caption(item)
-        comments = await self._fetch_comments(context.normalized_url)
-
-        # Check if this is a video post
-        video_url = _extract_video_url_from_post_result(item)
-        if video_url:
-            # Video post -- same path as Reel (Deepgram transcription)
-            metadata: dict[str, Any] = {
-                "resolver_version": "v2",
-                "provider": "apify",
-                "provider_actor": self._post_actor_id,
-                "instagram_content_type": content_type.value,
-                "post_type": "video",
-                "audio_url_available": True,
-                "resolution_mode": "provider_inline",
-                "caption": caption,
-                "comments": comments,
-                "comments_count": len(comments),
-            }
-
-            resolved = ResolvedMedia(
-                media_key=context.media_key,
-                normalized_url=context.normalized_url,
-                media_family=MediaFamily.SOCIAL_VIDEO,
-                media_type=MediaType.SHORT_VIDEO,
-                source_platform=SourcePlatform.INSTAGRAM,
-                resolver_key=self.key,
-                audio_url=video_url,
-                title=caption[:100] if caption else None,
-                metadata=metadata,
-            )
-
-            log_event(
-                logger,
-                logging.INFO,
-                "resolver.completed",
-                "Instagram video post resolver completed via Apify",
-                source_platform=SourcePlatform.INSTAGRAM.value,
-                resolver_key=self.key,
-                media_type=MediaType.SHORT_VIDEO.value,
-                provider="apify",
-                instagram_content_type=content_type.value,
-                fallback_strategy="provider_inline",
-            )
-
-            return resolved
 
         # Image post (single or carousel)
         image_urls = _extract_image_urls_from_post_result(item)
@@ -588,8 +501,6 @@ class InstagramApifyResolver(ContentResolverPort):
             "audio_url_available": False,
             "resolution_mode": "queued_worker",
             "caption": caption,
-            "comments": comments,
-            "comments_count": len(comments),
         }
 
         resolved = ResolvedMedia(
@@ -619,32 +530,6 @@ class InstagramApifyResolver(ContentResolverPort):
         )
 
         return resolved
-
-    async def _fetch_comments(self, url: str) -> list[dict[str, Any]]:
-        """Fetch comments for an Instagram URL using the Comment Scraper actor.
-
-        This is a best-effort operation; failures are logged but do not block
-        the main resolution.
-        """
-        try:
-            results = await self._run_actor(
-                actor_id=self._comment_actor_id,
-                input_data={"username": [url], "resultsLimit": 50},
-            )
-            if results:
-                return _extract_comments(results)
-        except Exception as exc:
-            log_event(
-                logger,
-                logging.WARNING,
-                "external_call.failed",
-                "Apify comment scraper failed (non-blocking)",
-                provider="apify",
-                resolver_key=self.key,
-                source_platform=SourcePlatform.INSTAGRAM.value,
-                error_type=type(exc).__name__,
-            )
-        return []
 
     async def _run_actor(
         self,

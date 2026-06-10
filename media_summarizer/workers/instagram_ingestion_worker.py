@@ -3,11 +3,11 @@ Queue-first Instagram ingestion worker.
 
 Pipeline:
 - Consumes messages from INSTAGRAM_INGESTION_QUEUE
-- Resolves content via InstagramApifyResolver (Apify Reel/Post/Comment Scrapers)
+- Resolves content via InstagramApifyResolver (Apify Reel/Post Scrapers)
 - If the resolver returns raw_text (Apify native transcript for Reels):
     uploads transcript to S3 and publishes a completion event directly
-- If the resolver returns audio_url (video URL for Deepgram fallback):
-    queues the resolved audio URL to the Deepgram transcription queue
+- Fails with NonRetryableProviderResolutionError if neither raw_text nor
+    image-post payload is present (no audio_url fallback to Deepgram)
 - Marks the processing job as extracting/transcribing along the way
 """
 
@@ -348,69 +348,14 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             "routed_to": "completion_event",
         }
 
-    # Path B: Apify returned audio_url (needs Deepgram transcription)
-    audio_url = resolved.audio_url
-    if not audio_url:
-        raise InstagramIngestionError(
-            "unsupported_content",
-            details="no_audio_url_or_transcript",
-            retryable=False,
-            user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
-        )
-
-    extraction_metadata = _build_extraction_metadata(
-        source_url=normalized_url,
-        download_url=audio_url,
-        content_type=content_type,
-        transcript_source=transcript_source or "deepgram_pending",
-        resolver_metadata=resolver_metadata,
+    # If we reach here, the resolver returned neither raw_text nor an
+    # image-post payload. This is unsupported — fail hard.
+    raise InstagramIngestionError(
+        "unsupported_content",
+        details="no_transcript_or_image_payload",
+        retryable=False,
+        user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
     )
-
-    job.extraction_metadata = extraction_metadata
-    job.media_url = audio_url
-    job.mark_transcribing()
-    await database_async.update_processing_job(job)
-
-    await sqs.send_message(
-        queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
-        message_body={
-            "job_id": job.id,
-            "user_id": user_id,
-            "audio_url": audio_url,
-            "media_key": media_key,
-            "normalized_url": normalized_url,
-            "episode_title": (
-                message_body.get("episode_title")
-                or job.title
-                or resolved.title
-                or "Instagram video"
-            ),
-            "podcast_title": message_body.get("podcast_title") or "Instagram",
-            "audio_duration_seconds": resolver_metadata.get("duration_seconds", 0),
-            "deepgram_mode": "push",
-        },
-    )
-
-    log_event(
-        logger,
-        logging.INFO,
-        "transcription.enqueued",
-        "Instagram video resolved and queued for Deepgram transcription",
-        job_id=job_id,
-        media_item_id=job_id,
-        queue=DEEPGRAM_TRANSCRIPTION_QUEUE,
-        transcript_source="deepgram",
-        instagram_content_type=content_type,
-    )
-
-    return {
-        "job_id": job_id,
-        "media_key": media_key,
-        "download_url": audio_url,
-        "content_type": content_type,
-        "transcript_source": "deepgram_pending",
-        "routed_to": "deepgram_queue",
-    }
 
 
 async def process_message(message: Dict[str, Any]) -> None:

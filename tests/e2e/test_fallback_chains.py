@@ -175,75 +175,14 @@ async def test_tiktok_apify_fallback(
 
 
 # =============================================================================
-# Instagram: video post -> Deepgram push-mode transcription
+# Instagram: video post support removed (task-173)
 # =============================================================================
-
-
-@pytest.mark.e2e
-async def test_instagram_deepgram_fallback(
-    http_client: httpx.AsyncClient,
-    auth_headers: Dict[str, str],
-) -> None:
-    """Instagram video post -> Apify Post Scraper returns audio_url -> Deepgram.
-
-    Post task-158 architecture:
-    - Reels/IGTV use the subtitle extractor (native-only, no Deepgram fallback)
-    - Video posts use the Post Scraper which returns audio_url, routed to
-      Deepgram with deepgram_mode="push" (explicit, per task-158)
-
-    This test exercises the video post -> Deepgram path. The fixture is a
-    public Instagram video post from a major media account (stable URL).
-
-    Fixture: National Geographic Instagram video post with English narration.
-    Using /p/ URL (post) rather than /reel/ to ensure the Post Scraper path
-    is exercised.
-
-    Timeout set to 120s to account for:
-    - Apify Post Scraper resolution (10-20s)
-    - Deepgram push-mode transcription (30-60s for short video)
-    - SQS polling + Lambda cold-start overhead
-
-    Asserts:
-    - Job completes successfully (status == completed)
-    - transcript_source includes "deepgram" (proving Deepgram was used)
-    - source_platform == "instagram"
-    """
-    # NatGeo Instagram video post - public, stable, English narration
-    # This is a /p/ (post) URL which routes through the Post Scraper actor,
-    # returning audio_url for Deepgram transcription rather than native captions.
-    media_item_id = await _ingest_and_wait(
-        http_client,
-        auth_headers,
-        "https://www.instagram.com/p/C0X2WJJrBqP/",
-        timeout_s=120,
-    )
-
-    detail = await _get_media_item(http_client, auth_headers, media_item_id)
-
-    # Verify Instagram source
-    assert detail.get("source_platform") == "instagram", (
-        f"Expected source_platform='instagram', got: '{detail.get('source_platform')}'"
-    )
-
-    # The Instagram worker routes video posts to Deepgram with
-    # deepgram_mode="push". After completion, the transcription_metadata
-    # should show provider="deepgram" and the extraction_metadata should
-    # show transcript_source="deepgram" (normalized from "deepgram_pending").
-    extraction_meta = detail.get("extraction_metadata") or {}
-    transcription_meta = detail.get("transcription_metadata") or {}
-    transcript_source = detail.get("transcript_source") or ""
-
-    deepgram_used = (
-        transcript_source == "deepgram"
-        or transcription_meta.get("provider") == "deepgram"
-        or extraction_meta.get("transcript_source") in ("deepgram", "deepgram_pending")
-    )
-    assert deepgram_used, (
-        f"Expected Deepgram transcription path, but metadata shows otherwise. "
-        f"transcript_source='{transcript_source}', "
-        f"extraction_metadata={extraction_meta}, "
-        f"transcription_metadata={transcription_meta}"
-    )
+# Note: test_instagram_deepgram_fallback was removed after task-173.
+# Instagram video posts are no longer supported. The resolver only handles:
+# - Reels/IGTV: native transcript via Video Subtitle Extractor (no Deepgram fallback)
+# - Posts: image/carousel via Post Scraper (OCR worker, no Deepgram fallback)
+# See task-173: Simplify Instagram resolver — drop Comment Scraper and legacy
+# post-video branch.
 
 
 # =============================================================================
