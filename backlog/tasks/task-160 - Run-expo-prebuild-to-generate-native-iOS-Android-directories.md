@@ -4,12 +4,14 @@ title: Run expo prebuild to generate native iOS/Android directories
 status: To Do
 assignee: []
 created_date: '2026-06-10 05:36'
+updated_date: '2026-06-10 14:04'
 labels:
   - phase-5
   - mobile
   - release
 dependencies:
   - task-159
+  - task-181
 priority: high
 ---
 
