@@ -12,6 +12,7 @@ labels:
   - blocker-160
 dependencies: []
 priority: high
+dispatchable: false
 ---
 
 ## Description

@@ -174,11 +174,11 @@ else
     ERRORS=$((ERRORS + 1))
   else
     printf "  Expo SDK version: ${GREEN}%s${NC}\n" "${EXPO_VERSION}"
-    # Warn if not ~52.x
-    if [[ "${EXPO_VERSION}" == *"52"* ]]; then
-      pass "Expo SDK is on expected major version (52)"
+    # Warn if not ~55.x
+    if [[ "${EXPO_VERSION}" == *"55"* ]]; then
+      pass "Expo SDK is on expected major version (55)"
     else
-      warn "Expo SDK version '${EXPO_VERSION}' does not match expected ~52.x"
+      warn "Expo SDK version '${EXPO_VERSION}' does not match expected ~55.x"
     fi
   fi
 fi
