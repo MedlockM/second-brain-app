@@ -13,6 +13,7 @@ labels:
 dependencies:
   - task-162
 priority: high
+dispatchable: false
 ---
 
 ## Description

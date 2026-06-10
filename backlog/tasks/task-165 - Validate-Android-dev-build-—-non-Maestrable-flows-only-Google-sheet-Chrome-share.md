@@ -17,6 +17,7 @@ dependencies:
   - task-162
   - task-163
 priority: high
+dispatchable: false
 ---
 
 ## Description
