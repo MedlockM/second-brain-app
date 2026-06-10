@@ -1,7 +1,7 @@
 ---
 id: task-177
 title: Align YouTube ingestion fallback chain with TikTok pattern (yt-dlp → Apify → Deepgram)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 16:05'
 labels:

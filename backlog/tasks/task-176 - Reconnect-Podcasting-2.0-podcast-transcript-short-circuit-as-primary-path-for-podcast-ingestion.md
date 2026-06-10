@@ -1,7 +1,7 @@
 ---
 id: task-176
 title: Reconnect Podcasting 2.0 <podcast:transcript> short-circuit as primary path for podcast ingestion
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 16:00'
 labels:

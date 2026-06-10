@@ -1,7 +1,7 @@
 ---
 id: task-178
 title: Add Deepgram-on-Apify-resolved-media-URL fallback to TikTok ingestion worker
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 16:10'
 labels:
