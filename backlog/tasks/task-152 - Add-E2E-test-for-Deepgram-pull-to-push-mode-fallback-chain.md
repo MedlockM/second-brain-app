@@ -1,7 +1,7 @@
 ---
 id: task-152
 title: Add E2E test for Deepgram pull-mode → push-mode fallback chain
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-09 22:30'
 labels:
