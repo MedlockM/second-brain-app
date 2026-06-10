@@ -3,7 +3,7 @@
 ## Primary: Canny.io Feedback Board
 
 **Board URL (Free tier):** https://second-brain-labs.canny.io
-**Board URL (Core tier, custom domain):** https://feedback.percole.app (when upgraded)
+**Board URL (Core tier, custom domain):** TBD once the marketing app name is finalised
 
 ### Why Canny
 
@@ -13,8 +13,8 @@ proven at scale (ClickUp, Ahrefs, Mercury, CircleCI, Typeform).
 
 ### Board Configuration
 
-- **Subdomain:** `second-brain-labs.canny.io` (Free tier) / `feedback.percole.app` (Core $19/mo, custom domain via CNAME)
-- **Branding:** Second Brain Labs / Percole logo, warm-neutral color scheme
+- **Subdomain:** `second-brain-labs.canny.io` (Free tier) / custom domain TBD (Core $19/mo, custom domain via CNAME — to set once the app marketing name is finalised)
+- **Branding:** Second Brain Labs logo, warm-neutral color scheme
 - **Statuses (default on Free):**
   - Open
   - Under review
@@ -69,7 +69,7 @@ The feedback board is accessible from the **Account** tab in the mobile app:
 ### DNS Configuration (when upgrading to Core)
 
 ```
-CNAME feedback.percole.app -> cname.canny.io
+CNAME feedback.<final-app-domain> -> cname.canny.io
 ```
 
 ### Canny Account Setup Checklist
@@ -84,7 +84,7 @@ Manual steps required (cannot be automated):
 6. [ ] Set up Discord notification integration (after task-118 completes)
 7. [ ] Seed 3 initial ideas (Dark mode, Offline reading, Share as PDF)
 8. [ ] Configure public roadmap view in Canny dashboard
-9. [ ] Upload Percole logo for board branding
+9. [ ] Upload Second Brain Labs logo for board branding
 
 ### Related Documentation
 

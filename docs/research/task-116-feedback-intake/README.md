@@ -23,7 +23,7 @@ owner_decision: ok
 
 ### Why we need this now
 
-Percole (the app, validated in task-115) is in pre-launch V1. Once on App Store and Play Store, user feedback will arrive through scattered channels: App Store reviews, email, social DMs, informal messages. Without a structured feedback channel:
+The app (Media Summarizer legacy name; final marketing name TBD) is in pre-launch V1. Once on App Store and Play Store, user feedback will arrive through scattered channels: App Store reviews, email, social DMs, informal messages. Without a structured feedback channel:
 
 - We cannot identify the most-requested features (mass signal vs. loud minorities)
 - We cannot close the feedback loop ("you asked for X, we shipped X")
@@ -177,7 +177,7 @@ The feedback tool is NOT blocking V1 launch itself (the app ships without it), b
 6. To submit: tap "Create post" button → title + description fields → submit (3 taps total)
 
 **From direct link (fallback)**:
-1. User opens `feedback.percole.app` (custom domain, Core tier) or `percole.canny.io` (Free tier)
+1. User opens `feedback.<final-app-domain>` (custom domain, Core tier) or `second-brain-labs.canny.io` (Free tier)
 2. If SSO token is passed via redirect URL, user is auto-identified
 3. Same board experience as above
 
@@ -318,7 +318,7 @@ No publicly named major customers found. Marketing claims "95K+ monthly feedback
 #### User flow description
 
 **Standalone board**:
-1. User visits `feedback.percole.app` (custom domain)
+1. User visits `feedback.<final-app-domain>` (custom domain, set once marketing name is finalised)
 2. If SSO token passed, user auto-identified
 3. Browse existing ideas sorted by votes
 4. Vote: click upvote button (1 click)
@@ -375,7 +375,7 @@ No major publicly-listed customers found. Primarily used by indie makers and sma
 
 **Trade-offs accepted**:
 - 25 tracked user limit on Free (acceptable for soft launch; upgrade to $19/mo is cheap)
-- No custom domain on Free (uses `percole.canny.io` — perfectly acceptable for V1)
+- No custom domain on Free (uses `second-brain-labs.canny.io` — perfectly acceptable for V1)
 - Canny branding visible on Free (not a dealbreaker for early stage)
 - US-hosted (Canny is US-based; GDPR compliant with DPA but no EU datacenter option)
 
@@ -410,7 +410,7 @@ No major publicly-listed customers found. Primarily used by indie makers and sma
 
 **Recommended placement**: Two entry points:
 1. **Settings screen** → "Feature Requests" row (persistent, always accessible)
-2. **Profile/Account screen** → "Help us improve Percole" card (optional, for discoverability)
+2. **Profile/Account screen** → "Help us improve the app" card (optional, for discoverability)
 
 The link opens an in-app WebView (React Native `WebView` component) loading the Canny mobile widget URL.
 
@@ -439,7 +439,7 @@ URL: https://webview.canny.io?boardToken=BOARD_TOKEN&ssoToken={generated_token}&
 
 #### Phase 2 (post 25 tracked users, upgrade to Core $19/mo):
 
-- Configure custom domain `feedback.percole.app` in Canny dashboard (CNAME DNS record)
+- Configure custom domain `feedback.<final-app-domain>` in Canny dashboard (CNAME DNS record, once marketing name is finalised)
 - Update the backend endpoint to return the custom domain URL
 - Enable private boards if needed for internal/beta features
 
@@ -450,8 +450,8 @@ URL: https://webview.canny.io?boardToken=BOARD_TOKEN&ssoToken={generated_token}&
 
 ### URL custom
 
-- **Free tier**: `percole.canny.io` (board visible at this URL)
-- **Core tier**: `feedback.percole.app` (custom domain via CNAME)
+- **Free tier**: `second-brain-labs.canny.io` (board visible at this URL)
+- **Core tier**: `feedback.<final-app-domain>` (custom domain via CNAME, once marketing name is finalised)
 
 ### SSO automation
 
@@ -459,9 +459,9 @@ SSO is fully automated via the backend endpoint described above. The user never 
 
 ### DNS configuration needed
 
-When upgrading to Core ($19/mo):
+When upgrading to Core ($19/mo, once marketing name is finalised):
 ```
-CNAME feedback.percole.app → cname.canny.io
+CNAME feedback.<final-app-domain> → cname.canny.io
 ```
 
 ### Secrets to add
@@ -475,7 +475,7 @@ CANNY_BOARD_TOKEN=<board token from Canny dashboard>
 ### Discord notification setup
 
 In Canny dashboard → Integrations → Discord:
-- Connect to the Percole Discord server (from task-118)
+- Connect to the Second Brain Labs Discord server (from task-118)
 - Route new posts to `#feature-requests` channel
 - Route status changes to `#product-updates` channel
 
