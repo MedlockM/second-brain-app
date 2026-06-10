@@ -797,22 +797,133 @@ class ApplePodcastsPlatformResolver(PodcastPlatformResolver):
         show_title = (apple_metadata.get("show_title") or "").strip()
         episode_title = (apple_metadata.get("episode_title") or "").strip()
 
+        # Strategy A: Direct iTunes episode ID lookup via episodes/byitunesid.
+        # Apple's ?i=<id> is the iTunes episode ID. PodcastIndex has a dedicated
+        # endpoint that maps it directly to an episode record.
+        if apple_episode_id:
+            direct_result = await self._try_direct_itunes_episode_lookup(
+                apple_episode_id=apple_episode_id,
+                apple_show_id=apple_show_id,
+                show_title=show_title,
+                episode_title=episode_title,
+                apple_metadata=apple_metadata,
+            )
+            if direct_result is not None:
+                return direct_result
+
+        # Fallback: feed-search + title matching (original strategy).
+        return await self._resolve_via_feed_search(
+            apple_show_id=apple_show_id,
+            apple_episode_id=apple_episode_id,
+            show_title=show_title,
+            episode_title=episode_title,
+            apple_metadata=apple_metadata,
+        )
+
+    async def _try_direct_itunes_episode_lookup(
+        self,
+        *,
+        apple_episode_id: str,
+        apple_show_id: str,
+        show_title: str,
+        episode_title: str,
+        apple_metadata: dict[str, Any],
+    ) -> PodcastResolutionOutcome | None:
+        """
+        Attempt to resolve episode via PodcastIndex episodes/byitunesid endpoint.
+
+        Returns a PodcastResolutionOutcome if successful or a terminal failure,
+        or None if the lookup did not yield a result and the caller should fall
+        back to feed-search strategy.
+        """
+        try:
+            result = await podcast_index.get_episode_by_itunes_id(apple_episode_id)
+        except Exception as exc:
+            # Non-fatal: log and let fallback strategy proceed.
+            logger.info(
+                "Direct iTunes episode ID lookup failed for %s, "
+                "falling back to feed search: %s",
+                apple_episode_id,
+                exc,
+            )
+            return None
+
+        if result.get("status") != "true":
+            logger.info(
+                "Direct iTunes episode ID lookup returned non-success for %s, "
+                "falling back to feed search.",
+                apple_episode_id,
+            )
+            return None
+
+        # The endpoint returns the episode under "episode" key.
+        episode = result.get("episode")
+        if not isinstance(episode, dict):
+            return None
+
+        audio_url = (episode.get("enclosureUrl") or "").strip()
+        if not audio_url:
+            logger.info(
+                "Direct iTunes episode ID lookup found episode but no enclosureUrl "
+                "for iTunes episode %s.",
+                apple_episode_id,
+            )
+            return None
+
+        feed_id = episode.get("feedId")
+        return PodcastResolutionOutcome.resolved(
+            audio_url=audio_url,
+            title=episode.get("title") or episode_title or "Podcast episode",
+            metadata={
+                "feed_id": int(feed_id) if feed_id is not None else None,
+                "podcast_title": episode.get("feedTitle")
+                or show_title
+                or "Podcast",
+                "episode_title": episode.get("title")
+                or episode_title
+                or "Podcast episode",
+                "episode_image": episode.get("image")
+                or episode.get("feedImage")
+                or apple_metadata.get("episode_image")
+                or "",
+                "episode_date_published": int(episode.get("datePublished") or 0),
+                "audio_duration_seconds": int(episode.get("duration") or 0),
+                "apple_show_id": apple_show_id,
+                "apple_episode_id": apple_episode_id,
+                "resolution_strategy": "direct_itunes_episode_id",
+            },
+        )
+
+    async def _resolve_via_feed_search(
+        self,
+        *,
+        apple_show_id: str,
+        apple_episode_id: str,
+        show_title: str,
+        episode_title: str,
+        apple_metadata: dict[str, Any],
+    ) -> PodcastResolutionOutcome:
+        """Fallback: search feeds by iTunes show ID / title, then match by title."""
         candidate_feed_ids: list[int] = []
         feed_metadata_by_id: dict[int, dict[str, Any]] = {}
         if apple_show_id:
-            by_itunes_result = await podcast_index.get_podcast_by_itunes_id(
-                apple_show_id
-            )
-            if by_itunes_result.get("status") != "true":
-                raise RuntimeError(
-                    "PodcastIndex byitunesid lookup returned non-success."
+            try:
+                by_itunes_result = await podcast_index.get_podcast_by_itunes_id(
+                    apple_show_id
                 )
-            feed_id = _extract_feed_id(by_itunes_result)
-            if feed_id is not None:
-                candidate_feed_ids.append(feed_id)
-                feed = by_itunes_result.get("feed")
-                if isinstance(feed, dict):
-                    feed_metadata_by_id[feed_id] = feed
+                if by_itunes_result.get("status") == "true":
+                    feed_id = _extract_feed_id(by_itunes_result)
+                    if feed_id is not None:
+                        candidate_feed_ids.append(feed_id)
+                        feed = by_itunes_result.get("feed")
+                        if isinstance(feed, dict):
+                            feed_metadata_by_id[feed_id] = feed
+            except Exception as exc:
+                logger.warning(
+                    "Apple resolver: podcasts/byitunesid lookup failed for show %s: %s",
+                    apple_show_id,
+                    exc,
+                )
 
         if show_title:
             search_result = await podcast_index.search_podcasts(
@@ -841,7 +952,10 @@ class ApplePodcastsPlatformResolver(PodcastPlatformResolver):
         if not candidate_feed_ids:
             return PodcastResolutionOutcome.failed(
                 error_code=PodcastResolverErrorCode.EPISODE_NOT_FOUND,
-                client_message=DEFAULT_PODCAST_RESOLUTION_FAILED_MESSAGE,
+                client_message=(
+                    "This podcast episode could not be found in PodcastIndex. "
+                    "The podcast may not be indexed yet."
+                ),
                 retryable=False,
                 metadata={
                     "reason": "no_candidate_feeds_found",
@@ -878,9 +992,8 @@ class ApplePodcastsPlatformResolver(PodcastPlatformResolver):
                 )
                 continue
 
-            match = self._match_episode(
+            match = self._match_episode_by_title(
                 episodes=episodes_result.get("items", []),
-                apple_episode_id=apple_episode_id,
                 episode_title=episode_title,
             )
             if not match:
@@ -920,6 +1033,7 @@ class ApplePodcastsPlatformResolver(PodcastPlatformResolver):
                     "audio_duration_seconds": int(match.get("duration") or 0),
                     "apple_show_id": apple_show_id,
                     "apple_episode_id": apple_episode_id,
+                    "resolution_strategy": "feed_search_title_match",
                 },
             )
 
@@ -938,7 +1052,11 @@ class ApplePodcastsPlatformResolver(PodcastPlatformResolver):
 
         return PodcastResolutionOutcome.failed(
             error_code=PodcastResolverErrorCode.EPISODE_NOT_FOUND,
-            client_message=DEFAULT_PODCAST_RESOLUTION_FAILED_MESSAGE,
+            client_message=(
+                "This podcast episode could not be found in PodcastIndex. "
+                "The episode may not be indexed, or the podcast is not available "
+                "in the open RSS directory."
+            ),
             retryable=False,
             metadata={
                 "reason": "no_matching_episode_found",
@@ -950,22 +1068,13 @@ class ApplePodcastsPlatformResolver(PodcastPlatformResolver):
             },
         )
 
-    def _match_episode(
+    def _match_episode_by_title(
         self,
         *,
         episodes: list[dict[str, Any]],
-        apple_episode_id: str,
         episode_title: str,
     ) -> dict[str, Any] | None:
-        if apple_episode_id:
-            for episode in episodes:
-                episode_id = str(episode.get("id") or "").strip()
-                if episode_id and episode_id == apple_episode_id:
-                    return episode
-                itunes_episode_id = str(episode.get("itunesId") or "").strip()
-                if itunes_episode_id and itunes_episode_id == apple_episode_id:
-                    return episode
-
+        """Match episodes using title-based fuzzy matching only."""
         if episode_title:
             matched = best_match_episode(episodes, episode_title)
             if isinstance(matched, dict):

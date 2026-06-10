@@ -494,6 +494,61 @@ async def get_episode_by_id(
         raise
 
 
+async def get_episode_by_itunes_id(
+    itunes_episode_id: int | str,
+    http_client: Optional[httpx.AsyncClient] = None,
+) -> Dict[str, Any]:
+    """
+    Get a specific episode by its Apple Podcasts iTunes episode ID.
+
+    Uses the PodcastIndex 'episodes/byitunesid' endpoint to directly map
+    an Apple Podcasts ?i=<episode_id> value to a PodcastIndex episode record.
+
+    Args:
+        itunes_episode_id: Apple Podcasts iTunes episode ID (the ?i= parameter)
+        http_client: Optional HTTP client for dependency injection
+
+    Returns:
+        Dict containing episode data with 'status' and 'episode' keys
+
+    Raises:
+        Exception: If the API request fails
+    """
+    try:
+        headers = _generate_headers()
+        params = {"id": str(itunes_episode_id).strip()}
+
+        url = f"{PODCAST_INDEX_BASE_URL}/episodes/byitunesid"
+
+        response = await _rate_limited_get(
+            url=url,
+            headers=headers,
+            params=params,
+            http_client=http_client,
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        logger.info(
+            "Retrieved episode data for iTunes episode ID: %s", params["id"]
+        )
+        return data
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "HTTP error getting episode by iTunes episode ID: %s - %s",
+            e.response.status_code,
+            e.response.text,
+        )
+        raise Exception(
+            f"Failed to get episode by iTunes episode ID: {e.response.status_code}"
+        )
+    except Exception as e:
+        logger.error("Error getting episode by iTunes episode ID: %s", str(e))
+        raise
+
+
 async def search_episodes(
     query: str,
     max_results: int = 10,
