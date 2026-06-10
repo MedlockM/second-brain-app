@@ -1,7 +1,7 @@
 ---
 id: task-158
 title: Replace Deepgram pull→push automatic fallback with explicit mode declared by producer workers
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 01:00'
 labels:
