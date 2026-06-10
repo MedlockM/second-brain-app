@@ -312,7 +312,8 @@ async def _apple_verify_id_token(id_token: str) -> Dict[str, Any]:
     )
 
     # Apple uses different audiences for web (Services ID) vs native (Bundle ID).
-    # PyJWT accepts a list and matches if any of them is in the token's `aud`.
+    # python-jose's jwt.decode only accepts a single string for `audience`, so
+    # we skip its built-in audience check and verify manually below.
     accepted_audiences: list[str] = []
     if APPLE_CLIENT_ID:
         accepted_audiences.append(APPLE_CLIENT_ID)
@@ -323,9 +324,15 @@ async def _apple_verify_id_token(id_token: str) -> Dict[str, Any]:
         id_token,
         pem,
         algorithms=["RS256"],
-        audience=accepted_audiences if accepted_audiences else APPLE_CLIENT_ID,
         issuer="https://appleid.apple.com",
+        options={"verify_aud": False},
     )
+
+    token_aud = claims.get("aud")
+    if token_aud not in accepted_audiences:
+        raise ValueError(
+            f"Invalid audience: token aud={token_aud!r} not in accepted={accepted_audiences!r}"
+        )
     return claims
 
 
