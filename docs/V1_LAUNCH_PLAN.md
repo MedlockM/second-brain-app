@@ -45,7 +45,7 @@ Aucune tâche bloquante V1 ouverte côté code au 2026-05-20.
 | **AWS** (compte) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | À créer |
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | À créer |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | À créer |
-| **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | À créer |
+| **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | OK (compte créé 2026-06-10, `eas-cli` installé localement, `eas whoami` validé) |
 | **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | À créer |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | Compte créé + Web client ID/secret backend OK (en local dans `.env`) ; 3 client IDs publics (iOS, Android, Web Expo) + écran de consentement publié restent à faire |
 | **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (compte créé, clé en local dans `.env`) |
@@ -203,7 +203,7 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 1. Apple Developer Program (commande, peut prendre 24-48h).
 2. Google Play Console.
 3. AWS account + IAM admin user + facturation alarms.
-4. Expo / EAS account + lien vers le repo.
+4. ~~Expo / EAS account + lien vers le repo.~~ **Fait** : compte Expo créé 2026-06-10, `eas-cli` installé, `eas whoami` validé. Lien vers le repo (`expo.projectId` dans `app.config.ts`) sera établi automatiquement au premier `eas build` (Phase 5 §2).
 5. RevenueCat account + projet + apps iOS/Android (clés générées).
 6. Comptes API tiers : tous configurés au 2026-06-01 (clés présentes dans `.env`) — **OpenAI**, **Deepgram**, **PodcastIndex.org**, **X Developer Platform**, **Apify**, **LlamaParse**, **Unstructured.io**, **Algolia**. **Google OAuth backend** également déjà provisionné (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` en local dans `.env`). **Apple OAuth backend OK au 2026-06-08** : chaîne complète provisionnée — `APPLE_CLIENT_ID` (Service ID), `APPLE_PRIVATE_KEY` (`.p8` PEM single-line), `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_REDIRECT_URI` prod renseignés dans `.env`. **`PRICING_ADMIN_SECRET` généré au 2026-06-08** (`openssl rand -hex 32`, en local dans `.env`). Restent à provisionner : **Android OAuth Client ID** (à différer en Phase 5 après `eas build:configure`) + **publication écran de consentement Test → Production** côté **Google Cloud Console** (Phase 10), **RevenueCat** (projet + 3 produits + webhook).
 7. **Google Cloud Console** (console.cloud.google.com) :
