@@ -11,17 +11,14 @@ Pipeline:
 from __future__ import annotations
 
 import asyncio
-import html
 from io import BytesIO
 import json
 import logging
 from datetime import datetime, timezone
 import os
-import re
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
-import httpx
 import yt_dlp
 
 from media_summarizer.utils import database_async, s3, sqs
@@ -34,6 +31,14 @@ from media_summarizer.utils.logging_config import (
 from media_summarizer.utils.tiktok_limiter import (
     TikTokRateLimitExceeded,
     acquire_tiktok_slot,
+)
+from media_summarizer.utils.ytdlp_helpers import (
+    MediaStreamUnavailableError,
+    SubtitleFetchError,
+    SubtitleUnavailableError,
+    collect_subtitle_candidates,
+    fetch_subtitle_candidate,
+    resolve_direct_media_url,
 )
 from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
@@ -63,27 +68,6 @@ TIKTOK_WORKER_MAX_RETRIES = max(
 )
 
 _YTDLP_EXTRACTOR_VERSION = "v1"
-_AUDIO_URL_PROTOCOLS = {
-    "http",
-    "https",
-    "http_dash_segments",
-    "https_dash_segments",
-}
-_TIMESTAMP_LINE_RE = re.compile(
-    r"^\s*(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}\s+-->\s+(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}"
-)
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
-_TEXT_KEYS = ("text", "content", "utterance", "caption")
-_CONTAINER_KEYS = (
-    "utterances",
-    "segments",
-    "captions",
-    "subtitles",
-    "body",
-    "events",
-    "lines",
-    "paragraphs",
-)
 
 _UNAVAILABLE_MESSAGE = "This TikTok video is unavailable or cannot be processed."
 _UNSUPPORTED_MESSAGE = "Unable to resolve transcribable media from this TikTok URL."
@@ -159,211 +143,6 @@ def _extract_tiktok_id(normalized_url: str) -> str:
         retryable=False,
         user_message=_UNAVAILABLE_MESSAGE,
     )
-
-
-def _is_valid_http_url(value: str) -> bool:
-    candidate = (value or "").strip().lower()
-    return candidate.startswith("http://") or candidate.startswith("https://")
-
-
-def _subtitle_ext_priority(ext: str) -> int:
-    normalized = (ext or "").strip().lower()
-    if normalized == "vtt":
-        return 4
-    if normalized == "srt":
-        return 3
-    if normalized in {"json", "srv3"}:
-        return 2
-    return 1
-
-
-def _collect_subtitle_candidates(info: Dict[str, Any]) -> list[Dict[str, Any]]:
-    candidates: list[Dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
-
-    requested_subtitles = info.get("requested_subtitles")
-    if isinstance(requested_subtitles, dict):
-        for language, item in requested_subtitles.items():
-            if not isinstance(item, dict):
-                continue
-            url = str(item.get("url") or "").strip()
-            ext = str(item.get("ext") or "").strip().lower()
-            key = (language, ext, url)
-            if key in seen:
-                continue
-            seen.add(key)
-            candidates.append(
-                {
-                    "language": language,
-                    "ext": ext,
-                    "url": url,
-                    "data": item.get("data"),
-                    "requested": True,
-                }
-            )
-
-    subtitles = info.get("subtitles")
-    if isinstance(subtitles, dict):
-        for language, entries in subtitles.items():
-            if not isinstance(entries, list):
-                continue
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    continue
-                url = str(entry.get("url") or "").strip()
-                ext = str(entry.get("ext") or "").strip().lower()
-                key = (language, ext, url)
-                if key in seen:
-                    continue
-                seen.add(key)
-                candidates.append(
-                    {
-                        "language": language,
-                        "ext": ext,
-                        "url": url,
-                        "data": entry.get("data"),
-                        "requested": False,
-                    }
-                )
-
-    candidates.sort(
-        key=lambda item: (
-            0 if item["requested"] else 1,
-            -_subtitle_ext_priority(item["ext"]),
-            item["language"],
-        )
-    )
-    return candidates
-
-
-def _clean_caption_line(line: str) -> str:
-    stripped = _HTML_TAG_RE.sub("", html.unescape((line or "").strip()))
-    return stripped.strip()
-
-
-def _parse_timed_text_payload(payload: str) -> str:
-    lines: list[str] = []
-    for raw_line in payload.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        upper = line.upper()
-        if upper.startswith(("WEBVTT", "NOTE", "STYLE", "REGION", "X-TIMESTAMP-MAP")):
-            continue
-        if _TIMESTAMP_LINE_RE.match(line):
-            continue
-        if line.isdigit():
-            continue
-        cleaned = _clean_caption_line(line)
-        if cleaned:
-            lines.append(cleaned)
-    return "\n".join(lines).strip()
-
-
-def _extract_json_caption_text(node: Any, collected: list[str], seen: set[str]) -> None:
-    if isinstance(node, dict):
-        for key in _TEXT_KEYS:
-            value = node.get(key)
-            if isinstance(value, str):
-                cleaned = _clean_caption_line(value)
-                if cleaned and cleaned not in seen:
-                    seen.add(cleaned)
-                    collected.append(cleaned)
-        for key in _CONTAINER_KEYS:
-            if key in node:
-                _extract_json_caption_text(node[key], collected, seen)
-        if not any(key in node for key in _CONTAINER_KEYS):
-            for value in node.values():
-                if isinstance(value, (dict, list)):
-                    _extract_json_caption_text(value, collected, seen)
-    elif isinstance(node, list):
-        for item in node:
-            _extract_json_caption_text(item, collected, seen)
-
-
-def _parse_json_caption_payload(payload: str) -> str:
-    data = json.loads(payload)
-    collected: list[str] = []
-    seen: set[str] = set()
-    _extract_json_caption_text(data, collected, seen)
-    return "\n".join(collected).strip()
-
-
-def _parse_caption_payload(
-    *,
-    payload: str,
-    ext: str,
-    content_type: str,
-) -> str:
-    normalized_ext = (ext or "").strip().lower()
-    normalized_content_type = (content_type or "").strip().lower()
-    is_json = (
-        normalized_ext in {"json", "srv3"}
-        or "application/json" in normalized_content_type
-        or payload.lstrip().startswith(("{", "["))
-    )
-    if is_json:
-        return _parse_json_caption_payload(payload)
-    return _parse_timed_text_payload(payload)
-
-
-async def _fetch_subtitle_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
-    data = candidate.get("data")
-    payload = ""
-    content_type = ""
-
-    if isinstance(data, (dict, list)):
-        payload = json.dumps(data)
-        content_type = "application/json"
-    elif isinstance(data, str) and data.strip():
-        payload = data
-    else:
-        subtitle_url = str(candidate.get("url") or "").strip()
-        if not _is_valid_http_url(subtitle_url):
-            raise NativeSubtitlesUnavailable("native_subtitles_absent")
-        try:
-            async with httpx.AsyncClient(
-                timeout=TIKTOK_SUBTITLE_FETCH_TIMEOUT_SECONDS,
-                follow_redirects=True,
-            ) as client:
-                response = await client.get(subtitle_url)
-        except (httpx.TimeoutException, httpx.TransportError) as exc:
-            raise TikTokIngestionError(
-                "extractor_failed",
-                details=f"subtitle_fetch:{type(exc).__name__}",
-                retryable=True,
-                user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
-            ) from exc
-        if response.status_code >= 400:
-            raise TikTokIngestionError(
-                "extractor_failed",
-                details=f"subtitle_http_status:{response.status_code}",
-                retryable=response.status_code >= 500,
-                user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
-            )
-        payload = response.text
-        content_type = response.headers.get("content-type", "")
-
-    text = _parse_caption_payload(
-        payload=payload,
-        ext=str(candidate.get("ext") or ""),
-        content_type=content_type,
-    )
-    if not text:
-        raise NativeSubtitlesUnavailable("native_subtitles_absent")
-
-    return {
-        "text": text,
-        "language": str(candidate.get("language") or "").strip() or None,
-        "segments_count": len([line for line in text.splitlines() if line.strip()]),
-        "source_detail": (
-            f"tiktok_native_subtitles:{candidate.get('language') or 'unknown'}:"
-            f"{candidate.get('ext') or 'unknown'}"
-        ),
-        "source_url": str(candidate.get("url") or "").strip() or None,
-        "ext": str(candidate.get("ext") or "").strip() or None,
-        "fetched_at": _now_iso_utc(),
-    }
 
 
 async def _extract_tiktok_info(normalized_url: str) -> Dict[str, Any]:
@@ -447,115 +226,31 @@ async def _extract_tiktok_info(normalized_url: str) -> Dict[str, Any]:
 
 
 async def _fetch_native_subtitles(info: Dict[str, Any]) -> Dict[str, Any]:
-    candidates = _collect_subtitle_candidates(info)
+    candidates = collect_subtitle_candidates(info)
     if not candidates:
         raise NativeSubtitlesUnavailable("native_subtitles_absent")
 
     last_unavailable_reason = "native_subtitles_absent"
     for candidate in candidates:
         try:
-            return await _fetch_subtitle_candidate(candidate)
-        except NativeSubtitlesUnavailable as exc:
+            result = await fetch_subtitle_candidate(
+                candidate,
+                timeout_seconds=TIKTOK_SUBTITLE_FETCH_TIMEOUT_SECONDS,
+                platform_label="tiktok",
+            )
+            result["fetched_at"] = _now_iso_utc()
+            return result
+        except SubtitleUnavailableError as exc:
             last_unavailable_reason = exc.reason
             continue
+        except SubtitleFetchError as exc:
+            raise TikTokIngestionError(
+                "extractor_failed",
+                details=exc.details,
+                retryable=exc.retryable,
+                user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+            ) from exc
     raise NativeSubtitlesUnavailable(last_unavailable_reason)
-
-
-def _select_direct_media_stream(info: Dict[str, Any]) -> Dict[str, Any]:
-    if info.get("is_live"):
-        raise TikTokIngestionError(
-            "unsupported_content",
-            details="live_content_not_supported",
-            retryable=False,
-            user_message=_UNSUPPORTED_MESSAGE,
-        )
-
-    candidates: list[Dict[str, Any]] = []
-
-    direct_url = info.get("url")
-    if isinstance(direct_url, str) and _is_valid_http_url(direct_url):
-        candidates.append(info)
-
-    requested_downloads = info.get("requested_downloads")
-    if isinstance(requested_downloads, list):
-        for item in requested_downloads:
-            if isinstance(item, dict):
-                candidates.append(item)
-
-    requested_formats = info.get("requested_formats")
-    if isinstance(requested_formats, list):
-        for item in requested_formats:
-            if isinstance(item, dict):
-                candidates.append(item)
-
-    formats = info.get("formats")
-    if isinstance(formats, list):
-        for item in formats:
-            if isinstance(item, dict):
-                candidates.append(item)
-
-    best_candidate = None
-    best_score: tuple[float, float, float] | None = None
-
-    for candidate in candidates:
-        url = candidate.get("url")
-        if not isinstance(url, str) or not _is_valid_http_url(url):
-            continue
-
-        protocol = str(candidate.get("protocol") or "").strip().lower()
-        if protocol and protocol not in _AUDIO_URL_PROTOCOLS:
-            continue
-
-        acodec = str(candidate.get("acodec") or "").strip().lower()
-        if acodec in {"", "none"}:
-            continue
-
-        vcodec = str(candidate.get("vcodec") or "").strip().lower()
-        is_audio_only = 1.0 if vcodec in {"", "none"} else 0.0
-        abr = float(candidate.get("abr") or 0.0)
-        tbr = float(candidate.get("tbr") or 0.0)
-        score = (is_audio_only, abr, tbr)
-        if best_score is None or score > best_score:
-            best_candidate = candidate
-            best_score = score
-
-    if best_candidate is None:
-        raise TikTokIngestionError(
-            "no_direct_media_url",
-            details="no_transcribable_media_url",
-            retryable=False,
-            user_message=_UNSUPPORTED_MESSAGE,
-        )
-
-    return best_candidate
-
-
-def _resolve_direct_media_url(info: Dict[str, Any]) -> Dict[str, Any]:
-    selected = _select_direct_media_stream(info)
-    audio_url = str(selected.get("url") or "").strip()
-    if not audio_url:
-        raise TikTokIngestionError(
-            "no_direct_media_url",
-            details="missing_media_url",
-            retryable=False,
-            user_message=_UNSUPPORTED_MESSAGE,
-        )
-
-    duration_value = selected.get("duration") or info.get("duration") or 0
-    try:
-        audio_duration_seconds = int(float(duration_value))
-    except (TypeError, ValueError):
-        audio_duration_seconds = 0
-
-    return {
-        "audio_url": audio_url,
-        "audio_duration_seconds": audio_duration_seconds,
-        "format_id": selected.get("format_id"),
-        "format_note": selected.get("format_note") or info.get("format_note"),
-        "ext": selected.get("ext") or info.get("ext"),
-        "acodec": selected.get("acodec") or info.get("acodec"),
-        "vcodec": selected.get("vcodec") or info.get("vcodec"),
-    }
 
 
 async def _upload_native_transcript(job_id: str, text: str) -> str:
@@ -763,7 +458,15 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
     try:
         native_result = await _fetch_native_subtitles(info)
     except NativeSubtitlesUnavailable as exc:
-        audio_result = _resolve_direct_media_url(info)
+        try:
+            audio_result = resolve_direct_media_url(info)
+        except MediaStreamUnavailableError as media_exc:
+            raise TikTokIngestionError(
+                "no_direct_media_url",
+                details=media_exc.reason,
+                retryable=False,
+                user_message=_UNSUPPORTED_MESSAGE,
+            ) from media_exc
         job.extraction_metadata = _build_fallback_extraction_metadata(
             tiktok_id=tiktok_id,
             source_url=normalized_url,
