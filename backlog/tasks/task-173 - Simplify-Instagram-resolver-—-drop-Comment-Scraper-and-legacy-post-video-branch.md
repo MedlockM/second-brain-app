@@ -3,7 +3,7 @@ id: task-173
 title: >-
   Simplify Instagram resolver — drop Comment Scraper and legacy post-video
   branch
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 08:16'
 labels:
