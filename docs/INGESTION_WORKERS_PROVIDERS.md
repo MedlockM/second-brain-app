@@ -344,7 +344,7 @@ Workflow:
 4. Upload to LlamaParse, poll for job completion, retrieve markdown result
 5. Upload markdown to `TRANSCRIPT_BUCKET` as `{job_id}.md`
 
-Test-only flag: `FORCE_LLAMAPARSE_FAILURE=1` (read by `LlamaParseResolver.parse`) returns a simulated rate-limit error to exercise the fallback in E2E tests.
+E2E test seam: Upload a file with a filename starting with `__e2e_force_llamaparse_failure__` (e.g. `__e2e_force_llamaparse_failure__sample.pdf`) to trigger a simulated rate-limit error in `LlamaParseResolver.parse`, exercising the fallback in E2E tests. This approach avoids Lambda env-var propagation delays and requires no IAM permissions.
 
 Ref: `document_parsing/worker.py::parse_document_with_fallback`, `infrastructure/resolvers/llamaparse_resolver.py::LlamaParseResolver.parse`
 

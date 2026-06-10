@@ -8,6 +8,8 @@ PDF, DOCX, PPTX, XLSX, and images with OCR.
 Environment variables:
     LLAMAPARSE_API_KEY: API key for LlamaParse (required)
     LLAMAPARSE_TIMEOUT_SECONDS: Request timeout (default 120)
+    LLAMAPARSE_POLL_INTERVAL: Polling interval in seconds (default 2.0)
+    LLAMAPARSE_MAX_POLLS: Maximum number of poll attempts (default 60)
 """
 
 from __future__ import annotations
@@ -70,15 +72,17 @@ class LlamaParseResolver(DocumentParserPort):
         2. Poll GET /job/{job_id} until status is SUCCESS or ERROR
         3. GET /job/{job_id}/result/markdown to retrieve the content
 
-        Set FORCE_LLAMAPARSE_FAILURE=1 to force a simulated rate-limit error
-        (used by E2E tests to exercise the Unstructured fallback path).
+        E2E test seam: if file_name starts with __e2e_force_llamaparse_failure__,
+        return a simulated rate-limit error to exercise the Unstructured fallback path.
+        This avoids Lambda env-var races by embedding the signal in the request itself.
         """
-        # Allow E2E tests to deterministically force a failure
-        if os.environ.get("FORCE_LLAMAPARSE_FAILURE", "").lower() in ("1", "true"):
-            logger.info("FORCE_LLAMAPARSE_FAILURE is set; returning simulated rate-limit error")
+        if file_name.startswith("__e2e_force_llamaparse_failure__"):
+            logger.info(
+                "E2E sentinel detected in filename; returning simulated rate-limit error"
+            )
             return ParseError(
                 code=ParseErrorCode.RATE_LIMITED,
-                message="Simulated LlamaParse failure (FORCE_LLAMAPARSE_FAILURE=1)",
+                message="Simulated LlamaParse failure (E2E test sentinel: __e2e_force_llamaparse_failure__)",
                 provider=self.provider_name,
                 retryable=True,
             )

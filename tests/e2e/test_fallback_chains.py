@@ -7,7 +7,7 @@ fallback path was actually exercised.
 Cost per run (approx.):
 - TikTok Apify fallback: ~$0.005-0.01 (Apify actor call)
 - Instagram Deepgram fallback: ~$0.01-0.02 (Apify post scraper + Deepgram push)
-- Document Unstructured fallback: ~$0.001 (FORCE_LLAMAPARSE_FAILURE + Unstructured)
+- Document Unstructured fallback: ~$0.001 (E2E sentinel filename + Unstructured)
 
 Architecture notes (post task-158):
 - TikTok: yt-dlp (primary) -> Apify (fallback on Lambda IP block)
@@ -22,27 +22,13 @@ Naming convention: test_<source>_<fallback_name>
 from __future__ import annotations
 
 import os
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict
 
-import boto3
 import httpx
 import pytest
 
 from tests.e2e.conftest import poll_until
-
-
-# =============================================================================
-# Constants
-# =============================================================================
-
-# Lambda function name for the document-parsing worker.
-# Pattern: {project_name}-worker-{worker_key} (from Terraform lambda_workers.tf)
-DOCUMENT_PARSING_LAMBDA = os.environ.get(
-    "DOCUMENT_PARSING_LAMBDA_NAME", "media-summarizer-worker-document_parsing"
-)
-AWS_REGION = os.environ.get("AWS_REGION", "eu-west-3")
 
 
 # =============================================================================
@@ -93,33 +79,6 @@ async def _get_media_item(
     )
     resp.raise_for_status()
     return resp.json()
-
-
-def _set_lambda_env_var(function_name: str, key: str, value: str) -> Dict[str, str]:
-    """Add/update an environment variable on a Lambda function.
-
-    Returns the previous environment variables dict (for restore).
-    """
-    client = boto3.client("lambda", region_name=AWS_REGION)
-    config = client.get_function_configuration(FunctionName=function_name)
-    env_vars = (config.get("Environment") or {}).get("Variables", {})
-    original_env = dict(env_vars)
-
-    env_vars[key] = value
-    client.update_function_configuration(
-        FunctionName=function_name,
-        Environment={"Variables": env_vars},
-    )
-    return original_env
-
-
-def _restore_lambda_env(function_name: str, env_vars: Dict[str, str]) -> None:
-    """Restore Lambda environment variables to a previous state."""
-    client = boto3.client("lambda", region_name=AWS_REGION)
-    client.update_function_configuration(
-        FunctionName=function_name,
-        Environment={"Variables": env_vars},
-    )
 
 
 # =============================================================================
@@ -197,19 +156,15 @@ async def test_document_unstructured_fallback(
 ) -> None:
     """Document upload where LlamaParse fails -> Unstructured fallback succeeds.
 
-    Strategy: The test temporarily sets FORCE_LLAMAPARSE_FAILURE=1 on the
-    document-parsing worker Lambda, submits a PDF, verifies the Unstructured
-    fallback fires, then restores the original Lambda configuration.
+    Strategy: The test uploads a file with a sentinel name that triggers
+    LlamaParseResolver to simulate a transient failure. This exercises the
+    Unstructured fallback path without requiring Lambda env-var manipulation.
 
-    This ensures:
-    - The fallback path (LlamaParse failure -> Unstructured) is exercised
-    - No FORCE_* flags persist on the production Lambda after the test
-    - The test is self-contained and does not depend on external setup
-
-    Prerequisites:
-    - AWS credentials with permission to call lambda:GetFunctionConfiguration
-      and lambda:UpdateFunctionConfiguration on the document-parsing worker
-    - DOCUMENT_PARSING_LAMBDA_NAME env var (default: media-summarizer-worker-document_parsing)
+    The sentinel approach is deterministic and race-free:
+    - No Lambda config propagation delays
+    - Deterministic on the first invocation (no cold-start dance)
+    - No IAM permission required (no lambda:UpdateFunctionConfiguration)
+    - The sentinel is scoped to the per-request filename
 
     Assertions:
         - Job reaches status == "completed"
@@ -218,68 +173,45 @@ async def test_document_unstructured_fallback(
     fixture = Path(__file__).parent / "fixtures" / "sample.pdf"
     assert fixture.exists(), f"Fixture not found: {fixture}"
 
-    # Temporarily set the force-failure flag on the Lambda
-    original_env: Dict[str, str] | None = None
-    try:
-        original_env = _set_lambda_env_var(
-            DOCUMENT_PARSING_LAMBDA, "FORCE_LLAMAPARSE_FAILURE", "1"
-        )
-    except Exception as exc:
-        pytest.skip(
-            f"Cannot set FORCE_LLAMAPARSE_FAILURE on Lambda "
-            f"'{DOCUMENT_PARSING_LAMBDA}': {exc!r}. "
-            f"Ensure AWS credentials have lambda:UpdateFunctionConfiguration permission."
-        )
+    # Use a sentinel filename that LlamaParseResolver recognizes as a test seam.
+    # The resolver will detect "__e2e_force_llamaparse_failure__" prefix and
+    # return a simulated rate-limit error, triggering the Unstructured fallback.
+    sentinel_filename = "__e2e_force_llamaparse_failure__sample.pdf"
 
-    try:
-        with fixture.open("rb") as f:
-            files = {"file": ("sample.pdf", f, "application/pdf")}
-            resp = await http_client.post(
-                "/api/media/upload",
-                files=files,
-                headers=auth_headers,
-            )
-
-        assert resp.status_code == 202, (
-            f"upload failed: {resp.status_code} {resp.text}"
-        )
-        media_item_id = resp.json()["media_item_id"]
-
-        # Poll until terminal state (completed or failed)
-        body = await poll_until(
-            client=http_client,
-            url=f"/api/media/{media_item_id}",
+    with fixture.open("rb") as f:
+        files = {"file": (sentinel_filename, f, "application/pdf")}
+        resp = await http_client.post(
+            "/api/media/upload",
+            files=files,
             headers=auth_headers,
-            predicate=lambda b: b.get("status") in ("completed", "failed"),
-            timeout_s=60,
-            interval_s=3,
         )
 
-        assert body.get("status") == "completed", (
-            f"document parsing did not complete: status={body.get('status')}, "
-            f"error={body.get('error_message')}"
-        )
+    assert resp.status_code == 202, (
+        f"upload failed: {resp.status_code} {resp.text}"
+    )
+    media_item_id = resp.json()["media_item_id"]
 
-        # Verify the fallback provider was used
-        provider = body.get("provider")
-        assert provider == "unstructured", (
-            f"Expected fallback provider 'unstructured', got: '{provider}'. "
-            f"The FORCE_LLAMAPARSE_FAILURE flag may not have taken effect yet "
-            f"(Lambda cold-start with old env). Retry the test."
-        )
+    # Poll until terminal state (completed or failed)
+    body = await poll_until(
+        client=http_client,
+        url=f"/api/media/{media_item_id}",
+        headers=auth_headers,
+        predicate=lambda b: b.get("status") in ("completed", "failed"),
+        timeout_s=60,
+        interval_s=3,
+    )
 
-    finally:
-        # Always restore the original Lambda configuration
-        if original_env is not None:
-            try:
-                _restore_lambda_env(DOCUMENT_PARSING_LAMBDA, original_env)
-            except Exception as restore_exc:
-                # Log but do not mask the test failure
-                print(
-                    f"[WARNING] Failed to restore Lambda env for "
-                    f"'{DOCUMENT_PARSING_LAMBDA}': {restore_exc!r}. "
-                    f"Manually remove FORCE_LLAMAPARSE_FAILURE from the Lambda."
-                )
+    assert body.get("status") == "completed", (
+        f"document parsing did not complete: status={body.get('status')}, "
+        f"error={body.get('error_message')}"
+    )
+
+    # Verify the fallback provider was used
+    provider = body.get("provider")
+    assert provider == "unstructured", (
+        f"Expected fallback provider 'unstructured', got: '{provider}'. "
+        f"The sentinel filename may not have been recognized by the resolver."
+    )
 
 
 # =============================================================================
