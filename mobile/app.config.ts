@@ -66,7 +66,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         },
       },
     ],
-    "./plugins/withShareExtension",
   ],
   extra: {
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "https://api.mediasummarizer.com",

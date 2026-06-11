@@ -25,7 +25,7 @@ SplashScreen.preventAutoHideAsync();
  */
 export default function RootLayout() {
   return (
-    <ExpoShareIntentProvider options={{ debug: true, resetOnBackground: true }}>
+    <ExpoShareIntentProvider options={{ debug: false, resetOnBackground: true, scheme: "media-summarizer" }}>
       <AuthProvider>
         <PurchasesProvider>
           <ShareIntentProvider>
