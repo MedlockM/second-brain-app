@@ -232,6 +232,7 @@ export function ShareIntentProvider({
       if (!hasNavigatedRef.current) {
         hasNavigatedRef.current = true;
         setTimeout(() => {
+          console.log("[ShareIntent.Context] router.push -> /share-confirmation");
           router.push("/share-confirmation");
           hasNavigatedRef.current = false;
         }, 0);
@@ -245,15 +246,26 @@ export function ShareIntentProvider({
    * If authenticated, process immediately. Otherwise, queue for later.
    */
   useEffect(() => {
+    console.log("[ShareIntent.Context] state change", {
+      hasShareIntent,
+      shareIntentType: shareIntent?.type,
+      shareIntentWebUrl: shareIntent?.webUrl,
+      shareIntentText: shareIntent?.text,
+      shareIntentFiles: shareIntent?.files?.length,
+      isAuthenticated,
+      isLoading,
+    });
     if (!hasShareIntent) return;
     if (isLoading) return;
 
     if (!isAuthenticated) {
       // Store pending intent for processing after auth
+      console.log("[ShareIntent.Context] queuing intent (not authenticated yet)");
       pendingIntentRef.current = { ...shareIntent };
       return;
     }
 
+    console.log("[ShareIntent.Context] processing intent");
     processShareIntent(shareIntent);
   }, [hasShareIntent, shareIntent, isAuthenticated, isLoading, processShareIntent]);
 
