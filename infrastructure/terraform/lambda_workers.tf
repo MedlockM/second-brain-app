@@ -52,6 +52,18 @@ locals {
       queue_arn   = aws_sqs_queue.summarization.arn
       handler     = "media_summarizer.workers.lambda_handlers.summarization_handler"
     }
+    summary_short = {
+      memory_size = 512
+      timeout     = 300
+      queue_arn   = aws_sqs_queue.summary_short.arn
+      handler     = "media_summarizer.workers.lambda_handlers.summary_short_handler"
+    }
+    summary_detailed = {
+      memory_size = 512
+      timeout     = 300
+      queue_arn   = aws_sqs_queue.summary_detailed.arn
+      handler     = "media_summarizer.workers.lambda_handlers.summary_detailed_handler"
+    }
     document_parsing = {
       memory_size = 512
       timeout     = 600
