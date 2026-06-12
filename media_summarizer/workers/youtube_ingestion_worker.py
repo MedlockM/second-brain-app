@@ -7,7 +7,8 @@ Pipeline (yt-dlp primary, Apify fallback for IP blocks):
   - If native/auto subtitles found: upload transcript, complete
   - If no subtitles but media URL available: enqueue Deepgram (push mode)
   - If IP-blocked: fall back to Apify YouTube Transcript actor
-- Apify fallback returns transcript text or fails terminally
+- Apify fallback requests the configured transcript language and returns
+  transcript text or fails terminally
 """
 
 from __future__ import annotations
@@ -67,8 +68,10 @@ YOUTUBE_WORKER_MAX_RETRIES = 3
 # Apify configuration
 APIFY_YOUTUBE_API_TOKEN = os.environ.get("APIFY_YOUTUBE_API_TOKEN", "")
 APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = os.environ.get(
-    "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID",
-    "scrape-creators~best-youtube-transcripts-scraper",
+    "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID", ""
+)
+DEFAULT_YOUTUBE_TRANSCRIPT_LANGUAGE = os.environ.get(
+    "YOUTUBE_TRANSCRIPT_LANGUAGE", "fr"
 )
 APIFY_API_BASE = "https://api.apify.com/v2"
 APIFY_TIMEOUT_SECONDS = float(os.environ.get("APIFY_TIMEOUT_SECONDS", "60"))
@@ -121,6 +124,27 @@ class YouTubeIngestionError(Exception):
 
 def _now_iso_utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _normalize_language_code(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().replace("_", "-").lower()
+    if not normalized:
+        return None
+    return normalized.split("-", 1)[0].strip() or None
+
+
+def _requested_transcript_language(message_body: Dict[str, Any]) -> str:
+    for key in ("transcript_language", "language", "locale"):
+        language = _normalize_language_code(message_body.get(key))
+        if language:
+            return language
+    return _normalize_language_code(DEFAULT_YOUTUBE_TRANSCRIPT_LANGUAGE) or "fr"
+
+
+def _apify_actor_id_for_api(actor_id: str) -> str:
+    return actor_id.strip().replace("/", "~")
 
 
 def _extract_video_id(normalized_url: str) -> str:
@@ -297,7 +321,21 @@ class YouTubeIPBlockedError(Exception):
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_native_subtitles(info: Dict[str, Any]) -> Dict[str, Any]:
+def _language_preference_key(
+    candidate: Dict[str, Any],
+    preferred_language: Optional[str],
+) -> int:
+    if not preferred_language:
+        return 1
+    candidate_language = _normalize_language_code(candidate.get("language"))
+    return 0 if candidate_language == preferred_language else 1
+
+
+async def _fetch_native_subtitles(
+    info: Dict[str, Any],
+    *,
+    preferred_language: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Try to extract subtitles from yt-dlp info dict.
 
@@ -307,6 +345,12 @@ async def _fetch_native_subtitles(info: Dict[str, Any]) -> Dict[str, Any]:
     candidates = collect_subtitle_candidates(info)
     if not candidates:
         raise NativeSubtitlesUnavailable("no_subtitles_in_info")
+    candidates.sort(
+        key=lambda candidate: _language_preference_key(
+            candidate,
+            preferred_language,
+        )
+    )
 
     last_unavailable_reason = "no_subtitles_in_info"
     for candidate in candidates:
@@ -336,7 +380,11 @@ async def _fetch_native_subtitles(info: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_apify_transcript(video_id: str, source_url: str) -> Dict[str, Any]:
+async def _fetch_apify_transcript(
+    source_url: str,
+    *,
+    transcript_language: str,
+) -> Dict[str, Any]:
     """
     Call the Apify YouTube Transcript actor to retrieve transcript text.
 
@@ -351,11 +399,24 @@ async def _fetch_apify_transcript(video_id: str, source_url: str) -> Dict[str, A
             user_message=_UNAVAILABLE_MESSAGE,
         )
 
+    actor_id = _apify_actor_id_for_api(APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID)
+    if not actor_id:
+        raise YouTubeIngestionError(
+            "youtube_unavailable",
+            details="apify_actor_missing",
+            retryable=False,
+            user_message=_UNAVAILABLE_MESSAGE,
+        )
+
     run_url = (
-        f"{APIFY_API_BASE}/acts/{APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID}/run-sync-get-dataset-items"
+        f"{APIFY_API_BASE}/acts/{actor_id}/run-sync-get-dataset-items"
     )
     params = {"token": APIFY_YOUTUBE_API_TOKEN}
-    payload = {"videoUrls": [source_url]}
+    payload = {
+        "include_transcript_text": True,
+        "language": transcript_language,
+        "youtube_url": source_url,
+    }
 
     try:
         async with httpx.AsyncClient(timeout=APIFY_TIMEOUT_SECONDS) as client:
@@ -419,25 +480,20 @@ async def _fetch_apify_transcript(video_id: str, source_url: str) -> Dict[str, A
             user_message=_UNAVAILABLE_MESSAGE,
         )
 
-    # Extract transcript text from the first result
     first_item = items[0]
-    transcript_text = ""
+    if not isinstance(first_item, dict):
+        raise YouTubeIngestionError(
+            "youtube_unavailable",
+            details="apify_invalid_result",
+            retryable=False,
+            user_message=_UNAVAILABLE_MESSAGE,
+        )
 
-    # The actor may return transcript_only_text or transcript array
-    if isinstance(first_item.get("transcript_only_text"), str):
-        transcript_text = first_item["transcript_only_text"].strip()
-    elif isinstance(first_item.get("transcript"), list):
-        lines = []
-        for segment in first_item["transcript"]:
-            if isinstance(segment, dict):
-                text = str(segment.get("text") or "").strip()
-                if text:
-                    lines.append(text)
-            elif isinstance(segment, str):
-                text = segment.strip()
-                if text:
-                    lines.append(text)
-        transcript_text = "\n".join(lines).strip()
+    transcript_text = (
+        first_item["transcript_text"].strip()
+        if isinstance(first_item.get("transcript_text"), str)
+        else ""
+    )
 
     if not transcript_text:
         raise YouTubeIngestionError(
@@ -449,7 +505,9 @@ async def _fetch_apify_transcript(video_id: str, source_url: str) -> Dict[str, A
 
     return {
         "text": transcript_text,
-        "language": first_item.get("language") or None,
+        "language": _normalize_language_code(first_item.get("language"))
+        or transcript_language,
+        "requested_language": transcript_language,
         "segments_count": len(
             [line for line in transcript_text.splitlines() if line.strip()]
         ),
@@ -577,6 +635,8 @@ def _build_apify_extraction_metadata(
         "strategy_used": "apify_transcript",
         "video_id": video_id,
         "source_url": source_url,
+        "requested_language": apify_result.get("requested_language"),
+        "transcript_language": apify_result.get("language"),
         "segments_count": apify_result.get("segments_count"),
         "fetched_at": apify_result["fetched_at"],
     }
@@ -693,6 +753,7 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
         )
 
     video_id = _extract_video_id(normalized_url)
+    transcript_language = _requested_transcript_language(message_body)
 
     # -----------------------------------------------------------------------
     # PRIMARY PATH: yt-dlp extract_info
@@ -710,7 +771,10 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
     # IP-BLOCKED BRANCH: Apify fallback
     # -----------------------------------------------------------------------
     if ip_blocked:
-        apify_result = await _fetch_apify_transcript(video_id, normalized_url)
+        apify_result = await _fetch_apify_transcript(
+            normalized_url,
+            transcript_language=transcript_language,
+        )
 
         transcript_s3_key = await _upload_transcript(job_id, apify_result["text"])
         transcription_metadata = _build_apify_transcription_metadata(
@@ -747,7 +811,10 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
     assert info is not None
 
     try:
-        native_result = await _fetch_native_subtitles(info)
+        native_result = await _fetch_native_subtitles(
+            info,
+            preferred_language=transcript_language,
+        )
     except NativeSubtitlesUnavailable as exc:
         # No subtitles available: resolve media URL and enqueue Deepgram
         try:

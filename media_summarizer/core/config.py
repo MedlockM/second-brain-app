@@ -95,8 +95,10 @@ class Settings:
             "APIFY_INSTAGRAM_POST_ACTOR_ID", "apify~instagram-post-scraper"
         )
         self.APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = os.getenv(
-            "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID",
-            "scrape-creators~best-youtube-transcripts-scraper",
+            "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID", ""
+        )
+        self.YOUTUBE_TRANSCRIPT_LANGUAGE = os.getenv(
+            "YOUTUBE_TRANSCRIPT_LANGUAGE", "fr"
         )
         self.APIFY_TIMEOUT_SECONDS = int(
             os.getenv("APIFY_TIMEOUT_SECONDS", "60")

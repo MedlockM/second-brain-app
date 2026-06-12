@@ -48,6 +48,7 @@ secret_payload = {
   # YouTube (Apify)
   APIFY_YOUTUBE_API_TOKEN = ""
   APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = ""
+  YOUTUBE_TRANSCRIPT_LANGUAGE = "fr"
 
   # Document parsing (LlamaParse primary + Unstructured fallback)
   LLAMAPARSE_API_KEY    = ""

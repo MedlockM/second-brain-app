@@ -72,6 +72,7 @@ class IngestUrlRequest:
     url: str
     source_app: Optional[str] = None
     locale: Optional[str] = None
+    transcript_language: Optional[str] = None
     idempotency_key: Optional[str] = None
 
 

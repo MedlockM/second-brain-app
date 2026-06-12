@@ -205,6 +205,10 @@ class IngestUrlRequest(BaseModel):
     url: str = Field(..., min_length=1)
     source_app: Optional[str] = None
     locale: Optional[str] = None
+    transcript_language: Optional[str] = Field(
+        default=None,
+        description="Preferred transcript language code for sources that support it, e.g. 'fr'",
+    )
     idempotency_key: Optional[str] = None
     folder_id: Optional[str] = None
     tag_ids: List[str] = Field(default_factory=list)

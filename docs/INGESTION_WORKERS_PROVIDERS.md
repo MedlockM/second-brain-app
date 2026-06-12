@@ -127,7 +127,7 @@ Workflow:
 1. Extract `video_id` from the normalized URL
 2. Run `yt_dlp.YoutubeDL.extract_info(url, download=False)` with subtitle options
 3. Collect candidates via `collect_subtitle_candidates(info)` from `utils/ytdlp_helpers.py`
-4. If subtitles found: fetch, parse, upload to S3 as `{job_id}.txt`, publish success event with `strategy_used="native_subtitles"`
+4. If subtitles found: prefer the requested transcript language when present, fetch, parse, upload to S3 as `{job_id}.txt`, publish success event with `strategy_used="native_subtitles"`
 
 Ref: `youtube_ingestion_worker.py::_extract_youtube_info`, `youtube_ingestion_worker.py::_fetch_native_subtitles`, `utils/ytdlp_helpers.py::collect_subtitle_candidates`
 
@@ -136,12 +136,12 @@ Ref: `youtube_ingestion_worker.py::_extract_youtube_info`, `youtube_ingestion_wo
 | Step | Trigger condition | Action |
 |---|---|---|
 | 1 (primary) | yt-dlp extraction succeeds AND subtitles present | Fetch and parse native subtitles, upload transcript to S3 (`strategy_used="native_subtitles"`) |
-| 2 | yt-dlp raises with YouTube IP-block / login-wall error (`_is_ip_blocked_youtube_error`) | Apify YouTube Transcript actor (`APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID`, default `scrape-creators~best-youtube-transcripts-scraper`) via `_fetch_apify_transcript()` — synchronous run, read dataset items, prefer `transcript_only_text` field, fall back to joined `transcript[].text` segments (`strategy_used="apify_transcript"`) |
+| 2 | yt-dlp raises with YouTube IP-block / login-wall error (`_is_ip_blocked_youtube_error`) | Apify YouTube Transcript actor (`APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID`) via `_fetch_apify_transcript()` — synchronous run, read dataset items, read transcript text from `transcript_text` (`strategy_used="apify_transcript"`) |
 | 3 | yt-dlp succeeded but no subtitles found (`NativeSubtitlesUnavailable`) | Resolve audio URL from yt-dlp info dict via `resolve_direct_media_url(info)`, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` (`strategy_used="deepgram_via_ytdlp_url"`) |
 
 The IP-block matcher normalises Unicode `'` (U+2019) to ASCII `'` before substring matching so phrasings like `Sign in to confirm you're not a bot` match alongside the ASCII variant. It does NOT match geo restrictions, deleted videos, rate limits, or generic yt-dlp errors — those propagate as terminal `youtube_*` failures.
 
-Apify call uses dedicated credentials: `APIFY_YOUTUBE_API_TOKEN` (token) and `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` (actor). The request payload is `{"videoUrls": [<url>]}` — note the camelCase `videoUrls`, not `urls`, and the `~` separator in the actor ID (Apify Console UI shows `/`, but the API requires `~`).
+Apify call uses dedicated credentials: `APIFY_YOUTUBE_API_TOKEN` (token) and `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` (actor). The request payload is `{"include_transcript_text": true, "language": "<code>", "youtube_url": "<url>"}`. The language is resolved from the SQS message fields `transcript_language`, `language`, `locale`, then `YOUTUBE_TRANSCRIPT_LANGUAGE` (default `fr`). The actor ID may be configured with `/` or `~`; the worker normalizes it to the Apify API `~` form.
 
 Ref: `youtube_ingestion_worker.py::process_youtube_message`, `youtube_ingestion_worker.py::_fetch_apify_transcript`, `youtube_ingestion_worker.py::_is_ip_blocked_youtube_error`
 

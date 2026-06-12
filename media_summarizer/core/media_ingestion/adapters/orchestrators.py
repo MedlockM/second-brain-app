@@ -562,18 +562,30 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             elif resolved.media_family == MediaFamily.YOUTUBE:
                 job.mark_extracting()
                 await database_async.update_processing_job(job)
+                message_body: Dict[str, Any] = {
+                    "job_id": job.id,
+                    "user_id": command.user.user_id,
+                    "user_email": command.user.user_email,
+                    "media_key": resolved.media_key,
+                    "normalized_url": resolved.normalized_url,
+                    "resolver_key": resolved.resolver_key,
+                    "episode_title": title,
+                    "podcast_title": title,
+                }
+                requested_transcript_language = getattr(
+                    command.request,
+                    "transcript_language",
+                    None,
+                )
+                if command.request.locale:
+                    message_body["locale"] = command.request.locale
+                if requested_transcript_language:
+                    message_body["transcript_language"] = (
+                        requested_transcript_language
+                    )
                 await sqs.send_message(
                     queue_name=self._youtube_ingestion_queue,
-                    message_body={
-                        "job_id": job.id,
-                        "user_id": command.user.user_id,
-                        "user_email": command.user.user_email,
-                        "media_key": resolved.media_key,
-                        "normalized_url": resolved.normalized_url,
-                        "resolver_key": resolved.resolver_key,
-                        "episode_title": title,
-                        "podcast_title": title,
-                    },
+                    message_body=message_body,
                 )
                 pipeline_enqueued = True
                 youtube_ingestion_enqueued = True

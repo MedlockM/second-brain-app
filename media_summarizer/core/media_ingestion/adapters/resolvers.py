@@ -246,6 +246,17 @@ class YouTubeResolver(ContentResolverPort):
         return "youtube.default"
 
     async def resolve(self, context: ResolveContext) -> ResolvedMedia:
+        metadata = {
+            "resolver_version": "v2",
+            "extraction_mode": "queued_worker",
+            "transcript_strategy": "manual_auto_audio",
+            "source_url": context.normalized_url,
+        }
+        if context.command.request.transcript_language:
+            metadata["requested_transcript_language"] = (
+                context.command.request.transcript_language
+            )
+
         resolved = ResolvedMedia(
             media_key=context.media_key,
             normalized_url=context.normalized_url,
@@ -253,12 +264,7 @@ class YouTubeResolver(ContentResolverPort):
             media_type=MediaType.YOUTUBE_VIDEO,
             source_platform=SourcePlatform.YOUTUBE,
             resolver_key=self.key,
-            metadata={
-                "resolver_version": "v2",
-                "extraction_mode": "queued_worker",
-                "transcript_strategy": "manual_auto_audio",
-                "source_url": context.normalized_url,
-            },
+            metadata=metadata,
         )
         log_event(
             logger,

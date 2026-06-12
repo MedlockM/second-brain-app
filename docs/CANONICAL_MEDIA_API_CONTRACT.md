@@ -86,13 +86,14 @@ Request (`IngestUrlRequest`):
   "url": "https://open.spotify.com/episode/6rqhFgbbKwnb9MLmUQDhG6",
   "source_app": "android.share_sheet",
   "locale": "fr-FR",
+  "transcript_language": "fr",
   "idempotency_key": "mobile-share-4b7e8d",
   "folder_id": "folder_01JQ8X8J5S3H3CXX8V70M9M3K7",
   "tag_ids": ["tag_01JQ8X8J5S3H3CXX8V70M9M3K7"]
 }
 ```
 
-`folder_id` and `tag_ids` are optional. When `folder_id` is omitted or `null`,
+`transcript_language`, `folder_id`, and `tag_ids` are optional. When `folder_id` is omitted or `null`,
 the backend assigns the user's default Uncategorized folder. Provided folder and
 tag IDs must belong to the authenticated user.
 

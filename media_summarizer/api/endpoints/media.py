@@ -103,6 +103,10 @@ class IngestUrlRequest(BaseModel):
     url: str = Field(..., description="URL to ingest (podcast RSS, YouTube, TikTok, Instagram, article, or direct audio)")
     source_app: Optional[str] = Field(None, description="Source app that submitted the URL")
     locale: Optional[str] = Field(None, description="Client locale")
+    transcript_language: Optional[str] = Field(
+        None,
+        description="Preferred transcript language code for sources that support it, e.g. 'fr'",
+    )
     idempotency_key: Optional[str] = Field(None, description="Client idempotency key")
     folder_id: Optional[str] = Field(
         None, description="Optional folder ID to assign to the media item"
@@ -582,6 +586,10 @@ async def ingest_url(
             "source_platform": source_platform,
             "normalized_url": url,
         }
+        if payload.locale:
+            base_payload["locale"] = payload.locale
+        if payload.transcript_language:
+            base_payload["transcript_language"] = payload.transcript_language
 
         if source_platform == "youtube":
             await sqs.send_message(queue_name=YOUTUBE_INGESTION_QUEUE, message_body=base_payload)
