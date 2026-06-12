@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark : Transcript Translation Services for User's Preferred Language
 
 ## Owner Validation
 
-**Decision**: _(to be filled by the owner after review)_
+**Decision**: gpt-5-nano
 **Validated at**: _(ISO date to be filled by the owner)_
 
 ---
