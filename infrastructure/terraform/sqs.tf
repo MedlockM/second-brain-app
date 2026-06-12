@@ -259,68 +259,6 @@ resource "aws_sqs_queue" "artifact_generator" {
 }
 
 # =============================================================================
-# Summary Short
-# =============================================================================
-
-resource "aws_sqs_queue" "summary_short_dlq" {
-  name = "summary-short-dlq"
-
-  tags = {
-    Name        = "summary-short-dlq"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-resource "aws_sqs_queue" "summary_short" {
-  name                       = "summary-short-queue"
-  visibility_timeout_seconds = 1800
-  message_retention_seconds  = 1209600
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.summary_short_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = {
-    Name        = "summary-short-queue"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-# =============================================================================
-# Summary Detailed
-# =============================================================================
-
-resource "aws_sqs_queue" "summary_detailed_dlq" {
-  name = "summary-detailed-dlq"
-
-  tags = {
-    Name        = "summary-detailed-dlq"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-resource "aws_sqs_queue" "summary_detailed" {
-  name                       = "summary-detailed-queue"
-  visibility_timeout_seconds = 1800
-  message_retention_seconds  = 1209600
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.summary_detailed_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = {
-    Name        = "summary-detailed-queue"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-# =============================================================================
 # Document Parsing
 # =============================================================================
 
@@ -417,7 +355,7 @@ resource "aws_sqs_queue" "rss_feed_poll" {
 }
 
 # =============================================================================
-# Media Completed Events (consumed by summarization + media_completed workers)
+# Media Completed Events (consumed by media_completed worker)
 # =============================================================================
 
 resource "aws_sqs_queue" "media_completed_events_dlq" {

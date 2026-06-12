@@ -3,7 +3,7 @@ id: task-189
 title: >-
   Benchmark LLM/translation services for transcript translation to user's
   preferred language
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 10:00'
 labels:

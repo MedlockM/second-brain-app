@@ -53,7 +53,7 @@ class Settings:
             "NEWSLETTER_INGESTION_QUEUE", "newsletter-ingestion-queue"
         )
         self.ARTIFACT_TYPES_ALLOWED = os.getenv(
-            "ARTIFACT_TYPES_ALLOWED", "summary,summary_short,summary_detailed,quiz,notes,flashcards"
+            "ARTIFACT_TYPES_ALLOWED", "summary_short,summary_detailed,quiz,notes,flashcards"
         )
 
 
