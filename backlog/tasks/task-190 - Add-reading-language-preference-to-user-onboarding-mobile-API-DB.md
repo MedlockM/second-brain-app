@@ -16,7 +16,7 @@ priority: medium
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Demander à l'user sa langue de lecture préférée pendant l'onboarding mobile et la persister côté backend, pour que le pipeline d'ingestion puisse ensuite l'utiliser pour prioriser les transcripts dans cette langue (cf. task-191) et déclencher la traduction LLM en fallback (cf. task-192).
+Demander à l'user sa langue de lecture préférée pendant l'onboarding mobile et la persister côté backend, pour que le pipeline d'ingestion puisse ensuite l'utiliser pour détecter la langue du transcript généré (quelle que soit la source) et déclencher la traduction LLM vers cette langue si nécessaire (cf. task-192).
 
 Périmètre :
 1. **Mobile** — ajouter un écran d'onboarding (ou étape post-register) qui demande la langue de lecture. Pré-sélectionner la langue système du device par défaut. Liste de langues alignée avec celles validées V1 dans le benchmark task-189.
@@ -25,7 +25,7 @@ Périmètre :
 4. **DB** — migration ajoutant la colonne `reading_language` à la table users, NOT NULL avec default sur la langue système ou `en` selon décision.
 5. **Lecture de la préférence** — exposer la valeur via le contexte mobile (`AuthContext` ou nouveau `UserPreferencesContext`) et via la session côté API pour que les workers d'ingestion puissent la lire.
 
-Cette tâche ne touche PAS au pipeline d'ingestion ni à la traduction — elle pose juste les fondations data + UX. Les tâches task-191 (priorisation transcript) et task-192 (traduction fallback) consomment cette préférence.
+Cette tâche ne touche PAS au pipeline d'ingestion ni à la traduction — elle pose juste les fondations data + UX. La tâche task-192 (détection de langue du transcript + traduction si nécessaire) consomme cette préférence.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
