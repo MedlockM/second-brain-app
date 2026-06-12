@@ -57,13 +57,6 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen
-                  name="share-confirm"
-                  options={{
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
-                  }}
-                />
-                <Stack.Screen
                   name="media/[id]"
                   options={{
                     animation: "slide_from_right",

@@ -441,7 +441,7 @@ export default function CollectionScreen() {
           >
             <View style={styles.unsortedLeft}>
               <Ionicons name="file-tray-outline" size={24} color={Colors.primary} />
-              <Text style={styles.unsortedLabel}>Non trie</Text>
+              <Text style={styles.unsortedLabel}>Non trié</Text>
             </View>
             <View style={styles.unsortedRight}>
               {selectedId === null && (
