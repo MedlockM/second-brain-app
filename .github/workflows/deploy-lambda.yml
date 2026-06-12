@@ -100,6 +100,7 @@ jobs:
           # Simple health check via Lambda invoke
           aws lambda invoke \
             --function-name media-summarizer-api \
+            --cli-binary-format raw-in-base64-out \
             --payload '{"httpMethod":"GET","path":"/api/v1/health","headers":{},"queryStringParameters":null,"body":null,"requestContext":{"http":{"method":"GET","path":"/api/v1/health"}},"version":"2.0","routeKey":"$default","rawPath":"/api/v1/health","isBase64Encoded":false}' \
             --no-cli-pager \
             /tmp/response.json
