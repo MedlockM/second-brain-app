@@ -1,7 +1,7 @@
 ---
 id: task-193
 title: Activate summary_short and summary_detailed workers (finish half-migrated artifact split)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 14:30'
 labels:

@@ -1,7 +1,7 @@
 ---
 id: task-197
 title: Harden DLQ setup (add missing DLQ, extend retention, add replay tooling)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 15:30'
 labels:
