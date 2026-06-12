@@ -93,8 +93,11 @@ LEGACY_PROCESSING_JOB_STATUS_MAP: Dict[str, ProcessingJobLifecycleStatus] = {
 
 class ArtifactType(str, Enum):
     SUMMARY = "summary"
+    SUMMARY_SHORT = "summary_short"
+    SUMMARY_DETAILED = "summary_detailed"
     QUIZ = "quiz"
     NOTES = "notes"
+    FLASHCARDS = "flashcards"
 
 
 class ArtifactStatus(str, Enum):
@@ -203,6 +206,8 @@ class IngestUrlRequest(BaseModel):
     source_app: Optional[str] = None
     locale: Optional[str] = None
     idempotency_key: Optional[str] = None
+    folder_id: Optional[str] = None
+    tag_ids: List[str] = Field(default_factory=list)
 
 
 class IngestSharedContentRequest(BaseModel):

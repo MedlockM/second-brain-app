@@ -16,8 +16,23 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
+from media_summarizer.api.models.media_contracts import (
+    LEGACY_PROCESSING_JOB_STATUS_MAP,
+    MediaArtifactContract as CanonicalMediaArtifactContract,
+    MediaItemContract as CanonicalMediaItemContract,
+    MediaItemStatus as CanonicalMediaItemStatus,
+    MediaStatusResponse as CanonicalMediaStatusResponse,
+    MediaType as CanonicalMediaType,
+    ProcessingJobContract as CanonicalProcessingJobContract,
+    ProcessingJobLifecycleStatus as CanonicalJobLifecycle,
+    ProcessingProgress as CanonicalProcessingProgress,
+    SourcePlatform as CanonicalSourcePlatform,
+    TranscriptInfo as CanonicalTranscriptInfo,
+    TranscriptStatus as CanonicalTranscriptStatus,
+)
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.models.media_artifact import MediaArtifactRecord
 from media_summarizer.core.ports.document_parser import DocumentFormat
 from media_summarizer.core.services import minute_pool
 from media_summarizer.core.services import folder_service
@@ -35,6 +50,7 @@ from media_summarizer.core.services.raw_content_service import (
 )
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
+from media_summarizer.utils.media_artifacts import safe_list_media_artifacts_by_media_item
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -85,6 +101,12 @@ def _detect_platform(url: str) -> tuple[str, str]:
 
 class IngestUrlRequest(BaseModel):
     url: str = Field(..., description="URL to ingest (podcast RSS, YouTube, TikTok, Instagram, article, or direct audio)")
+    source_app: Optional[str] = Field(None, description="Source app that submitted the URL")
+    locale: Optional[str] = Field(None, description="Client locale")
+    idempotency_key: Optional[str] = Field(None, description="Client idempotency key")
+    folder_id: Optional[str] = Field(
+        None, description="Optional folder ID to assign to the media item"
+    )
     tag_ids: Optional[List[str]] = Field(
         None, description="Optional list of tag IDs to associate with the media item at ingestion time"
     )
@@ -183,6 +205,206 @@ class MediaSearchResponse(BaseModel):
     has_more: bool = Field(..., description="Whether more items are available")
 
 
+# ---------- Canonical contract mapping ----------
+
+# Map ProcessingJob.media_type (DB-stored) to the canonical MediaType enum.
+# ProcessingJob stores coarse values like "video"/"podcast"/"article"/"audio"/"document";
+# the canonical contract distinguishes platform-specific subtypes.
+_LEGACY_MEDIA_TYPE_MAP = {
+    "podcast": CanonicalMediaType.PODCAST_EPISODE,
+    "podcast_episode": CanonicalMediaType.PODCAST_EPISODE,
+    "article": CanonicalMediaType.ARTICLE,
+    "audio": CanonicalMediaType.AUDIO_FILE,
+    "audio_file": CanonicalMediaType.AUDIO_FILE,
+    "shared_text": CanonicalMediaType.SHARED_TEXT,
+    "document": CanonicalMediaType.ARTICLE,
+}
+
+
+def _canonical_media_type(job: ProcessingJob) -> CanonicalMediaType:
+    raw = (job.media_type or "").lower().strip()
+    if raw in _LEGACY_MEDIA_TYPE_MAP:
+        return _LEGACY_MEDIA_TYPE_MAP[raw]
+    if raw == "video":
+        platform = (job.source_platform or "").lower().strip()
+        if platform in ("tiktok", "instagram", "x"):
+            return CanonicalMediaType.SHORT_VIDEO
+        if platform == "youtube":
+            return CanonicalMediaType.YOUTUBE_VIDEO
+        return CanonicalMediaType.YOUTUBE_VIDEO
+    try:
+        return CanonicalMediaType(raw)
+    except ValueError:
+        return CanonicalMediaType.UNKNOWN
+
+
+def _canonical_source_platform(job: ProcessingJob) -> CanonicalSourcePlatform:
+    raw = (job.source_platform or "").lower().strip()
+    try:
+        return CanonicalSourcePlatform(raw)
+    except ValueError:
+        return CanonicalSourcePlatform.UNKNOWN
+
+
+def _canonical_job_status(job: ProcessingJob) -> CanonicalJobLifecycle:
+    return LEGACY_PROCESSING_JOB_STATUS_MAP.get(
+        job.status.value, CanonicalJobLifecycle.PENDING
+    )
+
+
+def _canonical_media_item_status(job: ProcessingJob) -> CanonicalMediaItemStatus:
+    job_status = _canonical_job_status(job)
+    if job_status == CanonicalJobLifecycle.PENDING:
+        return CanonicalMediaItemStatus.INGESTED
+    if job_status == CanonicalJobLifecycle.RESOLVING:
+        return CanonicalMediaItemStatus.RESOLVING
+    if job_status == CanonicalJobLifecycle.READY_FOR_ARTIFACTS:
+        return CanonicalMediaItemStatus.READY_FOR_ARTIFACTS
+    if job_status == CanonicalJobLifecycle.FAILED:
+        return CanonicalMediaItemStatus.FAILED
+    if job_status == CanonicalJobLifecycle.CANCELLED:
+        return CanonicalMediaItemStatus.CANCELLED
+    if job_status == CanonicalJobLifecycle.COMPLETED:
+        return CanonicalMediaItemStatus.READY_FOR_ARTIFACTS
+    return CanonicalMediaItemStatus.PROCESSING
+
+
+def _canonical_progress(job_status: CanonicalJobLifecycle) -> CanonicalProcessingProgress:
+    # Coarse percentages keyed off the lifecycle stage; the worker pipeline doesn't
+    # publish a finer-grained value yet.
+    stage_pct = {
+        CanonicalJobLifecycle.PENDING: 0,
+        CanonicalJobLifecycle.CLASSIFYING: 5,
+        CanonicalJobLifecycle.RESOLVING: 15,
+        CanonicalJobLifecycle.EXTRACTING: 35,
+        CanonicalJobLifecycle.TRANSCRIBING: 65,
+        CanonicalJobLifecycle.READY_FOR_ARTIFACTS: 90,
+        CanonicalJobLifecycle.COMPLETED: 100,
+        CanonicalJobLifecycle.FAILED: 0,
+        CanonicalJobLifecycle.CANCELLED: 0,
+    }
+    return CanonicalProcessingProgress(
+        percentage=stage_pct.get(job_status, 0),
+        stage=job_status,
+    )
+
+
+def _canonical_transcript(job: ProcessingJob) -> CanonicalTranscriptInfo:
+    job_status = _canonical_job_status(job)
+    if job_status in (
+        CanonicalJobLifecycle.READY_FOR_ARTIFACTS,
+        CanonicalJobLifecycle.COMPLETED,
+    ):
+        status = CanonicalTranscriptStatus.READY
+    elif job_status == CanonicalJobLifecycle.FAILED:
+        status = CanonicalTranscriptStatus.FAILED
+    elif job_status == CanonicalJobLifecycle.TRANSCRIBING:
+        status = CanonicalTranscriptStatus.TRANSCRIBING
+    elif job_status == CanonicalJobLifecycle.EXTRACTING:
+        status = CanonicalTranscriptStatus.EXTRACTING
+    else:
+        status = CanonicalTranscriptStatus.PENDING
+
+    tx_meta = job.transcription_metadata if isinstance(job.transcription_metadata, dict) else {}
+    ext_meta = job.extraction_metadata if isinstance(job.extraction_metadata, dict) else {}
+
+    source = tx_meta.get("provider") or ext_meta.get("transcript_source")
+    if isinstance(source, str):
+        source = source.strip().removesuffix("_pending").removesuffix("_pending_cdn_fallback") or None
+    else:
+        source = None
+
+    duration = tx_meta.get("duration_seconds") or ext_meta.get("duration_seconds")
+    try:
+        duration = float(duration) if duration is not None else None
+    except (TypeError, ValueError):
+        duration = None
+
+    segments = tx_meta.get("segments_count")
+    try:
+        segments = int(segments) if segments is not None else None
+    except (TypeError, ValueError):
+        segments = None
+
+    language = tx_meta.get("language") or ext_meta.get("language")
+    if not isinstance(language, str):
+        language = None
+
+    return CanonicalTranscriptInfo(
+        status=status,
+        transcription_s3_key=job.transcription_s3_key,
+        source=source,
+        language=language,
+        segments_count=segments,
+        duration_seconds=duration,
+    )
+
+
+def _build_media_item_contract(job: ProcessingJob) -> CanonicalMediaItemContract:
+    return CanonicalMediaItemContract(
+        media_item_id=job.id,
+        media_key=job.media_key or job.id,
+        original_url=job.source_url or "",
+        normalized_url=job.source_url or "",
+        media_type=_canonical_media_type(job),
+        source_platform=_canonical_source_platform(job),
+        status=_canonical_media_item_status(job),
+        transcript=_canonical_transcript(job),
+        artifact_statuses={},
+        created_at=job.created_at.isoformat(),
+        updated_at=job.updated_at.isoformat(),
+    )
+
+
+def _build_processing_job_contract(job: ProcessingJob) -> CanonicalProcessingJobContract:
+    job_status = _canonical_job_status(job)
+    return CanonicalProcessingJobContract(
+        job_id=job.id,
+        status=job_status,
+        progress=_canonical_progress(job_status),
+        created_at=job.created_at.isoformat(),
+        updated_at=job.updated_at.isoformat(),
+        started_at=job.started_at.isoformat() if job.started_at else None,
+        completed_at=job.completed_at.isoformat() if job.completed_at else None,
+        error_code=None,
+        error_message=job.error_message,
+    )
+
+
+# Internal MediaArtifactType values that are surfaced via the public contract.
+# Anything outside this set is filtered out of the response (e.g. legacy types
+# the contract enum hasn't been extended for yet).
+_PUBLIC_ARTIFACT_TYPES = {
+    "summary",
+    "summary_short",
+    "summary_detailed",
+    "quiz",
+    "notes",
+    "flashcards",
+}
+
+
+def _build_artifact_contract(
+    record: MediaArtifactRecord,
+) -> Optional[CanonicalMediaArtifactContract]:
+    raw_type = record.artifact_type.value
+    if raw_type not in _PUBLIC_ARTIFACT_TYPES:
+        return None
+    return CanonicalMediaArtifactContract(
+        artifact_id=record.artifact_id,
+        media_item_id=record.media_item_id,
+        artifact_type=raw_type,
+        status=record.status.value,
+        parameters=record.parameters or {},
+        content=None,
+        error_code=None,
+        error_message=record.error_message,
+        created_at=record.created_at.isoformat(),
+        updated_at=record.updated_at.isoformat(),
+        completed_at=record.completed_at.isoformat() if record.completed_at else None,
+    )
+
+
 # ---------- Endpoints ----------
 
 @router.get("", response_model=MediaSearchResponse)
@@ -279,6 +501,20 @@ async def ingest_url(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+        resolved_folder_id: Optional[str]
+        requested_folder_id = payload.folder_id.strip() if payload.folder_id else None
+        if requested_folder_id:
+            folder = await database_async.get_folder_by_id(requested_folder_id)
+            if folder is None or folder.user_id != user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Folder not found: {requested_folder_id}",
+                )
+            resolved_folder_id = folder.id
+        else:
+            default_folder = await folder_service.ensure_default_folder(user.id)
+            resolved_folder_id = default_folder.id
+
         # Quota enforcement check before processing
         quota_result = await check_submission_allowed(
             user_id=user.id,
@@ -308,6 +544,7 @@ async def ingest_url(
             source_url=url,
             source_platform=source_platform,
             media_type=detected_media_type,
+            folder_id=resolved_folder_id,
         )
 
         # Associate tags at ingestion time if provided
@@ -744,7 +981,7 @@ async def upload_audio(
         reset_log_context(token)
 
 
-@router.get("/{media_item_id}", response_model=MediaItemResponse)
+@router.get("/{media_item_id}", response_model=CanonicalMediaStatusResponse)
 async def get_media_item(
     media_item_id: str,
     request: Request,
@@ -785,38 +1022,17 @@ async def get_media_item(
             status=job.status.value,
         )
 
-        # Derive transcript_source from extraction or transcription metadata
-        transcript_source: Optional[str] = None
-        ext_meta = job.extraction_metadata
-        if ext_meta and isinstance(ext_meta, dict):
-            ts = ext_meta.get("transcript_source")
-            if isinstance(ts, str) and ts.strip():
-                # Normalize pending states to the final provider name
-                transcript_source = (
-                    ts.strip()
-                    .removesuffix("_pending")
-                    .removesuffix("_pending_cdn_fallback")
-                )
-        tx_meta = job.transcription_metadata
-        if not transcript_source and tx_meta and isinstance(tx_meta, dict):
-            provider_val = tx_meta.get("provider")
-            if isinstance(provider_val, str) and provider_val.strip():
-                transcript_source = provider_val.strip()
+        artifact_records = await safe_list_media_artifacts_by_media_item(media_item_id)
+        artifacts: List[CanonicalMediaArtifactContract] = []
+        for record in artifact_records:
+            mapped = _build_artifact_contract(record)
+            if mapped is not None:
+                artifacts.append(mapped)
 
-        # Extract provider from transcription_metadata if available
-        provider = None
-        if job.transcription_metadata and isinstance(job.transcription_metadata, dict):
-            provider = job.transcription_metadata.get("provider")
-
-        return MediaItemResponse(
-            media_item_id=job.id,
-            status=job.status.value,
-            source_platform=job.source_platform,
-            error_message=job.error_message,
-            extraction_metadata=job.extraction_metadata,
-            transcription_metadata=job.transcription_metadata,
-            transcript_source=transcript_source,
-            provider=provider,
+        return CanonicalMediaStatusResponse(
+            media_item=_build_media_item_contract(job),
+            processing_job=_build_processing_job_contract(job),
+            artifacts=artifacts,
         )
 
     except HTTPException:

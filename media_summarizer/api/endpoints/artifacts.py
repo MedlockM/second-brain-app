@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -16,7 +17,7 @@ from media_summarizer.core.services.artifact_service import (
     list_media_artifact_records,
     request_artifact_generation,
 )
-from media_summarizer.utils import database_async
+from media_summarizer.utils import database_async, s3
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
 router = APIRouter()
@@ -39,6 +40,16 @@ class ArtifactResponse(BaseModel):
 class ArtifactListResponse(BaseModel):
     artifacts: List[ArtifactResponse]
     media_item_id: str
+
+
+class ArtifactContentResponse(BaseModel):
+    artifact_id: str
+    artifact_type: str
+    media_item_id: str
+    status: str
+    content: Dict[str, Any] = Field(
+        ..., description="Parsed JSON content of the artifact (summary, notes, quiz, flashcards)"
+    )
 
 
 async def _get_job_for_user(media_item_id: str, user_id: str):
@@ -264,6 +275,126 @@ async def get_artifact(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve artifact",
+        )
+    finally:
+        reset_log_context(token)
+
+
+@router.get("/artifacts/{artifact_id}/content", response_model=ArtifactContentResponse)
+async def get_artifact_content(
+    artifact_id: str,
+    request: Request,
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """Return the JSON payload an artifact resolved to.
+
+    The worker pipeline writes each artifact as a JSON blob in its dedicated
+    S3 bucket (one bucket per artifact type). This endpoint resolves the
+    record, verifies ownership, downloads the blob and inlines the parsed
+    content in the response so the mobile client doesn't need to deal with
+    presigned URLs.
+    """
+    token = bind_log_context(user_id=current_user.id, artifact_id=artifact_id)
+    try:
+        record = await get_media_artifact_record(artifact_id)
+        if record is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Artifact not found",
+            )
+
+        # Verify ownership
+        await _get_job_for_user(record.media_item_id, current_user.id)
+
+        if record.storage is None:
+            # Artifact exists but isn't ready yet (queued / generating / failed).
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Artifact is not ready (status: {record.status.value}). "
+                    "Try again once generation completes."
+                ),
+            )
+
+        try:
+            payload_bytes = await s3.download_file_to_memory(
+                bucket=record.storage.bucket,
+                key=record.storage.key,
+            )
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "artifact.content.download_failed",
+                "Failed to download artifact payload from S3",
+                artifact_id=artifact_id,
+                bucket=record.storage.bucket,
+                key=record.storage.key,
+                error_type=type(exc).__name__,
+                error_code="ARTIFACT_CONTENT_DOWNLOAD_FAILED",
+                exc_info=exc,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Artifact storage is currently unreachable",
+            )
+
+        try:
+            content = json.loads(payload_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "artifact.content.parse_failed",
+                "Failed to parse artifact payload as JSON",
+                artifact_id=artifact_id,
+                error_type=type(exc).__name__,
+                error_code="ARTIFACT_CONTENT_PARSE_FAILED",
+                exc_info=exc,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Artifact payload is malformed",
+            )
+
+        if not isinstance(content, dict):
+            content = {"value": content}
+
+        log_event(
+            logger,
+            logging.INFO,
+            "artifact.content.succeeded",
+            "Artifact content retrieved",
+            artifact_id=artifact_id,
+            artifact_type=record.artifact_type.value,
+            media_item_id=record.media_item_id,
+            content_size=len(payload_bytes),
+        )
+
+        return ArtifactContentResponse(
+            artifact_id=record.artifact_id,
+            artifact_type=record.artifact_type.value,
+            media_item_id=record.media_item_id,
+            status=record.status.value,
+            content=content,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "artifact.content.failed",
+            "Failed to retrieve artifact content",
+            artifact_id=artifact_id,
+            error_type=type(exc).__name__,
+            error_code="ARTIFACT_CONTENT_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve artifact content",
         )
     finally:
         reset_log_context(token)
