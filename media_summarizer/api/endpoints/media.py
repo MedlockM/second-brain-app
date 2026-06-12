@@ -76,6 +76,22 @@ AUDIO_PRESIGNED_URL_EXPIRATION = int(os.environ.get("AUDIO_PRESIGNED_URL_EXPIRAT
 # Max upload size: 50MB
 MAX_UPLOAD_SIZE_BYTES = int(os.environ.get("MAX_UPLOAD_SIZE_BYTES", str(50 * 1024 * 1024)))
 
+# Shared content limits (aligned with mobile client constants)
+MAX_SHARED_AUDIO_SIZE_BYTES = int(os.environ.get("MAX_SHARED_AUDIO_SIZE_BYTES", str(25 * 1024 * 1024)))
+MAX_SHARED_TEXT_LENGTH = int(os.environ.get("MAX_SHARED_TEXT_LENGTH", "50000"))
+SUPPORTED_SHARED_AUDIO_MIME_TYPES = frozenset([
+    "audio/ogg",
+    "audio/opus",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/x-m4a",
+    "audio/aac",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/flac",
+    "audio/amr",
+])
+
 REQUIRED_MINUTES = 1
 
 
@@ -133,6 +149,14 @@ class UploadAudioResponse(BaseModel):
     media_item_id: str
     status: str
     source_platform: str = "audio"
+
+
+class IngestSharedContentResponse(BaseModel):
+    media_item_id: str
+    status: str
+    source_platform: str
+    deduplicated: Optional[bool] = None
+    duplicate_of_media_item_id: Optional[str] = None
 
 
 class MediaItemResponse(BaseModel):
@@ -984,6 +1008,255 @@ async def upload_audio(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload audio file",
+        )
+    finally:
+        reset_log_context(token)
+
+
+@router.post("/ingest-shared-content", response_model=IngestSharedContentResponse, status_code=status.HTTP_202_ACCEPTED)
+async def ingest_shared_content(
+    share_type: str = Form(...),
+    source_platform: str = Form(...),
+    source_app: Optional[str] = Form(None),
+    idempotency_key: Optional[str] = Form(None),
+    locale: Optional[str] = Form(None),
+    text: Optional[str] = Form(None),
+    content_mime_type: Optional[str] = Form(None),
+    original_name: Optional[str] = Form(None),
+    audio_file: Optional[UploadFile] = File(None),
+    current_user: AuthUser = Depends(get_current_user),
+):
+    """
+    Ingest shared content (text or audio) from mobile share intents (e.g. WhatsApp).
+
+    Accepts multipart/form-data. The `share_type` field determines which path is taken:
+    - "text": requires the `text` field with the shared message content.
+    - "audio": requires `audio_file` (the binary), `content_mime_type`, and `original_name`.
+
+    Returns 202 Accepted with the media_item_id to poll for status.
+    """
+    import hashlib
+    from io import BytesIO
+
+    from media_summarizer.core.media_ingestion.domain import (
+        IngestSharedContentCommand,
+        IngestSharedContentRequest as DomainIngestSharedContentRequest,
+        SharedContentType,
+        SourcePlatform,
+        UserContext,
+    )
+    from media_summarizer.core.media_ingestion.errors import (
+        MediaIngestionError,
+        ResolutionError,
+    )
+    from media_summarizer.core.media_ingestion.wiring import (
+        build_default_ingest_shared_content_use_case,
+    )
+
+    token = bind_log_context(user_id=current_user.id, source_platform="shared_content")
+    try:
+        # Validate share_type
+        share_type_clean = (share_type or "").strip().lower()
+        if share_type_clean not in ("text", "audio"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid share_type: '{share_type}'. Must be 'text' or 'audio'.",
+            )
+
+        # Validate source_platform
+        source_platform_clean = (source_platform or "").strip().lower()
+        try:
+            domain_source_platform = SourcePlatform(source_platform_clean)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid source_platform: '{source_platform}'. Must be one of: {', '.join(sp.value for sp in SourcePlatform)}.",
+            )
+
+        domain_share_type = SharedContentType(share_type_clean)
+
+        # Verify user exists
+        user = await database_async.get_user_by_id(current_user.id)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+        # Branch based on share_type
+        staged_audio_s3_key: Optional[str] = None
+        content_hash: Optional[str] = None
+        content_size_bytes: Optional[int] = None
+
+        if domain_share_type == SharedContentType.TEXT:
+            # Validate text field
+            text_content = (text or "").strip()
+            if not text_content:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Field 'text' is required and must not be empty for share_type=text.",
+                )
+            if len(text_content) > MAX_SHARED_TEXT_LENGTH:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Text is too long ({len(text_content)} characters). Maximum is {MAX_SHARED_TEXT_LENGTH}.",
+                )
+
+        elif domain_share_type == SharedContentType.AUDIO:
+            # Validate audio-specific fields
+            if audio_file is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Field 'audio_file' is required for share_type=audio.",
+                )
+
+            mime = (content_mime_type or audio_file.content_type or "").strip().lower()
+            if not mime or mime not in SUPPORTED_SHARED_AUDIO_MIME_TYPES:
+                supported_list = ", ".join(sorted(SUPPORTED_SHARED_AUDIO_MIME_TYPES))
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported audio MIME type: '{mime}'. Supported: {supported_list}.",
+                )
+
+            # Read file content
+            audio_content = await audio_file.read()
+            if len(audio_content) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Audio file is empty.",
+                )
+            if len(audio_content) > MAX_SHARED_AUDIO_SIZE_BYTES:
+                max_mb = MAX_SHARED_AUDIO_SIZE_BYTES // (1024 * 1024)
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Audio file too large. Maximum size: {max_mb}MB.",
+                )
+
+            content_size_bytes = len(audio_content)
+
+            # Compute content hash for deduplication
+            content_hash = hashlib.sha256(audio_content).hexdigest()
+
+            # Determine file extension from MIME
+            _mime_to_ext = {
+                "audio/ogg": "ogg",
+                "audio/opus": "opus",
+                "audio/mp4": "m4a",
+                "audio/mpeg": "mp3",
+                "audio/x-m4a": "m4a",
+                "audio/aac": "aac",
+                "audio/wav": "wav",
+                "audio/x-wav": "wav",
+                "audio/flac": "flac",
+                "audio/amr": "amr",
+            }
+            ext = _mime_to_ext.get(mime, "audio")
+            file_name_for_s3 = original_name or audio_file.filename or f"shared-audio.{ext}"
+
+            # Stage audio to S3
+            staged_audio_s3_key = f"shared-audio/{current_user.id}/{content_hash}.{ext}"
+            await s3.upload_file_object(
+                bucket=AUDIO_BUCKET,
+                key=staged_audio_s3_key,
+                file_obj=BytesIO(audio_content),
+                content_type=mime,
+                metadata={
+                    "original-filename": file_name_for_s3,
+                    "source-platform": source_platform_clean,
+                    "share-type": "audio",
+                },
+            )
+
+            log_event(
+                logger,
+                logging.INFO,
+                "media.ingest_shared_content.audio_staged",
+                "Shared audio file staged to S3",
+                audio_s3_key=staged_audio_s3_key,
+                content_hash=content_hash,
+                file_size_bytes=content_size_bytes,
+            )
+
+        # Build the domain command
+        domain_request = DomainIngestSharedContentRequest(
+            share_type=domain_share_type,
+            source_platform=domain_source_platform,
+            source_app=source_app,
+            locale=locale,
+            idempotency_key=idempotency_key,
+            text=text if domain_share_type == SharedContentType.TEXT else None,
+            content_hash=content_hash,
+            content_mime_type=content_mime_type,
+            original_name=original_name,
+            content_size_bytes=content_size_bytes,
+            staged_audio_s3_key=staged_audio_s3_key,
+        )
+        command = IngestSharedContentCommand(
+            user=UserContext(user_id=current_user.id, user_email=user.email),
+            request=domain_request,
+        )
+
+        # Execute the use case
+        use_case = build_default_ingest_shared_content_use_case()
+        outcome = await use_case.execute(command)
+
+        log_event(
+            logger,
+            logging.INFO,
+            "media.ingest_shared_content.created",
+            "Shared content ingested successfully",
+            media_item_id=outcome.media_item_id,
+            share_type=share_type_clean,
+            source_platform=source_platform_clean,
+            deduplicated=outcome.deduplicated,
+        )
+
+        return IngestSharedContentResponse(
+            media_item_id=outcome.media_item_id,
+            status=outcome.status.value,
+            source_platform=source_platform_clean,
+            deduplicated=outcome.deduplicated if outcome.deduplicated else None,
+            duplicate_of_media_item_id=outcome.duplicate_of_media_item_id,
+        )
+
+    except HTTPException:
+        raise
+    except ResolutionError as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "media.ingest_shared_content.validation_failed",
+            "Shared content validation failed in use case",
+            error_message=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except MediaIngestionError as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.ingest_shared_content.failed",
+            "Shared content ingestion failed",
+            error_type=type(exc).__name__,
+            error_code="INGEST_SHARED_CONTENT_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to ingest shared content",
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.ingest_shared_content.failed",
+            "Shared content ingestion failed unexpectedly",
+            error_type=type(exc).__name__,
+            error_code="INGEST_SHARED_CONTENT_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to ingest shared content",
         )
     finally:
         reset_log_context(token)
