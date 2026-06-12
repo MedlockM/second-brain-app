@@ -10,6 +10,7 @@ Each section corresponds to a specific CloudWatch alarm defined in `infrastructu
 - [API Latency](#api-latency)
 - [API 5xx Rate](#api-5xx-rate)
 - [DLQ Messages](#dlq-messages)
+- [How to Recover a DLQ After a Fix](#how-to-recover-a-dlq-after-a-fix)
 - [Lambda Errors](#lambda-errors)
 - [Lambda Throttles](#lambda-throttles)
 - [Deepgram Error Rate](#deepgram-error-rate)
@@ -176,17 +177,91 @@ Each section corresponds to a specific CloudWatch alarm defined in `infrastructu
 
 ### Replay Procedure
 
+Use the replay script (see [How to Recover a DLQ After a Fix](#how-to-recover-a-dlq-after-a-fix) for the full procedure):
+
 ```bash
-# Move messages back to source queue for reprocessing
-aws sqs start-message-move-task \
-  --source-arn <DLQ_ARN> \
-  --destination-arn <SOURCE_QUEUE_ARN>
+./scripts/replay_dlq.sh <dlq-name>
 ```
 
 ### Escalation
 
 - If DLQ grows continuously: likely a code bug; prioritize fix
 - If >50 messages: create incident ticket
+
+---
+
+## How to Recover a DLQ After a Fix
+
+This section describes the end-to-end procedure for replaying messages from a Dead Letter Queue after deploying a bugfix that resolves the root cause of the failures.
+
+### Prerequisites
+
+- The bugfix has been **deployed and verified** (e.g., the worker Lambda is updated and healthy).
+- You have AWS CLI v2 (>= 2.12.0) installed with appropriate credentials.
+- You have confirmed that the DLQ contains messages (check via `aws sqs get-queue-attributes` or the SQS console).
+
+### Step-by-Step Procedure
+
+1. **Confirm the fix is deployed:**
+   Verify the relevant Lambda function is running the new code version:
+   ```bash
+   aws lambda get-function --function-name media-summarizer-<worker> \
+     --query 'Configuration.LastModified'
+   ```
+
+2. **Inspect a sample of DLQ messages** (optional but recommended):
+   ```bash
+   aws sqs receive-message \
+     --queue-url <DLQ_URL> \
+     --max-number-of-messages 3 \
+     --attribute-names All \
+     --visibility-timeout 0
+   ```
+   Verify these messages match the class of failures you just fixed. If some messages are genuinely bad data (not recoverable), consider purging those individually before replaying.
+
+3. **Run the replay script:**
+   ```bash
+   ./scripts/replay_dlq.sh <dlq-name>
+   ```
+   For example:
+   ```bash
+   ./scripts/replay_dlq.sh summarization-dlq
+   ./scripts/replay_dlq.sh podcastindex-resolution-dlq
+   ```
+   The script will:
+   - Refuse to run if the DLQ is empty
+   - Start a message move task (SQS `StartMessageMoveTask` API)
+   - Poll and report progress until all messages are moved back to the source queue
+
+4. **Monitor reprocessing:**
+   After replay, watch:
+   - The source queue's `ApproximateNumberOfMessagesVisible` (should decrease as the worker processes)
+   - The worker Lambda's error rate and invocation count in CloudWatch
+   - The DLQ's message count (should stay at 0; if it grows again, the fix is incomplete)
+
+5. **Verify success:**
+   ```bash
+   aws sqs get-queue-attributes \
+     --queue-url <DLQ_URL> \
+     --attribute-names ApproximateNumberOfMessages \
+     --query 'Attributes.ApproximateNumberOfMessages'
+   ```
+   Should return `"0"`.
+
+### Important Notes
+
+- **DLQ retention is 14 days** (matching source queues). You have up to 14 days from when a message entered the DLQ to replay it.
+- **Do not replay before fixing the root cause** — messages will fail again and re-enter the DLQ (after exhausting retries), burning through the receive count unnecessarily.
+- **Partial replay is not supported** by the `StartMessageMoveTask` API — it moves all messages. If you only want to replay a subset, use `receive-message` + `send-message` + `delete-message` manually.
+- **All queues now have a DLQ** with `maxReceiveCount = 3`. A message that fails 3 times will land in the corresponding DLQ.
+
+### Script Reference
+
+| Script | Location | Purpose |
+|--------|----------|---------|
+| `replay_dlq.sh` | `scripts/replay_dlq.sh` | Replay all messages from a named DLQ to its source queue |
+
+Run `./scripts/replay_dlq.sh --help` for the full list of available DLQs.
 
 ---
 

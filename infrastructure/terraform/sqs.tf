@@ -5,10 +5,26 @@
 # Podcastindex Resolution
 # =============================================================================
 
+resource "aws_sqs_queue" "rss_resolution_dlq" {
+  name                      = "podcastindex-resolution-dlq"
+  message_retention_seconds = 1209600 # 14 days
+
+  tags = {
+    Name        = "podcastindex-resolution-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 resource "aws_sqs_queue" "rss_resolution" {
   name                       = "podcastindex-resolution-queue"
   visibility_timeout_seconds = 300
   message_retention_seconds  = 1209600 # 14 days
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.rss_resolution_dlq.arn
+    maxReceiveCount     = 3
+  })
 
   tags = {
     Name        = "podcastindex-resolution-queue"
@@ -22,7 +38,8 @@ resource "aws_sqs_queue" "rss_resolution" {
 # =============================================================================
 
 resource "aws_sqs_queue" "article_extraction_dlq" {
-  name = "article-extraction-dlq"
+  name                      = "article-extraction-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "article-extraction-dlq"
@@ -53,7 +70,8 @@ resource "aws_sqs_queue" "article_extraction" {
 # =============================================================================
 
 resource "aws_sqs_queue" "x_ingestion_dlq" {
-  name = "x-ingestion-dlq"
+  name                      = "x-ingestion-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "x-ingestion-dlq"
@@ -84,7 +102,8 @@ resource "aws_sqs_queue" "x_ingestion" {
 # =============================================================================
 
 resource "aws_sqs_queue" "youtube_ingestion_dlq" {
-  name = "youtube-ingestion-dlq"
+  name                      = "youtube-ingestion-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "youtube-ingestion-dlq"
@@ -115,7 +134,8 @@ resource "aws_sqs_queue" "youtube_ingestion" {
 # =============================================================================
 
 resource "aws_sqs_queue" "instagram_ingestion_dlq" {
-  name = "instagram-ingestion-dlq"
+  name                      = "instagram-ingestion-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "instagram-ingestion-dlq"
@@ -146,7 +166,8 @@ resource "aws_sqs_queue" "instagram_ingestion" {
 # =============================================================================
 
 resource "aws_sqs_queue" "tiktok_ingestion_dlq" {
-  name = "tiktok-ingestion-dlq"
+  name                      = "tiktok-ingestion-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "tiktok-ingestion-dlq"
@@ -177,7 +198,8 @@ resource "aws_sqs_queue" "tiktok_ingestion" {
 # =============================================================================
 
 resource "aws_sqs_queue" "deepgram_transcription_dlq" {
-  name = "deepgram-transcription-dlq"
+  name                      = "deepgram-transcription-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "deepgram-transcription-dlq"
@@ -208,7 +230,8 @@ resource "aws_sqs_queue" "deepgram_transcription" {
 # =============================================================================
 
 resource "aws_sqs_queue" "summarization_dlq" {
-  name = "summarization-dlq"
+  name                      = "summarization-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "summarization-dlq"
@@ -239,7 +262,8 @@ resource "aws_sqs_queue" "summarization" {
 # =============================================================================
 
 resource "aws_sqs_queue" "document_parsing_dlq" {
-  name = "document-parsing-dlq"
+  name                      = "document-parsing-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "document-parsing-dlq"
@@ -270,7 +294,8 @@ resource "aws_sqs_queue" "document_parsing" {
 # =============================================================================
 
 resource "aws_sqs_queue" "search_indexing_dlq" {
-  name = "search-indexing-dlq"
+  name                      = "search-indexing-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "search-indexing-dlq"
@@ -301,7 +326,8 @@ resource "aws_sqs_queue" "search_indexing" {
 # =============================================================================
 
 resource "aws_sqs_queue" "rss_feed_poll_dlq" {
-  name = "rss-feed-poll-dlq"
+  name                      = "rss-feed-poll-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "rss-feed-poll-dlq"
@@ -332,7 +358,8 @@ resource "aws_sqs_queue" "rss_feed_poll" {
 # =============================================================================
 
 resource "aws_sqs_queue" "media_completed_events_dlq" {
-  name = "episode-completed-events-dlq"
+  name                      = "episode-completed-events-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "episode-completed-events-dlq"
@@ -363,7 +390,8 @@ resource "aws_sqs_queue" "media_completed_events" {
 # =============================================================================
 
 resource "aws_sqs_queue" "flashcards_dlq" {
-  name = "flashcards-dlq"
+  name                      = "flashcards-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "flashcards-dlq"
@@ -394,7 +422,8 @@ resource "aws_sqs_queue" "flashcards" {
 # =============================================================================
 
 resource "aws_sqs_queue" "notes_dlq" {
-  name = "notes-dlq"
+  name                      = "notes-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "notes-dlq"
@@ -425,7 +454,8 @@ resource "aws_sqs_queue" "notes" {
 # =============================================================================
 
 resource "aws_sqs_queue" "quiz_dlq" {
-  name = "quiz-dlq"
+  name                      = "quiz-dlq"
+  message_retention_seconds = 1209600 # 14 days
 
   tags = {
     Name        = "quiz-dlq"
@@ -473,5 +503,26 @@ output "queue_urls" {
     flashcards              = aws_sqs_queue.flashcards.url
     notes                   = aws_sqs_queue.notes.url
     quiz                    = aws_sqs_queue.quiz.url
+  }
+}
+
+output "dlq_arns" {
+  description = "ARNs of the Dead Letter Queues (for replay tooling)"
+  value = {
+    podcastindex_resolution = aws_sqs_queue.rss_resolution_dlq.arn
+    article_extraction      = aws_sqs_queue.article_extraction_dlq.arn
+    x_ingestion             = aws_sqs_queue.x_ingestion_dlq.arn
+    youtube_ingestion       = aws_sqs_queue.youtube_ingestion_dlq.arn
+    instagram_ingestion     = aws_sqs_queue.instagram_ingestion_dlq.arn
+    tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion_dlq.arn
+    deepgram_transcription  = aws_sqs_queue.deepgram_transcription_dlq.arn
+    summarization           = aws_sqs_queue.summarization_dlq.arn
+    document_parsing        = aws_sqs_queue.document_parsing_dlq.arn
+    search_indexing         = aws_sqs_queue.search_indexing_dlq.arn
+    rss_feed_poll           = aws_sqs_queue.rss_feed_poll_dlq.arn
+    media_completed_events  = aws_sqs_queue.media_completed_events_dlq.arn
+    flashcards              = aws_sqs_queue.flashcards_dlq.arn
+    notes                   = aws_sqs_queue.notes_dlq.arn
+    quiz                    = aws_sqs_queue.quiz_dlq.arn
   }
 }
