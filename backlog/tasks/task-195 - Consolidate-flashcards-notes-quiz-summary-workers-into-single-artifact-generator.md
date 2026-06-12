@@ -1,7 +1,7 @@
 ---
 id: task-195
 title: Consolidate flashcards/notes/quiz/summary workers into a single artifact-generator
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 14:45'
 labels:

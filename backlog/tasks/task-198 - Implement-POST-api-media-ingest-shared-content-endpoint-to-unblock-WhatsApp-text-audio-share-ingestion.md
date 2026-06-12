@@ -3,7 +3,7 @@ id: task-198
 title: >-
   Implement POST /api/media/ingest-shared-content endpoint to unblock WhatsApp
   text/audio share ingestion
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 16:06'
 labels:

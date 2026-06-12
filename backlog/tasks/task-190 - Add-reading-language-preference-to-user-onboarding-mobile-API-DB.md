@@ -1,7 +1,7 @@
 ---
 id: task-190
 title: Add reading-language preference to user onboarding (mobile + API + DB)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 10:00'
 labels:

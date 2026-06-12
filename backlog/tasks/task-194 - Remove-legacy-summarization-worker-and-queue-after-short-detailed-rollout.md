@@ -1,7 +1,7 @@
 ---
 id: task-194
 title: Remove legacy summarization worker and queue after short/detailed rollout
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 14:30'
 labels:
