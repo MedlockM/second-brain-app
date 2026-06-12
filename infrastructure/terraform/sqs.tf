@@ -258,6 +258,68 @@ resource "aws_sqs_queue" "summarization" {
 }
 
 # =============================================================================
+# Summary Short
+# =============================================================================
+
+resource "aws_sqs_queue" "summary_short_dlq" {
+  name = "summary-short-dlq"
+
+  tags = {
+    Name        = "summary-short-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "summary_short" {
+  name                       = "summary-short-queue"
+  visibility_timeout_seconds = 1800
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.summary_short_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "summary-short-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# =============================================================================
+# Summary Detailed
+# =============================================================================
+
+resource "aws_sqs_queue" "summary_detailed_dlq" {
+  name = "summary-detailed-dlq"
+
+  tags = {
+    Name        = "summary-detailed-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "summary_detailed" {
+  name                       = "summary-detailed-queue"
+  visibility_timeout_seconds = 1800
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.summary_detailed_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "summary-detailed-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# =============================================================================
 # Document Parsing
 # =============================================================================
 
@@ -496,6 +558,8 @@ output "queue_urls" {
     tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion.url
     deepgram_transcription  = aws_sqs_queue.deepgram_transcription.url
     summarization           = aws_sqs_queue.summarization.url
+    summary_short           = aws_sqs_queue.summary_short.url
+    summary_detailed        = aws_sqs_queue.summary_detailed.url
     document_parsing        = aws_sqs_queue.document_parsing.url
     search_indexing         = aws_sqs_queue.search_indexing.url
     rss_feed_poll           = aws_sqs_queue.rss_feed_poll.url

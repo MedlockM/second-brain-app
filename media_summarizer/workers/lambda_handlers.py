@@ -122,6 +122,14 @@ summarization_handler = _build_handler(
     "media_summarizer.workers.summarization.summarization_worker"
 )
 
+summary_short_handler = _build_handler(
+    "media_summarizer.workers.summary.worker"
+)
+
+summary_detailed_handler = _build_handler(
+    "media_summarizer.workers.summary.worker"
+)
+
 document_parsing_handler = _build_handler(
     "media_summarizer.workers.document_parsing.worker"
 )
