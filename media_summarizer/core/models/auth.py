@@ -197,6 +197,9 @@ class AuthUser(BaseModel):
 
     id: str = Field(..., description="User ID")
     email: str = Field(..., description="User email")
+    reading_language: Optional[str] = Field(
+        default=None, description="Preferred reading language (ISO 639-1)"
+    )
 
 
 class EmailVerificationRequest(BaseModel):

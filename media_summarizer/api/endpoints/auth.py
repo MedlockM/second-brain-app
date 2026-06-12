@@ -5,6 +5,7 @@ Authentication endpoints for local email/password with 30-day absolute refresh s
 import os
 import logging
 from datetime import timedelta, datetime, timezone
+from typing import Optional
 from fastapi import (
     APIRouter,
     Depends,
@@ -120,7 +121,7 @@ async def register(
         expires_delta=timedelta(seconds=access_seconds),
     )
 
-    return AuthUser(id=user.id, email=user.email)
+    return AuthUser(id=user.id, email=user.email, reading_language=user.reading_language)
 
 
 @router.post("/login", response_model=TokenVerificationResponse)
@@ -156,7 +157,7 @@ async def login(
         access_token=access_token,
         token_type="bearer",
         expires_in=access_seconds,
-        user={"id": user.id, "email": user.email},
+        user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
     )
 
 
@@ -225,7 +226,7 @@ async def refresh_token(
         access_token=access_token,
         token_type="bearer",
         expires_in=access_seconds,
-        user={"id": user.id, "email": user.email},
+        user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
     )
 
 
@@ -294,3 +295,51 @@ async def get_current_user_info(current_user: AuthUser = Depends(get_current_use
         )
 
     return current_user
+
+
+# V1 supported reading languages (ISO 639-1 codes)
+V1_READING_LANGUAGES = {"fr", "en", "es", "de", "it", "pt", "nl", "ja", "zh", "ar", "hi"}
+
+
+class UpdateMeRequest(BaseModel):
+    """Request model for updating the current user's preferences."""
+
+    reading_language: Optional[str] = Field(
+        default=None, description="Preferred reading language (ISO 639-1 code)"
+    )
+
+
+@router.patch("/me", response_model=AuthUser)
+async def update_current_user(
+    request: UpdateMeRequest,
+    current_user: AuthUser = Depends(get_current_user),
+    db: DynamoDBConnection = Depends(get_db),
+):
+    """Update the current user's preferences (e.g., reading_language)."""
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+
+    user = await database_async.get_user_by_id(current_user.id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    update_data = {}
+
+    if request.reading_language is not None:
+        lang = request.reading_language.lower().strip()
+        if lang not in V1_READING_LANGUAGES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported reading language: {lang}. Supported: {sorted(V1_READING_LANGUAGES)}",
+            )
+        update_data["reading_language"] = lang
+
+    if update_data:
+        user.update(**update_data)
+        user = await database_async.update_user(user)
+
+    return AuthUser(id=user.id, email=user.email, reading_language=user.reading_language)

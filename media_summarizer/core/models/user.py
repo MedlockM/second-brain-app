@@ -38,6 +38,9 @@ class User(BaseModel):
     name: Optional[str] = None
     avatar_url: Optional[str] = None
 
+    # User preferences
+    reading_language: Optional[str] = None  # ISO 639-1 code (e.g., "fr", "en")
+
     @field_validator("email")
     @classmethod
     def email_must_be_valid(cls, v: str) -> str:
@@ -90,6 +93,8 @@ class User(BaseModel):
             item["name"] = self.name
         if self.avatar_url is not None:
             item["avatar_url"] = self.avatar_url
+        if self.reading_language is not None:
+            item["reading_language"] = self.reading_language
         return item
 
     @classmethod
@@ -113,6 +118,7 @@ class User(BaseModel):
             ),
             name=item.get("name"),
             avatar_url=item.get("avatar_url"),
+            reading_language=item.get("reading_language"),
         )
 
     def __repr__(self) -> str:  # pragma: no cover (representation)

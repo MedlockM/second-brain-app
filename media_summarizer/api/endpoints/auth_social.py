@@ -534,7 +534,7 @@ async def google_native(
             refresh_token=refresh.token,
             token_type="bearer",
             expires_in=access_seconds,
-            user={"id": user.id, "email": user.email},
+            user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
         )
 
     except httpx.HTTPStatusError as e:
@@ -623,7 +623,7 @@ async def apple_native(
             refresh_token=refresh.token,
             token_type="bearer",
             expires_in=access_seconds,
-            user={"id": user.id, "email": user.email},
+            user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
         )
 
     except HTTPException:
