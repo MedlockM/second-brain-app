@@ -75,26 +75,17 @@ jobs:
 
       - name: Update worker Lambda functions
         run: |
-          WORKERS=(
-            podcastindex_resolution
-            article_extraction
-            x_ingestion
-            youtube_ingestion
-            tiktok_ingestion
-            download
-            deepgram_transcription
-            summarization
-            document_parsing
-            search_indexing
-            rss_feed_poll
-            media_completed_events
-            flashcards
-            notes
-          )
-          for worker in "${WORKERS[@]}"; do
-            echo "Updating media-summarizer-worker-${worker}..."
+          # Discover deployed worker functions dynamically so this never drifts
+          # from reality (a stale hardcoded list referenced a removed 'download'
+          # worker and silently skipped instagram_ingestion + quiz).
+          WORKERS=$(aws lambda list-functions \
+            --query "Functions[?starts_with(FunctionName, 'media-summarizer-worker-')].FunctionName" \
+            --output text)
+          test -n "$WORKERS" || { echo "No media-summarizer-worker-* functions found"; exit 1; }
+          for fn in $WORKERS; do
+            echo "Updating ${fn}..."
             aws lambda update-function-code \
-              --function-name "media-summarizer-worker-${worker}" \
+              --function-name "$fn" \
               --image-uri "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:worker-${{ env.IMAGE_TAG }}" \
               --no-cli-pager
           done
