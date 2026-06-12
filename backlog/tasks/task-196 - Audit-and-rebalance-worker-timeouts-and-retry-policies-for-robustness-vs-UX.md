@@ -141,3 +141,19 @@ The audit must explicitly identify and resolve:
 - [ ] #8 Owner validation on the recommendation table (`owner_decision: ok`)
 - [ ] #9 Follow-up implementation task created with the validated values (Terraform + code changes); not done in this task
 <!-- AC:END -->
+
+## Implementation Notes
+
+**Mode**: initial
+
+**Deliverable**: `docs/research/task-196-worker-timeouts-audit/README.md`
+
+Comprehensive audit produced covering all 15 deployed workers (the task description mentioned 16, but Terraform shows exactly 15 Lambda functions -- `newsletter` and `summary` workers are not deployed as Lambdas).
+
+Key findings:
+1. The three "hard inconsistencies" flagged in the task description (search_indexing Lambda > visibility, flashcards Lambda < LLM, deepgram 30x ratio) do NOT exist in the current Terraform configuration. The Terraform source of truth shows all workers properly aligned with the 6x visibility/Lambda ratio.
+2. Real issues identified: missing DLQ for podcastindex_resolution, tiktok Apify timeout = Lambda timeout (no buffer), inconsistent hardcoded max_retries, two workers lacking `process_message_with_retry`, and documented double-retry layers.
+3. Recommended tiered UX SLO: 1 min (articles), 3 min (medium content), 5 min (long podcasts).
+4. Recommended all `max_retries` be env-var configurable with consistent naming.
+
+**Recommendation awaits owner validation** (owner_decision: pending).
