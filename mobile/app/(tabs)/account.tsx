@@ -5,6 +5,8 @@ import * as WebBrowser from "expo-web-browser";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
+import { useUserPreferences } from "../../src/contexts/UserPreferencesContext";
+import { V1_READING_LANGUAGES } from "../../src/services/userPreferencesService";
 import { FeedbackService } from "../../src/services/feedbackService";
 import {
   Colors,
@@ -22,8 +24,13 @@ import {
  */
 export default function AccountScreen() {
   const { user, token, logout } = useAuth();
+  const { readingLanguage } = useUserPreferences();
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const router = useRouter();
+
+  // Get display label for current reading language
+  const readingLanguageLabel =
+    V1_READING_LANGUAGES.find((l) => l.code === readingLanguage)?.label ?? "Not set";
 
   const handleBugReport = () => {
     router.push("/bug-report");
@@ -85,6 +92,12 @@ export default function AccountScreen() {
       {/* Menu */}
       <View style={styles.menuCard}>
         <MenuItem
+          icon="language-outline"
+          label="Reading Language"
+          subtitle={readingLanguageLabel}
+          onPress={() => router.push("/settings/reading-language")}
+        />
+        <MenuItem
           icon="settings-outline"
           label="Settings"
           onPress={() => {}}
@@ -116,7 +129,7 @@ export default function AccountScreen() {
           <View style={[styles.menuIcon, styles.menuIconDanger]}>
             <Ionicons name="log-out-outline" size={18} color={Colors.error} />
           </View>
-          <Text style={[styles.menuLabel, styles.menuLabelDanger]}>
+          <Text style={[styles.menuLabel, styles.menuLabelDanger, { flex: 1 }]}>
             Sign Out
           </Text>
         </TouchableOpacity>
@@ -128,11 +141,13 @@ export default function AccountScreen() {
 function MenuItem({
   icon,
   label,
+  subtitle,
   onPress,
   isLoading,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
+  subtitle?: string;
   onPress: () => void;
   isLoading?: boolean;
 }) {
@@ -142,13 +157,16 @@ function MenuItem({
       onPress={onPress}
       activeOpacity={0.7}
       disabled={isLoading}
-      accessibilityLabel={label}
+      accessibilityLabel={subtitle ? `${label}: ${subtitle}` : label}
       accessibilityRole="button"
     >
       <View style={styles.menuIcon}>
         <Ionicons name={icon} size={18} color={Colors.primary} />
       </View>
-      <Text style={styles.menuLabel}>{label}</Text>
+      <View style={styles.menuLabelContainer}>
+        <Text style={styles.menuLabel}>{label}</Text>
+        {subtitle && <Text style={styles.menuSubtitle}>{subtitle}</Text>}
+      </View>
       {isLoading ? (
         <ActivityIndicator size="small" color={Colors.textMuted} />
       ) : (
@@ -221,11 +239,18 @@ const styles = StyleSheet.create({
   menuIconDanger: {
     backgroundColor: "rgba(186, 26, 26, 0.1)",
   },
-  menuLabel: {
+  menuLabelContainer: {
     flex: 1,
+  },
+  menuLabel: {
     fontSize: Typography.body.fontSize,
     fontWeight: "500",
     color: Colors.textMain,
+  },
+  menuSubtitle: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textMuted,
+    marginTop: 2,
   },
   menuLabelDanger: {
     color: Colors.error,

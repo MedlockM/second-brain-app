@@ -95,7 +95,9 @@ async def get_current_user(
         logger.debug(f"Successfully authenticated user: {user.id}")
 
         # Return AuthUser object
-        return AuthUser(id=user.id, email=user.email)
+        return AuthUser(
+            id=user.id, email=user.email, reading_language=user.reading_language
+        )
 
     except HTTPException:
         # Re-raise HTTP exceptions as-is
@@ -283,7 +285,11 @@ async def get_current_user_flexible(
                     logger.debug(
                         f"Authenticated user via refresh token cookie: {user.id}"
                     )
-                    return AuthUser(id=user.id, email=user.email)
+                    return AuthUser(
+                        id=user.id,
+                        email=user.email,
+                        reading_language=user.reading_language,
+                    )
         except Exception as e:
             logger.warning(f"Failed to authenticate via refresh token: {e}")
 

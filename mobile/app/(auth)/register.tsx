@@ -45,7 +45,7 @@ export default function RegisterScreen() {
     setIsSubmitting(true);
     try {
       await register({ email: email.trim(), password });
-      router.replace("/(tabs)/inbox");
+      router.replace("/");
     } catch (err) {
       setError(getFriendlyErrorMessage(err));
     } finally {

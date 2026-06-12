@@ -11,6 +11,7 @@ export interface LoginRequest {
 export interface AuthUser {
   id: string;
   email: string;
+  reading_language?: string | null;
 }
 
 export interface TokenVerificationResponse {
