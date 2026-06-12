@@ -1,7 +1,7 @@
 """
 Media completed events consumer -- fan-out to media watchers.
 
-- Consumes events from MEDIA_COMPLETED_EVENTS_QUEUE (episode-completion-events)
+- Consumes events from MEDIA_COMPLETED_EVENTS_QUEUE (episode-completed-events)
 - Canonical event_type: episode_completion_status (with status: success/failure)
 - For each media key, fetches watchers, marks processing state, and finalizes their minute usage
 - In V1, all user notifications are via mobile app polling; email notifications disabled
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 MEDIA_COMPLETED_EVENTS_QUEUE = os.environ.get(
     "MEDIA_COMPLETED_EVENTS_QUEUE",
-    os.environ.get("EPISODE_COMPLETION_EVENTS_QUEUE", "episode-completion-events"),
+    os.environ.get("EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"),
 )
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
 

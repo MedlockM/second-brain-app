@@ -35,6 +35,13 @@ jobs:
       - name: Run mypy
         run: mypy media_summarizer
 
+      - name: Guard — no orphaned completion-event queue name (task-143)
+        run: |
+          if grep -rn --include="*.py" --include="*.tf" -e "episode-completion-events" -e "EPISODE_COMPLETION_EVENTS_QUEUE" media_summarizer infrastructure/terraform; then
+            echo "::error::Dead queue name resurfaced. Producers and consumer must converge on 'episode-completed-events' / EPISODE_COMPLETED_EVENTS_QUEUE (see task-143)."
+            exit 1
+          fi
+
   mobile:
     name: Mobile (lint + typecheck)
     runs-on: ubuntu-latest
