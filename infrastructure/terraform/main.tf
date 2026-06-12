@@ -9,6 +9,18 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  # Remote state (S3) + concurrent-apply lock (DynamoDB).
+  # Bucket/table provisioned out-of-band via AWS CLI (chicken-and-egg with the
+  # backend itself). Migrated from local state on 2026-06-12 — secret_string
+  # values now live in the encrypted bucket instead of a local file.
+  backend "s3" {
+    bucket         = "media-summarizer-tfstate-125313707865"
+    key            = "infrastructure/terraform.tfstate"
+    region         = "eu-west-3"
+    encrypt        = true
+    dynamodb_table = "media-summarizer-tfstate-lock"
+  }
 }
 
 provider "aws" {
