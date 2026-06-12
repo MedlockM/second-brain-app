@@ -59,7 +59,9 @@ NEWSLETTER_INGESTION_QUEUE = os.environ.get(
 TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
-SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
+ARTIFACT_GENERATOR_QUEUE = os.environ.get(
+    "ARTIFACT_GENERATOR_QUEUE", "artifact-generator-queue"
+)
 
 # Estimated minutes for a newsletter (text-based, no audio duration)
 # Newsletters are charged as 1 minute since there is no audio duration concept
@@ -269,7 +271,7 @@ async def process_newsletter_message(message_body: Dict[str, Any]) -> None:
         }
 
         await sqs.send_message(
-            queue_name=SUMMARIZATION_QUEUE,
+            queue_name=ARTIFACT_GENERATOR_QUEUE,
             message_body=summarization_payload,
         )
 

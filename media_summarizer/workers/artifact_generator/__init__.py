@@ -1,0 +1,1 @@
+"""Unified artifact generator worker."""

@@ -46,11 +46,11 @@ locals {
       queue_arn   = aws_sqs_queue.deepgram_transcription.arn
       handler     = "media_summarizer.workers.lambda_handlers.deepgram_transcription_handler"
     }
-    summarization = {
+    artifact_generator = {
       memory_size = 512
       timeout     = 300
-      queue_arn   = aws_sqs_queue.summarization.arn
-      handler     = "media_summarizer.workers.lambda_handlers.summarization_handler"
+      queue_arn   = aws_sqs_queue.artifact_generator.arn
+      handler     = "media_summarizer.workers.lambda_handlers.artifact_generator_handler"
     }
     document_parsing = {
       memory_size = 512
@@ -75,24 +75,6 @@ locals {
       timeout     = 60
       queue_arn   = aws_sqs_queue.media_completed_events.arn
       handler     = "media_summarizer.workers.lambda_handlers.media_completed_events_handler"
-    }
-    flashcards = {
-      memory_size = 512
-      timeout     = 300
-      queue_arn   = aws_sqs_queue.flashcards.arn
-      handler     = "media_summarizer.workers.lambda_handlers.flashcards_handler"
-    }
-    notes = {
-      memory_size = 512
-      timeout     = 300
-      queue_arn   = aws_sqs_queue.notes.arn
-      handler     = "media_summarizer.workers.lambda_handlers.notes_handler"
-    }
-    quiz = {
-      memory_size = 512
-      timeout     = 300
-      queue_arn   = aws_sqs_queue.quiz.arn
-      handler     = "media_summarizer.workers.lambda_handlers.quiz_handler"
     }
   }
 }

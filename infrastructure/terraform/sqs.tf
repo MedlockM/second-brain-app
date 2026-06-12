@@ -204,31 +204,32 @@ resource "aws_sqs_queue" "deepgram_transcription" {
 }
 
 # =============================================================================
-# Summarization
+# Artifact Generator (unified queue for flashcards, notes, quiz, summary_short,
+# summary_detailed — consolidation per task-195)
 # =============================================================================
 
-resource "aws_sqs_queue" "summarization_dlq" {
-  name = "summarization-dlq"
+resource "aws_sqs_queue" "artifact_generator_dlq" {
+  name = "artifact-generator-dlq"
 
   tags = {
-    Name        = "summarization-dlq"
+    Name        = "artifact-generator-dlq"
     Environment = var.environment
     Project     = var.project_name
   }
 }
 
-resource "aws_sqs_queue" "summarization" {
-  name                       = "summarization-queue"
+resource "aws_sqs_queue" "artifact_generator" {
+  name                       = "artifact-generator-queue"
   visibility_timeout_seconds = 1800
   message_retention_seconds  = 1209600
 
   redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.summarization_dlq.arn
+    deadLetterTargetArn = aws_sqs_queue.artifact_generator_dlq.arn
     maxReceiveCount     = 3
   })
 
   tags = {
-    Name        = "summarization-queue"
+    Name        = "artifact-generator-queue"
     Environment = var.environment
     Project     = var.project_name
   }
@@ -358,98 +359,6 @@ resource "aws_sqs_queue" "media_completed_events" {
   }
 }
 
-# =============================================================================
-# Flashcards
-# =============================================================================
-
-resource "aws_sqs_queue" "flashcards_dlq" {
-  name = "flashcards-dlq"
-
-  tags = {
-    Name        = "flashcards-dlq"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-resource "aws_sqs_queue" "flashcards" {
-  name                       = "flashcards-queue"
-  visibility_timeout_seconds = 1800
-  message_retention_seconds  = 1209600
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.flashcards_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = {
-    Name        = "flashcards-queue"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-# =============================================================================
-# Notes
-# =============================================================================
-
-resource "aws_sqs_queue" "notes_dlq" {
-  name = "notes-dlq"
-
-  tags = {
-    Name        = "notes-dlq"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-resource "aws_sqs_queue" "notes" {
-  name                       = "notes-queue"
-  visibility_timeout_seconds = 1800
-  message_retention_seconds  = 1209600
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.notes_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = {
-    Name        = "notes-queue"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-# =============================================================================
-# Quiz
-# =============================================================================
-
-resource "aws_sqs_queue" "quiz_dlq" {
-  name = "quiz-dlq"
-
-  tags = {
-    Name        = "quiz-dlq"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-resource "aws_sqs_queue" "quiz" {
-  name                       = "quiz-queue"
-  visibility_timeout_seconds = 1800
-  message_retention_seconds  = 1209600
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.quiz_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = {
-    Name        = "quiz-queue"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
 
 # =============================================================================
 # Outputs
@@ -465,13 +374,10 @@ output "queue_urls" {
     instagram_ingestion     = aws_sqs_queue.instagram_ingestion.url
     tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion.url
     deepgram_transcription  = aws_sqs_queue.deepgram_transcription.url
-    summarization           = aws_sqs_queue.summarization.url
+    artifact_generator      = aws_sqs_queue.artifact_generator.url
     document_parsing        = aws_sqs_queue.document_parsing.url
     search_indexing         = aws_sqs_queue.search_indexing.url
     rss_feed_poll           = aws_sqs_queue.rss_feed_poll.url
     media_completed_events  = aws_sqs_queue.media_completed_events.url
-    flashcards              = aws_sqs_queue.flashcards.url
-    notes                   = aws_sqs_queue.notes.url
-    quiz                    = aws_sqs_queue.quiz.url
   }
 }

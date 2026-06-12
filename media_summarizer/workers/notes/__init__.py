@@ -1,1 +1,0 @@
-"""Notes artifact worker package."""

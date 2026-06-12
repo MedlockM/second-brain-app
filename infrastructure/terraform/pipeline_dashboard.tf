@@ -41,8 +41,7 @@ locals {
     "deepgram-transcription",
     "article-extraction",
     "document-parsing",
-    "summarization",
-    "flashcards",
+    "artifact-generator",
     "search-indexing",
     "episode-completed",
     "push-notification",
@@ -63,8 +62,7 @@ locals {
     "audio-download-queue"           = "audio-download-dlq"
     "deepgram-transcription-queue"   = "deepgram-transcription-dlq"
     "article-extraction-queue"       = "article-extraction-dlq"
-    "summarization-queue"            = "summarization-dlq"
-    "flashcards-queue"               = "flashcards-dlq"
+    "artifact-generator-queue"       = "artifact-generator-dlq"
     "episode-completed-events"       = "episode-completed-dlq"
     "push-notification-queue"        = "push-notification-dlq"
     "spotify-sync-queue"             = "spotify-sync-dlq"

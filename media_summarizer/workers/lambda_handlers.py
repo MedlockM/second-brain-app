@@ -118,8 +118,8 @@ deepgram_transcription_handler = _build_handler(
     "media_summarizer.workers.transcription.deepgram_worker"
 )
 
-summarization_handler = _build_handler(
-    "media_summarizer.workers.summarization.summarization_worker"
+artifact_generator_handler = _build_handler(
+    "media_summarizer.workers.artifact_generator.worker"
 )
 
 document_parsing_handler = _build_handler(
@@ -140,14 +140,3 @@ media_completed_events_handler = _build_handler(
     process_func_name="process_event",
 )
 
-flashcards_handler = _build_handler(
-    "media_summarizer.workers.flashcards.worker"
-)
-
-notes_handler = _build_handler(
-    "media_summarizer.workers.notes.worker"
-)
-
-quiz_handler = _build_handler(
-    "media_summarizer.workers.quiz.worker"
-)
