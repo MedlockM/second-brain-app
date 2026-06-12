@@ -42,3 +42,22 @@ Livrable : `docs/research/task-189-transcript-translation-benchmark/README.md` a
 - [ ] #6 Comparaison explicite réutilisation du LLM stack existant (task-72) vs service dédié traduction
 - [ ] #7 Recommandation finale argumentée avec trade-offs explicites + langues supportées V1
 <!-- AC:END -->
+
+## Implementation Notes
+
+**Mode**: initial (first pass, no prior research directory existed)
+
+**Deliverable produced**: `docs/research/task-189-transcript-translation-benchmark/README.md`
+
+The benchmark covers 7 solutions (GPT-5-nano, GPT-5.4-nano, DeepL API Pro, Google Cloud Translation NMT, AWS Translate, Azure Translator, Google Translation LLM) across all 7 required dimensions:
+1. Detailed cost analysis with per-transcript and monthly projections
+2. Language coverage confirmation for all 11 V1 languages
+3. Quality analysis based on published benchmarks (DeepL March 2026 blind tests, academic research)
+4. Structure preservation comparison (LLM vs NMT for timestamps, speaker labels, oral register)
+5. Latency data from official documentation
+6. Context limits and chunking strategy (GPT-5-nano needs no chunking)
+7. Explicit comparison of existing LLM stack reuse vs dedicated translation service
+
+**Recommendation**: GPT-5-nano via existing OpenAI integration (zero integration effort, 88-221x cheaper than dedicated services, excellent structure preservation for transcript content). DeepL API Pro noted as quality-optimized alternative if needed.
+
+**Status**: Recommendation awaits owner validation via `owner_decision` field in the README.
