@@ -71,17 +71,25 @@ resource "aws_lambda_function" "api" {
       ARCHIVE_BUCKET          = aws_s3_bucket.archives.bucket
 
       # DynamoDB table names for artifact persistence
-      MEDIA_ARTIFACTS_TABLE       = aws_dynamodb_table.media_artifacts_v1.name
-      ARTIFACT_IDEMPOTENCE_TABLE  = aws_dynamodb_table.artifact_idempotence_v1.name
+      MEDIA_ARTIFACTS_TABLE      = aws_dynamodb_table.media_artifacts_v1.name
+      ARTIFACT_IDEMPOTENCE_TABLE = aws_dynamodb_table.artifact_idempotence_v1.name
 
       # DynamoDB table names for media flow
-      MEDIA_WATCHERS_TABLE        = aws_dynamodb_table.media_watchers_v1.name
+      MEDIA_WATCHERS_TABLE = aws_dynamodb_table.media_watchers_v1.name
     }
   }
 
   depends_on = [
     aws_cloudwatch_log_group.lambda_api
   ]
+
+  # image_uri is owned by deploy-lambda.yml (it pushes :api-<sha> per commit
+  # and runs aws lambda update-function-code). Terraform only seeds :api-latest
+  # at first creation; afterwards the CI is the source of truth, so don't let
+  # `terraform apply` revert deployed images back to whatever :latest points at.
+  lifecycle {
+    ignore_changes = [image_uri]
+  }
 
   tags = {
     Name        = "${var.project_name}-api"
@@ -127,14 +135,14 @@ resource "aws_apigatewayv2_stage" "default" {
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.lambda_api.arn
     format = jsonencode({
-      requestId      = "$context.requestId"
-      ip             = "$context.identity.sourceIp"
-      requestTime    = "$context.requestTime"
-      httpMethod     = "$context.httpMethod"
-      routeKey       = "$context.routeKey"
-      status         = "$context.status"
-      protocol       = "$context.protocol"
-      responseLength = "$context.responseLength"
+      requestId          = "$context.requestId"
+      ip                 = "$context.identity.sourceIp"
+      requestTime        = "$context.requestTime"
+      httpMethod         = "$context.httpMethod"
+      routeKey           = "$context.routeKey"
+      status             = "$context.status"
+      protocol           = "$context.protocol"
+      responseLength     = "$context.responseLength"
       integrationLatency = "$context.integrationLatency"
     })
   }

@@ -148,17 +148,25 @@ resource "aws_lambda_function" "worker" {
       ARCHIVE_BUCKET          = aws_s3_bucket.archives.bucket
 
       # DynamoDB table names for artifact persistence
-      MEDIA_ARTIFACTS_TABLE       = aws_dynamodb_table.media_artifacts_v1.name
-      ARTIFACT_IDEMPOTENCE_TABLE  = aws_dynamodb_table.artifact_idempotence_v1.name
+      MEDIA_ARTIFACTS_TABLE      = aws_dynamodb_table.media_artifacts_v1.name
+      ARTIFACT_IDEMPOTENCE_TABLE = aws_dynamodb_table.artifact_idempotence_v1.name
 
       # DynamoDB table names for media flow
-      MEDIA_WATCHERS_TABLE        = aws_dynamodb_table.media_watchers_v1.name
+      MEDIA_WATCHERS_TABLE = aws_dynamodb_table.media_watchers_v1.name
     }
   }
 
   depends_on = [
     aws_cloudwatch_log_group.lambda_worker
   ]
+
+  # image_uri is owned by deploy-lambda.yml (it pushes :worker-<sha> per commit
+  # and runs aws lambda update-function-code on every worker function).
+  # Terraform only seeds :worker-latest at first creation; afterwards the CI is
+  # the source of truth, so don't let `terraform apply` revert deployed images.
+  lifecycle {
+    ignore_changes = [image_uri]
+  }
 
   tags = {
     Name        = "${var.project_name}-worker-${each.key}"
