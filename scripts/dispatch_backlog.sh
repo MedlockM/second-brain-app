@@ -56,6 +56,26 @@ fi
 
 BASE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
+# Les worktrees d'agents (isolation: worktree) naissent de origin/<branch>, résolu
+# via la réf de suivi LOCALE refs/remotes/origin/<branch> — sans contacter le distant.
+# Si on ne pousse pas, cette réf reste figée et les agents partent d'un code périmé
+# (cf. régression task-143 écrasée par un refacto parti d'une base de 2 semaines).
+# On la pointe temporairement sur HEAD pour que les agents partent du dernier code
+# local, puis on restaure sa valeur d'origine en sortie — même en cas de crash/Ctrl-C
+# grâce au trap. Purement local : aucun push, aucune CI. Seul refs/remotes/origin/<branch>
+# bouge ; HEAD, refs/heads/<branch> et le working tree ne sont jamais touchés.
+ORIG_ORIGIN_REF="$(git rev-parse --verify --quiet "refs/remotes/origin/${BASE_BRANCH}" || true)"
+restore_origin_ref() {
+  if [ -n "${ORIG_ORIGIN_REF}" ]; then
+    git update-ref "refs/remotes/origin/${BASE_BRANCH}" "${ORIG_ORIGIN_REF}"
+    echo "  origin/${BASE_BRANCH} restauré → ${ORIG_ORIGIN_REF:0:9}"
+  fi
+}
+trap restore_origin_ref EXIT
+git update-ref "refs/remotes/origin/${BASE_BRANCH}" HEAD
+echo "  origin/${BASE_BRANCH} → HEAD ($(git rev-parse --short HEAD)) pour la durée du dispatch"
+echo ""
+
 if [ "$TEST_MODE" = true ]; then
   echo "=== Backlog Dispatch — TEST MODE ==="
   echo "  Branch: ${BASE_BRANCH}"
