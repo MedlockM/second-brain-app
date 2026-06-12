@@ -42,6 +42,13 @@ jobs:
             exit 1
           fi
 
+      - name: Guard — no legacy summarization queue (task-194)
+        run: |
+          if grep -rn --include="*.py" --include="*.tf" -e "summarization-queue" -e "SUMMARIZATION_QUEUE" media_summarizer infrastructure/terraform; then
+            echo "::error::Legacy summarization queue resurfaced. This queue was removed in task-194. Use summary_short or summary_detailed workers instead."
+            exit 1
+          fi
+
   mobile:
     name: Mobile (lint + typecheck)
     runs-on: ubuntu-latest

@@ -46,12 +46,6 @@ locals {
       queue_arn   = aws_sqs_queue.deepgram_transcription.arn
       handler     = "media_summarizer.workers.lambda_handlers.deepgram_transcription_handler"
     }
-    summarization = {
-      memory_size = 512
-      timeout     = 300
-      queue_arn   = aws_sqs_queue.summarization.arn
-      handler     = "media_summarizer.workers.lambda_handlers.summarization_handler"
-    }
     document_parsing = {
       memory_size = 512
       timeout     = 600

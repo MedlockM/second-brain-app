@@ -41,7 +41,6 @@ locals {
     "deepgram-transcription",
     "article-extraction",
     "document-parsing",
-    "summarization",
     "flashcards",
     "search-indexing",
     "episode-completed",
@@ -63,7 +62,6 @@ locals {
     "audio-download-queue"           = "audio-download-dlq"
     "deepgram-transcription-queue"   = "deepgram-transcription-dlq"
     "article-extraction-queue"       = "article-extraction-dlq"
-    "summarization-queue"            = "summarization-dlq"
     "flashcards-queue"               = "flashcards-dlq"
     "episode-completed-events"       = "episode-completed-dlq"
     "push-notification-queue"        = "push-notification-dlq"

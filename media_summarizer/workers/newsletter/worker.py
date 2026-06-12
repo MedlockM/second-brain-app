@@ -6,15 +6,12 @@ Each message contains a raw email that is:
 1. Parsed to extract newsletter text content
 2. Associated with the user via the recipient ingestion address
 3. Stored as a transcription-equivalent in S3
-4. Enqueued for summarization
+4. Enqueued for summary_short artifact generation
 
 This worker follows the same pattern as other platform workers:
 - Creates a ProcessingJob
 - Allocates a minute hold
-- Feeds downstream into the summarization pipeline
-
-The newsletter content is stored in the transcription bucket as plain text,
-allowing the summarization worker to consume it identically to an audio transcript.
+- Feeds downstream into the summary artifact pipeline
 """
 
 from __future__ import annotations
@@ -59,7 +56,6 @@ NEWSLETTER_INGESTION_QUEUE = os.environ.get(
 TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
-SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
 
 # Estimated minutes for a newsletter (text-based, no audio duration)
 # Newsletters are charged as 1 minute since there is no audio duration concept
@@ -256,32 +252,38 @@ async def process_newsletter_message(message_body: Dict[str, Any]) -> None:
         created_job.mark_summarizing()
         await database_async.update_processing_job(created_job)
 
-        # Step 8: Enqueue for summarization
-        summarization_payload = {
-            "job_id": created_job.id,
-            "transcript_s3_key": transcript_key,
-            "transcript_bucket": TRANSCRIPT_BUCKET,
-            "email": user.email,
-            "podcast_title": parse_result.sender_name or "Newsletter",
-            "episode_title": parse_result.subject or "Newsletter Issue",
-            "episode_guid": media_key,
-            "audio_duration_seconds": 0,  # Text content, no audio
-        }
+        # Step 8: Enqueue for summary_short artifact generation
+        # Use the artifact service to request summary_short generation
+        from media_summarizer.core.models.media_artifact import MediaArtifactType
+        from media_summarizer.core.services.artifact_service import request_artifact_generation
 
-        await sqs.send_message(
-            queue_name=SUMMARIZATION_QUEUE,
-            message_body=summarization_payload,
-        )
-
-        log_event(
-            logger,
-            logging.INFO,
-            "newsletter.enqueued",
-            "Newsletter enqueued for summarization",
-            job_id=created_job.id,
-            media_key=media_key,
-            subject=parse_result.subject,
-        )
+        try:
+            artifact_record, reused = await request_artifact_generation(
+                media_item_id=created_job.media_item_id,
+                job=created_job,
+                artifact_type=MediaArtifactType.SUMMARY_SHORT,
+            )
+            log_event(
+                logger,
+                logging.INFO,
+                "newsletter.enqueued",
+                "Newsletter enqueued for summary_short artifact generation",
+                job_id=created_job.id,
+                artifact_id=artifact_record.artifact_id,
+                media_key=media_key,
+                subject=parse_result.subject,
+            )
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "newsletter.enqueue_failed",
+                "Failed to enqueue newsletter for artifact generation",
+                job_id=created_job.id,
+                media_key=media_key,
+                error=str(exc),
+            )
+            raise
 
     finally:
         reset_log_context(token)

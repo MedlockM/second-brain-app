@@ -204,37 +204,6 @@ resource "aws_sqs_queue" "deepgram_transcription" {
 }
 
 # =============================================================================
-# Summarization
-# =============================================================================
-
-resource "aws_sqs_queue" "summarization_dlq" {
-  name = "summarization-dlq"
-
-  tags = {
-    Name        = "summarization-dlq"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-resource "aws_sqs_queue" "summarization" {
-  name                       = "summarization-queue"
-  visibility_timeout_seconds = 1800
-  message_retention_seconds  = 1209600
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.summarization_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = {
-    Name        = "summarization-queue"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-# =============================================================================
 # Document Parsing
 # =============================================================================
 
@@ -328,7 +297,7 @@ resource "aws_sqs_queue" "rss_feed_poll" {
 }
 
 # =============================================================================
-# Media Completed Events (consumed by summarization + media_completed workers)
+# Media Completed Events (consumed by media_completed worker)
 # =============================================================================
 
 resource "aws_sqs_queue" "media_completed_events_dlq" {
@@ -465,7 +434,6 @@ output "queue_urls" {
     instagram_ingestion     = aws_sqs_queue.instagram_ingestion.url
     tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion.url
     deepgram_transcription  = aws_sqs_queue.deepgram_transcription.url
-    summarization           = aws_sqs_queue.summarization.url
     document_parsing        = aws_sqs_queue.document_parsing.url
     search_indexing         = aws_sqs_queue.search_indexing.url
     rss_feed_poll           = aws_sqs_queue.rss_feed_poll.url

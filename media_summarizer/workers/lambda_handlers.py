@@ -118,10 +118,6 @@ deepgram_transcription_handler = _build_handler(
     "media_summarizer.workers.transcription.deepgram_worker"
 )
 
-summarization_handler = _build_handler(
-    "media_summarizer.workers.summarization.summarization_worker"
-)
-
 document_parsing_handler = _build_handler(
     "media_summarizer.workers.document_parsing.worker"
 )
