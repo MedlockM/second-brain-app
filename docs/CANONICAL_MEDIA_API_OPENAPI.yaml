@@ -163,6 +163,13 @@ components:
         source_app: { type: string }
         locale: { type: string }
         idempotency_key: { type: string }
+        folder_id:
+          type: string
+          nullable: true
+        tag_ids:
+          type: array
+          items:
+            type: string
     IngestUrlResponse:
       type: object
       required: [media_item, processing_job, deduplicated]
