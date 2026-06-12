@@ -46,12 +46,9 @@ class Settings:
         self.TIKTOK_INGESTION_QUEUE = os.getenv(
             "TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue"
         )
-        self.SUMMARIZATION_QUEUE = os.getenv("SUMMARIZATION_QUEUE", "summarization-queue")
-        self.SUMMARY_SHORT_QUEUE = os.getenv("SUMMARY_SHORT_QUEUE", "summary-short-queue")
-        self.SUMMARY_DETAILED_QUEUE = os.getenv("SUMMARY_DETAILED_QUEUE", "summary-detailed-queue")
-        self.QUIZ_QUEUE = os.getenv("QUIZ_QUEUE", "quiz-queue")
-        self.NOTES_QUEUE = os.getenv("NOTES_QUEUE", "notes-queue")
-        self.FLASHCARDS_QUEUE = os.getenv("FLASHCARDS_QUEUE", "flashcards-queue")
+        self.ARTIFACT_GENERATOR_QUEUE = os.getenv(
+            "ARTIFACT_GENERATOR_QUEUE", "artifact-generator-queue"
+        )
         self.NEWSLETTER_INGESTION_QUEUE = os.getenv(
             "NEWSLETTER_INGESTION_QUEUE", "newsletter-ingestion-queue"
         )

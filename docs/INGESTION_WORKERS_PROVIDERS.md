@@ -4,7 +4,7 @@ Authoritative reference for the ingestion pipeline. Lists each source type's
 primary extraction path, fallback chain, terminal failure behavior, and
 downstream hand-off.
 
-Last verified against codebase: 2026-06-10 (post task-185 + Apify actor migrations + Deepgram dispatch helper).
+Last verified against codebase: 2026-06-12 (post task-195 unified artifact-generator consolidation).
 
 ---
 
@@ -594,6 +594,31 @@ queue      queue      queue                         queue    queue      queue
 | `ytdlp_helpers` (shared subtitle + media-URL helpers used by YouTube/TikTok/Instagram resolvers) | `media_summarizer/utils/ytdlp_helpers.py` |
 | `deepgram_dispatch` (canonical SQS payload builder for Deepgram producers) | `media_summarizer/utils/deepgram_dispatch.py` |
 | `ingestion_sentinels` (per-request E2E test seam for forcing the IP-block branch) | `media_summarizer/utils/ingestion_sentinels.py` |
+
+### Artifact generation (unified worker — task-195)
+
+All artifact generation (flashcards, notes, quiz, summary_short, summary_detailed) is handled by a single unified worker consuming one SQS queue (`artifact-generator-queue`). The worker dispatches to per-kind generators via a registry keyed on `MediaArtifactType`.
+
+| Component | Path |
+|---|---|
+| Unified worker (shared S3 download, LLM call, retries, validation, status transitions) | `media_summarizer/workers/artifact_generator/worker.py` |
+| Generator registry | `media_summarizer/workers/artifact_generator/generators/__init__.py` |
+| FlashcardsGenerator (prompt + pydantic schema + structured outputs) | `media_summarizer/workers/artifact_generator/generators/flashcards.py` |
+| NotesGenerator (prompt + pydantic schema) | `media_summarizer/workers/artifact_generator/generators/notes.py` |
+| QuizGenerator (prompt + pydantic schema + structured outputs) | `media_summarizer/workers/artifact_generator/generators/quiz.py` |
+| SummaryShortGenerator (prompt + pydantic schema) | `media_summarizer/workers/artifact_generator/generators/summary_short.py` |
+| SummaryDetailedGenerator (prompt + pydantic schema) | `media_summarizer/workers/artifact_generator/generators/summary_detailed.py` |
+
+**Models per artifact kind** (validated by task-72 benchmark):
+- `flashcards`: `gpt-5.4-nano-2026-03-17`
+- `notes`: `gpt-4o-mini-2024-07-18`
+- `quiz`: `gpt-5.4-nano-2026-03-17`
+- `summary_short`: `gpt-5-nano-2025-08-07`
+- `summary_detailed`: `gpt-5.4-nano-2026-03-17`
+
+**Queue**: `artifact-generator-queue` (single queue for all 5 kinds, `visibility_timeout_seconds=1800`, `maxReceiveCount=3`, DLQ: `artifact-generator-dlq`)
+
+**Producer**: `artifact_service.get_artifact_queue()` returns `artifact-generator-queue` for all `MediaArtifactType` values. Messages include `artifact_type` in the body to route to the correct generator.
 
 ### Benchmark / decision READMEs
 

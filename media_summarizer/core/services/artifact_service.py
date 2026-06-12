@@ -39,12 +39,9 @@ SUMMARY_DETAILED_BUCKET = os.environ.get("SUMMARY_DETAILED_BUCKET", "media-summa
 QUIZ_BUCKET = os.environ.get("QUIZ_BUCKET", "media-summarizer-quiz")
 NOTES_BUCKET = os.environ.get("NOTES_BUCKET", "media-summarizer-notes")
 FLASHCARDS_BUCKET = os.environ.get("FLASHCARDS_BUCKET", "media-summarizer-flashcards")
-SUMMARIZATION_QUEUE = os.environ.get("SUMMARIZATION_QUEUE", "summarization-queue")
-SUMMARY_SHORT_QUEUE = os.environ.get("SUMMARY_SHORT_QUEUE", "summary-short-queue")
-SUMMARY_DETAILED_QUEUE = os.environ.get("SUMMARY_DETAILED_QUEUE", "summary-detailed-queue")
-QUIZ_QUEUE = os.environ.get("QUIZ_QUEUE", "quiz-queue")
-NOTES_QUEUE = os.environ.get("NOTES_QUEUE", "notes-queue")
-FLASHCARDS_QUEUE = os.environ.get("FLASHCARDS_QUEUE", "flashcards-queue")
+ARTIFACT_GENERATOR_QUEUE = os.environ.get(
+    "ARTIFACT_GENERATOR_QUEUE", "artifact-generator-queue"
+)
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.4-nano-2026-03-17")
 # LLM models per artifact type — validated by owner in task-72 benchmark:
 # summary_short: gpt-5-nano-2025-08-07
@@ -210,15 +207,11 @@ def get_artifact_bucket(artifact_type: MediaArtifactType) -> str:
 
 
 def get_artifact_queue(artifact_type: MediaArtifactType) -> str:
-    queues = {
-        MediaArtifactType.SUMMARY: SUMMARIZATION_QUEUE,
-        MediaArtifactType.SUMMARY_SHORT: SUMMARY_SHORT_QUEUE,
-        MediaArtifactType.SUMMARY_DETAILED: SUMMARY_DETAILED_QUEUE,
-        MediaArtifactType.QUIZ: QUIZ_QUEUE,
-        MediaArtifactType.NOTES: NOTES_QUEUE,
-        MediaArtifactType.FLASHCARDS: FLASHCARDS_QUEUE,
-    }
-    return queues[artifact_type]
+    """Return the SQS queue name for artifact generation.
+
+    All artifact types route to the unified artifact-generator-queue (task-195).
+    """
+    return ARTIFACT_GENERATOR_QUEUE
 
 
 def build_artifact_storage_key(

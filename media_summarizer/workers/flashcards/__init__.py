@@ -1,1 +1,0 @@
-"""Flashcards artifact worker package."""

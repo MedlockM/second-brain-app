@@ -42,6 +42,16 @@ jobs:
             exit 1
           fi
 
+      - name: Guard — no resurrected per-kind artifact queues (task-195)
+        run: |
+          if grep -rn --include="*.py" --include="*.tf" \
+            -e "flashcards-queue" -e "notes-queue" -e "quiz-queue" \
+            -e "summarization-queue" -e "summary-short-queue" -e "summary-detailed-queue" \
+            media_summarizer infrastructure/terraform; then
+            echo "::error::Dead per-kind artifact queue name resurfaced. All artifact types route to artifact-generator-queue (see task-195)."
+            exit 1
+          fi
+
   mobile:
     name: Mobile (lint + typecheck)
     runs-on: ubuntu-latest

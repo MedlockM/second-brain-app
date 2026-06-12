@@ -136,8 +136,7 @@ Each section corresponds to a specific CloudWatch alarm defined in `infrastructu
 | `audio-download-dlq` | `audio-download-queue` | Audio download |
 | `deepgram-transcription-dlq` | `deepgram-transcription-queue` | Deepgram transcription |
 | `article-extraction-dlq` | `article-extraction-queue` | Article extraction |
-| `summarization-dlq` | `summarization-queue` | Summarization (LLM) |
-| `flashcards-dlq` | `flashcards-queue` | Flashcards generation |
+| `artifact-generator-dlq` | `artifact-generator-queue` | Artifact generation (flashcards, notes, quiz, summary_short, summary_detailed) |
 | `episode-completed-dlq` | `episode-completed-events` | Episode completed fan-out |
 | `push-notification-dlq` | `push-notification-queue` | Push notifications |
 | `spotify-sync-dlq` | `spotify-sync-queue` | Spotify sync |
