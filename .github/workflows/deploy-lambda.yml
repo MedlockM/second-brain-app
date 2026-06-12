@@ -53,6 +53,11 @@ jobs:
           file: infrastructure/docker/lambda.Dockerfile
           platforms: linux/arm64
           push: true
+          # Lambda rejects OCI image indexes / attestation manifests
+          # ("image manifest ... media type ... is not supported"). Disable
+          # buildx provenance + SBOM so a plain single-arch manifest is pushed.
+          provenance: false
+          sbom: false
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:worker-latest
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:worker-${{ env.IMAGE_TAG }}
