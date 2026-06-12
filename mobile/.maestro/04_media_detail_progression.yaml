@@ -1,9 +1,13 @@
 # Flow 04: Media Detail Progression
 # Navigates from the inbox to a media detail screen and verifies:
-# - Title and metadata display correctly
-# - Transcript section shows processing status
-# - AI Artifacts section is present and expandable
-# - Back navigation works
+# - Header with back button is present
+# - AI Artifacts section is present, expandable, and lists every tile
+# - Transcript section is present (status row OR rendered transcript)
+# - Back navigation returns to the inbox
+#
+# Last reviewed against the codebase on 2026-06-11.
+# The "AI Artifacts" tiles are: Summary, Detailed summary, Learning notes,
+# Flashcards, Quiz (each backed by a distinct backend artifact_type).
 appId: com.secondbrainlabs.core
 tags:
   - critical
@@ -23,85 +27,65 @@ tags:
 
 - runFlow: utils/login.yaml
 
-# Wait for inbox to load with items
+# Wait for inbox to render
 - assertVisible:
     text: "Good .*"
     regex: true
     timeout: 5000
 
-# If there are items in the inbox, tap the first one
-# We look for any media card (identified by its URL domain text or type badge)
+# Ensure the inbox has at least one card to tap. We share a fresh item and
+# wait for it to land — this avoids depending on pre-existing state.
+- openLink: "media-summarizer://share?url=${SHARE_TEST_URL}&sourceApp=android-share-intent"
+
 - assertVisible:
-    text: "READY FOR REVIEW"
-    optional: true
+    text: "Save Link"
+    timeout: 5000
+
+- tapOn:
+    text: "Save"
+
+- assertVisible:
+    text: "Saved!"
+    timeout: 8000
+
+- assertVisible:
+    text: "Inbox"
+    timeout: 8000
+
+- extendedWaitUntil:
+    visible:
+      text: "youtube.com"
+    timeout: 15000
+
+# Tap the freshly-shared item card to open the detail screen
+- tapOn:
+    text: "youtube.com"
+    index: 0
+
+# Detail screen: AI Artifacts section is present
+- assertVisible:
+    text: "AI Artifacts"
     timeout: 10000
 
-# Tap on the first media item card in the list
-# Using a generic selector for the first pressable card-like element
-- tapOn:
-    text: ".*\\.(com|org|net|io).*"
-    regex: true
-    index: 0
-    optional: true
-
-# If no items exist yet, share one first
-- runFlow:
-    when:
-      notVisible:
-        text: "Transcript"
-    commands:
-      - pressKey: back
-      - openLink: "media-summarizer://share?url=${SHARE_TEST_URL}&sourceApp=android-share-intent"
-      - assertVisible:
-          text: "Collection"
-          timeout: 5000
-      - tapOn:
-          text: "Save"
-      - assertVisible:
-          text: "Saved"
-          timeout: 8000
-      - assertVisible:
-          text: "Inbox"
-          timeout: 5000
-      # Wait for the item to appear and tap it
-      - extendedWaitUntil:
-          visible:
-            text: "youtube.com"
-          timeout: 15000
-      - tapOn:
-          text: "youtube.com"
-
-# Now on the media detail screen
-# Verify the header with back button is present
-- assertVisible:
-    id: "Go back"
-    optional: true
-
-# Verify metadata section is displayed
-- assertVisible:
-    text: ".*"
-    regex: true
-    timeout: 5000
-
-# Verify the AI Artifacts toggle section exists
-- assertVisible:
-    text: "AI Artifacts"
-    timeout: 5000
-
-# Tap to expand the AI Artifacts section
+# Expand the AI Artifacts dropdown
 - tapOn:
     text: "AI Artifacts"
 
-# Verify artifact types are listed
+# All five artifact tiles must be listed
 - assertVisible:
     text: "Summary"
     timeout: 3000
 - assertVisible:
+    text: "Detailed summary"
+- assertVisible:
+    text: "Learning notes"
+- assertVisible:
     text: "Flashcards"
 - assertVisible:
-    text: "Learning Notes"
+    text: "Quiz"
 
-# Verify transcript section is present
+# Transcript section: when ready, the actual transcript text is rendered
+# inline; before that, a status label is shown. Either is acceptable here.
 - scroll:
     direction: DOWN
     duration: 300
@@ -110,18 +94,16 @@ tags:
     text: "Transcript"
     optional: true
 
-# Verify transcript shows a status (ready, processing, or empty state)
 - assertVisible:
-    text: "Transcript processing will start soon.|Extracting audio content|Transcribing audio to text|Transcript is ready|No transcript available yet"
+    text: "Loading transcript|Transcript processing will start soon|Extracting audio|Transcribing audio|.+"
     regex: true
     optional: true
 
-# Test back navigation
+# Back navigation: tap the back arrow (accessibility label "Go back")
 - tapOn:
     id: "Go back"
     optional: true
 
-# Fallback: use device back button
 - pressKey:
     key: back
     optional: true

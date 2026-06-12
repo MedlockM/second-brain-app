@@ -7,7 +7,7 @@ import React, {
   useState,
 } from "react";
 import { Platform } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, usePathname } from "expo-router";
 import { useShareIntentContext } from "expo-share-intent";
 import type { ShareIntent } from "expo-share-intent";
 import { useAuth } from "./AuthContext";
@@ -57,8 +57,23 @@ export interface ShareIntakeState {
   audioFile: SharedFileAttachment | null;
 }
 
+export interface ShareSelectedFolder {
+  id: string;
+  path: string;
+}
+
+export interface ShareSelectedTag {
+  id: string;
+  name: string;
+}
+
 interface ShareIntentContextValue {
   intake: ShareIntakeState;
+  selectedFolder: ShareSelectedFolder | null;
+  selectedTags: ShareSelectedTag[];
+  setSelectedFolder: (folder: ShareSelectedFolder | null) => void;
+  setSelectedTags: (tags: ShareSelectedTag[]) => void;
+  clearOrganization: () => void;
   submitUrl: () => Promise<void>;
   submitSharedContent: () => Promise<void>;
   dismiss: () => void;
@@ -102,7 +117,13 @@ export function ShareIntentProvider({
 }) {
   const { token, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
   const [intake, setIntake] = useState<ShareIntakeState>(INITIAL_STATE);
+  const [selectedFolder, setSelectedFolder] =
+    useState<ShareSelectedFolder | null>(null);
+  const [selectedTags, setSelectedTags] = useState<ShareSelectedTag[]>([]);
   const hasNavigatedRef = useRef(false);
   const lastProcessedKeyRef = useRef<string | null>(null);
   const pendingIntentRef = useRef<ShareIntent | null>(null);
@@ -134,7 +155,14 @@ export function ShareIntentProvider({
         }
       }, 5000);
 
-      // Map the package ShareIntent to our ShareIntakeState
+      // Map the package ShareIntent to our ShareIntakeState. We track whether
+      // any branch produced a meaningful state — if none did (intent is empty
+      // or stale, which can happen on cold start when the native module still
+      // holds a leftover blob in the App Group), we must NOT navigate to
+      // share-confirmation, otherwise the user sees an empty "Processing
+      // shared content…" spinner with no real share to act on.
+      let mapped = false;
+
       if (intent.type === "weburl" && intent.webUrl) {
         // Web URL share (Safari, Instagram Reel, etc.)
         const result = validateShareIntentPayload(intent.webUrl);
@@ -159,6 +187,7 @@ export function ShareIntentProvider({
             audioFile: null,
           });
         }
+        mapped = true;
       } else if (intent.type === "file" || intent.type === "media") {
         // File share - check if audio
         const file = intent.files?.[0];
@@ -178,6 +207,7 @@ export function ShareIntentProvider({
             contentType: "audio",
             audioFile,
           });
+          mapped = true;
         } else if (file) {
           // Non-audio file - not currently supported
           setIntake({
@@ -189,6 +219,7 @@ export function ShareIntentProvider({
             contentType: "url",
             audioFile: null,
           });
+          mapped = true;
         }
       } else if (intent.type === "text" && intent.text) {
         // Plain text share - check if it contains a URL
@@ -226,18 +257,36 @@ export function ShareIntentProvider({
             audioFile: null,
           });
         }
+        mapped = true;
       }
 
-      // Navigate to share confirmation screen
-      if (!hasNavigatedRef.current) {
+      if (!mapped) {
+        // Stale/empty intent surfaced by the native module — clear it so the
+        // package doesn't hand it back on the next cycle, and stay put.
+        resetShareIntent();
+        return;
+      }
+
+      setSelectedFolder(null);
+      setSelectedTags([]);
+
+      // Navigate to share confirmation screen — but skip the push when we're
+      // already on it (e.g. cold start where +native-intent.tsx redirected
+      // there before the provider mounted), otherwise the screen stacks twice.
+      if (
+        !hasNavigatedRef.current &&
+        pathnameRef.current !== "/share-confirmation"
+      ) {
         hasNavigatedRef.current = true;
         setTimeout(() => {
-          router.push("/share-confirmation");
+          if (pathnameRef.current !== "/share-confirmation") {
+            router.push("/share-confirmation");
+          }
           hasNavigatedRef.current = false;
         }, 0);
       }
     },
-    [router],
+    [router, resetShareIntent],
   );
 
   /**
@@ -292,6 +341,8 @@ export function ShareIntentProvider({
           Platform.OS === "ios"
             ? "ios-share-extension"
             : "android-share-intent",
+        folder_id: selectedFolder?.id ?? null,
+        tag_ids: selectedTags.map((tag) => tag.id),
       });
 
       setIntake({
@@ -313,7 +364,7 @@ export function ShareIntentProvider({
         message,
       }));
     }
-  }, [intake, token]);
+  }, [intake, token, selectedFolder, selectedTags]);
 
   /**
    * Submit shared content (text or audio) to the backend via ingest-shared-content.
@@ -442,9 +493,16 @@ export function ShareIntentProvider({
    */
   const dismiss = useCallback(() => {
     setIntake(INITIAL_STATE);
+    setSelectedFolder(null);
+    setSelectedTags([]);
     lastProcessedKeyRef.current = null;
     resetShareIntent();
   }, [resetShareIntent]);
+
+  const clearOrganization = useCallback(() => {
+    setSelectedFolder(null);
+    setSelectedTags([]);
+  }, []);
 
   /**
    * Retry after an error - go back to ready state.
@@ -461,6 +519,11 @@ export function ShareIntentProvider({
 
   const value: ShareIntentContextValue = {
     intake,
+    selectedFolder,
+    selectedTags,
+    setSelectedFolder,
+    setSelectedTags,
+    clearOrganization,
     submitUrl,
     submitSharedContent,
     dismiss,

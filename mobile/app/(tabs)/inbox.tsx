@@ -24,7 +24,7 @@ import {
   TouchTarget,
 } from "../../src/constants/theme";
 import type {
-  MediaStatusResponse,
+  MediaListItem,
   MediaType,
   SourcePlatform,
 } from "../../src/types/media";
@@ -48,16 +48,19 @@ export default function InboxScreen() {
     isRefreshing,
     error,
     refresh,
+    refetch,
     retry,
   } = useMediaPolling();
 
   const greeting = getGreeting(user?.email?.split("@")[0]);
 
-  // Refetch when the screen gains focus (multi-device sync)
+  // Silent refetch when the screen gains focus (multi-device sync). Uses the
+  // non-spinner variant so we don't show the pull-to-refresh indicator just
+  // because the user navigated back to this tab.
   useFocusEffect(
     useCallback(() => {
-      refresh();
-    }, [refresh]),
+      refetch();
+    }, [refetch]),
   );
 
   const handleDigestPress = useCallback(() => {
@@ -83,7 +86,7 @@ export default function InboxScreen() {
     ...items.map(
       (backend): UnifiedItem => ({
         kind: "backend",
-        key: backend.media_item.media_item_id,
+        key: backend.media_item_id,
         backend,
       }),
     ),
@@ -172,7 +175,7 @@ interface UnifiedItem {
   kind: "local" | "backend";
   key: string;
   local?: InboxItem;
-  backend?: MediaStatusResponse;
+  backend?: MediaListItem;
 }
 
 // --- Sub-components ---
@@ -257,33 +260,33 @@ function UnifiedItemCard({ item, onPress }: UnifiedItemCardProps) {
 // --- Backend Item Card (no status badge) ---
 
 interface BackendItemCardProps {
-  item: MediaStatusResponse;
+  item: MediaListItem;
   onPress: (mediaItemId: string) => void;
 }
 
 function BackendItemCard({ item, onPress }: BackendItemCardProps) {
-  const { media_item } = item;
+  const sourceUrl = item.source_url ?? "";
 
   let displayDomain: string;
   try {
-    const parsed = new URL(media_item.original_url);
-    displayDomain = parsed.hostname.replace(/^www\./, "");
+    displayDomain = new URL(sourceUrl).hostname.replace(/^www\./, "");
   } catch {
-    displayDomain = media_item.original_url;
+    displayDomain = sourceUrl;
   }
 
-  const mediaTypeLabel = getMediaTypeLabel(media_item.media_type);
-  const mediaTypeBgColor = getMediaTypeBgColor(media_item.media_type);
-  const timeAgo = getRelativeTime(media_item.created_at);
-  const icon = getMediaTypeIcon(media_item.media_type);
+  const mediaType = (item.media_type ?? "unknown") as MediaType;
+  const mediaTypeLabel = getMediaTypeLabel(mediaType);
+  const mediaTypeBgColor = getMediaTypeBgColor(mediaType);
+  const timeAgo = getRelativeTime(item.created_at);
+  const icon = getMediaTypeIcon(mediaType);
 
-  // Use title if available from backend, otherwise fall back to URL
-  const displayTitle = media_item.original_url;
+  // Prefer the backend-provided title; fall back to the source URL.
+  const displayTitle = item.title?.trim() ? item.title : sourceUrl;
 
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-      onPress={() => onPress(media_item.media_item_id)}
+      onPress={() => onPress(item.media_item_id)}
       accessibilityLabel={`${mediaTypeLabel} from ${displayDomain}`}
       accessibilityRole="button"
     >

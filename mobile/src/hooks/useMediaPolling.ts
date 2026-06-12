@@ -3,21 +3,23 @@ import { useAuth } from "../contexts/AuthContext";
 import { useInbox, InboxItem } from "../contexts/InboxContext";
 import { MediaService } from "../services/mediaService";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
-import type { MediaStatusResponse } from "../types/media";
+import type { MediaListItem } from "../types/media";
 
 export interface UseMediaPollingResult {
   /** Backend media items */
-  items: MediaStatusResponse[];
+  items: MediaListItem[];
   /** Optimistic local items not yet confirmed by backend */
   pendingLocalItems: InboxItem[];
   /** Whether the initial fetch is in progress */
   isLoading: boolean;
-  /** Whether a refresh (pull-to-refresh) is in progress */
+  /** Whether a pull-to-refresh is in progress (drives RefreshControl) */
   isRefreshing: boolean;
   /** User-friendly error message, or null */
   error: string | null;
-  /** Trigger a manual refresh (pull-to-refresh or focus refetch) */
+  /** Pull-to-refresh handler — flips isRefreshing to drive the visible spinner */
   refresh: () => Promise<void>;
+  /** Silent background refetch — does NOT toggle isRefreshing (use on focus) */
+  refetch: () => Promise<void>;
   /** Retry after an error */
   retry: () => void;
 }
@@ -34,7 +36,7 @@ export function useMediaPolling(): UseMediaPollingResult {
   const { token } = useAuth();
   const { items: localInboxItems } = useInbox();
 
-  const [backendItems, setBackendItems] = useState<MediaStatusResponse[]>([]);
+  const [backendItems, setBackendItems] = useState<MediaListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +118,7 @@ export function useMediaPolling(): UseMediaPollingResult {
   const pendingLocalItems = localInboxItems.filter((localItem) => {
     if (!localItem.mediaItemId) return true; // Not yet submitted
     return !backendItems.some(
-      (bi) => bi.media_item.media_item_id === localItem.mediaItemId,
+      (bi) => bi.media_item_id === localItem.mediaItemId,
     );
   });
 
@@ -127,6 +129,7 @@ export function useMediaPolling(): UseMediaPollingResult {
     isRefreshing,
     error,
     refresh,
+    refetch: fetchMedia,
     retry,
   };
 }

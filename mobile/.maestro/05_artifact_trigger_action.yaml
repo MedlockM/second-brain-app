@@ -1,11 +1,15 @@
 # Flow 05: Artifact Trigger Action
-# Tests the critical path of generating an AI artifact (summary) from the
-# media detail screen:
-# - Navigate to a media item that is ready for artifacts
-# - Expand the AI Artifacts section
-# - Tap "Generate" on a summary artifact
-# - Verify the artifact enters "Queued" then "Generating" state
-# - Verify completion or progress indication
+# Tests the critical path of generating an AI artifact (Summary) from the
+# media detail screen and viewing it on the dedicated artifact screen.
+#
+# Steps:
+# - Share a URL and wait for it to land in the inbox
+# - Open the media detail screen
+# - Expand "AI Artifacts" and tap "Generate" on the Summary tile
+# - Verify the tile transitions to Queued / Generating / Ready
+# - When Ready, tap "View" and assert the artifact detail screen is shown
+#
+# Last reviewed against the codebase on 2026-06-11.
 appId: com.secondbrainlabs.core
 tags:
   - critical
@@ -25,87 +29,103 @@ tags:
 
 - runFlow: utils/login.yaml
 
-# Wait for inbox to load
+# Wait for inbox to render
 - assertVisible:
     text: "Good .*"
     regex: true
     timeout: 5000
 
-# Share a URL and wait for it to be ready for artifacts
-# (In CI with a staging backend, this may take time)
+# Share a URL
 - openLink: "media-summarizer://share?url=${SHARE_TEST_URL}&sourceApp=android-share-intent"
 
 - assertVisible:
-    text: "Collection"
+    text: "Save Link"
     timeout: 5000
 
 - tapOn:
     text: "Save"
 
 - assertVisible:
-    text: "Saved"
+    text: "Saved!"
     timeout: 8000
 
-# Return to inbox
 - assertVisible:
     text: "Inbox"
-    timeout: 5000
+    timeout: 8000
 
-# Wait for the item to appear in the inbox
+# Wait for the item to appear
 - extendedWaitUntil:
     visible:
       text: "youtube.com"
     timeout: 20000
 
-# Tap the media item to go to detail
+# Open the detail screen
 - tapOn:
     text: "youtube.com"
     index: 0
 
-# Wait for detail screen to load
 - assertVisible:
     text: "AI Artifacts"
     timeout: 10000
 
-# Expand the AI Artifacts section
 - tapOn:
     text: "AI Artifacts"
 
-# Wait for artifacts list to appear
 - assertVisible:
     text: "Summary"
     timeout: 3000
 
-# Check if the Generate button is available (media must be ready_for_artifacts)
-# If "Generate" is visible, tap it; otherwise the media is still processing
+# The "Generate" button is gated on mediaReady (transcript ready).
+# In CI / staging this can take a while — give it a generous window.
+# The tile stays "Processing..." until the worker pipeline produces a
+# transcript. We tap Generate as soon as it becomes available.
+- extendedWaitUntil:
+    visible:
+      text: "Generate"
+    timeout: 120000
+
 - tapOn:
     text: "Generate"
     index: 0
+
+# After tapping Generate, the tile cycles through Queued → Generating → Ready.
+- extendedWaitUntil:
+    visible:
+      text: "Queued|Generating|Ready"
+      regex: true
+    timeout: 10000
+
+# Wait for completion. The summary worker is usually fast (<60s) but we keep
+# a wide margin to avoid flakes on cold-start Lambda / model latency.
+- extendedWaitUntil:
+    visible:
+      text: "Ready"
+    timeout: 180000
+
+# When Ready, a "View" button appears next to the badge.
+- assertVisible:
+    text: "View"
+
+- tapOn:
+    text: "View"
+
+# We should now be on the artifact detail screen.
+# The hero chip displays the artifact category in upper case; for a Summary
+# tile we expect "SUMMARY" to be visible in the hero.
+- assertVisible:
+    text: "SUMMARY"
+    timeout: 10000
+
+# Back navigation: tap the back arrow (accessibility label "Go back")
+- tapOn:
+    id: "Go back"
     optional: true
 
-# If Generate was tapped, verify the artifact enters a progress state
-- assertVisible:
-    text: "Queued|Generating"
-    regex: true
-    optional: true
-    timeout: 5000
-
-# Wait for potential completion (with generous timeout for CI)
-# The artifact may show "Ready" if processing completes quickly
-- assertVisible:
-    text: "Ready|Queued|Generating|Processing"
-    regex: true
-    optional: true
-    timeout: 30000
-
-# If media is still processing, verify the "Processing..." waiting text
-- assertVisible:
-    text: "Processing..."
+- pressKey:
+    key: back
     optional: true
 
-# Navigate back to inbox to confirm no crashes
-- pressKey: back
-
+# Verify we are back on the media detail screen (AI Artifacts section)
 - assertVisible:
-    text: "Inbox"
+    text: "AI Artifacts"
     timeout: 5000

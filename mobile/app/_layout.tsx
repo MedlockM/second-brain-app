@@ -70,6 +70,12 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen
+                  name="artifacts/[artifactId]"
+                  options={{
+                    animation: "slide_from_right",
+                  }}
+                />
+                <Stack.Screen
                   name="media/tags"
                   options={{
                     presentation: "modal",

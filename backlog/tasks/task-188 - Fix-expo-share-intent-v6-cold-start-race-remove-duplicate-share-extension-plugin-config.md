@@ -3,7 +3,7 @@ id: task-188
 title: >-
   Fix expo-share-intent v6 cold-start race + remove duplicate share-extension
   plugin config
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 07:58'
 labels:

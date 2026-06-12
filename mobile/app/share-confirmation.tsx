@@ -11,6 +11,8 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   useShareIntake,
+  type ShareSelectedFolder,
+  type ShareSelectedTag,
   type ShareIntakeState,
 } from "../src/contexts/ShareIntentContext";
 import {
@@ -39,8 +41,15 @@ import {
  */
 export default function ShareConfirmationScreen() {
   const router = useRouter();
-  const { intake, submitUrl, submitSharedContent, dismiss, retry } =
-    useShareIntake();
+  const {
+    intake,
+    selectedFolder,
+    selectedTags,
+    submitUrl,
+    submitSharedContent,
+    dismiss,
+    retry,
+  } = useShareIntake();
 
   // Auto-dismiss on success after a brief delay
   useEffect(() => {
@@ -71,6 +80,14 @@ export default function ShareConfirmationScreen() {
 
   const handleRetry = () => {
     retry();
+  };
+
+  const handleOpenCollection = () => {
+    router.push("/media/collection?mode=share");
+  };
+
+  const handleOpenTags = () => {
+    router.push("/media/tags?mode=share");
   };
 
   const canSave = intake.status === "ready" || intake.status === "error";
@@ -114,7 +131,14 @@ export default function ShareConfirmationScreen() {
 
       {/* Content */}
       <View style={styles.content}>
-        <ShareContent intake={intake} onRetry={handleRetry} />
+        <ShareContent
+          intake={intake}
+          selectedFolder={selectedFolder}
+          selectedTags={selectedTags}
+          onOpenCollection={handleOpenCollection}
+          onOpenTags={handleOpenTags}
+          onRetry={handleRetry}
+        />
       </View>
     </SafeAreaView>
   );
@@ -125,9 +149,17 @@ export default function ShareConfirmationScreen() {
  */
 function ShareContent({
   intake,
+  selectedFolder,
+  selectedTags,
+  onOpenCollection,
+  onOpenTags,
   onRetry,
 }: {
   intake: ShareIntakeState;
+  selectedFolder: ShareSelectedFolder | null;
+  selectedTags: ShareSelectedTag[];
+  onOpenCollection: () => void;
+  onOpenTags: () => void;
   onRetry: () => void;
 }) {
   switch (intake.status) {
@@ -164,7 +196,17 @@ function ShareContent({
       if (intake.contentType === "text" && intake.rawText) {
         return <TextPreviewCard text={intake.rawText} />;
       }
-      return <UrlPreviewCard url={intake.url!} />;
+      return (
+        <>
+          <UrlPreviewCard url={intake.url!} />
+          <OrganizationControls
+            selectedFolder={selectedFolder}
+            selectedTags={selectedTags}
+            onOpenCollection={onOpenCollection}
+            onOpenTags={onOpenTags}
+          />
+        </>
+      );
 
     case "submitting":
       if (intake.contentType === "audio" && intake.audioFile) {
@@ -180,7 +222,18 @@ function ShareContent({
       if (intake.contentType === "text" && intake.rawText) {
         return <TextPreviewCard text={intake.rawText} isSubmitting />;
       }
-      return <UrlPreviewCard url={intake.url!} isSubmitting />;
+      return (
+        <>
+          <UrlPreviewCard url={intake.url!} isSubmitting />
+          <OrganizationControls
+            selectedFolder={selectedFolder}
+            selectedTags={selectedTags}
+            onOpenCollection={onOpenCollection}
+            onOpenTags={onOpenTags}
+            disabled
+          />
+        </>
+      );
 
     case "success":
       return (
@@ -345,6 +398,85 @@ function AudioPreviewCard({
   );
 }
 
+function OrganizationControls({
+  selectedFolder,
+  selectedTags,
+  onOpenCollection,
+  onOpenTags,
+  disabled = false,
+}: {
+  selectedFolder: ShareSelectedFolder | null;
+  selectedTags: ShareSelectedTag[];
+  onOpenCollection: () => void;
+  onOpenTags: () => void;
+  disabled?: boolean;
+}) {
+  const tagsLabel =
+    selectedTags.length > 0
+      ? selectedTags.map((tag) => tag.name).join(", ")
+      : "Tags";
+
+  return (
+    <View style={styles.organizationSection}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.organizationRow,
+          pressed && !disabled && styles.organizationRowPressed,
+          disabled && styles.organizationRowDisabled,
+        ]}
+        onPress={onOpenCollection}
+        disabled={disabled}
+        accessibilityLabel="Choose collection"
+        accessibilityRole="button"
+      >
+        <View style={styles.organizationRowLeft}>
+          <Ionicons
+            name="folder-open-outline"
+            size={20}
+            color={Colors.textMuted}
+          />
+          <Text style={styles.organizationRowLabel} numberOfLines={1}>
+            {selectedFolder?.path ?? "Non trié"}
+          </Text>
+        </View>
+        <Ionicons
+          name="chevron-forward"
+          size={20}
+          color={Colors.textMuted}
+        />
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [
+          styles.organizationRow,
+          pressed && !disabled && styles.organizationRowPressed,
+          disabled && styles.organizationRowDisabled,
+        ]}
+        onPress={onOpenTags}
+        disabled={disabled}
+        accessibilityLabel="Choose tags"
+        accessibilityRole="button"
+      >
+        <View style={styles.organizationRowLeft}>
+          <Ionicons
+            name="pricetag-outline"
+            size={20}
+            color={Colors.textMuted}
+          />
+          <Text style={styles.organizationRowLabel} numberOfLines={1}>
+            {tagsLabel}
+          </Text>
+        </View>
+        <Ionicons
+          name="chevron-forward"
+          size={20}
+          color={Colors.textMuted}
+        />
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -455,6 +587,39 @@ const styles = StyleSheet.create({
   previewSubmittingText: {
     fontSize: Typography.small.fontSize,
     color: Colors.textMuted,
+  },
+  organizationSection: {
+    marginTop: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  organizationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: TouchTarget.comfortable,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: BorderRadius.xl,
+  },
+  organizationRowPressed: {
+    backgroundColor: Colors.surfaceContainerHigh,
+  },
+  organizationRowDisabled: {
+    opacity: 0.6,
+  },
+  organizationRowLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginRight: Spacing.sm,
+  },
+  organizationRowLabel: {
+    flex: 1,
+    fontSize: Typography.body.fontSize,
+    fontWeight: "500",
+    color: Colors.textMain,
   },
   // Success state
   successIcon: {

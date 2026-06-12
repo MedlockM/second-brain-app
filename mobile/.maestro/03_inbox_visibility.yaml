@@ -1,10 +1,11 @@
 # Flow 03: Inbox Visibility
-# Verifies that shared items appear in the inbox with correct processing states.
-# Tests:
-# - Items show up after share submission
-# - Processing status badges are visible
-# - Pull-to-refresh works
-# - Empty state is properly replaced by content
+# Verifies that shared items appear in the inbox after a share submission.
+#
+# The current inbox UI deliberately omits per-item processing badges/spinners
+# (see app/(tabs)/inbox.tsx header comment) — items either appear as optimistic
+# pending placeholders or as plain backend cards with a media-type badge.
+#
+# Last reviewed against the codebase on 2026-06-11.
 appId: com.secondbrainlabs.core
 tags:
   - critical
@@ -24,53 +25,56 @@ tags:
 
 - runFlow: utils/login.yaml
 
-# Verify we are on the inbox screen
+# Inbox: greeting + Daily Digest entry point
 - assertVisible:
     text: "Good .*"
     regex: true
     timeout: 5000
 
-# Check for the Daily Digest button
 - assertVisible:
     text: "Daily Digest"
 
-# If the inbox has items, verify the "READY FOR REVIEW" section header
+# When the inbox already has items, the YOUR MEDIA section header is shown.
 - assertVisible:
-    text: "READY FOR REVIEW"
+    text: "YOUR MEDIA"
     optional: true
 
 # Simulate a share to populate the inbox
 - openLink: "media-summarizer://share?url=${SHARE_TEST_URL}&sourceApp=android-share-intent"
 
 - assertVisible:
-    text: "Collection"
+    text: "Save Link"
     timeout: 5000
 
 - tapOn:
     text: "Save"
 
 - assertVisible:
-    text: "Saved"
+    text: "Saved!"
     timeout: 8000
 
 # Wait for auto-dismiss back to inbox
 - assertVisible:
     text: "Inbox"
-    timeout: 5000
+    timeout: 8000
 
-# Verify the SUBMITTING section appears (optimistic local item)
+# Verify the shared URL host appears in a card. Cards may be either:
+# - the optimistic "local" placeholder (pre-confirmation),
+# - or the backend card once useMediaPolling has refetched on focus.
+- extendedWaitUntil:
+    visible:
+      text: "youtube.com"
+    timeout: 15000
+
+# Once the backend card lands, a media-type badge becomes visible.
+# YouTube URLs surface as "VIDEO" via getMediaTypeLabel("youtube_video").
 - assertVisible:
-    text: "SUBMITTING"
+    text: "VIDEO"
     optional: true
-    timeout: 3000
+    timeout: 15000
 
-# Verify the shared URL domain is visible in the inbox
-- assertVisible:
-    text: "youtube.com"
-    optional: true
-    timeout: 5000
-
-# Test pull-to-refresh by scrolling down and up
+# Pull-to-refresh sanity check (does not assert anything specific — we mostly
+# want to confirm no crash and that the screen still renders the greeting).
 - scroll:
     direction: DOWN
     duration: 500
@@ -78,15 +82,6 @@ tags:
     direction: UP
     duration: 500
 
-# After polling, items should transition from SUBMITTING to showing a type badge
-# (The exact timing depends on backend processing speed)
 - assertVisible:
-    text: "VIDEO"
-    optional: true
-    timeout: 15000
-
-# Verify processing status is shown for non-terminal items
-- assertVisible:
-    text: "Pending|Classifying|Resolving|Downloading|Extracting|Transcribing"
+    text: "Good .*"
     regex: true
-    optional: true

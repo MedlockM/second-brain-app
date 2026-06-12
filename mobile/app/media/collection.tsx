@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -20,8 +20,48 @@ import {
   Shadows,
 } from "../../src/constants/theme";
 import { useAuth } from "../../src/contexts/AuthContext";
+import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { OrganizationService } from "../../src/services/organizationService";
 import type { Collection } from "../../src/types/organization";
+
+function buildCollectionTree(collections: Collection[]): {
+  treeCollections: Collection[];
+  pathById: Map<string, string>;
+} {
+  const nodes = new Map<string, Collection>();
+  const pathById = new Map<string, string>();
+
+  for (const collection of collections) {
+    if (collection.is_default) continue;
+    nodes.set(collection.id, { ...collection, children: [] });
+  }
+
+  const roots: Collection[] = [];
+  for (const collection of nodes.values()) {
+    const parentId = collection.parent_id ?? collection.parent_folder_id ?? null;
+    const parent = parentId ? nodes.get(parentId) : null;
+    if (parent) {
+      parent.children = [...(parent.children ?? []), collection];
+    } else {
+      roots.push(collection);
+    }
+  }
+
+  const assignPaths = (items: Collection[], prefix?: string) => {
+    for (const item of items) {
+      const path = prefix ? `${prefix} / ${item.name}` : item.name;
+      item.path = path;
+      pathById.set(item.id, path);
+      if (item.children?.length) {
+        assignPaths(item.children, path);
+      }
+    }
+  };
+
+  assignPaths(roots);
+
+  return { treeCollections: roots, pathById };
+}
 
 /**
  * Collection Selection Screen.
@@ -39,17 +79,20 @@ import type { Collection } from "../../src/types/organization";
 export default function CollectionScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
+    mode?: string;
     mediaItemId?: string;
     currentCollectionId?: string;
   }>();
 
   const { token } = useAuth();
+  const { selectedFolder, setSelectedFolder } = useShareIntake();
+  const isShareMode = params.mode === "share";
 
   const createInputRef = useRef<TextInput>(null);
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(
-    params.currentCollectionId ?? null,
+    isShareMode ? selectedFolder?.id ?? null : params.currentCollectionId ?? null,
   );
   const [searchText, setSearchText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -90,11 +133,52 @@ export default function CollectionScreen() {
     fetchCollections();
   }, [token]);
 
+  const { treeCollections, pathById } = useMemo(
+    () => buildCollectionTree(collections),
+    [collections],
+  );
+
+  useEffect(() => {
+    const expanded = new Set<string>();
+    const expandWithChildren = (cols: Collection[]) => {
+      for (const col of cols) {
+        if (col.children && col.children.length > 0) {
+          expanded.add(col.id);
+          expandWithChildren(col.children);
+        }
+      }
+    };
+    expandWithChildren(treeCollections);
+    setExpandedIds(expanded);
+  }, [treeCollections]);
+
   const handleBack = useCallback(() => {
     if (router.canGoBack()) {
       router.back();
     }
   }, [router]);
+
+  const handleSelectUnsorted = useCallback(() => {
+    setSelectedId(null);
+    if (isShareMode) {
+      setSelectedFolder(null);
+      router.back();
+    }
+  }, [isShareMode, router, setSelectedFolder]);
+
+  const handleSelectCollection = useCallback(
+    (collection: Collection) => {
+      setSelectedId(collection.id);
+      if (isShareMode) {
+        setSelectedFolder({
+          id: collection.id,
+          path: pathById.get(collection.id) ?? collection.name,
+        });
+        router.back();
+      }
+    },
+    [isShareMode, pathById, router, setSelectedFolder],
+  );
 
   const handleSave = useCallback(async () => {
     if (!token || !params.mediaItemId) {
@@ -150,6 +234,13 @@ export default function CollectionScreen() {
       );
       setCollections((prev) => [...prev, newCollection]);
       setSelectedId(newCollection.id);
+      if (isShareMode) {
+        setSelectedFolder({
+          id: newCollection.id,
+          path: newCollection.name,
+        });
+        router.back();
+      }
     } catch {
       setError("Failed to create collection");
     } finally {
@@ -157,7 +248,7 @@ export default function CollectionScreen() {
       setNewCollectionName("");
       Keyboard.dismiss();
     }
-  }, [token, newCollectionName]);
+  }, [token, newCollectionName, isShareMode, router, setSelectedFolder]);
 
   const handleCancelCreate = useCallback(() => {
     setIsCreating(false);
@@ -184,7 +275,7 @@ export default function CollectionScreen() {
     }, []);
   };
 
-  const displayCollections = filterCollections(collections, searchText);
+  const displayCollections = filterCollections(treeCollections, searchText);
 
   const renderCollectionItem = (
     collection: Collection,
@@ -202,7 +293,7 @@ export default function CollectionScreen() {
             { paddingLeft: Spacing.md + depth * 40 },
             isSelected && styles.collectionRowSelected,
           ]}
-          onPress={() => setSelectedId(collection.id)}
+          onPress={() => handleSelectCollection(collection)}
           activeOpacity={0.7}
           accessibilityRole="radio"
           accessibilityState={{ selected: isSelected }}
@@ -282,19 +373,23 @@ export default function CollectionScreen() {
 
         <Text style={styles.headerTitle}>Collection</Text>
 
-        <TouchableOpacity
-          style={[styles.saveBtn, isSaving && styles.saveBtnDisabled]}
-          onPress={handleSave}
-          disabled={isSaving}
-          accessibilityLabel="Save selection"
-          accessibilityRole="button"
-        >
-          {isSaving ? (
-            <ActivityIndicator size="small" color={Colors.primary} />
-          ) : (
-            <Text style={styles.saveBtnText}>Enregistrer</Text>
-          )}
-        </TouchableOpacity>
+        {isShareMode ? (
+          <View style={styles.headerActionPlaceholder} />
+        ) : (
+          <TouchableOpacity
+            style={[styles.saveBtn, isSaving && styles.saveBtnDisabled]}
+            onPress={handleSave}
+            disabled={isSaving}
+            accessibilityLabel="Save selection"
+            accessibilityRole="button"
+          >
+            {isSaving ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Text style={styles.saveBtnText}>Enregistrer</Text>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Search bar */}
@@ -338,7 +433,7 @@ export default function CollectionScreen() {
               styles.unsortedCard,
               selectedId === null && styles.unsortedCardSelected,
             ]}
-            onPress={() => setSelectedId(null)}
+            onPress={handleSelectUnsorted}
             activeOpacity={0.7}
             accessibilityRole="radio"
             accessibilityState={{ selected: selectedId === null }}
@@ -462,6 +557,10 @@ const styles = StyleSheet.create({
     fontSize: Typography.label.fontSize,
     fontWeight: "600",
     color: Colors.primary,
+  },
+  headerActionPlaceholder: {
+    width: 88,
+    height: 40,
   },
   searchContainer: {
     flexDirection: "row",

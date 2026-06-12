@@ -50,7 +50,18 @@ export type ProcessingJobLifecycleStatus =
 
 export type ArtifactStatus = "queued" | "generating" | "ready" | "failed";
 
-export type ArtifactType = "summary" | "quiz" | "notes";
+/**
+ * Internal artifact types as produced/accepted by the backend workers.
+ * `summary` is the legacy alias still emitted by older items; new ones use
+ * `summary_short` / `summary_detailed` explicitly.
+ */
+export type ArtifactType =
+  | "summary"
+  | "summary_short"
+  | "summary_detailed"
+  | "notes"
+  | "quiz"
+  | "flashcards";
 
 export type TranscriptStatus =
   | "pending"
@@ -127,6 +138,8 @@ export interface IngestUrlRequest {
   source_app?: string;
   locale?: string;
   idempotency_key?: string;
+  folder_id?: string | null;
+  tag_ids?: string[];
 }
 
 export interface IngestUrlResponse {
@@ -147,4 +160,25 @@ export interface MediaStatusResponse {
     created_at: string;
     updated_at: string;
   }>;
+}
+
+/**
+ * Flat list-row shape returned by `GET /api/media`.
+ * Mirrors `MediaSearchItem` in `media_summarizer/api/endpoints/media.py`.
+ * Distinct from `MediaStatusResponse` (which is the per-item detail shape).
+ */
+export interface MediaListItem {
+  media_item_id: string;
+  title?: string | null;
+  source_platform?: SourcePlatform | string | null;
+  media_type?: MediaType | string | null;
+  status: string;
+  folder_id?: string | null;
+  tag_ids: string[];
+  source_url?: string | null;
+  media_image?: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  error_message?: string | null;
 }

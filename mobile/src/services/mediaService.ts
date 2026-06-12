@@ -2,15 +2,33 @@ import { apiRequest } from "./apiClient";
 import type {
   IngestUrlRequest,
   IngestUrlResponse,
+  MediaListItem,
   MediaStatusResponse,
 } from "../types/media";
 
 /**
  * Response shape for GET /api/media (list endpoint).
+ * Matches `MediaSearchResponse` on the backend.
  */
 export interface ListMediaResponse {
-  items: MediaStatusResponse[];
+  status: string;
+  items: MediaListItem[];
   total: number;
+  next_cursor?: string | null;
+  has_more: boolean;
+}
+
+/**
+ * Response shape for GET /api/media/:id/raw-content.
+ * Matches `RawContentResponse` on the backend.
+ */
+export interface RawContentResponse {
+  status: string;
+  media_item_id: string;
+  content: string;
+  content_type: string;
+  media_type?: string | null;
+  source_format?: string | null;
 }
 
 /**
@@ -55,6 +73,25 @@ export class MediaService {
   ): Promise<MediaStatusResponse> {
     return apiRequest<MediaStatusResponse>(
       `/api/media/${encodeURIComponent(mediaItemId)}`,
+      {
+        method: "GET",
+        token,
+      },
+    );
+  }
+
+  /**
+   * Fetch the raw textual content of a media item (formatted transcript,
+   * extracted article body, OCR result, …). Available once processing has
+   * progressed enough to produce content; returns 404 otherwise.
+   * GET /api/media/:mediaItemId/raw-content
+   */
+  static async getRawContent(
+    token: string,
+    mediaItemId: string,
+  ): Promise<RawContentResponse> {
+    return apiRequest<RawContentResponse>(
+      `/api/media/${encodeURIComponent(mediaItemId)}/raw-content`,
       {
         method: "GET",
         token,

@@ -20,6 +20,7 @@ import {
   Shadows,
 } from "../../src/constants/theme";
 import { useAuth } from "../../src/contexts/AuthContext";
+import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { OrganizationService } from "../../src/services/organizationService";
 import type { Tag } from "../../src/types/organization";
 
@@ -36,15 +37,20 @@ import type { Tag } from "../../src/types/organization";
 export default function TagsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
+    mode?: string;
     mediaItemId?: string;
     currentTags?: string;
   }>();
 
   const { token } = useAuth();
+  const { selectedTags: shareSelectedTags, setSelectedTags } = useShareIntake();
+  const isShareMode = params.mode === "share";
   const inputRef = useRef<TextInput>(null);
 
   const [allTags, setAllTags] = useState<Tag[]>([]);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>(() =>
+    isShareMode ? shareSelectedTags.map((tag) => tag.id) : [],
+  );
   const [searchText, setSearchText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -56,7 +62,7 @@ export default function TagsScreen() {
       try {
         const parsed = JSON.parse(params.currentTags);
         if (Array.isArray(parsed)) {
-          setSelectedTags(parsed);
+          setSelectedTagIds(parsed);
         }
       } catch {
         // ignore parse error
@@ -93,42 +99,111 @@ export default function TagsScreen() {
     (tag) => tag.name.toLowerCase() === searchText.toLowerCase(),
   );
 
-  const handleToggleTag = useCallback((tagName: string) => {
-    setSelectedTags((prev) =>
-      prev.includes(tagName)
-        ? prev.filter((t) => t !== tagName)
-        : [...prev, tagName],
-    );
-  }, []);
+  const syncShareTags = useCallback(
+    (tagIds: string[], tags: Tag[]) => {
+      if (!isShareMode) return;
+      const fallbackById = new Map(
+        shareSelectedTags.map((tag) => [tag.id, tag.name]),
+      );
+      setSelectedTags(
+        tagIds.map((id) => {
+          const tag = tags.find((item) => item.id === id);
+          return {
+            id,
+            name: tag?.name ?? fallbackById.get(id) ?? id,
+          };
+        }),
+      );
+    },
+    [isShareMode, setSelectedTags, shareSelectedTags],
+  );
 
-  const handleCreateAndAddTag = useCallback(() => {
+  const handleToggleTag = useCallback(
+    (tagId: string) => {
+      setSelectedTagIds((prev) => {
+        const next = prev.includes(tagId)
+          ? prev.filter((id) => id !== tagId)
+          : [...prev, tagId];
+        syncShareTags(next, allTags);
+        return next;
+      });
+    },
+    [allTags, syncShareTags],
+  );
+
+  const handleCreateAndAddTag = useCallback(async () => {
     const trimmed = searchText.trim();
-    if (!trimmed) return;
+    if (!trimmed || !token) return;
 
-    // Add to selected tags if not already there
-    setSelectedTags((prev) =>
-      prev.includes(trimmed) ? prev : [...prev, trimmed],
+    const existing = allTags.find(
+      (tag) => tag.name.toLowerCase() === trimmed.toLowerCase(),
     );
+    if (existing) {
+      setSelectedTagIds((prev) => {
+        const next = prev.includes(existing.id) ? prev : [...prev, existing.id];
+        syncShareTags(next, allTags);
+        return next;
+      });
+      setSearchText("");
+      Keyboard.dismiss();
+      return;
+    }
 
-    // Add to allTags list so it appears in the list
-    setAllTags((prev) => {
-      if (prev.some((t) => t.name.toLowerCase() === trimmed.toLowerCase())) {
-        return prev;
-      }
-      return [...prev, { id: `new-${trimmed}`, name: trimmed, count: 0 }];
-    });
+    try {
+      const created = await OrganizationService.createTag(token, trimmed);
+      setAllTags((prev) => {
+        const nextTags = [...prev, created];
+        setSelectedTagIds((selected) => {
+          const nextSelected = selected.includes(created.id)
+            ? selected
+            : [...selected, created.id];
+          syncShareTags(nextSelected, nextTags);
+          return nextSelected;
+        });
+        return nextTags;
+      });
+      setSearchText("");
+      Keyboard.dismiss();
+    } catch {
+      setError("Failed to create tag");
+    }
+  }, [allTags, searchText, syncShareTags, token]);
 
-    setSearchText("");
-    Keyboard.dismiss();
-  }, [searchText]);
+  const selectedTagChips = selectedTagIds.map((id) => {
+    const tag = allTags.find((item) => item.id === id);
+    const fallback = shareSelectedTags.find((item) => item.id === id);
+    return {
+      id,
+      name: tag?.name ?? fallback?.name ?? id,
+    };
+  });
+
+  const handleRemoveSelectedTag = useCallback(
+    (tagId: string) => {
+      setSelectedTagIds((prev) => {
+        const next = prev.filter((id) => id !== tagId);
+        syncShareTags(next, allTags);
+        return next;
+      });
+    },
+    [allTags, syncShareTags],
+  );
 
   const handleBack = useCallback(() => {
+    if (isShareMode) {
+      syncShareTags(selectedTagIds, allTags);
+    }
     if (router.canGoBack()) {
       router.back();
     }
-  }, [router]);
+  }, [allTags, isShareMode, router, selectedTagIds, syncShareTags]);
 
   const handleSave = useCallback(async () => {
+    if (isShareMode) {
+      handleBack();
+      return;
+    }
+
     if (!token || !params.mediaItemId) {
       handleBack();
       return;
@@ -139,22 +214,22 @@ export default function TagsScreen() {
       await OrganizationService.updateMediaTags(
         token,
         params.mediaItemId,
-        selectedTags,
+        selectedTagIds,
       );
       handleBack();
     } catch {
       setError("Failed to save tags");
       setIsSaving(false);
     }
-  }, [token, params.mediaItemId, selectedTags, handleBack]);
+  }, [handleBack, isShareMode, params.mediaItemId, selectedTagIds, token]);
 
   const renderTagItem = useCallback(
     ({ item }: { item: Tag }) => {
-      const isSelected = selectedTags.includes(item.name);
+      const isSelected = selectedTagIds.includes(item.id);
       return (
         <TouchableOpacity
           style={[styles.tagRow, isSelected && styles.tagRowSelected]}
-          onPress={() => handleToggleTag(item.name)}
+          onPress={() => handleToggleTag(item.id)}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel={`${item.name}, ${isSelected ? "selected" : "not selected"}`}
@@ -178,7 +253,7 @@ export default function TagsScreen() {
         </TouchableOpacity>
       );
     },
-    [selectedTags, handleToggleTag],
+    [handleToggleTag, selectedTagIds],
   );
 
   return (
@@ -200,7 +275,7 @@ export default function TagsScreen() {
         </TouchableOpacity>
 
         <Text style={styles.headerTitle}>
-          {selectedTags.length} tag{selectedTags.length !== 1 ? "s" : ""}
+          {selectedTagIds.length} tag{selectedTagIds.length !== 1 ? "s" : ""}
         </Text>
 
         <TouchableOpacity
@@ -219,15 +294,15 @@ export default function TagsScreen() {
       </View>
 
       {/* Selected tags chips */}
-      {selectedTags.length > 0 && (
+      {selectedTagChips.length > 0 && (
         <View style={styles.selectedChipsContainer}>
-          {selectedTags.map((tagName) => (
-            <View key={tagName} style={styles.chip}>
-              <Text style={styles.chipText}>{tagName}</Text>
+          {selectedTagChips.map((tag) => (
+            <View key={tag.id} style={styles.chip}>
+              <Text style={styles.chipText}>{tag.name}</Text>
               <TouchableOpacity
-                onPress={() => handleToggleTag(tagName)}
+                onPress={() => handleRemoveSelectedTag(tag.id)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityLabel={`Remove ${tagName}`}
+                accessibilityLabel={`Remove ${tag.name}`}
               >
                 <Ionicons
                   name="close-circle"

@@ -41,15 +41,50 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+/**
+ * Tiles surfaced in the "AI Artifacts" dropdown. Each row maps to a single
+ * backend artifact type produced by a dedicated worker.
+ */
 const ARTIFACT_TYPES: {
   type: ArtifactType;
   label: string;
   icon: React.ComponentProps<typeof Ionicons>["name"];
 }[] = [
-  { type: "summary", label: "Summary", icon: "document-text-outline" },
-  { type: "quiz", label: "Flashcards", icon: "card-outline" },
-  { type: "notes", label: "Learning Notes", icon: "book-outline" },
+  {
+    type: "summary_short",
+    label: "Summary",
+    icon: "document-text-outline",
+  },
+  {
+    type: "summary_detailed",
+    label: "Detailed summary",
+    icon: "reader-outline",
+  },
+  { type: "notes", label: "Learning notes", icon: "book-outline" },
+  { type: "flashcards", label: "Flashcards", icon: "card-outline" },
+  { type: "quiz", label: "Quiz", icon: "help-circle-outline" },
 ];
+
+/**
+ * Some legacy items still carry the unscoped "summary" type from before the
+ * short/detailed split. Surface them under the "Summary" tile instead of
+ * dropping them on the floor.
+ */
+function bucketArtifactType(raw: ArtifactType): ArtifactType {
+  if (raw === "summary") return "summary_short";
+  return raw;
+}
+
+function buildInitialArtifactStates(): Record<ArtifactType, ArtifactLocalState> {
+  return {
+    summary: { status: "idle" },
+    summary_short: { status: "idle" },
+    summary_detailed: { status: "idle" },
+    notes: { status: "idle" },
+    flashcards: { status: "idle" },
+    quiz: { status: "idle" },
+  };
+}
 
 const ARTIFACT_POLL_INTERVAL_MS = 3000;
 
@@ -58,6 +93,13 @@ type ArtifactLocalState = {
   artifactId?: string;
   error?: string;
 };
+
+type RawContentState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; content: string }
+  | { status: "not_available" }
+  | { status: "error"; message: string };
 
 /**
  * Media Detail Screen.
@@ -236,20 +278,18 @@ interface CompletedDetailViewProps {
 
 function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   const { token } = useAuth();
+  const router = useRouter();
   const { media_item, processing_job } = mediaData;
 
   const [artifactsExpanded, setArtifactsExpanded] = useState(true);
   const [artifactStates, setArtifactStates] = useState<
     Record<ArtifactType, ArtifactLocalState>
   >(() => {
-    const initial: Record<ArtifactType, ArtifactLocalState> = {
-      summary: { status: "idle" },
-      quiz: { status: "idle" },
-      notes: { status: "idle" },
-    };
+    const initial = buildInitialArtifactStates();
 
     for (const artifact of mediaData.artifacts) {
-      initial[artifact.artifact_type] = {
+      const bucket = bucketArtifactType(artifact.artifact_type);
+      initial[bucket] = {
         status: artifact.status,
         artifactId: artifact.artifact_id,
       };
@@ -259,7 +299,8 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     if (artifactStatuses) {
       for (const [type, snapshot] of Object.entries(artifactStatuses)) {
         if (snapshot) {
-          initial[type as ArtifactType] = {
+          const bucket = bucketArtifactType(type as ArtifactType);
+          initial[bucket] = {
             status: snapshot.status,
             artifactId: snapshot.artifact_id,
           };
@@ -272,6 +313,9 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
 
   const mountedRef = useRef(true);
   const artifactPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [rawContent, setRawContent] = useState<RawContentState>({
+    status: "idle",
+  });
 
   useEffect(() => {
     return () => {
@@ -295,14 +339,11 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         );
         if (!mountedRef.current) return;
 
-        const newStates: Record<ArtifactType, ArtifactLocalState> = {
-          summary: { status: "idle" },
-          quiz: { status: "idle" },
-          notes: { status: "idle" },
-        };
+        const newStates = buildInitialArtifactStates();
 
         for (const artifact of response.artifacts) {
-          newStates[artifact.artifact_type] = {
+          const bucket = bucketArtifactType(artifact.artifact_type);
+          newStates[bucket] = {
             status: artifact.status,
             artifactId: artifact.artifact_id,
           };
@@ -312,7 +353,8 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         if (artifactStatuses) {
           for (const [type, snapshot] of Object.entries(artifactStatuses)) {
             if (snapshot) {
-              newStates[type as ArtifactType] = {
+              const bucket = bucketArtifactType(type as ArtifactType);
+              newStates[bucket] = {
                 status: snapshot.status,
                 artifactId: snapshot.artifact_id,
               };
@@ -419,6 +461,58 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     processing_job.status === "ready_for_artifacts" ||
     processing_job.status === "completed";
 
+  const transcriptStatus = media_item.transcript?.status;
+
+  const fetchRawContent = useCallback(async () => {
+    if (!token) return;
+    setRawContent({ status: "loading" });
+    try {
+      const response = await MediaService.getRawContent(
+        token,
+        media_item.media_item_id,
+      );
+      if (!mountedRef.current) return;
+      const trimmed = (response.content ?? "").trim();
+      if (!trimmed) {
+        setRawContent({ status: "not_available" });
+        return;
+      }
+      setRawContent({ status: "ready", content: trimmed });
+    } catch (err) {
+      if (!mountedRef.current) return;
+      const httpStatus = (err as { status?: number } | undefined)?.status;
+      if (httpStatus === 404) {
+        setRawContent({ status: "not_available" });
+        return;
+      }
+      setRawContent({
+        status: "error",
+        message: getFriendlyErrorMessage(err, {
+          fallback: "Unable to load the transcript right now.",
+        }),
+      });
+    }
+  }, [token, media_item.media_item_id]);
+
+  useEffect(() => {
+    if (!mediaReady) {
+      // Reset whenever processing rewinds (e.g. user retries an item).
+      setRawContent((prev) => (prev.status === "idle" ? prev : { status: "idle" }));
+      return;
+    }
+    if (transcriptStatus === "failed") {
+      setRawContent({ status: "not_available" });
+      return;
+    }
+    setRawContent((prev) => {
+      if (prev.status === "idle" || prev.status === "error") {
+        void fetchRawContent();
+        return { status: "loading" };
+      }
+      return prev;
+    });
+  }, [mediaReady, transcriptStatus, fetchRawContent]);
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <Header onBack={onBack} />
@@ -490,6 +584,9 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
                   icon={artifact.icon}
                   state={artifactStates[artifact.type]}
                   onGenerate={() => handleGenerate(artifact.type)}
+                  onView={(artifactId) =>
+                    router.push(`/artifacts/${artifactId}`)
+                  }
                   mediaReady={mediaReady}
                 />
               ))}
@@ -502,6 +599,8 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
           <TranscriptSection
             transcript={media_item.transcript}
             processingStatus={processing_job.status}
+            rawContent={rawContent}
+            onRetryRawContent={fetchRawContent}
           />
         </View>
       </ScrollView>
@@ -541,6 +640,7 @@ function ArtifactRow({
   icon,
   state,
   onGenerate,
+  onView,
   mediaReady,
 }: {
   type: ArtifactType;
@@ -548,6 +648,7 @@ function ArtifactRow({
   icon: React.ComponentProps<typeof Ionicons>["name"];
   state: ArtifactLocalState;
   onGenerate: () => void;
+  onView: (artifactId: string) => void;
   mediaReady: boolean;
 }) {
   const isInProgress =
@@ -581,6 +682,10 @@ function ArtifactRow({
             </View>
             <Pressable
               style={styles.artifactViewButton}
+              onPress={() =>
+                state.artifactId && onView(state.artifactId)
+              }
+              disabled={!state.artifactId}
               accessibilityLabel={`View ${label}`}
               accessibilityRole="button"
             >
@@ -628,9 +733,13 @@ function ArtifactRow({
 function TranscriptSection({
   transcript,
   processingStatus,
+  rawContent,
+  onRetryRawContent,
 }: {
   transcript: MediaStatusResponse["media_item"]["transcript"];
   processingStatus: ProcessingJobLifecycleStatus;
+  rawContent: RawContentState;
+  onRetryRawContent: () => void;
 }) {
   if (!transcript) {
     return (
@@ -702,40 +811,108 @@ function TranscriptSection({
         )}
       </View>
 
-      {/* Status indicator */}
+      {/* When the transcript is ready, surface the actual content inline.
+          Until it's ready (or if fetching the body fails), keep the status row
+          so the user knows where things stand. */}
+      {isReady ? (
+        <TranscriptContent state={rawContent} onRetry={onRetryRawContent} />
+      ) : (
+        <View style={styles.transcriptStatusRow}>
+          {isProcessing && (
+            <ActivityIndicator
+              size="small"
+              color={Colors.primary}
+              style={{ marginRight: Spacing.sm }}
+            />
+          )}
+          {isFailed && (
+            <Ionicons
+              name="close-circle"
+              size={16}
+              color={Colors.error}
+              style={{ marginRight: Spacing.sm }}
+            />
+          )}
+          <Text
+            style={[
+              styles.transcriptStatusText,
+              isFailed && { color: Colors.error },
+            ]}
+          >
+            {statusMessages[transcript.status] || "Processing..."}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function TranscriptContent({
+  state,
+  onRetry,
+}: {
+  state: RawContentState;
+  onRetry: () => void;
+}) {
+  if (state.status === "ready") {
+    return (
+      <View>
+        <Text style={styles.transcriptBody}>{state.content}</Text>
+      </View>
+    );
+  }
+
+  if (state.status === "loading" || state.status === "idle") {
+    return (
       <View style={styles.transcriptStatusRow}>
-        {isProcessing && (
-          <ActivityIndicator
-            size="small"
-            color={Colors.primary}
-            style={{ marginRight: Spacing.sm }}
-          />
-        )}
-        {isFailed && (
-          <Ionicons
-            name="close-circle"
-            size={16}
-            color={Colors.error}
-            style={{ marginRight: Spacing.sm }}
-          />
-        )}
-        {isReady && (
-          <Ionicons
-            name="checkmark-circle"
-            size={16}
-            color={Colors.primary}
-            style={{ marginRight: Spacing.sm }}
-          />
-        )}
-        <Text
-          style={[
-            styles.transcriptStatusText,
-            isFailed && { color: Colors.error },
-          ]}
-        >
-          {statusMessages[transcript.status] || "Processing..."}
+        <ActivityIndicator
+          size="small"
+          color={Colors.primary}
+          style={{ marginRight: Spacing.sm }}
+        />
+        <Text style={styles.transcriptStatusText}>Loading transcript…</Text>
+      </View>
+    );
+  }
+
+  if (state.status === "not_available") {
+    return (
+      <View style={styles.transcriptStatusRow}>
+        <Ionicons
+          name="information-circle-outline"
+          size={16}
+          color={Colors.textMuted}
+          style={{ marginRight: Spacing.sm }}
+        />
+        <Text style={styles.transcriptStatusText}>
+          Transcript content is not available for this item.
         </Text>
       </View>
+    );
+  }
+
+  return (
+    <View>
+      <View style={styles.transcriptStatusRow}>
+        <Ionicons
+          name="alert-circle"
+          size={16}
+          color={Colors.error}
+          style={{ marginRight: Spacing.sm }}
+        />
+        <Text style={[styles.transcriptStatusText, { color: Colors.error }]}>
+          {state.message}
+        </Text>
+      </View>
+      <Pressable
+        style={styles.refreshButton}
+        onPress={onRetry}
+        accessibilityLabel="Retry loading transcript"
+        accessibilityRole="button"
+      >
+        <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
+        <Text style={styles.refreshButtonText}>Retry</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1098,6 +1275,12 @@ const styles = StyleSheet.create({
     fontSize: Typography.body.fontSize,
     color: Colors.textMain,
     lineHeight: Typography.body.lineHeight,
+  },
+  transcriptBody: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textMain,
+    lineHeight: 24,
+    paddingVertical: Spacing.sm,
   },
   transcriptEmpty: {
     alignItems: "center",
