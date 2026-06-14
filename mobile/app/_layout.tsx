@@ -39,7 +39,7 @@ export default function RootLayout() {
                     headerShown: false,
                     contentStyle: { backgroundColor: Colors.background },
                   }}
-                />
+                >
                 <Stack.Screen
                   name="onboarding/language"
                   options={{
