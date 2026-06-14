@@ -1,5 +1,14 @@
 import { apiRequest } from "./apiClient";
 import type { Tag, Collection } from "../types/organization";
+import type { MediaListItem } from "../types/media";
+
+interface MediaListResponse {
+  status: string;
+  items: MediaListItem[];
+  total: number;
+  next_cursor?: string | null;
+  has_more: boolean;
+}
 
 interface TagListResponse {
   tags: Array<{
@@ -110,6 +119,31 @@ export class OrganizationService {
       token,
     });
     return response.folders.map(toCollection);
+  }
+
+  /**
+   * Fetch the media items stored inside a collection.
+   *
+   * The backend `folder_id` filter is inclusive of sub-folders, so callers that
+   * want only the media stored *directly* in a collection (the file-explorer
+   * behaviour, where sub-collections are surfaced as folders) should keep the
+   * rows whose `folder_id` equals the requested collection id.
+   *
+   * GET /api/media?folder_id=:collectionId&limit=:limit
+   */
+  static async getCollectionMedia(
+    token: string,
+    collectionId: string,
+    limit = 100,
+  ): Promise<MediaListItem[]> {
+    const params = new URLSearchParams();
+    params.set("folder_id", collectionId);
+    params.set("limit", String(limit));
+    const response = await apiRequest<MediaListResponse>(
+      `/api/media?${params.toString()}`,
+      { method: "GET", token },
+    );
+    return response.items;
   }
 
   /**

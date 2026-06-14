@@ -62,6 +62,18 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen
+                  name="media/collections/index"
+                  options={{
+                    animation: "slide_from_right",
+                  }}
+                />
+                <Stack.Screen
+                  name="media/collections/[id]"
+                  options={{
+                    animation: "slide_from_right",
+                  }}
+                />
+                <Stack.Screen
                   name="artifacts/[artifactId]"
                   options={{
                     animation: "slide_from_right",
