@@ -1,9 +1,10 @@
 ---
 id: task-199
 title: Ajouter un explorateur de collections pour parcourir les médias rangés
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-14 21:28'
+updated_date: '2026-06-14 21:44'
 labels:
   - mobile
   - collections

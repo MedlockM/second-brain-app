@@ -1,9 +1,10 @@
 ---
 id: task-196
 title: Audit and rebalance worker timeouts and retry policies for robustness vs UX
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-12 15:00'
+updated_date: '2026-06-14 21:36'
 labels:
   - reliability
   - backend
@@ -144,6 +145,7 @@ The audit must explicitly identify and resolve:
 
 ## Implementation Notes
 
+<!-- SECTION:NOTES:BEGIN -->
 **Mode**: initial
 
 **Deliverable**: `docs/research/task-196-worker-timeouts-audit/README.md`
@@ -157,3 +159,4 @@ Key findings:
 4. Recommended all `max_retries` be env-var configurable with consistent naming.
 
 **Recommendation awaits owner validation** (owner_decision: pending).
+<!-- SECTION:NOTES:END -->
