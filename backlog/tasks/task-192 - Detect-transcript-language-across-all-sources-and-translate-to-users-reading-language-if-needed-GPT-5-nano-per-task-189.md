@@ -3,10 +3,10 @@ id: task-192
 title: >-
   Detect transcript language across all sources and translate to user's reading
   language if needed (GPT-5-nano per task-189)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-11 10:01'
-updated_date: '2026-06-12 16:03'
+updated_date: '2026-06-14 19:31'
 labels:
   - feature
   - ingestion
