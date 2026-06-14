@@ -22,6 +22,9 @@ from media_summarizer.core.models.media_artifact import (
     MediaArtifactStatus,
     MediaArtifactType,
 )
+from media_summarizer.core.services.transcript_translation import (
+    ensure_translated_transcript,
+)
 from media_summarizer.utils import artifact_idempotence, media_artifacts, s3, sqs
 from media_summarizer.utils.logging_config import log_event
 
@@ -254,6 +257,127 @@ async def _load_transcript_bytes(job: ProcessingJob) -> Tuple[str, bytes, str]:
     return transcript_s3_key, transcript_bytes, _sha256_bytes(transcript_bytes)
 
 
+def _job_source_language_hint(job: ProcessingJob) -> Optional[str]:
+    """Reliable source-provided language tag, if any.
+
+    Deepgram persists the detected/forced language in ``transcription_metadata``;
+    YouTube/TikTok subtitle workers and the Podcasting 2.0 short-circuit do the
+    same. We treat that tag as a trustworthy detection hint.
+    """
+    metadata = getattr(job, "transcription_metadata", None)
+    if isinstance(metadata, dict):
+        for key in ("detected_language", "language"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    return None
+
+
+class _EffectiveTranscript:
+    """The transcript (possibly translated) that artifacts will be built from."""
+
+    def __init__(
+        self,
+        *,
+        transcript_s3_key: str,
+        transcript_sha256: str,
+        translation_metadata: Dict[str, Any],
+    ) -> None:
+        self.transcript_s3_key = transcript_s3_key
+        self.transcript_sha256 = transcript_sha256
+        self.translation_metadata = translation_metadata
+
+    @property
+    def target_language(self) -> Optional[str]:
+        return self.translation_metadata.get("target_language")
+
+
+def _with_target_language(
+    parameters: Optional[Dict[str, Any]],
+    effective: "_EffectiveTranscript",
+) -> Dict[str, Any]:
+    """Force ``parameters['language']`` to the user's target reading language.
+
+    Downstream generators build their ``_build_*_prompt`` ``language`` instruction
+    from this value, so summary/notes/flashcards/quiz are produced in the target
+    language regardless of the source language (AC#6).
+    """
+    merged = dict(parameters or {})
+    target = effective.target_language
+    if target:
+        merged["language"] = target
+    return merged
+
+
+async def _resolve_effective_transcript(
+    *,
+    job: ProcessingJob,
+    reading_language: Optional[str],
+) -> "_EffectiveTranscript":
+    """Load the transcript, run the common detect+translate step, and return the
+    effective transcript key + sha that artifact generation must consume.
+
+    Persists the detected language back onto the job's ``transcription_metadata``
+    (idempotent) so detection is not repeated on every artifact request.
+    """
+    transcript_s3_key, transcript_bytes, original_sha256 = await _load_transcript_bytes(job)
+    transcript_text = transcript_bytes.decode("utf-8", errors="ignore")
+
+    outcome = await ensure_translated_transcript(
+        transcript_s3_key=transcript_s3_key,
+        transcript_text=transcript_text,
+        target_language=reading_language,
+        source=getattr(job, "source_platform", None),
+        source_language_hint=_job_source_language_hint(job),
+        transcript_bucket=TRANSCRIPT_BUCKET,
+    )
+
+    await _persist_detected_language(job, outcome.detected_language)
+
+    if outcome.transcript_s3_key == transcript_s3_key:
+        effective_sha = original_sha256
+    else:
+        translated_bytes = await s3.download_file_to_memory(
+            bucket=TRANSCRIPT_BUCKET,
+            key=outcome.transcript_s3_key,
+        )
+        effective_sha = _sha256_bytes(translated_bytes)
+
+    return _EffectiveTranscript(
+        transcript_s3_key=outcome.transcript_s3_key,
+        transcript_sha256=effective_sha,
+        translation_metadata=outcome.metadata(),
+    )
+
+
+async def _persist_detected_language(
+    job: ProcessingJob,
+    detected_language: Optional[str],
+) -> None:
+    """Best-effort persistence of the detected language on the job."""
+    if not detected_language:
+        return
+    metadata = dict(getattr(job, "transcription_metadata", None) or {})
+    if metadata.get("detected_language") == detected_language:
+        return
+    metadata["detected_language"] = detected_language
+    try:
+        job.set_transcription_metadata(metadata)
+        from media_summarizer.utils import database_async
+
+        await database_async.update_processing_job(job)
+    except Exception as exc:  # pragma: no cover - non-fatal
+        log_event(
+            logger,
+            logging.WARNING,
+            "translation.detected_language_persist_failed",
+            "Failed to persist detected_language on job (non-fatal)",
+            media_item_id=getattr(job, "id", None),
+            error_type=type(exc).__name__,
+            detail=str(exc)[:200],
+        )
+
+
 def _build_generation_lock(
     *,
     artifact_type: MediaArtifactType,
@@ -301,6 +425,7 @@ async def request_artifact_generation(
     job: ProcessingJob,
     artifact_type: Any,
     parameters: Optional[Dict[str, Any]] = None,
+    reading_language: Optional[str] = None,
 ) -> Tuple[MediaArtifactRecord, bool]:
     if not ARTIFACT_GENERATION_ENABLED:
         raise ArtifactGenerationDisabledError("Artifact generation is disabled.")
@@ -315,7 +440,17 @@ async def request_artifact_generation(
             f"Artifact type '{resolved_type.value}' is not implemented yet."
         )
 
-    normalized_parameters = normalize_artifact_parameters(parameters)
+    # Common detect+translate step (task-192): runs once here, before fingerprint
+    # computation, so the cache/idempotence keys reflect the transcript actually
+    # fed to the model and every source funnels through the same logic.
+    translation = await _resolve_effective_transcript(
+        job=job,
+        reading_language=reading_language,
+    )
+
+    normalized_parameters = normalize_artifact_parameters(
+        _with_target_language(parameters, translation)
+    )
     request_fingerprint = build_request_fingerprint(
         media_item_id=media_item_id,
         artifact_type=resolved_type,
@@ -359,7 +494,8 @@ async def request_artifact_generation(
         )
         return existing, True
 
-    transcript_s3_key, _transcript_bytes, transcript_sha256 = await _load_transcript_bytes(job)
+    transcript_s3_key = translation.transcript_s3_key
+    transcript_sha256 = translation.transcript_sha256
     generator_version = get_generator_version(resolved_type)
     generation_fingerprint = build_generation_fingerprint(
         transcript_sha256=transcript_sha256,
@@ -510,6 +646,9 @@ async def request_artifact_generation(
             "source_title": getattr(job, "title", None),
             "media_title": getattr(job, "title", None),
             "media_image": getattr(job, "media_image", None),
+            # Translation provenance flows into the artifact envelope so the
+            # mobile UI can render the "Translated from XX" badge (task-192).
+            "translation": translation.translation_metadata,
         }
         try:
             await sqs.send_message(

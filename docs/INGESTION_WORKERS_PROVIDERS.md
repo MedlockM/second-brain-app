@@ -4,7 +4,7 @@ Authoritative reference for the ingestion pipeline. Lists each source type's
 primary extraction path, fallback chain, terminal failure behavior, and
 downstream hand-off.
 
-Last verified against codebase: 2026-06-12 (post task-195 unified artifact-generator consolidation).
+Last verified against codebase: 2026-06-14 (post task-192 common transcript detect+translate step).
 
 ---
 
@@ -20,9 +20,10 @@ Last verified against codebase: 2026-06-12 (post task-195 unified artifact-gener
 8. [Document](#document)
 9. [Audio (direct URL / upload)](#audio-direct-url--upload)
 10. [RSS Feed Polling](#rss-feed-polling)
-11. [Cross-cutting: Deepgram Modes](#cross-cutting-deepgram-modes)
-12. [Decision Tree: URL Classification and Routing](#decision-tree-url-classification-and-routing)
-13. [References](#references)
+11. [Cross-cutting: Transcript Language Detection & Translation](#cross-cutting-transcript-language-detection--translation)
+12. [Cross-cutting: Deepgram Modes](#cross-cutting-deepgram-modes)
+13. [Decision Tree: URL Classification and Routing](#decision-tree-url-classification-and-routing)
+14. [References](#references)
 
 ---
 
@@ -461,6 +462,91 @@ Ref: `rss_feed_poll_worker.py::_route_item_to_pipeline`, `rss_feed_poll_worker.p
 
 ---
 
+## Cross-cutting: Transcript Language Detection & Translation
+
+Since task-192 a single, **source-agnostic** detect+translate step runs for **every**
+source — YouTube, TikTok, Instagram, audio/podcast (Deepgram), article, image OCR,
+document (PDF/DOCX/PPTX), X, shared text, and any future source. It is **not**
+wired per source. It sits at the only point every source funnels through after a
+transcript is available and **before** artifact generation: inside
+`artifact_service.request_artifact_generation()`, via
+`core/services/transcript_translation.py::ensure_translated_transcript()`.
+
+Because all transcripts converge on `ProcessingJob.transcription_s3_key` and all
+artifacts (summary_short, summary_detailed, notes, flashcards, quiz) are requested
+through `request_artifact_generation()`, this single insertion point covers the
+whole matrix with no per-worker duplication.
+
+### Pipeline position
+
+```
+[any source worker] -> transcript in S3 (job.transcription_s3_key)
+        |
+        v
+request_artifact_generation()        <-- common step lives here
+    1. detect language
+    2. decide translation
+    3. translate (GPT-5-nano) if needed   --> translated transcript in S3
+    4. fingerprint + enqueue artifact (transcript_s3_key = translated key)
+        |
+        v
+[artifact-generator-queue] -> summary / notes / flashcards / quiz
+```
+
+### Step behavior
+
+| Phase | Detail |
+|---|---|
+| **Detect** | Prefer a reliable source tag when present (Deepgram `detected_language` / forced `language` stored in `transcription_metadata`, YouTube subtitle language, `<podcast:transcript language>`). Otherwise classify the text locally with **`langdetect`** (free, deterministic via `DetectorFactory.seed=0`). Persists `detected_language` (ISO 639-1) on `transcription_metadata`. |
+| **Decide** | Translate only when `detected_language != reading_language` (user preference from task-190) **and** the target is one of the 11 V1 languages (task-189: FR, EN, ES, DE, IT, PT, NL, JA, ZH, AR, HI). |
+| **Translate** | `gpt-5-nano-2025-08-07` via the existing OpenAI stack (task-189 owner decision). System prompt preserves oral register, paragraphs, timestamps and speaker labels. **No chunking** for V1 (400k-token window). |
+| **Persist** | Translated transcript written to the same `TRANSCRIPT_BUCKET` under a deterministic key `…​.translated.<target>.<ext>` with S3 metadata `is-translated`, `translated-from`, `target-language`. |
+| **Downstream** | The artifact request switches `transcript_s3_key` to the translated key and forces `parameters.language = target_language`, so every generator's `_build_*_prompt` produces output in the user's reading language. |
+
+### Detection method choice (justification)
+
+Local `langdetect` is preferred over an LLM-based detection prompt because the most
+common path is "content already in the user's language" — local detection keeps that
+path **zero-cost** and reserves the paid GPT-5-nano call for transcripts that genuinely
+need translating. This matches the task-189 benchmark's explicit guidance.
+
+### Idempotence
+
+The translation cache key is `(transcript_s3_key, target_language)`, materialized as the
+deterministic translated S3 key. Before translating, the step checks
+`s3.object_exists(...)`; an existing object is reused and never re-translated. Artifact
+generation idempotence then layers on top via the existing generation fingerprint
+(computed from the translated transcript's sha256).
+
+### Observability
+
+`translation.completed` / `translation.skipped` / `translation.cache_hit` /
+`translation.failed` structured logs carry: `source`, `detected_language`,
+`target_language`, `detection_method` (`source_tag` | `langdetect` | `unknown`),
+`model`, `prompt_tokens` / `completion_tokens` / `total_tokens`, `duration_ms`,
+`estimated_cost_usd`, and `translated` (bool).
+
+### Failure handling
+
+Translation is retried with exponential backoff (`TRANSLATION_MAX_RETRIES`, default 3).
+On terminal failure the step falls back to passing the **original** transcript to artifact
+generation and flags `translation_failed=true` in the artifact envelope's `translation`
+block. The mobile artifact screen surfaces this as a "Translation unavailable — shown in
+&lt;language&gt;" badge so the user knows the content was not translated.
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `TRANSLATION_LLM_MODEL` | `gpt-5-nano-2025-08-07` | Translation model (task-189). |
+| `TRANSLATION_TIMEOUT_SECONDS` | `180` | Per-call timeout. |
+| `TRANSLATION_MAX_RETRIES` | `3` | Retry attempts before fallback. |
+| `TRANSLATION_BACKOFF_BASE_SECONDS` | `1.0` | Exponential backoff base. |
+
+Ref: `core/services/transcript_translation.py::ensure_translated_transcript`,
+`core/services/artifact_service.py::_resolve_effective_transcript`,
+`workers/artifact_generator/worker.py` (writes the `translation` envelope block).
+
+---
+
 ## Cross-cutting: Deepgram Modes
 
 Since task-158, each producer worker / endpoint declares an explicit `deepgram_mode` in the SQS message body sent to `deepgram-transcription-queue`. This eliminates wasted pull-attempt timeouts for sources where Deepgram cannot fetch audio directly (CDN IP-blocking).
@@ -629,6 +715,9 @@ All artifact generation (flashcards, notes, quiz, summary_short, summary_detaile
 | task-175 | JobStatus vocabulary refactor (drop `RSS_RESOLVING` / `DOWNLOADING`, introduce `EXTRACTING`, drop progress percentage) | `backlog/tasks/task-175 - ...md` |
 | task-184 | LlamaParse fallback test seam — replace Lambda env-var toggle with per-request filename sentinel | `backlog/tasks/task-184 - ...md` |
 | task-185 | TikTok IP-block fallback test seam — sentinel URL + migration to Apify TikTok transcript actor | `backlog/tasks/task-185 - ...md` |
+| task-189 | Transcript translation provider selection (GPT-5-nano, 11 V1 languages, no chunking) | `docs/research/task-189-transcript-translation-benchmark/README.md` |
+| task-190 | Reading-language user preference (foundation for translation target language) | `backlog/tasks/task-190 - ...md` |
+| task-192 | Common source-agnostic transcript detect+translate step + mobile "Translated from XX" badge | `backlog/tasks/task-192 - ...md` |
 
 ### Domain models
 

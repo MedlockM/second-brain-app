@@ -246,11 +246,22 @@ async def trigger_summary_short_generation(media_item_id: str) -> Optional[str]:
         )
         return None
 
+    # Resolve the owner's reading language so the digest summary is produced in
+    # the user's language (common detect+translate step, task-192).
+    reading_language: Optional[str] = None
+    try:
+        user = await database_async.get_user_by_id(job.user_id)
+        if user is not None:
+            reading_language = user.reading_language
+    except Exception:  # pragma: no cover - non-fatal lookup
+        reading_language = None
+
     try:
         record, reused = await request_artifact_generation(
             media_item_id=media_item_id,
             job=job,
             artifact_type=MediaArtifactType.SUMMARY_SHORT,
+            reading_language=reading_language,
         )
         return record.artifact_id
     except ArtifactServiceError as exc:

@@ -82,6 +82,7 @@ async def create_artifact(
             job=job,
             artifact_type=artifact_type,
             parameters=payload.parameters,
+            reading_language=current_user.reading_language,
         )
 
         log_event(

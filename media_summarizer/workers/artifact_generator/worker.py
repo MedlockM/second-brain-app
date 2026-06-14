@@ -147,6 +147,8 @@ async def process_message(message: Dict[str, Any]) -> None:
     language = parameters.get("language")
     podcast_title = body.get("podcast_title")
     episode_title = body.get("episode_title")
+    # Translation provenance set by the common detect+translate step (task-192).
+    translation = body.get("translation") if isinstance(body.get("translation"), dict) else None
 
     # Resolve artifact type
     try:
@@ -230,21 +232,25 @@ async def process_message(message: Dict[str, Any]) -> None:
         # Build artifact content
         artifact_content = generator.build_artifact_content(validated, body=body)
 
+        envelope: Dict[str, Any] = {
+            "artifact_id": artifact_id,
+            "media_item_id": body.get("media_item_id"),
+            "artifact_type": artifact_type.value,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "source": {
+                "transcript_s3_key": transcript_s3_key,
+                "generator_version": body.get("generator_version"),
+                "podcast_title": podcast_title,
+                "episode_title": episode_title,
+            },
+            "content": artifact_content,
+        }
+        if translation is not None:
+            envelope["translation"] = translation
+
         await complete_artifact_generation(
             artifact_id=artifact_id,
-            content={
-                "artifact_id": artifact_id,
-                "media_item_id": body.get("media_item_id"),
-                "artifact_type": artifact_type.value,
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "source": {
-                    "transcript_s3_key": transcript_s3_key,
-                    "generator_version": body.get("generator_version"),
-                    "podcast_title": podcast_title,
-                    "episode_title": episode_title,
-                },
-                "content": artifact_content,
-            },
+            content=envelope,
         )
 
         # Post-generation hooks (per-kind)
