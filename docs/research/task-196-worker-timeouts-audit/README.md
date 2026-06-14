@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Audit: Worker Timeouts and Retry Policies for Robustness vs UX
 
 ## Owner Validation
 
-**Decision**: _(to be filled by the owner after review -- free text describing the final decision: accept recommendation X, reject because Y, accept with modifications Z, OR, if redo, precise correction instructions for the next pass)_
+**Decision**: ce qui est recommandé par ce benchmark
 **Validated at**: _(ISO date to be filled by the owner)_
 
 ---
