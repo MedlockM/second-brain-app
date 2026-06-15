@@ -38,6 +38,11 @@ from media_summarizer.utils.logging_config import (
     setup_logging,
 )
 from media_summarizer.core.services.minute_pool import finalize_usage
+from media_summarizer.core.services.transcript_translation import (
+    ensure_translated_transcript,
+    job_source_language_hint,
+    persist_detected_language,
+)
 from media_summarizer.workers.base_worker import process_message_with_retry
 
 logger = logging.getLogger(__name__)
@@ -62,6 +67,9 @@ class RetryableDeepgramError(Exception):
 
 TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
+)
+PREWARM_TRANSLATION_TIMEOUT_SECONDS = int(
+    os.environ.get("PREWARM_TRANSLATION_TIMEOUT_SECONDS", "45")
 )
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
 EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
@@ -499,6 +507,48 @@ async def publish_failure_event(
     )
 
 
+async def _prewarm_translated_transcript(
+    job: Any, transcript_s3_key: str, transcript_text: str
+) -> None:
+    """Pre-translate the transcript to the user's reading language (task-192).
+
+    Runs synchronously inside the Deepgram worker (600s Lambda timeout),
+    before the job is marked completed, so the S3-cached translation is warm
+    by the time the mobile app calls /raw-content -- keeping that endpoint
+    well within API Gateway's hard 30s integration timeout.
+    """
+    from media_summarizer.utils import database_async
+
+    user_id = getattr(job, "user_id", None)
+    if not user_id:
+        return
+    try:
+        user = await database_async.get_user_by_id(user_id)
+    except Exception as exc:
+        logger.warning(f"Failed to load user {user_id} for transcript prewarm: {exc}")
+        return
+
+    reading_language = getattr(user, "reading_language", None) if user else None
+    if not reading_language:
+        return
+
+    try:
+        outcome = await ensure_translated_transcript(
+            transcript_s3_key=transcript_s3_key,
+            transcript_text=transcript_text,
+            target_language=reading_language,
+            source=getattr(job, "source_platform", None),
+            source_language_hint=job_source_language_hint(job),
+            transcript_bucket=TRANSCRIPT_BUCKET,
+        )
+        await persist_detected_language(job, outcome.detected_language)
+    except Exception as exc:
+        job_id = getattr(job, "id", None)
+        logger.warning(
+            f"Failed to pre-warm translated transcript for job {job_id}: {exc}"
+        )
+
+
 async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
     job_id = message_body.get("job_id")
     audio_url = message_body.get("audio_url")
@@ -666,6 +716,17 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
         job.set_transcription_metadata(transcription_metadata)
         job.set_processing_duration("transcription", int(transcription_duration))
         await database_async.update_processing_job(job)
+
+        try:
+            await asyncio.wait_for(
+                _prewarm_translated_transcript(job, transcript_s3_key, transcript_text),
+                timeout=PREWARM_TRANSLATION_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Transcript prewarm timed out after "
+                f"{PREWARM_TRANSLATION_TIMEOUT_SECONDS}s for job {job_id}"
+            )
 
     audio_duration_seconds_raw = message_body.get("audio_duration_seconds")
     try:

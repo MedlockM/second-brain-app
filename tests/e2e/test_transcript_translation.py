@@ -4,16 +4,17 @@ Scenario: a user with ``reading_language=fr`` ingests an English-language
 Instagram Reel and requests a summary artifact.
 
 Expected:
-- as soon as ingestion reaches ``ready_for_artifacts``, the async
-  ``media_completed_worker`` pre-translates the raw transcript to the user's
-  ``reading_language`` (task-192 follow-up) and caches it in S3, so the
-  FIRST ``/raw-content`` call is a cache hit and returns well within a few
-  seconds. This is a regression test for the "Unable to load the transcript
-  right now" bug: the synchronous translation call (GPT-5-nano, ~18-27s) was
-  dangerously close to API Gateway HTTP API's hard 30s integration timeout,
-  causing client-visible 504s even though the Lambda eventually succeeded.
-  By pre-warming the cache off the request path, ``/raw-content`` must stay
-  comfortably under that limit.
+- the Deepgram transcription worker pre-translates the raw transcript to the
+  user's ``reading_language`` (task-192 follow-up) and caches it in S3
+  *before* marking the job completed, so by the time ingestion reaches
+  ``ready_for_artifacts`` the FIRST ``/raw-content`` call is a cache hit and
+  returns well within a few seconds. This is a regression test for the
+  "Unable to load the transcript right now" bug: the synchronous translation
+  call (GPT-5-nano, ~18-27s) was dangerously close to API Gateway HTTP API's
+  hard 30s integration timeout, causing client-visible 504s even though the
+  Lambda eventually succeeded. By pre-warming the cache inside the
+  long-running (600s timeout) transcription worker, ``/raw-content`` must
+  stay comfortably under that limit.
 - the underlying transcript (``/raw-content``) is translated to French: the
   user's preferred reading language applies to the raw transcript too, with
   translation provenance exposed in the response's ``translation`` field.
@@ -28,7 +29,6 @@ session.
 
 from __future__ import annotations
 
-import asyncio
 import time
 import uuid
 from typing import AsyncIterator, Dict
@@ -113,13 +113,11 @@ async def test_instagram_reel_translated_for_french_reader(
         f"ingestion stayed in {media_status}: {body}"
     )
 
-    # 2. Give the async media_completed_worker time to pre-translate the
-    # transcript to the user's reading_language (task-192 follow-up) and
-    # cache it in S3. The OpenAI translation call alone takes ~18-27s, so a
-    # generous grace period is needed -- this happens off the request path,
-    # in the worker triggered by the episode-completed-events queue.
-    await asyncio.sleep(70)
-
+    # 2. By the time ingestion reaches ready_for_artifacts, the Deepgram
+    # worker has already pre-translated the transcript to the user's
+    # reading_language (task-192 follow-up) and cached it in S3 -- it runs
+    # this step synchronously, before marking the job completed, inside its
+    # own 600s Lambda timeout. So no extra grace period is needed here.
     # The FIRST /raw-content call must now be a cache hit: a tight timeout
     # (well under API Gateway's hard 30s integration timeout) proves the
     # translation was NOT computed synchronously on this request. If the
