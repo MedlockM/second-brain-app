@@ -1407,6 +1407,15 @@ class RawContentResponse(BaseModel):
         None,
         description="Detected source format (deepgram_json, plain_text, article_text, social_post, ocr)",
     )
+    translation: Optional[dict] = Field(
+        None,
+        description=(
+            "Translation provenance when the content was translated to the "
+            "user's reading_language (task-192): is_translated, "
+            "translated_from, target_language, detected_language, "
+            "detection_method, translation_failed"
+        ),
+    )
 
 
 # ---------- Raw Content endpoint ----------
@@ -1459,7 +1468,7 @@ async def get_media_raw_content(
                 detail="Access denied",
             )
 
-        raw = await get_raw_content(job)
+        raw = await get_raw_content(job, reading_language=current_user.reading_language)
 
         log_event(
             logger,
@@ -1469,6 +1478,7 @@ async def get_media_raw_content(
             media_item_id=media_item_id,
             source_format=raw.source_format,
             content_length=len(raw.content),
+            is_translated=(raw.translation or {}).get("is_translated", False),
         )
 
         return RawContentResponse(
@@ -1478,6 +1488,7 @@ async def get_media_raw_content(
             content_type=raw.content_type,
             media_type=raw.media_type,
             source_format=raw.source_format,
+            translation=raw.translation,
         )
 
     except RawContentNotAvailableError as exc:

@@ -419,13 +419,10 @@ output "dlq_arns" {
     instagram_ingestion     = aws_sqs_queue.instagram_ingestion_dlq.arn
     tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion_dlq.arn
     deepgram_transcription  = aws_sqs_queue.deepgram_transcription_dlq.arn
-    summarization           = aws_sqs_queue.summarization_dlq.arn
+    artifact_generator      = aws_sqs_queue.artifact_generator_dlq.arn
     document_parsing        = aws_sqs_queue.document_parsing_dlq.arn
     search_indexing         = aws_sqs_queue.search_indexing_dlq.arn
     rss_feed_poll           = aws_sqs_queue.rss_feed_poll_dlq.arn
     media_completed_events  = aws_sqs_queue.media_completed_events_dlq.arn
-    flashcards              = aws_sqs_queue.flashcards_dlq.arn
-    notes                   = aws_sqs_queue.notes_dlq.arn
-    quiz                    = aws_sqs_queue.quiz_dlq.arn
   }
 }

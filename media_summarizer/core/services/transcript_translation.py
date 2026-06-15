@@ -501,3 +501,44 @@ async def ensure_translated_transcript(
         target_language=normalized_target,
         is_translated=True,
     )
+
+
+def job_source_language_hint(job: Any) -> Optional[str]:
+    """Reliable source-provided language tag from a job's transcription metadata.
+
+    Deepgram persists the detected/forced language in ``transcription_metadata``;
+    YouTube/TikTok subtitle workers and the Podcasting 2.0 short-circuit do the
+    same. We treat that tag as a trustworthy detection hint.
+    """
+    metadata = getattr(job, "transcription_metadata", None)
+    if isinstance(metadata, dict):
+        for key in ("detected_language", "language"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    return None
+
+
+async def persist_detected_language(job: Any, detected_language: Optional[str]) -> None:
+    """Best-effort persistence of the detected language on the job (idempotent)."""
+    if not detected_language:
+        return
+    metadata = dict(getattr(job, "transcription_metadata", None) or {})
+    if metadata.get("detected_language") == detected_language:
+        return
+    metadata["detected_language"] = detected_language
+    try:
+        job.set_transcription_metadata(metadata)
+        from media_summarizer.utils import database_async
+
+        await database_async.update_processing_job(job)
+    except Exception as exc:  # pragma: no cover - non-fatal
+        log_event(
+            logger,
+            logging.WARNING,
+            "translation.detected_language_persist_failed",
+            "Failed to persist detected_language on job (non-fatal)",
+            media_item_id=getattr(job, "id", None),
+            error_type=type(exc).__name__,
+            detail=str(exc)[:200],
+        )

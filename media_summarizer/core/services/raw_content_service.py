@@ -15,6 +15,11 @@ import re
 from typing import Optional
 
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.services.transcript_translation import (
+    ensure_translated_transcript,
+    job_source_language_hint,
+    persist_detected_language,
+)
 from media_summarizer.utils import s3
 
 logger = logging.getLogger(__name__)
@@ -39,14 +44,19 @@ class RawContentResponse:
         content_type: str,
         media_type: Optional[str] = None,
         source_format: Optional[str] = None,
+        translation: Optional[dict] = None,
     ):
         self.content = content
         self.content_type = content_type
         self.media_type = media_type
         self.source_format = source_format
+        self.translation = translation
 
 
-async def get_raw_content(job: ProcessingJob) -> RawContentResponse:
+async def get_raw_content(
+    job: ProcessingJob,
+    reading_language: Optional[str] = None,
+) -> RawContentResponse:
     """
     Retrieve and format the raw content for a media item.
 
@@ -57,8 +67,16 @@ async def get_raw_content(job: ProcessingJob) -> RawContentResponse:
     - Social posts: raw text content
     - Images/PDFs: OCR result
 
+    When ``reading_language`` is provided, the common detect+translate step
+    (task-192) is applied: if the transcript is not already in that language,
+    a translated copy is produced (or reused from cache) and returned instead
+    of the original. The transcript shown to the user is always in their
+    preferred reading language.
+
     Args:
         job: The ProcessingJob containing the S3 key reference.
+        reading_language: The user's preferred reading language (ISO 639-1),
+            if any.
 
     Returns:
         RawContentResponse with formatted content.
@@ -96,15 +114,36 @@ async def get_raw_content(job: ProcessingJob) -> RawContentResponse:
     media_type = getattr(job, "media_type", None) or ""
     source_platform = getattr(job, "source_platform", None) or ""
 
+    effective_text = raw_text
+    translation_metadata: Optional[dict] = None
+    if reading_language:
+        outcome = await ensure_translated_transcript(
+            transcript_s3_key=transcript_s3_key,
+            transcript_text=raw_text,
+            target_language=reading_language,
+            source=source_platform or None,
+            source_language_hint=job_source_language_hint(job),
+            transcript_bucket=TRANSCRIPT_BUCKET,
+        )
+        translation_metadata = outcome.metadata()
+        await persist_detected_language(job, outcome.detected_language)
+        if outcome.is_translated:
+            translated_bytes = await s3.download_file_to_memory(
+                bucket=TRANSCRIPT_BUCKET,
+                key=outcome.transcript_s3_key,
+            )
+            effective_text = translated_bytes.decode("utf-8")
+
     # Determine source format and format accordingly
-    source_format = _detect_source_format(raw_text, media_type, source_platform)
-    formatted_content = _format_content(raw_text, source_format)
+    source_format = _detect_source_format(effective_text, media_type, source_platform)
+    formatted_content = _format_content(effective_text, source_format)
 
     return RawContentResponse(
         content=formatted_content,
         content_type="text/plain",
         media_type=media_type or None,
         source_format=source_format,
+        translation=translation_metadata,
     )
 
 

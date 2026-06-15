@@ -47,6 +47,7 @@ pytest -m e2e tests/e2e/test_phase4_other_sources.py -v
 | `test_health.py` | `GET /api/v1/health/` → 200 + `database: connected` |
 | `test_phase4_ingestion.py` | Article Wikipedia + 4 artifact types |
 | `test_phase4_other_sources.py` | Skeletons xfail/skip pour podcast, X, TikTok, IG, PDF, YouTube |
+| `test_transcript_translation.py` | task-192 : reading_language=fr + Reel Instagram anglais → artifact ET transcript brut (`/raw-content`) traduits en fr |
 
 ## Cleanup automatique
 

@@ -24,6 +24,8 @@ from media_summarizer.core.models.media_artifact import (
 )
 from media_summarizer.core.services.transcript_translation import (
     ensure_translated_transcript,
+    job_source_language_hint,
+    persist_detected_language,
 )
 from media_summarizer.utils import artifact_idempotence, media_artifacts, s3, sqs
 from media_summarizer.utils.logging_config import log_event
@@ -257,22 +259,6 @@ async def _load_transcript_bytes(job: ProcessingJob) -> Tuple[str, bytes, str]:
     return transcript_s3_key, transcript_bytes, _sha256_bytes(transcript_bytes)
 
 
-def _job_source_language_hint(job: ProcessingJob) -> Optional[str]:
-    """Reliable source-provided language tag, if any.
-
-    Deepgram persists the detected/forced language in ``transcription_metadata``;
-    YouTube/TikTok subtitle workers and the Podcasting 2.0 short-circuit do the
-    same. We treat that tag as a trustworthy detection hint.
-    """
-    metadata = getattr(job, "transcription_metadata", None)
-    if isinstance(metadata, dict):
-        for key in ("detected_language", "language"):
-            value = metadata.get(key)
-            if isinstance(value, str) and value.strip():
-                return value
-    return None
-
-
 class _EffectiveTranscript:
     """The transcript (possibly translated) that artifacts will be built from."""
 
@@ -328,11 +314,11 @@ async def _resolve_effective_transcript(
         transcript_text=transcript_text,
         target_language=reading_language,
         source=getattr(job, "source_platform", None),
-        source_language_hint=_job_source_language_hint(job),
+        source_language_hint=job_source_language_hint(job),
         transcript_bucket=TRANSCRIPT_BUCKET,
     )
 
-    await _persist_detected_language(job, outcome.detected_language)
+    await persist_detected_language(job, outcome.detected_language)
 
     if outcome.transcript_s3_key == transcript_s3_key:
         effective_sha = original_sha256
@@ -348,34 +334,6 @@ async def _resolve_effective_transcript(
         transcript_sha256=effective_sha,
         translation_metadata=outcome.metadata(),
     )
-
-
-async def _persist_detected_language(
-    job: ProcessingJob,
-    detected_language: Optional[str],
-) -> None:
-    """Best-effort persistence of the detected language on the job."""
-    if not detected_language:
-        return
-    metadata = dict(getattr(job, "transcription_metadata", None) or {})
-    if metadata.get("detected_language") == detected_language:
-        return
-    metadata["detected_language"] = detected_language
-    try:
-        job.set_transcription_metadata(metadata)
-        from media_summarizer.utils import database_async
-
-        await database_async.update_processing_job(job)
-    except Exception as exc:  # pragma: no cover - non-fatal
-        log_event(
-            logger,
-            logging.WARNING,
-            "translation.detected_language_persist_failed",
-            "Failed to persist detected_language on job (non-fatal)",
-            media_item_id=getattr(job, "id", None),
-            error_type=type(exc).__name__,
-            detail=str(exc)[:200],
-        )
 
 
 def _build_generation_lock(
