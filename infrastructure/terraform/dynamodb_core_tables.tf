@@ -126,42 +126,42 @@ resource "aws_dynamodb_table" "auth_tokens_v1" {
   }
 }
 
-# Episode idempotence table (global episode GUID reservation)
-resource "aws_dynamodb_table" "episode_idempotence_v1" {
-  name         = "episode_idempotence"
+# Media idempotence table (global media key reservation)
+resource "aws_dynamodb_table" "media_idempotence_v1" {
+  name         = "media_idempotence"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "episode_guid"
+  hash_key     = "media_key"
 
   attribute {
-    name = "episode_guid"
+    name = "media_key"
     type = "S"
   }
 
   tags = {
-    Name        = "episode_idempotence"
+    Name        = "media_idempotence"
     Environment = var.environment
     Project     = var.project_name
   }
 }
 
-# User episode submissions table (per-user dedup of submissions)
-resource "aws_dynamodb_table" "user_episode_submissions_v1" {
-  name         = "user_episode_submissions"
+# User media submissions table (per-user dedup of submissions)
+resource "aws_dynamodb_table" "user_media_submissions_v1" {
+  name         = "user_media_submissions"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
-  range_key    = "episode_guid"
+  range_key    = "media_key"
 
   attribute {
     name = "user_id"
     type = "S"
   }
   attribute {
-    name = "episode_guid"
+    name = "media_key"
     type = "S"
   }
 
   tags = {
-    Name        = "user_episode_submissions"
+    Name        = "user_media_submissions"
     Environment = var.environment
     Project     = var.project_name
   }
@@ -311,9 +311,9 @@ resource "aws_dynamodb_table" "media_watchers_v1" {
   }
 }
 
-output "episode_idempotence_table_name" {
-  value       = aws_dynamodb_table.episode_idempotence_v1.name
-description = "Episode idempotence table name"
+output "media_idempotence_table_name" {
+  value       = aws_dynamodb_table.media_idempotence_v1.name
+  description = "Media idempotence table name"
 }
 
 output "media_watchers_table_name" {
