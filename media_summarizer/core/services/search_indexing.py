@@ -16,6 +16,8 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
+from algoliasearch.http.exceptions import RequestException
+
 from media_summarizer.utils.algolia_client import (
     ensure_index_settings,
     get_client,
@@ -276,6 +278,23 @@ def search_transcripts(
             search_params=search_params,
         )
 
+    except RequestException as e:
+        # A user's Algolia index is created lazily on the first save_objects
+        # call (per task-205: physical per-user isolation, no upfront
+        # provisioning). Until that user has at least one indexed transcript,
+        # the index does not exist and Algolia returns 404. Treat this as an
+        # empty result rather than a 500: the user simply has nothing to
+        # search yet.
+        if getattr(e, "status_code", None) == 404:
+            logger.info(
+                f"Search returned empty: per-user index not yet created "
+                f"(user_id={user_id}, query='{query}')"
+            )
+            return {"found": 0, "hits": [], "page": page}
+        logger.error(f"Search failed for user_id={user_id}, query='{query}': {e}")
+        raise
+
+    try:
         # Deduplicate by media_item_id, keeping the best hit per document
         seen_media: Dict[str, Dict[str, Any]] = {}
         hits_list = response.hits if hasattr(response, "hits") else []
