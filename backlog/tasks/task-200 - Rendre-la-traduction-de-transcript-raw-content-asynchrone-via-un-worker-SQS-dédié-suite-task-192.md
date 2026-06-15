@@ -3,7 +3,7 @@ id: task-200
 title: >-
   Rendre la traduction de transcript /raw-content asynchrone via un worker SQS
   dédié (suite task-192)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-15 11:12'
 updated_date: '2026-06-15 11:12'
