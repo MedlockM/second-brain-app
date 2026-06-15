@@ -141,3 +141,7 @@ media_completed_events_handler = _build_handler(
     process_func_name="process_event",
 )
 
+transcript_translation_handler = _build_handler(
+    "media_summarizer.workers.transcript_translation_worker"
+)
+

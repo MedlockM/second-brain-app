@@ -98,8 +98,14 @@ type RawContentState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "ready"; content: string }
+  | { status: "translation_pending"; content: string }
   | { status: "not_available" }
   | { status: "error"; message: string };
+
+/** Delay between polls when translation is pending (ms). */
+const TRANSLATION_POLL_DELAY_MS = 3000;
+/** Maximum number of translation polls before giving up. */
+const TRANSLATION_POLL_MAX_ATTEMPTS = 20;
 
 /**
  * Media Detail Screen.
@@ -463,9 +469,63 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
 
   const transcriptStatus = media_item.transcript?.status;
 
+  const translationPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const translationPollCountRef = useRef(0);
+
+  // Cleanup translation polling on unmount
+  useEffect(() => {
+    return () => {
+      if (translationPollRef.current) {
+        clearTimeout(translationPollRef.current);
+        translationPollRef.current = null;
+      }
+    };
+  }, []);
+
+  const pollForTranslation = useCallback(async () => {
+    if (!token || !mountedRef.current) return;
+    translationPollCountRef.current += 1;
+
+    try {
+      const response = await MediaService.getRawContent(
+        token,
+        media_item.media_item_id,
+      );
+      if (!mountedRef.current) return;
+
+      const trimmed = (response.content ?? "").trim();
+      const isPending = response.translation?.translation_pending === true;
+
+      if (!trimmed) {
+        setRawContent({ status: "not_available" });
+        return;
+      }
+
+      if (isPending && translationPollCountRef.current < TRANSLATION_POLL_MAX_ATTEMPTS) {
+        // Translation still in progress, show content and keep polling
+        setRawContent({ status: "translation_pending", content: trimmed });
+        translationPollRef.current = setTimeout(() => {
+          void pollForTranslation();
+        }, TRANSLATION_POLL_DELAY_MS);
+      } else {
+        // Translation ready (or max polls reached -- show whatever we have)
+        setRawContent({ status: "ready", content: trimmed });
+      }
+    } catch {
+      // Silent fail during translation polling -- keep current state
+      if (translationPollCountRef.current < TRANSLATION_POLL_MAX_ATTEMPTS) {
+        translationPollRef.current = setTimeout(() => {
+          void pollForTranslation();
+        }, TRANSLATION_POLL_DELAY_MS);
+      }
+    }
+  }, [token, media_item.media_item_id]);
+
   const fetchRawContent = useCallback(async () => {
     if (!token) return;
     setRawContent({ status: "loading" });
+    translationPollCountRef.current = 0;
+
     try {
       const response = await MediaService.getRawContent(
         token,
@@ -477,7 +537,17 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         setRawContent({ status: "not_available" });
         return;
       }
-      setRawContent({ status: "ready", content: trimmed });
+
+      const isPending = response.translation?.translation_pending === true;
+      if (isPending) {
+        // Show the original transcript immediately, start polling for translation
+        setRawContent({ status: "translation_pending", content: trimmed });
+        translationPollRef.current = setTimeout(() => {
+          void pollForTranslation();
+        }, TRANSLATION_POLL_DELAY_MS);
+      } else {
+        setRawContent({ status: "ready", content: trimmed });
+      }
     } catch (err) {
       if (!mountedRef.current) return;
       const httpStatus = (err as { status?: number } | undefined)?.status;
@@ -492,7 +562,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         }),
       });
     }
-  }, [token, media_item.media_item_id]);
+  }, [token, media_item.media_item_id, pollForTranslation]);
 
   useEffect(() => {
     if (!mediaReady) {
@@ -857,6 +927,24 @@ function TranscriptContent({
   if (state.status === "ready") {
     return (
       <View>
+        <Text style={styles.transcriptBody}>{state.content}</Text>
+      </View>
+    );
+  }
+
+  if (state.status === "translation_pending") {
+    return (
+      <View>
+        <View style={styles.translationPendingBanner}>
+          <ActivityIndicator
+            size="small"
+            color={Colors.primary}
+            style={{ marginRight: Spacing.sm }}
+          />
+          <Text style={styles.translationPendingText}>
+            Translating transcript...
+          </Text>
+        </View>
         <Text style={styles.transcriptBody}>{state.content}</Text>
       </View>
     );
@@ -1275,6 +1363,20 @@ const styles = StyleSheet.create({
     fontSize: Typography.body.fontSize,
     color: Colors.textMain,
     lineHeight: Typography.body.lineHeight,
+  },
+  translationPendingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+  },
+  translationPendingText: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textMuted,
+    fontStyle: "italic",
   },
   transcriptBody: {
     fontSize: Typography.body.fontSize,

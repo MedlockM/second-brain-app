@@ -1411,9 +1411,10 @@ class RawContentResponse(BaseModel):
         None,
         description=(
             "Translation provenance when the content was translated to the "
-            "user's reading_language (task-192): is_translated, "
+            "user's reading_language (task-192/task-200): is_translated, "
             "translated_from, target_language, detected_language, "
-            "detection_method, translation_failed"
+            "detection_method, translation_pending. When translation_pending "
+            "is true, the client should poll again after a short delay."
         ),
     )
 
