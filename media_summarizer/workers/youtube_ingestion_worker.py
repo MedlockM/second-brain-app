@@ -416,9 +416,7 @@ async def _fetch_apify_transcript(
     )
     params = {"token": APIFY_YOUTUBE_API_TOKEN}
     payload = {
-        "include_transcript_text": True,
-        "language": transcript_language,
-        "youtube_url": source_url,
+        "videoUrls": [source_url],
     }
 
     try:
@@ -493,8 +491,8 @@ async def _fetch_apify_transcript(
         )
 
     transcript_text = (
-        first_item["transcript_text"].strip()
-        if isinstance(first_item.get("transcript_text"), str)
+        first_item["transcript_only_text"].strip()
+        if isinstance(first_item.get("transcript_only_text"), str)
         else ""
     )
 
