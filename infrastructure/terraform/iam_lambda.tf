@@ -66,6 +66,7 @@ resource "aws_iam_policy" "lambda_worker" {
           aws_sqs_queue.rss_feed_poll.arn,
           aws_sqs_queue.media_completed_events.arn,
           aws_sqs_queue.instagram_ingestion.arn,
+          aws_sqs_queue.transcript_translation.arn,
         ]
       },
       {
@@ -218,6 +219,7 @@ resource "aws_iam_policy" "lambda_api" {
           aws_sqs_queue.rss_feed_poll.arn,
           aws_sqs_queue.media_completed_events.arn,
           aws_sqs_queue.instagram_ingestion.arn,
+          aws_sqs_queue.transcript_translation.arn,
         ]
       },
       {
