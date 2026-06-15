@@ -34,7 +34,6 @@ from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.media_artifact import MediaArtifactRecord
 from media_summarizer.core.ports.document_parser import DocumentFormat
-from media_summarizer.core.services import minute_pool
 from media_summarizer.core.services import folder_service
 from media_summarizer.core.services import tag_service
 from media_summarizer.core.services import media_search_service
@@ -55,17 +54,7 @@ from media_summarizer.utils.media_artifacts import safe_list_media_artifacts_by_
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
-_YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com"}
-_TIKTOK_HOSTS = {"tiktok.com", "www.tiktok.com", "vm.tiktok.com"}
-_INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com"}
-
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get("DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue")
-YOUTUBE_INGESTION_QUEUE = os.environ.get("YOUTUBE_INGESTION_QUEUE", "youtube-ingestion-queue")
-TIKTOK_INGESTION_QUEUE = os.environ.get("TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue")
-INSTAGRAM_INGESTION_QUEUE = os.environ.get("INSTAGRAM_INGESTION_QUEUE", "instagram-ingestion-queue")
-PODCASTINDEX_RESOLUTION_QUEUE = os.environ.get("PODCASTINDEX_RESOLUTION_QUEUE", "podcastindex-resolution-queue")
-ARTICLE_EXTRACTION_QUEUE = os.environ.get("ARTICLE_EXTRACTION_QUEUE", "article-extraction-queue")
 DOCUMENT_PARSING_QUEUE = os.environ.get("DOCUMENT_PARSING_QUEUE", "document-parsing-queue")
 DOCUMENT_BUCKET = os.environ.get("DOCUMENT_BUCKET", "media-summarizer-documents")
 AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
@@ -92,11 +81,18 @@ SUPPORTED_SHARED_AUDIO_MIME_TYPES = frozenset([
     "audio/amr",
 ])
 
-REQUIRED_MINUTES = 1
+_AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
+_YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com"}
+_TIKTOK_HOSTS = {"tiktok.com", "www.tiktok.com", "vm.tiktok.com"}
+_INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com"}
 
 
 def _detect_platform(url: str) -> tuple[str, str]:
-    """Return (source_platform, resolver_key) for a given URL."""
+    """Return (source_platform, resolver_key) for a given URL.
+
+    Used only for early platform detection for quota checking.
+    The actual platform resolution is done in the use case.
+    """
     try:
         split = urlsplit(url)
         host = (split.netloc or "").lower().removeprefix("www.")
@@ -505,31 +501,39 @@ async def ingest_url(
     request: Request,
     current_user: AuthUser = Depends(get_current_user),
 ):
+    from media_summarizer.core.media_ingestion.domain import (
+        IngestUrlCommand,
+        IngestUrlRequest as DomainIngestUrlRequest,
+        UserContext,
+    )
+    from media_summarizer.core.media_ingestion.errors import (
+        MediaIngestionError,
+        InvalidUrlError,
+    )
+    from media_summarizer.core.media_ingestion.wiring import (
+        build_default_ingest_url_use_case,
+    )
+    from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
+
     url = (payload.url or "").strip()
     if not url:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="url is required")
 
-    source_platform, resolver_key = _detect_platform(url)
-    token = bind_log_context(
-        user_id=current_user.id,
-        source_platform=source_platform,
-        resolver_key=resolver_key,
-    )
+    token = bind_log_context(user_id=current_user.id)
     try:
         log_event(
             logger,
             logging.INFO,
             "media.ingest.started",
             "Media ingest URL received",
-            source_platform=source_platform,
-            resolver_key=resolver_key,
         )
 
         user = await database_async.get_user_by_id(current_user.id)
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-        resolved_folder_id: Optional[str]
+        # Validate folder ownership if provided
+        resolved_folder_id: Optional[str] = None
         requested_folder_id = payload.folder_id.strip() if payload.folder_id else None
         if requested_folder_id:
             folder = await database_async.get_folder_by_id(requested_folder_id)
@@ -539,46 +543,9 @@ async def ingest_url(
                     detail=f"Folder not found: {requested_folder_id}",
                 )
             resolved_folder_id = folder.id
-        else:
-            default_folder = await folder_service.ensure_default_folder(user.id)
-            resolved_folder_id = default_folder.id
 
-        # Quota enforcement check before processing
-        quota_result = await check_submission_allowed(
-            user_id=user.id,
-            source_platform=source_platform,
-            duration_seconds=0,  # duration unknown at URL ingestion time
-        )
-        if not quota_result.allowed:
-            raise HTTPException(
-                status_code=quota_result.http_status,
-                detail=quota_result.message,
-                headers={"X-Quota-Error-Code": quota_result.error_code},
-            )
-
-        # Derive media_type from source_platform
-        _platform_to_media_type = {
-            "youtube": "video",
-            "tiktok": "video",
-            "instagram": "video",
-            "audio": "audio",
-            "web": "article",
-        }
-        detected_media_type = _platform_to_media_type.get(source_platform, "podcast")
-
-        job = ProcessingJob(
-            user_id=user.id,
-            user_email=user.email,
-            source_url=url,
-            source_platform=source_platform,
-            media_type=detected_media_type,
-            folder_id=resolved_folder_id,
-        )
-
-        # Associate tags at ingestion time if provided
+        # Validate tags ownership and count if provided
         if payload.tag_ids:
-            from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
-
             unique_tag_ids = list(dict.fromkeys(payload.tag_ids))
             if len(unique_tag_ids) > MAX_TAGS_PER_MEDIA:
                 raise HTTPException(
@@ -594,51 +561,51 @@ async def ingest_url(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
                 )
-            job.tag_ids = unique_tag_ids
+        else:
+            unique_tag_ids = None
 
-        job = await database_async.create_processing_job(job)
-
-        await minute_pool.allocate_hold_for_job(
+        # Quota enforcement check before processing
+        # Detect source platform for quota checking
+        source_platform_for_quota, _ = _detect_platform(url)
+        quota_result = await check_submission_allowed(
             user_id=user.id,
-            job_id=job.id,
-            minutes_estimated=REQUIRED_MINUTES,
+            source_platform=source_platform_for_quota,
+            duration_seconds=0,  # duration unknown at URL ingestion time
+        )
+        if not quota_result.allowed:
+            raise HTTPException(
+                status_code=quota_result.http_status,
+                detail=quota_result.message,
+                headers={"X-Quota-Error-Code": quota_result.error_code},
+            )
+
+        # Build the domain command
+        domain_request = DomainIngestUrlRequest(
+            url=url,
+            source_app=payload.source_app,
+            locale=payload.locale,
+            transcript_language=payload.transcript_language,
+            idempotency_key=payload.idempotency_key,
+            folder_id=resolved_folder_id,
+            tag_ids=unique_tag_ids,
+        )
+        command = IngestUrlCommand(
+            user=UserContext(user_id=current_user.id, user_email=user.email),
+            request=domain_request,
         )
 
-        base_payload = {
-            "job_id": job.id,
-            "user_id": user.id,
-            "source_platform": source_platform,
-            "normalized_url": url,
-        }
-        if payload.locale:
-            base_payload["locale"] = payload.locale
-        if payload.transcript_language:
-            base_payload["transcript_language"] = payload.transcript_language
+        # Execute the use case
+        use_case = build_default_ingest_url_use_case()
+        outcome = await use_case.execute(command)
 
-        if source_platform == "youtube":
-            await sqs.send_message(queue_name=YOUTUBE_INGESTION_QUEUE, message_body=base_payload)
-        elif source_platform == "tiktok":
-            await sqs.send_message(queue_name=TIKTOK_INGESTION_QUEUE, message_body=base_payload)
-        elif source_platform == "instagram":
-            await sqs.send_message(queue_name=INSTAGRAM_INGESTION_QUEUE, message_body=base_payload)
-        elif source_platform == "audio":
-            await sqs.send_message(
-                queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
-                message_body={**base_payload, "audio_url": url, "deepgram_mode": "pull_with_push_fallback"},
-            )
-        elif source_platform == "web":
-            await sqs.send_message(queue_name=ARTICLE_EXTRACTION_QUEUE, message_body=base_payload)
-        else:
-            await sqs.send_message(
-                queue_name=PODCASTINDEX_RESOLUTION_QUEUE,
-                message_body={**base_payload, "feed_url": url},
-            )
-
-        # Record quota usage after successful enqueue
-        estimated_cost = estimate_submission_cost(source_platform, duration_seconds=0)
+        # Record quota usage after successful submission
+        estimated_cost = estimate_submission_cost(
+            outcome.metadata.get("source_platform", source_platform_for_quota),
+            duration_seconds=0
+        )
         await record_submission(
             user_id=user.id,
-            source_platform=source_platform,
+            source_platform=outcome.metadata.get("source_platform", source_platform_for_quota),
             duration_seconds=0,
             estimated_cost_eur=estimated_cost,
         )
@@ -648,35 +615,50 @@ async def ingest_url(
             logging.INFO,
             "media.ingest.created",
             "Media item created and queued",
-            media_item_id=job.id,
-            source_platform=source_platform,
-            resolver_key=resolver_key,
-            queue=(
-                YOUTUBE_INGESTION_QUEUE if source_platform == "youtube"
-                else TIKTOK_INGESTION_QUEUE if source_platform == "tiktok"
-                else INSTAGRAM_INGESTION_QUEUE if source_platform == "instagram"
-                else DEEPGRAM_TRANSCRIPTION_QUEUE if source_platform == "audio"
-                else ARTICLE_EXTRACTION_QUEUE if source_platform == "web"
-                else PODCASTINDEX_RESOLUTION_QUEUE
-            ),
+            media_item_id=outcome.media_item_id,
+            source_platform=outcome.metadata.get("source_platform"),
         )
 
         return IngestUrlResponse(
-            media_item_id=job.id,
-            status=job.status.value,
-            source_platform=source_platform,
+            media_item_id=outcome.media_item_id,
+            status=outcome.status.value,
+            source_platform=outcome.metadata.get("source_platform", "unknown"),
         )
 
     except HTTPException:
         raise
+    except InvalidUrlError as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "media.ingest.invalid_url",
+            "Invalid URL provided for ingestion",
+            error_message=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except MediaIngestionError as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.ingest.failed",
+            "Media ingestion failed in use case",
+            error_type=type(exc).__name__,
+            error_code="INGEST_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to ingest URL",
+        )
     except Exception as exc:
         log_event(
             logger,
             logging.ERROR,
             "media.ingest.failed",
-            "Media ingest failed",
-            source_platform=source_platform,
-            resolver_key=resolver_key,
+            "Media ingest failed unexpectedly",
             error_type=type(exc).__name__,
             error_code="INGEST_FAILED",
             exc_info=exc,

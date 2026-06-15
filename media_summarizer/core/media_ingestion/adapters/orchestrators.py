@@ -20,6 +20,7 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.services import minute_pool
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils import media_idempotence as episode_idempotence
 from media_summarizer.utils.logging_config import log_event
@@ -54,6 +55,7 @@ DEFAULT_EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
 DEFAULT_TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
+REQUIRED_MINUTES = 1
 
 
 def _now_iso() -> str:
@@ -154,6 +156,18 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         command: IngestUrlCommand | IngestSharedContentCommand,
         resolved: ResolvedMedia,
     ) -> IngestionOutcome:
+        """
+        Submit resolved media for processing.
+
+        For IngestUrlCommand:
+        - Applies optional folder_id and tag_ids from the command request to the job.
+        - Allocates a minute hold for quota enforcement.
+
+        For all commands:
+        - Routes to appropriate worker queues based on media family and type.
+        - Handles direct transcription for shared text and Apify social video transcripts.
+        - Manages idempotence via media_key deduplication.
+        """
         existing = await episode_idempotence.already_processed(media_key=resolved.media_key)
         if existing and existing.get("job_id"):
             log_event(
@@ -201,6 +215,23 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
 
             await database_async.create_processing_job(job)
             job_created = True
+
+            # Apply folder_id and tag_ids from IngestUrlCommand if present
+            if isinstance(command, IngestUrlCommand):
+                if command.request.folder_id:
+                    job.folder_id = command.request.folder_id
+                if command.request.tag_ids:
+                    job.tag_ids = list(dict.fromkeys(command.request.tag_ids))
+                # After applying changes, update the job in the database
+                if command.request.folder_id or command.request.tag_ids:
+                    await database_async.update_processing_job(job)
+
+            # Allocate minute hold for all ingestions
+            await minute_pool.allocate_hold_for_job(
+                user_id=command.user.user_id,
+                job_id=job.id,
+                minutes_estimated=REQUIRED_MINUTES,
+            )
 
             try:
                 await mark_user_media_submission(
