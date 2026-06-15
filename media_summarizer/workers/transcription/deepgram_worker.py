@@ -38,9 +38,6 @@ from media_summarizer.utils.logging_config import (
     setup_logging,
 )
 from media_summarizer.core.services.minute_pool import finalize_usage
-from media_summarizer.core.services.transcript_translation import (
-    prewarm_translated_transcript,
-)
 from media_summarizer.workers.base_worker import process_message_with_retry
 
 logger = logging.getLogger(__name__)
@@ -669,8 +666,6 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
         job.set_transcription_metadata(transcription_metadata)
         job.set_processing_duration("transcription", int(transcription_duration))
         await database_async.update_processing_job(job)
-
-        await prewarm_translated_transcript(job, transcript_s3_key, transcript_text)
 
     audio_duration_seconds_raw = message_body.get("audio_duration_seconds")
     try:

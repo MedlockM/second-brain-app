@@ -29,9 +29,6 @@ from media_summarizer.core.ports.document_parser import (
     ParseErrorCode,
     ParseResult,
 )
-from media_summarizer.core.services.transcript_translation import (
-    prewarm_translated_transcript,
-)
 from media_summarizer.infrastructure.resolvers.llamaparse_resolver import (
     LlamaParseResolver,
 )
@@ -268,9 +265,6 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
             job.title = media_title
             job.source_platform = "document"
             job.media_type = "document"
-            await prewarm_translated_transcript(
-                job, transcript_s3_key, result.markdown_content
-            )
             job.mark_completed()
             await database_async.update_processing_job(job)
 

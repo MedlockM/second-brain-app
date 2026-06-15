@@ -99,6 +99,7 @@ type RawContentState =
   | { status: "loading" }
   | { status: "ready"; content: string }
   | { status: "translation_pending"; content: string }
+  | { status: "translation_failed"; content: string }
   | { status: "not_available" }
   | { status: "error"; message: string };
 
@@ -495,14 +496,21 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
 
       const trimmed = (response.content ?? "").trim();
       const isPending = response.translation?.translation_pending === true;
+      const translationStatus = response.translation?.translation_status;
 
       if (!trimmed) {
         setRawContent({ status: "not_available" });
         return;
       }
 
+      // If translation failed terminally, stop polling and show failure badge
+      if (translationStatus === "failed") {
+        setRawContent({ status: "translation_failed", content: trimmed });
+        return;
+      }
+
       if (isPending && translationPollCountRef.current < TRANSLATION_POLL_MAX_ATTEMPTS) {
-        // Translation still in progress, show content and keep polling
+        // Translation still in progress (queued/in_progress), show content and keep polling
         setRawContent({ status: "translation_pending", content: trimmed });
         translationPollRef.current = setTimeout(() => {
           void pollForTranslation();
@@ -535,6 +543,14 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       const trimmed = (response.content ?? "").trim();
       if (!trimmed) {
         setRawContent({ status: "not_available" });
+        return;
+      }
+
+      const translationStatus = response.translation?.translation_status;
+
+      // If translation failed terminally, show content with failure badge (no polling)
+      if (translationStatus === "failed") {
+        setRawContent({ status: "translation_failed", content: trimmed });
         return;
       }
 
@@ -943,6 +959,25 @@ function TranscriptContent({
           />
           <Text style={styles.translationPendingText}>
             Translating transcript...
+          </Text>
+        </View>
+        <Text style={styles.transcriptBody}>{state.content}</Text>
+      </View>
+    );
+  }
+
+  if (state.status === "translation_failed") {
+    return (
+      <View>
+        <View style={styles.translationFailedBanner}>
+          <Ionicons
+            name="alert-circle"
+            size={16}
+            color={Colors.error}
+            style={{ marginRight: Spacing.sm }}
+          />
+          <Text style={styles.translationFailedText}>
+            Translation failed. Showing original transcript.
           </Text>
         </View>
         <Text style={styles.transcriptBody}>{state.content}</Text>
@@ -1377,6 +1412,20 @@ const styles = StyleSheet.create({
     fontSize: Typography.small.fontSize,
     color: Colors.textMuted,
     fontStyle: "italic",
+  },
+  translationFailedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.errorContainer,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+  },
+  translationFailedText: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.error,
+    flex: 1,
   },
   transcriptBody: {
     fontSize: Typography.body.fontSize,

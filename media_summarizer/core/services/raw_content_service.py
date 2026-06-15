@@ -31,6 +31,12 @@ from media_summarizer.core.services.transcript_translation import (
 )
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.logging_config import log_event
+from media_summarizer.utils.translation_idempotence import (
+    TranslationStatus,
+    build_translation_fingerprint,
+    get_translation_lock,
+    reserve_translation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +173,7 @@ async def get_raw_content(
                         "detected_language": translation_metadata.get("detected_language"),
                         "detection_method": translation_metadata.get("detection_method"),
                         "translation_pending": True,
+                        "translation_status": TranslationStatus.QUEUED,
                     }
         # Remove internal key from metadata before returning
         if translation_metadata and "_translated_s3_key" in translation_metadata:
@@ -197,12 +204,18 @@ async def _resolve_translation(
 ) -> dict:
     """Resolve translation status without any synchronous LLM call.
 
+    State-machine aware (task-203):
     1. Detect the source language (local langdetect, zero-cost).
     2. Decide whether a translation is needed.
-    3. If needed, check if the cached translation already exists in S3.
-    4. If cache hit -> return is_translated=True with the S3 key.
-    5. If cache miss -> dispatch an async translation job and return
-       translation_pending=True.
+    3. Check the translation idempotence state machine in DynamoDB:
+       - ``done``: S3 cache should contain the translation -- serve it.
+       - ``queued`` / ``in_progress``: translation already in-flight, do NOT
+         re-enqueue -- return translation_pending with the status.
+       - ``failed``: re-authorize a fresh translation attempt.
+       - no record: first request -- attempt atomic reservation + enqueue.
+    4. On S3 cache hit (even without a state record, for backward compat):
+       serve the translation directly.
+    5. On cache miss with no inflight state: reserve atomically + enqueue.
     """
     source_language_hint = job_source_language_hint(job)
     detected_language, detection_method = detect_language(
@@ -220,6 +233,7 @@ async def _resolve_translation(
             "detected_language": detected_language,
             "detection_method": detection_method,
             "translation_pending": False,
+            "translation_status": None,
         }
 
     assert detected_language is not None
@@ -230,7 +244,93 @@ async def _resolve_translation(
         target_language=normalized_target,
     )
 
-    # Check S3 cache (the common path — prewarm from task-192 keeps it warm)
+    # --- Check the translation state machine first (task-203 anti-thundering-herd) ---
+    fingerprint = build_translation_fingerprint(
+        transcript_s3_key=transcript_s3_key,
+        target_language=normalized_target,
+    )
+    try:
+        lock = await get_translation_lock(fingerprint)
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "raw_content.translation_lock_read_failed",
+            "Failed to read translation lock; falling back to S3 check",
+            error_type=type(exc).__name__,
+            detail=str(exc)[:200],
+        )
+        lock = None
+
+    # If state machine says "done", translation should be in S3
+    if lock and lock.status == TranslationStatus.DONE:
+        # Verify S3 actually has it (defensive)
+        try:
+            cache_hit = await s3.object_exists(
+                bucket=TRANSCRIPT_BUCKET,
+                key=translated_key,
+            )
+        except Exception:
+            cache_hit = False
+
+        if cache_hit:
+            log_event(
+                logger,
+                logging.INFO,
+                "raw_content.translation_cache_hit",
+                "Serving cached translated transcript (state=done)",
+                transcript_s3_key=transcript_s3_key,
+                target_language=normalized_target,
+                detected_language=detected_language,
+            )
+            return {
+                "is_translated": True,
+                "translated_from": detected_language,
+                "target_language": normalized_target,
+                "detected_language": detected_language,
+                "detection_method": detection_method,
+                "translation_pending": False,
+                "translation_status": TranslationStatus.DONE,
+                "_translated_s3_key": translated_key,
+            }
+        # State says done but S3 object missing -- treat as failed for recovery
+        lock = None
+
+    # If state machine says "queued" or "in_progress", do NOT re-enqueue
+    if lock and lock.status in (TranslationStatus.QUEUED, TranslationStatus.IN_PROGRESS):
+        log_event(
+            logger,
+            logging.INFO,
+            "raw_content.translation_in_flight",
+            "Translation already in-flight; not re-enqueuing",
+            transcript_s3_key=transcript_s3_key,
+            target_language=normalized_target,
+            detected_language=detected_language,
+            translation_status=lock.status,
+        )
+        return {
+            "is_translated": False,
+            "translated_from": None,
+            "target_language": normalized_target,
+            "detected_language": detected_language,
+            "detection_method": detection_method,
+            "translation_pending": True,
+            "translation_status": lock.status,
+        }
+
+    # If state machine says "failed": the translation was attempted and failed
+    # terminally (DLQ exhaustion). We allow a fresh re-attempt by falling through
+    # to the reservation logic below. The reserve_translation() ConditionExpression
+    # explicitly allows overwriting status=failed. This means the mobile never sees
+    # a "stuck" failed state -- it always gets a fresh attempt on the next access.
+    # The anti-infinite-loop is provided by TRANSLATION_POLL_MAX_ATTEMPTS on mobile
+    # (max 20 polls = 60s) and by the SQS DLQ (maxReceiveCount=3 per reservation).
+    # If translations keep failing persistently, the user will see the original
+    # transcript after the polling limit is reached (graceful degradation).
+
+    # --- No inflight state (no record, state=failed, or state invalidated): check S3, then attempt reservation ---
+
+    # Check S3 cache (covers legacy translations produced before state machine existed)
     try:
         cache_hit = await s3.object_exists(
             bucket=TRANSCRIPT_BUCKET,
@@ -264,27 +364,55 @@ async def _resolve_translation(
             "detected_language": detected_language,
             "detection_method": detection_method,
             "translation_pending": False,
+            "translation_status": TranslationStatus.DONE,
             "_translated_s3_key": translated_key,
         }
 
-    # Cache miss: dispatch async translation job via SQS
-    await _enqueue_translation_job(
-        transcript_s3_key=transcript_s3_key,
-        target_language=normalized_target,
-        source_language_hint=source_language_hint,
-        source=source_platform or None,
-        job_id=getattr(job, "id", None),
-    )
+    # Attempt atomic reservation (only the first caller wins)
+    try:
+        reserved = await reserve_translation(
+            transcript_s3_key=transcript_s3_key,
+            target_language=normalized_target,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "raw_content.translation_reserve_failed",
+            "Failed to reserve translation; treating as already in-flight",
+            error_type=type(exc).__name__,
+            detail=str(exc)[:200],
+        )
+        reserved = False
 
-    log_event(
-        logger,
-        logging.INFO,
-        "raw_content.translation_pending",
-        "Translation not yet cached; async job dispatched",
-        transcript_s3_key=transcript_s3_key,
-        target_language=normalized_target,
-        detected_language=detected_language,
-    )
+    if reserved:
+        # We won the reservation -- enqueue the translation job
+        await _enqueue_translation_job(
+            transcript_s3_key=transcript_s3_key,
+            target_language=normalized_target,
+            source_language_hint=source_language_hint,
+            source=source_platform or None,
+            job_id=getattr(job, "id", None),
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "raw_content.translation_enqueued",
+            "Translation reserved and async job dispatched",
+            transcript_s3_key=transcript_s3_key,
+            target_language=normalized_target,
+            detected_language=detected_language,
+        )
+    else:
+        log_event(
+            logger,
+            logging.INFO,
+            "raw_content.translation_already_reserved",
+            "Translation already reserved by another caller; not re-enqueuing",
+            transcript_s3_key=transcript_s3_key,
+            target_language=normalized_target,
+            detected_language=detected_language,
+        )
 
     return {
         "is_translated": False,
@@ -293,6 +421,7 @@ async def _resolve_translation(
         "detected_language": detected_language,
         "detection_method": detection_method,
         "translation_pending": True,
+        "translation_status": TranslationStatus.QUEUED,
     }
 
 

@@ -8,9 +8,10 @@ Consumes messages from TRANSCRIPT_TRANSLATION_QUEUE containing:
 - source: (optional) source platform name for logging
 - job_id: (optional) processing job ID for logging context
 
-This worker is the async safety net for /raw-content cache misses (task-200).
-The prewarm from task-192 keeps S3 warm in the majority of cases; this worker
-handles the rare case where the prewarm did not finish in time or was skipped.
+State machine integration (task-203):
+- On start: marks status queued -> in_progress
+- On success: marks status -> done
+- On terminal failure: marks status -> failed (re-authorizes future attempts)
 
 The worker calls ensure_translated_transcript which is fully idempotent:
 duplicate messages for the same (transcript_s3_key, target_language) couple
@@ -30,14 +31,22 @@ import time
 from typing import Any, Dict, Optional
 
 from media_summarizer.core.services.transcript_translation import (
+    TranscriptTranslationError,
     ensure_translated_transcript,
+    persist_detected_language,
+    job_source_language_hint,
     TRANSCRIPT_BUCKET,
 )
-from media_summarizer.utils import s3
+from media_summarizer.utils import database_async, s3
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
     reset_log_context,
+)
+from media_summarizer.utils.translation_idempotence import (
+    mark_translation_done,
+    mark_translation_failed,
+    mark_translation_in_progress,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +62,11 @@ async def process_message(message: Dict[str, Any]) -> None:
 
     Downloads the original transcript from S3 and translates it to the
     target language using ensure_translated_transcript (idempotent).
+
+    State transitions (task-203):
+    - queued -> in_progress (on worker start)
+    - in_progress -> done (on successful translation or cache hit)
+    - in_progress -> failed (on terminal error after retries exhausted)
     """
     body = json.loads(message.get("Body", "{}"))
 
@@ -82,6 +96,12 @@ async def process_message(message: Dict[str, Any]) -> None:
 
         started = time.monotonic()
 
+        # --- State transition: queued -> in_progress ---
+        await mark_translation_in_progress(
+            transcript_s3_key=transcript_s3_key,
+            target_language=target_language,
+        )
+
         log_event(
             logger,
             logging.INFO,
@@ -109,6 +129,12 @@ async def process_message(message: Dict[str, Any]) -> None:
                 error_type=type(exc).__name__,
                 detail=str(exc)[:300],
             )
+            # Mark failed -- S3 download failure is terminal for this message
+            await mark_translation_failed(
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
+                error_message=f"s3_download_failed: {type(exc).__name__}: {str(exc)[:200]}",
+            )
             raise
 
         if not raw_bytes or not raw_bytes.strip():
@@ -119,20 +145,90 @@ async def process_message(message: Dict[str, Any]) -> None:
                 "Transcript is empty; skipping translation",
                 transcript_s3_key=transcript_s3_key,
             )
+            # Mark as done -- there's nothing to translate
+            await mark_translation_done(
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
+            )
             return
 
         transcript_text = raw_bytes.decode("utf-8")
 
         # Run the idempotent detect+translate step.
         # If the translation already exists in S3, this is a no-op (cache hit).
-        outcome = await ensure_translated_transcript(
+        try:
+            outcome = await ensure_translated_transcript(
+                transcript_s3_key=transcript_s3_key,
+                transcript_text=transcript_text,
+                target_language=target_language,
+                source=source,
+                source_language_hint=source_language_hint,
+                transcript_bucket=TRANSCRIPT_BUCKET,
+            )
+        except TranscriptTranslationError as exc:
+            # Terminal translation failure after retries exhausted
+            log_event(
+                logger,
+                logging.ERROR,
+                "worker.translation_terminal_failure",
+                "Translation failed terminally",
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
+                error_type=type(exc).__name__,
+                detail=str(exc)[:300],
+            )
+            await mark_translation_failed(
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
+                error_message=str(exc)[:300],
+            )
+            # Do NOT re-raise: the message should not be retried by SQS since
+            # the internal retry logic already exhausted attempts.
+            return
+        except Exception as exc:
+            # Unexpected error -- let SQS retry via visibility timeout
+            log_event(
+                logger,
+                logging.ERROR,
+                "worker.translation_unexpected_error",
+                "Unexpected error during translation",
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
+                error_type=type(exc).__name__,
+                detail=str(exc)[:300],
+            )
+            # Mark failed so the state machine knows this attempt is done
+            await mark_translation_failed(
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
+                error_message=f"unexpected: {type(exc).__name__}: {str(exc)[:200]}",
+            )
+            raise
+
+        # --- State transition: in_progress -> done ---
+        await mark_translation_done(
             transcript_s3_key=transcript_s3_key,
-            transcript_text=transcript_text,
             target_language=target_language,
-            source=source,
-            source_language_hint=source_language_hint,
-            transcript_bucket=TRANSCRIPT_BUCKET,
         )
+
+        # --- Persist detected language on the job (AC#2, moved from prewarm) ---
+        if job_id and outcome.detected_language:
+            try:
+                job = await database_async.get_processing_job_by_id(job_id)
+                if job:
+                    await persist_detected_language(job, outcome.detected_language)
+            except Exception as exc:
+                # Non-fatal: language persistence is best-effort
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "worker.persist_language_failed",
+                    "Failed to persist detected_language on job (non-fatal)",
+                    job_id=job_id,
+                    detected_language=outcome.detected_language,
+                    error_type=type(exc).__name__,
+                    detail=str(exc)[:200],
+                )
 
         duration_ms = int((time.monotonic() - started) * 1000)
 

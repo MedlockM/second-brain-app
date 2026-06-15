@@ -20,9 +20,6 @@ from media_summarizer.core.media_ingestion.adapters.podcast_resolver_foundation 
     normalize_podcast_source_url,
 )
 from media_summarizer.core.media_ingestion.domain import SourcePlatform
-from media_summarizer.core.services.transcript_translation import (
-    prewarm_translated_transcript,
-)
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
@@ -232,7 +229,6 @@ async def _try_rss_transcript_short_circuit(
 
     job.set_transcription_location(transcript_s3_key)
     job.set_transcription_metadata(transcription_metadata)
-    await prewarm_translated_transcript(job, transcript_s3_key, transcript_text)
     job.mark_completed()
     await database_async.update_processing_job(job)
 

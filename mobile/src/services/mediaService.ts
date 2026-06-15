@@ -19,7 +19,21 @@ export interface ListMediaResponse {
 }
 
 /**
- * Translation metadata from the backend (task-192 / task-200).
+ * Translation state machine statuses (task-203).
+ * - queued: translation job enqueued, waiting for worker pickup
+ * - in_progress: worker is actively translating
+ * - done: translation complete and cached in S3
+ * - failed: translation failed terminally (DLQ); user can retry manually
+ */
+export type TranslationStatusValue =
+  | "queued"
+  | "in_progress"
+  | "done"
+  | "failed"
+  | null;
+
+/**
+ * Translation metadata from the backend (task-192 / task-200 / task-203).
  */
 export interface TranslationMetadata {
   is_translated: boolean;
@@ -29,6 +43,8 @@ export interface TranslationMetadata {
   detection_method?: string | null;
   /** When true, translation is being produced asynchronously. Poll again. */
   translation_pending?: boolean;
+  /** Explicit state machine status (task-203). More granular than translation_pending. */
+  translation_status?: TranslationStatusValue;
 }
 
 /**

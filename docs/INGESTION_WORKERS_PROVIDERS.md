@@ -4,7 +4,7 @@ Authoritative reference for the ingestion pipeline. Lists each source type's
 primary extraction path, fallback chain, terminal failure behavior, and
 downstream hand-off.
 
-Last verified against codebase: 2026-06-15 (post task-200 async transcript translation worker).
+Last verified against codebase: 2026-06-15 (post task-203: prewarm removed, translation state machine added).
 
 ---
 
@@ -473,6 +473,14 @@ transcript is available and **before** artifact generation: inside
 `artifact_service.request_artifact_generation()`, via
 `core/services/transcript_translation.py::ensure_translated_transcript()`.
 
+**Note (task-203):** The synchronous `prewarm_translated_transcript()` call that
+previously ran in every ingestion worker before `job.mark_completed()` has been
+**removed**. Translation for `/raw-content` is now triggered **lazily** on first
+access (cache miss → atomic reservation → SQS enqueue → async worker). This
+eliminates the 45s blocking timeout that was wasted on every long transcript.
+The `persist_detected_language()` side-effect has been moved into the async
+translation worker.
+
 Because all transcripts converge on `ProcessingJob.transcription_s3_key` and all
 artifacts (summary_short, summary_detailed, notes, flashcards, quiz) are requested
 through `request_artifact_generation()`, this single insertion point covers the
@@ -548,7 +556,7 @@ Ref: `core/services/transcript_translation.py::ensure_translated_transcript`,
 
 ---
 
-## Transcript Translation Worker (task-200)
+## Transcript Translation Worker (task-200, task-203)
 
 **Worker file**: `media_summarizer/workers/transcript_translation_worker.py`
 **Queue**: `transcript-translation-queue` (`visibility_timeout_seconds=600`, `maxReceiveCount=3`, DLQ: `transcript-translation-dlq`)
@@ -557,10 +565,36 @@ Ref: `core/services/transcript_translation.py::ensure_translated_transcript`,
 
 ### Purpose
 
-Asynchronous safety net for `/raw-content` translation cache misses. The task-192
-prewarm keeps the S3 translation cache warm in the majority of cases, but when a
-prewarm has not completed by the time the mobile client calls `/raw-content`, this
-worker translates the transcript in the background (no API Gateway timeout constraint).
+**The sole path for transcript translation** (task-203 removed the blocking prewarm
+from ingestion workers). When the mobile client calls `/raw-content` and no cached
+translation exists, the endpoint reserves a translation slot via the state machine
+(DynamoDB) and enqueues a job to this worker. The worker translates the transcript
+asynchronously (no API Gateway timeout constraint).
+
+### Translation State Machine (task-203)
+
+Translation idempotence is enforced via a dedicated DynamoDB table
+(`translation_idempotence`) with the following state lifecycle:
+
+```
+(none) --> queued --> in_progress --> done
+                         |
+                         +--> failed (re-authorizes future reserve)
+```
+
+**Table**: `translation_idempotence` (hash key: `translation_fingerprint`)
+**Fingerprint**: SHA-256 of `{transcript_s3_key}::{target_language}`
+**Module**: `media_summarizer/utils/translation_idempotence.py`
+
+| Operation | Who | Effect |
+|---|---|---|
+| `reserve_translation()` | `/raw-content` endpoint | Atomically creates `queued` record (ConditionExpression: `attribute_not_exists OR status=failed`). Only the first caller wins. |
+| `mark_translation_in_progress()` | Translation worker (on start) | `queued -> in_progress` |
+| `mark_translation_done()` | Translation worker (on success) | `-> done` |
+| `mark_translation_failed()` | Translation worker (on terminal failure) | `-> failed` (allows retry on next access) |
+
+This eliminates the thundering herd bug where N concurrent `/raw-content` polls
+each enqueued a separate translation job.
 
 ### Message schema
 
@@ -570,22 +604,25 @@ worker translates the transcript in the background (no API Gateway timeout const
   "target_language": "string (required) -- ISO 639-1 target language",
   "source_language_hint": "string|null -- reliable source-provided language tag",
   "source": "string|null -- source platform name for logging",
-  "job_id": "string|null -- processing job ID for logging context"
+  "job_id": "string|null -- processing job ID for persist_detected_language"
 }
 ```
 
 ### Behavior
 
-1. Downloads the original transcript from S3 (`TRANSCRIPT_BUCKET`).
-2. Calls `ensure_translated_transcript(...)` -- this function is fully idempotent
+1. Marks translation state `queued -> in_progress`.
+2. Downloads the original transcript from S3 (`TRANSCRIPT_BUCKET`).
+3. Calls `ensure_translated_transcript(...)` -- this function is fully idempotent
    (checks `s3.object_exists` for the translated key before doing any LLM work).
-3. On completion, the translated transcript is persisted in S3 under the
-   deterministic key `…​.translated.<target>.<ext>`.
+4. On success: marks state `-> done` and persists `detected_language` on the job
+   (moved here from the removed prewarm, AC#2).
+5. On terminal failure (`TranscriptTranslationError` after retries exhausted):
+   marks state `-> failed`. Does NOT re-raise (prevents SQS retry of an already-
+   exhausted attempt).
+6. On unexpected error: marks state `-> failed` and re-raises (SQS may retry via
+   visibility timeout, but the state machine ensures no thundering herd).
 
-Duplicate messages for the same `(transcript_s3_key, target_language)` couple are
-harmless: `ensure_translated_transcript` short-circuits on cache hit.
-
-### `/raw-content` contract (task-200)
+### `/raw-content` contract (task-200, updated task-203)
 
 The `GET /api/media/:id/raw-content` endpoint **never** calls LLM translation
 synchronously. Its behavior:
@@ -593,25 +630,37 @@ synchronously. Its behavior:
 | Scenario | Response | `translation` metadata |
 |---|---|---|
 | No `reading_language` on user | Original content | `null` |
-| Same language (no translation needed) | Original content | `{is_translated: false, translation_pending: false, ...}` |
-| Cached translation exists in S3 | Translated content | `{is_translated: true, translation_pending: false, translated_from: "xx", ...}` |
-| Cache miss (translation pending) | **Original content** (immediate) | `{is_translated: false, translation_pending: true, target_language: "xx", ...}` |
+| Same language (no translation needed) | Original content | `{is_translated: false, translation_pending: false, translation_status: null, ...}` |
+| Cached translation exists in S3 | Translated content | `{is_translated: true, translation_pending: false, translation_status: "done", ...}` |
+| Translation queued/in_progress | **Original content** (immediate) | `{is_translated: false, translation_pending: true, translation_status: "queued"\|"in_progress", ...}` |
+| Translation failed | **Original content** | `{is_translated: false, translation_pending: true, translation_status: "queued", ...}` (re-attempts reservation) |
 
-When the client receives `translation_pending: true`, it should display the original
-content immediately and poll `/raw-content` every ~3 seconds until the response no
-longer carries `translation_pending: true`. The translation worker typically completes
-within 10-60 seconds.
+When the client receives `translation_pending: true`, it displays the original
+content immediately and polls `/raw-content` every ~3 seconds until either:
+- `translation_pending: false` (translation done), or
+- `translation_status: "failed"` (stop polling, show failure badge).
+
+The translation worker typically completes within 10-90 seconds depending on
+transcript length.
 
 ### Observability
 
 Structured logs:
-- `worker.translation_started` -- worker begins processing
+- `worker.translation_started` -- worker begins processing (status: in_progress)
 - `worker.translation_completed` -- success (includes `detected_language`, `target_language`, `is_translated`, `duration_ms`)
-- `worker.s3_download_failed` -- transcript download failed (retried via SQS)
-- `worker.invalid_message` -- missing required fields (not retried)
-- `worker.empty_transcript` -- empty transcript file (not retried)
+- `worker.translation_terminal_failure` -- retries exhausted (status: failed)
+- `worker.translation_unexpected_error` -- unexpected error (status: failed)
+- `worker.s3_download_failed` -- transcript download failed (status: failed)
+- `worker.invalid_message` -- missing required fields (not retried, no state change)
+- `worker.empty_transcript` -- empty transcript file (status: done, nothing to translate)
+- `worker.persist_language_failed` -- non-fatal: detected language not persisted on job
 
-Additionally, `ensure_translated_transcript` logs `translation.completed` / `translation.cache_hit` / `translation.failed` with full cost and token metrics (same as the prewarm path).
+State machine logs (from `translation_idempotence.py`):
+- `translation_idempotence.reserved` -- reservation acquired by caller
+- `translation_idempotence.already_reserved` -- reservation rejected (another caller won)
+- `translation_idempotence.failed` -- terminal failure recorded
+
+Additionally, `ensure_translated_transcript` logs `translation.completed` / `translation.cache_hit` / `translation.failed` with full cost and token metrics.
 
 ### Env vars
 
@@ -619,9 +668,10 @@ Additionally, `ensure_translated_transcript` logs `translation.completed` / `tra
 |---|---|---|
 | `TRANSCRIPT_TRANSLATION_QUEUE` | `transcript-translation-queue` | SQS queue name. |
 | `TRANSCRIPT_BUCKET` | `media-summarizer-transcripts` | S3 bucket for transcripts. |
-| `TRANSLATION_LLM_MODEL` | `gpt-5-nano-2025-08-07` | LLM model (shared with prewarm). |
+| `TRANSLATION_LLM_MODEL` | `gpt-5-nano-2025-08-07` | LLM model. |
 | `TRANSLATION_TIMEOUT_SECONDS` | `180` | Per-LLM-call timeout (shared). |
 | `TRANSLATION_MAX_RETRIES` | `3` | Retry attempts within the worker (shared). |
+| `TRANSLATION_IDEMPOTENCE_TABLE` | `translation_idempotence` | DynamoDB table for state machine (task-203). |
 
 ---
 

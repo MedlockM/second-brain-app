@@ -233,6 +233,26 @@ resource "aws_dynamodb_table" "artifact_idempotence_v1" {
   }
 }
 
+# Translation idempotence table (state machine for transcript translations)
+# Prevents thundering herd: only the first caller reserves the translation slot,
+# subsequent /raw-content polls read the state without re-enqueuing (task-203).
+resource "aws_dynamodb_table" "translation_idempotence_v1" {
+  name         = "translation_idempotence"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "translation_fingerprint"
+
+  attribute {
+    name = "translation_fingerprint"
+    type = "S"
+  }
+
+  tags = {
+    Name        = "translation_idempotence"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
 # Outputs
 output "users_table_name" {
   value       = aws_dynamodb_table.users_v2.name
@@ -247,6 +267,11 @@ output "media_artifacts_table_name" {
 output "artifact_idempotence_table_name" {
   value       = aws_dynamodb_table.artifact_idempotence_v1.name
   description = "Artifact idempotence table name"
+}
+
+output "translation_idempotence_table_name" {
+  value       = aws_dynamodb_table.translation_idempotence_v1.name
+  description = "Translation idempotence table name (task-203)"
 }
 
 output "processing_jobs_table_name" {
