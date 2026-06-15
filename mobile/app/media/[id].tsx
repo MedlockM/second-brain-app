@@ -9,13 +9,15 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { MediaService } from "../../src/services/mediaService";
 import { ArtifactService } from "../../src/services/artifactService";
+import { OrganizationService } from "../../src/services/organizationService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
 import { useMediaDetailPolling } from "../../src/hooks/useMediaDetailPolling";
 import {
@@ -287,6 +289,98 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   const { token } = useAuth();
   const router = useRouter();
   const { media_item, processing_job } = mediaData;
+
+  // --- Collection state ---
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(
+    media_item.folder_id ?? null,
+  );
+  const previousFolderIdRef = useRef<string | null>(currentFolderId);
+
+  // Toast feedback state
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback(
+    (message: string) => {
+      setToastMessage(message);
+      Animated.timing(toastOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => {
+        Animated.timing(toastOpacity, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => setToastMessage(null));
+      }, 2500);
+    },
+    [toastOpacity],
+  );
+
+  // Refresh collection state when returning from the collection picker
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+
+      const refreshCollection = async () => {
+        try {
+          const response = await MediaService.getMediaStatus(
+            token,
+            media_item.media_item_id,
+          );
+          const newFolderId = response.media_item.folder_id ?? null;
+          setCurrentFolderId(newFolderId);
+
+          // Show toast if collection changed
+          if (newFolderId !== previousFolderIdRef.current) {
+            if (newFolderId) {
+              // Fetch collection name for the toast
+              try {
+                const collections =
+                  await OrganizationService.getUserCollections(token);
+                const found = collections.find((c) => c.id === newFolderId);
+                showToast(
+                  found
+                    ? `Moved to "${found.name}"`
+                    : "Moved to collection",
+                );
+              } catch {
+                showToast("Moved to collection");
+              }
+            } else {
+              showToast("Removed from collection");
+            }
+            previousFolderIdRef.current = newFolderId;
+          }
+        } catch {
+          // Silent fail: the main view already has data
+        }
+      };
+
+      void refreshCollection();
+    }, [token, media_item.media_item_id, showToast]),
+  );
+
+  // Cleanup toast timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
+  }, []);
+
+  const handleCollectionPress = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("mode", "move");
+    params.set("mediaItemId", media_item.media_item_id);
+    if (currentFolderId) {
+      params.set("currentCollectionId", currentFolderId);
+    }
+    router.push(`/media/collection?${params.toString()}`);
+  }, [router, media_item.media_item_id, currentFolderId]);
 
   const [artifactsExpanded, setArtifactsExpanded] = useState(true);
   const [artifactStates, setArtifactStates] = useState<
@@ -601,7 +695,19 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      <Header onBack={onBack} />
+      <Header
+        onBack={onBack}
+        collectionId={currentFolderId}
+        onCollectionPress={handleCollectionPress}
+      />
+
+      {/* Toast feedback */}
+      {toastMessage && (
+        <Animated.View style={[styles.toast, { opacity: toastOpacity }]}>
+          <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </Animated.View>
+      )}
 
       <ScrollView
         style={styles.scrollView}
@@ -696,7 +802,17 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
 
 // --- Sub-components ---
 
-function Header({ onBack }: { onBack: () => void }) {
+function Header({
+  onBack,
+  collectionId,
+  onCollectionPress,
+}: {
+  onBack: () => void;
+  collectionId?: string | null;
+  onCollectionPress?: () => void;
+}) {
+  const hasCollection = !!collectionId;
+
   return (
     <View style={styles.header}>
       <Pressable
@@ -708,14 +824,31 @@ function Header({ onBack }: { onBack: () => void }) {
       >
         <Ionicons name="arrow-back" size={24} color={Colors.textMain} />
       </Pressable>
-      <Pressable
-        style={styles.headerButton}
-        accessibilityLabel="Share"
-        accessibilityRole="button"
-        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-      >
-        <Ionicons name="share-outline" size={24} color={Colors.textMain} />
-      </Pressable>
+      <View style={styles.headerRightGroup}>
+        {onCollectionPress && (
+          <Pressable
+            style={styles.headerButton}
+            onPress={onCollectionPress}
+            accessibilityLabel="Move to collection"
+            accessibilityRole="button"
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+          >
+            <Ionicons
+              name={hasCollection ? "folder" : "folder-outline"}
+              size={24}
+              color={hasCollection ? Colors.primary : Colors.textMain}
+            />
+          </Pressable>
+        )}
+        <Pressable
+          style={styles.headerButton}
+          accessibilityLabel="Share"
+          accessibilityRole="button"
+          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+        >
+          <Ionicons name="share-outline" size={24} color={Colors.textMain} />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -1109,6 +1242,29 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     justifyContent: "center",
     alignItems: "center",
+  },
+  headerRightGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+
+  // Toast feedback
+  toast: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    alignSelf: "center",
+    backgroundColor: Colors.surfaceContainer,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    marginBottom: Spacing.sm,
+  },
+  toastText: {
+    fontSize: Typography.small.fontSize,
+    fontWeight: Typography.label.fontWeight,
+    color: Colors.textMain,
   },
 
   // Processing placeholder

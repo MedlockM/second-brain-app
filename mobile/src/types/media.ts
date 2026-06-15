@@ -129,6 +129,7 @@ export interface MediaItemContract {
   status: MediaItemStatus;
   transcript: TranscriptInfo;
   artifact_statuses: Partial<Record<ArtifactType, ArtifactStatusSnapshot>>;
+  folder_id?: string | null;
   created_at: string;
   updated_at: string;
 }
