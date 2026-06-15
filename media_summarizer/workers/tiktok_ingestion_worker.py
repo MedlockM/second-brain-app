@@ -108,6 +108,10 @@ _CONTAINER_KEYS = (
     "paragraphs",
 )
 
+# Mirrors classifiers._TIKTOK_SHORT_HOSTS: vm.tiktok.com share links carry a
+# random shortcode instead of /@user/video/<id> or /t/<id>.
+_TIKTOK_SHORT_HOSTS = {"vm.tiktok.com"}
+
 _UNAVAILABLE_MESSAGE = "This TikTok video is unavailable or cannot be processed."
 _UNSUPPORTED_MESSAGE = "Unable to resolve transcribable media from this TikTok URL."
 _TEMPORARY_EXTRACTOR_MESSAGE = (
@@ -199,12 +203,17 @@ def _looks_like_ip_blocked_error(message: str) -> bool:
 
 def _extract_tiktok_id(normalized_url: str) -> str:
     split = urlsplit((normalized_url or "").strip())
+    host = (split.hostname or "").lower()
     parts = [segment for segment in (split.path or "").split("/") if segment]
 
     if len(parts) >= 3 and parts[0].startswith("@") and parts[1] == "video":
         return parts[2].strip()
     if len(parts) >= 2 and parts[0] == "t":
         return parts[1].strip()
+    if host in _TIKTOK_SHORT_HOSTS and parts:
+        # vm.tiktok.com/<shortcode> share links: yt-dlp resolves the
+        # redirect itself, so the shortcode is only used for metadata/logging.
+        return parts[0].strip()
 
     raise TikTokIngestionError(
         "unsupported_content",
