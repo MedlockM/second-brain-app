@@ -92,12 +92,6 @@ export default function AccountScreen() {
       {/* Menu */}
       <View style={styles.menuCard}>
         <MenuItem
-          icon="folder-outline"
-          label="Collections"
-          subtitle="Browse your saved media"
-          onPress={() => router.push("/media/collections")}
-        />
-        <MenuItem
           icon="language-outline"
           label="Reading Language"
           subtitle={readingLanguageLabel}

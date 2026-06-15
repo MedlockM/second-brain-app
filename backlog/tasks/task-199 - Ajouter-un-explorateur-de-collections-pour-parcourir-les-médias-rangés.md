@@ -4,7 +4,7 @@ title: Ajouter un explorateur de collections pour parcourir les médias rangés
 status: Done
 assignee: []
 created_date: '2026-06-14 21:28'
-updated_date: '2026-06-14 21:44'
+updated_date: '2026-06-15 08:17'
 labels:
   - mobile
   - collections
@@ -27,3 +27,9 @@ Permettre à l'utilisateur de retrouver ses médias via une vue d'exploration de
 - [ ] #5 Les états vide, chargement et erreur sont gérés pour la liste des collections et pour le contenu d'une collection.
 - [ ] #6 La fonctionnalité respecte les collections/folders déjà créés par l'utilisateur lors de l'enregistrement de médias.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Correction post-implémentation: l'entrée Collections a été retirée de l'onglet Account. Les collections sont désormais affichées directement dans l'onglet Search sous forme de grille 3 colonnes, avec icône de dossier et nom sous l'icône; le clic ouvre le détail de collection existant.
+<!-- SECTION:NOTES:END -->

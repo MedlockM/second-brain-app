@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -11,13 +11,20 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useDebounce } from "../../src/hooks/useDebounce";
 import {
   SearchService,
   SearchFilters,
 } from "../../src/services/searchService";
+import { OrganizationService } from "../../src/services/organizationService";
+import { MediaService } from "../../src/services/mediaService";
+import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
+import {
+  buildCollectionTree,
+  type CollectionNode,
+} from "../../src/lib/collectionTree";
 import {
   Colors,
   Typography,
@@ -28,6 +35,7 @@ import {
 } from "../../src/constants/theme";
 import type {
   MediaItemContract,
+  MediaListItem,
   MediaType,
   MediaItemStatus,
   SourcePlatform,
@@ -176,6 +184,9 @@ export default function SearchScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collections, setCollections] = useState<CollectionNode[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(true);
+  const [collectionsError, setCollectionsError] = useState<string | null>(null);
 
   // Debounce the search query
   const debouncedQuery = useDebounce(query, 300);
@@ -227,6 +238,49 @@ export default function SearchScreen() {
     performSearch();
   }, [debouncedQuery, activeTypeFilter, token]);
 
+  const loadCollections = useCallback(async () => {
+    if (!token) return;
+    setCollectionsError(null);
+
+    try {
+      const [folders, mediaResponse] = await Promise.all([
+        OrganizationService.getUserCollections(token),
+        MediaService.listMedia(token),
+      ]);
+
+      const directCountById = new Map<string, number>();
+      for (const media of mediaResponse.items as MediaListItem[]) {
+        if (!media.folder_id) continue;
+        directCountById.set(
+          media.folder_id,
+          (directCountById.get(media.folder_id) ?? 0) + 1,
+        );
+      }
+
+      const tree = buildCollectionTree(folders, directCountById);
+      setCollections(tree.roots);
+    } catch (err) {
+      setCollectionsError(
+        getFriendlyErrorMessage(err, {
+          fallback: "Unable to load your collections.",
+        }),
+      );
+    }
+  }, [token]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setCollectionsLoading(true);
+      loadCollections().finally(() => {
+        if (active) setCollectionsLoading(false);
+      });
+      return () => {
+        active = false;
+      };
+    }, [loadCollections]),
+  );
+
   const handleClearQuery = useCallback(() => {
     setQuery("");
   }, []);
@@ -234,6 +288,26 @@ export default function SearchScreen() {
   const handleFilterPress = useCallback((type: MediaType | null) => {
     setActiveTypeFilter(type);
   }, []);
+
+  const handleOpenCollection = useCallback(
+    (collection: CollectionNode) => {
+      router.push({
+        pathname: "/media/collections/[id]",
+        params: { id: collection.id, name: collection.name },
+      });
+    },
+    [router],
+  );
+
+  const sortedCollections = useMemo(
+    () => [...collections].sort((a, b) => a.name.localeCompare(b.name)),
+    [collections],
+  );
+
+  const handleRetryCollections = useCallback(() => {
+    setCollectionsLoading(true);
+    loadCollections().finally(() => setCollectionsLoading(false));
+  }, [loadCollections]);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -308,7 +382,13 @@ export default function SearchScreen() {
         ) : error ? (
           <ErrorState message={error} />
         ) : !hasSearched ? (
-          <InitialState />
+          <CollectionsState
+            collections={sortedCollections}
+            isLoading={collectionsLoading}
+            error={collectionsError}
+            onRetry={handleRetryCollections}
+            onOpenCollection={handleOpenCollection}
+          />
         ) : results.length === 0 ? (
           <NoResultsState query={debouncedQuery} />
         ) : (
@@ -342,19 +422,112 @@ export default function SearchScreen() {
 
 // --- Sub-components ---
 
-function InitialState() {
+function CollectionsState({
+  collections,
+  isLoading,
+  error,
+  onRetry,
+  onOpenCollection,
+}: {
+  collections: CollectionNode[];
+  isLoading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onOpenCollection: (collection: CollectionNode) => void;
+}) {
+  if (isLoading) {
+    return (
+      <View style={styles.emptyContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={[styles.emptyHint, { marginTop: Spacing.md }]}>
+          Loading collections...
+        </Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Ionicons
+          name="cloud-offline-outline"
+          size={48}
+          color={Colors.textMuted}
+          style={styles.emptyIcon}
+        />
+        <Text style={styles.emptyTitle}>{error}</Text>
+        <Pressable
+          style={styles.retryButton}
+          onPress={onRetry}
+          accessibilityLabel="Retry loading collections"
+          accessibilityRole="button"
+        >
+          <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (collections.length === 0) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Ionicons
+          name="folder-open-outline"
+          size={48}
+          color={Colors.textMuted}
+          style={styles.emptyIcon}
+        />
+        <Text style={styles.emptyTitle}>No collections yet</Text>
+        <Text style={styles.emptyHint}>
+          Organize media into collections when you save them.
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.emptyContainer}>
-      <Ionicons
-        name="search-outline"
-        size={48}
-        color={Colors.textMuted}
-        style={styles.emptyIcon}
-      />
-      <Text style={styles.emptyTitle}>Search your media library</Text>
-      <Text style={styles.emptyHint}>
-        Find transcripts, summaries, and notes across all your saved content.
-      </Text>
+    <FlatList
+      data={collections}
+      keyExtractor={(item) => item.id}
+      numColumns={3}
+      renderItem={({ item }) => (
+        <CollectionTile collection={item} onPress={onOpenCollection} />
+      )}
+      contentContainerStyle={styles.collectionsGridContent}
+      showsVerticalScrollIndicator={false}
+      ListHeaderComponent={
+        <Text style={styles.collectionsTitle}>Collections</Text>
+      }
+    />
+  );
+}
+
+function CollectionTile({
+  collection,
+  onPress,
+}: {
+  collection: CollectionNode;
+  onPress: (collection: CollectionNode) => void;
+}) {
+  return (
+    <View style={styles.collectionTileSlot}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.collectionTile,
+          pressed && styles.collectionTilePressed,
+        ]}
+        onPress={() => onPress(collection)}
+        accessibilityLabel={`Open collection ${collection.name}`}
+        accessibilityRole="button"
+      >
+        <View style={styles.collectionIcon}>
+          <Ionicons name="folder" size={42} color={Colors.primary} />
+        </View>
+        <Text style={styles.collectionName} numberOfLines={2}>
+          {collection.name}
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -547,6 +720,64 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textAlign: "center",
     marginTop: Spacing.lg,
+  },
+
+  // Collections grid
+  collectionsGridContent: {
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.xxl,
+  },
+  collectionsTitle: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: "700",
+    color: Colors.textMain,
+    marginBottom: Spacing.md,
+  },
+  collectionTileSlot: {
+    width: "33.333%",
+    paddingHorizontal: 6,
+    marginBottom: Spacing.lg,
+  },
+  collectionTile: {
+    alignItems: "center",
+    justifyContent: "flex-start",
+    minHeight: 112,
+    paddingVertical: Spacing.sm,
+  },
+  collectionTilePressed: {
+    opacity: 0.75,
+    transform: [{ scale: 0.97 }],
+  },
+  collectionIcon: {
+    width: 64,
+    height: 58,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.xs,
+  },
+  collectionName: {
+    fontSize: Typography.small.fontSize,
+    fontWeight: "600",
+    color: Colors.textMain,
+    textAlign: "center",
+    lineHeight: 17,
+  },
+  retryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm + 4,
+    borderRadius: BorderRadius.lg,
+    minHeight: TouchTarget.minimum,
+    marginTop: Spacing.lg,
+  },
+  retryButtonText: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: Typography.label.fontWeight,
+    color: Colors.onPrimary,
   },
 
   // Empty states
