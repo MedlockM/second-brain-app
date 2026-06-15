@@ -67,6 +67,9 @@ TRANSLATION_MAX_RETRIES = int(os.environ.get("TRANSLATION_MAX_RETRIES", "3"))
 TRANSLATION_BACKOFF_BASE_SECONDS = float(
     os.environ.get("TRANSLATION_BACKOFF_BASE_SECONDS", "1.0")
 )
+PREWARM_TRANSLATION_TIMEOUT_SECONDS = int(
+    os.environ.get("PREWARM_TRANSLATION_TIMEOUT_SECONDS", "45")
+)
 
 # Rough token estimate for observability / cost (4 chars per token, EU avg).
 _CHARS_PER_TOKEN = 4
@@ -517,6 +520,62 @@ def job_source_language_hint(job: Any) -> Optional[str]:
             if isinstance(value, str) and value.strip():
                 return value
     return None
+
+
+async def prewarm_translated_transcript(
+    job: Any, transcript_s3_key: str, transcript_text: str
+) -> None:
+    """Pre-translate the transcript to the user's reading language (task-192).
+
+    Call this synchronously, before ``job.mark_completed()``, from every worker
+    that completes a job with a transcript -- so the S3-cached translation is
+    warm by the time the mobile app calls ``/raw-content``, keeping that
+    endpoint well within API Gateway's hard 30s integration timeout. Bounded by
+    ``PREWARM_TRANSLATION_TIMEOUT_SECONDS`` so a slow translation cannot block
+    job completion indefinitely; failures are logged and swallowed since the
+    prewarm is a best-effort optimization, not a correctness requirement
+    (``/raw-content`` falls back to translating on demand).
+    """
+    from media_summarizer.utils import database_async
+
+    job_id = getattr(job, "id", None)
+    user_id = getattr(job, "user_id", None)
+    if not user_id:
+        return
+    try:
+        user = await database_async.get_user_by_id(user_id)
+    except Exception as exc:
+        logger.warning(f"Failed to load user {user_id} for transcript prewarm: {exc}")
+        return
+
+    reading_language = getattr(user, "reading_language", None) if user else None
+    if not reading_language:
+        return
+
+    async def _translate_and_persist() -> None:
+        outcome = await ensure_translated_transcript(
+            transcript_s3_key=transcript_s3_key,
+            transcript_text=transcript_text,
+            target_language=reading_language,
+            source=getattr(job, "source_platform", None),
+            source_language_hint=job_source_language_hint(job),
+            transcript_bucket=TRANSCRIPT_BUCKET,
+        )
+        await persist_detected_language(job, outcome.detected_language)
+
+    try:
+        await asyncio.wait_for(
+            _translate_and_persist(), timeout=PREWARM_TRANSLATION_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"Transcript prewarm timed out after "
+            f"{PREWARM_TRANSLATION_TIMEOUT_SECONDS}s for job {job_id}"
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Failed to pre-warm translated transcript for job {job_id}: {exc}"
+        )
 
 
 async def persist_detected_language(job: Any, detected_language: Optional[str]) -> None:

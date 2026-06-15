@@ -20,6 +20,9 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.services.transcript_translation import (
+    prewarm_translated_transcript,
+)
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils import media_idempotence as episode_idempotence
 from media_summarizer.utils.logging_config import log_event
@@ -262,6 +265,9 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 )
                 job.set_transcription_location(transcript_s3_key)
                 job.set_transcription_metadata(transcription_metadata)
+                await prewarm_translated_transcript(
+                    job, transcript_s3_key, transcript_text
+                )
                 job.mark_completed()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
@@ -309,6 +315,9 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 )
                 job.set_transcription_location(transcript_s3_key)
                 job.set_transcription_metadata(transcription_metadata)
+                await prewarm_translated_transcript(
+                    job, transcript_s3_key, transcript_text
+                )
                 job.mark_completed()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(

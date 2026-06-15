@@ -25,6 +25,9 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import yt_dlp
 
+from media_summarizer.core.services.transcript_translation import (
+    prewarm_translated_transcript,
+)
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
@@ -787,6 +790,9 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
             source_url=normalized_url,
             apify_result=apify_result,
         )
+        await prewarm_translated_transcript(
+            job, transcript_s3_key, apify_result["text"]
+        )
         job.mark_completed()
         await database_async.update_processing_job(job)
 
@@ -875,6 +881,7 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
         source_url=normalized_url,
         native_result=native_result,
     )
+    await prewarm_translated_transcript(job, transcript_s3_key, native_result["text"])
     job.mark_completed()
     await database_async.update_processing_job(job)
 
