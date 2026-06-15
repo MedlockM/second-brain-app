@@ -3,7 +3,7 @@ id: task-204
 title: >-
   Indexer les transcripts audio/vidéo dans Algolia depuis le worker de
   transcription Deepgram
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-15 13:53'
 labels:
