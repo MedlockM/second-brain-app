@@ -3,7 +3,7 @@ id: task-208
 title: >-
   Migrate /api/media/ingest-url to IngestUrlUseCase and delete legacy URL
   ingestion path
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-15 15:44'
 labels:

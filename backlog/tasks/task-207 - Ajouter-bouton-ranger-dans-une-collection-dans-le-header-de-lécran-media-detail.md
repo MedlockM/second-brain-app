@@ -3,7 +3,7 @@ id: task-207
 title: >-
   Ajouter bouton "ranger dans une collection" dans le header de l'écran media
   detail
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-15 15:33'
 labels:
