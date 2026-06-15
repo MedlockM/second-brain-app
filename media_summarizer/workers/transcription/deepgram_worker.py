@@ -73,6 +73,9 @@ EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
 DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
     "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
 )
+SEARCH_INDEXING_QUEUE = os.environ.get(
+    "SEARCH_INDEXING_QUEUE", "search-indexing-queue"
+)
 
 # Worker retry handling (SQS-level via base worker)
 WORKER_MAX_RETRIES = int(os.environ.get("DEEPGRAM_WORKER_MAX_RETRIES", "3"))
@@ -690,6 +693,51 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
             "transcription_metadata": transcription_metadata,
         },
     )
+
+    # Enqueue search indexing message so the transcript becomes searchable in Algolia.
+    # Best-effort: failure is logged but does not break the transcription flow.
+    try:
+        search_user_id = message_body.get("user_id") or (
+            getattr(job, "user_id", None) if job else None
+        )
+        search_title = (
+            message_body.get("episode_title")
+            or message_body.get("podcast_title")
+            or (getattr(job, "title", None) if job else None)
+        )
+        search_source_platform = message_body.get("source_platform") or (
+            getattr(job, "source_platform", None) if job else None
+        )
+
+        if search_user_id:
+            await sqs.send_message(
+                queue_name=SEARCH_INDEXING_QUEUE,
+                message_body={
+                    "media_item_id": job_id,
+                    "user_id": search_user_id,
+                    "transcription_s3_key": transcript_s3_key,
+                    "title": search_title,
+                    "source_platform": search_source_platform,
+                    "created_at": int(time.time()),
+                },
+            )
+        else:
+            log_event(
+                logger,
+                logging.WARNING,
+                "search_indexing.skipped",
+                "Skipped search indexing enqueue: user_id not available",
+                job_id=job_id,
+            )
+    except Exception as search_err:
+        log_event(
+            logger,
+            logging.WARNING,
+            "search_indexing.enqueue_failed",
+            "Failed to enqueue search indexing message after transcription",
+            job_id=job_id,
+            error=str(search_err),
+        )
 
     # Finalize minute usage for the canonical submitter after transcription succeeds.
     # This is the billing event tied to transcription (the expensive step).
