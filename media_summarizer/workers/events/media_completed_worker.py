@@ -17,11 +17,6 @@ from typing import Any, Dict, List, Optional
 from media_summarizer.utils import sqs, s3
 from media_summarizer.utils import media_watchers
 from media_summarizer.core.services.minute_pool import finalize_usage
-from media_summarizer.core.services.transcript_translation import (
-    ensure_translated_transcript,
-    job_source_language_hint,
-    persist_detected_language,
-)
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
 logger = logging.getLogger(__name__)
@@ -31,14 +26,6 @@ MEDIA_COMPLETED_EVENTS_QUEUE = os.environ.get(
     os.environ.get("EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"),
 )
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
-)
-# Kept well under this worker's Lambda timeout (60s) so a slow translation
-# never causes the invocation itself to time out and redeliver the message.
-PREWARM_TRANSLATION_TIMEOUT_SECONDS = int(
-    os.environ.get("PREWARM_TRANSLATION_TIMEOUT_SECONDS", "45")
-)
 
 # Backoff
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
@@ -60,43 +47,6 @@ async def _load_summary_content(summary_s3_key: Optional[str]) -> Optional[Dict[
     except Exception as e:
         logger.warning(f"Failed to load summary content {summary_s3_key}: {e}")
         return None
-
-
-async def _prewarm_translated_transcript(
-    job: Any, reading_language: Optional[str]
-) -> None:
-    """Pre-translate the transcript to the user's reading language (task-192).
-
-    Runs the detect+translate step here, off the request path, so that
-    ``/raw-content`` and artifact generation hit a warm S3 cache instead of
-    paying the ~20-30s OpenAI translation call synchronously -- which risks
-    exceeding the API Gateway's 30s hard integration timeout.
-    """
-    if not reading_language:
-        return
-    transcript_s3_key = (getattr(job, "transcription_s3_key", None) or "").strip()
-    if not transcript_s3_key:
-        return
-    try:
-        transcript_bytes = await s3.download_file_to_memory(
-            bucket=TRANSCRIPT_BUCKET, key=transcript_s3_key
-        )
-        if not transcript_bytes or not transcript_bytes.strip():
-            return
-        outcome = await ensure_translated_transcript(
-            transcript_s3_key=transcript_s3_key,
-            transcript_text=transcript_bytes.decode("utf-8", errors="ignore"),
-            target_language=reading_language,
-            source=getattr(job, "source_platform", None),
-            source_language_hint=job_source_language_hint(job),
-            transcript_bucket=TRANSCRIPT_BUCKET,
-        )
-        await persist_detected_language(job, outcome.detected_language)
-    except Exception as exc:
-        job_id = getattr(job, "id", None)
-        logger.warning(
-            f"Failed to pre-warm translated transcript for job {job_id}: {exc}"
-        )
 
 
 async def process_event(message: Dict[str, Any]) -> None:
@@ -159,7 +109,6 @@ async def process_event(message: Dict[str, Any]) -> None:
                     logger.info(f"Updated processing job {job_id} with S3 keys")
             except Exception as e:
                 logger.error(f"Failed to update processing job {job_id}: {e}")
-                job = None
 
             # Mark watcher as processed (for deduplication; notifications via mobile polling in V1)
             try:
@@ -187,25 +136,6 @@ async def process_event(message: Dict[str, Any]) -> None:
                 continue
 
             logger.info(f"Successfully processed watcher {w.get('user_id')} for media key {media_key}: {minutes_used} minutes charged")
-
-            # Pre-warm the translated transcript cache (task-192) so /raw-content
-            # and artifact generation don't pay the synchronous translation cost
-            # on the request path. Best-effort: bounded so a slow/failed
-            # translation never causes this Lambda invocation to time out and
-            # redeliver the message (which would re-run watcher accounting above).
-            if job is not None:
-                try:
-                    user = await database_async.get_user_by_id(w.get("user_id"))
-                    if user and user.reading_language:
-                        await asyncio.wait_for(
-                            _prewarm_translated_transcript(job, user.reading_language),
-                            timeout=PREWARM_TRANSLATION_TIMEOUT_SECONDS,
-                        )
-                except Exception as prewarm_error:
-                    logger.warning(
-                        f"Transcript pre-translation skipped for job "
-                        f"{job_id}: {prewarm_error}"
-                    )
 
         except Exception as e:
             logger.error(f"Error processing watcher {w.get('user_id')} for {media_key}: {e}")
