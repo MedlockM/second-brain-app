@@ -16,7 +16,8 @@ import { useAuth } from "../../src/contexts/AuthContext";
 import { useDebounce } from "../../src/hooks/useDebounce";
 import {
   SearchService,
-  SearchFilters,
+  type SearchHit,
+  type SearchFilters,
 } from "../../src/services/searchService";
 import { OrganizationService } from "../../src/services/organizationService";
 import { MediaService } from "../../src/services/mediaService";
@@ -34,53 +35,54 @@ import {
   TouchTarget,
 } from "../../src/constants/theme";
 import type {
-  MediaItemContract,
   MediaListItem,
-  MediaType,
-  MediaItemStatus,
   SourcePlatform,
 } from "../../src/types/media";
 
-// --- Filter chip definitions ---
+// --- Source platform filter chips (only filter supported by Algolia endpoint) ---
 
-interface FilterChipDef {
+interface SourceFilterChipDef {
   label: string;
-  type: MediaType | null; // null = "All"
+  source: SourcePlatform | null; // null = "All"
 }
 
-const TYPE_FILTERS: FilterChipDef[] = [
-  { label: "All", type: null },
-  { label: "Podcasts", type: "podcast_episode" },
-  { label: "Articles", type: "article" },
-  { label: "YouTube", type: "youtube_video" },
-  { label: "Videos", type: "short_video" },
-  { label: "Audio", type: "audio_file" },
+const SOURCE_FILTERS: SourceFilterChipDef[] = [
+  { label: "All", source: null },
+  { label: "YouTube", source: "youtube" },
+  { label: "Spotify", source: "spotify" },
+  { label: "Web", source: "web" },
+  { label: "Instagram", source: "instagram" },
+  { label: "TikTok", source: "tiktok" },
 ];
 
 // --- Helper functions ---
 
-function getMediaTypeIcon(
-  type: MediaType,
+function getSourceIcon(
+  platform: string | null,
 ): keyof typeof Ionicons.glyphMap {
-  switch (type) {
-    case "podcast_episode":
+  switch (platform) {
+    case "spotify":
+    case "apple_podcasts":
+    case "deezer":
+    case "rss":
+    case "podcast_index":
       return "mic-outline";
-    case "article":
-      return "document-text-outline";
-    case "youtube_video":
+    case "youtube":
       return "logo-youtube";
-    case "short_video":
+    case "instagram":
+    case "tiktok":
       return "videocam-outline";
-    case "audio_file":
-      return "musical-notes-outline";
-    case "shared_text":
+    case "web":
+    case "direct_url":
+      return "globe-outline";
+    case "x":
       return "chatbox-outline";
     default:
       return "link-outline";
   }
 }
 
-function getSourceLabel(platform: SourcePlatform): string {
+function getSourceLabel(platform: string | null): string {
   switch (platform) {
     case "spotify":
       return "Spotify";
@@ -111,39 +113,10 @@ function getSourceLabel(platform: SourcePlatform): string {
   }
 }
 
-function getStatusLabel(status: MediaItemStatus): string {
-  switch (status) {
-    case "ingested":
-      return "Ingested";
-    case "resolving":
-      return "Resolving";
-    case "processing":
-      return "Processing";
-    case "ready_for_artifacts":
-      return "Ready";
-    case "failed":
-      return "Failed";
-    case "cancelled":
-      return "Cancelled";
-    default:
-      return status;
-  }
-}
+function formatTimestamp(unixTimestamp: number): string {
+  if (!unixTimestamp) return "";
 
-function getStatusColor(status: MediaItemStatus): string {
-  switch (status) {
-    case "ready_for_artifacts":
-      return "#e8f5e9";
-    case "failed":
-    case "cancelled":
-      return Colors.errorContainer;
-    default:
-      return Colors.surfaceContainerHigh;
-  }
-}
-
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
+  const date = new Date(unixTimestamp * 1000);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -155,19 +128,6 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function getDisplayTitle(item: MediaItemContract): string {
-  // Use the URL as title since MediaItemContract does not have a title field.
-  // The search endpoint may augment results with a title in the future.
-  try {
-    const url = new URL(item.original_url);
-    // Show domain + path for readability
-    const path = url.pathname === "/" ? "" : url.pathname;
-    return `${url.hostname.replace(/^www\./, "")}${path}`;
-  } catch {
-    return item.original_url;
-  }
-}
-
 // --- Main Screen Component ---
 
 export default function SearchScreen() {
@@ -176,10 +136,9 @@ export default function SearchScreen() {
 
   // Search state
   const [query, setQuery] = useState("");
-  const [activeTypeFilter, setActiveTypeFilter] = useState<MediaType | null>(
-    null,
-  );
-  const [results, setResults] = useState<MediaItemContract[]>([]);
+  const [activeSourceFilter, setActiveSourceFilter] =
+    useState<SourcePlatform | null>(null);
+  const [results, setResults] = useState<SearchHit[]>([]);
   const [totalResults, setTotalResults] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
@@ -195,8 +154,9 @@ export default function SearchScreen() {
   useEffect(() => {
     if (!token) return;
 
-    // Only search if there is a query or a filter active
-    if (!debouncedQuery.trim() && !activeTypeFilter) {
+    // Algolia requires a non-empty query (min_length=1).
+    // Do not search with only a filter and no text query.
+    if (!debouncedQuery.trim()) {
       setResults([]);
       setTotalResults(0);
       setHasSearched(false);
@@ -210,18 +170,18 @@ export default function SearchScreen() {
 
       try {
         const filters: SearchFilters = {};
-        if (activeTypeFilter) {
-          filters.type = activeTypeFilter;
+        if (activeSourceFilter) {
+          filters.source_platform = activeSourceFilter;
         }
 
-        const response = await SearchService.searchMedia(
+        const response = await SearchService.searchTranscripts(
           token,
           debouncedQuery,
-          filters,
+          { filters },
         );
 
-        setResults(response.items);
-        setTotalResults(response.total);
+        setResults(response.hits);
+        setTotalResults(response.found);
         setHasSearched(true);
       } catch (err: unknown) {
         const message =
@@ -236,7 +196,7 @@ export default function SearchScreen() {
     };
 
     performSearch();
-  }, [debouncedQuery, activeTypeFilter, token]);
+  }, [debouncedQuery, activeSourceFilter, token]);
 
   const loadCollections = useCallback(async () => {
     if (!token) return;
@@ -285,8 +245,8 @@ export default function SearchScreen() {
     setQuery("");
   }, []);
 
-  const handleFilterPress = useCallback((type: MediaType | null) => {
-    setActiveTypeFilter(type);
+  const handleFilterPress = useCallback((source: SourcePlatform | null) => {
+    setActiveSourceFilter(source);
   }, []);
 
   const handleOpenCollection = useCallback(
@@ -338,6 +298,8 @@ export default function SearchScreen() {
               onPress={handleClearQuery}
               style={styles.clearButton}
               hitSlop={8}
+              accessibilityLabel="Clear search query"
+              accessibilityRole="button"
             >
               <Ionicons name="close" size={18} color={Colors.textMuted} />
             </Pressable>
@@ -345,26 +307,28 @@ export default function SearchScreen() {
         </View>
       </View>
 
-      {/* Filter Chips */}
+      {/* Source Platform Filter Chips */}
       <View style={styles.filtersContainer}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filtersContent}
         >
-          {TYPE_FILTERS.map((chip) => (
+          {SOURCE_FILTERS.map((chip) => (
             <Pressable
               key={chip.label}
               style={[
                 styles.filterChip,
-                activeTypeFilter === chip.type && styles.filterChipActive,
+                activeSourceFilter === chip.source && styles.filterChipActive,
               ]}
-              onPress={() => handleFilterPress(chip.type)}
+              onPress={() => handleFilterPress(chip.source)}
+              accessibilityLabel={`Filter by ${chip.label}`}
+              accessibilityRole="button"
             >
               <Text
                 style={[
                   styles.filterChipText,
-                  activeTypeFilter === chip.type &&
+                  activeSourceFilter === chip.source &&
                     styles.filterChipTextActive,
                 ]}
               >
@@ -397,7 +361,7 @@ export default function SearchScreen() {
             keyExtractor={(item) => item.media_item_id}
             renderItem={({ item }) => (
               <ResultCard
-                item={item}
+                hit={item}
                 onPress={() => router.push(`/media/${item.media_item_id}`)}
               />
             )}
@@ -575,13 +539,15 @@ function ErrorState({ message }: { message: string }) {
   );
 }
 
-function ResultCard({ item, onPress }: { item: MediaItemContract; onPress: () => void }) {
-  const displayTitle = getDisplayTitle(item);
-  const sourceLabel = getSourceLabel(item.source_platform);
-  const dateLabel = formatDate(item.created_at);
-  const statusLabel = getStatusLabel(item.status);
-  const statusColor = getStatusColor(item.status);
-  const typeIcon = getMediaTypeIcon(item.media_type);
+function ResultCard({ hit, onPress }: { hit: SearchHit; onPress: () => void }) {
+  const displayTitle = hit.title || "Untitled";
+  const sourceLabel = getSourceLabel(hit.source_platform);
+  const sourceIcon = getSourceIcon(hit.source_platform);
+  const dateLabel = formatTimestamp(hit.created_at);
+
+  // Extract the first highlight snippet for preview text
+  const highlightSnippet =
+    hit.highlights.length > 0 ? hit.highlights[0].snippet : null;
 
   return (
     <Pressable
@@ -593,10 +559,10 @@ function ResultCard({ item, onPress }: { item: MediaItemContract; onPress: () =>
       {/* Card Header: source icon + label + date */}
       <View style={styles.cardHeader}>
         <View style={styles.cardSourceRow}>
-          <Ionicons name={typeIcon} size={16} color={Colors.primary} />
+          <Ionicons name={sourceIcon} size={16} color={Colors.primary} />
           <Text style={styles.cardSourceLabel}>{sourceLabel}</Text>
         </View>
-        <Text style={styles.cardDate}>{dateLabel}</Text>
+        {dateLabel ? <Text style={styles.cardDate}>{dateLabel}</Text> : null}
       </View>
 
       {/* Title */}
@@ -604,12 +570,12 @@ function ResultCard({ item, onPress }: { item: MediaItemContract; onPress: () =>
         {displayTitle}
       </Text>
 
-      {/* Footer: status badge */}
-      <View style={styles.cardFooter}>
-        <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-          <Text style={styles.statusText}>{statusLabel}</Text>
-        </View>
-      </View>
+      {/* Highlight snippet (transcript match preview) */}
+      {highlightSnippet ? (
+        <Text style={styles.cardSnippet} numberOfLines={3}>
+          {highlightSnippet}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -637,7 +603,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
 
-  // Search bar - minimum height meets touch target (AC#2)
+  // Search bar - minimum height meets touch target
   searchBarContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -694,7 +660,7 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     fontWeight: "600",
-    color: "#1c1b1a",
+    color: Colors.onPrimary,
   },
 
   // Results area
@@ -840,22 +806,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.textMain,
     lineHeight: 22,
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.xs,
   },
-  cardFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
-  },
-  statusBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-  },
-  statusText: {
+  cardSnippet: {
     fontSize: Typography.small.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.textMain,
+    color: Colors.textMuted,
+    lineHeight: 18,
+    marginTop: Spacing.xs,
   },
 });
