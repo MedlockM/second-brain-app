@@ -1,10 +1,17 @@
 """
-Media completed events consumer -- fan-out to media watchers.
+Media completed events consumer -- fan-out to media watchers + primary-user indexing.
 
 - Consumes events from MEDIA_COMPLETED_EVENTS_QUEUE (episode-completed-events)
 - Canonical event_type: episode_completion_status (with status: success/failure)
 - For each media key, fetches watchers, marks processing state, and finalizes their minute usage
 - In V1, all user notifications are via mobile app polling; email notifications disabled
+
+Search indexing (Algolia) is decoupled from the watcher loop:
+- The submitting user (resolved from the event's canonical_job_id) is ALWAYS indexed,
+  regardless of whether watchers exist.
+- Each watcher is also indexed (for cross-user dedup scenarios).
+- Deduplication: a user_id is only indexed once per event, even if they appear both as
+  the canonical submitter and as a watcher.
 """
 from __future__ import annotations
 
@@ -125,6 +132,7 @@ async def process_event(message: Dict[str, Any]) -> None:
     media_title = body.get("media_title") or body.get("episode_title")
     summary_s3_key = body.get("summary_s3_key")
     transcription_s3_key = body.get("transcription_s3_key")
+    canonical_job_id = body.get("canonical_job_id")
 
     if not media_key:
         logger.error(f"Missing media_key in event: {body}")
@@ -134,17 +142,57 @@ async def process_event(message: Dict[str, Any]) -> None:
     watchers = await media_watchers.list_watchers(media_key)
     if not watchers:
         logger.info(f"No watchers for media key {media_key}")
-        return
 
     # Handle failure events: mark all watchers as failed and return early
     if status == "failure":
         failure_reason = body.get("error_message", "upstream_pipeline_failure")
         logger.warning(f"Processing failure event for media_key={media_key}: {failure_reason}")
-        for w in watchers:
+        for w in (watchers or []):
             try:
                 await media_watchers.mark_watcher_failed(media_key, w.get("user_id"), reason=failure_reason)
             except Exception as e:
                 logger.error(f"Failed to mark watcher {w.get('user_id')} as failed: {e}")
+        return
+
+    # -------------------------------------------------------------------------
+    # Primary-user search indexing (decoupled from watcher loop)
+    # -------------------------------------------------------------------------
+    # The canonical_job_id identifies the processing job that produced this
+    # completion event. Its user_id is the submitting user who must always be
+    # indexed, regardless of whether watchers exist.
+    indexed_user_ids: set = set()
+
+    from media_summarizer.utils import database_async
+
+    canonical_job = None
+    if canonical_job_id:
+        try:
+            canonical_job = await database_async.get_processing_job_by_id(canonical_job_id)
+        except Exception as e:
+            logger.error(f"Failed to load canonical job {canonical_job_id}: {e}")
+
+    if canonical_job and canonical_job.user_id:
+        await _enqueue_search_indexing(
+            job_id=canonical_job_id,
+            user_id=canonical_job.user_id,
+            transcription_s3_key=transcription_s3_key,
+            title=canonical_job.title or media_title,
+            source_platform=canonical_job.source_platform,
+        )
+        indexed_user_ids.add(canonical_job.user_id)
+    elif not canonical_job_id:
+        log_event(
+            logger,
+            logging.WARNING,
+            "search_indexing.no_canonical_job_id",
+            "Event has no canonical_job_id; cannot resolve primary user for indexing",
+            media_key=media_key,
+        )
+
+    # -------------------------------------------------------------------------
+    # Watcher fan-out
+    # -------------------------------------------------------------------------
+    if not watchers:
         return
 
     # Load summary content once for all watchers
@@ -158,8 +206,6 @@ async def process_event(message: Dict[str, Any]) -> None:
 
             # Update processing job with S3 keys and status BEFORE sending email
             try:
-                from media_summarizer.utils import database_async
-
                 job = await database_async.get_processing_job_by_id(job_id)
                 if job:
                     if summary_s3_key:
@@ -199,15 +245,18 @@ async def process_event(message: Dict[str, Any]) -> None:
 
             logger.info(f"Successfully processed watcher {w.get('user_id')} for media key {media_key}: {minutes_used} minutes charged")
 
-            # Canonical Algolia indexing join point: enqueue the transcript for
-            # the watcher's user into their per-user search index. Best-effort.
-            await _enqueue_search_indexing(
-                job_id=job_id,
-                user_id=(getattr(job, "user_id", None) if job else None) or w.get("user_id"),
-                transcription_s3_key=transcription_s3_key,
-                title=(getattr(job, "title", None) if job else None) or media_title,
-                source_platform=(getattr(job, "source_platform", None) if job else None),
-            )
+            # Per-watcher Algolia indexing (cross-user dedup). Deduplicate
+            # against the primary user who was already indexed above.
+            watcher_user_id = (getattr(job, "user_id", None) if job else None) or w.get("user_id")
+            if watcher_user_id and watcher_user_id not in indexed_user_ids:
+                await _enqueue_search_indexing(
+                    job_id=job_id,
+                    user_id=watcher_user_id,
+                    transcription_s3_key=transcription_s3_key,
+                    title=(getattr(job, "title", None) if job else None) or media_title,
+                    source_platform=(getattr(job, "source_platform", None) if job else None),
+                )
+                indexed_user_ids.add(watcher_user_id)
 
         except Exception as e:
             logger.error(f"Error processing watcher {w.get('user_id')} for {media_key}: {e}")
