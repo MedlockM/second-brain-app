@@ -386,7 +386,7 @@ export default function CollectionScreen() {
             {isSaving ? (
               <ActivityIndicator size="small" color={Colors.primary} />
             ) : (
-              <Text style={styles.saveBtnText}>Enregistrer</Text>
+              <Text style={styles.saveBtnText}>Save</Text>
             )}
           </TouchableOpacity>
         )}
