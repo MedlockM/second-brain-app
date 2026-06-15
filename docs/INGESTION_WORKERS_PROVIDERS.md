@@ -4,7 +4,7 @@ Authoritative reference for the ingestion pipeline. Lists each source type's
 primary extraction path, fallback chain, terminal failure behavior, and
 downstream hand-off.
 
-Last verified against codebase: 2026-06-14 (post task-192 common transcript detect+translate step).
+Last verified against codebase: 2026-06-15 (post task-200 async transcript translation worker).
 
 ---
 
@@ -21,9 +21,10 @@ Last verified against codebase: 2026-06-14 (post task-192 common transcript dete
 9. [Audio (direct URL / upload)](#audio-direct-url--upload)
 10. [RSS Feed Polling](#rss-feed-polling)
 11. [Cross-cutting: Transcript Language Detection & Translation](#cross-cutting-transcript-language-detection--translation)
-12. [Cross-cutting: Deepgram Modes](#cross-cutting-deepgram-modes)
-13. [Decision Tree: URL Classification and Routing](#decision-tree-url-classification-and-routing)
-14. [References](#references)
+12. [Transcript Translation Worker (task-200)](#transcript-translation-worker-task-200)
+13. [Cross-cutting: Deepgram Modes](#cross-cutting-deepgram-modes)
+14. [Decision Tree: URL Classification and Routing](#decision-tree-url-classification-and-routing)
+15. [References](#references)
 
 ---
 
@@ -547,6 +548,83 @@ Ref: `core/services/transcript_translation.py::ensure_translated_transcript`,
 
 ---
 
+## Transcript Translation Worker (task-200)
+
+**Worker file**: `media_summarizer/workers/transcript_translation_worker.py`
+**Queue**: `transcript-translation-queue` (`visibility_timeout_seconds=600`, `maxReceiveCount=3`, DLQ: `transcript-translation-dlq`)
+**Lambda handler**: `media_summarizer.workers.lambda_handlers.transcript_translation_handler`
+**Lambda config**: `memory_size=512`, `timeout=300`
+
+### Purpose
+
+Asynchronous safety net for `/raw-content` translation cache misses. The task-192
+prewarm keeps the S3 translation cache warm in the majority of cases, but when a
+prewarm has not completed by the time the mobile client calls `/raw-content`, this
+worker translates the transcript in the background (no API Gateway timeout constraint).
+
+### Message schema
+
+```json
+{
+  "transcript_s3_key": "string (required) -- S3 key of the original transcript",
+  "target_language": "string (required) -- ISO 639-1 target language",
+  "source_language_hint": "string|null -- reliable source-provided language tag",
+  "source": "string|null -- source platform name for logging",
+  "job_id": "string|null -- processing job ID for logging context"
+}
+```
+
+### Behavior
+
+1. Downloads the original transcript from S3 (`TRANSCRIPT_BUCKET`).
+2. Calls `ensure_translated_transcript(...)` -- this function is fully idempotent
+   (checks `s3.object_exists` for the translated key before doing any LLM work).
+3. On completion, the translated transcript is persisted in S3 under the
+   deterministic key `…​.translated.<target>.<ext>`.
+
+Duplicate messages for the same `(transcript_s3_key, target_language)` couple are
+harmless: `ensure_translated_transcript` short-circuits on cache hit.
+
+### `/raw-content` contract (task-200)
+
+The `GET /api/media/:id/raw-content` endpoint **never** calls LLM translation
+synchronously. Its behavior:
+
+| Scenario | Response | `translation` metadata |
+|---|---|---|
+| No `reading_language` on user | Original content | `null` |
+| Same language (no translation needed) | Original content | `{is_translated: false, translation_pending: false, ...}` |
+| Cached translation exists in S3 | Translated content | `{is_translated: true, translation_pending: false, translated_from: "xx", ...}` |
+| Cache miss (translation pending) | **Original content** (immediate) | `{is_translated: false, translation_pending: true, target_language: "xx", ...}` |
+
+When the client receives `translation_pending: true`, it should display the original
+content immediately and poll `/raw-content` every ~3 seconds until the response no
+longer carries `translation_pending: true`. The translation worker typically completes
+within 10-60 seconds.
+
+### Observability
+
+Structured logs:
+- `worker.translation_started` -- worker begins processing
+- `worker.translation_completed` -- success (includes `detected_language`, `target_language`, `is_translated`, `duration_ms`)
+- `worker.s3_download_failed` -- transcript download failed (retried via SQS)
+- `worker.invalid_message` -- missing required fields (not retried)
+- `worker.empty_transcript` -- empty transcript file (not retried)
+
+Additionally, `ensure_translated_transcript` logs `translation.completed` / `translation.cache_hit` / `translation.failed` with full cost and token metrics (same as the prewarm path).
+
+### Env vars
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `TRANSCRIPT_TRANSLATION_QUEUE` | `transcript-translation-queue` | SQS queue name. |
+| `TRANSCRIPT_BUCKET` | `media-summarizer-transcripts` | S3 bucket for transcripts. |
+| `TRANSLATION_LLM_MODEL` | `gpt-5-nano-2025-08-07` | LLM model (shared with prewarm). |
+| `TRANSLATION_TIMEOUT_SECONDS` | `180` | Per-LLM-call timeout (shared). |
+| `TRANSLATION_MAX_RETRIES` | `3` | Retry attempts within the worker (shared). |
+
+---
+
 ## Cross-cutting: Deepgram Modes
 
 Since task-158, each producer worker / endpoint declares an explicit `deepgram_mode` in the SQS message body sent to `deepgram-transcription-queue`. This eliminates wasted pull-attempt timeouts for sources where Deepgram cannot fetch audio directly (CDN IP-blocking).
@@ -680,6 +758,8 @@ queue      queue      queue                         queue    queue      queue
 | `ytdlp_helpers` (shared subtitle + media-URL helpers used by YouTube/TikTok/Instagram resolvers) | `media_summarizer/utils/ytdlp_helpers.py` |
 | `deepgram_dispatch` (canonical SQS payload builder for Deepgram producers) | `media_summarizer/utils/deepgram_dispatch.py` |
 | `ingestion_sentinels` (per-request E2E test seam for forcing the IP-block branch) | `media_summarizer/utils/ingestion_sentinels.py` |
+| `transcript_translation_worker` (task-200: async translation for /raw-content cache miss) | `media_summarizer/workers/transcript_translation_worker.py` |
+| `raw_content_service` (task-200: /raw-content no longer calls LLM synchronously) | `media_summarizer/core/services/raw_content_service.py` |
 
 ### Artifact generation (unified worker — task-195)
 
@@ -718,6 +798,7 @@ All artifact generation (flashcards, notes, quiz, summary_short, summary_detaile
 | task-189 | Transcript translation provider selection (GPT-5-nano, 11 V1 languages, no chunking) | `docs/research/task-189-transcript-translation-benchmark/README.md` |
 | task-190 | Reading-language user preference (foundation for translation target language) | `backlog/tasks/task-190 - ...md` |
 | task-192 | Common source-agnostic transcript detect+translate step + mobile "Translated from XX" badge | `backlog/tasks/task-192 - ...md` |
+| task-200 | Async transcript translation worker for /raw-content cache miss (removes synchronous LLM from API Gateway path) | `backlog/tasks/task-200 - ...md` |
 
 ### Domain models
 

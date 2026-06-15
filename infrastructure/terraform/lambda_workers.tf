@@ -76,6 +76,12 @@ locals {
       queue_arn   = aws_sqs_queue.media_completed_events.arn
       handler     = "media_summarizer.workers.lambda_handlers.media_completed_events_handler"
     }
+    transcript_translation = {
+      memory_size = 512
+      timeout     = 300
+      queue_arn   = aws_sqs_queue.transcript_translation.arn
+      handler     = "media_summarizer.workers.lambda_handlers.transcript_translation_handler"
+    }
   }
 }
 

@@ -388,41 +388,75 @@ resource "aws_sqs_queue" "media_completed_events" {
 
 
 # =============================================================================
+# Transcript Translation (task-200: async translation for /raw-content cache miss)
+# =============================================================================
+
+resource "aws_sqs_queue" "transcript_translation_dlq" {
+  name                      = "transcript-translation-dlq"
+  message_retention_seconds = 1209600 # 14 days
+
+  tags = {
+    Name        = "transcript-translation-dlq"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_sqs_queue" "transcript_translation" {
+  name                       = "transcript-translation-queue"
+  visibility_timeout_seconds = 600
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.transcript_translation_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name        = "transcript-translation-queue"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+# =============================================================================
 # Outputs
 # =============================================================================
 
 output "queue_urls" {
   description = "URLs of the SQS queues"
   value = {
-    podcastindex_resolution = aws_sqs_queue.rss_resolution.url
-    article_extraction      = aws_sqs_queue.article_extraction.url
-    x_ingestion             = aws_sqs_queue.x_ingestion.url
-    youtube_ingestion       = aws_sqs_queue.youtube_ingestion.url
-    instagram_ingestion     = aws_sqs_queue.instagram_ingestion.url
-    tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion.url
-    deepgram_transcription  = aws_sqs_queue.deepgram_transcription.url
-    artifact_generator      = aws_sqs_queue.artifact_generator.url
-    document_parsing        = aws_sqs_queue.document_parsing.url
-    search_indexing         = aws_sqs_queue.search_indexing.url
-    rss_feed_poll           = aws_sqs_queue.rss_feed_poll.url
-    media_completed_events  = aws_sqs_queue.media_completed_events.url
+    podcastindex_resolution  = aws_sqs_queue.rss_resolution.url
+    article_extraction       = aws_sqs_queue.article_extraction.url
+    x_ingestion              = aws_sqs_queue.x_ingestion.url
+    youtube_ingestion        = aws_sqs_queue.youtube_ingestion.url
+    instagram_ingestion      = aws_sqs_queue.instagram_ingestion.url
+    tiktok_ingestion         = aws_sqs_queue.tiktok_ingestion.url
+    deepgram_transcription   = aws_sqs_queue.deepgram_transcription.url
+    artifact_generator       = aws_sqs_queue.artifact_generator.url
+    document_parsing         = aws_sqs_queue.document_parsing.url
+    search_indexing          = aws_sqs_queue.search_indexing.url
+    rss_feed_poll            = aws_sqs_queue.rss_feed_poll.url
+    media_completed_events   = aws_sqs_queue.media_completed_events.url
+    transcript_translation   = aws_sqs_queue.transcript_translation.url
   }
 }
 
 output "dlq_arns" {
   description = "ARNs of the Dead Letter Queues (for replay tooling)"
   value = {
-    podcastindex_resolution = aws_sqs_queue.rss_resolution_dlq.arn
-    article_extraction      = aws_sqs_queue.article_extraction_dlq.arn
-    x_ingestion             = aws_sqs_queue.x_ingestion_dlq.arn
-    youtube_ingestion       = aws_sqs_queue.youtube_ingestion_dlq.arn
-    instagram_ingestion     = aws_sqs_queue.instagram_ingestion_dlq.arn
-    tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion_dlq.arn
-    deepgram_transcription  = aws_sqs_queue.deepgram_transcription_dlq.arn
-    artifact_generator      = aws_sqs_queue.artifact_generator_dlq.arn
-    document_parsing        = aws_sqs_queue.document_parsing_dlq.arn
-    search_indexing         = aws_sqs_queue.search_indexing_dlq.arn
-    rss_feed_poll           = aws_sqs_queue.rss_feed_poll_dlq.arn
-    media_completed_events  = aws_sqs_queue.media_completed_events_dlq.arn
+    podcastindex_resolution  = aws_sqs_queue.rss_resolution_dlq.arn
+    article_extraction       = aws_sqs_queue.article_extraction_dlq.arn
+    x_ingestion              = aws_sqs_queue.x_ingestion_dlq.arn
+    youtube_ingestion        = aws_sqs_queue.youtube_ingestion_dlq.arn
+    instagram_ingestion      = aws_sqs_queue.instagram_ingestion_dlq.arn
+    tiktok_ingestion         = aws_sqs_queue.tiktok_ingestion_dlq.arn
+    deepgram_transcription   = aws_sqs_queue.deepgram_transcription_dlq.arn
+    artifact_generator       = aws_sqs_queue.artifact_generator_dlq.arn
+    document_parsing         = aws_sqs_queue.document_parsing_dlq.arn
+    search_indexing           = aws_sqs_queue.search_indexing_dlq.arn
+    rss_feed_poll            = aws_sqs_queue.rss_feed_poll_dlq.arn
+    media_completed_events   = aws_sqs_queue.media_completed_events_dlq.arn
+    transcript_translation   = aws_sqs_queue.transcript_translation_dlq.arn
   }
 }

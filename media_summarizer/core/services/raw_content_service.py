@@ -4,6 +4,13 @@ Service for retrieving and formatting raw content from media items.
 Raw content is the source material (transcript, extracted text, OCR result)
 stored in S3 under the processing job's transcription_s3_key.
 This service downloads that content and formats it into readable text.
+
+Translation architecture (task-200):
+- /raw-content NEVER calls LLM translation synchronously.
+- If a cached translation exists in S3, it is returned immediately.
+- If not, the original transcript is returned with translation_pending=true
+  and an async job is dispatched via SQS to the transcript-translation-worker.
+- The mobile client polls /raw-content until the translation is ready.
 """
 
 from __future__ import annotations
@@ -16,16 +23,23 @@ from typing import Optional
 
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services.transcript_translation import (
-    ensure_translated_transcript,
+    build_translated_transcript_key,
+    detect_language,
     job_source_language_hint,
-    persist_detected_language,
+    should_translate,
+    _normalize_lang,
 )
-from media_summarizer.utils import s3
+from media_summarizer.utils import s3, sqs
+from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
 TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
+)
+
+TRANSCRIPT_TRANSLATION_QUEUE = os.environ.get(
+    "TRANSCRIPT_TRANSLATION_QUEUE", "transcript-translation-queue"
 )
 
 
@@ -67,11 +81,12 @@ async def get_raw_content(
     - Social posts: raw text content
     - Images/PDFs: OCR result
 
-    When ``reading_language`` is provided, the common detect+translate step
-    (task-192) is applied: if the transcript is not already in that language,
-    a translated copy is produced (or reused from cache) and returned instead
-    of the original. The transcript shown to the user is always in their
-    preferred reading language.
+    Translation behavior (task-200 — fully asynchronous):
+    - If a cached translation exists in S3, it is served immediately.
+    - If a translation is needed but not yet cached, the original transcript is
+      returned with ``translation_pending=true`` and an async job is dispatched
+      to the transcript-translation-worker via SQS.
+    - No LLM call is ever made synchronously in this code path.
 
     Args:
         job: The ProcessingJob containing the S3 key reference.
@@ -116,23 +131,48 @@ async def get_raw_content(
 
     effective_text = raw_text
     translation_metadata: Optional[dict] = None
+
     if reading_language:
-        outcome = await ensure_translated_transcript(
+        translation_metadata = await _resolve_translation(
+            job=job,
             transcript_s3_key=transcript_s3_key,
-            transcript_text=raw_text,
-            target_language=reading_language,
-            source=source_platform or None,
-            source_language_hint=job_source_language_hint(job),
-            transcript_bucket=TRANSCRIPT_BUCKET,
+            raw_text=raw_text,
+            reading_language=reading_language,
+            source_platform=source_platform,
         )
-        translation_metadata = outcome.metadata()
-        await persist_detected_language(job, outcome.detected_language)
-        if outcome.is_translated:
-            translated_bytes = await s3.download_file_to_memory(
-                bucket=TRANSCRIPT_BUCKET,
-                key=outcome.transcript_s3_key,
-            )
-            effective_text = translated_bytes.decode("utf-8")
+        # If a cached translation was found, use it
+        if translation_metadata and translation_metadata.get("is_translated"):
+            translated_key = translation_metadata.get("_translated_s3_key")
+            if translated_key:
+                try:
+                    translated_bytes = await s3.download_file_to_memory(
+                        bucket=TRANSCRIPT_BUCKET,
+                        key=translated_key,
+                    )
+                    effective_text = translated_bytes.decode("utf-8")
+                except Exception as exc:
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        "raw_content.translated_download_failed",
+                        "Failed to download cached translation; falling back to original",
+                        transcript_s3_key=transcript_s3_key,
+                        translated_key=translated_key,
+                        error_type=type(exc).__name__,
+                    )
+                    translation_metadata = {
+                        "is_translated": False,
+                        "translated_from": None,
+                        "target_language": reading_language,
+                        "detected_language": translation_metadata.get("detected_language"),
+                        "detection_method": translation_metadata.get("detection_method"),
+                        "translation_pending": True,
+                    }
+        # Remove internal key from metadata before returning
+        if translation_metadata and "_translated_s3_key" in translation_metadata:
+            translation_metadata = {
+                k: v for k, v in translation_metadata.items() if k != "_translated_s3_key"
+            }
 
     # Determine source format and format accordingly
     source_format = _detect_source_format(effective_text, media_type, source_platform)
@@ -145,6 +185,154 @@ async def get_raw_content(
         source_format=source_format,
         translation=translation_metadata,
     )
+
+
+async def _resolve_translation(
+    *,
+    job: ProcessingJob,
+    transcript_s3_key: str,
+    raw_text: str,
+    reading_language: str,
+    source_platform: str,
+) -> dict:
+    """Resolve translation status without any synchronous LLM call.
+
+    1. Detect the source language (local langdetect, zero-cost).
+    2. Decide whether a translation is needed.
+    3. If needed, check if the cached translation already exists in S3.
+    4. If cache hit -> return is_translated=True with the S3 key.
+    5. If cache miss -> dispatch an async translation job and return
+       translation_pending=True.
+    """
+    source_language_hint = job_source_language_hint(job)
+    detected_language, detection_method = detect_language(
+        raw_text,
+        source_hint=source_language_hint,
+    )
+    normalized_target = _normalize_lang(reading_language)
+
+    # No translation needed (same language or unsupported target)
+    if not should_translate(detected_language, normalized_target):
+        return {
+            "is_translated": False,
+            "translated_from": None,
+            "target_language": normalized_target,
+            "detected_language": detected_language,
+            "detection_method": detection_method,
+            "translation_pending": False,
+        }
+
+    assert detected_language is not None
+    assert normalized_target is not None
+
+    translated_key = build_translated_transcript_key(
+        transcript_s3_key=transcript_s3_key,
+        target_language=normalized_target,
+    )
+
+    # Check S3 cache (the common path — prewarm from task-192 keeps it warm)
+    try:
+        cache_hit = await s3.object_exists(
+            bucket=TRANSCRIPT_BUCKET,
+            key=translated_key,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "raw_content.translation_cache_check_failed",
+            "S3 cache check failed; treating as cache miss",
+            error_type=type(exc).__name__,
+            detail=str(exc)[:200],
+        )
+        cache_hit = False
+
+    if cache_hit:
+        log_event(
+            logger,
+            logging.INFO,
+            "raw_content.translation_cache_hit",
+            "Serving cached translated transcript",
+            transcript_s3_key=transcript_s3_key,
+            target_language=normalized_target,
+            detected_language=detected_language,
+        )
+        return {
+            "is_translated": True,
+            "translated_from": detected_language,
+            "target_language": normalized_target,
+            "detected_language": detected_language,
+            "detection_method": detection_method,
+            "translation_pending": False,
+            "_translated_s3_key": translated_key,
+        }
+
+    # Cache miss: dispatch async translation job via SQS
+    await _enqueue_translation_job(
+        transcript_s3_key=transcript_s3_key,
+        target_language=normalized_target,
+        source_language_hint=source_language_hint,
+        source=source_platform or None,
+        job_id=getattr(job, "id", None),
+    )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "raw_content.translation_pending",
+        "Translation not yet cached; async job dispatched",
+        transcript_s3_key=transcript_s3_key,
+        target_language=normalized_target,
+        detected_language=detected_language,
+    )
+
+    return {
+        "is_translated": False,
+        "translated_from": None,
+        "target_language": normalized_target,
+        "detected_language": detected_language,
+        "detection_method": detection_method,
+        "translation_pending": True,
+    }
+
+
+async def _enqueue_translation_job(
+    *,
+    transcript_s3_key: str,
+    target_language: str,
+    source_language_hint: Optional[str],
+    source: Optional[str],
+    job_id: Optional[str],
+) -> None:
+    """Enqueue a translation job to the transcript-translation-queue.
+
+    Best-effort: failures are logged but do not break /raw-content.
+    The next request will re-attempt the dispatch.
+    """
+    message_body = {
+        "transcript_s3_key": transcript_s3_key,
+        "target_language": target_language,
+        "source_language_hint": source_language_hint,
+        "source": source,
+        "job_id": job_id,
+    }
+    try:
+        await sqs.send_message(
+            queue_name=TRANSCRIPT_TRANSLATION_QUEUE,
+            message_body=message_body,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "raw_content.translation_enqueue_failed",
+            "Failed to enqueue translation job; next request will retry",
+            queue=TRANSCRIPT_TRANSLATION_QUEUE,
+            transcript_s3_key=transcript_s3_key,
+            target_language=target_language,
+            error_type=type(exc).__name__,
+            detail=str(exc)[:200],
+        )
 
 
 def _detect_source_format(

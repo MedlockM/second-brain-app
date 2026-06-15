@@ -19,6 +19,19 @@ export interface ListMediaResponse {
 }
 
 /**
+ * Translation metadata from the backend (task-192 / task-200).
+ */
+export interface TranslationMetadata {
+  is_translated: boolean;
+  translated_from?: string | null;
+  target_language?: string | null;
+  detected_language?: string | null;
+  detection_method?: string | null;
+  /** When true, translation is being produced asynchronously. Poll again. */
+  translation_pending?: boolean;
+}
+
+/**
  * Response shape for GET /api/media/:id/raw-content.
  * Matches `RawContentResponse` on the backend.
  */
@@ -29,6 +42,7 @@ export interface RawContentResponse {
   content_type: string;
   media_type?: string | null;
   source_format?: string | null;
+  translation?: TranslationMetadata | null;
 }
 
 /**
