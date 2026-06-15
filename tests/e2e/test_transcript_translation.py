@@ -4,15 +4,22 @@ Scenario: a user with ``reading_language=fr`` ingests an English-language
 Instagram Reel and requests a summary artifact.
 
 Expected:
-- the summary artifact is translated to French (``translation.is_translated``,
+- as soon as ingestion reaches ``ready_for_artifacts``, the async
+  ``media_completed_worker`` pre-translates the raw transcript to the user's
+  ``reading_language`` (task-192 follow-up) and caches it in S3, so the
+  FIRST ``/raw-content`` call is a cache hit and returns well within a few
+  seconds. This is a regression test for the "Unable to load the transcript
+  right now" bug: the synchronous translation call (GPT-5-nano, ~18-27s) was
+  dangerously close to API Gateway HTTP API's hard 30s integration timeout,
+  causing client-visible 504s even though the Lambda eventually succeeded.
+  By pre-warming the cache off the request path, ``/raw-content`` must stay
+  comfortably under that limit.
+- the underlying transcript (``/raw-content``) is translated to French: the
+  user's preferred reading language applies to the raw transcript too, with
+  translation provenance exposed in the response's ``translation`` field.
+- the summary artifact is also translated to French (``translation.is_translated``,
   ``translated_from="en"``, ``target_language="fr"``), and its content reads
   in French.
-- the underlying transcript (``/raw-content``) is also translated to French:
-  the user's preferred reading language applies to the raw transcript too,
-  with the same translation provenance exposed in the response's
-  ``translation`` field. The translated copy is produced (or reused from
-  cache) via the same idempotent ``ensure_translated_transcript`` step used
-  for artifact generation.
 
 Uses a dedicated user (not the shared session ``test_user``) so that setting
 ``reading_language=fr`` cannot affect other E2E tests running in the same
@@ -21,6 +28,7 @@ session.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from typing import AsyncIterator, Dict
@@ -105,9 +113,40 @@ async def test_instagram_reel_translated_for_french_reader(
         f"ingestion stayed in {media_status}: {body}"
     )
 
-    # 2. Request a summary artifact -> triggers the detect+translate step.
-    # The translation runs synchronously before this call returns (task-192),
-    # so it needs a longer timeout than the client default.
+    # 2. Give the async media_completed_worker time to pre-translate the
+    # transcript to the user's reading_language (task-192 follow-up) and
+    # cache it in S3. The OpenAI translation call alone takes ~18-27s, so a
+    # generous grace period is needed -- this happens off the request path,
+    # in the worker triggered by the episode-completed-events queue.
+    await asyncio.sleep(70)
+
+    # The FIRST /raw-content call must now be a cache hit: a tight timeout
+    # (well under API Gateway's hard 30s integration timeout) proves the
+    # translation was NOT computed synchronously on this request. If the
+    # pre-warm worker regresses, this call falls back to the synchronous
+    # ~18-27s translation and times out here -- reproducing the "Unable to
+    # load the transcript right now" bug users hit in production.
+    resp = await http_client.get(
+        f"/api/media/{media_item_id}/raw-content",
+        headers=french_reader_headers,
+        timeout=12.0,
+    )
+    resp.raise_for_status()
+    raw_body = resp.json()
+    raw_content = raw_body["content"]
+    assert raw_content.strip(), "raw transcript is empty"
+    assert detect(raw_content) == "fr", raw_content[:200]
+
+    raw_translation = raw_body.get("translation") or {}
+    assert raw_translation.get("detected_language") == "en", raw_translation
+    assert raw_translation.get("target_language") == "fr", raw_translation
+    assert raw_translation.get("is_translated") is True, raw_translation
+    assert raw_translation.get("translated_from") == "en", raw_translation
+
+    # 3. Request a summary artifact -> triggers the detect+translate step.
+    # The transcript translation cache is already warm from step 2, so this
+    # should be fast; the longer timeout is kept as a safety margin in case
+    # of a cache miss (e.g. different target language).
     resp = await http_client.post(
         f"/api/media/{media_item_id}/artifacts",
         json={"artifact_type": "summary_short"},
@@ -148,23 +187,3 @@ async def test_instagram_reel_translated_for_french_reader(
         [summary["headline"], summary["takeaway"], *summary["key_points"]]
     )
     assert detect(summary_text) == "fr", summary_text
-
-    # 3. The raw transcript is also translated to the user's reading_language.
-    # Should be a cache hit on the translated copy produced by step 2, but
-    # use a longer timeout in case it has to translate from scratch.
-    resp = await http_client.get(
-        f"/api/media/{media_item_id}/raw-content",
-        headers=french_reader_headers,
-        timeout=120.0,
-    )
-    resp.raise_for_status()
-    raw_body = resp.json()
-    raw_content = raw_body["content"]
-    assert raw_content.strip(), "raw transcript is empty"
-    assert detect(raw_content) == "fr", raw_content[:200]
-
-    raw_translation = raw_body.get("translation") or {}
-    assert raw_translation.get("detected_language") == "en", raw_translation
-    assert raw_translation.get("target_language") == "fr", raw_translation
-    assert raw_translation.get("is_translated") is True, raw_translation
-    assert raw_translation.get("translated_from") == "en", raw_translation
