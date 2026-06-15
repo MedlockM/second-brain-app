@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import json
+import time
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
@@ -26,10 +27,69 @@ MEDIA_COMPLETED_EVENTS_QUEUE = os.environ.get(
     os.environ.get("EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"),
 )
 SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
+SEARCH_INDEXING_QUEUE = os.environ.get(
+    "SEARCH_INDEXING_QUEUE", "search-indexing-queue"
+)
 
 # Backoff
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 RETRY_DELAY = 0.01 if TEST_MODE else 2
+
+
+async def _enqueue_search_indexing(
+    *,
+    job_id: Optional[str],
+    user_id: Optional[str],
+    transcription_s3_key: Optional[str],
+    title: Optional[str],
+    source_platform: Optional[str],
+) -> None:
+    """
+    Best-effort enqueue of a search indexing message so the transcript becomes
+    searchable in the user's dedicated Algolia index.
+
+    This is the single canonical join point for Algolia indexing: every
+    ingestion path that publishes ``episode_completion_status`` with a
+    ``transcription_s3_key`` is indexed here, regardless of producer.
+
+    Failure is logged as a warning and never propagates -- it must not break
+    the event handling nor the watcher fan-out. The enqueue is skipped (with a
+    structured log) when ``transcription_s3_key`` or ``user_id`` is missing.
+    """
+    if not transcription_s3_key or not user_id:
+        log_event(
+            logger,
+            logging.WARNING,
+            "search_indexing.skipped",
+            "Skipped search indexing enqueue: missing transcription_s3_key or user_id",
+            job_id=job_id,
+            has_transcription_s3_key=bool(transcription_s3_key),
+            has_user_id=bool(user_id),
+        )
+        return
+
+    try:
+        await sqs.send_message(
+            queue_name=SEARCH_INDEXING_QUEUE,
+            message_body={
+                "media_item_id": job_id,
+                "user_id": user_id,
+                "transcription_s3_key": transcription_s3_key,
+                "title": title,
+                "source_platform": source_platform,
+                "created_at": int(time.time()),
+            },
+        )
+    except Exception as search_err:
+        log_event(
+            logger,
+            logging.WARNING,
+            "search_indexing.enqueue_failed",
+            "Failed to enqueue search indexing message",
+            job_id=job_id,
+            user_id=user_id,
+            error=str(search_err),
+        )
 
 
 async def _load_summary_content(summary_s3_key: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -64,6 +124,7 @@ async def process_event(message: Dict[str, Any]) -> None:
     source_title = body.get("source_title") or body.get("podcast_title")
     media_title = body.get("media_title") or body.get("episode_title")
     summary_s3_key = body.get("summary_s3_key")
+    transcription_s3_key = body.get("transcription_s3_key")
 
     if not media_key:
         logger.error(f"Missing media_key in event: {body}")
@@ -93,6 +154,7 @@ async def process_event(message: Dict[str, Any]) -> None:
     for w in watchers:
         try:
             job_id = w.get("job_id")
+            job = None
 
             # Update processing job with S3 keys and status BEFORE sending email
             try:
@@ -136,6 +198,16 @@ async def process_event(message: Dict[str, Any]) -> None:
                 continue
 
             logger.info(f"Successfully processed watcher {w.get('user_id')} for media key {media_key}: {minutes_used} minutes charged")
+
+            # Canonical Algolia indexing join point: enqueue the transcript for
+            # the watcher's user into their per-user search index. Best-effort.
+            await _enqueue_search_indexing(
+                job_id=job_id,
+                user_id=(getattr(job, "user_id", None) if job else None) or w.get("user_id"),
+                transcription_s3_key=transcription_s3_key,
+                title=(getattr(job, "title", None) if job else None) or media_title,
+                source_platform=(getattr(job, "source_platform", None) if job else None),
+            )
 
         except Exception as e:
             logger.error(f"Error processing watcher {w.get('user_id')} for {media_key}: {e}")

@@ -1,8 +1,10 @@
 """
 Search indexing service for managing transcript documents in Algolia.
 
-Provides functions to index, delete, and search transcript documents
-with per-user tenant isolation via user_id filtering.
+Provides functions to index, delete, and search transcript documents.
+Tenant isolation is physical: each user owns a dedicated Algolia index
+(resolved from their ``user_id``), so a user's operations never touch
+another user's records.
 
 Transcripts are chunked into records of <10 KB to comply with the
 Algolia Build plan record size limit.
@@ -14,12 +16,16 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from media_summarizer.utils.algolia_client import get_client, get_index_name
+from media_summarizer.utils.algolia_client import (
+    ensure_index_settings,
+    get_client,
+    get_index_name,
+)
 
 logger = logging.getLogger(__name__)
 
 # Maximum chunk size in bytes for Algolia Build plan (10 KB limit per record).
-# Reserve ~500 bytes for metadata fields (objectID, user_id, media_item_id, title,
+# Reserve ~500 bytes for metadata fields (objectID, media_item_id, title,
 # source_platform, created_at, chunk_index) to stay safely under 10 KB.
 _MAX_CHUNK_TEXT_BYTES = 9500
 
@@ -92,13 +98,13 @@ def index_transcript(
     created_at: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Index a transcript document in Algolia.
+    Index a transcript document in the user's dedicated Algolia index.
 
     Chunks the transcript into records of <10 KB each. Each chunk is stored
     as a separate Algolia record with objectID = "{media_item_id}_chunk_{i}".
 
     Args:
-        user_id: Owner of the transcript (for tenant isolation).
+        user_id: Owner of the transcript; resolves the target index.
         media_item_id: Unique identifier for the media item.
         transcript_text: Full transcript text to index.
         title: Optional title/description of the media.
@@ -109,7 +115,7 @@ def index_transcript(
         Dict with indexing metadata (num_chunks, media_item_id).
     """
     client = get_client()
-    index_name = get_index_name()
+    index_name = get_index_name(user_id)
 
     chunks = _chunk_transcript(transcript_text)
     if not chunks:
@@ -124,7 +130,6 @@ def index_transcript(
     for i, chunk_text in enumerate(chunks):
         record = {
             "objectID": f"{media_item_id}_chunk_{i}",
-            "user_id": user_id,
             "media_item_id": media_item_id,
             "title": title or "",
             "source_platform": source_platform or "",
@@ -135,6 +140,9 @@ def index_transcript(
         records.append(record)
 
     try:
+        # Ensure the per-user index has the correct settings (idempotent).
+        ensure_index_settings(user_id)
+
         # First delete any existing chunks for this media item
         # (handles re-indexing after transcript update)
         _delete_chunks_for_media(client, index_name, media_item_id)
@@ -154,7 +162,7 @@ def index_transcript(
 
 
 def _delete_chunks_for_media(client: Any, index_name: str, media_item_id: str) -> None:
-    """Delete all existing chunks for a given media_item_id."""
+    """Delete all existing chunks for a given media_item_id in the given index."""
     try:
         client.delete_by(
             index_name=index_name,
@@ -167,11 +175,12 @@ def _delete_chunks_for_media(client: Any, index_name: str, media_item_id: str) -
         )
 
 
-def delete_document(media_item_id: str) -> bool:
+def delete_document(user_id: str, media_item_id: str) -> bool:
     """
-    Delete all transcript chunks for a media item from the search index.
+    Delete all transcript chunks for a media item from the user's search index.
 
     Args:
+        user_id: Owner of the media; resolves the target index.
         media_item_id: ID of the media item whose chunks should be deleted.
 
     Returns:
@@ -179,7 +188,7 @@ def delete_document(media_item_id: str) -> bool:
         and does not report if documents existed).
     """
     client = get_client()
-    index_name = get_index_name()
+    index_name = get_index_name(user_id)
 
     try:
         client.delete_by(
@@ -206,12 +215,13 @@ def search_transcripts(
     """
     Search transcripts for a specific user.
 
-    Enforces per-user tenant isolation by filtering on user_id.
+    Tenant isolation is physical: the search runs against the user's
+    dedicated index, so no ``user_id`` filter is required.
     Deduplicates results by media_item_id (multiple chunks of the same
     document may match; only the best-scoring chunk per document is returned).
 
     Args:
-        user_id: User ID for tenant isolation (mandatory).
+        user_id: User ID; resolves the target index (mandatory).
         query: Search query string.
         page: Page number (1-indexed).
         per_page: Number of results per page (max 100).
@@ -224,15 +234,16 @@ def search_transcripts(
         - page: current page number
     """
     client = get_client()
-    index_name = get_index_name()
+    index_name = get_index_name(user_id)
 
     # Enforce per_page bounds
     per_page = min(max(1, per_page), 100)
 
-    # Build filter string - always include user_id for tenant isolation
-    filters = f"user_id:{user_id}"
+    # Tenant isolation is physical (per-user index), so only optional facet
+    # filters are applied here.
+    filters = None
     if filter_by_platform:
-        filters += f" AND source_platform:{filter_by_platform}"
+        filters = f"source_platform:{filter_by_platform}"
 
     # Request more results than needed to account for deduplication
     # (multiple chunks from same document may match)
@@ -240,7 +251,6 @@ def search_transcripts(
 
     search_params = {
         "query": query,
-        "filters": filters,
         "attributesToRetrieve": [
             "media_item_id",
             "title",
@@ -257,6 +267,8 @@ def search_transcripts(
         "page": 0,  # Algolia is 0-indexed; we handle pagination after dedup
         "typoTolerance": True,
     }
+    if filters:
+        search_params["filters"] = filters
 
     try:
         response = client.search_single_index(

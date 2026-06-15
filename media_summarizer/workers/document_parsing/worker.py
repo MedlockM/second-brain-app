@@ -53,7 +53,6 @@ DOCUMENT_PARSING_QUEUE = os.environ.get("DOCUMENT_PARSING_QUEUE", "document-pars
 EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
     "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
 )
-SEARCH_INDEXING_QUEUE = os.environ.get("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 
 # Visibility timeout: document parsing can take up to 2-3 minutes
 DOCUMENT_PARSING_VISIBILITY_TIMEOUT = int(
@@ -288,25 +287,8 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
             },
         )
 
-        # Emit search indexing event
-        try:
-            await sqs.send_message(
-                queue_name=SEARCH_INDEXING_QUEUE,
-                message_body={
-                    "media_item_id": job_id,
-                    "user_id": user_id,
-                    "transcription_s3_key": transcript_s3_key,
-                    "title": media_title,
-                    "source_platform": "document",
-                    "created_at": int(time.time()),
-                },
-            )
-        except Exception as search_err:
-            logger.warning(
-                "Failed to emit search indexing message for job %s: %s",
-                job_id,
-                search_err,
-            )
+        # Search indexing (Algolia) is enqueued centrally by the media-completed
+        # events consumer once it receives this episode_completion_status event.
 
         log_event(
             logger,

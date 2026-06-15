@@ -1,19 +1,24 @@
 """
 Algolia client configuration for full-text search.
 
-Provides a lazily-initialized Algolia search client and index reference
-used for per-user lexical search over media transcripts.
+Provides a lazily-initialized Algolia search client and per-user index
+resolution used for lexical search over media transcripts.
+
+Each user owns a dedicated Algolia index named
+``{ALGOLIA_INDEX_PREFIX}_user_{user_id}`` so that a user's search only
+ever touches their own records (physical isolation, no logical filtering).
 
 Environment variables:
     ALGOLIA_APP_ID: Algolia Application ID
     ALGOLIA_API_KEY: Algolia Admin API key (for indexing and search)
-    ALGOLIA_INDEX_NAME: Name of the Algolia index (default: "transcripts")
+    ALGOLIA_INDEX_PREFIX: Prefix for per-user index names (default: "transcripts")
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Optional
 
 from algoliasearch.search.client import SearchClientSync
@@ -25,7 +30,11 @@ logger = logging.getLogger(__name__)
 # stored inside the secret string in Secrets Manager).
 ALGOLIA_APP_ID = os.environ.get("ALGOLIA_APP_ID", "").strip()
 ALGOLIA_API_KEY = os.environ.get("ALGOLIA_API_KEY", "").strip()
-ALGOLIA_INDEX_NAME = os.environ.get("ALGOLIA_INDEX_NAME", "transcripts").strip()
+ALGOLIA_INDEX_PREFIX = os.environ.get("ALGOLIA_INDEX_PREFIX", "transcripts").strip()
+
+# Algolia index names accept [a-zA-Z0-9_-]. Any other character in a user_id
+# is replaced with "-" to produce a deterministic, valid index name.
+_INVALID_INDEX_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
 
 # Singleton client instance
 _client: Optional[SearchClientSync] = None
@@ -56,23 +65,44 @@ def get_client() -> SearchClientSync:
     return _client
 
 
-def get_index_name() -> str:
-    """Return the configured Algolia index name."""
-    return ALGOLIA_INDEX_NAME
-
-
-def ensure_index_settings() -> None:
+def get_index_name(user_id: str) -> str:
     """
-    Ensure the Algolia index has the correct settings for search and filtering.
+    Return the per-user Algolia index name for a given user.
+
+    The name is deterministic: ``{ALGOLIA_INDEX_PREFIX}_user_{user_id}``.
+    Characters outside the Algolia-allowed set ``[a-zA-Z0-9_-]`` are
+    replaced with ``-`` to guarantee a valid index name.
+
+    Args:
+        user_id: Owner of the index.
+
+    Returns:
+        The resolved index name.
+
+    Raises:
+        ValueError: If ``user_id`` is empty.
+    """
+    if not user_id:
+        raise ValueError("user_id is required to resolve an Algolia index name")
+    safe_user_id = _INVALID_INDEX_CHARS.sub("-", user_id)
+    return f"{ALGOLIA_INDEX_PREFIX}_user_{safe_user_id}"
+
+
+def ensure_index_settings(user_id: str) -> None:
+    """
+    Ensure a user's Algolia index has the correct settings for search and filtering.
 
     Configures:
-    - searchableAttributes: transcript, title (with priority)
-    - attributesForFaceting: user_id, media_item_id, source_platform (for filtering)
+    - searchableAttributes: title, transcript (with priority)
+    - attributesForFaceting: media_item_id, source_platform (for filtering)
 
     This is idempotent - Algolia will no-op if settings are already correct.
+
+    Args:
+        user_id: Owner of the index to configure.
     """
     client = get_client()
-    index_name = get_index_name()
+    index_name = get_index_name(user_id)
     try:
         client.set_settings(
             index_name=index_name,
@@ -82,7 +112,6 @@ def ensure_index_settings() -> None:
                     "transcript",
                 ],
                 "attributesForFaceting": [
-                    "filterOnly(user_id)",
                     "filterOnly(media_item_id)",
                     "filterOnly(source_platform)",
                 ],
@@ -93,7 +122,6 @@ def ensure_index_settings() -> None:
                     "created_at",
                     "chunk_index",
                     "transcript",
-                    "user_id",
                 ],
                 "ranking": [
                     "typo",
