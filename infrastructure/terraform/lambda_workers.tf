@@ -139,6 +139,7 @@ resource "aws_lambda_function" "worker" {
       MEDIA_ARTIFACTS_TABLE         = aws_dynamodb_table.media_artifacts_v1.name
       ARTIFACT_IDEMPOTENCE_TABLE    = aws_dynamodb_table.artifact_idempotence_v1.name
       TRANSLATION_IDEMPOTENCE_TABLE = aws_dynamodb_table.translation_idempotence_v1.name
+      MEDIA_IDEMPOTENCE_TABLE       = aws_dynamodb_table.episode_idempotence_v1.name
 
       # DynamoDB table names for media flow
       MEDIA_WATCHERS_TABLE = aws_dynamodb_table.media_watchers_v1.name
