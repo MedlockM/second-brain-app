@@ -97,6 +97,8 @@ class IngestSharedContentRequest:
     original_name: Optional[str] = None
     content_size_bytes: Optional[int] = None
     staged_audio_s3_key: Optional[str] = None
+    folder_id: Optional[str] = None
+    tag_ids: Optional[List[str]] = None
 
 
 @dataclass(frozen=True)

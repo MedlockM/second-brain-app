@@ -186,15 +186,33 @@ function ShareContent({
     case "ready":
       if (intake.contentType === "audio" && intake.audioFile) {
         return (
-          <AudioPreviewCard
-            fileName={intake.audioFile.fileName}
-            mimeType={intake.audioFile.mimeType}
-            fileSize={intake.audioFile.fileSize}
-          />
+          <>
+            <AudioPreviewCard
+              fileName={intake.audioFile.fileName}
+              mimeType={intake.audioFile.mimeType}
+              fileSize={intake.audioFile.fileSize}
+            />
+            <OrganizationControls
+              selectedFolder={selectedFolder}
+              selectedTags={selectedTags}
+              onOpenCollection={onOpenCollection}
+              onOpenTags={onOpenTags}
+            />
+          </>
         );
       }
       if (intake.contentType === "text" && intake.rawText) {
-        return <TextPreviewCard text={intake.rawText} />;
+        return (
+          <>
+            <TextPreviewCard text={intake.rawText} />
+            <OrganizationControls
+              selectedFolder={selectedFolder}
+              selectedTags={selectedTags}
+              onOpenCollection={onOpenCollection}
+              onOpenTags={onOpenTags}
+            />
+          </>
+        );
       }
       return (
         <>
@@ -211,16 +229,36 @@ function ShareContent({
     case "submitting":
       if (intake.contentType === "audio" && intake.audioFile) {
         return (
-          <AudioPreviewCard
-            fileName={intake.audioFile.fileName}
-            mimeType={intake.audioFile.mimeType}
-            fileSize={intake.audioFile.fileSize}
-            isSubmitting
-          />
+          <>
+            <AudioPreviewCard
+              fileName={intake.audioFile.fileName}
+              mimeType={intake.audioFile.mimeType}
+              fileSize={intake.audioFile.fileSize}
+              isSubmitting
+            />
+            <OrganizationControls
+              selectedFolder={selectedFolder}
+              selectedTags={selectedTags}
+              onOpenCollection={onOpenCollection}
+              onOpenTags={onOpenTags}
+              disabled
+            />
+          </>
         );
       }
       if (intake.contentType === "text" && intake.rawText) {
-        return <TextPreviewCard text={intake.rawText} isSubmitting />;
+        return (
+          <>
+            <TextPreviewCard text={intake.rawText} isSubmitting />
+            <OrganizationControls
+              selectedFolder={selectedFolder}
+              selectedTags={selectedTags}
+              onOpenCollection={onOpenCollection}
+              onOpenTags={onOpenTags}
+              disabled
+            />
+          </>
+        );
       }
       return (
         <>

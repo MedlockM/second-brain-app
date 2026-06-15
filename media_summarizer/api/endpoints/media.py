@@ -1005,6 +1005,8 @@ async def ingest_shared_content(
     text: Optional[str] = Form(None),
     content_mime_type: Optional[str] = Form(None),
     original_name: Optional[str] = Form(None),
+    folder_id: Optional[str] = Form(None),
+    tag_ids: Optional[str] = Form(None),
     audio_file: Optional[UploadFile] = File(None),
     current_user: AuthUser = Depends(get_current_user),
 ):
@@ -1061,6 +1063,53 @@ async def ingest_shared_content(
         user = await database_async.get_user_by_id(current_user.id)
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+        # Validate folder ownership if provided
+        from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
+
+        resolved_folder_id: Optional[str] = None
+        requested_folder_id = folder_id.strip() if folder_id else None
+        if requested_folder_id:
+            folder = await database_async.get_folder_by_id(requested_folder_id)
+            if folder is None or folder.user_id != user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Folder not found: {requested_folder_id}",
+                )
+            resolved_folder_id = folder.id
+
+        # Validate tags ownership and count if provided
+        unique_tag_ids: Optional[List[str]] = None
+        if tag_ids:
+            import json as _json
+
+            try:
+                parsed_tag_ids = _json.loads(tag_ids)
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="tag_ids must be a valid JSON array of strings",
+                )
+            if not isinstance(parsed_tag_ids, list):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="tag_ids must be a JSON array",
+                )
+            unique_tag_ids = list(dict.fromkeys(parsed_tag_ids))
+            if len(unique_tag_ids) > MAX_TAGS_PER_MEDIA:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot assign more than {MAX_TAGS_PER_MEDIA} tags",
+                )
+            # Validate tags belong to user
+            user_tags = await database_async.get_tags_by_user_id(user.id)
+            user_tag_ids_set = {t.id for t in user_tags}
+            invalid_ids = [tid for tid in unique_tag_ids if tid not in user_tag_ids_set]
+            if invalid_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
+                )
 
         # Branch based on share_type
         staged_audio_s3_key: Optional[str] = None
@@ -1169,6 +1218,8 @@ async def ingest_shared_content(
             original_name=original_name,
             content_size_bytes=content_size_bytes,
             staged_audio_s3_key=staged_audio_s3_key,
+            folder_id=resolved_folder_id,
+            tag_ids=unique_tag_ids,
         )
         command = IngestSharedContentCommand(
             user=UserContext(user_id=current_user.id, user_email=user.email),

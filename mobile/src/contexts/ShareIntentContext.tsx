@@ -392,6 +392,8 @@ export function ShareIntentProvider({
               Platform.OS === "ios"
                 ? "ios-share-extension"
                 : "android-share-intent",
+            folderId: selectedFolder?.id ?? null,
+            tagIds: selectedTags.map((tag) => tag.id),
           },
         );
 
@@ -435,6 +437,8 @@ export function ShareIntentProvider({
               Platform.OS === "ios"
                 ? "ios-share-extension"
                 : "android-share-intent",
+            folderId: selectedFolder?.id ?? null,
+            tagIds: selectedTags.map((tag) => tag.id),
           },
         );
 
@@ -485,7 +489,7 @@ export function ShareIntentProvider({
         message,
       }));
     }
-  }, [intake, token]);
+  }, [intake, token, selectedFolder, selectedTags]);
 
   /**
    * Dismiss the share intent and reset state.

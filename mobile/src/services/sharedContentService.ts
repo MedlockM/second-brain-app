@@ -54,7 +54,12 @@ export class SharedContentService {
   static async ingestSharedText(
     token: string,
     text: string,
-    options: { sourceApp?: string; locale?: string } = {},
+    options: {
+      sourceApp?: string;
+      locale?: string;
+      folderId?: string | null;
+      tagIds?: string[];
+    } = {},
   ): Promise<IngestSharedContentResponse> {
     // Validate text
     const trimmed = text.trim();
@@ -84,6 +89,12 @@ export class SharedContentService {
     if (options.locale) {
       formData.append("locale", options.locale);
     }
+    if (options.folderId) {
+      formData.append("folder_id", options.folderId);
+    }
+    if (options.tagIds && options.tagIds.length > 0) {
+      formData.append("tag_ids", JSON.stringify(options.tagIds));
+    }
 
     return SharedContentService.submitFormData(token, formData);
   }
@@ -95,7 +106,12 @@ export class SharedContentService {
   static async ingestSharedAudio(
     token: string,
     file: SharedFileAttachment,
-    options: { sourceApp?: string; locale?: string } = {},
+    options: {
+      sourceApp?: string;
+      locale?: string;
+      folderId?: string | null;
+      tagIds?: string[];
+    } = {},
   ): Promise<IngestSharedContentResponse> {
     // Validate MIME type
     if (!isSupportedAudioMimeType(file.mimeType)) {
@@ -137,6 +153,12 @@ export class SharedContentService {
 
     if (options.locale) {
       formData.append("locale", options.locale);
+    }
+    if (options.folderId) {
+      formData.append("folder_id", options.folderId);
+    }
+    if (options.tagIds && options.tagIds.length > 0) {
+      formData.append("tag_ids", JSON.stringify(options.tagIds));
     }
 
     // Append the audio file

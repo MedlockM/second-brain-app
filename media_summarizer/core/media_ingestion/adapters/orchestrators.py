@@ -159,11 +159,9 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         """
         Submit resolved media for processing.
 
-        For IngestUrlCommand:
+        For all commands (IngestUrlCommand and IngestSharedContentCommand):
         - Applies optional folder_id and tag_ids from the command request to the job.
         - Allocates a minute hold for quota enforcement.
-
-        For all commands:
         - Routes to appropriate worker queues based on media family and type.
         - Handles direct transcription for shared text and Apify social video transcripts.
         - Manages idempotence via media_key deduplication.
@@ -216,15 +214,14 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             await database_async.create_processing_job(job)
             job_created = True
 
-            # Apply folder_id and tag_ids from IngestUrlCommand if present
-            if isinstance(command, IngestUrlCommand):
-                if command.request.folder_id:
-                    job.folder_id = command.request.folder_id
-                if command.request.tag_ids:
-                    job.tag_ids = list(dict.fromkeys(command.request.tag_ids))
-                # After applying changes, update the job in the database
-                if command.request.folder_id or command.request.tag_ids:
-                    await database_async.update_processing_job(job)
+            # Apply folder_id and tag_ids from the command request if present
+            if command.request.folder_id:
+                job.folder_id = command.request.folder_id
+            if command.request.tag_ids:
+                job.tag_ids = list(dict.fromkeys(command.request.tag_ids))
+            # After applying changes, update the job in the database
+            if command.request.folder_id or command.request.tag_ids:
+                await database_async.update_processing_job(job)
 
             # Allocate minute hold for all ingestions
             await minute_pool.allocate_hold_for_job(
