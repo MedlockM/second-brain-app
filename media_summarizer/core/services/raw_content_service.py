@@ -8,6 +8,7 @@ This service downloads that content and formats it into readable text.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -26,6 +27,12 @@ logger = logging.getLogger(__name__)
 
 TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
+)
+
+# Must stay comfortably below API Gateway's hard 30s integration timeout so a
+# slow translation never turns into a 503 for the whole /raw-content request.
+RAW_CONTENT_TRANSLATION_TIMEOUT_SECONDS = int(
+    os.environ.get("RAW_CONTENT_TRANSLATION_TIMEOUT_SECONDS", "20")
 )
 
 
@@ -117,22 +124,45 @@ async def get_raw_content(
     effective_text = raw_text
     translation_metadata: Optional[dict] = None
     if reading_language:
-        outcome = await ensure_translated_transcript(
-            transcript_s3_key=transcript_s3_key,
-            transcript_text=raw_text,
-            target_language=reading_language,
-            source=source_platform or None,
-            source_language_hint=job_source_language_hint(job),
-            transcript_bucket=TRANSCRIPT_BUCKET,
-        )
-        translation_metadata = outcome.metadata()
-        await persist_detected_language(job, outcome.detected_language)
-        if outcome.is_translated:
-            translated_bytes = await s3.download_file_to_memory(
-                bucket=TRANSCRIPT_BUCKET,
-                key=outcome.transcript_s3_key,
+        try:
+            outcome = await asyncio.wait_for(
+                ensure_translated_transcript(
+                    transcript_s3_key=transcript_s3_key,
+                    transcript_text=raw_text,
+                    target_language=reading_language,
+                    source=source_platform or None,
+                    source_language_hint=job_source_language_hint(job),
+                    transcript_bucket=TRANSCRIPT_BUCKET,
+                ),
+                timeout=RAW_CONTENT_TRANSLATION_TIMEOUT_SECONDS,
             )
-            effective_text = translated_bytes.decode("utf-8")
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Translation timed out after %ss for transcript %s; "
+                "returning the original transcript",
+                RAW_CONTENT_TRANSLATION_TIMEOUT_SECONDS,
+                transcript_s3_key,
+            )
+            outcome = None
+
+        if outcome is None:
+            translation_metadata = {
+                "is_translated": False,
+                "translated_from": None,
+                "target_language": reading_language,
+                "detected_language": None,
+                "detection_method": "timeout",
+                "translation_failed": True,
+            }
+        else:
+            translation_metadata = outcome.metadata()
+            await persist_detected_language(job, outcome.detected_language)
+            if outcome.is_translated:
+                translated_bytes = await s3.download_file_to_memory(
+                    bucket=TRANSCRIPT_BUCKET,
+                    key=outcome.transcript_s3_key,
+                )
+                effective_text = translated_bytes.decode("utf-8")
 
     # Determine source format and format accordingly
     source_format = _detect_source_format(effective_text, media_type, source_platform)
