@@ -3,10 +3,10 @@ id: task-206
 title: >-
   Unify share confirmation modal: same collection/tags UI for all ingestion
   sources
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-15 15:17'
-updated_date: '2026-06-15 15:45'
+updated_date: '2026-06-15 18:06'
 labels:
   - mobile
   - backend
