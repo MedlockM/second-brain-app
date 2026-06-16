@@ -143,3 +143,30 @@ Pour chaque pattern, documenter :
 **Recommendation**: Pattern A+ (OpenAI + Cloudflare AI Gateway, gratuit) for V1, Pattern C (Azure OpenAI DataZone EU) for V2 fallback.
 
 **La recommandation attend la validation de l'owner.**
+
+---
+
+**Mode**: redo (second pass — integrating owner feedback about chatbot workload)
+
+**Deliverable**: `docs/research/task-212-llm-serving-architecture-benchmark/README.md` (new file replacing the rejected one)
+
+**Owner feedback integrated (2026-06-16)**:
+- Added chatbot workload hypothesis: users attach long transcripts (50-100k+ tokens per request) to a chatbot
+- Recalculated TPM requirements: chatbot represents 99%+ of TPM demand (1.9M-19M TPM pic depending on scale)
+- Identified that OpenAI direct (Tier 1-3) is INSUFFICIENT for the chatbot workload at 500-1000 users
+- Verified Azure OpenAI quotas from official docs: multi-region stacking allows 15M-48M+ TPM at Tier 1-2
+- Changed recommendation from "A+ (statu quo + CF)" to "C (Azure OpenAI multi-region)" as V1 pattern
+- V2 pattern changed from "Azure OpenAI" to "Azure PTU (Provisioned Throughput)" for latence-critical chatbot
+
+**Summary of research produced (2026-06-16, redo pass)**:
+- Updated load hypotheses with chatbot TPM/RPM analysis (Section 1)
+- Demonstrated that Pattern A/A+ (OpenAI direct) fails at scale with chatbot (TPM saturation)
+- Verified Azure OpenAI Tier 1-6 quotas for gpt-5-nano and gpt-5.4-nano (data from official Microsoft docs)
+- Confirmed Azure multi-region quota stacking mechanism (each region has independent quota)
+- Documented Azure auto-upgrade Tiers and PTU spillover mechanisms
+- Risk matrix with chatbot-specific scenarios (rush hour, power user, scaling progressif)
+- Migration plan in 3 phases (Azure setup + CF AI Gateway + PTU escalation)
+
+**Recommendation**: Pattern C (Azure OpenAI multi-region GlobalStandard + CF AI Gateway) for V1, Pattern C+PTU (Azure Provisioned Throughput) for V2.
+
+**La recommandation attend la validation de l'owner.**
