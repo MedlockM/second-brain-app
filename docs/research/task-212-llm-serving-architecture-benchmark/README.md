@@ -1,12 +1,12 @@
 ---
-owner_decision: pending
+owner_decision: redo
 ---
 
 # Benchmark : LLM Serving Architectures for Production (100-1000 Users)
 
 ## Owner Validation
 
-**Decision**: _(a remplir par l'owner apres relecture -- texte libre decrivant la decision finale : accept recommandation X, reject parce que Y, accept with modifications Z, OU, si redo, les consignes precises de correction a integrer au prochain passage)_
+**Decision**: ton benchmark était bien mais refais le en prenant en compte l'hypothèse qu'on a une autre foncitonnalité llm que les artefacts et la traduction : un espace chatbot dans lequel l'user peut joindre sa connaissance (donc potentiellement joindre au chat des longs et multiples transcripts de ces medias). Ce qui est inquiétant pour le nombre de tpm et de rpm. Je cherche la solution la plus robuste à ce cas de figure en prenant en compte de potentiels plusieurs centaines d'users en simultanés.
 **Validated at**: _(date ISO a remplir par l'owner)_
 
 ---
