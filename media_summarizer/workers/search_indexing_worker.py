@@ -8,8 +8,8 @@ Consumes messages from SEARCH_INDEXING_QUEUE containing:
 - title: (optional) media title
 - source_platform: (optional) platform source
 
-On receipt, downloads the transcript from S3 and indexes it in Algolia
-for per-user lexical search.
+On receipt, downloads the transcript from S3 and indexes it in the shared
+Algolia index with user_id attribute for multi-tenant isolation.
 """
 
 from __future__ import annotations

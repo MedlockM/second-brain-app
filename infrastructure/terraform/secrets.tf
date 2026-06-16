@@ -14,7 +14,8 @@ variable "secret_payload" {
   description = <<EOT
 Map of runtime secrets to push into Secrets Manager. Keys become env var names
 when injected into Lambda/ECS containers (e.g. OPENAI_API_KEY, DEEPGRAM_API_KEY,
-PODCASTINDEXORG_API_KEY, GOOGLE_CLIENT_ID, APPLE_PRIVATE_KEY, etc.).
+PODCASTINDEXORG_API_KEY, GOOGLE_CLIENT_ID, APPLE_PRIVATE_KEY,
+ALGOLIA_APP_ID, ALGOLIA_API_KEY, ALGOLIA_SEARCH_API_KEY, etc.).
 
 Pass via terraform.tfvars or -var-file. Empty by default so plan/apply on a
 fresh checkout doesn't fail; populate before any real deploy.
