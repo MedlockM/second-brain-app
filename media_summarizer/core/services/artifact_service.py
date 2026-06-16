@@ -23,6 +23,7 @@ from media_summarizer.core.models.media_artifact import (
     MediaArtifactType,
 )
 from media_summarizer.core.services.transcript_translation import (
+    TranslationInProgressError,
     ensure_translated_transcript,
     job_source_language_hint,
     persist_detected_language,
@@ -309,14 +310,21 @@ async def _resolve_effective_transcript(
     transcript_s3_key, transcript_bytes, original_sha256 = await _load_transcript_bytes(job)
     transcript_text = transcript_bytes.decode("utf-8", errors="ignore")
 
-    outcome = await ensure_translated_transcript(
-        transcript_s3_key=transcript_s3_key,
-        transcript_text=transcript_text,
-        target_language=reading_language,
-        source=getattr(job, "source_platform", None),
-        source_language_hint=job_source_language_hint(job),
-        transcript_bucket=TRANSCRIPT_BUCKET,
-    )
+    try:
+        outcome = await ensure_translated_transcript(
+            transcript_s3_key=transcript_s3_key,
+            transcript_text=transcript_text,
+            target_language=reading_language,
+            source=getattr(job, "source_platform", None),
+            source_language_hint=job_source_language_hint(job),
+            transcript_bucket=TRANSCRIPT_BUCKET,
+        )
+    except TranslationInProgressError as exc:
+        raise ArtifactTranscriptNotReadyError(
+            f"Transcript translation is pending (status: {exc.translation_status}). "
+            "The artifact will be available once translation completes. "
+            "Please retry shortly."
+        ) from exc
 
     await persist_detected_language(job, outcome.detected_language)
 

@@ -507,6 +507,20 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         startArtifactPolling();
       } catch (err) {
         if (!mountedRef.current) return;
+
+        // Handle 409 CONFLICT: translation is in-flight, treat as queued
+        // and start polling until the translation completes and the artifact
+        // can be generated (task-214).
+        const httpStatus = (err as { status?: number } | undefined)?.status;
+        if (httpStatus === 409) {
+          setArtifactStates((prev) => ({
+            ...prev,
+            [artifactType]: { status: "queued" },
+          }));
+          startArtifactPolling();
+          return;
+        }
+
         setArtifactStates((prev) => ({
           ...prev,
           [artifactType]: {
