@@ -1,6 +1,6 @@
 ---
 id: task-147
-title: Fix media_completed_events worker — "Ignoring unknown event type: episode_completion_status"
+title: 'Fix media_completed_events worker — "Ignoring unknown event type: episode_completion_status"'
 status: Done
 assignee: []
 created_date: '2026-06-09 21:30'
