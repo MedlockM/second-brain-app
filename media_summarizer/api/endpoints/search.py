@@ -1,8 +1,14 @@
 """
-Search API endpoints for per-user lexical transcript search.
+Search API endpoints for transcript search and Algolia credentials.
 
-Provides full-text search over indexed media transcripts via Algolia,
-with per-user tenant isolation enforced at the query level.
+Provides:
+- Full-text search over indexed media transcripts (backend-proxied via Algolia)
+- Secured API key generation for direct client-side Algolia search
+
+Multi-tenant isolation: the shared index stores all users' records with a
+``user_id`` attribute. Isolation is enforced via:
+- Backend-proxied search: explicit user_id filter in the query
+- Direct client search: secured API key with embedded user_id filter
 """
 
 from __future__ import annotations
@@ -16,6 +22,7 @@ from pydantic import BaseModel, Field
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.services import search_indexing
+from media_summarizer.utils.algolia_client import generate_secured_search_key
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,7 +63,56 @@ class SearchResponse(BaseModel):
     hits: List[SearchHit] = Field(default_factory=list, description="Search results")
 
 
-# ---------- Endpoint ----------
+class SearchCredentialsResponse(BaseModel):
+    """Response model for Algolia search credentials (secured API key)."""
+
+    app_id: str = Field(..., description="Algolia Application ID")
+    secured_key: str = Field(
+        ..., description="Secured API key (embeds user_id filter, short-lived)"
+    )
+    index_name: str = Field(..., description="Shared index name to search")
+    valid_until: int = Field(
+        ..., description="Unix timestamp when the secured key expires"
+    )
+
+
+# ---------- Endpoints ----------
+
+
+@router.get("/credentials", response_model=SearchCredentialsResponse)
+async def get_search_credentials(
+    current_user: AuthUser = Depends(get_current_user),
+) -> SearchCredentialsResponse:
+    """
+    Generate a secured Algolia API key for direct client-side search.
+
+    The returned key embeds a tamper-proof ``user_id`` filter, restricting
+    search results to only the authenticated user's records. The key is
+    short-lived (1 hour) and must be refreshed by the client before expiry
+    or on 403 from Algolia.
+
+    The parent search-only key never leaves the backend.
+    """
+    try:
+        credentials = generate_secured_search_key(user_id=current_user.id)
+        return SearchCredentialsResponse(
+            app_id=credentials["app_id"],
+            secured_key=credentials["secured_key"],
+            index_name=credentials["index_name"],
+            valid_until=credentials["valid_until"],
+        )
+    except RuntimeError as e:
+        logger.error(f"Search credentials unavailable: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Search service is not configured",
+        )
+    except ValueError as e:
+        logger.error(f"Invalid request for search credentials: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
 
 
 @router.get("/transcripts", response_model=SearchResponse)
@@ -73,7 +129,8 @@ async def search_transcripts(
     Search through the authenticated user's indexed transcripts.
 
     Performs a full-text lexical search with typo tolerance and relevance ranking.
-    Results are filtered to only include the current user's content (tenant isolation).
+    Results are filtered to only include the current user's content (tenant
+    isolation via user_id filter on the shared index).
     Results are deduplicated by media item (one hit per document even if multiple
     chunks match).
 

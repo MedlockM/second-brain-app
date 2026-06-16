@@ -53,7 +53,7 @@ async def _enqueue_search_indexing(
 ) -> None:
     """
     Best-effort enqueue of a search indexing message so the transcript becomes
-    searchable in the user's dedicated Algolia index.
+    searchable in the shared Algolia index (with user_id attribute for isolation).
 
     This is the single canonical join point for Algolia indexing: every
     ingestion path that publishes ``episode_completion_status`` with a

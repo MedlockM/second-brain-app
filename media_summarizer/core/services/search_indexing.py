@@ -2,12 +2,14 @@
 Search indexing service for managing transcript documents in Algolia.
 
 Provides functions to index, delete, and search transcript documents.
-Tenant isolation is physical: each user owns a dedicated Algolia index
-(resolved from their ``user_id``), so a user's operations never touch
-another user's records.
+
+Multi-tenant model: single shared index per environment. Tenant isolation
+is enforced by a ``user_id`` attribute on every record. Search-time
+isolation is guaranteed by secured API keys (for direct client access)
+or by explicit ``user_id`` filter (for backend-proxied search).
 
 Transcripts are chunked into records of <10 KB to comply with the
-Algolia Build plan record size limit.
+Algolia record size limit.
 """
 
 from __future__ import annotations
@@ -19,17 +21,20 @@ from typing import Any, Dict, List, Optional
 from algoliasearch.http.exceptions import RequestException
 
 from media_summarizer.utils.algolia_client import (
-    ensure_index_settings,
+    configure_shared_index_settings,
     get_client,
-    get_index_name,
+    get_shared_index_name,
 )
 
 logger = logging.getLogger(__name__)
 
-# Maximum chunk size in bytes for Algolia Build plan (10 KB limit per record).
-# Reserve ~500 bytes for metadata fields (objectID, media_item_id, title,
-# source_platform, created_at, chunk_index) to stay safely under 10 KB.
+# Maximum chunk size in bytes for Algolia record size limit.
+# Reserve ~500 bytes for metadata fields (objectID, media_item_id, user_id,
+# title, source_platform, created_at, chunk_index) to stay safely under 10 KB.
 _MAX_CHUNK_TEXT_BYTES = 9500
+
+# Track whether index settings have been configured in this process lifetime
+_settings_configured = False
 
 
 def _chunk_transcript(text: str) -> List[str]:
@@ -90,6 +95,19 @@ def _chunk_transcript(text: str) -> List[str]:
     return chunks
 
 
+def _ensure_settings_once() -> None:
+    """Configure shared index settings once per process lifetime."""
+    global _settings_configured
+    if _settings_configured:
+        return
+    try:
+        configure_shared_index_settings()
+        _settings_configured = True
+    except Exception as e:
+        # Non-fatal: settings may already be configured from a previous deploy
+        logger.warning(f"Failed to configure shared index settings (non-fatal): {e}")
+
+
 def index_transcript(
     *,
     user_id: str,
@@ -100,13 +118,14 @@ def index_transcript(
     created_at: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Index a transcript document in the user's dedicated Algolia index.
+    Index a transcript document in the shared Algolia index.
 
     Chunks the transcript into records of <10 KB each. Each chunk is stored
     as a separate Algolia record with objectID = "{media_item_id}_chunk_{i}".
+    Every record carries a ``user_id`` attribute for tenant isolation.
 
     Args:
-        user_id: Owner of the transcript; resolves the target index.
+        user_id: Owner of the transcript (stored on each record for filtering).
         media_item_id: Unique identifier for the media item.
         transcript_text: Full transcript text to index.
         title: Optional title/description of the media.
@@ -117,7 +136,7 @@ def index_transcript(
         Dict with indexing metadata (num_chunks, media_item_id).
     """
     client = get_client()
-    index_name = get_index_name(user_id)
+    index_name = get_shared_index_name()
 
     chunks = _chunk_transcript(transcript_text)
     if not chunks:
@@ -133,6 +152,7 @@ def index_transcript(
         record = {
             "objectID": f"{media_item_id}_chunk_{i}",
             "media_item_id": media_item_id,
+            "user_id": user_id,
             "title": title or "",
             "source_platform": source_platform or "",
             "created_at": timestamp,
@@ -142,8 +162,8 @@ def index_transcript(
         records.append(record)
 
     try:
-        # Ensure the per-user index has the correct settings (idempotent).
-        ensure_index_settings(user_id)
+        # Ensure the shared index has the correct settings (once per process)
+        _ensure_settings_once()
 
         # First delete any existing chunks for this media item
         # (handles re-indexing after transcript update)
@@ -179,10 +199,13 @@ def _delete_chunks_for_media(client: Any, index_name: str, media_item_id: str) -
 
 def delete_document(user_id: str, media_item_id: str) -> bool:
     """
-    Delete all transcript chunks for a media item from the user's search index.
+    Delete all transcript chunks for a media item from the shared search index.
+
+    Uses a compound filter to ensure only the specified user's records are
+    affected (defense-in-depth).
 
     Args:
-        user_id: Owner of the media; resolves the target index.
+        user_id: Owner of the media (used as safety filter).
         media_item_id: ID of the media item whose chunks should be deleted.
 
     Returns:
@@ -190,12 +213,14 @@ def delete_document(user_id: str, media_item_id: str) -> bool:
         and does not report if documents existed).
     """
     client = get_client()
-    index_name = get_index_name(user_id)
+    index_name = get_shared_index_name()
 
     try:
         client.delete_by(
             index_name=index_name,
-            delete_by_params={"filters": f"media_item_id:{media_item_id}"},
+            delete_by_params={
+                "filters": f"media_item_id:{media_item_id} AND user_id:{user_id}"
+            },
         )
         logger.info(f"Deleted transcript chunks for media_item_id={media_item_id}")
         return True
@@ -203,6 +228,33 @@ def delete_document(user_id: str, media_item_id: str) -> bool:
         logger.error(
             f"Failed to delete chunks for media_item_id={media_item_id}: {e}"
         )
+        raise
+
+
+def delete_user_records(user_id: str) -> bool:
+    """
+    Delete all records for a user from the shared search index.
+
+    Use when a user account is deleted.
+
+    Args:
+        user_id: ID of the user whose records should be deleted.
+
+    Returns:
+        True if deletion was attempted.
+    """
+    client = get_client()
+    index_name = get_shared_index_name()
+
+    try:
+        client.delete_by(
+            index_name=index_name,
+            delete_by_params={"filters": f"user_id:{user_id}"},
+        )
+        logger.info(f"Deleted all records for user_id={user_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete records for user_id={user_id}: {e}")
         raise
 
 
@@ -215,15 +267,17 @@ def search_transcripts(
     filter_by_platform: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Search transcripts for a specific user.
+    Search transcripts for a specific user in the shared index.
 
-    Tenant isolation is physical: the search runs against the user's
-    dedicated index, so no ``user_id`` filter is required.
+    Tenant isolation is logical: searches the shared index with an explicit
+    ``user_id`` filter. This is used for backend-proxied search; for direct
+    client search, use secured API keys instead.
+
     Deduplicates results by media_item_id (multiple chunks of the same
     document may match; only the best-scoring chunk per document is returned).
 
     Args:
-        user_id: User ID; resolves the target index (mandatory).
+        user_id: User ID to filter by (mandatory).
         query: Search query string.
         page: Page number (1-indexed).
         per_page: Number of results per page (max 100).
@@ -236,16 +290,15 @@ def search_transcripts(
         - page: current page number
     """
     client = get_client()
-    index_name = get_index_name(user_id)
+    index_name = get_shared_index_name()
 
     # Enforce per_page bounds
     per_page = min(max(1, per_page), 100)
 
-    # Tenant isolation is physical (per-user index), so only optional facet
-    # filters are applied here.
-    filters = None
+    # Build filters: always include user_id for tenant isolation
+    filters = f"user_id:{user_id}"
     if filter_by_platform:
-        filters = f"source_platform:{filter_by_platform}"
+        filters += f" AND source_platform:{filter_by_platform}"
 
     # Request more results than needed to account for deduplication
     # (multiple chunks from same document may match)
@@ -253,6 +306,7 @@ def search_transcripts(
 
     search_params = {
         "query": query,
+        "filters": filters,
         "attributesToRetrieve": [
             "media_item_id",
             "title",
@@ -269,8 +323,6 @@ def search_transcripts(
         "page": 0,  # Algolia is 0-indexed; we handle pagination after dedup
         "typoTolerance": True,
     }
-    if filters:
-        search_params["filters"] = filters
 
     try:
         response = client.search_single_index(
@@ -279,15 +331,11 @@ def search_transcripts(
         )
 
     except RequestException as e:
-        # A user's Algolia index is created lazily on the first save_objects
-        # call (per task-205: physical per-user isolation, no upfront
-        # provisioning). Until that user has at least one indexed transcript,
-        # the index does not exist and Algolia returns 404. Treat this as an
-        # empty result rather than a 500: the user simply has nothing to
-        # search yet.
+        # The shared index may not exist yet if no records have been indexed.
+        # Treat 404 as empty results rather than a 500.
         if getattr(e, "status_code", None) == 404:
             logger.info(
-                f"Search returned empty: per-user index not yet created "
+                f"Search returned empty: shared index not yet created "
                 f"(user_id={user_id}, query='{query}')"
             )
             return {"found": 0, "hits": [], "page": page}
