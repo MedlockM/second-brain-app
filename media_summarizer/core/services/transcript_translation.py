@@ -43,6 +43,11 @@ import aiohttp
 
 from media_summarizer.utils import s3
 from media_summarizer.utils.logging_config import log_event
+from media_summarizer.utils.translation_idempotence import (
+    TranslationStatus,
+    build_translation_fingerprint,
+    get_translation_lock,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +98,18 @@ V1_LANGUAGES = frozenset(V1_LANGUAGE_NAMES.keys())
 
 class TranscriptTranslationError(Exception):
     """Raised when translation fails after exhausting retries."""
+
+
+class TranslationInProgressError(Exception):
+    """Raised when a translation is already queued or in-progress (lock held).
+
+    Callers should NOT attempt a synchronous translation and should instead
+    signal to the client that the translation will complete asynchronously.
+    """
+
+    def __init__(self, status: str, message: str = "Translation is in progress") -> None:
+        super().__init__(message)
+        self.translation_status = status
 
 
 def _normalize_lang(value: Optional[str]) -> Optional[str]:
@@ -398,6 +415,49 @@ async def ensure_translated_transcript(
         target_language=normalized_target,
     )
 
+    # --- Check the DynamoDB translation lock before attempting synchronous translation ---
+    # This prevents a redundant LLM call when the transcript_translation worker is
+    # already translating the same (transcript_s3_key, target_language) pair (task-214).
+    fingerprint = build_translation_fingerprint(
+        transcript_s3_key=transcript_s3_key,
+        target_language=normalized_target,
+    )
+    try:
+        translation_lock = await get_translation_lock(fingerprint)
+    except Exception as exc:  # pragma: no cover - defensive
+        log_event(
+            logger,
+            logging.WARNING,
+            "translation.lock_read_failed",
+            "Failed to read translation lock; proceeding with S3 check",
+            error_type=type(exc).__name__,
+            detail=str(exc)[:200],
+        )
+        translation_lock = None
+
+    # If translation is queued or in_progress, do NOT attempt a synchronous translation.
+    # Raise so the caller (artifact API) can return 409 to the client.
+    if translation_lock and translation_lock.status in (
+        TranslationStatus.QUEUED,
+        TranslationStatus.IN_PROGRESS,
+    ):
+        log_event(
+            logger,
+            logging.INFO,
+            "translation.in_flight_detected",
+            "Translation already in-flight; refusing synchronous translation",
+            transcript_s3_key=transcript_s3_key,
+            target_language=normalized_target,
+            translation_status=translation_lock.status,
+        )
+        raise TranslationInProgressError(
+            status=translation_lock.status,
+            message=(
+                f"Translation is currently {translation_lock.status} for this transcript. "
+                "Please retry after the translation completes."
+            ),
+        )
+
     # Idempotence: reuse an already-produced translation for this couple.
     try:
         if await s3.object_exists(bucket=transcript_bucket, key=translated_key):
@@ -428,6 +488,9 @@ async def ensure_translated_transcript(
             error_type=type(exc).__name__,
             detail=str(exc)[:200],
         )
+
+    # If lock says "done" but S3 object is missing (rare inconsistency),
+    # fall through to synchronous re-translation below (AC#3).
 
     try:
         translated_text, usage = await _translate_with_retry(
