@@ -37,7 +37,6 @@ from media_summarizer.utils.logging_config import (
     reset_log_context,
     setup_logging,
 )
-from media_summarizer.core.services.minute_pool import finalize_usage
 from media_summarizer.workers.base_worker import process_message_with_retry
 
 logger = logging.getLogger(__name__)
@@ -693,21 +692,6 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
 
     # Search indexing (Algolia) is enqueued centrally by the media-completed
     # events consumer once it receives this episode_completion_status event.
-
-    # Finalize minute usage for the canonical submitter after transcription succeeds.
-    # This is the billing event tied to transcription (the expensive step).
-    try:
-        await finalize_usage(job_id, minutes_used)
-    except Exception as e:
-        log_event(
-            logger,
-            logging.WARNING,
-            "billing.finalize_failed",
-            "Failed to finalize minute usage after transcription",
-            job_id=job_id,
-            minutes_used=minutes_used,
-            exc_info=e,
-        )
 
     # Mark the canonical job as completed now that transcription is done.
     if job:

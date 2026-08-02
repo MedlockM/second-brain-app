@@ -1,4 +1,4 @@
-# DynamoDB tables for minutes-based monetization (subscriptions, minute buckets, minute usage, follows)
+# DynamoDB tables for subscriptions and feed follows/forecasts
 
 # Subscriptions table
 resource "aws_dynamodb_table" "subscriptions" {
@@ -24,86 +24,6 @@ resource "aws_dynamodb_table" "subscriptions" {
 
   tags = {
     Name        = "subscriptions"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-# Minute buckets table
-resource "aws_dynamodb_table" "minute_buckets" {
-  name         = "minute_buckets"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "id"
-
-  attribute {
-    name = "id"
-    type = "S"
-  }
-  attribute {
-    name = "user_id"
-    type = "S"
-  }
-  attribute {
-    name = "expires_at"
-    type = "S"
-  }
-
-  # GSI: user-index
-  global_secondary_index {
-    name            = "user-index"
-    hash_key        = "user_id"
-    projection_type = "ALL"
-  }
-
-  # GSI: expiry-index (TTL queries)
-  global_secondary_index {
-    name            = "expiry-index"
-    hash_key        = "expires_at"
-    projection_type = "ALL"
-  }
-
-  tags = {
-    Name        = "minute_buckets"
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
-
-# Minute usage (holds/finalize/release)
-resource "aws_dynamodb_table" "minute_usage" {
-  name         = "minute_usage"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "id"
-
-  attribute {
-    name = "id"
-    type = "S"
-  }
-  attribute {
-    name = "user_id"
-    type = "S"
-  }
-  attribute {
-    name = "job_id"
-    type = "S"
-  }
-
-  # GSI: user-index
-  global_secondary_index {
-    name            = "user-index"
-    hash_key        = "user_id"
-    projection_type = "ALL"
-  }
-
-  # GSI: job-index
-  global_secondary_index {
-    name            = "job-index"
-    hash_key        = "job_id"
-    projection_type = "ALL"
-  }
-
-  tags = {
-    Name        = "minute_usage"
     Environment = var.environment
     Project     = var.project_name
   }
@@ -162,8 +82,5 @@ resource "aws_dynamodb_table" "feed_forecasts" {
 
 # Outputs
 output "subscriptions_table_name" { value = aws_dynamodb_table.subscriptions.name }
-output "minute_buckets_table_name" { value = aws_dynamodb_table.minute_buckets.name }
-output "minute_usage_table_name" { value = aws_dynamodb_table.minute_usage.name }
 output "follows_table_name" { value = aws_dynamodb_table.follows.name }
 output "feed_forecasts_table_name" { value = aws_dynamodb_table.feed_forecasts.name }
-

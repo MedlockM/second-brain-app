@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from media_summarizer.core.services.media_submission import submit_media_for_user
-from media_summarizer.core.services.minute_pool import get_total_available_minutes
 
 
 async def submit_episode_for_user(

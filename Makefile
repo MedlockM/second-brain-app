@@ -8,7 +8,7 @@ SHELL := bash
 DOCKER_PROFILE ?= full
 DOCKER_COMPOSE := docker-compose -f docker-compose.dev.yml --env-file .env.dev --profile $(DOCKER_PROFILE)
 
-.PHONY: help install dev test test-unit test-integration test-e2e test-all clean setup-dev setup-e2e coverage lint format docker-build docker-up docker-down docker-logs restart-workers logs-whisper logs-download logs-summarize logs-email logs-quiz logs-episode-events logs-workers logs-all-workers logs-api lambda-build lambda-deploy lambda-redeploy lambda-invoke add_minutes_for_marc_gmail reset_minutes_for_marc_gmail
+.PHONY: help install dev test test-unit test-integration test-e2e test-all clean setup-dev setup-e2e coverage lint format docker-build docker-up docker-down docker-logs restart-workers logs-whisper logs-download logs-summarize logs-email logs-quiz logs-episode-events logs-workers logs-all-workers logs-api lambda-build lambda-deploy lambda-redeploy lambda-invoke
 
 # Default target
 help: ## Show this help message
@@ -99,8 +99,3 @@ restart: ## Restart development environment
 	$(MAKE) docker-down
 	$(MAKE) dev
 
-add_minutes_for_marc_gmail: ## Add 1000 minutes to marc.medlockfr@gmail.com
-	python scripts/add_test_minutes.py marc.medlockfr@gmail.com 1000
-
-reset_minutes_for_marc_gmail: ## Reset minutes to 0 for marc.medlockfr@gmail.com
-	python scripts/reset_user_minutes.py marc.medlockfr@gmail.com

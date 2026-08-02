@@ -739,13 +739,6 @@ async def upload_document(
         )
         job = await database_async.create_processing_job(job)
 
-        # Allocate 1 minute credit for document parsing
-        await minute_pool.allocate_hold_for_job(
-            user_id=user.id,
-            job_id=job.id,
-            minutes_estimated=REQUIRED_MINUTES,
-        )
-
         # Upload document to S3
         document_s3_key = f"{job.id}/{file_name}"
         from io import BytesIO
@@ -915,13 +908,6 @@ async def upload_audio(
             job.tag_ids = unique_tag_ids
 
         job = await database_async.create_processing_job(job)
-
-        # Allocate minute pool hold
-        await minute_pool.allocate_hold_for_job(
-            user_id=user.id,
-            job_id=job.id,
-            minutes_estimated=REQUIRED_MINUTES,
-        )
 
         # Upload audio file to S3
         audio_s3_key = f"{job.id}.{ext}"

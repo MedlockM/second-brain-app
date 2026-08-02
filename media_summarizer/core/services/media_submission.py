@@ -1,6 +1,6 @@
 """
-Shared media submission service with global idempotence (media key),
-job creation, and minutes billing.
+Shared media submission service with global idempotence (media key)
+and job creation.
 
 Designed to be called by API endpoints and future sync integrations.
 In V1, notifications are delivered via mobile app polling, not email.
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import json
-from math import ceil
 from typing import Dict, Any
 
 from media_summarizer.utils import (
@@ -21,11 +20,6 @@ from media_summarizer.utils import (
     media_watchers,
 )
 from media_summarizer.core.models import ProcessingJob
-from media_summarizer.core.services.minute_pool import (
-    allocate_hold_for_job,
-    finalize_usage,
-    get_total_available_minutes,
-)
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
     record_submission,
@@ -50,27 +44,13 @@ async def submit_media_for_user(
     """
     Submit a media item for a user with global idempotence.
 
-    - If key is new: create a canonical job, reserve key, allocate minutes, enqueue download.
-    - If key already processed: create a billing job, charge minutes (summary in app via polling).
+    - If key is new: create a canonical job, reserve key, enqueue download.
+    - If key already processed: create a billing job (summary in app via polling).
     - If key reserved/in progress: return "pending" status (watchers fan-out).
 
     Returns a dict compatible with MediaItemSelectionResponse.
     """
-    # 0. Credit Check (Pre-flight)
-    # Estimate required minutes (min 1)
-    minutes_required = max(1, ceil((duration_seconds or 0) / 60))
-    available = await get_total_available_minutes(user.id)
-
-    if available < minutes_required:
-        return {
-            "status": "skipped",
-            "reason": "insufficient_credits",
-            "message": f"Insufficient credits (Required: {minutes_required}, Available: {available})",
-            "minutes_required": minutes_required,
-            "minutes_available": available,
-        }
-
-    # 0b. Quota enforcement check (hard caps, rate limits, cost monitoring)
+    # 0. Quota enforcement check (hard caps, rate limits, cost monitoring)
     quota_result = await check_submission_allowed(
         user_id=user.id,
         source_platform=source or "audio",
@@ -148,18 +128,10 @@ async def submit_media_for_user(
             )
             billing_job = await database_async.create_processing_job(billing_job)
 
-            # Billing: allocate then finalize with known duration (fallback min 1)
-            minutes_used = max(1, ceil((duration_seconds or 0) / 60))
-            await allocate_hold_for_job(
-                user_id=user.id, job_id=billing_job.id, minutes_estimated=minutes_used
-            )
-            await finalize_usage(billing_job.id, minutes_used)
-
             return {
                 "job_id": billing_job.id,
                 "status": "completed",
-                "message": "Existing summary detected -- available in app (minutes charged)",
-                "minutes_hold_estimated": minutes_used,
+                "message": "Existing summary detected -- available in app",
                 "estimated_processing_time": "0",
                 "media_title": media_title,
                 "source_title": source_title,
@@ -169,29 +141,14 @@ async def submit_media_for_user(
             }
 
         # Not yet processed (reserved / in progress by another job)
-        # Create a "watcher" job for this user, allocate an estimated hold, and register the watcher.
-        minutes_estimated = (
-            ceil(duration_seconds / 60)
-            if duration_seconds and duration_seconds > 0
-            else 0
-        )
+        # Create a "watcher" job for this user and register the watcher.
         watcher_job = await database_async.create_processing_job(job)
-        try:
-            await allocate_hold_for_job(
-                user_id=user.id,
-                job_id=watcher_job.id,
-                minutes_estimated=minutes_estimated,
-            )
-        except Exception:
-            # Allocation best-effort
-            pass
         try:
             await media_watchers.add_watcher(
                 media_key=media_key,
                 user_id=user.id,
                 email=user.email,
                 job_id=watcher_job.id,
-                minutes_estimated=minutes_estimated,
                 source=source,
             )
         except Exception:
@@ -202,7 +159,6 @@ async def submit_media_for_user(
             "job_id": watcher_job.id,
             "status": "pending",
             "message": "Media already submitted -- processing in progress or reserved (you will be notified)",
-            "minutes_hold_estimated": minutes_estimated,
             "estimated_processing_time": "a few minutes",
             "media_title": media_title,
             "source_title": source_title,
@@ -213,18 +169,6 @@ async def submit_media_for_user(
 
     # New canonical processing: persist the job and orchestrate
     created_job = await database_async.create_processing_job(job)
-
-    # Allocate minutes (estimate if duration known)
-    minutes_estimated = (
-        ceil(duration_seconds / 60) if duration_seconds and duration_seconds > 0 else 0
-    )
-    try:
-        await allocate_hold_for_job(
-            user_id=user.id, job_id=created_job.id, minutes_estimated=minutes_estimated
-        )
-    except Exception:
-        # Allocation best-effort
-        pass
 
     # Persist update
     await database_async.update_processing_job(created_job)
@@ -267,7 +211,6 @@ async def submit_media_for_user(
         "job_id": created_job.id,
         "status": created_job.status.value,
         "message": "Media submitted successfully for processing",
-        "minutes_hold_estimated": minutes_estimated,
         "estimated_processing_time": "5-10 minutes",
         "media_title": media_title,
         "source_title": source_title,

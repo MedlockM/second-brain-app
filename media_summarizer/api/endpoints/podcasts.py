@@ -2,7 +2,7 @@
 Podcasts submission endpoints (backward-compatible alias for tests).
 
 Provides /api/v1/podcasts/submit to create a processing job directly from a podcast URL
-(RSS feed) and enqueue a message for downstream processing. Deducts 1 credit.
+(RSS feed) and enqueue a message for downstream processing.
 """
 
 import logging
@@ -17,7 +17,6 @@ from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.utils.database_async import get_db
 from media_summarizer.utils import database_async, sqs, podcast_index
 from media_summarizer.core.models import ProcessingJob
-from media_summarizer.core.services import minute_pool
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
     record_submission,
@@ -28,7 +27,6 @@ from media_summarizer.api.rate_limit import limiter, get_limit_from_env
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-REQUIRED_MINUTES = 1
 SEARCH_LIMIT = get_limit_from_env("RATE_LIMIT_PODCAST_SEARCH", "60/minute")
 _AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
 
@@ -244,11 +242,6 @@ async def submit_podcast_for_processing(
             podcast_url=payload.podcast_url,
         )
         job = await database_async.create_processing_job(job)
-
-        # Allocate minute hold (minutes-based billing)
-        await minute_pool.allocate_hold_for_job(
-            user_id=user.id, job_id=job.id, minutes_estimated=REQUIRED_MINUTES
-        )
 
         if _looks_like_audio_url(submitted_url):
             # Direct audio URL path: send to Deepgram worker.

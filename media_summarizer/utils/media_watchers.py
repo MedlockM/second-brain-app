@@ -4,7 +4,7 @@ Utilities to manage media watchers for pending processing fan-out.
 Canonical schema (MEDIA_WATCHERS_TABLE, default "media_watchers"):
 - PK: media_key (S)
 - SK: user_id (S)
-- Attributes: job_id, email, status (pending|completed|failed), minutes_estimated, source
+- Attributes: job_id, email, status (pending|completed|failed), source
 """
 from __future__ import annotations
 
@@ -53,14 +53,13 @@ async def add_watcher(
     user_id: str,
     email: str,
     job_id: str,
-    minutes_estimated: int,
     source: str,
 ) -> bool:
     identity_key = _resolve_identity_key(media_key)
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
-        
+
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(MEDIA_WATCHERS_TABLE)
@@ -71,7 +70,6 @@ async def add_watcher(
                 "email": email,
                 "job_id": job_id,
                 "status": "pending",
-                "minutes_estimated": int(minutes_estimated or 0),
                 "source": source,
                 "created_at": _now_iso(),
             }

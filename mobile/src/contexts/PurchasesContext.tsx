@@ -30,12 +30,6 @@ export interface EntitlementStatus {
   period_end: string | null;
   auto_renew_status: boolean | null;
   minutes_remaining: number;
-  breakdown: {
-    subscription: number;
-    pack: number;
-    rollover: number;
-    migration: number;
-  };
   offerings_config?: Array<{
     tier: string;
     name: string;

@@ -1,8 +1,9 @@
 """
-Entitlements API endpoints for subscription and minute tracking.
+Entitlements API endpoints for subscription and quota tracking.
 
 This endpoint is consumed by the mobile app to check user access
-and remaining minutes after RevenueCat webhook updates.
+and remaining audio minutes for the current month after RevenueCat
+webhook updates.
 """
 import logging
 from datetime import datetime, timezone
@@ -67,18 +68,23 @@ async def get_entitlements_status(
     current_user=Depends(require_verified_email),
 ):
     """
-    Get the current user's subscription tier, remaining minutes, and period info.
+    Get the current user's subscription tier, remaining audio minutes for the
+    current month, and period info.
 
     Returns:
     - subscription tier (S/M/L) if active, else None
     - is_active boolean for paywall gate
     - period_end date for subscription expiry tracking
     - auto_renew_status for renewal display
-    - total remaining minutes across all sources
+    - remaining audio minutes for the current month (tier hard cap minus usage)
     - offerings_config if user has no active subscription (for paywall display)
     """
     try:
-        from media_summarizer.utils import minute_db
+        from media_summarizer.utils import minute_db, quota_usage_db
+        from media_summarizer.core.services.quota_enforcer import (
+            _SUBSCRIPTION_TIER_TO_CONFIG,
+            _get_effective_caps,
+        )
 
         # Get active subscription
         subs = await minute_db.get_subscriptions_by_user_id(current_user.id)
@@ -96,22 +102,20 @@ async def get_entitlements_status(
                         active_sub = s
                         break
 
-        # Get all minute buckets
-        buckets = await minute_db.get_minute_buckets_by_user_id(current_user.id)
-        now = datetime.now(timezone.utc)
-
-        total_remaining = 0
-
-        for b in buckets:
-            # Skip expired buckets
-            if b.expires_at and b.expires_at < now:
-                continue
-
-            total_remaining += int(b.minutes_remaining or 0)
-
         is_active = active_sub is not None and active_sub.status.value in (
             "active", "grace_period", "canceled"
         )
+
+        # Remaining audio minutes for the current month: tier hard cap
+        # (with free-trial override, same logic as the enforcement gate)
+        # minus usage recorded in user_usage_monthly.
+        minutes_remaining = 0
+        if active_sub:
+            config_tier = _SUBSCRIPTION_TIER_TO_CONFIG.get(active_sub.tier.value, "mix")
+            effective_caps = await _get_effective_caps(config_tier, current_user.id)
+            audio_minutes_cap = int(effective_caps.get("audio_minutes", 0))
+            usage = await quota_usage_db.get_monthly_usage(current_user.id)
+            minutes_remaining = max(0, audio_minutes_cap - int(usage.get("audio_minutes_used", 0)))
 
         response = {
             "user_id": current_user.id,
@@ -120,7 +124,7 @@ async def get_entitlements_status(
             "is_active": is_active,
             "period_end": active_sub.current_period_end.isoformat() if active_sub and active_sub.current_period_end else None,
             "auto_renew_status": active_sub.auto_renew_status if active_sub else None,
-            "minutes_remaining": total_remaining,
+            "minutes_remaining": minutes_remaining,
         }
 
         # Include offerings config if user has no active subscription

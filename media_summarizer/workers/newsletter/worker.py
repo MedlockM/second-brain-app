@@ -10,7 +10,6 @@ Each message contains a raw email that is:
 
 This worker follows the same pattern as other platform workers:
 - Creates a ProcessingJob
-- Allocates a minute hold
 - Feeds downstream into the summary artifact pipeline
 """
 
@@ -26,7 +25,6 @@ from io import BytesIO
 from typing import Any, Dict, Optional
 
 from media_summarizer.core.models import ProcessingJob
-from media_summarizer.core.services.minute_pool import allocate_hold_for_job
 from media_summarizer.core.services.newsletter_errors import (
     NewsletterIngestionError,
     USER_FACING_MESSAGES,
@@ -56,10 +54,6 @@ NEWSLETTER_INGESTION_QUEUE = os.environ.get(
 TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
-
-# Estimated minutes for a newsletter (text-based, no audio duration)
-# Newsletters are charged as 1 minute since there is no audio duration concept
-NEWSLETTER_MINUTES_COST = 1
 
 
 def _generate_media_key(sender: str, subject: str, date: str) -> str:
@@ -214,17 +208,7 @@ async def process_newsletter_message(message_body: Dict[str, Any]) -> None:
         )
         created_job = await database_async.create_processing_job(job)
 
-        # Step 6: Allocate minutes hold
-        try:
-            await allocate_hold_for_job(
-                user_id=user.id,
-                job_id=created_job.id,
-                minutes_estimated=NEWSLETTER_MINUTES_COST,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to allocate minutes for newsletter job: {e}")
-
-        # Step 7: Store extracted text as a "transcription" in S3
+        # Step 6: Store extracted text as a "transcription" in S3
         transcript_key = f"{created_job.id}.txt"
         transcript_content = (
             f"Newsletter: {parse_result.subject}\n"

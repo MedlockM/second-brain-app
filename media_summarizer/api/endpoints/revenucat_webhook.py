@@ -18,8 +18,6 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from media_summarizer.core.config import settings
 from media_summarizer.core.models.billing import (
-    MinuteBucket,
-    MinuteBucketSource,
     Subscription,
     SubscriptionPlatform,
     SubscriptionStatus,
@@ -41,13 +39,6 @@ PRODUCT_TIER_MAP: Dict[str, SubscriptionTier] = {
     "text_only_monthly": SubscriptionTier.S,
     "mix_monthly": SubscriptionTier.M,
     "audio_heavy_monthly": SubscriptionTier.L,
-}
-
-# Minute allocations per tier (per period/month)
-TIER_MINUTES: Dict[SubscriptionTier, int] = {
-    SubscriptionTier.S: 0,     # Text-Only: no audio transcription
-    SubscriptionTier.M: 300,   # Mix: 5 hours
-    SubscriptionTier.L: 900,   # Audio-Heavy: 15 hours
 }
 
 REVENUCAT_EVENTS_TABLE = os.environ.get("REVENUCAT_EVENTS_TABLE", "revenucat_events")
@@ -117,7 +108,7 @@ def _parse_iso_date(date_str: Optional[str]) -> Optional[datetime]:
 
 
 async def _handle_initial_purchase(event: Dict[str, Any]) -> None:
-    """Handle INITIAL_PURCHASE: create/update subscription and credit minutes."""
+    """Handle INITIAL_PURCHASE: create/update subscription."""
     app_user_id = event.get("app_user_id", "")
     product_id = event.get("product_id", "")
     store = event.get("store", "")
@@ -163,7 +154,6 @@ async def _handle_initial_purchase(event: Dict[str, Any]) -> None:
             id=sub_id,
             user_id=app_user_id,
             tier=tier,
-            minutes_per_period=TIER_MINUTES[tier],
             current_period_start=period_start or now,
             current_period_end=period_end,
             status=SubscriptionStatus.active,
@@ -181,7 +171,6 @@ async def _handle_initial_purchase(event: Dict[str, Any]) -> None:
             id=str(uuid.uuid4()),
             user_id=app_user_id,
             tier=tier,
-            minutes_per_period=TIER_MINUTES[tier],
             current_period_start=period_start or now,
             current_period_end=period_end,
             status=SubscriptionStatus.active,
@@ -195,31 +184,11 @@ async def _handle_initial_purchase(event: Dict[str, Any]) -> None:
         )
         await minute_db.create_subscription(sub)
 
-    # Credit minute bucket for the period
-    minutes = TIER_MINUTES[tier]
-    if minutes > 0:
-        bucket = MinuteBucket(
-            id=str(uuid.uuid4()),
-            user_id=app_user_id,
-            source_type=MinuteBucketSource.subscription,
-            source_ref=sub.id if sub_id else sub.id,
-            minutes_total=minutes,
-            minutes_remaining=minutes,
-            period_start=period_start or now,
-            period_end=period_end,
-            expires_at=period_end,
-            created_at=now,
-            updated_at=now,
-        )
-        await minute_db.create_minute_bucket(bucket)
-
-    logger.info(
-        f"INITIAL_PURCHASE processed: user={app_user_id}, tier={tier.value}, minutes={minutes}"
-    )
+    logger.info(f"INITIAL_PURCHASE processed: user={app_user_id}, tier={tier.value}")
 
 
 async def _handle_renewal(event: Dict[str, Any]) -> None:
-    """Handle RENEWAL: credit new minute bucket for the new period."""
+    """Handle RENEWAL: update subscription period."""
     app_user_id = event.get("app_user_id", "")
     product_id = event.get("product_id", "")
 
@@ -261,25 +230,7 @@ async def _handle_renewal(event: Dict[str, Any]) -> None:
             await minute_db.update_subscription(s)
             break
 
-    # Credit new minute bucket
-    minutes = TIER_MINUTES[tier]
-    if minutes > 0:
-        bucket = MinuteBucket(
-            id=str(uuid.uuid4()),
-            user_id=app_user_id,
-            source_type=MinuteBucketSource.subscription,
-            source_ref=product_id,
-            minutes_total=minutes,
-            minutes_remaining=minutes,
-            period_start=period_start or now,
-            period_end=period_end,
-            expires_at=period_end,
-            created_at=now,
-            updated_at=now,
-        )
-        await minute_db.create_minute_bucket(bucket)
-
-    logger.info(f"RENEWAL processed: user={app_user_id}, tier={tier.value}, minutes={minutes}")
+    logger.info(f"RENEWAL processed: user={app_user_id}, tier={tier.value}")
 
 
 async def _handle_cancellation(event: Dict[str, Any]) -> None:
@@ -337,7 +288,7 @@ async def _handle_billing_issue(event: Dict[str, Any]) -> None:
 
 
 async def _handle_product_change(event: Dict[str, Any]) -> None:
-    """Handle PRODUCT_CHANGE: upgrade/downgrade (update tier, prorate minutes)."""
+    """Handle PRODUCT_CHANGE: upgrade/downgrade (update tier)."""
     app_user_id = event.get("app_user_id", "")
     new_product_id = event.get("new_product_id") or event.get("product_id", "")
     store = event.get("store", "")
@@ -362,11 +313,7 @@ async def _handle_product_change(event: Dict[str, Any]) -> None:
     existing_subs = await minute_db.get_subscriptions_by_user_id(app_user_id)
     for s in existing_subs:
         if s.status.value in ("active", "grace_period", "canceled"):
-            old_minutes = TIER_MINUTES.get(s.tier, 0)
-            new_minutes = TIER_MINUTES[new_tier]
-
             s.tier = new_tier
-            s.minutes_per_period = new_minutes
             s.revenucat_product_id = new_product_id
             s.current_period_end = period_end
             s.status = SubscriptionStatus.active
@@ -377,27 +324,8 @@ async def _handle_product_change(event: Dict[str, Any]) -> None:
             s.updated_at = now
             await minute_db.update_subscription(s)
 
-            # If upgrading, credit the difference in minutes for the remaining period
-            if new_minutes > old_minutes:
-                extra_minutes = new_minutes - old_minutes
-                bucket = MinuteBucket(
-                    id=str(uuid.uuid4()),
-                    user_id=app_user_id,
-                    source_type=MinuteBucketSource.subscription,
-                    source_ref=new_product_id,
-                    minutes_total=extra_minutes,
-                    minutes_remaining=extra_minutes,
-                    period_start=now,
-                    period_end=period_end,
-                    expires_at=period_end,
-                    created_at=now,
-                    updated_at=now,
-                )
-                await minute_db.create_minute_bucket(bucket)
-
             logger.info(
-                f"PRODUCT_CHANGE processed: user={app_user_id}, "
-                f"new_tier={new_tier.value}, new_minutes={new_minutes}"
+                f"PRODUCT_CHANGE processed: user={app_user_id}, new_tier={new_tier.value}"
             )
             return
 

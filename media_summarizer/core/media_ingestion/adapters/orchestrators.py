@@ -20,7 +20,6 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.models import ProcessingJob
-from media_summarizer.core.services import minute_pool
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils import media_idempotence as episode_idempotence
 from media_summarizer.utils.logging_config import log_event
@@ -55,7 +54,6 @@ DEFAULT_EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
 DEFAULT_TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
-REQUIRED_MINUTES = 1
 
 
 def _now_iso() -> str:
@@ -222,13 +220,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             # After applying changes, update the job in the database
             if command.request.folder_id or command.request.tag_ids:
                 await database_async.update_processing_job(job)
-
-            # Allocate minute hold for all ingestions
-            await minute_pool.allocate_hold_for_job(
-                user_id=command.user.user_id,
-                job_id=job.id,
-                minutes_estimated=REQUIRED_MINUTES,
-            )
 
             try:
                 await mark_user_media_submission(

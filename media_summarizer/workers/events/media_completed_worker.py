@@ -3,7 +3,7 @@ Media completed events consumer -- fan-out to media watchers + primary-user inde
 
 - Consumes events from MEDIA_COMPLETED_EVENTS_QUEUE (episode-completed-events)
 - Canonical event_type: episode_completion_status (with status: success/failure)
-- For each media key, fetches watchers, marks processing state, and finalizes their minute usage
+- For each media key, fetches watchers and marks their processing state
 - In V1, all user notifications are via mobile app polling; email notifications disabled
 
 Search indexing (Algolia) is decoupled from the watcher loop:
@@ -24,7 +24,6 @@ from typing import Any, Dict, List, Optional
 
 from media_summarizer.utils import sqs, s3
 from media_summarizer.utils import media_watchers
-from media_summarizer.core.services.minute_pool import finalize_usage
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
 logger = logging.getLogger(__name__)
@@ -127,7 +126,6 @@ async def process_event(message: Dict[str, Any]) -> None:
     # Accept both new and legacy field names
     media_key = body.get("media_key") or body.get("episode_guid")
     status = body.get("status", "success")  # legacy events have no status field; treat as success
-    minutes_used = int(body.get("minutes_used") or 0)
     source_title = body.get("source_title") or body.get("podcast_title")
     media_title = body.get("media_title") or body.get("episode_title")
     summary_s3_key = body.get("summary_s3_key")
@@ -231,19 +229,7 @@ async def process_event(message: Dict[str, Any]) -> None:
                 )
                 continue
 
-            # Finalize usage (charge minutes)
-            ok = await finalize_usage(job_id, minutes_used)
-            if not ok:
-                # Insufficient minutes
-                logger.error(f"Failed to finalize usage for job {job_id}: insufficient minutes")
-                await media_watchers.mark_watcher_failed(
-                    media_key,
-                    w.get("user_id"),
-                    reason="insufficient_minutes"
-                )
-                continue
-
-            logger.info(f"Successfully processed watcher {w.get('user_id')} for media key {media_key}: {minutes_used} minutes charged")
+            logger.info(f"Successfully processed watcher {w.get('user_id')} for media key {media_key}")
 
             # Per-watcher Algolia indexing (cross-user dedup). Deduplicate
             # against the primary user who was already indexed above.

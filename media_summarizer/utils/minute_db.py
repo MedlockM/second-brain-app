@@ -1,16 +1,14 @@
 """
-Minutes-based billing data access on DynamoDB (async, aioboto3), using the same session config as database_async.
+Subscriptions, Follows, and Feed Forecasts data access on DynamoDB (async, aioboto3),
+using the same session config as database_async.
 
 CRUD operations for:
 - Subscriptions
-- Minute Buckets
-- Minute Usage (holds/finalize/release)
 - Follows (forecast/reservations)
+- Feed Forecasts (shared cache)
 
 GSIs expected:
-- user-index on user_id (subscriptions, minute_buckets, minute_usage, follows)
-- job-index on job_id (minute_usage)
-- expiry-index on expires_at (minute_buckets)
+- user-index on user_id (subscriptions, follows)
 
 Note: Table creation and index management are handled outside this module (infra scripts/terraform).
 """
@@ -20,21 +18,14 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional
 
-from boto3.dynamodb.conditions import Attr, Key
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from media_summarizer.core.models.billing import (
-    Follow,
-    MinuteBucket,
-    MinuteUsage,
-    Subscription,
-)
+from media_summarizer.core.models.billing import Follow, Subscription
 from media_summarizer.utils import database_async
 
 # Table names (overridable via env)
 SUBSCRIPTIONS_TABLE = os.environ.get("SUBSCRIPTIONS_TABLE", "subscriptions")
-MINUTE_BUCKETS_TABLE = os.environ.get("MINUTE_BUCKETS_TABLE", "minute_buckets")
-MINUTE_USAGE_TABLE = os.environ.get("MINUTE_USAGE_TABLE", "minute_usage")
 FOLLOWS_TABLE = os.environ.get("FOLLOWS_TABLE", "follows")
 FEED_FORECASTS_TABLE = os.environ.get("FEED_FORECASTS_TABLE", "feed_forecasts")
 
@@ -79,153 +70,6 @@ async def update_subscription(subscription: Subscription) -> Subscription:
         table = await dynamodb.Table(SUBSCRIPTIONS_TABLE)
         await table.put_item(Item=subscription.to_dynamodb_item())
         return subscription
-
-
-# ---------- Minute Buckets ----------
-
-
-async def create_minute_bucket(bucket: MinuteBucket) -> MinuteBucket:
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
-        await table.put_item(
-            Item=bucket.to_dynamodb_item(),
-            ConditionExpression="attribute_not_exists(id)",
-        )
-        return bucket
-
-
-async def get_minute_buckets_by_user_id(user_id: str) -> List[MinuteBucket]:
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
-        response = await table.query(
-            IndexName="user-index", KeyConditionExpression=Key("user_id").eq(user_id)
-        )
-        items = response.get("Items", [])
-        return [MinuteBucket.from_dynamodb_item(it) for it in items]
-
-
-async def update_minute_bucket(bucket: MinuteBucket) -> MinuteBucket:
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
-        await table.put_item(Item=bucket.to_dynamodb_item())
-        return bucket
-
-
-async def delete_minute_bucket(bucket_id: str) -> bool:
-    """Delete a minute bucket by its ID."""
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(MINUTE_BUCKETS_TABLE)
-        try:
-            await table.delete_item(Key={"id": bucket_id})
-            return True
-        except ClientError:
-            return False
-
-
-# ---------- Minute Usage (holds/finalize/release) ----------
-
-
-async def create_minute_usage(usage: MinuteUsage) -> MinuteUsage:
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(MINUTE_USAGE_TABLE)
-        await table.put_item(
-            Item=usage.to_dynamodb_item(),
-            ConditionExpression="attribute_not_exists(id)",
-        )
-        return usage
-
-
-async def get_minute_usage_by_job_id(job_id: str) -> Optional[MinuteUsage]:
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(MINUTE_USAGE_TABLE)
-        response = await table.query(
-            IndexName="job-index", KeyConditionExpression=Key("job_id").eq(job_id)
-        )
-        items = response.get("Items", [])
-        if not items:
-            return None
-        return MinuteUsage.from_dynamodb_item(items[0])
-
-
-async def update_minute_usage(usage: MinuteUsage) -> MinuteUsage:
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(MINUTE_USAGE_TABLE)
-        await table.put_item(Item=usage.to_dynamodb_item())
-        return usage
-
-
-async def scan_expired_holds(limit: int = 100) -> List[MinuteUsage]:
-    """
-    Scan minute_usage table for expired holds.
-
-    Returns holds where:
-    - status = 'held'
-    - hold_expires_at < now
-
-    Note: This uses a table scan which can be expensive. In production,
-    consider adding a GSI on (status, hold_expires_at) for better performance.
-
-    Args:
-        limit: Maximum number of items to return
-
-    Returns:
-        List of expired MinuteUsage objects
-    """
-    from datetime import datetime, timezone
-
-    from media_summarizer.core.models.billing import MinuteUsageStatus
-
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(MINUTE_USAGE_TABLE)
-
-        now_iso = datetime.now(timezone.utc).isoformat()
-
-        try:
-            response = await table.scan(
-                FilterExpression=Attr("status").eq("held")
-                & Attr("hold_expires_at").lt(now_iso),
-                Limit=limit,
-            )
-            items = response.get("Items", [])
-            return [MinuteUsage.from_dynamodb_item(it) for it in items]
-        except ClientError as e:
-            # Log error but don't crash
-            import logging
-
-            logging.getLogger(__name__).error(f"Failed to scan expired holds: {e}")
-            return []
 
 
 # ---------- Follows ----------

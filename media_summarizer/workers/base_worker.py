@@ -129,31 +129,7 @@ async def process_message_with_retry(
                     exc_info=db_err,
                 )
 
-            # 2. Release minutes hold if applicable
-            try:
-                if job_id and job_id != "unknown":
-                    from media_summarizer.core.services.minute_pool import release_hold
-                    released = await release_hold(job_id)
-                    log_event(
-                        logger,
-                        logging.DEBUG,
-                        "external_call.succeeded",
-                        "Released minute hold after worker failure",
-                        worker=worker_name,
-                        released=released,
-                    )
-            except Exception as refund_err:
-                log_event(
-                    logger,
-                    logging.ERROR,
-                    "external_call.failed",
-                    "Failed to release minute hold after worker failure",
-                    worker=worker_name,
-                    error_type=type(refund_err).__name__,
-                    exc_info=refund_err,
-                )
-
-            # 3. User notifications via email are disabled in V1 (replaced by mobile polling)
+            # 2. User notifications via email are disabled in V1 (replaced by mobile polling)
 
             # Technical errors are logged for monitoring/alerting
             log_event(
@@ -202,7 +178,5 @@ def get_sqs_receive_params(visibility_timeout: int = 120) -> Dict[str, Any]:
         "AttributeNames": ['ApproximateReceiveCount'],  # For retry logic
     }
 
-
-# Legacy refund_credits_on_failure removed in favor of minute holds release
 
 
