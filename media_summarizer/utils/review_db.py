@@ -11,9 +11,9 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
-from boto3.dynamodb.conditions import Key, Attr
+from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
 from media_summarizer.core.models.review_schedule import (
@@ -21,10 +21,10 @@ from media_summarizer.core.models.review_schedule import (
     UserReviewSettings,
 )
 from media_summarizer.utils.database_async import (
-    get_session,
     _dynamodb_client_kwargs,
-    _log_dynamodb_success,
     _log_dynamodb_error,
+    _log_dynamodb_success,
+    get_session,
 )
 
 logger = logging.getLogger(__name__)

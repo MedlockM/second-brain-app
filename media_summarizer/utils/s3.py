@@ -7,13 +7,10 @@ with Amazon S3 in the Media Summarizer application using aiobotocore.
 
 from __future__ import annotations
 
-import asyncio
-import base64
-import binascii
 import logging
 import mimetypes
 import os
-from typing import Any, BinaryIO, Dict, List, Optional, Union
+from typing import Any, BinaryIO, Dict, List, Optional
 
 from media_summarizer.utils.database_async import AWS_REGION
 from media_summarizer.utils.logging_config import log_event

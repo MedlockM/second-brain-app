@@ -15,16 +15,15 @@ Search indexing (Algolia) is decoupled from the watcher loop:
 """
 from __future__ import annotations
 
-import os
-import json
-import time
 import asyncio
+import json
 import logging
-from typing import Any, Dict, List, Optional
+import os
+import time
+from typing import Any, Dict, Optional
 
-from media_summarizer.utils import sqs, s3
-from media_summarizer.utils import media_watchers
-from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
+from media_summarizer.utils import media_watchers, s3, sqs
+from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +125,6 @@ async def process_event(message: Dict[str, Any]) -> None:
     # Accept both new and legacy field names
     media_key = body.get("media_key") or body.get("episode_guid")
     status = body.get("status", "success")  # legacy events have no status field; treat as success
-    source_title = body.get("source_title") or body.get("podcast_title")
     media_title = body.get("media_title") or body.get("episode_title")
     summary_s3_key = body.get("summary_s3_key")
     transcription_s3_key = body.get("transcription_s3_key")
@@ -192,9 +190,6 @@ async def process_event(message: Dict[str, Any]) -> None:
     # -------------------------------------------------------------------------
     if not watchers:
         return
-
-    # Load summary content once for all watchers
-    summary_content = await _load_summary_content(summary_s3_key)
 
     # Fan-out
     for w in watchers:

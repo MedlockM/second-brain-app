@@ -30,7 +30,7 @@ export interface EntitlementStatus {
   period_end: string | null;
   auto_renew_status: boolean | null;
   minutes_remaining: number;
-  offerings_config?: Array<{
+  offerings_config?: {
     tier: string;
     name: string;
     display_name: string;
@@ -38,7 +38,7 @@ export interface EntitlementStatus {
     minutes_per_month: number;
     description: string;
     features: string[];
-  }>;
+  }[];
 }
 
 interface PurchasesContextValue {

@@ -16,8 +16,8 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
-from media_summarizer.utils import minute_db
 from media_summarizer.core.services.forecast_service import compute_monthly_minutes_forecast
+from media_summarizer.utils import minute_db
 
 
 async def _run():

@@ -5,11 +5,11 @@ Each user has a private folder tree. Every media item belongs to exactly one fol
 A special "Uncategorized" folder is auto-created per user and cannot be deleted.
 """
 
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator
 import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
+from pydantic import BaseModel, Field, field_validator
 
 # Sentinel name for the default folder created per user
 UNCATEGORIZED_FOLDER_NAME = "Uncategorized"

@@ -12,7 +12,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, Optional
 
 import httpx
 from pydantic import BaseModel, Field
@@ -109,7 +109,7 @@ class BugReportService:
 
     async def _persist(self, report: BugReport) -> None:
         """Persist a bug report to DynamoDB."""
-        from media_summarizer.utils.database_async import get_session, _dynamodb_client_kwargs
+        from media_summarizer.utils.database_async import _dynamodb_client_kwargs, get_session
 
         session = get_session()
         async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:

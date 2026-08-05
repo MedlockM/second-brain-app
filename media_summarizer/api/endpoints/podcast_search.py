@@ -2,16 +2,12 @@
 Endpoints pour la recherche et la sélection de podcasts via l'API Podcast Index.
 """
 
-import json
 import logging
-import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import EmailStr
 
 from media_summarizer.api.dependencies.auth import (
-    get_current_user,
     require_verified_email,
 )
 from media_summarizer.api.models.podcast_models import (
@@ -23,14 +19,12 @@ from media_summarizer.api.models.podcast_models import (
     PodcastInfo,
     PodcastSearchRequest,
     PodcastSearchResponse,
-    TrendingPodcastsRequest,
     TrendingPodcastsResponse,
 )
 from media_summarizer.api.rate_limit import get_limit_from_env, limiter
-from media_summarizer.core.models import ProcessingJob, User
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.services.episode_submission import submit_episode_for_user
-from media_summarizer.utils import database_async, podcast_index, sqs
+from media_summarizer.utils import database_async, podcast_index
 from media_summarizer.utils.database_async import get_db
 
 router = APIRouter()

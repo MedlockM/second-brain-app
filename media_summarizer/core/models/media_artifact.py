@@ -4,10 +4,10 @@ Canonical internal models for media artifacts and generation locks.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
-import uuid
 
 from pydantic import BaseModel, Field
 

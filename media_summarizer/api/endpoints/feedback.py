@@ -11,8 +11,8 @@ import logging
 import os
 import time
 
-from jose import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
+from jose import jwt
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser

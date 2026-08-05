@@ -14,11 +14,10 @@ This service is the single gate for all submission paths.
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import ceil
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, Optional
 
 from media_summarizer.core.services import pricing_config_service
 from media_summarizer.utils import quota_usage_db

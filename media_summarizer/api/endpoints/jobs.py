@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from media_summarizer.api.dependencies.auth import AuthUser, get_current_user
-from media_summarizer.core.models import ProcessingJob
 from media_summarizer.utils import database_async
 
 logger = logging.getLogger(__name__)

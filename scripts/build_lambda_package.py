@@ -230,7 +230,6 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     try:
-        import os  # Local import here to avoid top-level pollution
 
         sys.exit(main(sys.argv[1:]))
     except KeyboardInterrupt:

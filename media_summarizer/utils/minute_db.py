@@ -123,8 +123,11 @@ async def get_feed_forecast(feed_id: str, month_key: str) -> Optional[Dict[str, 
 async def upsert_feed_forecast(
     feed_id: str, month_key: str, forecast: Dict[str, Any]
 ) -> bool:
-    """Upsert forecast cache for (feed_id, month_key). 'forecast' should contain keys minutes_per_month, basis, coverage_months, computed_at, expires_at.
-    Returns True on success, False if table missing."""
+    """Upsert forecast cache for (feed_id, month_key).
+
+    'forecast' should contain keys: minutes_per_month, basis, coverage_months,
+    computed_at, expires_at. Returns True on success, False if table missing.
+    """
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",

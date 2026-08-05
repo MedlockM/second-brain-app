@@ -28,14 +28,13 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from media_summarizer.core.services.transcript_translation import (
+    TRANSCRIPT_BUCKET,
     TranscriptTranslationError,
     ensure_translated_transcript,
     persist_detected_language,
-    job_source_language_hint,
-    TRANSCRIPT_BUCKET,
 )
 from media_summarizer.utils import database_async, s3
 from media_summarizer.utils.logging_config import (

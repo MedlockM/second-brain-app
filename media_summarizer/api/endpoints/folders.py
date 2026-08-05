@@ -5,7 +5,7 @@ Provides CRUD operations on user folders and media-to-folder assignment.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field

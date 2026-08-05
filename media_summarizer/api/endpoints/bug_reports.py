@@ -30,8 +30,6 @@ from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.services.bug_report_service import (
     BugReportService,
-    BugReport,
-    BugReportStatus,
 )
 from media_summarizer.utils import s3 as s3_utils
 

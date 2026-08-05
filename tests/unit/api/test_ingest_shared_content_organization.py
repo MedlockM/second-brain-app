@@ -21,7 +21,6 @@ from fastapi.testclient import TestClient
 
 from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -95,7 +94,7 @@ def client(auth_user, mock_user, mock_folder, mock_tags, mock_outcome):
         "media_summarizer.api.endpoints.media.s3"
     ) as mock_s3, patch(
         "media_summarizer.api.endpoints.media.sqs"
-    ) as mock_sqs, patch(
+    ), patch(
         "media_summarizer.api.endpoints.media.bind_log_context",
         return_value="token",
     ), patch(
@@ -126,6 +125,7 @@ def client(auth_user, mock_user, mock_folder, mock_tags, mock_outcome):
             except Exception:
                 # If create_app doesn't exist, build from the router directly
                 from fastapi import FastAPI
+
                 from media_summarizer.api.endpoints.media import router
 
                 app = FastAPI()

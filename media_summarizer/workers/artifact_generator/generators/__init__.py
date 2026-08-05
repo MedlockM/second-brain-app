@@ -5,8 +5,8 @@ from media_summarizer.workers.artifact_generator.generators.base import Artifact
 from media_summarizer.workers.artifact_generator.generators.flashcards import FlashcardsGenerator
 from media_summarizer.workers.artifact_generator.generators.notes import NotesGenerator
 from media_summarizer.workers.artifact_generator.generators.quiz import QuizGenerator
-from media_summarizer.workers.artifact_generator.generators.summary_short import SummaryShortGenerator
 from media_summarizer.workers.artifact_generator.generators.summary_detailed import SummaryDetailedGenerator
+from media_summarizer.workers.artifact_generator.generators.summary_short import SummaryShortGenerator
 
 GENERATORS: dict[MediaArtifactType, ArtifactGenerator] = {
     MediaArtifactType.FLASHCARDS: FlashcardsGenerator(),

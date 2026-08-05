@@ -42,7 +42,6 @@ async def _route_item_to_pipeline(
     - Audio items -> deepgram-transcription-queue (direct audio URL, no download worker)
     - Article items -> article-extraction-queue (web URL)
     """
-    import uuid
 
     item_type = item.get("item_type", "article")
     link = item.get("link") or ""

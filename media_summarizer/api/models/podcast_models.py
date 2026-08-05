@@ -2,9 +2,9 @@
 Pydantic models for podcast search and episode selection.
 """
 
+from typing import Dict, List, Optional
+
 from pydantic import BaseModel, Field
-from typing import Dict, Any, List, Optional
-from datetime import datetime
 
 
 class PodcastSearchRequest(BaseModel):

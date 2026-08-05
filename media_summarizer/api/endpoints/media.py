@@ -12,40 +12,60 @@ import os
 from typing import List, Optional
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.api.models.media_contracts import (
     LEGACY_PROCESSING_JOB_STATUS_MAP,
+)
+from media_summarizer.api.models.media_contracts import (
     MediaArtifactContract as CanonicalMediaArtifactContract,
+)
+from media_summarizer.api.models.media_contracts import (
     MediaItemContract as CanonicalMediaItemContract,
+)
+from media_summarizer.api.models.media_contracts import (
     MediaItemStatus as CanonicalMediaItemStatus,
+)
+from media_summarizer.api.models.media_contracts import (
     MediaStatusResponse as CanonicalMediaStatusResponse,
+)
+from media_summarizer.api.models.media_contracts import (
     MediaType as CanonicalMediaType,
+)
+from media_summarizer.api.models.media_contracts import (
     ProcessingJobContract as CanonicalProcessingJobContract,
+)
+from media_summarizer.api.models.media_contracts import (
     ProcessingJobLifecycleStatus as CanonicalJobLifecycle,
+)
+from media_summarizer.api.models.media_contracts import (
     ProcessingProgress as CanonicalProcessingProgress,
+)
+from media_summarizer.api.models.media_contracts import (
     SourcePlatform as CanonicalSourcePlatform,
+)
+from media_summarizer.api.models.media_contracts import (
     TranscriptInfo as CanonicalTranscriptInfo,
+)
+from media_summarizer.api.models.media_contracts import (
     TranscriptStatus as CanonicalTranscriptStatus,
 )
-from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models.media_artifact import MediaArtifactRecord
 from media_summarizer.core.ports.document_parser import DocumentFormat
-from media_summarizer.core.services import folder_service
-from media_summarizer.core.services import tag_service
-from media_summarizer.core.services import media_search_service
+from media_summarizer.core.services import folder_service, media_search_service, tag_service
 from media_summarizer.core.services.media_search_service import SearchFilters
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
-    record_submission,
     estimate_submission_cost,
+    record_submission,
 )
 from media_summarizer.core.services.raw_content_service import (
-    get_raw_content,
     RawContentNotAvailableError,
+    get_raw_content,
 )
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.language_codes import normalize_language_code
@@ -505,19 +525,21 @@ async def ingest_url(
     request: Request,
     current_user: AuthUser = Depends(get_current_user),
 ):
+    from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
     from media_summarizer.core.media_ingestion.domain import (
         IngestUrlCommand,
-        IngestUrlRequest as DomainIngestUrlRequest,
         UserContext,
     )
+    from media_summarizer.core.media_ingestion.domain import (
+        IngestUrlRequest as DomainIngestUrlRequest,
+    )
     from media_summarizer.core.media_ingestion.errors import (
-        MediaIngestionError,
         InvalidUrlError,
+        MediaIngestionError,
     )
     from media_summarizer.core.media_ingestion.wiring import (
         build_default_ingest_url_use_case,
     )
-    from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
 
     url = (payload.url or "").strip()
     if not url:
@@ -1025,10 +1047,12 @@ async def ingest_shared_content(
 
     from media_summarizer.core.media_ingestion.domain import (
         IngestSharedContentCommand,
-        IngestSharedContentRequest as DomainIngestSharedContentRequest,
         SharedContentType,
         SourcePlatform,
         UserContext,
+    )
+    from media_summarizer.core.media_ingestion.domain import (
+        IngestSharedContentRequest as DomainIngestSharedContentRequest,
     )
     from media_summarizer.core.media_ingestion.errors import (
         MediaIngestionError,
@@ -1053,9 +1077,10 @@ async def ingest_shared_content(
         try:
             domain_source_platform = SourcePlatform(source_platform_clean)
         except ValueError:
+            valid_platforms = ', '.join(sp.value for sp in SourcePlatform)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid source_platform: '{source_platform}'. Must be one of: {', '.join(sp.value for sp in SourcePlatform)}.",
+                detail=f"Invalid source_platform: '{source_platform}'. Must be one of: {valid_platforms}.",
             )
 
         domain_share_type = SharedContentType(share_type_clean)

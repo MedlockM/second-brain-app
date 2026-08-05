@@ -2,13 +2,14 @@
 Endpoints pour la gestion des utilisateurs.
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from typing import List, Optional
 
-from media_summarizer.utils.database_async import get_db
-from media_summarizer.utils import database_async
 from media_summarizer.core.models import User
+from media_summarizer.utils import database_async
+from media_summarizer.utils.database_async import get_db
 
 router = APIRouter()
 

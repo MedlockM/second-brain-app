@@ -4,7 +4,7 @@ On teste avec des paires (titre source, titre RSS) qui DEVRAIENT matcher.
 """
 import re
 import unicodedata
-from typing import Callable, List, Tuple
+from typing import Callable
 
 
 def normalize_aggressive(s: str) -> str:

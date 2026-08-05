@@ -11,9 +11,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from media_summarizer.core.models.folder import (
-    Folder,
     MAX_FOLDER_DEPTH,
-    UNCATEGORIZED_FOLDER_NAME,
+    Folder,
 )
 from media_summarizer.utils import database_async
 
@@ -124,7 +123,7 @@ async def list_folders(user_id: str) -> List[Dict[str, Any]]:
     Also ensures the default folder exists. Returns a list of folder dicts
     that can be reconstructed into a tree on the client side.
     """
-    default = await ensure_default_folder(user_id)
+    _default = await ensure_default_folder(user_id)  # Side-effect: creates if missing
     all_folders = await database_async.get_folders_by_user_id(user_id)
 
     result = []

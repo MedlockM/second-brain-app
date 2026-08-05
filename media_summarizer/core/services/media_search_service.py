@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from media_summarizer.core.models import ProcessingJob, Folder
+from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services.folder_service import _get_descendant_ids
 from media_summarizer.utils import database_async
 

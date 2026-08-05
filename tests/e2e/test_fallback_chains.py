@@ -21,7 +21,6 @@ Naming convention: test_<source>_<fallback_name>
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -29,7 +28,6 @@ import httpx
 import pytest
 
 from tests.e2e.conftest import poll_until
-
 
 # =============================================================================
 # Helpers

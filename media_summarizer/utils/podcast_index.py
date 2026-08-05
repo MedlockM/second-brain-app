@@ -6,15 +6,14 @@ with the Podcast Index API in the Media Summarizer application.
 """
 
 import hashlib
-import hmac
 import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
-from urllib.parse import urlencode
+from typing import Any, Dict, Optional
 
 import httpx
+
 from media_summarizer.utils.podcastindex_limiter import acquire_podcastindex_slot
 
 # Configure logging

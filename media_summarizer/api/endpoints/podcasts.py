@@ -7,22 +7,23 @@ Provides /api/v1/podcasts/submit to create a processing job directly from a podc
 
 import logging
 import os
-from typing import Optional, List
+from typing import List, Optional
 from urllib.parse import urlsplit
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
-from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.utils.database_async import get_db
-from media_summarizer.utils import database_async, sqs, podcast_index
+from media_summarizer.api.rate_limit import get_limit_from_env, limiter
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
-    record_submission,
     estimate_submission_cost,
+    record_submission,
 )
-from media_summarizer.api.rate_limit import limiter, get_limit_from_env
+from media_summarizer.utils import database_async, podcast_index, sqs
+from media_summarizer.utils.database_async import get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -202,9 +203,6 @@ async def submit_podcast_for_processing(
         # Load fresh user (support dict-like overrides in tests)
         current_user_id = getattr(current_user, "id", None) or (
             current_user.get("id") if isinstance(current_user, dict) else None
-        )
-        current_user_email = getattr(current_user, "email", None) or (
-            current_user.get("email") if isinstance(current_user, dict) else None
         )
         if not current_user_id:
             raise HTTPException(

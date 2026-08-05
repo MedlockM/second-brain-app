@@ -201,7 +201,7 @@ async def subscribe(user_id: str, feed_url: str) -> UserRssFeed:
         if existing.feed_url.strip().rstrip("/") == normalized_url:
             raise FeedServiceException(
                 FeedServiceError.FEED_ALREADY_SUBSCRIBED,
-                f"Already subscribed to this feed",
+                "Already subscribed to this feed",
             )
 
     feed = UserRssFeed(

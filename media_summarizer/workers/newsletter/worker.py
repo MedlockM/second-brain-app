@@ -20,14 +20,13 @@ import hashlib
 import json
 import logging
 import os
-import time
 from io import BytesIO
 from typing import Any, Dict, Optional
 
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services.newsletter_errors import (
-    NewsletterIngestionError,
     USER_FACING_MESSAGES,
+    NewsletterIngestionError,
 )
 from media_summarizer.core.services.newsletter_parser import (
     NewsletterParseResult,
@@ -41,7 +40,6 @@ from media_summarizer.utils.logging_config import (
     setup_logging,
 )
 from media_summarizer.workers.base_worker import (
-    get_sqs_receive_params,
     process_message_with_retry,
 )
 
@@ -114,7 +112,6 @@ async def process_newsletter_message(message_body: Dict[str, Any]) -> None:
         - s3_key: str (optional) - S3 object key for the raw email
     """
     recipient = message_body.get("recipient", "")
-    source = message_body.get("source", "ses")
 
     token = bind_log_context(
         source_platform="newsletter",

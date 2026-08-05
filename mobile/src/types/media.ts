@@ -153,14 +153,14 @@ export interface IngestUrlResponse {
 export interface MediaStatusResponse {
   media_item: MediaItemContract;
   processing_job: ProcessingJobContract;
-  artifacts: Array<{
+  artifacts: {
     artifact_id: string;
     media_item_id: string;
     artifact_type: ArtifactType;
     status: ArtifactStatus;
     created_at: string;
     updated_at: string;
-  }>;
+  }[];
 }
 
 /**

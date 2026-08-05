@@ -15,9 +15,10 @@ import aioboto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from media_summarizer.core.models import User, ProcessingJob, JobStatus, Folder, Tag, UserRssFeed
+from media_summarizer.core.models import Folder, JobStatus, ProcessingJob, Tag, User, UserRssFeed
 from media_summarizer.core.models.auth import AuthToken, TokenType
 from media_summarizer.utils.logging_config import log_event
+
 # Removed CreditTransaction import (legacy credits system fully deprecated)
 
 logger = logging.getLogger(__name__)

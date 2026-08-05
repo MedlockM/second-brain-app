@@ -22,7 +22,7 @@ async def main():
         print(f"❌ Job {job_id} introuvable dans la base de données")
         return
     
-    print(f"✓ Job trouvé\n")
+    print("✓ Job trouvé\n")
     print(f"Status              : {job.status}")
     print(f"User ID             : {job.user_id}")
     print(f"Episode GUID        : {job.episode_guid}")

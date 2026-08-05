@@ -18,15 +18,14 @@ from botocore.exceptions import ClientError
 
 from media_summarizer.core.models.digest import (
     DigestRecord,
-    DigestStatus,
     DigestType,
     UserDigestSettings,
 )
 from media_summarizer.utils.database_async import (
-    get_session,
     _dynamodb_client_kwargs,
-    _log_dynamodb_success,
     _log_dynamodb_error,
+    _log_dynamodb_success,
+    get_session,
 )
 
 logger = logging.getLogger(__name__)

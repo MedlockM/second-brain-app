@@ -30,7 +30,6 @@ import logging
 import os
 from enum import Enum
 from typing import Any, Optional
-
 from urllib.parse import urlsplit
 
 import httpx

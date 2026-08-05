@@ -11,24 +11,34 @@ Notes:
 - Client secrets and keys are read from environment variables
 """
 
-import os
+import base64
 import logging
+import os
 import secrets
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
 
 import httpx
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
-
-from media_summarizer.core.models import User
-from media_summarizer.core.models.auth import AuthToken
-from media_summarizer.utils import database_async
-from media_summarizer.utils.database_async import get_db, DynamoDBConnection
-from media_summarizer.utils.auth_utils import get_refresh_token_expires_at
+from jose import jwt
+from pydantic import BaseModel as PydanticBaseModel
+from pydantic import Field
 
 # Reuse cookie helper from local auth module
 from media_summarizer.api.endpoints import auth as auth_local
+from media_summarizer.core.models import User
+from media_summarizer.core.models.auth import AuthToken
+from media_summarizer.utils import database_async
+from media_summarizer.utils.auth_utils import (
+    create_access_token,
+    create_token_payload,
+    get_access_token_expires_seconds,
+    get_refresh_token_expires_at,
+)
+from media_summarizer.utils.database_async import DynamoDBConnection, get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -251,11 +261,6 @@ async def google_callback(
 
 # ------------------ Apple OAuth ------------------
 
-from jose import jwt
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
-import base64
-
 
 def _b64_to_int(s: str) -> int:
     s = s.encode("ascii")
@@ -296,7 +301,6 @@ async def _apple_verify_id_token(id_token: str) -> Dict[str, Any]:
 
     header = jwt.get_unverified_header(id_token)
     kid = header.get("kid")
-    alg = header.get("alg")
 
     key = next((k for k in jwks if k.get("kid") == kid and k.get("kty") == "RSA"), None)
     if not key:
@@ -438,14 +442,6 @@ async def apple_callback(
 # These endpoints accept ID tokens obtained by native mobile SDKs
 # (expo-apple-authentication, expo-auth-session/google) and return
 # access + refresh tokens in JSON (no cookies, mobile stores in secure store).
-
-from pydantic import BaseModel as PydanticBaseModel, Field
-from datetime import timedelta
-from media_summarizer.utils.auth_utils import (
-    create_access_token,
-    create_token_payload,
-    get_access_token_expires_seconds,
-)
 
 
 class GoogleNativeRequest(PydanticBaseModel):

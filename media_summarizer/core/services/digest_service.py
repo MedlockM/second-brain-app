@@ -11,7 +11,7 @@ Key design decisions:
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import List, Optional, Tuple
 
 from media_summarizer.core.models.digest import (

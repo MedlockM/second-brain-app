@@ -1,10 +1,9 @@
 """
 Endpoints pour la vérification de l'état du service.
 """
+from typing import Any, Dict
+
 from fastapi import APIRouter, Depends, HTTPException
-from typing import Dict, Any
-import asyncio
-import httpx
 
 from media_summarizer.utils.database_async import get_db
 

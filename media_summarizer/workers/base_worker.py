@@ -11,11 +11,10 @@ Migrated to use the new utils for SQS operations instead of direct AWS libraries
 """
 import json
 import logging
-from typing import Dict, Any, Callable, Awaitable
-import asyncio
+from typing import Any, Awaitable, Callable, Dict
 
-from media_summarizer.utils import sqs, database_async
 from media_summarizer.core.models.processing_job import ProcessingJob
+from media_summarizer.utils import sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
