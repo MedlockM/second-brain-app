@@ -11,13 +11,13 @@ interface MediaListResponse {
 }
 
 interface TagListResponse {
-  tags: Array<{
+  tags: {
     id: string;
     name: string;
     color?: string | null;
     created_at: string;
     updated_at: string;
-  }>;
+  }[];
 }
 
 interface FolderResponse {
