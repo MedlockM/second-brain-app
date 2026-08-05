@@ -13,10 +13,15 @@
 #
 # Prerequisites:
 #   - CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 (set in ~/.claude/settings.json)
+#   - claude-bedrock available on PATH and configured with Bedrock API credentials
 #   - No uncommitted changes on current branch
 #   - Agent definitions in .claude/agents/
 
 set -euo pipefail
+
+# Claude Code otherwise terminates background agents after 10 minutes in print
+# mode. Dispatcher tasks routinely take longer, so wait for them indefinitely.
+export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0
 
 MAX_DISPATCH=5
 MODE="execute"
@@ -54,6 +59,11 @@ if ! git diff --quiet HEAD 2>/dev/null; then
   exit 1
 fi
 
+if ! command -v claude-bedrock >/dev/null 2>&1; then
+  echo "Error: claude-bedrock is not available on PATH." >&2
+  exit 1
+fi
+
 BASE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
 # Les worktrees d'agents (isolation: worktree) naissent de origin/<branch>, résolu
@@ -85,7 +95,7 @@ if [ "$TEST_MODE" = true ]; then
   echo "  Both modify media_summarizer/core/constants.py → conflict guaranteed."
   echo ""
 
-  claude --agent backlog-dispatcher \
+  claude-bedrock --agent backlog-dispatcher \
     --dangerously-skip-permissions \
     -p "MODE TEST : dispatche UNIQUEMENT les tâches task-82 et task-83 (labels test-dispatch).
 Ignore toutes les autres tâches du backlog.
@@ -99,7 +109,7 @@ else
   echo "  Mode: ${MODE}"
   echo ""
 
-  claude --agent backlog-dispatcher \
+  claude-bedrock --agent backlog-dispatcher \
     --dangerously-skip-permissions \
     -p "Dispatche jusqu'à ${MAX_DISPATCH} tâches du backlog en parallèle.
 Branche de base : ${BASE_BRANCH}.
