@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 
 from media_summarizer.api.endpoints import (
     artifacts,
@@ -162,7 +163,6 @@ app.include_router(revenucat_webhook.router, prefix="/api", tags=["webhooks"])
 app.include_router(bug_reports.router, prefix="/api/bug-reports", tags=["bug-reports"])
 
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---
-from fastapi.openapi.utils import get_openapi
 
 
 def custom_openapi():

@@ -112,7 +112,6 @@ async def process_newsletter_message(message_body: Dict[str, Any]) -> None:
         - s3_key: str (optional) - S3 object key for the raw email
     """
     recipient = message_body.get("recipient", "")
-    source = message_body.get("source", "ses")
 
     token = bind_log_context(
         source_platform="newsletter",

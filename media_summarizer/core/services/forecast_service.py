@@ -169,7 +169,6 @@ async def get_forecast_with_cache(feed_id: int, *, now: Optional[datetime] = Non
     first_day_cur = _first_day_of_month_utc(now)
     first_day_next = _add_months(first_day_cur, 1)
     month_key = _month_key(first_day_cur)
-    cache_key = (feed_id, month_key)
 
     # 1) DynamoDB cache (shared)
     from media_summarizer.utils import minute_db

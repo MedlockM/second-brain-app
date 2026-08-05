@@ -115,13 +115,6 @@ async def register(
     refresh = await database_async.create_auth_token(refresh)
     _set_refresh_cookie(response, refresh.token, refresh.expires_at)
 
-    # Access token (short-lived)
-    access_seconds = get_access_token_expires_seconds()
-    access_token = create_access_token(
-        data=create_token_payload(user_id=user.id, email=user.email),
-        expires_delta=timedelta(seconds=access_seconds),
-    )
-
     return AuthUser(id=user.id, email=user.email, reading_language=user.reading_language)
 
 

@@ -125,7 +125,6 @@ async def process_event(message: Dict[str, Any]) -> None:
     # Accept both new and legacy field names
     media_key = body.get("media_key") or body.get("episode_guid")
     status = body.get("status", "success")  # legacy events have no status field; treat as success
-    source_title = body.get("source_title") or body.get("podcast_title")
     media_title = body.get("media_title") or body.get("episode_title")
     summary_s3_key = body.get("summary_s3_key")
     transcription_s3_key = body.get("transcription_s3_key")
@@ -191,9 +190,6 @@ async def process_event(message: Dict[str, Any]) -> None:
     # -------------------------------------------------------------------------
     if not watchers:
         return
-
-    # Load summary content once for all watchers
-    summary_content = await _load_summary_content(summary_s3_key)
 
     # Fan-out
     for w in watchers:

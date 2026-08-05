@@ -164,7 +164,6 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
     }
     """
     job_id = message_body.get("job_id")
-    user_id = message_body.get("user_id")
     document_s3_key = message_body.get("document_s3_key")
     file_name = message_body.get("file_name", "")
     media_key = message_body.get("media_key")

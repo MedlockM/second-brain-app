@@ -204,9 +204,6 @@ async def submit_podcast_for_processing(
         current_user_id = getattr(current_user, "id", None) or (
             current_user.get("id") if isinstance(current_user, dict) else None
         )
-        current_user_email = getattr(current_user, "email", None) or (
-            current_user.get("email") if isinstance(current_user, dict) else None
-        )
         if not current_user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

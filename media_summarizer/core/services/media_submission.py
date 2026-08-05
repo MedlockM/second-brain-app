@@ -8,8 +8,6 @@ In V1, notifications are delivered via mobile app polling, not email.
 
 from __future__ import annotations
 
-import json
-import os
 from typing import Any, Dict
 
 from media_summarizer.core.models import ProcessingJob
@@ -22,7 +20,6 @@ from media_summarizer.utils import (
     database_async,
     media_idempotence,
     media_watchers,
-    s3,
     sqs,
 )
 
@@ -97,24 +94,6 @@ async def submit_media_for_user(
             existing_job = await database_async.get_processing_job_by_id(
                 existing_job_id
             )
-
-            # Load existing summary if available
-            summary_content = None
-            if existing_job and getattr(existing_job, "summary_s3_key", None):
-                try:
-                    summary_bucket = os.environ.get(
-                        "SUMMARY_BUCKET", "media-summarizer-summaries"
-                    )
-                    raw = await s3.download_file_to_memory(
-                        summary_bucket, existing_job.summary_s3_key
-                    )
-                    try:
-                        parsed = json.loads(raw.decode("utf-8"))
-                        summary_content = parsed.get("summary", parsed)
-                    except Exception:
-                        summary_content = raw.decode("utf-8", errors="ignore")
-                except Exception:
-                    summary_content = None
 
             # Create a billing/notification job for this user
             billing_job = ProcessingJob(
