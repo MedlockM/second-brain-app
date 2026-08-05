@@ -26,7 +26,10 @@ SECRET_KEY = JWT_SECRET_KEY
 ALGORITHM = JWT_ALGORITHM
 # Derive hours from minutes if not explicitly provided
 try:
-    ACCESS_TOKEN_EXPIRE_HOURS = int(os.environ.get("ACCESS_TOKEN_EXPIRE_HOURS")) if os.environ.get("ACCESS_TOKEN_EXPIRE_HOURS") else max(1, (JWT_ACCESS_TOKEN_EXPIRE_MINUTES + 59) // 60)
+    if os.environ.get("ACCESS_TOKEN_EXPIRE_HOURS"):
+        ACCESS_TOKEN_EXPIRE_HOURS = int(os.environ.get("ACCESS_TOKEN_EXPIRE_HOURS"))
+    else:
+        ACCESS_TOKEN_EXPIRE_HOURS = max(1, (JWT_ACCESS_TOKEN_EXPIRE_MINUTES + 59) // 60)
 except Exception:
     ACCESS_TOKEN_EXPIRE_HOURS = 24
 

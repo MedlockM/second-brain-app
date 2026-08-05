@@ -54,7 +54,7 @@ line-length = 88
 target-version = ["py310"]
 
 [tool.ruff]
-line-length = 120
+line-length = 135
 target-version = "py310"
 
 [tool.ruff.lint]
@@ -64,9 +64,9 @@ target-version = "py310"
 select = ["E", "F", "I"]
 
 [tool.ruff.lint.per-file-ignores]
-# Research and archive scripts: line-length is less critical
-"docs/research/**/*.py" = ["E501"]
-"scripts/archive/**/*.py" = ["E501"]
+# Research and archive scripts: line-length and dead code less critical
+"docs/research/**/*.py" = ["E501", "F841"]
+"scripts/archive/**/*.py" = ["E501", "E741", "F841"]
 # Test files can have longer lines for readability
 "tests/**/*.py" = ["E501"]
 

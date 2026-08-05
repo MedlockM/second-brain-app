@@ -1062,9 +1062,10 @@ async def ingest_shared_content(
         try:
             domain_source_platform = SourcePlatform(source_platform_clean)
         except ValueError:
+            valid_platforms = ', '.join(sp.value for sp in SourcePlatform)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid source_platform: '{source_platform}'. Must be one of: {', '.join(sp.value for sp in SourcePlatform)}.",
+                detail=f"Invalid source_platform: '{source_platform}'. Must be one of: {valid_platforms}.",
             )
 
         domain_share_type = SharedContentType(share_type_clean)
