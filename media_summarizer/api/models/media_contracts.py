@@ -206,7 +206,10 @@ class IngestUrlRequest(BaseModel):
     locale: Optional[str] = None
     transcript_language: Optional[str] = Field(
         default=None,
-        description="Preferred transcript language code for sources that support it, e.g. 'fr'",
+        description=(
+            "Optional override of the preferred transcript language code, e.g. 'fr'. "
+            "Defaults to the authenticated user's reading_language when omitted."
+        ),
     )
     idempotency_key: Optional[str] = None
     folder_id: Optional[str] = None

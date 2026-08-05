@@ -27,6 +27,7 @@ from media_summarizer.core.media_ingestion.errors import (
     UnsupportedUrlError,
 )
 from media_summarizer.core.media_ingestion.ports import ContentResolverPort
+from media_summarizer.utils.language_codes import normalize_language_code
 from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
@@ -252,10 +253,11 @@ class YouTubeResolver(ContentResolverPort):
             "transcript_strategy": "manual_auto_audio",
             "source_url": context.normalized_url,
         }
-        if context.command.request.transcript_language:
-            metadata["requested_transcript_language"] = (
-                context.command.request.transcript_language
-            )
+        requested_transcript_language = normalize_language_code(
+            context.command.request.transcript_language
+        )
+        if requested_transcript_language:
+            metadata["requested_transcript_language"] = requested_transcript_language
 
         resolved = ResolvedMedia(
             media_key=context.media_key,

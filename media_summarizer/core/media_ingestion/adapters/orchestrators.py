@@ -22,6 +22,7 @@ from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPo
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils import media_idempotence as episode_idempotence
+from media_summarizer.utils.language_codes import normalize_language_code
 from media_summarizer.utils.logging_config import log_event
 from media_summarizer.utils.user_media_submissions import mark_user_submission as mark_user_media_submission
 
@@ -591,10 +592,11 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "episode_title": title,
                     "podcast_title": title,
                 }
-                requested_transcript_language = getattr(
-                    command.request,
-                    "transcript_language",
-                    None,
+                # task-216: the transcript language resolved by the API (explicit
+                # request override, else the user's reading_language) travels to
+                # the worker so the provider is asked for the right language.
+                requested_transcript_language = normalize_language_code(
+                    command.request.transcript_language
                 )
                 if command.request.locale:
                     message_body["locale"] = command.request.locale
@@ -618,6 +620,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     queue=self._youtube_ingestion_queue,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
+                    transcript_language=requested_transcript_language,
                 )
             elif resolved.media_family == MediaFamily.PODCAST:
                 # Queue-first PodcastIndex resolution to absorb bursts off API path.

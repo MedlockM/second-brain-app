@@ -48,6 +48,7 @@ from media_summarizer.core.services.raw_content_service import (
     RawContentNotAvailableError,
 )
 from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.language_codes import normalize_language_code
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 from media_summarizer.utils.media_artifacts import safe_list_media_artifacts_by_media_item
 
@@ -117,7 +118,10 @@ class IngestUrlRequest(BaseModel):
     locale: Optional[str] = Field(None, description="Client locale")
     transcript_language: Optional[str] = Field(
         None,
-        description="Preferred transcript language code for sources that support it, e.g. 'fr'",
+        description=(
+            "Optional override of the preferred transcript language code, e.g. 'fr'. "
+            "When omitted, the authenticated user's reading_language is used."
+        ),
     )
     idempotency_key: Optional[str] = Field(None, description="Client idempotency key")
     folder_id: Optional[str] = Field(
@@ -579,12 +583,19 @@ async def ingest_url(
                 headers={"X-Quota-Error-Code": quota_result.error_code},
             )
 
+        # Transcript language (task-216): the user's reading_language preference
+        # (task-190) is the default; an explicit payload value overrides it for
+        # this single submission (e.g. keep an EN video's original transcript).
+        transcript_language = normalize_language_code(
+            payload.transcript_language
+        ) or normalize_language_code(user.reading_language)
+
         # Build the domain command
         domain_request = DomainIngestUrlRequest(
             url=url,
             source_app=payload.source_app,
             locale=payload.locale,
-            transcript_language=payload.transcript_language,
+            transcript_language=transcript_language,
             idempotency_key=payload.idempotency_key,
             folder_id=resolved_folder_id,
             tag_ids=unique_tag_ids,
@@ -617,6 +628,10 @@ async def ingest_url(
             "Media item created and queued",
             media_item_id=outcome.media_item_id,
             source_platform=outcome.metadata.get("source_platform"),
+            transcript_language=transcript_language,
+            transcript_language_source=(
+                "request_override" if payload.transcript_language else "reading_language"
+            ),
         )
 
         return IngestUrlResponse(

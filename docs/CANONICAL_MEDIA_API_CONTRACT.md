@@ -97,6 +97,16 @@ Request (`IngestUrlRequest`):
 the backend assigns the user's default Uncategorized folder. Provided folder and
 tag IDs must belong to the authenticated user.
 
+`transcript_language` is a **per-submission override**. When omitted, the backend defaults to the
+authenticated user's `reading_language` preference (set during onboarding, editable in Settings via
+`PATCH /api/auth/me`). Clients should therefore send it only when the user explicitly wants a
+different language for this one item (e.g. keeping an English video's original transcript while
+their reading language is French). The value is normalized to a bare lowercase ISO 639-1 code
+(`"fr-FR"` → `"fr"`) and travels to the ingestion worker, which asks the transcript provider for
+that language. If the video has no captions in that language, the provider returns its default
+track and the downstream translation step brings the transcript back to the user's
+`reading_language`.
+
 Response (`IngestUrlResponse`):
 ```json
 {

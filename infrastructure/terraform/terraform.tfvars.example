@@ -45,10 +45,13 @@ secret_payload = {
   # Instagram (Apify)
   APIFY_INSTAGRAM_API_TOKEN = ""
 
-  # YouTube (Apify)
+  # YouTube (Apify). `starvibe` is the only supported actor that accepts a
+  # `language` input, required for reading_language-driven transcripts (task-216).
+  # Existing environments must be migrated off
+  # "scrape-creators~best-youtube-transcripts-scraper" for language control to
+  # apply — see "Rollout prerequisite" in docs/INGESTION_WORKERS_PROVIDERS.md.
   APIFY_YOUTUBE_API_TOKEN = ""
-  APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = ""
-  YOUTUBE_TRANSCRIPT_LANGUAGE = "fr"
+  APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = "starvibe~youtube-video-transcript"
 
   # Document parsing (LlamaParse primary + Unstructured fallback)
   LLAMAPARSE_API_KEY    = ""

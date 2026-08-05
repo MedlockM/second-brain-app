@@ -7,8 +7,43 @@ Pipeline (yt-dlp primary, Apify fallback for IP blocks):
   - If native/auto subtitles found: upload transcript, complete
   - If no subtitles but media URL available: enqueue Deepgram (push mode)
   - If IP-blocked: fall back to Apify YouTube Transcript actor
-- Apify fallback requests the configured transcript language and returns
-  transcript text or fails terminally
+- Apify fallback requests the transcript language carried by the SQS message and
+  returns transcript text or fails terminally
+
+Transcript language (task-216)
+------------------------------
+The target language is NOT decided here. It is resolved by the API from the
+user's ``reading_language`` preference (task-190), overridable per submission via
+``transcript_language`` in ``POST /api/media/ingest-url``, and travels
+API -> orchestrator -> SQS -> this worker. The worker only consumes it:
+
+- yt-dlp path: ranks subtitle candidates so the requested language wins.
+- Apify path: sends ``language`` in the actor input when the configured actor
+  supports it, so the actor returns that language's captions directly (saves a
+  downstream translation LLM call).
+
+When the requested language is unavailable for a video, a language-aware actor
+answers ``error_category="language_not_available"``; the worker then retries once
+without ``language`` to get the video's default captions, and the task-192
+pipeline (detection + GPT-5-nano translation) brings the transcript to the user's
+reading_language downstream.
+
+Apify actor dialects
+--------------------
+``APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID`` comes from Secrets Manager at runtime, so
+code cannot assume which actor is configured (the Lambda bootstrap uses
+``os.environ.setdefault``: the secret always wins over the code default). Each
+supported actor therefore declares its own input/output dialect in
+``_APIFY_ACTOR_DIALECTS``:
+
+- ``starvibe~youtube-video-transcript``: accepts ``language`` (ISO 639-1),
+  returns ``transcript_text`` — the language-aware target of task-216.
+- ``scrape-creators~best-youtube-transcripts-scraper``: accepts only
+  ``videoUrls``, returns ``transcript_only_text`` and an English language name.
+  No language control possible.
+
+An unknown actor id fails fast with ``apify_actor_unsupported`` instead of being
+sent a payload it will reject with a generic 400.
 """
 
 from __future__ import annotations
@@ -17,6 +52,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
+from enum import Enum
 from io import BytesIO
 import os
 from typing import Any, Dict, Optional
@@ -26,6 +62,10 @@ import httpx
 import yt_dlp
 
 from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.language_codes import (
+    normalize_language_code,
+    resolve_language_code,
+)
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -67,14 +107,41 @@ YOUTUBE_WORKER_MAX_RETRIES = 3
 
 # Apify configuration
 APIFY_YOUTUBE_API_TOKEN = os.environ.get("APIFY_YOUTUBE_API_TOKEN", "")
+# The runtime value always comes from Secrets Manager (the Lambda bootstrap uses
+# `os.environ.setdefault`, so the secret wins over this default). It is set to
+# the language-aware actor targeted by task-216, but switching a deployed
+# environment REQUIRES updating `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` in the
+# runtime secret — see docs/INGESTION_WORKERS_PROVIDERS.md, "Rollout
+# prerequisite". Both actors below are supported, so a lagging secret degrades
+# to "no language control" instead of failing.
 APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = os.environ.get(
-    "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID", ""
-)
-DEFAULT_YOUTUBE_TRANSCRIPT_LANGUAGE = os.environ.get(
-    "YOUTUBE_TRANSCRIPT_LANGUAGE", "fr"
+    "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID", "starvibe~youtube-video-transcript"
 )
 APIFY_API_BASE = "https://api.apify.com/v2"
 APIFY_TIMEOUT_SECONDS = float(os.environ.get("APIFY_TIMEOUT_SECONDS", "60"))
+
+_STARVIBE_ACTOR = "starvibe~youtube-video-transcript"
+_SCRAPE_CREATORS_ACTOR = "scrape-creators~best-youtube-transcripts-scraper"
+
+# Per-actor input/output dialects. Verified live against the Apify build schemas
+# on 2026-08-05. `supports_language` drives whether task-216 can request the
+# user's reading_language at all on the Apify path.
+_APIFY_ACTOR_DIALECTS: Dict[str, Dict[str, Any]] = {
+    _STARVIBE_ACTOR: {
+        "supports_language": True,
+        "url_field": "youtube_url",
+        "url_is_list": False,
+        "text_fields": ("transcript_text",),
+        "extra_input": {"include_transcript_text": True},
+    },
+    _SCRAPE_CREATORS_ACTOR: {
+        "supports_language": False,
+        "url_field": "videoUrls",
+        "url_is_list": True,
+        "text_fields": ("transcript_only_text",),
+        "extra_input": {},
+    },
+}
 
 _YTDLP_EXTRACTOR_VERSION = "v1"
 
@@ -93,6 +160,33 @@ _AGE_RESTRICTED_MESSAGE = (
 # ---------------------------------------------------------------------------
 # Error classes
 # ---------------------------------------------------------------------------
+
+
+class ApifyTranscriptFailure(str, Enum):
+    """Stable failure details for the Apify YouTube transcript branch.
+
+    Surfaced in ``YouTubeIngestionError.details`` (and therefore in job
+    ``extraction_metadata.failure_details`` and the failure event reason), so
+    they are part of the observability contract: do not rename without updating
+    dashboards/alarms.
+    """
+
+    TOKEN_MISSING = "apify_token_missing"
+    ACTOR_MISSING = "apify_actor_missing"
+    # Configured actor id has no known input/output dialect: raised before any
+    # HTTP call so a misconfigured runtime secret is diagnosable instead of
+    # surfacing as an opaque provider 400.
+    ACTOR_UNSUPPORTED = "apify_actor_unsupported"
+    NETWORK_ERROR = "apify_network"
+    PAYMENT_REQUIRED = "apify_payment_required"
+    AUTH_ERROR = "apify_auth_error"
+    SERVER_ERROR = "apify_server_error"
+    CLIENT_ERROR = "apify_client_error"
+    INVALID_JSON = "apify_invalid_json"
+    NO_RESULTS = "apify_no_results"
+    INVALID_RESULT = "apify_invalid_result"
+    ACTOR_ERROR = "apify_actor_error"
+    EMPTY_TRANSCRIPT = "apify_empty_transcript"
 
 
 class NativeSubtitlesUnavailable(Exception):
@@ -126,21 +220,22 @@ def _now_iso_utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _normalize_language_code(value: Any) -> Optional[str]:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip().replace("_", "-").lower()
-    if not normalized:
-        return None
-    return normalized.split("-", 1)[0].strip() or None
+def _requested_transcript_language(message_body: Dict[str, Any]) -> Optional[str]:
+    """Target transcript language carried by the SQS message (task-216).
 
+    ``transcript_language`` is the value the API resolved from the request
+    override or the user's ``reading_language``. ``language``/``locale`` remain
+    accepted as weaker hints for messages produced outside the API path.
 
-def _requested_transcript_language(message_body: Dict[str, Any]) -> str:
+    Returns ``None`` when the message carries no usable language: there is
+    deliberately NO hard-coded default anymore, so we never silently ask a
+    provider for a language the user never picked.
+    """
     for key in ("transcript_language", "language", "locale"):
-        language = _normalize_language_code(message_body.get(key))
+        language = normalize_language_code(message_body.get(key))
         if language:
             return language
-    return _normalize_language_code(DEFAULT_YOUTUBE_TRANSCRIPT_LANGUAGE) or "fr"
+    return None
 
 
 def _apify_actor_id_for_api(actor_id: str) -> str:
@@ -327,7 +422,7 @@ def _language_preference_key(
 ) -> int:
     if not preferred_language:
         return 1
-    candidate_language = _normalize_language_code(candidate.get("language"))
+    candidate_language = normalize_language_code(candidate.get("language"))
     return 0 if candidate_language == preferred_language else 1
 
 
@@ -380,21 +475,76 @@ async def _fetch_native_subtitles(
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_apify_transcript(
+def _apify_actor_dialect(actor_id: str) -> Dict[str, Any]:
+    """Return the input/output dialect for the configured actor.
+
+    Raises ``apify_actor_unsupported`` when the runtime secret names an actor
+    this worker does not know how to talk to, naming the offending id and the
+    supported set so the misconfiguration is immediately actionable.
+    """
+    normalized = _apify_actor_id_for_api(actor_id)
+    dialect = _APIFY_ACTOR_DIALECTS.get(normalized)
+    if dialect is None:
+        log_event(
+            logger,
+            logging.ERROR,
+            "config.actor_unsupported",
+            (
+                "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID names an actor this worker has "
+                "no payload dialect for; update the runtime secret to a supported "
+                "actor before relying on the Apify fallback"
+            ),
+            configured_actor_id=normalized,
+            supported_actor_ids=sorted(_APIFY_ACTOR_DIALECTS),
+            transcript_source="apify_transcript",
+        )
+        raise YouTubeIngestionError(
+            "youtube_unavailable",
+            details=(
+                f"{ApifyTranscriptFailure.ACTOR_UNSUPPORTED.value}:{normalized}"
+            ),
+            retryable=False,
+            user_message=_UNAVAILABLE_MESSAGE,
+        )
+    return dialect
+
+
+def _build_apify_transcript_payload(
     source_url: str,
     *,
-    transcript_language: str,
+    transcript_language: Optional[str],
+    dialect: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """
-    Call the Apify YouTube Transcript actor to retrieve transcript text.
+    """Build the Apify actor input for one video, in the actor's own dialect.
 
-    Returns a dict with text, language, segments_count, source_detail, fetched_at.
-    Raises YouTubeIngestionError if Apify fails or returns no transcript.
+    ``language`` (bare ISO 639-1) is only sent to actors that declare
+    ``supports_language``; sending it to an actor that does not accept it would
+    be rejected as ``invalid-input``. It is also omitted when the target
+    language is unknown, in which case the actor picks the video's default
+    caption track.
+    """
+    url_value = [source_url] if dialect["url_is_list"] else source_url
+    payload: Dict[str, Any] = {dialect["url_field"]: url_value}
+    payload.update(dialect["extra_input"])
+    if transcript_language and dialect["supports_language"]:
+        payload["language"] = transcript_language
+    return payload
+
+
+async def _run_apify_transcript_actor(
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Run the Apify actor synchronously and return its first dataset item.
+
+    Raises YouTubeIngestionError with a stable ``ApifyTranscriptFailure`` detail
+    on transport, credential, or payload-shape problems. Actor-level errors
+    (``status="error"`` in the item) are returned to the caller as-is so it can
+    decide whether they are recoverable (e.g. language fallback).
     """
     if not APIFY_YOUTUBE_API_TOKEN:
         raise YouTubeIngestionError(
             "youtube_unavailable",
-            details="apify_token_missing",
+            details=ApifyTranscriptFailure.TOKEN_MISSING.value,
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
@@ -403,7 +553,7 @@ async def _fetch_apify_transcript(
     if not actor_id:
         raise YouTubeIngestionError(
             "youtube_unavailable",
-            details="apify_actor_missing",
+            details=ApifyTranscriptFailure.ACTOR_MISSING.value,
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
@@ -412,9 +562,6 @@ async def _fetch_apify_transcript(
         f"{APIFY_API_BASE}/acts/{actor_id}/run-sync-get-dataset-items"
     )
     params = {"token": APIFY_YOUTUBE_API_TOKEN}
-    payload = {
-        "videoUrls": [source_url],
-    }
 
     try:
         async with httpx.AsyncClient(timeout=APIFY_TIMEOUT_SECONDS) as client:
@@ -426,7 +573,9 @@ async def _fetch_apify_transcript(
     except (httpx.TimeoutException, httpx.TransportError) as exc:
         raise YouTubeIngestionError(
             "youtube_apify_failed",
-            details=f"apify_network:{type(exc).__name__}",
+            details=(
+                f"{ApifyTranscriptFailure.NETWORK_ERROR.value}:{type(exc).__name__}"
+            ),
             retryable=True,
             user_message=_TEMPORARY_MESSAGE,
         ) from exc
@@ -434,28 +583,34 @@ async def _fetch_apify_transcript(
     if response.status_code == 402:
         raise YouTubeIngestionError(
             "youtube_apify_failed",
-            details="apify_payment_required",
+            details=ApifyTranscriptFailure.PAYMENT_REQUIRED.value,
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
-    if response.status_code == 401 or response.status_code == 403:
+    if response.status_code in (401, 403):
         raise YouTubeIngestionError(
             "youtube_apify_failed",
-            details=f"apify_auth_error:{response.status_code}",
+            details=(
+                f"{ApifyTranscriptFailure.AUTH_ERROR.value}:{response.status_code}"
+            ),
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
     if response.status_code >= 500:
         raise YouTubeIngestionError(
             "youtube_apify_failed",
-            details=f"apify_server_error:{response.status_code}",
+            details=(
+                f"{ApifyTranscriptFailure.SERVER_ERROR.value}:{response.status_code}"
+            ),
             retryable=True,
             user_message=_TEMPORARY_MESSAGE,
         )
     if response.status_code >= 400:
         raise YouTubeIngestionError(
             "youtube_apify_failed",
-            details=f"apify_client_error:{response.status_code}",
+            details=(
+                f"{ApifyTranscriptFailure.CLIENT_ERROR.value}:{response.status_code}"
+            ),
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
@@ -465,7 +620,7 @@ async def _fetch_apify_transcript(
     except Exception:
         raise YouTubeIngestionError(
             "youtube_apify_failed",
-            details="apify_invalid_json",
+            details=ApifyTranscriptFailure.INVALID_JSON.value,
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
@@ -473,7 +628,7 @@ async def _fetch_apify_transcript(
     if not isinstance(items, list) or not items:
         raise YouTubeIngestionError(
             "youtube_unavailable",
-            details="apify_no_results",
+            details=ApifyTranscriptFailure.NO_RESULTS.value,
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
@@ -482,37 +637,160 @@ async def _fetch_apify_transcript(
     if not isinstance(first_item, dict):
         raise YouTubeIngestionError(
             "youtube_unavailable",
-            details="apify_invalid_result",
+            details=ApifyTranscriptFailure.INVALID_RESULT.value,
+            retryable=False,
+            user_message=_UNAVAILABLE_MESSAGE,
+        )
+    return first_item
+
+
+def _apify_item_transcript_text(item: Dict[str, Any], dialect: Dict[str, Any]) -> str:
+    """Extract the plain transcript text from an actor dataset item.
+
+    Each actor names its flat transcript field differently
+    (``transcript_text`` for starvibe, ``transcript_only_text`` for
+    scrape-creators), so the field names come from the dialect. Both actors also
+    return a timestamped ``transcript`` segment array, used as a fallback when
+    the flat field is missing.
+    """
+    for field in dialect["text_fields"]:
+        flat = item.get(field)
+        if isinstance(flat, str) and flat.strip():
+            return flat.strip()
+
+    segments = item.get("transcript")
+    if isinstance(segments, list):
+        lines = [
+            str(segment.get("text")).strip()
+            for segment in segments
+            if isinstance(segment, dict) and str(segment.get("text") or "").strip()
+        ]
+        if lines:
+            return "\n".join(lines)
+    return ""
+
+
+def _is_language_not_available(item: Dict[str, Any]) -> bool:
+    """Whether the actor refused the run only because the language is missing."""
+    return (
+        str(item.get("status") or "").strip().lower() == "error"
+        and str(item.get("error_category") or "").strip().lower()
+        == "language_not_available"
+    )
+
+
+async def _fetch_apify_transcript(
+    source_url: str,
+    *,
+    transcript_language: Optional[str],
+) -> Dict[str, Any]:
+    """
+    Call the Apify YouTube Transcript actor to retrieve transcript text.
+
+    The requested ``transcript_language`` (the user's reading_language, or the
+    per-request override — see task-216) is sent to the actor so the returned
+    captions are already in the target language when the video offers them.
+    If the actor reports the language is unavailable, we retry once without
+    ``language`` to take the video's default track; the task-192 translation
+    step then brings the transcript to the user's reading_language.
+
+    When the configured actor cannot select a language, the request is logged as
+    unhonoured and the video's default captions are used; task-192 still brings
+    the transcript to the user's reading_language, at the cost of one LLM call.
+
+    Returns a dict with text, language, segments_count, source_detail, fetched_at.
+    Raises YouTubeIngestionError if Apify fails or returns no transcript.
+    """
+    dialect = _apify_actor_dialect(APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID)
+    language_supported = bool(dialect["supports_language"])
+    if transcript_language and not language_supported:
+        log_event(
+            logger,
+            logging.WARNING,
+            "transcription.language_request_unsupported",
+            (
+                "Configured Apify actor cannot select a transcript language; "
+                "falling back to the video default captions and relying on the "
+                "downstream translation step"
+            ),
+            transcript_source="apify_transcript",
+            configured_actor_id=_apify_actor_id_for_api(
+                APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID
+            ),
+            language_aware_actor_id=_STARVIBE_ACTOR,
+            requested_language=transcript_language,
+        )
+
+    payload = _build_apify_transcript_payload(
+        source_url,
+        transcript_language=transcript_language,
+        dialect=dialect,
+    )
+    item = await _run_apify_transcript_actor(payload)
+
+    language_fallback = False
+    if transcript_language and language_supported and _is_language_not_available(item):
+        log_event(
+            logger,
+            logging.INFO,
+            "transcription.language_fallback",
+            "Requested transcript language unavailable on Apify; retrying with the video default",
+            transcript_source="apify_transcript",
+            requested_language=transcript_language,
+            detail=str(item.get("message") or "")[:200],
+        )
+        language_fallback = True
+        item = await _run_apify_transcript_actor(
+            _build_apify_transcript_payload(
+                source_url,
+                transcript_language=None,
+                dialect=dialect,
+            )
+        )
+
+    if str(item.get("status") or "").strip().lower() == "error":
+        raise YouTubeIngestionError(
+            "youtube_unavailable",
+            details=ApifyTranscriptFailure.ACTOR_ERROR.value,
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
 
-    transcript_text = (
-        first_item["transcript_only_text"].strip()
-        if isinstance(first_item.get("transcript_only_text"), str)
-        else ""
-    )
-
+    transcript_text = _apify_item_transcript_text(item, dialect)
     if not transcript_text:
         raise YouTubeIngestionError(
             "youtube_unavailable",
-            details="apify_empty_transcript",
+            details=ApifyTranscriptFailure.EMPTY_TRANSCRIPT.value,
             retryable=False,
             user_message=_UNAVAILABLE_MESSAGE,
         )
 
+    segments = item.get("transcript")
+    segments_count = (
+        len(segments)
+        if isinstance(segments, list) and segments
+        else len([line for line in transcript_text.splitlines() if line.strip()])
+    )
+
     return {
         "text": transcript_text,
-        "language": _normalize_language_code(first_item.get("language"))
-        or transcript_language,
+        # Language actually delivered by the actor; may differ from the request
+        # when we fell back to the video default or the actor cannot select a
+        # language at all (task-192 translates downstream). Resolved through
+        # `resolve_language_code` because scrape-creators reports an English
+        # display name ("English") where starvibe reports a code ("en").
+        "language": resolve_language_code(item.get("language")),
         "requested_language": transcript_language,
-        "segments_count": len(
-            [line for line in transcript_text.splitlines() if line.strip()]
-        ),
+        "language_supported": language_supported,
+        "language_fallback": language_fallback,
+        "selected_language_label": item.get("selected_language")
+        or item.get("language"),
+        "actor_id": _apify_actor_id_for_api(APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID),
+        "segments_count": segments_count,
         "source_detail": "apify_youtube_transcript",
         "source_url": source_url,
         "fetched_at": _now_iso_utc(),
-        "is_automatic": False,
+        "is_automatic": bool(item.get("is_auto_generated")),
     }
 
 
@@ -588,6 +866,7 @@ def _build_native_subtitle_extraction_metadata(
     video_id: str,
     source_url: str,
     native_result: Dict[str, Any],
+    requested_language: Optional[str],
 ) -> Dict[str, Any]:
     return {
         "provider": "yt-dlp",
@@ -596,6 +875,7 @@ def _build_native_subtitle_extraction_metadata(
         "strategy_used": "native_subtitles",
         "video_id": video_id,
         "source_url": source_url,
+        "requested_language": requested_language,
         "subtitle_language": native_result.get("language"),
         "subtitle_ext": native_result.get("ext"),
         "is_automatic_caption": native_result.get("is_automatic", False),
@@ -633,8 +913,15 @@ def _build_apify_extraction_metadata(
         "strategy_used": "apify_transcript",
         "video_id": video_id,
         "source_url": source_url,
+        "actor_id": apify_result.get("actor_id"),
         "requested_language": apify_result.get("requested_language"),
         "transcript_language": apify_result.get("language"),
+        # False when the configured actor has no language input at all: the
+        # request could not be honoured, so a downstream translation is expected.
+        "language_supported": apify_result.get("language_supported", False),
+        "language_fallback": apify_result.get("language_fallback", False),
+        "selected_language_label": apify_result.get("selected_language_label"),
+        "is_automatic_caption": apify_result.get("is_automatic", False),
         "segments_count": apify_result.get("segments_count"),
         "fetched_at": apify_result["fetched_at"],
     }
@@ -647,7 +934,12 @@ def _build_apify_transcription_metadata(
     return {
         "provider": "apify_transcript",
         "model_used": "apify_youtube_transcript_scraper",
+        "actor_id": apify_result.get("actor_id"),
+        # Language of the delivered transcript. Consumed by task-192
+        # (`job_source_language_hint`) to decide whether a translation to the
+        # user's reading_language is still needed.
         "language": apify_result.get("language"),
+        "requested_language": apify_result.get("requested_language"),
         "segments_count": apify_result.get("segments_count"),
         "duration_seconds": 0,
         "source_url": apify_result.get("source_url"),
@@ -801,6 +1093,11 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
             "media_key": message_body.get("media_key"),
             "video_id": video_id,
             "source_detail": "apify_youtube_transcript",
+            "requested_language": transcript_language,
+            "transcript_language": apify_result.get("language"),
+            "language_supported": apify_result.get("language_supported"),
+            "language_fallback": apify_result.get("language_fallback"),
+            "actor_id": apify_result.get("actor_id"),
         }
 
     # -----------------------------------------------------------------------
@@ -872,6 +1169,7 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
         video_id=video_id,
         source_url=normalized_url,
         native_result=native_result,
+        requested_language=transcript_language,
     )
     job.mark_completed()
     await database_async.update_processing_job(job)
@@ -889,6 +1187,8 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
         "media_key": message_body.get("media_key"),
         "video_id": video_id,
         "source_detail": native_result["source_detail"],
+        "requested_language": transcript_language,
+        "transcript_language": normalize_language_code(native_result.get("language")),
     }
 
 
@@ -939,6 +1239,8 @@ async def process_message(message: Dict[str, Any]) -> None:
                 media_item_id=result["job_id"],
                 transcript_source="native_subtitles",
                 fallback_strategy=result.get("source_detail"),
+                requested_language=result.get("requested_language"),
+                transcript_language=result.get("transcript_language"),
             )
         elif mode == "apify_transcript":
             log_event(
@@ -950,6 +1252,11 @@ async def process_message(message: Dict[str, Any]) -> None:
                 media_item_id=result["job_id"],
                 transcript_source="apify_transcript",
                 fallback_strategy="ip_blocked_apify_fallback",
+                requested_language=result.get("requested_language"),
+                transcript_language=result.get("transcript_language"),
+                language_supported=result.get("language_supported"),
+                language_fallback=result.get("language_fallback"),
+                actor_id=result.get("actor_id"),
             )
         elif mode == "deepgram_via_ytdlp_url":
             log_event(

@@ -135,6 +135,10 @@ Observabilite:
 - CloudWatch metric `apify_youtube_credits_consumed` tracks per-call cost
 - Alarm on failure rate > 10% over 5 minutes
 
+Amendements posterieurs (la cascade courante fait foi dans `docs/INGESTION_WORKERS_PROVIDERS.md`):
+- task-177: yt-dlp est redevenu le chemin primaire, Apify est le fallback declenche sur IP-block, Deepgram le fallback quand aucun sous-titre n'existe
+- task-216: la langue cible vient de `User.reading_language` (override possible par requete), plus d'une variable d'environnement globale. Le worker supporte plusieurs dialectes d'actor Apify; seul `starvibe~youtube-video-transcript` accepte un input `language` (ISO 639-1). Le controle de langue sur le chemin Apify n'est actif qu'une fois `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` bascule sur cet actor dans le secret runtime (voir "Rollout prerequisite" dans `docs/INGESTION_WORKERS_PROVIDERS.md`)
+
 References:
 - `docs/research/task-126-youtube-extraction/README.md` (benchmark and owner decision)
 - `media_summarizer/workers/youtube_ingestion_worker.py` (implementation)

@@ -91,11 +91,10 @@ class Settings:
         self.APIFY_INSTAGRAM_POST_ACTOR_ID = os.getenv(
             "APIFY_INSTAGRAM_POST_ACTOR_ID", "apify~instagram-post-scraper"
         )
+        # task-216: the actor must accept a `language` input so the transcript
+        # can be requested in the user's reading_language.
         self.APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = os.getenv(
-            "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID", ""
-        )
-        self.YOUTUBE_TRANSCRIPT_LANGUAGE = os.getenv(
-            "YOUTUBE_TRANSCRIPT_LANGUAGE", "fr"
+            "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID", "starvibe~youtube-video-transcript"
         )
         self.APIFY_TIMEOUT_SECONDS = int(
             os.getenv("APIFY_TIMEOUT_SECONDS", "60")
