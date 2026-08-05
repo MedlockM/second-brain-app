@@ -54,9 +54,21 @@ line-length = 88
 target-version = ["py310"]
 
 [tool.ruff]
-line-length = 88
+line-length = 120
 target-version = "py310"
+
+[tool.ruff.lint]
+# E: pycodestyle errors
+# F: pyflakes (unused imports, variables, etc.)
+# I: isort (import sorting)
 select = ["E", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# Research and archive scripts: line-length is less critical
+"docs/research/**/*.py" = ["E501"]
+"scripts/archive/**/*.py" = ["E501"]
+# Test files can have longer lines for readability
+"tests/**/*.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.10"
