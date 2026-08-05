@@ -69,7 +69,7 @@ async def test_user(http_client: httpx.AsyncClient):
     try:
         yield user
     finally:
-        await _teardown_user(http_client, user_id)
+        await _teardown_user(http_client, user)
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -160,13 +160,14 @@ async def poll_until(
 # =============================================================================
 
 
-async def _teardown_user(client: httpx.AsyncClient, user_id: str) -> None:
+async def _teardown_user(client: httpx.AsyncClient, user: Dict[str, str]) -> None:
     """Best-effort cleanup of everything a test user persisted in AWS dev.
 
     Each step is wrapped in try/except so a partial failure doesn't block the
     rest. Errors are printed but not raised — teardown must not turn a passing
     test into a failure.
     """
+    user_id = user["id"]
     print(f"\n[e2e] teardown user {user_id}")
 
     try:
@@ -175,23 +176,20 @@ async def _teardown_user(client: httpx.AsyncClient, user_id: str) -> None:
         print(f"[e2e] teardown: cannot import database_async ({exc!r}); skipping")
         return
 
-    await _teardown_user_inner(client, user_id, database_async)
+    await _teardown_user_inner(client, user, database_async)
 
 
 async def _teardown_user_inner(
     client: httpx.AsyncClient,
-    user_id: str,
+    user: Dict[str, str],
     database_async,  # type: ignore[no-redef]
 ) -> None:
+    user_id = user["id"]
+
     # 1. List orphaned data before deleting.
     jobs = await _safe_call(
         "list processing jobs",
         lambda: database_async.get_processing_jobs_by_user_id(user_id),
-        default=[],
-    )
-    auth_tokens = await _safe_call(
-        "list auth tokens",
-        lambda: database_async.get_auth_tokens_by_user_id(user_id),
         default=[],
     )
     tags = await _safe_call(
@@ -225,17 +223,7 @@ async def _teardown_user_inner(
             lambda jid=job_id: database_async.delete_processing_job(jid),
         )
 
-    # 4. Delete auth tokens.
-    for token in auth_tokens or []:
-        token_id = getattr(token, "id", None) or getattr(token, "token_id", None)
-        if not token_id:
-            continue
-        await _safe_call(
-            f"delete auth token {token_id}",
-            lambda tid=token_id: database_async.delete_auth_token(tid),
-        )
-
-    # 5. Delete tags + folders (no high-level helpers — direct boto3).
+    # 4. Delete tags + folders (no high-level helpers — direct boto3).
     for tag in tags or []:
         tag_id = getattr(tag, "id", None) or getattr(tag, "tag_id", None)
         if tag_id:
@@ -251,25 +239,60 @@ async def _teardown_user_inner(
                 lambda fid=folder_id: _delete_item(database_async.USER_FOLDERS_TABLE, "id", fid),
             )
 
-    # 6. Delete the user — try API first (exercises the real flow), fallback
-    # to direct DB delete.
+    # 5. Delete the user — try the authenticated API first (exercises the real
+    # flow), fallback to direct DB delete. The DELETE route is authenticated
+    # and only accepts the caller's own id (task-222), so log in again here: the
+    # session-scoped `auth_token` fixture may have expired over a long run.
     api_ok = False
-    try:
-        # The DELETE endpoint requires authentication. We may have already
-        # invalidated the token by deleting auth_tokens above, so this can
-        # legitimately fail. Use the direct DB call as fallback.
-        resp = await client.delete(f"/api/v1/users/{user_id}")
-        api_ok = resp.status_code in (200, 204, 404)
-        print(f"[e2e]   api DELETE /users/{user_id} -> {resp.status_code}")
-    except Exception as exc:
-        print(f"[e2e]   api DELETE failed: {exc!r}")
+    delete_headers = await _login_headers(client, user)
+    if delete_headers:
+        try:
+            resp = await client.delete(
+                f"/api/v1/users/{user_id}", headers=delete_headers
+            )
+            api_ok = resp.status_code in (200, 204, 404)
+            print(f"[e2e]   api DELETE /users/{user_id} -> {resp.status_code}")
+        except Exception as exc:
+            print(f"[e2e]   api DELETE failed: {exc!r}")
     if not api_ok:
         await _safe_call(
             f"delete user {user_id} (db fallback)",
             lambda: database_async.delete_user(user_id),
         )
 
+    # 6. Delete auth tokens last: every login above created refresh-token rows,
+    # including the one this teardown just used.
+    auth_tokens = await _safe_call(
+        "list auth tokens",
+        lambda: database_async.get_auth_tokens_by_user_id(user_id),
+        default=[],
+    )
+    for token in auth_tokens or []:
+        token_id = getattr(token, "id", None) or getattr(token, "token_id", None)
+        if not token_id:
+            continue
+        await _safe_call(
+            f"delete auth token {token_id}",
+            lambda tid=token_id: database_async.delete_auth_token(tid),
+        )
+
     print(f"[e2e] teardown done for {user_id}")
+
+
+async def _login_headers(
+    client: httpx.AsyncClient, user: Dict[str, str]
+) -> Optional[Dict[str, str]]:
+    """Log the test user in and return Bearer headers, or None on failure."""
+    try:
+        resp = await client.post(
+            "/api/v1/auth/login",
+            json={"email": user["email"], "password": user["password"]},
+        )
+        resp.raise_for_status()
+        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+    except Exception as exc:
+        print(f"[e2e]   teardown login failed: {exc!r}")
+        return None
 
 
 async def _safe_call(

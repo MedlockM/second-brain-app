@@ -53,7 +53,9 @@ async def detailed_health_check(db=Depends(get_db)):
         "components": {}
     }
 
-    # Test de la base de données DynamoDB
+    # Test de la base de données DynamoDB.
+    # Only the table count is reported: this endpoint is unauthenticated, so it
+    # must not disclose the infrastructure inventory (table names).
     try:
         async with await db.get_client() as client:
             response = await client.list_tables()
@@ -62,7 +64,6 @@ async def detailed_health_check(db=Depends(get_db)):
                 "status": "healthy",
                 "type": "DynamoDB",
                 "tables_count": len(tables),
-                "tables": tables
             }
     except Exception as e:
         health_status["components"]["database"] = {

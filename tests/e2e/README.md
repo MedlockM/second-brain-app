@@ -53,12 +53,18 @@ pytest -m e2e tests/e2e/test_phase4_other_sources.py -v
 
 La fixture `test_user` (scope session) crée un user avec un email horodaté `e2e-test-<timestamp>-<uuid6>@test.local`. À la fin de la session, peu importe si les tests ont passé ou planté, le teardown :
 
-1. Liste les processing_jobs, auth_tokens, tags et folders du user
+1. Liste les processing_jobs, tags et folders du user
 2. Pour chaque processing_job, supprime tous les artifacts associés via la GSI `media-item-index` de `media_artifacts`
 3. Supprime les processing_jobs eux-mêmes
-4. Supprime les auth_tokens
-5. Supprime tags et folders
-6. Supprime le user via `DELETE /api/v1/users/{id}` (puis fallback DynamoDB direct)
+4. Supprime tags et folders
+5. Se re-logue pour obtenir un access token frais, puis supprime le user via `DELETE /api/v1/users/{id}` (puis fallback DynamoDB direct)
+6. Supprime les auth_tokens **en dernier**, y compris ceux créés par ce login
+
+La route de suppression est authentifiée depuis `task-222` et n'accepte que l'id
+du compte appelant. Le teardown se re-logue juste avant le DELETE plutôt que de
+réutiliser la fixture `auth_token` (scope session), qui peut avoir expiré sur une
+run longue. Si le login échoue, le teardown passe directement au fallback
+DynamoDB.
 
 Chaque opération est isolée par `try/except` — un échec partiel ne bloque pas le reste, et ne fait pas planter le test. Les erreurs sont imprimées dans la sortie pytest sous la forme `[e2e] <op> failed: <repr>`.
 

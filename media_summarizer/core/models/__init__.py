@@ -12,7 +12,6 @@ from .auth import (
     AuthUser,
     RegisterRequest,
     LoginRequest,
-    EmailVerificationRequest,
 )
 from .billing import (
     Subscription,
@@ -43,7 +42,6 @@ __all__ = [
     "AuthUser",
     "RegisterRequest",
     "LoginRequest",
-    "EmailVerificationRequest",
     "Subscription",
     "SubscriptionStatus",
     "SubscriptionTier",

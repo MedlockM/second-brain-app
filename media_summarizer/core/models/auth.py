@@ -200,19 +200,3 @@ class AuthUser(BaseModel):
     reading_language: Optional[str] = Field(
         default=None, description="Preferred reading language (ISO 639-1)"
     )
-
-
-class EmailVerificationRequest(BaseModel):
-    """Request model for email verification."""
-
-    token: str = Field(..., description="Verification token")
-    email: str = Field(..., description="Email to verify")
-
-    @field_validator("email")
-    @classmethod
-    def email_must_be_valid(cls, v):
-        if not v.strip():
-            raise ValueError("Email must not be empty")
-        if "@" not in v:
-            raise ValueError("Email must contain @ symbol")
-        return v.lower().strip()
