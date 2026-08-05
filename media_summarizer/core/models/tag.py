@@ -5,10 +5,11 @@ Each user has private tags that can be associated with any of their media items.
 Tags are manually created (no auto-generation) and support an optional color.
 """
 
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, field_validator
 import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class Tag(BaseModel):

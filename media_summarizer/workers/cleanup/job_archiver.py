@@ -1,8 +1,9 @@
 import json
-import os
 import logging
-import boto3
+import os
 from datetime import datetime
+
+import boto3
 from boto3.dynamodb.types import TypeDeserializer
 
 # Configure logging

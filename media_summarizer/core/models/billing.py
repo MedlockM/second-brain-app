@@ -5,6 +5,7 @@ These models mirror the DynamoDB storage structure and provide to_dynamodb_item/
 consistent with other models in the codebase.
 """
 from __future__ import annotations
+
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional

@@ -23,11 +23,11 @@ from typing import Optional
 
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services.transcript_translation import (
+    _normalize_lang,
     build_translated_transcript_key,
     detect_language,
     job_source_language_hint,
     should_translate,
-    _normalize_lang,
 )
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.logging_config import log_event

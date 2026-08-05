@@ -5,11 +5,11 @@ Each user can subscribe to multiple RSS feeds. The system polls them
 periodically and ingests new items via the existing media pipeline.
 """
 
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-import uuid
 from pydantic import BaseModel, Field, field_validator
 
 

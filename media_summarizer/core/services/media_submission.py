@@ -8,22 +8,22 @@ In V1, notifications are delivered via mobile app polling, not email.
 
 from __future__ import annotations
 
-import os
 import json
-from typing import Dict, Any
+import os
+from typing import Any, Dict
 
-from media_summarizer.utils import (
-    database_async,
-    sqs,
-    s3,
-    media_idempotence,
-    media_watchers,
-)
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
-    record_submission,
     estimate_submission_cost,
+    record_submission,
+)
+from media_summarizer.utils import (
+    database_async,
+    media_idempotence,
+    media_watchers,
+    s3,
+    sqs,
 )
 
 

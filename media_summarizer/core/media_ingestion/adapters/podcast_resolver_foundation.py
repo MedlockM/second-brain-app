@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-import re
 from typing import Any, Dict, Iterable
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 

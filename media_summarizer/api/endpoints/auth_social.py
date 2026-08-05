@@ -11,24 +11,23 @@ Notes:
 - Client secrets and keys are read from environment variables
 """
 
-import os
 import logging
+import os
 import secrets
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 
+# Reuse cookie helper from local auth module
+from media_summarizer.api.endpoints import auth as auth_local
 from media_summarizer.core.models import User
 from media_summarizer.core.models.auth import AuthToken
 from media_summarizer.utils import database_async
-from media_summarizer.utils.database_async import get_db, DynamoDBConnection
 from media_summarizer.utils.auth_utils import get_refresh_token_expires_at
-
-# Reuse cookie helper from local auth module
-from media_summarizer.api.endpoints import auth as auth_local
+from media_summarizer.utils.database_async import DynamoDBConnection, get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -251,10 +250,11 @@ async def google_callback(
 
 # ------------------ Apple OAuth ------------------
 
-from jose import jwt
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
 import base64
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from jose import jwt
 
 
 def _b64_to_int(s: str) -> int:
@@ -439,8 +439,11 @@ async def apple_callback(
 # (expo-apple-authentication, expo-auth-session/google) and return
 # access + refresh tokens in JSON (no cookies, mobile stores in secure store).
 
-from pydantic import BaseModel as PydanticBaseModel, Field
 from datetime import timedelta
+
+from pydantic import BaseModel as PydanticBaseModel
+from pydantic import Field
+
 from media_summarizer.utils.auth_utils import (
     create_access_token,
     create_token_payload,

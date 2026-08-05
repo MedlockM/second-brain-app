@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import fsrs
 
 from media_summarizer.core.models.review_schedule import (
     CardState,
     ReviewScheduleRecord,
-    UserReviewSettings,
 )
 from media_summarizer.utils import review_db
 from media_summarizer.utils.logging_config import log_event

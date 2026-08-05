@@ -18,7 +18,6 @@ import os
 import tempfile
 import time
 from io import BytesIO
-from math import ceil
 from pathlib import Path
 from typing import Any, Dict
 
@@ -26,7 +25,6 @@ from media_summarizer.core.ports.document_parser import (
     DocumentFormat,
     DocumentParserPort,
     ParseError,
-    ParseErrorCode,
     ParseResult,
 )
 from media_summarizer.infrastructure.resolvers.llamaparse_resolver import (

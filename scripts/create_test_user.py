@@ -10,10 +10,11 @@ from datetime import datetime, timezone
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import asyncio
+
 from media_summarizer.core.models.user import User
 from media_summarizer.core.security import hash_password
 from media_summarizer.utils import database_async
-import asyncio
 
 
 async def create_test_user():
@@ -47,12 +48,12 @@ async def create_test_user():
     # Save to DynamoDB
     created_user = await database_async.create_user(user)
     
-    print(f"✅ Test user created successfully!")
+    print("✅ Test user created successfully!")
     print(f"   Email: {created_user.email}")
     print(f"   Password: {test_password}")
     print(f"   User ID: {created_user.id}")
     print(f"   Email verified: {created_user.email_verified_at is not None}")
-    print(f"\nYou can now login with:")
+    print("\nYou can now login with:")
     print(f"   Email: {test_email}")
     print(f"   Password: {test_password}")
     

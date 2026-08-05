@@ -13,10 +13,11 @@ Notes:
 - Les horodatages sont stockés en ISO8601 UTC.
 """
 
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, field_validator
 import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class User(BaseModel):

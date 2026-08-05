@@ -11,9 +11,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from media_summarizer.core.models.folder import (
-    Folder,
     MAX_FOLDER_DEPTH,
-    UNCATEGORIZED_FOLDER_NAME,
+    Folder,
 )
 from media_summarizer.utils import database_async
 

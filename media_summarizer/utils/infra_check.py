@@ -6,8 +6,8 @@ all buckets in development and production. The app should fail fast if buckets a
 """
 from __future__ import annotations
 
-import os
 import logging
+import os
 from typing import List
 
 from aiobotocore.session import get_session

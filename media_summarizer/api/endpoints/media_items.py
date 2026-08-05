@@ -2,17 +2,17 @@
 Episodes API endpoints for retrieving user's completed episodes with summaries.
 """
 
+import json
 import logging
-from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends
+import os
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from media_summarizer.utils import database_async, s3
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.core.models import JobStatus
-import json
-import os
+from media_summarizer.utils import database_async, s3
 
 logger = logging.getLogger(__name__)
 

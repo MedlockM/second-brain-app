@@ -6,15 +6,15 @@ using JWT access tokens (issued after local or social login).
 """
 
 import logging
-from fastapi import Depends, HTTPException, status, Request
-from fastapi.security import OAuth2PasswordBearer
 from typing import Optional
 
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordBearer
+
 from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.core.models import User
-from media_summarizer.utils.database_async import get_db, DynamoDBConnection
-from media_summarizer.utils.auth_utils import verify_token, get_user_id_from_token
 from media_summarizer.utils import database_async
+from media_summarizer.utils.auth_utils import get_user_id_from_token, verify_token
+from media_summarizer.utils.database_async import DynamoDBConnection, get_db
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -265,7 +265,6 @@ async def get_current_user_flexible(
 
     # Try refresh token from cookie
     from media_summarizer.api.endpoints.auth import REFRESH_COOKIE_NAME
-    from media_summarizer.core.models.auth import AuthToken
 
     refresh_token_value = request.cookies.get(REFRESH_COOKIE_NAME)
     if refresh_token_value:

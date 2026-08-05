@@ -2,12 +2,13 @@
 Authentication models for application sessions (local auth + refresh tokens).
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, field_validator
-import uuid
 import secrets
+import uuid
+from datetime import datetime, timedelta, timezone
 from enum import Enum
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class TokenType(str, Enum):

@@ -9,7 +9,7 @@ import logging
 import os
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from media_summarizer.core.services import pricing_config_service

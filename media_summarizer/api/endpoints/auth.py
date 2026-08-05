@@ -2,41 +2,42 @@
 Authentication endpoints for local email/password with 30-day absolute refresh sessions.
 """
 
-import os
 import logging
-from datetime import timedelta, datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
-    status,
-    Response,
     Request,
-)
-
-from media_summarizer.core.models.auth import (
-    RegisterRequest,
-    LoginRequest,
-    TokenVerificationResponse,
-    AuthUser,
-    AuthToken,
-    TokenType,
-    EmailVerificationRequest,
+    Response,
+    status,
 )
 from pydantic import BaseModel, Field
+
+from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models import User
+from media_summarizer.core.models.auth import (
+    AuthToken,
+    AuthUser,
+    EmailVerificationRequest,
+    LoginRequest,
+    RegisterRequest,
+    TokenType,
+    TokenVerificationResponse,
+)
 from media_summarizer.utils import database_async
 from media_summarizer.utils.auth_utils import (
     create_access_token,
     create_token_payload,
-    verify_password,
-    hash_password,
     get_access_token_expires_seconds,
     get_refresh_token_expires_at,
+    hash_password,
+    verify_password,
 )
-from media_summarizer.utils.database_async import get_db, DynamoDBConnection
-from media_summarizer.api.dependencies.auth import get_current_user
+from media_summarizer.utils.database_async import DynamoDBConnection, get_db
 
 # Configure logging
 logger = logging.getLogger(__name__)

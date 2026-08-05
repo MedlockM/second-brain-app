@@ -16,9 +16,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from io import BytesIO
-import os
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlsplit
 

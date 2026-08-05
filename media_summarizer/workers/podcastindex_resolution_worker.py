@@ -28,12 +28,12 @@ from media_summarizer.utils.logging_config import (
     setup_logging,
 )
 from media_summarizer.utils.rss_transcript import fetch_rss_transcript
-from media_summarizer.workers.podcast_platform_resolvers import (
-    build_worker_podcast_platform_resolver_registry,
-)
 from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
     process_message_with_retry,
+)
+from media_summarizer.workers.podcast_platform_resolvers import (
+    build_worker_podcast_platform_resolver_registry,
 )
 
 logger = logging.getLogger(__name__)

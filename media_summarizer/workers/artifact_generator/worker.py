@@ -23,12 +23,12 @@ from typing import Any, Dict
 import aiohttp
 
 from media_summarizer.core.models.media_artifact import MediaArtifactType
+from media_summarizer.core.services import fsrs_service
 from media_summarizer.core.services.artifact_service import (
     complete_artifact_generation,
     fail_artifact_generation,
     mark_artifact_generating,
 )
-from media_summarizer.core.services import fsrs_service
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
@@ -263,8 +263,10 @@ async def process_message(message: Dict[str, Any]) -> None:
         from media_summarizer.workers.artifact_generator.generators.flashcards import FlashcardsValidationError
         from media_summarizer.workers.artifact_generator.generators.notes import NotesValidationError
         from media_summarizer.workers.artifact_generator.generators.quiz import QuizValidationError
+        from media_summarizer.workers.artifact_generator.generators.summary_detailed import (
+            SummaryDetailedValidationError,
+        )
         from media_summarizer.workers.artifact_generator.generators.summary_short import SummaryShortValidationError
-        from media_summarizer.workers.artifact_generator.generators.summary_detailed import SummaryDetailedValidationError
 
         if isinstance(exc, (
             FlashcardsValidationError,

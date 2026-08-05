@@ -80,11 +80,11 @@ async def get_entitlements_status(
     - offerings_config if user has no active subscription (for paywall display)
     """
     try:
-        from media_summarizer.utils import minute_db, quota_usage_db
         from media_summarizer.core.services.quota_enforcer import (
             _SUBSCRIPTION_TIER_TO_CONFIG,
             _get_effective_caps,
         )
+        from media_summarizer.utils import minute_db, quota_usage_db
 
         # Get active subscription
         subs = await minute_db.get_subscriptions_by_user_id(current_user.id)

@@ -3,34 +3,34 @@ Package pour les modèles de domaine utilisant DynamoDB.
 """
 
 # Import all DynamoDB models
-from .user import User
-from .processing_job import ProcessingJob, JobStatus
 from .auth import (
     AuthToken,
+    AuthUser,
+    EmailVerificationRequest,
+    LoginRequest,
+    RegisterRequest,
     TokenType,
     TokenVerificationResponse,
-    AuthUser,
-    RegisterRequest,
-    LoginRequest,
-    EmailVerificationRequest,
 )
 from .billing import (
+    Follow,
     Subscription,
     SubscriptionStatus,
     SubscriptionTier,
-    Follow,
 )
-from .folder import Folder, UNCATEGORIZED_FOLDER_NAME, MAX_FOLDER_DEPTH
-from .review_schedule import ReviewScheduleRecord, CardState, UserReviewSettings
-from .rss_feed import UserRssFeed, FeedStatus
-from .tag import Tag
 from .digest import (
-    DigestRecord,
-    DigestType,
-    DigestStatus,
     DigestMediaItem,
+    DigestRecord,
+    DigestStatus,
+    DigestType,
     UserDigestSettings,
 )
+from .folder import MAX_FOLDER_DEPTH, UNCATEGORIZED_FOLDER_NAME, Folder
+from .processing_job import JobStatus, ProcessingJob
+from .review_schedule import CardState, ReviewScheduleRecord, UserReviewSettings
+from .rss_feed import FeedStatus, UserRssFeed
+from .tag import Tag
+from .user import User
 
 # Export all models
 __all__ = [

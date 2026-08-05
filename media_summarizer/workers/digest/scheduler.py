@@ -19,14 +19,12 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import List
 
 from media_summarizer.core.models.digest import (
     DigestRecord,
     DigestStatus,
-    DigestType,
-    UserDigestSettings,
 )
 from media_summarizer.core.services import digest_service
 from media_summarizer.utils import database_async, digest_db, sqs
@@ -46,8 +44,8 @@ async def _get_all_user_ids() -> List[str]:
     """Get all user IDs from the users table. Fine for V1 scale."""
     from media_summarizer.utils.database_async import (
         USERS_TABLE,
-        get_session,
         _dynamodb_client_kwargs,
+        get_session,
     )
 
     session = get_session()

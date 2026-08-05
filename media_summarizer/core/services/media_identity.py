@@ -12,7 +12,6 @@ import re
 from typing import Dict, List, Tuple
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
-
 _TRACKING_QUERY_PREFIXES = ("utm_",)
 _TRACKING_QUERY_KEYS = {
     "fbclid",

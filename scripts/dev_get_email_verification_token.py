@@ -11,8 +11,8 @@ import argparse
 import asyncio
 from typing import Optional
 
-from media_summarizer.utils import database_async
 from media_summarizer.core.models.auth import TokenType
+from media_summarizer.utils import database_async
 
 
 async def get_token(email: str) -> Optional[str]:

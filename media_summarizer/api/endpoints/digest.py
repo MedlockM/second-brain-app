@@ -11,15 +11,14 @@ Provides:
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.core.models.digest import DigestType
 from media_summarizer.core.services import digest_service
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 

@@ -15,16 +15,15 @@ Search indexing (Algolia) is decoupled from the watcher loop:
 """
 from __future__ import annotations
 
-import os
-import json
-import time
 import asyncio
+import json
 import logging
-from typing import Any, Dict, List, Optional
+import os
+import time
+from typing import Any, Dict, Optional
 
-from media_summarizer.utils import sqs, s3
-from media_summarizer.utils import media_watchers
-from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
+from media_summarizer.utils import media_watchers, s3, sqs
+from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 

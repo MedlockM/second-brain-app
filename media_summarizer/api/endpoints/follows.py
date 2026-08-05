@@ -11,13 +11,13 @@ from __future__ import annotations
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import require_verified_email
 from media_summarizer.core.models.billing import Follow
-from media_summarizer.utils import minute_db
 from media_summarizer.core.services.forecast_service import get_forecast_with_cache
+from media_summarizer.utils import minute_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

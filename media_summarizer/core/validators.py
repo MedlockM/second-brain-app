@@ -5,11 +5,10 @@ This module includes functions to validate external URLs (e.g., podcast audio UR
 with security constraints suitable for production environments.
 """
 import os
-from urllib.parse import urlparse
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
-
 
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
 MAX_AUDIO_SIZE_MB = int(os.environ.get("MAX_AUDIO_SIZE_MB", "500"))

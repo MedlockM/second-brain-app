@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import asyncio
 import html
-from io import BytesIO
 import json
 import logging
-from datetime import datetime, timezone
 import os
 import re
+from datetime import datetime, timezone
+from io import BytesIO
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 

@@ -18,11 +18,11 @@ Notes:
 """
 from __future__ import annotations
 
-import os
 import math
+import os
 from datetime import datetime, timezone
 from statistics import median
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from media_summarizer.utils import podcast_index
 

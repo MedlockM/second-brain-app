@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+
 from media_summarizer.utils.distributed_rate_limiter import acquire_global_slot
 
 logger = logging.getLogger(__name__)
