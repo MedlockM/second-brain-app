@@ -6,7 +6,6 @@ Package pour les modèles de domaine utilisant DynamoDB.
 from .auth import (
     AuthToken,
     AuthUser,
-    EmailVerificationRequest,
     LoginRequest,
     RegisterRequest,
     TokenType,
@@ -43,7 +42,6 @@ __all__ = [
     "AuthUser",
     "RegisterRequest",
     "LoginRequest",
-    "EmailVerificationRequest",
     "Subscription",
     "SubscriptionStatus",
     "SubscriptionTier",

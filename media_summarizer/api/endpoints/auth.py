@@ -22,7 +22,6 @@ from media_summarizer.core.models import User
 from media_summarizer.core.models.auth import (
     AuthToken,
     AuthUser,
-    EmailVerificationRequest,
     LoginRequest,
     RegisterRequest,
     TokenType,
@@ -222,51 +221,6 @@ async def refresh_token(
         expires_in=access_seconds,
         user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
     )
-
-
-@router.post("/verify-email", status_code=status.HTTP_200_OK)
-async def verify_email(
-    request: EmailVerificationRequest, db: DynamoDBConnection = Depends(get_db)
-):
-    """
-    Legacy compatibility endpoint.
-    Email verification by mail has been removed; accounts are auto-verified at registration.
-    """
-    email = request.email.lower().strip()
-
-    user = await database_async.get_user_by_email(email)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-        )
-
-    if not getattr(user, "email_verified_at", None):
-        user.email_verified_at = datetime.now(timezone.utc)
-        await database_async.update_user(user)
-
-    return {"message": "Email verification is disabled; account is active"}
-
-
-@router.post("/resend-verification", status_code=status.HTTP_200_OK)
-async def resend_verification_email(
-    current_user: AuthUser = Depends(get_current_user),
-    db: DynamoDBConnection = Depends(get_db),
-):
-    """
-    Legacy compatibility endpoint.
-    Email verification by mail has been removed.
-    """
-    user = await database_async.get_user_by_id(current_user.id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-        )
-
-    if not getattr(user, "email_verified_at", None):
-        user.email_verified_at = datetime.now(timezone.utc)
-        await database_async.update_user(user)
-
-    return {"message": "Email verification is disabled; account is active"}
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)

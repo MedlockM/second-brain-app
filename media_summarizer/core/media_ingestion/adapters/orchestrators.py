@@ -595,8 +595,11 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 # task-216: the transcript language resolved by the API (explicit
                 # request override, else the user's reading_language) travels to
                 # the worker so the provider is asked for the right language.
+                # ``IngestSharedContentRequest`` has no ``transcript_language``
+                # field, so read it defensively: a shared YouTube URL resolves
+                # into this same branch and would otherwise raise AttributeError.
                 requested_transcript_language = normalize_language_code(
-                    command.request.transcript_language
+                    getattr(command.request, "transcript_language", None)
                 )
                 if command.request.locale:
                     message_body["locale"] = command.request.locale

@@ -77,7 +77,7 @@ un staging ou une soumission.
 |---|---|---|
 | Isolation API Lambda | `task-217` | **À faire** — séparer l'image API minimale de l'image workers, protéger la concurrence interactive, ajouter warm-up et release health check |
 | Isolation dev/staging/prod | `infrastructure/terraform/main.tf`, noms de ressources Terraform | **À faire** — state/workspace et noms de ressources ne permettent pas aujourd'hui trois environnements coexistants |
-| Sécurité users legacy | `media_summarizer/api/endpoints/users.py` | **À corriger avant exposition prod** — les opérations CRUD `/api/v1/users/*`, dont `DELETE /{user_id}`, n'ont pas de dépendance d'authentification |
+| Sécurité users legacy | `media_summarizer/api/endpoints/users.py`, `task-222` | **Corrigé en code (2026-08-05)** — `create_user`, `get_user`, `get_user_by_email` et `update_user` supprimés ; seul `DELETE /{user_id}` subsiste, authentifié et restreint au compte de l'appelant (404 pour tout autre id). `POST /api/v1/auth/verify-email` (même classe de faille, non authentifié, mutait `email_verified_at` d'un email arbitraire) supprimé également. **Reste à vérifier après déploiement AWS dev** : rejet effectif des anciennes routes publiques + run E2E complet |
 | Suppression/export de compte | `mobile/app/(tabs)/account.tsx`, checklist compliance | **À faire** — boutons Settings/Export inactifs, aucune suppression de compte in-app, et le delete backend actuel ne purge pas les données liées |
 | Source + CI | Git local/GitHub Actions | **À faire** — nettoyer, committer/pousser, corriger Ruff/ESLint/Mypy et obtenir des checks verts sur le SHA réellement déployé |
 
@@ -673,9 +673,10 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    - CGU avec mention RevenueCat / abonnements.
    - Conformité RGPD : droit à l'oubli, export des données.
    - Ajouter les liens Privacy/Terms sur login/register et Account.
-   - Implémenter une suppression de compte authentifiée qui purge réellement
-     les données liées ; ne pas réutiliser tel quel le
-     `DELETE /api/v1/users/{user_id}` public actuel.
+   - Implémenter une suppression de compte in-app qui purge réellement les
+     données liées (`task-224`). `DELETE /api/v1/users/{user_id}` est désormais
+     authentifié et restreint au compte de l'appelant (`task-222`), mais ne
+     supprime toujours que la ligne `users` : la cascade reste à écrire.
    - Rendre fonctionnel ou retirer le bouton `Export Data` avant review.
    - **État 2026-07-31** : `secondbrainlabs.com/privacy` et `/terms` répondent
      404 ; les anciens domaines `mediasummarizer.com` ne résolvent pas.

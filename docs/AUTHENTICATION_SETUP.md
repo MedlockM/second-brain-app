@@ -100,8 +100,13 @@ Exemples — Flux côté client
 
 Gestion des Erreurs Courantes
 - 401 Invalid token / Missing refresh token → vérifier header Authorization ou cookie
-- 401 Email non vérifié → utiliser /api/v1/auth/verify-email après réception de l’email
 - 400 OAuth non configuré → vérifier GOOGLE_* ou APPLE_* dans l’environnement
+
+La vérification d’email par lien a été retirée : les comptes sont auto-vérifiés
+à l’inscription. Les endpoints stubs `/api/v1/auth/verify-email` et
+`/api/v1/auth/resend-verification` ont été supprimés (task-222) — le premier
+était non authentifié et mutait le champ `email_verified_at` d’un email
+arbitraire.
 
 Références Code
 - Auth locale: media_summarizer/api/endpoints/auth.py
