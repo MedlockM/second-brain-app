@@ -10,10 +10,10 @@ dependencies = [
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
     "mangum>=0.17.0",
+    "aiohttp>=3.9.0",
     "aioboto3>=15.0.0",
     "boto3>=1.38.23",
     "botocore>=1.38.23,<1.38.28",
-    "openai>=1.3.0",
     "feedparser>=6.0.10",
     "httpx>=0.25.0",
     "pydantic>=2.5.0",
@@ -23,8 +23,6 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "bcrypt>=3.2.0,<4.0.0",
     "email-validator>=2.0.0",
-    "Jinja2>=3.1.3",
-    "trafilatura>=1.12.0",
     "langdetect>=1.0.9",
     "yt-dlp",
     "fsrs>=1.0.0",
@@ -33,6 +31,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+worker = [
+    # Article extraction runs only in the shared asynchronous worker image.
+    "trafilatura>=1.12.0",
+]
 dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
@@ -40,6 +42,8 @@ dev = [
     "requests>=2.31.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    # Keep worker modules importable for local checks and the existing test suite.
+    "trafilatura>=1.12.0",
 ]
 
 [build-system]
@@ -64,9 +68,8 @@ target-version = "py310"
 select = ["E", "F", "I"]
 
 [tool.ruff.lint.per-file-ignores]
-# Research and archive scripts: line-length and dead code less critical
+# Research scripts: line-length and dead code less critical
 "docs/research/**/*.py" = ["E501", "F841"]
-"scripts/archive/**/*.py" = ["E501", "E741", "F841"]
 # Test files can have longer lines for readability
 "tests/**/*.py" = ["E501"]
 
@@ -116,17 +119,15 @@ module = [
     "media_summarizer.workers.transcription.deepgram_worker",
     "media_summarizer.workers.events.media_completed_worker",
     "media_summarizer.workers.document_parsing.worker",
-    "media_summarizer.workers.newsletter.worker",
     "media_summarizer.workers.base_worker",
     "media_summarizer.workers.podcast_platform_resolvers",
     "media_summarizer.workers.artifact_generator.worker",
 ]
-disable_error_code = ["attr-defined", "arg-type", "var-annotated"]
+disable_error_code = ["arg-type", "var-annotated"]
 
 [[tool.mypy.overrides]]
 # Core services: mixed type annotations and optional handling
 module = [
-    "media_summarizer.core.services.newsletter_parser",
     "media_summarizer.core.services.folder_service",
     "media_summarizer.core.services.raw_content_service",
     "media_summarizer.core.services.bug_report_service",

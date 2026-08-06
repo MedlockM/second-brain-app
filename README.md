@@ -13,12 +13,12 @@ Plateforme "second cerveau" : enregistrer n'importe quel média en un share, l'o
 | `docs/MEDIA_KEY_SUBMISSION_GUARD_CONTRACT.md` | Current | Contrat de déduplication par media_key |
 | `docs/MEDIA_KEY_MIGRATION.md` | Current | Modèle d'identité runtime (media_key) |
 | `docs/SHARED_CONTENT_INGESTION_PROPOSAL.md` | Proposed | Design WhatsApp text/audio (task-61) |
-| `docs/BACKLOG_SUBAGENT_ORCHESTRATION.md` | Current | Planification locale de dispatch sous-agents à partir d'un snapshot backlog |
 | `docs/URL_SAFETY_POLICY.md` | Current | Validation et sécurité des URLs |
 | `docs/ERROR_HANDLING_BEST_PRACTICES.md` | Current | Stratégie gestion d'erreurs API→UI |
 | `docs/LOGGING_SYSTEM.md` | Current | Spec logging structuré JSON |
 | `docs/AUTHENTICATION_SETUP.md` | Current | Flows auth (OAuth + local) |
 | `docs/HORIZONTAL_SCALING.md` | Current | Scaling Fargate éphémère |
+| `docs/API_LAMBDA_RUNTIME.md` | Current | Runtime Lambda API dédié, warm-up, release et seuil provisioned concurrency |
 | `docs/DEEPGRAM_INCIDENT_RUNBOOK.md` | Current | Runbook incidents transcription |
 | `docs/ADR/` | Accepted | Décisions d'architecture (4 ADRs) |
 | `AGENTS.md` | Current | Instructions pour agents LLM |
@@ -27,17 +27,29 @@ Plateforme "second cerveau" : enregistrer n'importe quel média en un share, l'o
 ## Quickstart
 
 ```bash
-# Installer les dépendances
-source .venv/bin/activate
-uv pip install -e ".[dev]"
+# Créer ou recréer un environnement backend propre avec Python 3.10
+uv venv --clear --python 3.10 .venv
+uv pip install --python .venv/bin/python -e ".[dev]"
 
 # Copier et configurer l'environnement
 cp .env.example .env
 # Fill in AWS credentials for the dev environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-
-# Run E2E tests
-pytest -m e2e
 ```
+
+Utiliser les binaires du venv directement : cela reste reproductible même si
+le shell courant n'a pas activé `.venv` et évite de prendre un outil global par
+erreur.
+
+```bash
+.venv/bin/ruff check media_summarizer tests
+.venv/bin/mypy media_summarizer
+.venv/bin/python -m pytest
+```
+
+Si `.venv/bin/python` pointe vers une ancienne installation Python (par exemple
+un chemin Snap/VS Code versionné qui n'existe plus), relancer les deux commandes
+de création ci-dessus. `uv venv --clear` reconstruit le venv et son interpréteur
+sans créer de variante locale `.venv-<tâche>`.
 
 ## Services (dev)
 

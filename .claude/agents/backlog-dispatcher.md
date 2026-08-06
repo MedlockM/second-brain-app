@@ -1,6 +1,6 @@
 ---
 name: backlog-dispatcher
-description: Orchestrateur qui dispatche les tâches du backlog vers des agents spécialisés en parallèle via agent-teams. Remplace scripts/backlog_dispatch.py.
+description: Orchestrateur qui dispatche les tâches du backlog vers des agents spécialisés en parallèle via agent-teams. Lancé par scripts/dispatch_backlog.sh.
 tools: Bash, Read, Edit, Write, Grep, Glob, Agent, SendMessage, TaskCreate, TaskUpdate, TaskList
 model: opus
 effort: high
@@ -56,7 +56,8 @@ Utilise les outils MCP backlog pour lister les tâches :
 
 Critères de sélection :
 - Status = "To Do" uniquement
-- `dispatchable` != false dans le front-matter
+- `dispatchable` != false dans le front-matter. C'est un verrou dur, indépendant du statut, de la priorité, des labels et des dépendances.
+- Avant toute sélection, contrôle directement les fichiers `backlog/tasks/*.md` et exclut chaque ID dont le front-matter contient `dispatchable: false`. La denylist injectée par `scripts/dispatch_backlog.sh` est également impérative, car les vues MCP Backlog n'exposent pas ce champ personnalisé.
 - Aucune dépendance non résolue (les dépendances doivent toutes être "Done")
 - **Pas de benchmark déjà produit en attente** : si un dossier `docs/research/task-XX-*/` existe avec un README.md dont `owner_decision == pending`, skip la tâche `task-XX` avec la raison "task-XX skipped: benchmark produced, owner decision pending in <README path>". **Exception** : si le dossier contient au moins un fichier `complement-request-*.md` dont il n'existe pas encore de `complement-response-*.md` correspondant (matching sur la date dans le nom), alors la tâche reste dispatchable — `task-research` sera relancé pour produire le complément demandé. La tâche redeviendra dispatchable (via Phase 0) quand l'owner aura mis `ok`, `abandoned`, `redo` ou `more`.
 
