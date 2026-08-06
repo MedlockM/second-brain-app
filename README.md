@@ -43,8 +43,12 @@ erreur.
 ```bash
 .venv/bin/ruff check media_summarizer tests
 .venv/bin/mypy media_summarizer
-.venv/bin/python -m pytest
 ```
+
+Pas de suite de tests unitaires : le projet n'ajoute pas de tests automatisés
+sans demande explicite (cf. `AGENTS.md`). Seule la suite E2E `tests/e2e/` existe,
+skippée par défaut car elle tape l'API AWS dev réelle — la lancer avec
+`.venv/bin/python -m pytest -m e2e` (runbook : `tests/e2e/README.md`).
 
 Si `.venv/bin/python` pointe vers une ancienne installation Python (par exemple
 un chemin Snap/VS Code versionné qui n'existe plus), relancer les deux commandes

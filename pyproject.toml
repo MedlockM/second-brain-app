@@ -40,9 +40,10 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
     "requests>=2.31.0",
+    # Required by the E2E suite only (tests/e2e/, run via `pytest -m e2e`).
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
-    # Keep worker modules importable for local checks and the existing test suite.
+    # Keep worker modules importable for local checks and the E2E suite.
     "trafilatura>=1.12.0",
 ]
 
