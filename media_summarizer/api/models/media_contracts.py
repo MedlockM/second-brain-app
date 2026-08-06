@@ -82,8 +82,7 @@ LEGACY_PROCESSING_JOB_STATUS_MAP: Dict[str, ProcessingJobLifecycleStatus] = {
     "pending": ProcessingJobLifecycleStatus.PENDING,
     "extracting": ProcessingJobLifecycleStatus.EXTRACTING,
     "transcribing": ProcessingJobLifecycleStatus.TRANSCRIBING,
-    # Summarization stage: used by the newsletter worker to indicate LLM artifact
-    # generation is in progress.
+    # Legacy name for the artifact-generation stage.
     "summarizing": ProcessingJobLifecycleStatus.READY_FOR_ARTIFACTS,
     "completed": ProcessingJobLifecycleStatus.COMPLETED,
     "failed": ProcessingJobLifecycleStatus.FAILED,

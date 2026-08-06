@@ -702,7 +702,6 @@ Objectif: qualité opérationnelle, sécurité et maîtrise des coûts.
 - `[DONE]` `task-53` Cadrer l'implémentation de la recherche media pour le MVP.
 - `[TODO]` `task-53.1` Cadrer la recherche lexicale par utilisateur dans la base de transcripts media.
 - `[TODO]` `task-58` Abonnement flux RSS — auto-ingestion des nouveaux items dans le pipeline. (post-V1 confirmé)
-- `[TODO]` `task-62` Ingestion de newsletters par email. (post-V1 confirmé)
 - `[TODO]` `task-73` Analyse cloud provider (AWS vs alternatives).
 
 ---

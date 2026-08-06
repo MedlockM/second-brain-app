@@ -13,8 +13,7 @@ import json
 import logging
 from typing import Any, Awaitable, Callable, Dict
 
-from media_summarizer.core.models.processing_job import ProcessingJob
-from media_summarizer.utils import sqs
+from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -102,12 +101,13 @@ async def process_message_with_retry(
             # 1. Mark job as FAILED in DynamoDB
             try:
                 if job_id and job_id != "unknown":
-                    job = await ProcessingJob.get(job_id)
+                    job = await database_async.get_processing_job_by_id(job_id)
                     if job:
-                        await job.mark_failed(
+                        job.mark_failed(
                             error_message=user_error_message,
                             error_step=worker_name
                         )
+                        await database_async.update_processing_job(job)
                         log_event(
                             logger,
                             logging.DEBUG,
@@ -176,6 +176,4 @@ def get_sqs_receive_params(visibility_timeout: int = 120) -> Dict[str, Any]:
         "VisibilityTimeout": visibility_timeout,
         "AttributeNames": ['ApproximateReceiveCount'],  # For retry logic
     }
-
-
 

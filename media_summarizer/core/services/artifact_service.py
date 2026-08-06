@@ -24,9 +24,9 @@ from media_summarizer.core.models.media_artifact import (
 )
 from media_summarizer.core.services.transcript_translation import (
     TranslationInProgressError,
-    ensure_translated_transcript,
     job_source_language_hint,
     persist_detected_language,
+    resolve_or_enqueue_translated_transcript,
 )
 from media_summarizer.utils import artifact_idempotence, media_artifacts, s3, sqs
 from media_summarizer.utils.logging_config import log_event
@@ -311,12 +311,13 @@ async def _resolve_effective_transcript(
     transcript_text = transcript_bytes.decode("utf-8", errors="ignore")
 
     try:
-        outcome = await ensure_translated_transcript(
+        outcome = await resolve_or_enqueue_translated_transcript(
             transcript_s3_key=transcript_s3_key,
             transcript_text=transcript_text,
             target_language=reading_language,
             source=getattr(job, "source_platform", None),
             source_language_hint=job_source_language_hint(job),
+            job_id=getattr(job, "id", None),
             transcript_bucket=TRANSCRIPT_BUCKET,
         )
     except TranslationInProgressError as exc:

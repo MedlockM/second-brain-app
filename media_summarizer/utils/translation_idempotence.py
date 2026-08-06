@@ -59,6 +59,7 @@ class TranslationLock:
         created_at: Optional[str] = None,
         updated_at: Optional[str] = None,
         error_message: Optional[str] = None,
+        worker_owner_id: Optional[str] = None,
     ) -> None:
         self.translation_fingerprint = translation_fingerprint
         self.transcript_s3_key = transcript_s3_key
@@ -67,6 +68,7 @@ class TranslationLock:
         self.created_at = created_at or _now_iso()
         self.updated_at = updated_at or _now_iso()
         self.error_message = error_message
+        self.worker_owner_id = worker_owner_id
 
     def to_dynamodb_item(self) -> dict:
         item = {
@@ -79,6 +81,8 @@ class TranslationLock:
         }
         if self.error_message:
             item["error_message"] = self.error_message
+        if self.worker_owner_id:
+            item["worker_owner_id"] = self.worker_owner_id
         return item
 
     @classmethod
@@ -91,6 +95,7 @@ class TranslationLock:
             created_at=item.get("created_at"),
             updated_at=item.get("updated_at"),
             error_message=item.get("error_message"),
+            worker_owner_id=item.get("worker_owner_id"),
         )
 
 
@@ -132,12 +137,15 @@ async def reserve_translation(
     *,
     transcript_s3_key: str,
     target_language: str,
+    allow_done_retry: bool = False,
 ) -> bool:
     """Atomically reserve a translation slot.
 
     Succeeds (returns True) only when:
     - No record exists for this fingerprint, OR
-    - The existing record has status ``failed`` (allows retry after DLQ).
+    - The existing record has status ``failed`` (allows retry after DLQ), OR
+    - ``allow_done_retry`` is true and the record is ``done`` even though its
+      translated S3 object is missing.
 
     All other callers get False and must NOT enqueue a translation job.
     This is the anti-thundering-herd gate (AC#4).
@@ -159,13 +167,19 @@ async def reserve_translation(
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
             table = await dynamodb.Table(TRANSLATION_IDEMPOTENCE_TABLE)
+            condition_expression = (
+                "attribute_not_exists(translation_fingerprint) OR #st = :failed"
+            )
+            expression_values = {":failed": TranslationStatus.FAILED}
+            if allow_done_retry:
+                condition_expression += " OR #st = :done"
+                expression_values[":done"] = TranslationStatus.DONE
+
             await table.put_item(
                 Item=lock.to_dynamodb_item(),
-                ConditionExpression=(
-                    "attribute_not_exists(translation_fingerprint) OR #st = :failed"
-                ),
+                ConditionExpression=condition_expression,
                 ExpressionAttributeNames={"#st": "status"},
-                ExpressionAttributeValues={":failed": TranslationStatus.FAILED},
+                ExpressionAttributeValues=expression_values,
             )
         log_event(
             logger,
@@ -196,8 +210,15 @@ async def mark_translation_in_progress(
     *,
     transcript_s3_key: str,
     target_language: str,
-) -> None:
-    """Transition from queued -> in_progress when the worker starts processing."""
+    worker_owner_id: str,
+) -> bool:
+    """Claim a translation for one SQS message.
+
+    A queued or failed translation may be claimed by the first worker. Retries
+    of that same SQS message may resume an ``in_progress`` translation, while a
+    different duplicate message is rejected so it cannot issue a second LLM
+    request for the same transcript.
+    """
     fingerprint = build_translation_fingerprint(
         transcript_s3_key=transcript_s3_key,
         target_language=target_language,
@@ -211,27 +232,36 @@ async def mark_translation_in_progress(
         try:
             await table.update_item(
                 Key={"translation_fingerprint": fingerprint},
-                UpdateExpression="SET #st = :in_progress, updated_at = :now",
-                ConditionExpression="#st = :queued",
+                UpdateExpression=(
+                    "SET #st = :in_progress, updated_at = :now, "
+                    "worker_owner_id = :owner"
+                ),
+                ConditionExpression=(
+                    "#st = :queued OR #st = :failed OR "
+                    "(#st = :in_progress AND worker_owner_id = :owner)"
+                ),
                 ExpressionAttributeNames={"#st": "status"},
                 ExpressionAttributeValues={
                     ":in_progress": TranslationStatus.IN_PROGRESS,
                     ":queued": TranslationStatus.QUEUED,
+                    ":failed": TranslationStatus.FAILED,
+                    ":owner": worker_owner_id,
                     ":now": _now_iso(),
                 },
             )
+            return True
         except ClientError as exc:
-            # If the condition fails (e.g. already in_progress from a retry),
-            # that's acceptable -- the worker proceeds anyway.
             if exc.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
                 raise
             log_event(
                 logger,
                 logging.DEBUG,
-                "translation_idempotence.in_progress_already",
-                "Translation already in_progress (retry scenario)",
+                "translation_idempotence.claim_rejected",
+                "Translation is owned by another worker message",
                 translation_fingerprint=fingerprint,
+                worker_owner_id=worker_owner_id,
             )
+            return False
 
 
 async def mark_translation_done(
@@ -252,7 +282,10 @@ async def mark_translation_done(
         table = await dynamodb.Table(TRANSLATION_IDEMPOTENCE_TABLE)
         await table.update_item(
             Key={"translation_fingerprint": fingerprint},
-            UpdateExpression="SET #st = :done, updated_at = :now REMOVE error_message",
+            UpdateExpression=(
+                "SET #st = :done, updated_at = :now "
+                "REMOVE error_message, worker_owner_id"
+            ),
             ExpressionAttributeNames={"#st": "status"},
             ExpressionAttributeValues={
                 ":done": TranslationStatus.DONE,
@@ -289,6 +322,7 @@ async def mark_translation_failed(
         if error_message:
             update_expr += ", error_message = :err"
             attr_values[":err"] = error_message[:500]
+        update_expr += " REMOVE worker_owner_id"
 
         await table.update_item(
             Key={"translation_fingerprint": fingerprint},

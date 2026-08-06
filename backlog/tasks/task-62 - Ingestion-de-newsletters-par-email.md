@@ -1,18 +1,18 @@
 ---
 id: task-62
 title: Ingestion de newsletters par email
-status: Done
+status: To Do
 assignee: []
 created_date: '2026-03-24 19:43'
-updated_date: '2026-04-29 20:09'
+updated_date: '2026-08-06 01:26'
 labels:
   - ingestion
   - second-brain
   - newsletter
   - email
-  - post-v1
 dependencies: []
 priority: low
+dispatchable: false
 ---
 
 ## Description
@@ -32,5 +32,5 @@ Cas d'usage typique : newsletters comme TLDR, Morning Brew, The Batch, etc. qui 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-2026-03-29 : confirmé hors scope V1. Feature post-lancement.
+2026-08-06 : réouverte comme fonctionnalité future et laissée volontairement hors exécution automatique via `dispatchable: false`. L'ancien prototype SES/SNS a été retiré de la V1 dans `task-236`; l'implémentation future devra repartir d'un périmètre et d'une architecture validés.
 <!-- SECTION:NOTES:END -->

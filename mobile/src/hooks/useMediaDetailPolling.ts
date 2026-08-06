@@ -83,7 +83,7 @@ export function useMediaDetailPolling(
   const mountedRef = useRef(true);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const startTimeRef = useRef<number>(Date.now());
+  const startTimeRef = useRef<number | null>(null);
 
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
@@ -142,12 +142,16 @@ export function useMediaDetailPolling(
 
   const startPolling = useCallback(() => {
     if (pollTimerRef.current) return; // Already polling
+    if (startTimeRef.current === null) {
+      startTimeRef.current = Date.now();
+    }
 
     pollTimerRef.current = setInterval(async () => {
       if (!token || !mediaId || !mountedRef.current) return;
 
       // Check timeout before making the request
-      const elapsed = Date.now() - startTimeRef.current;
+      const startedAt = startTimeRef.current ?? Date.now();
+      const elapsed = Date.now() - startedAt;
       if (elapsed >= TIMEOUT_MS) {
         setTimedOut(true);
         setState("timeout");
@@ -166,7 +170,8 @@ export function useMediaDetailPolling(
 
     // Set a hard timeout to stop polling after 5 minutes
     if (!timeoutTimerRef.current) {
-      const remainingMs = TIMEOUT_MS - (Date.now() - startTimeRef.current);
+      const startedAt = startTimeRef.current ?? Date.now();
+      const remainingMs = TIMEOUT_MS - (Date.now() - startedAt);
       timeoutTimerRef.current = setTimeout(() => {
         if (!mountedRef.current) return;
         setTimedOut(true);
@@ -181,23 +186,17 @@ export function useMediaDetailPolling(
     mountedRef.current = true;
     startTimeRef.current = Date.now();
 
+    let initialFetchTimer: ReturnType<typeof setTimeout> | null = null;
     if (token && mediaId) {
-      setState("loading");
-      fetchMediaStatus().then(() => {
-        // After initial fetch, start polling if still in processing state
-        if (mountedRef.current) {
-          // We read the latest state via a micro-delay to let setState flush
-          // Instead, check state directly from the response in handleResponse
-        }
-      });
+      initialFetchTimer = setTimeout(() => void fetchMediaStatus(), 0);
     }
 
     return () => {
+      if (initialFetchTimer) clearTimeout(initialFetchTimer);
       mountedRef.current = false;
       stopPolling();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, mediaId]);
+  }, [token, mediaId, fetchMediaStatus, stopPolling]);
 
   // Start or stop polling when state changes
   useEffect(() => {
@@ -206,8 +205,7 @@ export function useMediaDetailPolling(
     } else {
       stopPolling();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
+  }, [state, startPolling, stopPolling]);
 
   // Manual refresh (e.g., after timeout or pull-to-refresh)
   const refresh = useCallback(async () => {

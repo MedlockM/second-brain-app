@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -51,6 +51,15 @@ export default function ShareConfirmationScreen() {
     retry,
   } = useShareIntake();
 
+  const handleClose = useCallback(() => {
+    dismiss();
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)/inbox");
+    }
+  }, [dismiss, router]);
+
   // Auto-dismiss on success after a brief delay
   useEffect(() => {
     if (intake.status === "success") {
@@ -59,16 +68,7 @@ export default function ShareConfirmationScreen() {
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [intake.status]);
-
-  const handleClose = () => {
-    dismiss();
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace("/(tabs)/inbox");
-    }
-  };
+  }, [handleClose, intake.status]);
 
   const handleSave = () => {
     if (intake.contentType === "url") {

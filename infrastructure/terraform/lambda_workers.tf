@@ -2,6 +2,12 @@
 # Each worker is a container image from the shared ECR repository with a
 # per-function CMD override pointing to the appropriate handler module.
 
+variable "worker_image_tag" {
+  description = "Bootstrap tag for the shared worker image; CI deploys immutable image digests afterwards."
+  type        = string
+  default     = "worker-latest"
+}
+
 locals {
   workers = {
     podcastindex_resolution = {
@@ -106,7 +112,7 @@ resource "aws_lambda_function" "worker" {
   function_name = "${var.project_name}-worker-${each.key}"
   role          = aws_iam_role.lambda_worker.arn
   package_type  = "Image"
-  image_uri     = "${aws_ecr_repository.lambda.repository_url}:worker-latest"
+  image_uri     = "${aws_ecr_repository.lambda.repository_url}:${var.worker_image_tag}"
   timeout       = each.value.timeout
   memory_size   = each.value.memory_size
   architectures = ["arm64"]
@@ -179,4 +185,9 @@ resource "aws_lambda_event_source_mapping" "worker" {
   scaling_config {
     maximum_concurrency = 10
   }
+}
+
+output "worker_bootstrap_image_uri" {
+  description = "Shared worker image URI used by Terraform when creating worker Lambdas."
+  value       = "${aws_ecr_repository.lambda.repository_url}:${var.worker_image_tag}"
 }

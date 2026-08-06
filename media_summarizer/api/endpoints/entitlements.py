@@ -23,7 +23,7 @@ OFFERINGS_CONFIG = [
         "display_name": "Reader",
         "price_eur": 3.00,
         "minutes_per_month": 0,
-        "description": "Articles, newsletters, PDFs, YouTube with captions. No audio transcription.",
+        "description": "Articles, PDFs, YouTube with captions. No audio transcription.",
         "features": [
             "Unlimited articles and web content",
             "PDF and document processing",

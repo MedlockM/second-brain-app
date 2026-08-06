@@ -36,6 +36,41 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  */
 const REFRESH_BUFFER_MS = 5000;
 
+async function scheduleTokenRefresh(
+  timerRef: { current: ReturnType<typeof setTimeout> | null },
+  setAuthState: React.Dispatch<React.SetStateAction<AuthState>>,
+): Promise<void> {
+  if (timerRef.current) {
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+
+  const expiry = await TokenStorage.getTokenExpiry();
+  if (!expiry) return;
+
+  const delayMs = Math.max(0, expiry - Date.now() - REFRESH_BUFFER_MS);
+
+  timerRef.current = setTimeout(async () => {
+    try {
+      const response = await AuthService.refresh();
+      setAuthState((previous) => ({
+        ...previous,
+        token: response.access_token,
+        user: response.user,
+      }));
+      await scheduleTokenRefresh(timerRef, setAuthState);
+    } catch {
+      setAuthState({
+        user: null,
+        token: null,
+        isLoading: false,
+        isAuthenticated: false,
+        sessionError: "Your session has expired. Please sign in again.",
+      });
+    }
+  }, delayMs);
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -50,37 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Schedule proactive token refresh before expiry
   const scheduleRefresh = useCallback(async () => {
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
-    }
-
-    const expiry = await TokenStorage.getTokenExpiry();
-    if (!expiry) return;
-
-    const delayMs = Math.max(0, expiry - Date.now() - REFRESH_BUFFER_MS);
-
-    refreshTimerRef.current = setTimeout(async () => {
-      try {
-        const response = await AuthService.refresh();
-        setState((prev) => ({
-          ...prev,
-          token: response.access_token,
-          user: response.user,
-        }));
-        // Re-schedule after successful refresh
-        scheduleRefresh();
-      } catch {
-        // Refresh failed - session expired
-        setState({
-          user: null,
-          token: null,
-          isLoading: false,
-          isAuthenticated: false,
-          sessionError: "Your session has expired. Please sign in again.",
-        });
-      }
-    }, delayMs);
+    await scheduleTokenRefresh(refreshTimerRef, setState);
   }, []);
 
   // Initialize auth state on app start

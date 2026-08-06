@@ -41,8 +41,8 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "price_ttc_eur": 3.00,
             "revenue_net_eur": 2.125,
             "audio_minutes_per_month": 0,
-            "description": "Articles, newsletters, documents, YouTube captions. No audio transcription.",
-            "description_fr": "Articles, newsletters, documents, sous-titres YouTube. Aucune transcription audio.",
+            "description": "Articles, documents, YouTube captions. No audio transcription.",
+            "description_fr": "Articles, documents, sous-titres YouTube. Aucune transcription audio.",
         },
         "mix": {
             "id": "mix",

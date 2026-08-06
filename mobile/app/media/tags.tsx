@@ -24,6 +24,18 @@ import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { OrganizationService } from "../../src/services/organizationService";
 import type { Tag } from "../../src/types/organization";
 
+function parseInitialTagIds(value?: string): string[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((tagId): tagId is string => typeof tagId === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Tag Management Screen.
  * Presented as a modal/bottom-sheet from media detail.
@@ -49,26 +61,14 @@ export default function TagsScreen() {
 
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(() =>
-    isShareMode ? shareSelectedTags.map((tag) => tag.id) : [],
+    isShareMode
+      ? shareSelectedTags.map((tag) => tag.id)
+      : parseInitialTagIds(params.currentTags),
   );
   const [searchText, setSearchText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Parse initial tags from params
-  useEffect(() => {
-    if (params.currentTags) {
-      try {
-        const parsed = JSON.parse(params.currentTags);
-        if (Array.isArray(parsed)) {
-          setSelectedTagIds(parsed);
-        }
-      } catch {
-        // ignore parse error
-      }
-    }
-  }, [params.currentTags]);
 
   // Fetch user's tags
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   View,
   Text,
@@ -34,22 +34,14 @@ import {
 export default function OnboardingLanguageScreen() {
   const { updateReadingLanguage, isUpdating } = useUserPreferences();
   const [selectedLanguage, setSelectedLanguage] =
-    useState<ReadingLanguageCode | null>(null);
+    useState<ReadingLanguageCode>(() => {
+      const deviceLang = getDeviceLanguageCode();
+      return (
+        V1_READING_LANGUAGES.find((language) => language.code === deviceLang)
+          ?.code ?? "en"
+      );
+    });
   const [error, setError] = useState<string | null>(null);
-
-  // Pre-select device locale on mount
-  useEffect(() => {
-    const deviceLang = getDeviceLanguageCode();
-    const matchedLang = V1_READING_LANGUAGES.find(
-      (l) => l.code === deviceLang,
-    );
-    if (matchedLang) {
-      setSelectedLanguage(matchedLang.code);
-    } else {
-      // Default to English if device locale is not in V1 list
-      setSelectedLanguage("en");
-    }
-  }, []);
 
   const handleContinue = async () => {
     if (!selectedLanguage) return;

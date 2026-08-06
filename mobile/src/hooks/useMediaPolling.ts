@@ -49,8 +49,6 @@ export function useMediaPolling(): UseMediaPollingResult {
   const fetchMedia = useCallback(async () => {
     if (!token) return;
 
-    setError(null);
-
     try {
       const response = await MediaService.listMedia(token);
       if (isMountedRef.current) {
@@ -95,18 +93,19 @@ export function useMediaPolling(): UseMediaPollingResult {
   useEffect(() => {
     isMountedRef.current = true;
 
+    let initialFetchTimer: ReturnType<typeof setTimeout> | null = null;
     if (token) {
-      setIsLoading(true);
-      fetchMedia().finally(() => {
-        if (isMountedRef.current) {
-          setIsLoading(false);
-        }
-      });
-    } else {
-      setIsLoading(false);
+      initialFetchTimer = setTimeout(() => {
+        void fetchMedia().finally(() => {
+          if (isMountedRef.current) {
+            setIsLoading(false);
+          }
+        });
+      }, 0);
     }
 
     return () => {
+      if (initialFetchTimer) clearTimeout(initialFetchTimer);
       isMountedRef.current = false;
     };
   }, [token, fetchMedia]);

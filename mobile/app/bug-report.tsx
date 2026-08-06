@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -65,8 +65,8 @@ export default function BugReportScreen() {
   const [ticketId, setTicketId] = useState<string | null>(null);
 
   // Animations
-  const successOpacity = useRef(new Animated.Value(0)).current;
-  const successScale = useRef(new Animated.Value(0.8)).current;
+  const [successOpacity] = useState(() => new Animated.Value(0));
+  const [successScale] = useState(() => new Animated.Value(0.8));
 
   const isFormValid = subject.trim().length > 0 && description.trim().length > 0;
   const isSubmitting = submitState === "uploading" || submitState === "submitting";

@@ -54,7 +54,7 @@ def classify_media_type(source_platform: str) -> str:
     if platform_lower in ("document", "pdf", "docx"):
         return QUOTA_CATEGORY_DOCUMENT
     if platform_lower in (
-        "web", "article", "newsletter", "tiktok", "instagram", "x", "twitter",
+        "web", "article", "tiktok", "instagram", "x", "twitter",
     ):
         return QUOTA_CATEGORY_ARTICLE
     # Default: treat unknown as article (safe, non-audio)

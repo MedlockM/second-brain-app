@@ -49,9 +49,6 @@ class Settings:
         self.ARTIFACT_GENERATOR_QUEUE = os.getenv(
             "ARTIFACT_GENERATOR_QUEUE", "artifact-generator-queue"
         )
-        self.NEWSLETTER_INGESTION_QUEUE = os.getenv(
-            "NEWSLETTER_INGESTION_QUEUE", "newsletter-ingestion-queue"
-        )
         self.ARTIFACT_TYPES_ALLOWED = os.getenv(
             "ARTIFACT_TYPES_ALLOWED", "summary_short,summary_detailed,quiz,notes,flashcards"
         )

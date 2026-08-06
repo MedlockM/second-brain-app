@@ -52,8 +52,7 @@ htmlcov/
 .tox/
 .nox/
 .hypothesis/
-.venv/
-.venv-311/
+.venv*/
 venv/
 env/
 ENV/

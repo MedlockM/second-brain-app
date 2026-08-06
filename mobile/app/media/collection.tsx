@@ -121,7 +121,7 @@ export default function CollectionScreen() {
             }
           }
         };
-        expandWithChildren(data);
+        expandWithChildren(buildCollectionTree(data).treeCollections);
         setExpandedIds(expanded);
       } catch {
         setError("Failed to load collections");
@@ -137,20 +137,6 @@ export default function CollectionScreen() {
     () => buildCollectionTree(collections),
     [collections],
   );
-
-  useEffect(() => {
-    const expanded = new Set<string>();
-    const expandWithChildren = (cols: Collection[]) => {
-      for (const col of cols) {
-        if (col.children && col.children.length > 0) {
-          expanded.add(col.id);
-          expandWithChildren(col.children);
-        }
-      }
-    };
-    expandWithChildren(treeCollections);
-    setExpandedIds(expanded);
-  }, [treeCollections]);
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) {

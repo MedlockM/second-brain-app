@@ -134,7 +134,6 @@ export default function ArtifactDetailScreen() {
 
   const fetchContent = useCallback(async () => {
     if (!token || !artifactId) return;
-    setState({ status: "loading" });
     try {
       const response = await ArtifactService.getArtifactContent(
         token,
@@ -173,6 +172,12 @@ export default function ArtifactDetailScreen() {
   }, [token, artifactId]);
 
   useEffect(() => {
+    const timer = setTimeout(() => void fetchContent(), 0);
+    return () => clearTimeout(timer);
+  }, [fetchContent]);
+
+  const handleReload = useCallback(() => {
+    setState({ status: "loading" });
     void fetchContent();
   }, [fetchContent]);
 
@@ -215,7 +220,7 @@ export default function ArtifactDetailScreen() {
           <Text style={styles.failedMessage}>{state.message}</Text>
           <Pressable
             style={styles.refreshButton}
-            onPress={fetchContent}
+            onPress={handleReload}
             accessibilityLabel="Retry loading artifact"
             accessibilityRole="button"
           >
@@ -235,7 +240,7 @@ export default function ArtifactDetailScreen() {
           <Text style={styles.failedMessage}>{state.message}</Text>
           <Pressable
             style={styles.refreshButton}
-            onPress={fetchContent}
+            onPress={handleReload}
             accessibilityLabel="Refresh artifact"
             accessibilityRole="button"
           >

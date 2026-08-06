@@ -1,5 +1,4 @@
 import { apiRequest } from "./apiClient";
-import type { SourcePlatform } from "../types/media";
 
 /**
  * Highlight snippet from a search hit (mirrors backend SearchHitHighlight).
@@ -44,14 +43,6 @@ export interface SearchCredentials {
 }
 
 /**
- * Search filters supported by the Algolia transcript search endpoint.
- * Only `source_platform` is supported for now.
- */
-export interface SearchFilters {
-  source_platform?: SourcePlatform;
-}
-
-/**
  * Search service for full-text transcript search via Algolia.
  *
  * Two modes are available:
@@ -77,8 +68,8 @@ export class SearchService {
   }
 
   /**
-   * Full-text transcript search with optional source_platform filter.
-   * GET /api/search/transcripts?q=...&page=...&per_page=...&source_platform=...
+   * Full-text transcript search across all source platforms.
+   * GET /api/search/transcripts?q=...&page=...&per_page=...
    *
    * Requires a non-empty query string (min 1 char).
    */
@@ -86,7 +77,6 @@ export class SearchService {
     token: string,
     query: string,
     options?: {
-      filters?: SearchFilters;
       page?: number;
       perPage?: number;
     },
@@ -100,10 +90,6 @@ export class SearchService {
 
     if (options?.perPage) {
       params.set("per_page", String(options.perPage));
-    }
-
-    if (options?.filters?.source_platform) {
-      params.set("source_platform", options.filters.source_platform);
     }
 
     const path = `/api/search/transcripts?${params.toString()}`;

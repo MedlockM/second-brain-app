@@ -7,7 +7,6 @@ import {
   FlatList,
   ActivityIndicator,
   Pressable,
-  ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,7 +16,6 @@ import { useDebounce } from "../../src/hooks/useDebounce";
 import {
   SearchService,
   type SearchHit,
-  type SearchFilters,
 } from "../../src/services/searchService";
 import { OrganizationService } from "../../src/services/organizationService";
 import { MediaService } from "../../src/services/mediaService";
@@ -34,26 +32,7 @@ import {
   Shadows,
   TouchTarget,
 } from "../../src/constants/theme";
-import type {
-  MediaListItem,
-  SourcePlatform,
-} from "../../src/types/media";
-
-// --- Source platform filter chips (only filter supported by Algolia endpoint) ---
-
-interface SourceFilterChipDef {
-  label: string;
-  source: SourcePlatform | null; // null = "All"
-}
-
-const SOURCE_FILTERS: SourceFilterChipDef[] = [
-  { label: "All", source: null },
-  { label: "YouTube", source: "youtube" },
-  { label: "Spotify", source: "spotify" },
-  { label: "Web", source: "web" },
-  { label: "Instagram", source: "instagram" },
-  { label: "TikTok", source: "tiktok" },
-];
+import type { MediaListItem } from "../../src/types/media";
 
 // --- Helper functions ---
 
@@ -136,8 +115,6 @@ export default function SearchScreen() {
 
   // Search state
   const [query, setQuery] = useState("");
-  const [activeSourceFilter, setActiveSourceFilter] =
-    useState<SourcePlatform | null>(null);
   const [results, setResults] = useState<SearchHit[]>([]);
   const [totalResults, setTotalResults] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -157,10 +134,6 @@ export default function SearchScreen() {
     // Algolia requires a non-empty query (min_length=1).
     // Do not search with only a filter and no text query.
     if (!debouncedQuery.trim()) {
-      setResults([]);
-      setTotalResults(0);
-      setHasSearched(false);
-      setError(null);
       return;
     }
 
@@ -169,15 +142,9 @@ export default function SearchScreen() {
       setError(null);
 
       try {
-        const filters: SearchFilters = {};
-        if (activeSourceFilter) {
-          filters.source_platform = activeSourceFilter;
-        }
-
         const response = await SearchService.searchTranscripts(
           token,
           debouncedQuery,
-          { filters },
         );
 
         setResults(response.hits);
@@ -196,7 +163,7 @@ export default function SearchScreen() {
     };
 
     performSearch();
-  }, [debouncedQuery, activeSourceFilter, token]);
+  }, [debouncedQuery, token]);
 
   const loadCollections = useCallback(async () => {
     if (!token) return;
@@ -243,10 +210,20 @@ export default function SearchScreen() {
 
   const handleClearQuery = useCallback(() => {
     setQuery("");
+    setResults([]);
+    setTotalResults(0);
+    setHasSearched(false);
+    setError(null);
   }, []);
 
-  const handleFilterPress = useCallback((source: SourcePlatform | null) => {
-    setActiveSourceFilter(source);
+  const handleQueryChange = useCallback((nextQuery: string) => {
+    setQuery(nextQuery);
+    if (!nextQuery.trim()) {
+      setResults([]);
+      setTotalResults(0);
+      setHasSearched(false);
+      setError(null);
+    }
   }, []);
 
   const handleOpenCollection = useCallback(
@@ -288,7 +265,7 @@ export default function SearchScreen() {
             placeholder="Search your library..."
             placeholderTextColor={Colors.textMuted}
             value={query}
-            onChangeText={setQuery}
+            onChangeText={handleQueryChange}
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="search"
@@ -305,38 +282,6 @@ export default function SearchScreen() {
             </Pressable>
           )}
         </View>
-      </View>
-
-      {/* Source Platform Filter Chips */}
-      <View style={styles.filtersContainer}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filtersContent}
-        >
-          {SOURCE_FILTERS.map((chip) => (
-            <Pressable
-              key={chip.label}
-              style={[
-                styles.filterChip,
-                activeSourceFilter === chip.source && styles.filterChipActive,
-              ]}
-              onPress={() => handleFilterPress(chip.source)}
-              accessibilityLabel={`Filter by ${chip.label}`}
-              accessibilityRole="button"
-            >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  activeSourceFilter === chip.source &&
-                    styles.filterChipTextActive,
-                ]}
-              >
-                {chip.label}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
       </View>
 
       {/* Results Area */}
@@ -507,7 +452,7 @@ function NoResultsState({ query }: { query: string }) {
       />
       <Text style={styles.emptyTitle}>No results found</Text>
       <Text style={styles.emptyHint}>
-        No matches for "{query}". Try different keywords or adjust your filters.
+        No matches for "{query}". Try different keywords.
       </Text>
     </View>
   );
@@ -628,39 +573,6 @@ const styles = StyleSheet.create({
   clearButton: {
     marginLeft: Spacing.sm,
     padding: Spacing.xs,
-  },
-
-  // Filter chips
-  filtersContainer: {
-    backgroundColor: Colors.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.outlineVariant,
-    paddingVertical: Spacing.sm + 4,
-  },
-  filtersContent: {
-    paddingHorizontal: Spacing.md,
-    gap: Spacing.sm,
-  },
-  filterChip: {
-    height: 40,
-    minWidth: TouchTarget.minimum,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.background,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  filterChipActive: {
-    backgroundColor: Colors.primary,
-  },
-  filterChipText: {
-    fontSize: Typography.label.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.textMain,
-  },
-  filterChipTextActive: {
-    fontWeight: "600",
-    color: Colors.onPrimary,
   },
 
   // Results area

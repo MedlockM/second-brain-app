@@ -1029,7 +1029,7 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             fallback_reason=exc.reason,
             audio_result=audio_result,
         )
-        job.episode_url = audio_result["audio_url"]
+        job.media_url = audio_result["audio_url"]
         job.mark_transcribing()
         await database_async.update_processing_job(job)
 
@@ -1042,8 +1042,8 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             user_id=message_body.get("user_id"),
             user_email=message_body.get("user_email"),
             normalized_url=normalized_url,
-            episode_title=message_body.get("episode_title") or job.episode_title,
-            podcast_title=message_body.get("podcast_title") or job.podcast_title,
+            episode_title=message_body.get("episode_title") or job.title,
+            podcast_title=message_body.get("podcast_title") or job.source_platform,
             audio_duration_seconds=audio_result["audio_duration_seconds"],
         )
 

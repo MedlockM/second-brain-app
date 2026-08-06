@@ -114,6 +114,7 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
   const refreshEntitlements = useCallback(async () => {
     if (!token) return;
 
+    await Promise.resolve();
     setIsLoading(true);
     try {
       const status = await apiRequest<EntitlementStatus>(
@@ -131,7 +132,8 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
   // Refresh entitlements when auth changes
   useEffect(() => {
     if (isAuthenticated && token) {
-      refreshEntitlements();
+      const timer = setTimeout(() => void refreshEntitlements(), 0);
+      return () => clearTimeout(timer);
     }
   }, [isAuthenticated, token, refreshEntitlements]);
 

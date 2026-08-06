@@ -3,9 +3,10 @@ id: task-216
 title: >-
   Drive YouTube Apify transcript language from user's reading_language
   preference
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-17 13:31'
+updated_date: '2026-08-05 18:40'
 labels:
   - feature
   - ingestion

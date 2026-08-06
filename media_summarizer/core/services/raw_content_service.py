@@ -23,18 +23,21 @@ from typing import Optional
 
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services.transcript_translation import (
+    TRANSCRIPT_TRANSLATION_QUEUE,
     _normalize_lang,
     build_translated_transcript_key,
     detect_language,
+    enqueue_translation_job,
     job_source_language_hint,
     should_translate,
 )
-from media_summarizer.utils import s3, sqs
+from media_summarizer.utils import s3
 from media_summarizer.utils.logging_config import log_event
 from media_summarizer.utils.translation_idempotence import (
     TranslationStatus,
     build_translation_fingerprint,
     get_translation_lock,
+    mark_translation_failed,
     reserve_translation,
 )
 
@@ -43,11 +46,6 @@ logger = logging.getLogger(__name__)
 TRANSCRIPT_BUCKET = os.environ.get(
     "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
 )
-
-TRANSCRIPT_TRANSLATION_QUEUE = os.environ.get(
-    "TRANSCRIPT_TRANSLATION_QUEUE", "transcript-translation-queue"
-)
-
 
 class RawContentNotAvailableError(Exception):
     """Raised when raw content is not yet available for a media item."""
@@ -262,6 +260,8 @@ async def _resolve_translation(
         )
         lock = None
 
+    retry_missing_done_translation = False
+
     # If state machine says "done", translation should be in S3
     if lock and lock.status == TranslationStatus.DONE:
         # Verify S3 actually has it (defensive)
@@ -294,6 +294,7 @@ async def _resolve_translation(
                 "_translated_s3_key": translated_key,
             }
         # State says done but S3 object missing -- treat as failed for recovery
+        retry_missing_done_translation = True
         lock = None
 
     # If state machine says "queued" or "in_progress", do NOT re-enqueue
@@ -373,6 +374,7 @@ async def _resolve_translation(
         reserved = await reserve_translation(
             transcript_s3_key=transcript_s3_key,
             target_language=normalized_target,
+            allow_done_retry=retry_missing_done_translation,
         )
     except Exception as exc:
         log_event(
@@ -387,22 +389,33 @@ async def _resolve_translation(
 
     if reserved:
         # We won the reservation -- enqueue the translation job
-        await _enqueue_translation_job(
+        dispatched = await _enqueue_translation_job(
             transcript_s3_key=transcript_s3_key,
             target_language=normalized_target,
             source_language_hint=source_language_hint,
             source=source_platform or None,
             job_id=getattr(job, "id", None),
         )
-        log_event(
-            logger,
-            logging.INFO,
-            "raw_content.translation_enqueued",
-            "Translation reserved and async job dispatched",
-            transcript_s3_key=transcript_s3_key,
-            target_language=normalized_target,
-            detected_language=detected_language,
-        )
+        if dispatched:
+            log_event(
+                logger,
+                logging.INFO,
+                "raw_content.translation_enqueued",
+                "Translation reserved and async job dispatched",
+                transcript_s3_key=transcript_s3_key,
+                target_language=normalized_target,
+                detected_language=detected_language,
+            )
+        else:
+            return {
+                "is_translated": False,
+                "translated_from": None,
+                "target_language": normalized_target,
+                "detected_language": detected_language,
+                "detection_method": detection_method,
+                "translation_pending": False,
+                "translation_status": TranslationStatus.FAILED,
+            }
     else:
         log_event(
             logger,
@@ -432,25 +445,29 @@ async def _enqueue_translation_job(
     source_language_hint: Optional[str],
     source: Optional[str],
     job_id: Optional[str],
-) -> None:
+) -> bool:
     """Enqueue a translation job to the transcript-translation-queue.
 
     Best-effort: failures are logged but do not break /raw-content.
     The next request will re-attempt the dispatch.
     """
-    message_body = {
-        "transcript_s3_key": transcript_s3_key,
-        "target_language": target_language,
-        "source_language_hint": source_language_hint,
-        "source": source,
-        "job_id": job_id,
-    }
     try:
-        await sqs.send_message(
-            queue_name=TRANSCRIPT_TRANSLATION_QUEUE,
-            message_body=message_body,
+        await enqueue_translation_job(
+            transcript_s3_key=transcript_s3_key,
+            target_language=target_language,
+            source_language_hint=source_language_hint,
+            source=source,
+            job_id=job_id,
         )
+        return True
     except Exception as exc:
+        await mark_translation_failed(
+            transcript_s3_key=transcript_s3_key,
+            target_language=target_language,
+            error_message=(
+                f"translation_enqueue_failed: {type(exc).__name__}: {str(exc)[:200]}"
+            ),
+        )
         log_event(
             logger,
             logging.ERROR,
@@ -462,6 +479,7 @@ async def _enqueue_translation_job(
             error_type=type(exc).__name__,
             detail=str(exc)[:200],
         )
+        return False
 
 
 def _detect_source_format(

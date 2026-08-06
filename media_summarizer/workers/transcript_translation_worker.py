@@ -13,9 +13,9 @@ State machine integration (task-203):
 - On success: marks status -> done
 - On terminal failure: marks status -> failed (re-authorizes future attempts)
 
-The worker calls ensure_translated_transcript which is fully idempotent:
-duplicate messages for the same (transcript_s3_key, target_language) couple
-will short-circuit on the S3 object_exists check and not re-translate.
+The worker atomically claims a translation using the SQS message ID. Duplicate
+messages are rejected, retries of the same message may resume, and the S3 cache
+still prevents re-translating an already completed transcript.
 
 Unlike the /raw-content endpoint (constrained by API Gateway's 30s timeout),
 this Lambda is triggered by SQS with no Gateway timeout, allowing translations
@@ -74,6 +74,7 @@ async def process_message(message: Dict[str, Any]) -> None:
     source_language_hint = body.get("source_language_hint")
     source = body.get("source")
     job_id = body.get("job_id")
+    worker_owner_id = message.get("MessageId")
 
     token = bind_log_context(
         job_id=job_id,
@@ -81,7 +82,12 @@ async def process_message(message: Dict[str, Any]) -> None:
     )
 
     try:
-        if not transcript_s3_key or not target_language:
+        if (
+            not transcript_s3_key
+            or not target_language
+            or not isinstance(worker_owner_id, str)
+            or not worker_owner_id
+        ):
             log_event(
                 logger,
                 logging.ERROR,
@@ -89,6 +95,7 @@ async def process_message(message: Dict[str, Any]) -> None:
                 "Missing required fields in transcript translation message",
                 transcript_s3_key=transcript_s3_key,
                 target_language=target_language,
+                has_message_id=bool(worker_owner_id),
             )
             # Don't retry invalid messages -- let them fall through
             return
@@ -96,10 +103,22 @@ async def process_message(message: Dict[str, Any]) -> None:
         started = time.monotonic()
 
         # --- State transition: queued -> in_progress ---
-        await mark_translation_in_progress(
+        owns_translation = await mark_translation_in_progress(
             transcript_s3_key=transcript_s3_key,
             target_language=target_language,
+            worker_owner_id=worker_owner_id,
         )
+        if not owns_translation:
+            log_event(
+                logger,
+                logging.INFO,
+                "worker.translation_duplicate_skipped",
+                "Translation is already owned by another worker message",
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
+                worker_owner_id=worker_owner_id,
+            )
+            return
 
         log_event(
             logger,
@@ -163,6 +182,7 @@ async def process_message(message: Dict[str, Any]) -> None:
                 source=source,
                 source_language_hint=source_language_hint,
                 transcript_bucket=TRANSCRIPT_BUCKET,
+                translation_owner_id=worker_owner_id,
             )
         except TranscriptTranslationError as exc:
             # Terminal translation failure after retries exhausted
@@ -203,6 +223,23 @@ async def process_message(message: Dict[str, Any]) -> None:
                 error_message=f"unexpected: {type(exc).__name__}: {str(exc)[:200]}",
             )
             raise
+
+        if outcome.translation_failed:
+            await mark_translation_failed(
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
+                error_message=outcome.translation_error or "translation_failed",
+            )
+            log_event(
+                logger,
+                logging.ERROR,
+                "worker.translation_terminal_failure",
+                "Translation failed after internal retries",
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
+                detail=(outcome.translation_error or "translation_failed")[:300],
+            )
+            return
 
         # --- State transition: in_progress -> done ---
         await mark_translation_done(

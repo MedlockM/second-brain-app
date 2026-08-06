@@ -22,7 +22,6 @@ from media_summarizer.api.endpoints import (
     health,
     jobs,
     media,
-    newsletter_webhook,
     podcast_search,
     podcasts,
     pricing,
@@ -140,7 +139,6 @@ async def root():
 # Inclusion des routes API
 app.include_router(health.router, prefix="/api/v1/health", tags=["health"])
 app.include_router(media.router, prefix="/api/media", tags=["media"])
-app.include_router(newsletter_webhook.router, prefix="/api/media", tags=["newsletter"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(auth_social.router, prefix="/api/v1/auth", tags=["authentication"])

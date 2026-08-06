@@ -16,6 +16,56 @@ variable "api_zone_id" {
   default     = ""
 }
 
+variable "api_image_tag" {
+  description = "Bootstrap tag for the dedicated API image; CI deploys immutable image digests afterwards."
+  type        = string
+  default     = "api-latest"
+}
+
+variable "api_reserved_concurrency" {
+  description = "Optional API reservation override. Defaults to -1 in dev and 10 in staging/production."
+  type        = number
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = (
+      var.api_reserved_concurrency == null ||
+      var.api_reserved_concurrency == -1 ||
+      try(var.api_reserved_concurrency >= 1, false)
+    )
+    error_message = "api_reserved_concurrency must be -1 or at least 1."
+  }
+}
+
+locals {
+  effective_api_reserved_concurrency = (
+    var.api_reserved_concurrency != null
+    ? var.api_reserved_concurrency
+    : (var.environment == "dev" ? -1 : 10)
+  )
+}
+
+variable "api_warmup_enabled" {
+  description = "Invoke and validate the API health route on a low-cost EventBridge schedule."
+  type        = bool
+  default     = true
+}
+
+variable "api_warmup_schedule_expression" {
+  description = "EventBridge schedule used for API warm-up and health validation."
+  type        = string
+  default     = "rate(15 minutes)"
+
+  validation {
+    condition = (
+      startswith(var.api_warmup_schedule_expression, "rate(") ||
+      startswith(var.api_warmup_schedule_expression, "cron(")
+    )
+    error_message = "api_warmup_schedule_expression must be an EventBridge rate() or cron() expression."
+  }
+}
+
 # =============================================================================
 # CloudWatch Log Group
 # =============================================================================
@@ -36,13 +86,14 @@ resource "aws_cloudwatch_log_group" "lambda_api" {
 # =============================================================================
 
 resource "aws_lambda_function" "api" {
-  function_name = "${var.project_name}-api"
-  role          = aws_iam_role.lambda_api.arn
-  package_type  = "Image"
-  image_uri     = "${aws_ecr_repository.lambda.repository_url}:api-latest"
-  timeout       = 30
-  memory_size   = 1024
-  architectures = ["arm64"]
+  function_name                  = "${var.project_name}-api"
+  role                           = aws_iam_role.lambda_api.arn
+  package_type                   = "Image"
+  image_uri                      = "${aws_ecr_repository.lambda.repository_url}:${var.api_image_tag}"
+  timeout                        = 30
+  memory_size                    = 1024
+  architectures                  = ["arm64"]
+  reserved_concurrent_executions = local.effective_api_reserved_concurrency
 
   image_config {
     command = ["media_summarizer.api.lambda_handler.handler"]
@@ -138,15 +189,18 @@ resource "aws_apigatewayv2_stage" "default" {
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.lambda_api.arn
     format = jsonencode({
-      requestId          = "$context.requestId"
-      ip                 = "$context.identity.sourceIp"
-      requestTime        = "$context.requestTime"
-      httpMethod         = "$context.httpMethod"
-      routeKey           = "$context.routeKey"
-      status             = "$context.status"
-      protocol           = "$context.protocol"
-      responseLength     = "$context.responseLength"
-      integrationLatency = "$context.integrationLatency"
+      requestId               = "$context.requestId"
+      ip                      = "$context.identity.sourceIp"
+      requestTime             = "$context.requestTime"
+      httpMethod              = "$context.httpMethod"
+      routeKey                = "$context.routeKey"
+      status                  = "$context.status"
+      protocol                = "$context.protocol"
+      responseLength          = "$context.responseLength"
+      integrationLatency      = "$context.integrationLatency"
+      integrationErrorMessage = "$context.integrationErrorMessage"
+      errorMessage            = "$context.error.message"
+      errorResponseType       = "$context.error.responseType"
     })
   }
 
@@ -178,6 +232,45 @@ resource "aws_lambda_permission" "api_gateway" {
   function_name = aws_lambda_function.api.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
+}
+
+# A scheduled direct invocation keeps the on-demand execution environment warm
+# and exercises the canonical health route through the same Mangum adapter. The
+# wrapper raises on non-200/unhealthy responses so Lambda Errors exposes failures.
+resource "aws_cloudwatch_event_rule" "api_warmup" {
+  count = var.api_warmup_enabled ? 1 : 0
+
+  name                = "${var.project_name}-api-warmup"
+  description         = "Low-cost scheduled warm-up and health validation for the interactive API"
+  schedule_expression = var.api_warmup_schedule_expression
+  state               = "ENABLED"
+
+  tags = {
+    Name        = "${var.project_name}-api-warmup"
+    Environment = var.environment
+    Project     = var.project_name
+  }
+}
+
+resource "aws_cloudwatch_event_target" "api_warmup" {
+  count = var.api_warmup_enabled ? 1 : 0
+
+  rule      = aws_cloudwatch_event_rule.api_warmup[0].name
+  target_id = "${var.project_name}-api"
+  arn       = aws_lambda_function.api.arn
+  input = jsonencode({
+    source = "media-summarizer.api-warmup"
+  })
+}
+
+resource "aws_lambda_permission" "api_warmup" {
+  count = var.api_warmup_enabled ? 1 : 0
+
+  statement_id  = "AllowEventBridgeApiWarmup"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.api_warmup[0].arn
 }
 
 # =============================================================================
@@ -249,4 +342,9 @@ output "api_endpoint" {
 output "api_function_name" {
   description = "Name of the API Lambda function"
   value       = aws_lambda_function.api.function_name
+}
+
+output "api_bootstrap_image_uri" {
+  description = "Dedicated API image URI used by Terraform when creating the Lambda."
+  value       = aws_lambda_function.api.image_uri
 }

@@ -1,5 +1,6 @@
-# Build Lambda container image and deploy all Lambda functions on push to main.
-# Architecture: ARM64/Graviton2 container images via ECR.
+# Build and deploy independent ARM64 Lambda images for the interactive API and
+# the shared asynchronous workers. Lambda updates always use content digests;
+# latest tags exist only to bootstrap new Terraform environments.
 
 name: Deploy Lambda Functions
 
@@ -9,6 +10,7 @@ on:
     paths:
       - "media_summarizer/**"
       - "pyproject.toml"
+      - "infrastructure/docker/lambda-api.Dockerfile"
       - "infrastructure/docker/lambda.Dockerfile"
       - ".github/workflows/deploy-lambda.yml"
 
@@ -22,7 +24,42 @@ permissions:
   contents: read
 
 jobs:
-  build-and-deploy:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      workers: ${{ steps.filter.outputs.workers }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect affected runtimes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            api:
+              - 'media_summarizer/api/**'
+              - 'media_summarizer/core/**'
+              - 'media_summarizer/utils/**'
+              - 'media_summarizer/infrastructure/resolvers/**'
+              - 'media_summarizer/*.py'
+              - 'pyproject.toml'
+              - 'infrastructure/docker/lambda-api.Dockerfile'
+              - '.github/workflows/deploy-lambda.yml'
+            workers:
+              - 'media_summarizer/workers/**'
+              - 'media_summarizer/core/**'
+              - 'media_summarizer/utils/**'
+              - 'media_summarizer/infrastructure/**'
+              - 'media_summarizer/*.py'
+              - 'pyproject.toml'
+              - 'infrastructure/docker/lambda.Dockerfile'
+              - '.github/workflows/deploy-lambda.yml'
+
+  deploy-api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -41,67 +78,151 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Set up QEMU (for ARM64 cross-compilation)
+      - name: Set up QEMU for ARM64
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Build and push container image
+      - name: Build and push dedicated API image
+        id: build-api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/docker/lambda-api.Dockerfile
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:api-latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:api-${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=lambda-api
+          cache-to: type=gha,mode=max,scope=lambda-api
+
+      - name: Deploy API by immutable digest
+        run: |
+          aws lambda update-function-code \
+            --function-name media-summarizer-api \
+            --image-uri "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.build-api.outputs.digest }}" \
+            --no-cli-pager
+          aws lambda wait function-updated-v2 \
+            --function-name media-summarizer-api
+          API_STATE=$(aws lambda get-function-configuration \
+            --function-name media-summarizer-api \
+            --query 'State' \
+            --output text)
+          API_UPDATE=$(aws lambda get-function-configuration \
+            --function-name media-summarizer-api \
+            --query 'LastUpdateStatus' \
+            --output text)
+          test "$API_STATE" = "Active"
+          test "$API_UPDATE" = "Successful"
+
+  deploy-workers:
+    needs: changes
+    if: needs.changes.outputs.workers == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU for ARM64
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build and push shared worker image
+        id: build-workers
         uses: docker/build-push-action@v6
         with:
           context: .
           file: infrastructure/docker/lambda.Dockerfile
           platforms: linux/arm64
           push: true
-          # Lambda rejects OCI image indexes / attestation manifests
-          # ("image manifest ... media type ... is not supported"). Disable
-          # buildx provenance + SBOM so a plain single-arch manifest is pushed.
           provenance: false
           sbom: false
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:worker-latest
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:worker-${{ env.IMAGE_TAG }}
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:api-latest
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:api-${{ env.IMAGE_TAG }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=lambda-workers
+          cache-to: type=gha,mode=max,scope=lambda-workers
 
-      - name: Update API Lambda function
+      - name: Deploy workers by immutable digest
         run: |
-          aws lambda update-function-code \
-            --function-name media-summarizer-api \
-            --image-uri "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:api-${{ env.IMAGE_TAG }}" \
-            --no-cli-pager
-
-      - name: Update worker Lambda functions
-        run: |
-          # Discover deployed worker functions dynamically so this never drifts
-          # from reality (a stale hardcoded list referenced a removed 'download'
-          # worker and silently skipped instagram_ingestion + quiz).
           WORKERS=$(aws lambda list-functions \
             --query "Functions[?starts_with(FunctionName, 'media-summarizer-worker-')].FunctionName" \
             --output text)
           test -n "$WORKERS" || { echo "No media-summarizer-worker-* functions found"; exit 1; }
-          for fn in $WORKERS; do
-            echo "Updating ${fn}..."
+          for FUNCTION_NAME in $WORKERS; do
             aws lambda update-function-code \
-              --function-name "$fn" \
-              --image-uri "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:worker-${{ env.IMAGE_TAG }}" \
+              --function-name "$FUNCTION_NAME" \
+              --image-uri "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.build-workers.outputs.digest }}" \
               --no-cli-pager
           done
+          for FUNCTION_NAME in $WORKERS; do
+            aws lambda wait function-updated-v2 --function-name "$FUNCTION_NAME"
+            WORKER_STATE=$(aws lambda get-function-configuration \
+              --function-name "$FUNCTION_NAME" \
+              --query 'State' \
+              --output text)
+            WORKER_UPDATE=$(aws lambda get-function-configuration \
+              --function-name "$FUNCTION_NAME" \
+              --query 'LastUpdateStatus' \
+              --output text)
+            test "$WORKER_STATE" = "Active"
+            test "$WORKER_UPDATE" = "Successful"
+          done
 
-      - name: Wait for API Lambda update to complete
+  release-validation:
+    needs: [changes, deploy-api, deploy-workers]
+    if: >-
+      always() &&
+      (needs.changes.outputs.api == 'true' || needs.changes.outputs.workers == 'true') &&
+      (needs.deploy-api.result == 'success' || needs.deploy-api.result == 'skipped') &&
+      (needs.deploy-workers.result == 'success' || needs.deploy-workers.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Wait for API and validate public health endpoint
         run: |
-          aws lambda wait function-updated \
+          aws lambda wait function-active-v2 \
             --function-name media-summarizer-api
-
-      - name: Smoke test API (invoke with empty event)
-        run: |
-          # Simple health check via Lambda invoke
-          aws lambda invoke \
+          API_STATE=$(aws lambda get-function-configuration \
             --function-name media-summarizer-api \
-            --cli-binary-format raw-in-base64-out \
-            --payload '{"httpMethod":"GET","path":"/api/v1/health","headers":{},"queryStringParameters":null,"body":null,"requestContext":{"http":{"method":"GET","path":"/api/v1/health"}},"version":"2.0","routeKey":"$default","rawPath":"/api/v1/health","isBase64Encoded":false}' \
-            --no-cli-pager \
-            /tmp/response.json
-          cat /tmp/response.json
+            --query 'State' \
+            --output text)
+          API_UPDATE=$(aws lambda get-function-configuration \
+            --function-name media-summarizer-api \
+            --query 'LastUpdateStatus' \
+            --output text)
+          test "$API_STATE" = "Active"
+          test "$API_UPDATE" = "Successful"
+          API_ENDPOINT=$(aws apigatewayv2 get-apis \
+            --query "Items[?Name=='media-summarizer-api'].ApiEndpoint | [0]" \
+            --output text)
+          test -n "$API_ENDPOINT"
+          test "$API_ENDPOINT" != "None"
+          HEALTH_BODY=$(mktemp)
+          curl --fail --silent --show-error \
+            --retry 5 --retry-all-errors --retry-delay 3 \
+            --output "$HEALTH_BODY" \
+            "$API_ENDPOINT/api/v1/health/"
+          jq -e '.status == "healthy"' "$HEALTH_BODY"

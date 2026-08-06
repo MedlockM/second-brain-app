@@ -9,14 +9,11 @@ module.exports = {
     // Temporarily downgrade TypeScript rules to warnings for existing codebase
     '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
     '@typescript-eslint/no-explicit-any': 'warn',
-    // Temporarily downgrade react-hooks rules to warnings
-    // These are real bugs that need fixing in a follow-up task
-    // See: task-223 for full context
-    'react-hooks/exhaustive-deps': 'warn',
-    'react-hooks/set-state-in-effect': 'warn',
-    'react-hooks/refs': 'warn',
-    'react-hooks/purity': 'warn',
-    'react-hooks/immutability': 'warn',
+    'react-hooks/exhaustive-deps': 'error',
+    'react-hooks/set-state-in-effect': 'error',
+    'react-hooks/refs': 'error',
+    'react-hooks/purity': 'error',
+    'react-hooks/immutability': 'error',
   },
   ignorePatterns: [
     'node_modules/',

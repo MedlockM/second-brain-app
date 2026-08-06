@@ -89,6 +89,7 @@ function buildInitialArtifactStates(): Record<ArtifactType, ArtifactLocalState> 
 }
 
 const ARTIFACT_POLL_INTERVAL_MS = 3000;
+const ARTIFACT_TRANSLATION_RETRY_MAX_ATTEMPTS = 100;
 
 type ArtifactLocalState = {
   status: ArtifactStatus | "idle";
@@ -414,15 +415,28 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
 
   const mountedRef = useRef(true);
   const artifactPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const artifactRetryTimeoutsRef = useRef<
+    Partial<Record<ArtifactType, ReturnType<typeof setTimeout>>>
+  >({});
+  const artifactRetryAttemptsRef = useRef<
+    Partial<Record<ArtifactType, number>>
+  >({});
+  const handleGenerateRef = useRef<
+    (artifactType: ArtifactType) => Promise<void>
+  >(async () => undefined);
   const [rawContent, setRawContent] = useState<RawContentState>({
     status: "idle",
   });
 
   useEffect(() => {
+    const artifactRetryTimeouts = artifactRetryTimeoutsRef.current;
     return () => {
       mountedRef.current = false;
       if (artifactPollRef.current) {
         clearInterval(artifactPollRef.current);
+      }
+      for (const timeout of Object.values(artifactRetryTimeouts)) {
+        if (timeout) clearTimeout(timeout);
       }
     };
   }, []);
@@ -481,7 +495,13 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
 
   const handleGenerate = useCallback(
     async (artifactType: ArtifactType) => {
-      if (!token) return;
+      if (!token || !mountedRef.current) return;
+
+      const pendingRetry = artifactRetryTimeoutsRef.current[artifactType];
+      if (pendingRetry) {
+        clearTimeout(pendingRetry);
+        delete artifactRetryTimeoutsRef.current[artifactType];
+      }
 
       setArtifactStates((prev) => ({
         ...prev,
@@ -503,24 +523,48 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
             artifactId: result.artifact_id,
           },
         }));
+        delete artifactRetryAttemptsRef.current[artifactType];
 
         startArtifactPolling();
       } catch (err) {
         if (!mountedRef.current) return;
 
-        // Handle 409 CONFLICT: translation is in-flight, treat as queued
-        // and start polling until the translation completes and the artifact
-        // can be generated (task-214).
+        // Handle 409 CONFLICT: translation is in-flight. No artifact record
+        // exists yet, so retry the POST at the normal polling cadence. Once
+        // accepted, regular artifact-status polling takes over.
         const httpStatus = (err as { status?: number } | undefined)?.status;
         if (httpStatus === 409) {
+          const attempt =
+            (artifactRetryAttemptsRef.current[artifactType] ?? 0) + 1;
+          artifactRetryAttemptsRef.current[artifactType] = attempt;
+          if (attempt >= ARTIFACT_TRANSLATION_RETRY_MAX_ATTEMPTS) {
+            delete artifactRetryAttemptsRef.current[artifactType];
+            setArtifactStates((prev) => ({
+              ...prev,
+              [artifactType]: {
+                status: "failed",
+                error: "Translation is taking longer than expected. Please try again.",
+              },
+            }));
+            return;
+          }
+
           setArtifactStates((prev) => ({
             ...prev,
             [artifactType]: { status: "queued" },
           }));
-          startArtifactPolling();
+          if (!artifactRetryTimeoutsRef.current[artifactType]) {
+            artifactRetryTimeoutsRef.current[artifactType] = setTimeout(() => {
+              delete artifactRetryTimeoutsRef.current[artifactType];
+              if (mountedRef.current) {
+                void handleGenerateRef.current(artifactType);
+              }
+            }, ARTIFACT_POLL_INTERVAL_MS);
+          }
           return;
         }
 
+        delete artifactRetryAttemptsRef.current[artifactType];
         setArtifactStates((prev) => ({
           ...prev,
           [artifactType]: {
@@ -532,6 +576,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     },
     [token, media_item.media_item_id, startArtifactPolling],
   );
+  handleGenerateRef.current = handleGenerate;
 
   const toggleArtifactsExpanded = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);

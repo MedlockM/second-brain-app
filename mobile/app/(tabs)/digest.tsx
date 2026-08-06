@@ -55,10 +55,8 @@ export default function DigestScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
 
   const fetchDigest = useCallback(
-    async (tab: DigestTab, silent = false) => {
+    async (tab: DigestTab) => {
       if (!token) return;
-      if (!silent) setIsLoading(true);
-      setError(null);
 
       try {
         if (tab === "daily") {
@@ -81,20 +79,24 @@ export default function DigestScreen() {
   );
 
   useEffect(() => {
-    fetchDigest(activeTab);
-    setActiveCardIndex(0);
+    const timer = setTimeout(() => void fetchDigest(activeTab), 0);
+    return () => clearTimeout(timer);
   }, [activeTab, fetchDigest]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
-    fetchDigest(activeTab, true);
+    setError(null);
+    void fetchDigest(activeTab);
   }, [activeTab, fetchDigest]);
 
   const handleTabChange = useCallback((tab: DigestTab) => {
+    if (tab === activeTab) return;
     setActiveTab(tab);
+    setIsLoading(true);
+    setError(null);
     setActiveCardIndex(0);
     scrollViewRef.current?.scrollTo({ x: 0, animated: false });
-  }, []);
+  }, [activeTab]);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {

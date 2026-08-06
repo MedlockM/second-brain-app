@@ -119,7 +119,6 @@ export function ShareIntentProvider({
   const router = useRouter();
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
-  pathnameRef.current = pathname;
   const [intake, setIntake] = useState<ShareIntakeState>(INITIAL_STATE);
   const [selectedFolder, setSelectedFolder] =
     useState<ShareSelectedFolder | null>(null);
@@ -131,6 +130,10 @@ export function ShareIntentProvider({
   // Consume the official expo-share-intent package context
   const { hasShareIntent, shareIntent, resetShareIntent } =
     useShareIntentContext();
+
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
 
   /**
    * Map an expo-share-intent ShareIntent object to our ShareIntakeState
@@ -303,7 +306,8 @@ export function ShareIntentProvider({
       return;
     }
 
-    processShareIntent(shareIntent);
+    const timer = setTimeout(() => processShareIntent(shareIntent), 0);
+    return () => clearTimeout(timer);
   }, [hasShareIntent, shareIntent, isAuthenticated, isLoading, processShareIntent]);
 
   /**
@@ -313,7 +317,8 @@ export function ShareIntentProvider({
     if (isAuthenticated && !isLoading && pendingIntentRef.current) {
       const pending = pendingIntentRef.current;
       pendingIntentRef.current = null;
-      processShareIntent(pending);
+      const timer = setTimeout(() => processShareIntent(pending), 0);
+      return () => clearTimeout(timer);
     }
   }, [isAuthenticated, isLoading, processShareIntent]);
 

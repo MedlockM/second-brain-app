@@ -1129,7 +1129,7 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
             audio_result=audio_result,
         )
         job.extraction_metadata = extraction_metadata
-        job.episode_url = audio_result["audio_url"]
+        job.media_url = audio_result["audio_url"]
         await database_async.update_processing_job(job)
 
         await sqs.send_message(
@@ -1141,8 +1141,9 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
                 "audio_url": audio_result["audio_url"],
                 "media_key": message_body.get("media_key"),
                 "normalized_url": normalized_url,
-                "episode_title": message_body.get("episode_title") or job.episode_title,
-                "podcast_title": message_body.get("podcast_title") or job.podcast_title,
+                "episode_title": message_body.get("episode_title") or job.title,
+                "podcast_title": message_body.get("podcast_title")
+                or job.source_platform,
                 "audio_duration_seconds": audio_result["audio_duration_seconds"],
                 "deepgram_mode": "push",
             },

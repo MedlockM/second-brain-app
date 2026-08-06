@@ -1,1 +1,0 @@
-"""Newsletter ingestion worker package."""
