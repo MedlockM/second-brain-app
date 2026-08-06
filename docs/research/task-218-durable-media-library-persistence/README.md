@@ -1,5 +1,5 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark : durable canonical media-library persistence model, independent of processing-job retention
@@ -10,7 +10,7 @@ owner_decision: pending
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — texte libre décrivant la décision finale : accept recommandation X, reject parce que Y, accept with modifications Z, OU, si redo, les consignes précises de correction à intégrer au prochain passage)_
+**Decision**: Option A
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---

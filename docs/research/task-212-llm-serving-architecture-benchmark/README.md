@@ -1,5 +1,5 @@
 ---
-owner_decision: pending
+owner_decision: abandoned
 ---
 
 # Benchmark : LLM Serving Architectures for Production (100-1000 Users) — Including Chatbot Workload
