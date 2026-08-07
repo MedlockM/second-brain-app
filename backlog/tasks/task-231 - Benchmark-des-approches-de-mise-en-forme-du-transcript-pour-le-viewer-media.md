@@ -31,3 +31,24 @@ Cette tâche de recherche doit produire une recommandation sur la meilleure arch
 
 Livrable attendu : docs/research/task-XX-.../README.md avec front-matter owner_decision: pending, comparant les options et recommandant une architecture cible (format de stockage, effort de migration, plan d'implémentation UI).
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Mode: initial** (no pre-existing `docs/research/task-231-*/` directory, therefore no `README.owner-rejected-*.md` to integrate and no open complement request).
+
+Deliverable produced: `docs/research/task-231-transcript-formatting/README.md` (685 lines, front-matter `owner_decision: pending`).
+
+Contents:
+- 15 sections: evidence tables with file:line citations, the Deepgram response shape confirmed against the live API docs, a storage sizing model, the 8-producer cross-source impact map, a 7-option scoring matrix, an explicit rejection section, translation compatibility analysis, migration analysis, a target design, and a React Native UI plan.
+- Every bullet of the task description is addressed explicitly: backend reconstruction from `results.paragraphs` / `results.utterances` and its S3 storage impact (section 3), the client-side heuristic alternative (sections 1.3 and 6.1), speaker labels and timestamps feasibility/cost in React Native (section 7), impact on non-Deepgram sources — YouTube, TikTok, RSS/podcast, X, articles (section 4), and translation-pipeline compatibility (section 8).
+- Three quantitative measurements were run against the actual repo code (not estimates): the current `_format_plain_text` heuristic produces **1 paragraph of ~54 000 characters** on unpunctuated caption input (today's YouTube/TikTok shape); the full raw Deepgram payload would cost **x42.6** storage versus plain text; paragraph-delimited plain text costs **+0.3 %**.
+
+**Recommendation (Option B)**: keep the canonical S3 object as plain UTF-8 text, stop discarding Deepgram's free `paragraphs.transcript` (already blank-line delimited), introduce one shared idempotent normalizer called both at write time by all 8 producers and at read time in `raw_content_service._format_content()` (idempotence is what removes any need for an S3 migration), and render one selectable `<Text>` per paragraph in `TranscriptContent`. Speaker-label rendering is implemented but diarization stays off by default (+$0.0020/min, +41.7 % on the Nova-3 promo rate — an owner pricing call). Timestamps are deliberately excluded from V1 since the app has no player.
+
+**Explicitly rejected**: raw Deepgram JSON as the canonical object, compact JSON as the canonical object, a JSON sidecar in V1, client-only heuristic re-paragraphing, an LLM re-paragraphing pass, read-time-only normalization, an S3 backfill migration, sentence-level timings, diarization by default, and a reading/raw mode toggle.
+
+Six open questions are listed for the owner in section 14 (diarization, timestamps, paragraph length, design mockup, dead-code cleanup scope, `segments_count` semantics).
+
+No source code was modified — research only. **The recommendation awaits owner validation**: the task stays `To Do` and the README front-matter stays `owner_decision: pending` until the owner records a decision.
+<!-- SECTION:NOTES:END -->
