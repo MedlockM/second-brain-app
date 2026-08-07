@@ -3,9 +3,10 @@ id: task-218
 title: >-
   Benchmark a durable canonical media-library persistence model independent of
   processing-job retention
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-02 22:38'
+updated_date: '2026-08-07 11:25'
 labels:
   - benchmark
 dependencies: []
