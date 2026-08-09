@@ -66,5 +66,4 @@ tags:
 # Verify the greeting is shown (dynamic based on time of day)
 - assertVisible:
     text: "Good .*"
-    regex: true
     optional: true
