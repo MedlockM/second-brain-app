@@ -1,0 +1,42 @@
+# Flow 06: Algolia lexical search
+# Data contract: TEST_USER_EMAIL owns at least one indexed transcript matching
+# SEARCH_TEST_TERM. CI injects the term; the flow never hardcodes test content.
+appId: com.secondbrainlabs.core
+tags:
+  - critical
+  - search
+
+---
+
+- launchApp:
+    clearState: true
+
+- extendedWaitUntil:
+    visible:
+      text: "Welcome back"
+    timeout: 15000
+
+- runFlow: utils/login.yaml
+
+- tapOn:
+    text: "Search"
+
+- assertVisible:
+    text: "Search your library..."
+
+- tapOn:
+    id: "search-input"
+- inputText: ${SEARCH_TEST_TERM}
+
+- extendedWaitUntil:
+    visible:
+      id: "search-result-card"
+    timeout: 15000
+
+- tapOn:
+    id: "search-result-card"
+    index: 0
+
+- assertVisible:
+    text: "AI Artifacts"
+    timeout: 10000

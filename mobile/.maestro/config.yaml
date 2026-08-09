@@ -12,10 +12,14 @@ tags:
 # Environment variables used across all flows
 env:
   # Test user credentials (override in CI via --env)
-  TEST_USER_EMAIL: "e2e-test@mediasummarizer.com"
-  TEST_USER_PASSWORD: "TestPass123!"
+  TEST_USER_EMAIL: ""
+  TEST_USER_PASSWORD: ""
   # API base URL for test environment
-  API_BASE_URL: "https://api-staging.mediasummarizer.com"
+  API_BASE_URL: "https://jji077bi8e.execute-api.eu-west-3.amazonaws.com"
+  # CI overrides this with github.run_id/run_attempt for unique registration.
+  MAESTRO_RUN_ID: "local"
+  # The E2E account must contain an indexed transcript matching this term.
+  SEARCH_TEST_TERM: "transcript"
   # Sample URLs for share intake testing
   SHARE_TEST_URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
   SHARE_TEST_PODCAST_URL: "https://open.spotify.com/episode/test-episode-id"

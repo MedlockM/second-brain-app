@@ -1,6 +1,6 @@
-# Flow 01: Login Authentication
-# Verifies that a user can authenticate and reach the inbox screen.
-# This flow is a prerequisite for all other share-first flows.
+# Flow 01: Email registration and login
+# MAESTRO_RUN_ID is supplied by CI and keeps registration idempotent.
+# Native Apple/Google sheets stay in the manual validation tasks.
 appId: com.secondbrainlabs.core
 tags:
   - critical
@@ -18,7 +18,42 @@ tags:
       text: "Welcome back"
     timeout: 15000
 
-# Run the login sub-flow
+# Register a fresh user and verify the development bypass lands on Inbox.
+- tapOn:
+    text: "Sign Up"
+
+- assertVisible:
+    text: "Create account"
+
+- tapOn:
+    id: "register-email-input"
+- inputText: "e2e-register-${MAESTRO_RUN_ID}@test.local"
+
+- tapOn:
+    id: "register-password-input"
+- inputText: ${TEST_USER_PASSWORD}
+
+- tapOn:
+    id: "register-submit-button"
+
+- extendedWaitUntil:
+    visible:
+      text: "Inbox"
+    timeout: 15000
+
+# End the fresh session, then exercise explicit email/password login.
+- tapOn:
+    text: "Account"
+- tapOn:
+    id: "account-sign-out-button"
+- tapOn:
+    text: "Sign Out"
+
+- extendedWaitUntil:
+    visible:
+      text: "Welcome back"
+    timeout: 10000
+
 - runFlow: utils/login.yaml
 
 # Verify we landed on the inbox tab

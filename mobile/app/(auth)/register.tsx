@@ -79,6 +79,7 @@ export default function RegisterScreen() {
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Email</Text>
             <TextInput
+              testID="register-email-input"
               style={styles.input}
               value={email}
               onChangeText={(text) => {
@@ -98,6 +99,7 @@ export default function RegisterScreen() {
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Password</Text>
             <TextInput
+              testID="register-password-input"
               style={styles.input}
               value={password}
               onChangeText={(text) => {
@@ -113,6 +115,7 @@ export default function RegisterScreen() {
           </View>
 
           <TouchableOpacity
+            testID="register-submit-button"
             style={[styles.button, isSubmitting && styles.buttonDisabled]}
             onPress={handleRegister}
             disabled={isSubmitting}

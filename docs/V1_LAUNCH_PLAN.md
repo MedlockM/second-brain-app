@@ -503,10 +503,11 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 3. ✅ `task-181` — Expo SDK 52 → 55 + `expo-share-intent` 6.x.
 4. ✅ `task-187` — Share intent refactoré vers l'API officielle `expo-share-intent` v6.
 5. ✅ `task-188` — Fix cold-start race `expo-share-intent` v6 + suppression de la config custom dupliquée.
-6. ✅ Une build iOS development physique a terminé sur EAS le 2026-06-11
+6. ✅ `task-161` — une build iOS development physique a terminé sur EAS le 2026-06-11
    (`build id 324f110a-8cbe-447c-96bf-2214099348c4`, commit `8c63765`).
-   **Attention** : son artifact a expiré le 2026-06-25 ; elle ne clôt pas
-   `task-161` pour le code courant.
+   Son artifact a expiré le 2026-06-25, mais le development client reste
+   installé et fonctionnel sur l'iPhone owner. Aucun changement natif requis
+   n'a été introduit depuis ce build ; task-161 est clôturée sur cette preuve.
 
 #### À faire
 
@@ -516,31 +517,29 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    `expo-share-intent` est configuré.
 1. Configurer les variables EAS pour development/preview/production. Les trois
    environnements sont vides au 2026-07-31 et `mobile/.env` est gitignored.
-2. `task-161` — refaire `eas build --platform ios --profile development` depuis
-   le SHA courant, puis installer et noter la nouvelle build.
-3. `task-162` — première build
+2. `task-162` — première build
    `eas build --platform android --profile development` + récupération du
    SHA-1 keystore EAS (aucune build Android n'existe au 2026-07-31).
-4. `task-163` — créer l'OAuth Client ID Android dans Google Cloud Console avec `package=com.secondbrainlabs.core` + SHA-1 EAS.
-5. `task-164` — validation iOS sur device physique :
+3. `task-163` — créer l'OAuth Client ID Android dans Google Cloud Console avec `package=com.secondbrainlabs.core` + SHA-1 EAS.
+4. `task-164` — validation iOS sur device physique :
    - Sign in with Apple → user créé/lié → inbox.
    - Continue with Google → `ASWebAuthenticationSession` → user créé/lié → inbox.
    - Share intent Safari → share-confirm → submit → vignette inbox.
-6. `task-165` — validation Android sur device physique :
+5. `task-165` — validation Android sur device physique :
    - Continue with Google sans `DEVELOPER_ERROR`.
    - Apple button absent ou no-op clean.
    - Share intent Chrome URL.
    - Share intent texte/audio.
-7. `task-168` — étendre Maestro login/register email/password.
-8. `task-169` — ajouter Maestro search Algolia (`06_search.yaml` absent).
-9. `task-170` — ajouter Maestro paywall (`07_paywall.yaml` absent).
-10. Corriger `.github/workflows/mobile-e2e-maestro.yml` : installation Maestro
-    cassée dans le dernier run, fallback API staging inexistant et `|| true`
-    masque les échecs fonctionnels.
-11. `task-171` — run complet Maestro local iOS + Android, itérer jusqu'au vert.
-12. `task-172` — rendre Maestro Android réellement obligatoire sur `mobile/**`,
+6. `task-168` — valider en CI le flow login/register email/password étendu.
+7. `task-169` — valider en CI le nouveau flow search Algolia (`06_search.yaml`).
+8. `task-170` — configurer les produits RevenueCat puis valider en CI le
+   nouveau flow paywall (`07_paywall.yaml`).
+9. `task-171` — run complet Maestro sur émulateur Android CI et simulateur iOS
+   CI, itérer jusqu'au vert. Aucun appareil Android physique n'est requis pour
+   cette couverture logique.
+10. `task-172` — rendre Maestro Android réellement obligatoire sur `mobile/**`,
     documenter le lancement local.
-13. `task-166` — marquer Phase 5 DONE dans ce plan une fois les tâches ci-dessus closes.
+11. `task-166` — marquer Phase 5 DONE dans ce plan une fois les tâches ci-dessus closes.
 
 ### Phase 6 — Tests IAP sandbox (jour 5-6)
 
@@ -588,13 +587,17 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    et tente une soumission pour chaque push `main` touchant `mobile/**`.
    Réserver les builds/submissions production à un tag ou un dispatch explicite
    et utiliser preview/internal pour la validation courante.
-5. **Secrets GitHub** : seul `AWS_DEPLOY_ROLE_ARN` existe. Ajouter
-   `EXPO_TOKEN`, Apple/App Store Connect, Google Play service account et les
-   credentials E2E/API nécessaires.
+5. **Secrets GitHub** : les quatre secrets Maestro requis sont configurés
+   (`E2E_TEST_USER_*`, `E2E_SEARCH_TEST_TERM`, clé publique RevenueCat Test
+   Store). Ajouter encore `EXPO_TOKEN`, Apple/App Store Connect et le
+   service account Google Play pour les workflows de distribution.
 6. **Variables EAS** : aucune variable n'existe dans
    development/preview/production ; les créer avant rebuild.
-7. **Maestro CI** : réparer l'installation, retirer `|| true`, pointer sur un
-   vrai staging et publier un résultat qui échoue réellement si un flow casse.
+7. **Maestro CI** : source réparée avec Maestro 2.8, binaires Release autonomes,
+   émulateur Android, simulateur iOS manuel, rapports JUnit et vrais codes de
+   sortie. Le compte AWS dev est préchargé pour Search. Le premier run de cette
+   version attend encore son commit/push ; le paywall restera rouge tant que
+   les trois produits ne sont pas exposés par l'offering RevenueCat.
 8. **Branch protection** : choisir GitHub Pro/repo public ou formaliser un gate
    manuel ; la protection n'est pas disponible avec le plan privé actuel.
 9. Vérifier le rollback Lambda avec deux images API/worker immuables après

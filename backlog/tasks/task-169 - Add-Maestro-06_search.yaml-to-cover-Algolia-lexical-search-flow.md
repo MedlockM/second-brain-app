@@ -1,9 +1,11 @@
 ---
 id: task-169
 title: Add Maestro 06_search.yaml to cover Algolia lexical search flow
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - Codex
 created_date: '2026-06-10 05:58'
+updated_date: '2026-08-09 20:13'
 labels:
   - phase-5
   - mobile
@@ -12,7 +14,6 @@ labels:
   - e2e
 dependencies:
   - task-161
-  - task-162
 priority: high
 ---
 
@@ -60,8 +61,22 @@ Documente le choix dans le commentaire du flow.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 mobile/.maestro/06_search.yaml existe et tourne sans erreur en local
-- [ ] #2 Couvre tap tab Search + input + résultat affiché + tap résultat → detail screen
-- [ ] #3 Setup data documenté dans le flow (user pré-loadé OU partage inline)
-- [ ] #4 Pas de hardcoding du terme de recherche : utilise une env var ou une valeur dérivée du SHARE_TEST_URL
+- [ ] #1 mobile/.maestro/06_search.yaml existe et s'exécute sur les jobs iOS et Android CI
+- [x] #2 Le flow couvre l'ouverture de Search, la saisie, l'affichage d'au moins un résultat et l'ouverture du détail média
+- [x] #3 Le jeu de données préchargé et la variable SEARCH_TEST_TERM sont documentés dans le flow et le workflow CI
+- [x] #4 Le terme de recherche n'est pas hardcodé dans le flow
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Ajouter un identifiant d'accessibilité stable au premier résultat de recherche. 2. Créer 06_search.yaml en réutilisant le login factorisé et SEARCH_TEST_TERM. 3. Injecter la donnée de test dans les jobs CI. 4. Valider sur iOS et Android CI.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Ajout de mobile/.maestro/06_search.yaml et des testID search-input/search-result-card. Le flow réutilise le login, injecte SEARCH_TEST_TERM, attend un résultat puis ouvre le détail média.
+
+2026-08-09 — Fixture persistante provisionnée sur AWS dev : article Commonplace book arrivé ready_for_artifacts et recherche Algolia 'commonplace' vérifiée avec 1 résultat. Identifiants et terme stockés dans les secrets GitHub Actions. L'AC #1 attend les runs CI de la version commitée.
+<!-- SECTION:NOTES:END -->

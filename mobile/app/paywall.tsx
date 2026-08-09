@@ -154,10 +154,11 @@ export default function PaywallScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID="paywall-screen">
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
+          testID="paywall-close-button"
           onPress={() => router.back()}
           style={styles.closeButton}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
@@ -192,6 +193,7 @@ export default function PaywallScreen() {
             return (
               <View
                 key={tier.identifier}
+                testID={`paywall-tier-${tier.identifier}`}
                 style={[
                   styles.tierCard,
                   tier.highlight && styles.tierCardHighlight,

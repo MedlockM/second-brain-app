@@ -47,9 +47,11 @@ export class AuthService {
       throw createHttpError(message, response.status, code);
     }
 
-    const result: TokenVerificationResponse = await response.json();
-    await this.persistTokens(result);
-    return result;
+    // Registration creates the account but deliberately returns only the user.
+    // Mobile clients cannot use the refresh-token cookie set by that endpoint,
+    // so establish the actual mobile session through the login contract.
+    await response.json();
+    return this.login(data);
   }
 
   static async login(data: LoginRequest): Promise<TokenVerificationResponse> {

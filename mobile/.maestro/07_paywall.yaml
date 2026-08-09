@@ -1,0 +1,44 @@
+# Flow 07: RevenueCat paywall smoke test
+# Opens the route directly so the test does not depend on a temporary product
+# entry point. It verifies packages are loaded but never taps Subscribe.
+appId: com.secondbrainlabs.core
+tags:
+  - critical
+  - paywall
+
+---
+
+- launchApp:
+    clearState: true
+
+- extendedWaitUntil:
+    visible:
+      text: "Welcome back"
+    timeout: 15000
+
+- runFlow: utils/login.yaml
+
+- openLink: "media-summarizer://paywall"
+
+- assertVisible:
+    id: "paywall-screen"
+    timeout: 10000
+- assertVisible:
+    text: "Choose Your Plan"
+- assertVisible:
+    text: "Reader"
+- assertVisible:
+    text: "Mix"
+- assertVisible:
+    text: "Audio-Heavy"
+
+# The cards fall back to "Unavailable" when RevenueCat returns no products.
+- assertNotVisible:
+    text: "Unavailable"
+
+- tapOn:
+    id: "paywall-close-button"
+
+- assertVisible:
+    text: "Inbox"
+    timeout: 5000

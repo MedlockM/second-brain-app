@@ -120,6 +120,7 @@ export default function AccountScreen() {
         />
         <View style={styles.menuDivider} />
         <TouchableOpacity
+          testID="account-sign-out-button"
           style={styles.menuItem}
           onPress={handleLogout}
           activeOpacity={0.7}

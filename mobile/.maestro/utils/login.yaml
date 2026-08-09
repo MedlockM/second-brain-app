@@ -11,17 +11,17 @@ appId: com.secondbrainlabs.core
 
 # Fill in email
 - tapOn:
-    text: "Email"
+    id: "login-email-input"
 - inputText: ${TEST_USER_EMAIL}
 
 # Fill in password
 - tapOn:
-    text: "Password"
+    id: "login-password-input"
 - inputText: ${TEST_USER_PASSWORD}
 
 # Tap Sign In
 - tapOn:
-    text: "Sign In"
+    id: "login-submit-button"
 
 # Wait for navigation to inbox (login success)
 - assertVisible:

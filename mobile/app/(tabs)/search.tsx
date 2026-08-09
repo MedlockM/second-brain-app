@@ -261,6 +261,7 @@ export default function SearchScreen() {
             style={styles.searchIcon}
           />
           <TextInput
+            testID="search-input"
             style={styles.searchInput}
             placeholder="Search your library..."
             placeholderTextColor={Colors.textMuted}
@@ -496,6 +497,7 @@ function ResultCard({ hit, onPress }: { hit: SearchHit; onPress: () => void }) {
 
   return (
     <Pressable
+      testID="search-result-card"
       style={styles.card}
       onPress={onPress}
       accessibilityLabel={`${displayTitle}, ${sourceLabel}`}

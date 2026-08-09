@@ -18,6 +18,8 @@ mobile/.maestro/
   03_inbox_visibility.yaml # Inbox item display + states
   04_media_detail_progression.yaml  # Detail screen + transcript status
   05_artifact_trigger_action.yaml   # AI artifact generation trigger
+  06_search.yaml           # Algolia lexical search against seeded data
+  07_paywall.yaml          # RevenueCat offering and tier visibility
 ```
 
 ## Prerequisites
@@ -52,9 +54,11 @@ CI uses GitHub Actions with:
 - **iOS**: macOS 14 runner with Xcode and iOS Simulator
 
 Required GitHub secrets:
-- `E2E_TEST_USER_EMAIL` - Test account email
-- `E2E_TEST_USER_PASSWORD` - Test account password
-- `E2E_API_BASE_URL` - Staging API URL (defaults to `https://api-staging.mediasummarizer.com`)
+- `E2E_TEST_USER_EMAIL` - Test account with an indexed media item
+- `E2E_TEST_USER_PASSWORD` - Test account password, also used by the registration flow
+- `E2E_SEARCH_TEST_TERM` - Term present in that account's indexed transcript
+- `E2E_REVENUECAT_TEST_KEY` - RevenueCat Test Store public SDK key for both CI platforms
+- `E2E_API_BASE_URL` - Optional API override; defaults to the AWS dev endpoint
 
 ## Running Tests
 
@@ -95,6 +99,8 @@ Trigger via GitHub Actions > "Mobile E2E Tests (Maestro)" > Run workflow:
 | 03 | Inbox Visibility | Items display after share, processing states, pull-to-refresh | Android, iOS |
 | 04 | Media Detail Progression | Detail screen load, transcript status, AI Artifacts section | Android, iOS |
 | 05 | Artifact Trigger | Generate button, queued/generating states, completion | Android, iOS |
+| 06 | Search | Seeded Algolia result opens its media detail | Android, iOS |
+| 07 | Paywall | Three RevenueCat tiers load; no purchase is triggered | Android, iOS |
 
 ## Share Intent Testing Approach
 
