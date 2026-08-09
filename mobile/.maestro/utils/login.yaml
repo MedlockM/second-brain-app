@@ -24,6 +24,7 @@ appId: com.secondbrainlabs.core
     id: "login-submit-button"
 
 # Wait for navigation to inbox (login success)
-- assertVisible:
-    text: "Inbox"
+- extendedWaitUntil:
+    visible:
+      text: "Inbox"
     timeout: 10000

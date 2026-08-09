@@ -20,8 +20,9 @@ tags:
 
 - openLink: "media-summarizer://paywall"
 
-- assertVisible:
-    id: "paywall-screen"
+- extendedWaitUntil:
+    visible:
+      id: "paywall-screen"
     timeout: 10000
 - assertVisible:
     text: "Choose Your Plan"
@@ -39,6 +40,7 @@ tags:
 - tapOn:
     id: "paywall-close-button"
 
-- assertVisible:
-    text: "Inbox"
+- extendedWaitUntil:
+    visible:
+      text: "Inbox"
     timeout: 5000

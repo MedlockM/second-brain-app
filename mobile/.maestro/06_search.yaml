@@ -37,6 +37,7 @@ tags:
     id: "search-result-card"
     index: 0
 
-- assertVisible:
-    text: "AI Artifacts"
+- extendedWaitUntil:
+    visible:
+      text: "AI Artifacts"
     timeout: 10000

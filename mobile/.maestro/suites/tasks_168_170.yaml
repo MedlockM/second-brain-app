@@ -1,0 +1,12 @@
+# Aggregate validation for backlog tasks 168-170.
+# Kept outside the root flow directory so regular full-suite runs do not duplicate it.
+appId: com.secondbrainlabs.core
+tags:
+  - critical
+  - tasks-168-170
+
+---
+
+- runFlow: ../01_login.yaml
+- runFlow: ../06_search.yaml
+- runFlow: ../07_paywall.yaml
