@@ -208,7 +208,8 @@ jobs:
   # -------------------------------------------------------------------
   ios-e2e:
     name: iOS Maestro E2E
-    runs-on: macos-14
+    # Expo 54 / React Native 0.81 requires Xcode >= 16.1.
+    runs-on: macos-15
     if: >-
       github.event_name == 'workflow_dispatch' &&
       (github.event.inputs.platform == 'ios' || github.event.inputs.platform == 'both')
@@ -327,14 +328,6 @@ jobs:
           path: |
             ~/.maestro/tests/**/screenshots/
             ~/.maestro/tests/**/video/
-
-      - name: Publish iOS test results
-        uses: EnricoMi/publish-unit-test-result-action@v2
-        if: always()
-        with:
-          files: maestro-report-ios.xml
-          check_name: "Maestro iOS E2E"
-          comment_mode: "off"
 
   # -------------------------------------------------------------------
   # Summary
