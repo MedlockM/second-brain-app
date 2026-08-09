@@ -266,13 +266,14 @@ jobs:
             -workspace MediaSummarizer.xcworkspace \
             -scheme MediaSummarizer \
             -configuration Release \
-            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build \
             build
 
       - name: Boot iOS Simulator
         run: |
-          DEVICE_ID=$(xcrun simctl list devices available | grep "iPhone 15" | head -1 | grep -oE "[0-9A-F-]{36}")
+          DEVICE_ID=$(xcrun simctl list devices available | grep "iPhone 16 (" | head -1 | grep -oE "[0-9A-F-]{36}")
+          test -n "$DEVICE_ID"
           xcrun simctl boot "$DEVICE_ID" || true
           # Wait for simulator to be ready
           sleep 15
