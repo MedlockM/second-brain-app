@@ -69,3 +69,25 @@ Le benchmark doit également traiter le **problème de migration de l'existant**
 6. Rédiger `docs/research/task-221-terraform-multi-env-isolation/README.md` avec recommandation claire, sources, `owner_decision: pending` et section Owner Validation, sans modifier `infrastructure/terraform/`.
 7. Vérifier chaque critère d’acceptation, consigner les validations dans Backlog et laisser le benchmark en attente de la décision owner conformément au lifecycle.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Mode: initial.** No `docs/research/task-221-*/` directory existed at `main` (`d1cc7f2`) when this pass started, so the benchmark was produced from scratch. No previous `README.owner-rejected-*.md` and no `complement-request-*.md` to integrate.
+
+**Deliverable**: `docs/research/task-221-terraform-multi-env-isolation/README.md` (754 lines), `owner_decision: pending`, with an `Owner Validation` section awaiting the owner's decision.
+
+**Scope respected**: nothing under `infrastructure/terraform/` was modified, and no source code was touched. AWS was only inspected read-only.
+
+**Evidence gathered** (beyond static repo analysis): a read-only live inspection of AWS account `125313707865` in `eu-west-3` on 2026-08-09 — the single state object and its metadata (145 managed resource instances, serial 19, Terraform 1.9.8), bucket versioning/encryption on the state bucket, per-table item counts and PITR status for all 21 DynamoDB tables (427 items, ~183 KB, PITR disabled everywhere), SQS depth on all 26 queues (all empty), the 15 Lambda functions and 15 log groups, ECR repository mutability and image sizes, the API Gateway ID, and the absence of any CloudWatch alarm.
+
+**Recommendation (pending owner validation)**: Option B — per-environment root directories (`envs/{dev,staging,prod}`) over a shared `modules/platform`, each with a literal backend key and a literal `environment`, plus a `-${environment}` suffix on 100% of physical names, a shared ECR repository in a `shared/` root, and an M3 "forget-and-copy" migration of dev (`terraform state rm` then create then copy 427 items) that never lets Terraform replace a DynamoDB table. Terraform workspaces, `-backend-config` per environment and Terragrunt are all analysed and rejected, with reasons.
+
+**Notable findings surfaced by the research** that go beyond the original framing:
+- A staging apply with unchanged names would make SQS **silently adopt** dev's 26 queues into the staging state (documented `CreateQueue` idempotency), so a later staging `destroy` would delete dev's queues.
+- The application code resolves ~15 tables and all 13 queues from `os.environ.get(..., "<unsuffixed dev name>")` fallbacks, and the Lambda IAM policy grants DynamoDB access on `table/*` — a cross-environment data-corruption path that state isolation alone does not close.
+- `deploy-lambda.yml` discovers workers by name prefix and the API by a non-unique API Gateway name, so the first push after staging exists would deploy the same image to every environment.
+- `aws_apigatewayv2_api.name` is not `ForceNew`, so renaming dev preserves the existing dev API endpoint — which removes the main objection to renaming dev in place.
+
+**Status**: the benchmark task status was intentionally left unchanged (`In Progress`, assignee `@Codex`) rather than being reset, since another tool may be tracking it; per the lifecycle it is **not** marked Done. The recommendation **awaits the owner's validation** via `owner_decision` in the research README (`ok` / `abandoned` / `redo` / `more`).
+<!-- SECTION:NOTES:END -->
