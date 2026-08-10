@@ -159,18 +159,8 @@ jobs:
         if: always()
         with:
           name: maestro-android-results-api${{ matrix.api-level }}
-          path: |
-            maestro-report.xml
-            ~/.maestro/tests/**/*
-
-      - name: Upload Maestro screenshots on failure
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: maestro-android-screenshots-api${{ matrix.api-level }}
-          path: |
-            ~/.maestro/tests/**/screenshots/
-            ~/.maestro/tests/**/video/
+          path: maestro-report.xml
+          retention-days: 1
 
       - name: Publish test results
         uses: EnricoMi/publish-unit-test-result-action@v2
@@ -300,18 +290,8 @@ jobs:
         if: always()
         with:
           name: maestro-ios-results
-          path: |
-            maestro-report-ios.xml
-            ~/.maestro/tests/**/*
-
-      - name: Upload Maestro iOS screenshots on failure
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: maestro-ios-screenshots
-          path: |
-            ~/.maestro/tests/**/screenshots/
-            ~/.maestro/tests/**/video/
+          path: maestro-report-ios.xml
+          retention-days: 1
 
   # -------------------------------------------------------------------
   # Summary

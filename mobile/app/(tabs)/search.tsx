@@ -305,6 +305,7 @@ export default function SearchScreen() {
           <FlatList
             data={results}
             keyExtractor={(item) => item.media_item_id}
+            keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => (
               <ResultCard
                 hit={item}
