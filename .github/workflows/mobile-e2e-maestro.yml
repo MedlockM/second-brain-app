@@ -125,6 +125,12 @@ jobs:
           cd android
           ./gradlew assembleDebug -PreactNativeArchitectures=x86_64
 
+      - name: Free Android build space before starting emulator
+        run: |
+          rm -rf mobile/node_modules mobile/android/.gradle mobile/android/app/build/intermediates
+          rm -rf "$HOME/.gradle/caches"
+          df -h /
+
       - name: Run Maestro E2E tests on Android
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -252,6 +258,7 @@ jobs:
       - name: Build self-contained iOS E2E app
         working-directory: mobile
         env:
+          E2E_EMBED_DEBUG_BUNDLE: "1"
           FORCE_BUNDLING: "1"
           EXPO_PUBLIC_API_BASE_URL: ${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}
           EXPO_PUBLIC_REVENUCAT_APPLE_KEY: ${{ secrets.E2E_REVENUECAT_TEST_KEY }}

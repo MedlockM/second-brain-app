@@ -1,8 +1,12 @@
 import { ExpoConfig, ConfigContext } from "expo/config";
-import { ConfigPlugin, withAppBuildGradle } from "expo/config-plugins";
+import {
+  ConfigPlugin,
+  withAppBuildGradle,
+  withAppDelegate,
+} from "expo/config-plugins";
 
-const withEmbeddedAndroidDebugBundle: ConfigPlugin = (config) =>
-  withAppBuildGradle(config, (gradleConfig) => {
+const withEmbeddedDebugBundle: ConfigPlugin = (config) => {
+  config = withAppBuildGradle(config, (gradleConfig) => {
     if (gradleConfig.modResults.language !== "groovy") {
       return gradleConfig;
     }
@@ -19,6 +23,21 @@ const withEmbeddedAndroidDebugBundle: ConfigPlugin = (config) =>
 
     return gradleConfig;
   });
+
+  return withAppDelegate(config, (appDelegateConfig) => {
+    if (appDelegateConfig.modResults.language !== "swift") {
+      return appDelegateConfig;
+    }
+
+    appDelegateConfig.modResults.contents =
+      appDelegateConfig.modResults.contents.replace(
+        /#if DEBUG\s+return RCTBundleURLProvider[\s\S]*?#else\s+return Bundle\.main\.url\(forResource: "main", withExtension: "jsbundle"\)\s+#endif/,
+        'return Bundle.main.url(forResource: "main", withExtension: "jsbundle") // E2E: use embedded debug bundle',
+      );
+
+    return appDelegateConfig;
+  });
+};
 
 export default ({ config }: ConfigContext): ExpoConfig => {
   const expoConfig: ExpoConfig = {
@@ -104,6 +123,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   };
 
   return process.env.E2E_EMBED_DEBUG_BUNDLE === "1"
-    ? withEmbeddedAndroidDebugBundle(expoConfig)
+    ? withEmbeddedDebugBundle(expoConfig)
     : expoConfig;
 };
