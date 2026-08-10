@@ -112,7 +112,14 @@ export default function LoginScreen() {
               placeholder="Your password"
               placeholderTextColor={Colors.textMuted}
               secureTextEntry
-              autoComplete="password"
+              autoComplete={
+                process.env.EXPO_PUBLIC_E2E_MODE === "true" ? "off" : "password"
+              }
+              textContentType={
+                process.env.EXPO_PUBLIC_E2E_MODE === "true"
+                  ? "none"
+                  : "password"
+              }
               editable={!isSubmitting}
             />
           </View>

@@ -118,6 +118,7 @@ jobs:
         working-directory: mobile
         env:
           E2E_EMBED_DEBUG_BUNDLE: "1"
+          EXPO_PUBLIC_E2E_MODE: "true"
           EXPO_PUBLIC_API_BASE_URL: ${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}
           EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY: ${{ secrets.E2E_REVENUECAT_TEST_KEY }}
         run: |
@@ -261,6 +262,7 @@ jobs:
         working-directory: mobile
         env:
           E2E_EMBED_DEBUG_BUNDLE: "1"
+          EXPO_PUBLIC_E2E_MODE: "true"
           EXPO_PUBLIC_API_BASE_URL: ${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}
           EXPO_PUBLIC_REVENUCAT_APPLE_KEY: ${{ secrets.E2E_REVENUECAT_TEST_KEY }}
         run: |

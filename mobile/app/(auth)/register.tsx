@@ -109,7 +109,16 @@ export default function RegisterScreen() {
               placeholder="At least 6 characters"
               placeholderTextColor={Colors.textMuted}
               secureTextEntry
-              autoComplete="new-password"
+              autoComplete={
+                process.env.EXPO_PUBLIC_E2E_MODE === "true"
+                  ? "off"
+                  : "new-password"
+              }
+              textContentType={
+                process.env.EXPO_PUBLIC_E2E_MODE === "true"
+                  ? "none"
+                  : "newPassword"
+              }
               editable={!isSubmitting}
             />
           </View>
