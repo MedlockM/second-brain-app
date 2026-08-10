@@ -108,7 +108,7 @@ export default function RegisterScreen() {
               }}
               placeholder="At least 6 characters"
               placeholderTextColor={Colors.textMuted}
-              secureTextEntry
+              secureTextEntry={process.env.EXPO_PUBLIC_E2E_MODE !== "true"}
               autoComplete={
                 process.env.EXPO_PUBLIC_E2E_MODE === "true"
                   ? "off"

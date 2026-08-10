@@ -111,7 +111,7 @@ export default function LoginScreen() {
               }}
               placeholder="Your password"
               placeholderTextColor={Colors.textMuted}
-              secureTextEntry
+              secureTextEntry={process.env.EXPO_PUBLIC_E2E_MODE !== "true"}
               autoComplete={
                 process.env.EXPO_PUBLIC_E2E_MODE === "true" ? "off" : "password"
               }
