@@ -38,9 +38,11 @@ tags:
     id: "search-result-card"
     index: 0
 
-# "AI Artifacts" only renders once the detail polling resolves to a terminal
-# state, which is one API round-trip past the screen transition.
+# The section renders once detail polling reaches a terminal state, one API
+# round-trip past the screen transition. Match the accessibility label rather
+# than the bare heading: on iOS the label replaces the inner Text node, so it
+# reads "AI Artifacts, collapse" / "AI Artifacts, expand".
 - extendedWaitUntil:
     visible:
-      text: "AI Artifacts"
+      text: "AI Artifacts.*"
     timeout: 45000

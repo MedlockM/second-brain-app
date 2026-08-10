@@ -21,8 +21,28 @@ tags:
 
 - openLink: "media-summarizer://paywall"
 
-# The deep link brings the app back to the foreground and mounts the route
-# through the provider tree, which takes well over 10s on a CI simulator.
+# iOS asks for confirmation before handing a scheme URL to the app
+# ('Open in "Media Summarizer"?'). Without this tap the link is never followed
+# and the paywall never mounts. Android opens the scheme directly.
+# The alert takes a moment to appear, so wait for it before probing: an
+# immediate `when` check would race it and skip the tap.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - extendedWaitUntil:
+          visible:
+            text: "Open"
+          timeout: 15000
+          optional: true
+      - runFlow:
+          when:
+            visible:
+              text: "Open"
+          commands:
+            - tapOn:
+                text: "Open"
+
 - extendedWaitUntil:
     visible:
       id: "paywall-screen"
