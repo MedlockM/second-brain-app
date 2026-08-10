@@ -94,7 +94,7 @@ After this fix, the test should still fail at the Deepgram fallback step (becaus
 ## Reproduction
 
 ```bash
-TOKEN=<APIFY_INSTAGRAM_API_TOKEN>
+TOKEN=<APIFY_INSTAGRAM_API_TOKEN>   # cf. .env racine
 curl -sS -X POST "https://api.apify.com/v2/acts/apify~instagram-reel-scraper/run-sync-get-dataset-items?token=${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"directUrls":["https://www.instagram.com/reel/DZXolnGNeAG/"],"resultsLimit":1}' -m 60

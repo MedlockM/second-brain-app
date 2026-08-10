@@ -1,5 +1,5 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark : mise en forme du transcript pour le viewer media (task-231)
@@ -8,7 +8,7 @@ owner_decision: pending
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — texte libre décrivant la décision finale : accept recommandation X, reject parce que Y, accept with modifications Z, OU, si redo, les consignes précises de correction à intégrer au prochain passage)_
+**Decision**: option B
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---
