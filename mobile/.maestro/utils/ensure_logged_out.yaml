@@ -3,6 +3,10 @@
 appId: com.secondbrainlabs.core
 
 ---
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input|account-tab-button"
+    timeout: 15000
 
 - runFlow:
     when:
@@ -21,4 +25,3 @@ appId: com.secondbrainlabs.core
           id: "account-sign-out-button"
       - tapOn:
           text: "Sign Out"
-
