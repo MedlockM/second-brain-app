@@ -260,7 +260,6 @@ jobs:
         working-directory: mobile
         env:
           E2E_EMBED_DEBUG_BUNDLE: "1"
-          FORCE_BUNDLING: "1"
           EXPO_PUBLIC_API_BASE_URL: ${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}
           EXPO_PUBLIC_REVENUCAT_APPLE_KEY: ${{ secrets.E2E_REVENUECAT_TEST_KEY }}
         run: |
@@ -270,9 +269,10 @@ jobs:
           xcodebuild \
             -workspace MediaSummarizer.xcworkspace \
             -scheme MediaSummarizer \
-            -configuration Debug \
+            -configuration Release \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG \
             build
 
       - name: Boot iOS Simulator
@@ -286,7 +286,7 @@ jobs:
       - name: Install app on simulator
         working-directory: mobile/ios
         run: |
-          APP_PATH=$(find build -name "*.app" -path "*/Debug-iphonesimulator/*" | head -1)
+          APP_PATH=$(find build -name "*.app" -path "*/Release-iphonesimulator/*" | head -1)
           test -n "$APP_PATH"
           xcrun simctl install booted "$APP_PATH"
 
