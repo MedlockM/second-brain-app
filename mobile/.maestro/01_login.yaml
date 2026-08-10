@@ -15,15 +15,15 @@ tags:
 # Wait for the app to initialize (splash screen dismiss)
 - extendedWaitUntil:
     visible:
-      text: "Welcome back"
+      id: "login-email-input"
     timeout: 15000
 
 # Register a fresh user and verify the development bypass lands on Inbox.
 - tapOn:
-    text: "Sign Up"
+    id: "login-sign-up-button"
 
 - assertVisible:
-    text: "Create account"
+    id: "register-email-input"
 
 - tapOn:
     id: "register-email-input"
@@ -38,12 +38,12 @@ tags:
 
 - extendedWaitUntil:
     visible:
-      text: "Inbox"
+      id: "inbox-screen"
     timeout: 15000
 
 # End the fresh session, then exercise explicit email/password login.
 - tapOn:
-    text: "Account"
+    id: "account-tab-button"
 - tapOn:
     id: "account-sign-out-button"
 - tapOn:
@@ -51,14 +51,14 @@ tags:
 
 - extendedWaitUntil:
     visible:
-      text: "Welcome back"
+      id: "login-email-input"
     timeout: 10000
 
 - runFlow: utils/login.yaml
 
 # Verify we landed on the inbox tab
 - assertVisible:
-    text: "Inbox"
+    id: "inbox-screen"
 - assertVisible:
     id: "file-tray-outline"
     optional: true

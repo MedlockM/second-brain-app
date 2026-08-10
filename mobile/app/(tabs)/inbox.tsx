@@ -95,7 +95,7 @@ export default function InboxScreen() {
   // Loading state
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
+      <SafeAreaView testID="inbox-screen" style={styles.container} edges={["top"]}>
         <View style={styles.header}>
           <Text style={styles.greeting}>{greeting}</Text>
         </View>
@@ -110,7 +110,7 @@ export default function InboxScreen() {
   // Error state
   if (error && items.length === 0) {
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
+      <SafeAreaView testID="inbox-screen" style={styles.container} edges={["top"]}>
         <View style={styles.header}>
           <Text style={styles.greeting}>{greeting}</Text>
         </View>
@@ -139,7 +139,7 @@ export default function InboxScreen() {
   const hasItems = unifiedItems.length > 0;
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView testID="inbox-screen" style={styles.container} edges={["top"]}>
       <FlatList
         data={unifiedItems}
         keyExtractor={(item) => item.key}

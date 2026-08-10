@@ -13,7 +13,7 @@ tags:
 
 - extendedWaitUntil:
     visible:
-      text: "Welcome back"
+      id: "login-email-input"
     timeout: 15000
 
 - runFlow: utils/login.yaml
@@ -42,5 +42,5 @@ tags:
 
 - extendedWaitUntil:
     visible:
-      text: "Inbox"
+      id: "inbox-screen"
     timeout: 5000

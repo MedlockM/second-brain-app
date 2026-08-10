@@ -59,6 +59,7 @@ export default function TabsLayout() {
         name="search"
         options={{
           title: "Search",
+          tabBarButtonTestID: "search-tab-button",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="search-outline" size={size} color={color} />
           ),
@@ -77,6 +78,7 @@ export default function TabsLayout() {
         name="account"
         options={{
           title: "Account",
+          tabBarButtonTestID: "account-tab-button",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={size} color={color} />
           ),

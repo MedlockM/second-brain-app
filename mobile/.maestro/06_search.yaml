@@ -13,13 +13,13 @@ tags:
 
 - extendedWaitUntil:
     visible:
-      text: "Welcome back"
+      id: "login-email-input"
     timeout: 15000
 
 - runFlow: utils/login.yaml
 
 - tapOn:
-    text: "Search"
+    id: "search-tab-button"
 
 - assertVisible:
     text: "Search your library..."

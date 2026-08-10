@@ -6,7 +6,7 @@ appId: com.secondbrainlabs.core
 
 # Wait for the login screen to appear
 - assertVisible:
-    text: "Welcome back"
+    id: "login-email-input"
     optional: false
 
 # Fill in email
@@ -26,5 +26,5 @@ appId: com.secondbrainlabs.core
 # Wait for navigation to inbox (login success)
 - extendedWaitUntil:
     visible:
-      text: "Inbox"
+      id: "inbox-screen"
     timeout: 10000
