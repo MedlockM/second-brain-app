@@ -38,7 +38,9 @@ tags:
     id: "search-result-card"
     index: 0
 
+# "AI Artifacts" only renders once the detail polling resolves to a terminal
+# state, which is one API round-trip past the screen transition.
 - extendedWaitUntil:
     visible:
       text: "AI Artifacts"
-    timeout: 10000
+    timeout: 45000

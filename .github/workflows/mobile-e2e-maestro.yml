@@ -224,10 +224,10 @@ jobs:
       - name: Verify Maestro installation
         run: maestro --version
 
-      # The app fingerprint covers everything baked into the simulator binary:
-      # sources, lockfile, native config, the EXPO_PUBLIC_* values embedded in
-      # the JS bundle, and the toolchain. The flow fingerprint covers only the
-      # Maestro flows, so editing a flow reuses the cached build.
+      # Covers everything baked into the simulator binary: sources, lockfile,
+      # native config, the EXPO_PUBLIC_* values embedded in the JS bundle, and
+      # the toolchain. The Maestro flows are excluded, so editing a flow reuses
+      # the cached build instead of paying for a rebuild.
       - name: Compute iOS E2E fingerprints
         id: fingerprints
         env:
@@ -242,9 +242,7 @@ jobs:
               printf 'toolchain=%s\n' "$(xcodebuild -version | tr '\n' ' ')"
             } | shasum -a 256 | cut -c1-16
           )
-          flows_fingerprint=$(git ls-files -s -- mobile/.maestro | shasum -a 256 | cut -c1-16)
           echo "app=$app_fingerprint" >> "$GITHUB_OUTPUT"
-          echo "flows=$flows_fingerprint" >> "$GITHUB_OUTPUT"
 
       # restore/save rather than actions/cache: the latter only saves in its post
       # step when the job succeeds, which would never cache the build on a red
@@ -305,11 +303,13 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .maestro-ios-passed
-          # Each attempt saves under a unique suffix, so the newest entry
-          # matching this fingerprint pair is picked up by prefix.
-          key: ios-e2e-passed-${{ steps.fingerprints.outputs.app }}-${{ steps.fingerprints.outputs.flows }}-${{ github.run_id }}-${{ github.run_attempt }}
+          # Keyed on the app build only: the marker file records a per-flow hash,
+          # so editing one flow replays that flow and leaves the others skipped.
+          # Each attempt saves under a unique suffix, so the newest entry for this
+          # build is picked up by prefix.
+          key: ios-e2e-passed-${{ steps.fingerprints.outputs.app }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            ios-e2e-passed-${{ steps.fingerprints.outputs.app }}-${{ steps.fingerprints.outputs.flows }}-
+            ios-e2e-passed-${{ steps.fingerprints.outputs.app }}-
 
       - name: Run Maestro E2E tests on iOS
         env:
@@ -329,7 +329,7 @@ jobs:
         if: always()
         with:
           path: .maestro-ios-passed
-          key: ios-e2e-passed-${{ steps.fingerprints.outputs.app }}-${{ steps.fingerprints.outputs.flows }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ios-e2e-passed-${{ steps.fingerprints.outputs.app }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload Maestro iOS test results
         uses: actions/upload-artifact@v4

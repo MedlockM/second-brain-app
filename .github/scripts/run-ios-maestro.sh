@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 
 # Runs the Maestro iOS suite one flow at a time so each flow gets its own JUnit
-# case, and so a flow that already passed for this exact app + flow fingerprint
-# is not replayed on the next attempt.
+# case, and records which flows passed so the next attempt replays only what is
+# still red.
+#
+# A flow is skipped when the marker file already holds its name plus the hash of
+# the flow and every sub-flow it pulls in. Editing one flow therefore replays
+# that flow only: a green 01_login stays green while 07_paywall is iterated on.
+# The app binary is covered separately by the workflow's cache key.
 
 set -euo pipefail
 
@@ -33,6 +38,41 @@ expand_flow() {
   done < <(sed -nE 's/^- runFlow: (.+)$/\1/p' "$flow")
 }
 
+# Every file a flow depends on: itself, then each `runFlow:` target, resolved
+# relative to the referring file and followed recursively.
+collect_dependencies() {
+  local flow="$1"
+  shift
+  local seen=("$@")
+
+  local previous
+  for previous in "${seen[@]}"; do
+    [[ "$previous" == "$flow" ]] && return
+  done
+
+  printf '%s\n' "$flow"
+  seen+=("$flow")
+
+  [[ -f "$flow" ]] || return
+
+  local base referenced
+  base=$(dirname "$flow")
+  while read -r referenced; do
+    collect_dependencies "${base}/${referenced}" "${seen[@]}"
+  done < <(sed -nE 's/^[[:space:]]*(- )?(runFlow|file): (.+)$/\3/p' "$flow")
+}
+
+flow_fingerprint() {
+  local flow="$1"
+  collect_dependencies "$flow" \
+    | sort -u \
+    | while read -r dependency; do
+        [[ -f "$dependency" ]] && cat "$dependency"
+      done \
+    | shasum -a 256 \
+    | cut -c1-12
+}
+
 flows=()
 if [[ -n "${FLOW_FILTER:-}" ]]; then
   while IFS= read -r expanded; do
@@ -52,9 +92,10 @@ echo "Flows to run: ${flows[*]}"
 failed=0
 for flow in "${flows[@]}"; do
   name=$(basename "$flow" .yaml)
+  marker="${name}:$(flow_fingerprint "$flow")"
 
-  if grep -qxF "$name" "$passed_file"; then
-    echo "::notice::Skipping ${name}: already passed for this app and flow fingerprint."
+  if grep -qxF "$marker" "$passed_file"; then
+    echo "::notice::Skipping ${name}: already passed unchanged against this app build."
     continue
   fi
 
@@ -68,7 +109,7 @@ for flow in "${flows[@]}"; do
     --env=SHARE_TEST_URL="$SHARE_TEST_URL" \
     --format=junit \
     --output="${report_dir}/${name}.xml"; then
-    printf '%s\n' "$name" >> "$passed_file"
+    printf '%s\n' "$marker" >> "$passed_file"
   else
     echo "::error::Maestro flow ${name} failed."
     failed=1

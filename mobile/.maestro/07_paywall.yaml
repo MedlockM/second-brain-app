@@ -21,10 +21,12 @@ tags:
 
 - openLink: "media-summarizer://paywall"
 
+# The deep link brings the app back to the foreground and mounts the route
+# through the provider tree, which takes well over 10s on a CI simulator.
 - extendedWaitUntil:
     visible:
       id: "paywall-screen"
-    timeout: 10000
+    timeout: 45000
 - assertVisible:
     text: "Choose Your Plan"
 - assertVisible:
