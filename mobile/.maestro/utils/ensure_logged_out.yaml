@@ -15,13 +15,15 @@ appId: com.secondbrainlabs.core
     commands:
       - tapOn:
           id: "account-tab-button"
-
-- runFlow:
-    when:
-      visible:
-        id: "account-sign-out-button"
-    commands:
+      - extendedWaitUntil:
+          visible:
+            id: "account-sign-out-button"
+          timeout: 10000
       - tapOn:
           id: "account-sign-out-button"
       - tapOn:
           text: "Sign Out"
+      - extendedWaitUntil:
+          visible:
+            id: "login-email-input"
+          timeout: 10000
