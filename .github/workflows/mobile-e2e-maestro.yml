@@ -259,8 +259,7 @@ jobs:
           DEVICE_ID=$(xcrun simctl list devices available | grep "iPhone 16 (" | head -1 | grep -oE "[0-9A-F-]{36}")
           test -n "$DEVICE_ID"
           xcrun simctl boot "$DEVICE_ID" || true
-          # Wait for simulator to be ready
-          sleep 15
+          xcrun simctl bootstatus "$DEVICE_ID" -b
 
       - name: Install app on simulator
         working-directory: mobile/ios
