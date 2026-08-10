@@ -1,9 +1,10 @@
 ---
 id: task-231
 title: Benchmark des approches de mise en forme du transcript pour le viewer media
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-06 00:39'
+updated_date: '2026-08-10 16:47'
 labels:
   - benchmark
   - mobile
