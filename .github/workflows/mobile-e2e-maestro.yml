@@ -121,6 +121,7 @@ jobs:
           EXPO_PUBLIC_API_BASE_URL: ${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}
           EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY: ${{ secrets.E2E_REVENUECAT_TEST_KEY }}
         run: |
+          npm uninstall expo-dev-client --no-save --ignore-scripts
           npx expo prebuild --platform android --clean
           cd android
           ./gradlew assembleDebug -PreactNativeArchitectures=x86_64
@@ -263,6 +264,7 @@ jobs:
           EXPO_PUBLIC_API_BASE_URL: ${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}
           EXPO_PUBLIC_REVENUCAT_APPLE_KEY: ${{ secrets.E2E_REVENUECAT_TEST_KEY }}
         run: |
+          npm uninstall expo-dev-client --no-save --ignore-scripts
           npx expo prebuild --platform ios --clean
           cd ios
           xcodebuild \
