@@ -43,10 +43,11 @@ expand_flow() {
 collect_dependencies() {
   local flow="$1"
   shift
-  local seen=("$@")
+  # `${@:+...}` keeps this valid under `set -u` on the first, argument-less call.
+  local seen=(${@:+"$@"})
 
   local previous
-  for previous in "${seen[@]}"; do
+  for previous in ${seen[@]:+"${seen[@]}"}; do
     [[ "$previous" == "$flow" ]] && return
   done
 
@@ -96,6 +97,18 @@ for flow in "${flows[@]}"; do
 
   if grep -qxF "$marker" "$passed_file"; then
     echo "::notice::Skipping ${name}: already passed unchanged against this app build."
+    # Keep the artifact complete: a skipped flow is a flow that passed earlier
+    # against this same app build and flow content.
+    cat > "${report_dir}/${name}.xml" <<XML
+<?xml version='1.0' encoding='UTF-8'?>
+<testsuites>
+  <testsuite name="${name}" tests="1" failures="0" skipped="1">
+    <testcase name="${name}" classname="${name}" file="${flow}">
+      <skipped message="Passed on an earlier attempt against this app build; not replayed."/>
+    </testcase>
+  </testsuite>
+</testsuites>
+XML
     continue
   fi
 
