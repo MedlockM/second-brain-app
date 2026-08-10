@@ -246,9 +246,12 @@ jobs:
           echo "app=$app_fingerprint" >> "$GITHUB_OUTPUT"
           echo "flows=$flows_fingerprint" >> "$GITHUB_OUTPUT"
 
+      # restore/save rather than actions/cache: the latter only saves in its post
+      # step when the job succeeds, which would never cache the build on a red
+      # run — precisely the run whose next attempt needs it.
       - name: Restore cached iOS E2E app
         id: app-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: mobile/ios/build/Build/Products/Release-iphonesimulator
           key: ios-e2e-app-${{ steps.fingerprints.outputs.app }}
@@ -273,6 +276,13 @@ jobs:
             -derivedDataPath build \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG \
             build
+
+      - name: Save cached iOS E2E app
+        if: steps.app-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: mobile/ios/build/Build/Products/Release-iphonesimulator
+          key: ios-e2e-app-${{ steps.fingerprints.outputs.app }}
 
       - name: Boot iOS Simulator
         run: |
