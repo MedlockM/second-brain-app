@@ -9,8 +9,7 @@ tags:
 ---
 
 # Launch the app fresh
-- launchApp:
-    clearState: true
+- runFlow: utils/reset_app.yaml
 
 - runFlow: utils/ensure_logged_out.yaml
 

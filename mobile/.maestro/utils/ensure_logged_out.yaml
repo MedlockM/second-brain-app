@@ -1,12 +1,29 @@
 # Normalize authentication state between aggregate flows. On iOS, clearing the
-# app container does not necessarily remove credentials persisted in Keychain.
+# app container does not necessarily remove credentials persisted in Keychain,
+# so a relaunch can restore a session and route through app/index.tsx.
 appId: com.secondbrainlabs.core
 
 ---
+# The three states a launch can settle on: the login screen, language
+# onboarding (restored session without a reading language), or the tab bar.
 - extendedWaitUntil:
     visible:
-      id: "login-email-input|account-tab-button"
-    timeout: 15000
+      id: "login-email-input|language-onboarding-screen|account-tab-button"
+    timeout: 30000
+
+# Onboarding has no tab bar, so complete it first to reach a signed-in state
+# the sign-out sub-flow can act on.
+- runFlow:
+    when:
+      visible:
+        id: "language-onboarding-screen"
+    commands:
+      - tapOn:
+          id: "language-onboarding-continue-button"
+      - extendedWaitUntil:
+          visible:
+            id: "inbox-screen"
+          timeout: 20000
 
 - runFlow:
     when:

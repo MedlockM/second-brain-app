@@ -1,0 +1,17 @@
+# Launch the app from a guaranteed signed-out state.
+# `clearState` wipes the app container but not the iOS Keychain, so a relaunch
+# would otherwise restore the previous session and route through app/index.tsx
+# (landing on the tab bar, or on language onboarding when the restored account
+# has no reading language). Android clears its keystore with the app data, so
+# the extra step is scoped to iOS.
+appId: com.secondbrainlabs.core
+
+---
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - clearKeychain
+
+- launchApp:
+    clearState: true
