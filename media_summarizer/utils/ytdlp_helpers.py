@@ -13,6 +13,11 @@ from typing import Any, Dict
 
 import httpx
 
+from media_summarizer.core.services.transcript_formatting import (
+    count_paragraphs,
+    group_caption_lines,
+)
+
 _TIMESTAMP_LINE_RE = re.compile(
     r"^\s*(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}\s+-->\s+(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}"
 )
@@ -272,11 +277,18 @@ async def fetch_subtitle_candidate(
         payload = response.text
         content_type = response.headers.get("content-type", "")
 
-    text = parse_caption_payload(
+    cue_text = parse_caption_payload(
         payload=payload,
         ext=str(candidate.get("ext") or ""),
         content_type=content_type,
     )
+    if not cue_text:
+        raise SubtitleUnavailableError("native_subtitles_absent")
+
+    # Caption cues are display units, not sentences: one cue per line renders as
+    # a wall of short fragments. Group them into paragraphs before the text is
+    # stored (task-231 option B).
+    text = group_caption_lines(cue_text.splitlines(), source=platform_label)
     if not text:
         raise SubtitleUnavailableError("native_subtitles_absent")
 
@@ -286,7 +298,9 @@ async def fetch_subtitle_candidate(
     return {
         "text": text,
         "language": str(candidate.get("language") or "").strip() or None,
-        "segments_count": len([line for line in text.splitlines() if line.strip()]),
+        # Paragraph count, so the badge is comparable with the Deepgram path
+        # instead of reporting raw cue-line counts (task-231 section 13.1).
+        "segments_count": count_paragraphs(text),
         "source_detail": (
             f"{source_prefix}:{candidate.get('language') or 'unknown'}:"
             f"{candidate.get('ext') or 'unknown'}"

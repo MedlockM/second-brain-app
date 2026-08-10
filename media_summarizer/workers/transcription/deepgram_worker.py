@@ -30,6 +30,10 @@ from tenacity import (
     wait_exponential,
 )
 
+from media_summarizer.core.services.transcript_formatting import (
+    count_paragraphs,
+    deepgram_transcript_text,
+)
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
@@ -90,6 +94,15 @@ DEEPGRAM_SMART_FORMAT = os.environ.get("DEEPGRAM_SMART_FORMAT", "true").lower() 
 DEEPGRAM_PUNCTUATE = os.environ.get("DEEPGRAM_PUNCTUATE", "true").lower() == "true"
 DEEPGRAM_PARAGRAPHS = os.environ.get("DEEPGRAM_PARAGRAPHS", "true").lower() == "true"
 DEEPGRAM_UTTERANCES = os.environ.get("DEEPGRAM_UTTERANCES", "true").lower() == "true"
+# Speaker diarization is a paid Deepgram add-on ($0.0020/min, i.e. +41.7% over the
+# Nova-3 promotional rate), so it stays OFF by default (task-231 benchmark, owner
+# decision "option B"). The transcript rendering path already handles the in-band
+# "Speaker N:" labels, so enabling this flag is the only change required to ship
+# speaker attribution.
+DEEPGRAM_DIARIZE = os.environ.get("DEEPGRAM_DIARIZE", "false").lower() == "true"
+# `diarize=true` is deprecated by Deepgram in favour of `diarize_model`, and
+# sending both is rejected. Never send `diarize`.
+DEEPGRAM_DIARIZE_MODEL = os.environ.get("DEEPGRAM_DIARIZE_MODEL", "v2")
 
 # Heartbeat/visibility settings
 HEARTBEAT_INTERVAL = float(os.environ.get("HEARTBEAT_INTERVAL", "60"))
@@ -111,7 +124,7 @@ FORCE_DEEPGRAM_PUSH_MODE = os.environ.get("FORCE_DEEPGRAM_PUSH_MODE", "").strip(
 
 
 def _build_deepgram_query_params() -> Dict[str, str]:
-    return {
+    params = {
         "model": DEEPGRAM_MODEL,
         "detect_language": str(DEEPGRAM_DETECT_LANGUAGE).lower(),
         "smart_format": str(DEEPGRAM_SMART_FORMAT).lower(),
@@ -119,6 +132,9 @@ def _build_deepgram_query_params() -> Dict[str, str]:
         "paragraphs": str(DEEPGRAM_PARAGRAPHS).lower(),
         "utterances": str(DEEPGRAM_UTTERANCES).lower(),
     }
+    if DEEPGRAM_DIARIZE:
+        params["diarize_model"] = DEEPGRAM_DIARIZE_MODEL
+    return params
 
 
 def _is_valid_http_url(value: str) -> bool:
@@ -450,17 +466,25 @@ async def call_deepgram_api_from_bytes(
 
 
 def extract_transcript(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract the readable transcript text from a Deepgram response.
+
+    Deepgram already returns paragraph structure for free (we ask for
+    ``paragraphs=true`` and ``utterances=true``, both included in Smart
+    Formatting), so the shared normalizer picks the richest available shape
+    instead of the flat ``alternatives[0].transcript`` string. The result is
+    paragraph-delimited plain text, which is what every consumer of the S3
+    transcript object expects (task-231 option B).
+    """
     results = payload.get("results") or {}
     channels = results.get("channels") or []
     alternatives = (channels[0].get("alternatives") if channels else None) or []
     alt = alternatives[0] if alternatives else {}
 
-    transcript_text = (alt.get("transcript") or "").strip()
+    utterances = results.get("utterances") or []
+    transcript_text = deepgram_transcript_text(alt, utterances)
     if not transcript_text:
         raise NonRetryableDeepgramError("Deepgram transcript is empty")
 
-    utterances = results.get("utterances") or []
-    words = alt.get("words") or []
     metadata = payload.get("metadata") or {}
 
     language = (
@@ -468,12 +492,13 @@ def extract_transcript(payload: Dict[str, Any]) -> Dict[str, Any]:
         or metadata.get("language")
         or "unknown"
     )
-    segments_count = len(utterances) if utterances else len(words)
 
     return {
         "text": transcript_text,
         "language": language,
-        "segments_count": segments_count,
+        # Paragraph count, not utterance/word count: every producer now reports the
+        # same unit so the value is comparable across sources (task-231 s13.1).
+        "segments_count": count_paragraphs(transcript_text),
         "request_id": metadata.get("request_id"),
     }
 

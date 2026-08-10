@@ -1464,7 +1464,7 @@ class RawContentResponse(BaseModel):
     media_type: Optional[str] = Field(None, description="Type of media (podcast, article, video, audio)")
     source_format: Optional[str] = Field(
         None,
-        description="Detected source format (deepgram_json, plain_text, article_text, social_post, ocr)",
+        description="Content family of the source material (plain_text, article_text, social_post, ocr, markdown)",
     )
     translation: Optional[dict] = Field(
         None,
@@ -1491,12 +1491,13 @@ async def get_media_raw_content(
     """Retrieve the raw content (transcript, extracted text, or OCR result) for a media item.
 
     Returns the formatted source content regardless of media type:
-    - Audio/Video/Podcast: formatted transcript (Deepgram or Whisper)
+    - Audio/Video/Podcast: formatted transcript (Deepgram, captions, RSS)
     - Articles: extracted text (trafilatura)
     - Social posts: raw text of the post
     - Images/PDFs: OCR result
 
-    The response format is consistent: plain text with paragraphs.
+    The response format is consistent: plain text whose paragraphs are separated
+    by a blank line. Clients split on blank lines to render paragraphs.
     """
     token = bind_log_context(user_id=current_user.id, media_item_id=media_item_id)
     try:

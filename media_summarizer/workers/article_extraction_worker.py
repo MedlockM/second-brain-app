@@ -23,6 +23,10 @@ from typing import Any, Dict, Optional
 import httpx
 import trafilatura
 
+from media_summarizer.core.services.transcript_formatting import (
+    count_paragraphs,
+    normalize_transcript_text,
+)
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
@@ -111,6 +115,7 @@ def _build_extraction_metadata(
     fetched_at: Optional[str] = None,
     char_count: Optional[int] = None,
     word_count: Optional[int] = None,
+    paragraph_count: Optional[int] = None,
     language: Optional[str] = None,
     title: Optional[str] = None,
     last_error_code: Optional[str] = None,
@@ -125,6 +130,7 @@ def _build_extraction_metadata(
         "fetched_at": fetched_at or _now_iso_utc(),
         "char_count": char_count,
         "word_count": word_count,
+        "paragraph_count": paragraph_count,
         "language": language,
         "title": title,
         "last_error_code": last_error_code,
@@ -211,6 +217,12 @@ async def _fetch_article_html(url: str) -> Dict[str, Any]:
 
 
 def _extract_clean_text(html: str) -> str:
+    """Extract the article body as paragraph-delimited plain text.
+
+    trafilatura already emits blank-line separated paragraphs, so the normalizer
+    is effectively a pass-through here — a useful idempotence canary for the
+    shared formatter (task-231 option B).
+    """
     try:
         extracted = trafilatura.extract(
             html,
@@ -226,7 +238,7 @@ def _extract_clean_text(html: str) -> str:
             retryable=False,
         ) from exc
 
-    text = (extracted or "").strip()
+    text = normalize_transcript_text(extracted, source="article")
     if not text:
         raise ArticleExtractionError(
             "article_extraction_empty",
@@ -237,6 +249,7 @@ def _extract_clean_text(html: str) -> str:
 
 
 async def _upload_transcript(job_id: str, text: str) -> str:
+    """Upload the already-normalized extracted text as plain text."""
     transcript_s3_key = f"{job_id}.txt"
     await s3.upload_file_object(
         bucket=TRANSCRIPT_BUCKET,
@@ -272,7 +285,7 @@ async def _publish_success_event(
                 "provider": "article_extractor",
                 "model_used": "trafilatura",
                 "language": metadata.get("language"),
-                "segments_count": metadata.get("word_count"),
+                "segments_count": metadata.get("paragraph_count"),
                 "duration_seconds": 0,
                 "source_url": metadata.get("final_url") or metadata.get("requested_url"),
                 "extracted_at": metadata.get("fetched_at"),
@@ -364,6 +377,7 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
         content_type=fetch_result.get("content_type"),
         char_count=len(clean_text),
         word_count=_word_count(clean_text),
+        paragraph_count=count_paragraphs(clean_text),
         language=None,
         title=None,
         last_error_code=None,
@@ -372,7 +386,8 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
         "provider": "article_extractor",
         "model_used": "trafilatura",
         "language": extraction_metadata.get("language"),
-        "segments_count": extraction_metadata.get("word_count"),
+        # Paragraph count, comparable across sources (task-231 s13.1).
+        "segments_count": extraction_metadata.get("paragraph_count"),
         "duration_seconds": 0,
         "source_url": (
             extraction_metadata.get("final_url")

@@ -165,7 +165,14 @@ class TranscriptInfo(BaseModel):
         description="native_transcript | deepgram | article_extractor | x_api_lookup | shared_text",
     )
     language: Optional[str] = None
-    segments_count: Optional[int] = Field(default=None, ge=0)
+    segments_count: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Number of transcript paragraphs. Every producer reports the same unit "
+            "so the value is comparable across sources."
+        ),
+    )
     duration_seconds: Optional[float] = Field(default=None, ge=0)
 
 

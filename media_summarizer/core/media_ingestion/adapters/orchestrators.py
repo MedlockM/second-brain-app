@@ -20,6 +20,10 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.services.transcript_formatting import (
+    count_paragraphs,
+    normalize_transcript_text,
+)
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils import media_idempotence as episode_idempotence
 from media_summarizer.utils.language_codes import normalize_language_code
@@ -65,7 +69,8 @@ def _shared_text_transcription_metadata(raw_text: str) -> Dict[str, Any]:
     return {
         "provider": "shared_text",
         "language": "unknown",
-        "segments_count": len((raw_text or "").split()),
+        # Paragraph count, comparable with the Deepgram path (task-231 §13.1).
+        "segments_count": count_paragraphs(raw_text),
         "duration_seconds": 0,
         "transcribed_at": _now_iso(),
     }
@@ -258,13 +263,17 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             if resolved.raw_text is not None and resolved.media_family == MediaFamily.SOCIAL_VIDEO:
                 # Apify transcript bypass: store transcript directly, skip Deepgram.
                 transcript_s3_key = f"{job.id}.txt"
-                transcript_text = resolved.raw_text.strip()
+                transcript_text = normalize_transcript_text(
+                    resolved.raw_text,
+                    source=resolved.source_platform.value,
+                )
                 duration_seconds = resolved.metadata.get("duration_seconds", 0)
                 minutes_used = max(1, int((duration_seconds or 0) / 60) + (1 if (duration_seconds or 0) % 60 > 0 else 0))
                 transcription_metadata: Dict[str, Any] = {
                     "provider": "apify_native",
                     "language": "unknown",
-                    "segments_count": len(transcript_text.split()),
+                    # Paragraph count, comparable with the Deepgram path (task-231 §13.1).
+                    "segments_count": count_paragraphs(transcript_text),
                     "duration_seconds": duration_seconds or 0,
                     "transcribed_at": _now_iso(),
                     "transcript_source": resolved.metadata.get("transcript_source", "apify_native"),
@@ -312,7 +321,10 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 )
             elif resolved.raw_text is not None and resolved.media_family == MediaFamily.TEXT:
                 transcript_s3_key = f"{job.id}.txt"
-                transcript_text = resolved.raw_text.strip()
+                transcript_text = normalize_transcript_text(
+                    resolved.raw_text,
+                    source=resolved.source_platform.value,
+                )
                 transcription_metadata = _shared_text_transcription_metadata(
                     transcript_text
                 )

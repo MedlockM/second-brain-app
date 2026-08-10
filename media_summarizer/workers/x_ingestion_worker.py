@@ -21,6 +21,10 @@ from urllib.parse import unquote
 
 import httpx
 
+from media_summarizer.core.services.transcript_formatting import (
+    count_paragraphs,
+    normalize_transcript_text,
+)
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
@@ -80,10 +84,6 @@ class XIngestionError(Exception):
 
 def _now_iso_utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _word_count(text: str) -> int:
-    return len([token for token in text.split() if token.strip()])
 
 
 def _first_line(text: str) -> str:
@@ -261,11 +261,17 @@ async def _lookup_post(tweet_id: str) -> Dict[str, Any]:
 
 
 async def _upload_transcript(job_id: str, text: str) -> str:
+    """Upload the post text, normalized to paragraph-delimited plain text.
+
+    Posts are short, so the normalizer's short-content path preserves the
+    author's own line breaks verbatim (task-231 option B).
+    """
     transcript_s3_key = f"{job_id}.txt"
+    normalized = normalize_transcript_text(text, source="x")
     await s3.upload_file_object(
         bucket=TRANSCRIPT_BUCKET,
         key=transcript_s3_key,
-        file_obj=BytesIO(text.encode("utf-8")),
+        file_obj=BytesIO(normalized.encode("utf-8")),
         content_type="text/plain",
         metadata={
             "content-type": "text/plain",
@@ -432,7 +438,7 @@ async def process_x_message(message_body: Dict[str, Any]) -> Dict[str, Any]:
     await database_async.update_processing_job(job)
 
     lookup_result = await _lookup_post(tweet_id)
-    transcript_text = str(lookup_result["text"]).strip()
+    transcript_text = normalize_transcript_text(str(lookup_result["text"]), source="x")
     transcript_s3_key = await _upload_transcript(job_id, transcript_text)
 
     podcast_title, episode_title = _build_titles(lookup_result)
@@ -440,7 +446,8 @@ async def process_x_message(message_body: Dict[str, Any]) -> Dict[str, Any]:
         "provider": "x_api_lookup",
         "model_used": "x_api_v2",
         "language": lookup_result.get("lang"),
-        "segments_count": _word_count(transcript_text),
+        # Paragraph count, comparable across sources (task-231 s13.1).
+        "segments_count": count_paragraphs(transcript_text),
         "duration_seconds": 0,
         "source_url": normalized_url,
     }
