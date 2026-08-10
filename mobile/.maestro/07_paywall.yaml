@@ -11,6 +11,8 @@ tags:
 - launchApp:
     clearState: true
 
+- runFlow: utils/ensure_logged_out.yaml
+
 - extendedWaitUntil:
     visible:
       id: "login-email-input"
@@ -28,15 +30,34 @@ tags:
     text: "Choose Your Plan"
 - assertVisible:
     text: "Reader"
-- assertVisible:
-    text: "Mix"
-- assertVisible:
-    text: "Audio-Heavy"
-
-# The cards fall back to "Unavailable" when RevenueCat returns no products.
 - assertNotVisible:
     text: "Unavailable"
 
+- scrollUntilVisible:
+    element:
+      text: "Mix"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    text: "Mix"
+- assertNotVisible:
+    text: "Unavailable"
+
+- scrollUntilVisible:
+    element:
+      text: "Audio-Heavy"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    text: "Audio-Heavy"
+- assertNotVisible:
+    text: "Unavailable"
+
+- scrollUntilVisible:
+    element:
+      id: "paywall-close-button"
+    direction: UP
+    timeout: 10000
 - tapOn:
     id: "paywall-close-button"
 

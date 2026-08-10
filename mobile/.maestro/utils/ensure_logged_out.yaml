@@ -1,0 +1,24 @@
+# Normalize authentication state between aggregate flows. On iOS, clearing the
+# app container does not necessarily remove credentials persisted in Keychain.
+appId: com.secondbrainlabs.core
+
+---
+
+- runFlow:
+    when:
+      visible:
+        id: "account-tab-button"
+    commands:
+      - tapOn:
+          id: "account-tab-button"
+
+- runFlow:
+    when:
+      visible:
+        id: "account-sign-out-button"
+    commands:
+      - tapOn:
+          id: "account-sign-out-button"
+      - tapOn:
+          text: "Sign Out"
+

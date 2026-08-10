@@ -12,6 +12,8 @@ tags:
 - launchApp:
     clearState: true
 
+- runFlow: utils/ensure_logged_out.yaml
+
 # Wait for the app to initialize (splash screen dismiss)
 - extendedWaitUntil:
     visible:

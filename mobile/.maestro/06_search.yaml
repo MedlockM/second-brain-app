@@ -11,6 +11,8 @@ tags:
 - launchApp:
     clearState: true
 
+- runFlow: utils/ensure_logged_out.yaml
+
 - extendedWaitUntil:
     visible:
       id: "login-email-input"
