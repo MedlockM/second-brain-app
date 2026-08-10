@@ -3,9 +3,10 @@ id: task-232
 title: >-
   Implémenter le mode viewer de transcript lisible per validated benchmark
   (task-231)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-06 00:39'
+updated_date: '2026-08-10 18:09'
 labels:
   - mobile
   - ingestion
