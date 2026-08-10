@@ -136,6 +136,14 @@ jobs:
 
       - name: Run Maestro E2E tests on Android
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          FLOW_FILTER: ${{ github.event.inputs.flow_filter || '' }}
+          TEST_USER_EMAIL: ${{ secrets.E2E_TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.E2E_TEST_USER_PASSWORD }}
+          MAESTRO_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-android
+          SEARCH_TEST_TERM: ${{ secrets.E2E_SEARCH_TEST_TERM }}
+          API_BASE_URL: ${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}
+          SHARE_TEST_URL: https://www.youtube.com/watch?v=dQw4w9WgXcQ
         with:
           api-level: ${{ matrix.api-level }}
           target: aosp_atd
@@ -144,39 +152,7 @@ jobs:
           disk-size: 2048M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: |
-            # This debug APK embeds the JS bundle and does not need Metro.
-            adb install -r mobile/android/app/build/outputs/apk/debug/app-debug.apk
-
-            # Wait for device to be ready
-            adb wait-for-device
-            sleep 10
-
-            # Run Maestro flows
-            FLOW_DIR="mobile/.maestro"
-            FLOW_FILTER="${{ github.event.inputs.flow_filter || '' }}"
-
-            if [ -n "$FLOW_FILTER" ]; then
-              maestro test "$FLOW_DIR/${FLOW_FILTER}.yaml" \
-                --env=TEST_USER_EMAIL="${{ secrets.E2E_TEST_USER_EMAIL }}" \
-                --env=TEST_USER_PASSWORD="${{ secrets.E2E_TEST_USER_PASSWORD }}" \
-                --env=MAESTRO_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-android" \
-                --env=SEARCH_TEST_TERM="${{ secrets.E2E_SEARCH_TEST_TERM }}" \
-                --env=API_BASE_URL="${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}" \
-                --env=SHARE_TEST_URL="https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
-                --format=junit \
-                --output=maestro-report.xml
-            else
-              maestro test "$FLOW_DIR" \
-                --env=TEST_USER_EMAIL="${{ secrets.E2E_TEST_USER_EMAIL }}" \
-                --env=TEST_USER_PASSWORD="${{ secrets.E2E_TEST_USER_PASSWORD }}" \
-                --env=MAESTRO_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-android" \
-                --env=SEARCH_TEST_TERM="${{ secrets.E2E_SEARCH_TEST_TERM }}" \
-                --env=API_BASE_URL="${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}" \
-                --env=SHARE_TEST_URL="https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
-                --format=junit \
-                --output=maestro-report.xml
-            fi
+          script: bash .github/scripts/run-android-maestro.sh
 
       - name: Upload Maestro test results
         uses: actions/upload-artifact@v4
