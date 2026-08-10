@@ -1,0 +1,31 @@
+# Reusable sign-out sub-flow
+# Assumes an authenticated session with the tab bar visible.
+appId: com.secondbrainlabs.core
+
+---
+
+- tapOn:
+    id: "account-tab-button"
+
+- extendedWaitUntil:
+    visible:
+      id: "account-sign-out-button"
+    timeout: 10000
+
+- tapOn:
+    id: "account-sign-out-button"
+
+# The confirmation button carries an app-unique label so the tap never resolves
+# to the menu item or the alert title, which both read "Sign Out" on iOS.
+- extendedWaitUntil:
+    visible:
+      text: "Yes, sign out"
+    timeout: 10000
+
+- tapOn:
+    text: "Yes, sign out"
+
+- extendedWaitUntil:
+    visible:
+      id: "login-email-input"
+    timeout: 15000

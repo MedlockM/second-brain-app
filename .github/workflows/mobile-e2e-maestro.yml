@@ -224,7 +224,37 @@ jobs:
       - name: Verify Maestro installation
         run: maestro --version
 
+      # The app fingerprint covers everything baked into the simulator binary:
+      # sources, lockfile, native config, the EXPO_PUBLIC_* values embedded in
+      # the JS bundle, and the toolchain. The flow fingerprint covers only the
+      # Maestro flows, so editing a flow reuses the cached build.
+      - name: Compute iOS E2E fingerprints
+        id: fingerprints
+        env:
+          EXPO_PUBLIC_API_BASE_URL: ${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}
+          EXPO_PUBLIC_REVENUCAT_APPLE_KEY: ${{ secrets.E2E_REVENUECAT_TEST_KEY }}
+        run: |
+          app_fingerprint=$(
+            {
+              git ls-files -s -- mobile ':!mobile/.maestro'
+              printf 'api=%s\n' "$EXPO_PUBLIC_API_BASE_URL"
+              printf 'revenuecat=%s\n' "$EXPO_PUBLIC_REVENUCAT_APPLE_KEY"
+              printf 'toolchain=%s\n' "$(xcodebuild -version | tr '\n' ' ')"
+            } | shasum -a 256 | cut -c1-16
+          )
+          flows_fingerprint=$(git ls-files -s -- mobile/.maestro | shasum -a 256 | cut -c1-16)
+          echo "app=$app_fingerprint" >> "$GITHUB_OUTPUT"
+          echo "flows=$flows_fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached iOS E2E app
+        id: app-cache
+        uses: actions/cache@v4
+        with:
+          path: mobile/ios/build/Build/Products/Release-iphonesimulator
+          key: ios-e2e-app-${{ steps.fingerprints.outputs.app }}
+
       - name: Build self-contained iOS E2E app
+        if: steps.app-cache.outputs.cache-hit != 'true'
         working-directory: mobile
         env:
           E2E_EMBED_DEBUG_BUNDLE: "1"
@@ -258,39 +288,45 @@ jobs:
           test -n "$APP_PATH"
           xcrun simctl install booted "$APP_PATH"
 
-      - name: Run Maestro E2E tests on iOS
-        run: |
-          FLOW_DIR="mobile/.maestro"
-          FLOW_FILTER="${{ github.event.inputs.flow_filter || '' }}"
+      # Flows that already passed against this exact app + flow fingerprint are
+      # skipped, so a re-run only replays what is still red. Any source or flow
+      # edit changes a fingerprint and replays the whole suite.
+      - name: Restore passed iOS flows
+        uses: actions/cache/restore@v4
+        with:
+          path: .maestro-ios-passed
+          # Each attempt saves under a unique suffix, so the newest entry
+          # matching this fingerprint pair is picked up by prefix.
+          key: ios-e2e-passed-${{ steps.fingerprints.outputs.app }}-${{ steps.fingerprints.outputs.flows }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ios-e2e-passed-${{ steps.fingerprints.outputs.app }}-${{ steps.fingerprints.outputs.flows }}-
 
-          if [ -n "$FLOW_FILTER" ]; then
-            maestro test "$FLOW_DIR/${FLOW_FILTER}.yaml" \
-              --env=TEST_USER_EMAIL="${{ secrets.E2E_TEST_USER_EMAIL }}" \
-              --env=TEST_USER_PASSWORD="${{ secrets.E2E_TEST_USER_PASSWORD }}" \
-              --env=MAESTRO_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-ios" \
-              --env=SEARCH_TEST_TERM="${{ secrets.E2E_SEARCH_TEST_TERM }}" \
-              --env=API_BASE_URL="${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}" \
-              --env=SHARE_TEST_URL="https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
-              --format=junit \
-              --output=maestro-report-ios.xml
-          else
-            maestro test "$FLOW_DIR" \
-              --env=TEST_USER_EMAIL="${{ secrets.E2E_TEST_USER_EMAIL }}" \
-              --env=TEST_USER_PASSWORD="${{ secrets.E2E_TEST_USER_PASSWORD }}" \
-              --env=MAESTRO_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-ios" \
-              --env=SEARCH_TEST_TERM="${{ secrets.E2E_SEARCH_TEST_TERM }}" \
-              --env=API_BASE_URL="${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}" \
-              --env=SHARE_TEST_URL="https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
-              --format=junit \
-              --output=maestro-report-ios.xml
-          fi
+      - name: Run Maestro E2E tests on iOS
+        env:
+          FLOW_FILTER: ${{ github.event.inputs.flow_filter || '' }}
+          TEST_USER_EMAIL: ${{ secrets.E2E_TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.E2E_TEST_USER_PASSWORD }}
+          MAESTRO_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-ios
+          SEARCH_TEST_TERM: ${{ secrets.E2E_SEARCH_TEST_TERM }}
+          API_BASE_URL: ${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}
+          SHARE_TEST_URL: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+        run: bash .github/scripts/run-ios-maestro.sh
+
+      # Saved even when the run is red: the flows that did pass stay recorded so
+      # the next attempt resumes after them.
+      - name: Save passed iOS flows
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .maestro-ios-passed
+          key: ios-e2e-passed-${{ steps.fingerprints.outputs.app }}-${{ steps.fingerprints.outputs.flows }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload Maestro iOS test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: maestro-ios-results
-          path: maestro-report-ios.xml
+          path: maestro-ios-reports/
           retention-days: 1
 
   # -------------------------------------------------------------------

@@ -12,18 +12,4 @@ appId: com.secondbrainlabs.core
     when:
       visible:
         id: "account-tab-button"
-    commands:
-      - tapOn:
-          id: "account-tab-button"
-      - extendedWaitUntil:
-          visible:
-            id: "account-sign-out-button"
-          timeout: 10000
-      - tapOn:
-          id: "account-sign-out-button"
-      - tapOn:
-          text: "Sign Out"
-      - extendedWaitUntil:
-          visible:
-            id: "login-email-input"
-          timeout: 10000
+    file: sign_out.yaml

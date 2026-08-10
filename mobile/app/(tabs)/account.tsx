@@ -37,10 +37,12 @@ export default function AccountScreen() {
   };
 
   const handleLogout = () => {
+    // The confirmation label is unique app-wide: "Sign Out" alone also matches
+    // the menu item and the alert title, which makes the tap ambiguous on iOS.
     Alert.alert("Sign Out", "Are you sure you want to sign out?", [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Sign Out",
+        text: "Yes, sign out",
         style: "destructive",
         onPress: () => logout(),
       },

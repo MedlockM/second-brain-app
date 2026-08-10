@@ -52,17 +52,7 @@ tags:
     timeout: 15000
 
 # End the fresh session, then exercise explicit email/password login.
-- tapOn:
-    id: "account-tab-button"
-- tapOn:
-    id: "account-sign-out-button"
-- tapOn:
-    text: "Sign Out"
-
-- extendedWaitUntil:
-    visible:
-      id: "login-email-input"
-    timeout: 10000
+- runFlow: utils/sign_out.yaml
 
 - runFlow: utils/login.yaml
 
