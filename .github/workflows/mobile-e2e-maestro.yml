@@ -313,6 +313,10 @@ jobs:
 
       - name: Run Maestro E2E tests on iOS
         env:
+          # One Maestro invocation per flow means one XCUITest runner start-up per
+          # flow. The default budget is too tight for a cold macOS runner, and a
+          # timeout there aborts the flow before its first step.
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: "180000"
           FLOW_FILTER: ${{ github.event.inputs.flow_filter || '' }}
           TEST_USER_EMAIL: ${{ secrets.E2E_TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.E2E_TEST_USER_PASSWORD }}
