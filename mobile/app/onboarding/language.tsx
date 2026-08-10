@@ -85,7 +85,11 @@ export default function OnboardingLanguageScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+    <SafeAreaView
+      testID="language-onboarding-screen"
+      style={styles.container}
+      edges={["top", "bottom"]}
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Choose your reading language</Text>
         <Text style={styles.subtitle}>
@@ -109,6 +113,7 @@ export default function OnboardingLanguageScreen() {
 
       <View style={styles.footer}>
         <Pressable
+          testID="language-onboarding-continue-button"
           style={[styles.continueButton, isUpdating && styles.buttonDisabled]}
           onPress={handleContinue}
           disabled={!selectedLanguage || isUpdating}

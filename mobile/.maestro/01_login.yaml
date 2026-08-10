@@ -38,6 +38,14 @@ tags:
 
 - extendedWaitUntil:
     visible:
+      id: "language-onboarding-screen"
+    timeout: 15000
+
+- tapOn:
+    id: "language-onboarding-continue-button"
+
+- extendedWaitUntil:
+    visible:
       id: "inbox-screen"
     timeout: 15000
 
