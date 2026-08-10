@@ -126,6 +126,12 @@ XML
   else
     echo "::error::Maestro flow ${name} failed."
     failed=1
+    # The view hierarchy names the screen the flow actually ended on, which the
+    # JUnit assertion message alone never says. It carries no credentials and no
+    # screenshot, so it is safe to publish from a public repository.
+    echo "View hierarchy at failure:"
+    maestro hierarchy > "${report_dir}/${name}-hierarchy.json" 2>&1 || true
+    head -c 20000 "${report_dir}/${name}-hierarchy.json" || true
   fi
   echo "::endgroup::"
 done
