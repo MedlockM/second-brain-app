@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -110,6 +110,42 @@ type RawContentState =
 const TRANSLATION_POLL_DELAY_MS = 3000;
 /** Maximum number of translation polls before giving up. */
 const TRANSLATION_POLL_MAX_ATTEMPTS = 20;
+
+/** Blank-line separator between transcript paragraphs, tolerating trailing spaces. */
+const PARAGRAPH_SEPARATOR = /\n[ \t]*\n+/;
+/** Optional in-band speaker label emitted when Deepgram diarization is enabled. */
+const SPEAKER_PREFIX = /^(Speaker\s+\d+)\s*:\s*/i;
+
+type TranscriptParagraph = {
+  /** Speaker label without its trailing colon, when the paragraph carries one. */
+  speaker: string | null;
+  text: string;
+};
+
+/**
+ * Splits the API's plain-text transcript into renderable paragraphs.
+ *
+ * The backend guarantees paragraphs are separated by a blank line and that no
+ * paragraph exceeds ~900 characters (task-232, benchmark task-231 option B), so
+ * there is deliberately no re-chunking heuristic on the client: legacy
+ * single-block transcripts are already re-structured server-side at read time.
+ */
+function splitTranscriptParagraphs(content: string): TranscriptParagraph[] {
+  return content
+    .split(PARAGRAPH_SEPARATOR)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0)
+    .map((block) => {
+      const match = block.match(SPEAKER_PREFIX);
+      if (!match) {
+        return { speaker: null, text: block };
+      }
+      return {
+        speaker: match[1],
+        text: block.slice(match[0].length),
+      };
+    });
+}
 
 /**
  * Media Detail Screen.
@@ -1083,7 +1119,9 @@ function TranscriptSection({
           <View style={styles.transcriptMetaItem}>
             <Ionicons name="list-outline" size={14} color={Colors.textMuted} />
             <Text style={styles.transcriptMetaText}>
-              {transcript.segments_count} segments
+              {transcript.segments_count === 1
+                ? "1 paragraph"
+                : `${transcript.segments_count} paragraphs`}
             </Text>
           </View>
         )}
@@ -1125,6 +1163,45 @@ function TranscriptSection({
   );
 }
 
+/**
+ * Renders the transcript body as discrete paragraphs.
+ *
+ * The backend stores and serves transcripts as plain text whose paragraphs are
+ * separated by a blank line (task-232, benchmark task-231 option B), so the
+ * client only has to split on blank lines — no heuristic here.
+ *
+ * A leading "Speaker N:" prefix is optional per paragraph (it only appears when
+ * Deepgram diarization is enabled) and is rendered as a nested Text so the label
+ * reflows with the body copy instead of becoming its own block.
+ */
+function TranscriptBody({ content }: { content: string }) {
+  const paragraphs = useMemo(() => splitTranscriptParagraphs(content), [content]);
+
+  if (paragraphs.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.transcriptBody}>
+      {paragraphs.map((paragraph, index) => (
+        <Text
+          key={index}
+          selectable
+          style={[
+            styles.transcriptParagraph,
+            index === paragraphs.length - 1 && styles.transcriptParagraphLast,
+          ]}
+        >
+          {paragraph.speaker ? (
+            <Text style={styles.transcriptSpeaker}>{paragraph.speaker}: </Text>
+          ) : null}
+          {paragraph.text}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 function TranscriptContent({
   state,
   onRetry,
@@ -1135,7 +1212,7 @@ function TranscriptContent({
   if (state.status === "ready") {
     return (
       <View>
-        <Text style={styles.transcriptBody}>{state.content}</Text>
+        <TranscriptBody content={state.content} />
       </View>
     );
   }
@@ -1153,7 +1230,7 @@ function TranscriptContent({
             Translating transcript...
           </Text>
         </View>
-        <Text style={styles.transcriptBody}>{state.content}</Text>
+        <TranscriptBody content={state.content} />
       </View>
     );
   }
@@ -1172,7 +1249,7 @@ function TranscriptContent({
             Translation failed. Showing original transcript.
           </Text>
         </View>
-        <Text style={styles.transcriptBody}>{state.content}</Text>
+        <TranscriptBody content={state.content} />
       </View>
     );
   }
@@ -1643,10 +1720,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   transcriptBody: {
-    fontSize: Typography.body.fontSize,
-    color: Colors.textMain,
-    lineHeight: 24,
     paddingVertical: Spacing.sm,
+  },
+  transcriptParagraph: {
+    fontSize: Typography.body.fontSize,
+    lineHeight: Typography.body.lineHeight,
+    color: Colors.textMain,
+    marginBottom: Spacing.md,
+  },
+  transcriptParagraphLast: {
+    marginBottom: 0,
+  },
+  transcriptSpeaker: {
+    color: Colors.textMuted,
+    fontWeight: "600",
   },
   transcriptEmpty: {
     alignItems: "center",

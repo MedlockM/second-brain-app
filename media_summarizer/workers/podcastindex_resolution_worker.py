@@ -20,6 +20,10 @@ from media_summarizer.core.media_ingestion.adapters.podcast_resolver_foundation 
     normalize_podcast_source_url,
 )
 from media_summarizer.core.media_ingestion.domain import SourcePlatform
+from media_summarizer.core.services.transcript_formatting import (
+    count_paragraphs,
+    normalize_transcript_text,
+)
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
@@ -203,9 +207,12 @@ async def _try_rss_transcript_short_circuit(
         )
         return False
 
-    # Upload transcript to S3
+    # Upload transcript to S3. `fetch_rss_transcript` already normalized the
+    # text; the normalizer is idempotent, so this is a defensive pass-through
+    # for any transcript shape (task-231 option B).
+    normalized_text = normalize_transcript_text(transcript_text, source="rss")
     transcript_s3_key = f"{job.id}.txt"
-    transcript_bytes = transcript_text.encode("utf-8")
+    transcript_bytes = normalized_text.encode("utf-8")
     await s3.upload_file_object(
         bucket=TRANSCRIPT_BUCKET,
         key=transcript_s3_key,
@@ -224,6 +231,7 @@ async def _try_rss_transcript_short_circuit(
         "transcript_format": "txt",
         "source_detail": "rss_podcast_transcript_tag",
         "language": None,
+        "segments_count": count_paragraphs(normalized_text),
         "duration_seconds": 0,
     }
 

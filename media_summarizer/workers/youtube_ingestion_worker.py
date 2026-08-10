@@ -61,6 +61,11 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import yt_dlp
 
+from media_summarizer.core.services.transcript_formatting import (
+    count_paragraphs,
+    group_caption_lines,
+    normalize_transcript_text,
+)
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.language_codes import (
     normalize_language_code,
@@ -645,18 +650,22 @@ async def _run_apify_transcript_actor(
 
 
 def _apify_item_transcript_text(item: Dict[str, Any], dialect: Dict[str, Any]) -> str:
-    """Extract the plain transcript text from an actor dataset item.
+    """Extract the readable transcript text from an actor dataset item.
 
     Each actor names its flat transcript field differently
     (``transcript_text`` for starvibe, ``transcript_only_text`` for
     scrape-creators), so the field names come from the dialect. Both actors also
     return a timestamped ``transcript`` segment array, used as a fallback when
     the flat field is missing.
+
+    Both shapes go through the shared normalizer so the stored transcript is
+    paragraph-delimited rather than a wall of text or one cue per line
+    (task-231 option B).
     """
     for field in dialect["text_fields"]:
         flat = item.get(field)
         if isinstance(flat, str) and flat.strip():
-            return flat.strip()
+            return normalize_transcript_text(flat, source="youtube")
 
     segments = item.get("transcript")
     if isinstance(segments, list):
@@ -666,7 +675,7 @@ def _apify_item_transcript_text(item: Dict[str, Any], dialect: Dict[str, Any]) -
             if isinstance(segment, dict) and str(segment.get("text") or "").strip()
         ]
         if lines:
-            return "\n".join(lines)
+            return group_caption_lines(lines, source="youtube")
     return ""
 
 
@@ -765,12 +774,9 @@ async def _fetch_apify_transcript(
             user_message=_UNAVAILABLE_MESSAGE,
         )
 
-    segments = item.get("transcript")
-    segments_count = (
-        len(segments)
-        if isinstance(segments, list) and segments
-        else len([line for line in transcript_text.splitlines() if line.strip()])
-    )
+    # Paragraph count rather than the actor's cue count, so the value is
+    # comparable with the Deepgram path (task-231 section 13.1).
+    segments_count = count_paragraphs(transcript_text)
 
     return {
         "text": transcript_text,
@@ -800,11 +806,17 @@ async def _fetch_apify_transcript(
 
 
 async def _upload_transcript(job_id: str, text: str) -> str:
+    """Upload the transcript, normalized to paragraph-delimited plain text.
+
+    The normalizer is idempotent, so text already structured upstream (Apify
+    flat field, grouped cue lines) passes through untouched.
+    """
     transcript_s3_key = f"{job_id}.txt"
+    normalized = normalize_transcript_text(text, source="youtube")
     await s3.upload_file_object(
         bucket=TRANSCRIPT_BUCKET,
         key=transcript_s3_key,
-        file_obj=BytesIO(text.encode("utf-8")),
+        file_obj=BytesIO(normalized.encode("utf-8")),
         content_type="text/plain",
         metadata={
             "content-type": "text/plain",

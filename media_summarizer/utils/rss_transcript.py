@@ -20,6 +20,10 @@ from xml.etree import ElementTree as ET
 
 import httpx
 
+from media_summarizer.core.services.transcript_formatting import (
+    normalize_transcript_text,
+)
+
 logger = logging.getLogger(__name__)
 
 # Podcasting 2.0 namespace
@@ -211,13 +215,22 @@ def _normalize_transcript(content: str, mime_type: Optional[str]) -> str:
     """
     Normalize transcript content based on its format.
 
-    Converts SRT, VTT, and JSON transcripts to plain text.
+    Converts SRT, VTT, and JSON transcripts to plain text, then runs the shared
+    transcript normalizer so the stored text is paragraph-delimited whatever the
+    publisher's format and punctuation habits (task-231 option B).
     """
     if not content:
         return ""
 
     mime_type = (mime_type or "").lower()
+    return normalize_transcript_text(
+        _to_plain_text(content, mime_type),
+        source="rss",
+    )
 
+
+def _to_plain_text(content: str, mime_type: str) -> str:
+    """Convert a publisher transcript payload to unstructured plain text."""
     if mime_type in ("text/plain",):
         return content.strip()
 

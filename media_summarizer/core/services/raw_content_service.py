@@ -11,17 +11,24 @@ Translation architecture (task-200):
 - If not, the original transcript is returned with translation_pending=true
   and an async job is dispatched via SQS to the transcript-translation-worker.
 - The mobile client polls /raw-content until the translation is ready.
+
+Formatting architecture (task-232, benchmark task-231 option B):
+- Producers already store paragraph-delimited plain text.
+- This service re-runs the same shared normalizer at read time. It is
+  idempotent, so new content passes through untouched while transcripts ingested
+  before the change get structured on the fly — no S3 migration needed.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import re
 from typing import Optional
 
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.services.transcript_formatting import (
+    normalize_transcript_text,
+)
 from media_summarizer.core.services.transcript_translation import (
     TRANSCRIPT_TRANSLATION_QUEUE,
     _normalize_lang,
@@ -80,7 +87,7 @@ async def get_raw_content(
 
     Downloads the transcript/text from S3 and formats it into readable text.
     The source format depends on the media type:
-    - Audio/Video/Podcast: transcript (Deepgram JSON or plain text)
+    - Audio/Video/Podcast: transcript (paragraph-delimited plain text)
     - Articles: extracted text (plain text from trafilatura)
     - Social posts: raw text content
     - Images/PDFs: OCR result
@@ -179,8 +186,12 @@ async def get_raw_content(
                 k: v for k, v in translation_metadata.items() if k != "_translated_s3_key"
             }
 
-    # Determine source format and format accordingly
-    source_format = _detect_source_format(effective_text, media_type, source_platform)
+    # Determine source format and format accordingly.
+    # Ordering matters: translation is resolved *before* formatting, so the
+    # normalizer runs on the effective (possibly translated) text. If the
+    # translation LLM ever collapses paragraph breaks despite the prompt, they
+    # get re-derived here — the read path is self-healing (task-231 section 8.2).
+    source_format = _detect_source_format(media_type, source_platform, transcript_s3_key)
     formatted_content = _format_content(effective_text, source_format)
 
     return RawContentResponse(
@@ -482,291 +493,41 @@ async def _enqueue_translation_job(
         return False
 
 
-def _detect_source_format(
-    raw_text: str, media_type: str, source_platform: str
-) -> str:
+def _detect_source_format(media_type: str, source_platform: str, transcript_s3_key: str) -> str:
     """
-    Detect the source format of the raw content.
+    Classify the raw content by media type, platform and stored extension.
 
-    Returns one of: "deepgram_json", "plain_text", "article_text", "social_post", "ocr"
+    Returns one of: "markdown", "article_text", "social_post", "ocr", "plain_text".
+
+    Note: this is a *classification* of the content family, not provider payload
+    sniffing. Nothing ever writes a provider JSON payload to the transcript
+    bucket — every producer stores plain text (or markdown for parsed
+    documents), so the former ``deepgram_json`` / ``whisper_json`` /
+    ``json_transcript`` branches were unreachable and have been removed
+    (task-231 section 12).
     """
-    # Try to detect Deepgram JSON format
-    if raw_text.strip().startswith("{") or raw_text.strip().startswith("["):
-        try:
-            data = json.loads(raw_text)
-            if isinstance(data, dict):
-                # Deepgram response has "results" or "channels" keys
-                if "results" in data or "channels" in data:
-                    return "deepgram_json"
-                # Some other JSON transcript format (e.g., Whisper segments)
-                if "segments" in data or "text" in data:
-                    return "whisper_json"
-            return "json_transcript"
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    # Classify by media type and platform
+    if transcript_s3_key.lower().endswith(".md"):
+        return "markdown"
     if media_type in ("article",) or source_platform in ("web",):
         return "article_text"
     if source_platform in ("twitter", "linkedin"):
         return "social_post"
     if media_type in ("image", "pdf") or source_platform in ("ocr",):
         return "ocr"
-
     return "plain_text"
 
 
 def _format_content(raw_text: str, source_format: str) -> str:
-    """Format raw content based on its source format."""
-    if source_format == "deepgram_json":
-        return _format_deepgram_transcript(raw_text)
-    if source_format == "whisper_json":
-        return _format_whisper_transcript(raw_text)
-    if source_format == "json_transcript":
-        return _format_json_transcript(raw_text)
-    if source_format == "article_text":
-        return _format_article_text(raw_text)
-    if source_format == "social_post":
-        return _format_social_post(raw_text)
-    # For "plain_text" and "ocr", just clean up whitespace
-    return _format_plain_text(raw_text)
+    """Format raw content based on its source format.
 
-
-def _format_deepgram_transcript(raw_text: str) -> str:
+    Everything but markdown goes through the shared transcript normalizer
+    (task-231 option B). Because that normalizer is idempotent, content already
+    structured at write time passes through untouched, while legacy flat
+    transcripts get paragraphed on the fly — which is what makes an S3 backfill
+    unnecessary.
     """
-    Format a Deepgram JSON transcript into readable paragraphed text.
-
-    Deepgram responses can have different structures:
-    - results.channels[0].alternatives[0].paragraphs.paragraphs (with speaker info)
-    - results.channels[0].alternatives[0].transcript (flat text)
-    - results.utterances (with speaker labels)
-    """
-    try:
-        data = json.loads(raw_text)
-    except (json.JSONDecodeError, ValueError):
-        return _format_plain_text(raw_text)
-
-    # Try utterances first (most structured, with speakers)
-    utterances = data.get("results", {}).get("utterances") or data.get("utterances")
-    if utterances and isinstance(utterances, list):
-        return _format_utterances(utterances)
-
-    # Try paragraphs structure
-    results = data.get("results", data)
-    channels = results.get("channels", [])
-    if channels and isinstance(channels, list):
-        alt = channels[0].get("alternatives", [{}])[0] if channels[0].get("alternatives") else {}
-
-        # Check for paragraphs with speaker info
-        paragraphs_obj = alt.get("paragraphs", {})
-        if isinstance(paragraphs_obj, dict):
-            paragraphs_list = paragraphs_obj.get("paragraphs", [])
-            if paragraphs_list:
-                return _format_deepgram_paragraphs(paragraphs_list)
-
-        # Fall back to flat transcript text
-        transcript = alt.get("transcript", "")
-        if transcript:
-            return _format_plain_text(transcript)
-
-    # Last resort: look for a top-level "transcript" field
-    transcript = data.get("transcript", "")
-    if transcript:
-        return _format_plain_text(transcript)
-
-    return _format_plain_text(raw_text)
-
-
-def _format_utterances(utterances: list) -> str:
-    """Format Deepgram utterances with speaker labels."""
-    paragraphs = []
-    current_speaker = None
-    current_lines = []
-
-    for utterance in utterances:
-        speaker = utterance.get("speaker")
-        text = (utterance.get("transcript") or utterance.get("text", "")).strip()
-        if not text:
-            continue
-
-        speaker_label = f"Speaker {speaker}" if speaker is not None else None
-
-        if speaker_label != current_speaker:
-            if current_lines:
-                prefix = f"**{current_speaker}:** " if current_speaker else ""
-                paragraphs.append(prefix + " ".join(current_lines))
-            current_speaker = speaker_label
-            current_lines = [text]
-        else:
-            current_lines.append(text)
-
-    # Flush remaining
-    if current_lines:
-        prefix = f"**{current_speaker}:** " if current_speaker else ""
-        paragraphs.append(prefix + " ".join(current_lines))
-
-    return "\n\n".join(paragraphs)
-
-
-def _format_deepgram_paragraphs(paragraphs: list) -> str:
-    """Format Deepgram paragraphs structure with optional speaker labels."""
-    output_paragraphs = []
-
-    for para in paragraphs:
-        speaker = para.get("speaker")
-        sentences = para.get("sentences", [])
-        if not sentences:
-            continue
-
-        text_parts = []
-        for sentence in sentences:
-            sentence_text = (sentence.get("text") or "").strip()
-            if sentence_text:
-                text_parts.append(sentence_text)
-
-        if not text_parts:
-            continue
-
-        combined = " ".join(text_parts)
-        if speaker is not None:
-            output_paragraphs.append(f"**Speaker {speaker}:** {combined}")
-        else:
-            output_paragraphs.append(combined)
-
-    return "\n\n".join(output_paragraphs)
-
-
-def _format_whisper_transcript(raw_text: str) -> str:
-    """Format a Whisper JSON transcript into readable text."""
-    try:
-        data = json.loads(raw_text)
-    except (json.JSONDecodeError, ValueError):
-        return _format_plain_text(raw_text)
-
-    # Whisper format: {"text": "...", "segments": [...]}
-    text = data.get("text", "")
-    if text:
-        return _format_plain_text(text)
-
-    # Try to assemble from segments
-    segments = data.get("segments", [])
-    if segments:
-        texts = []
-        for seg in segments:
-            seg_text = (seg.get("text") or "").strip()
-            if seg_text:
-                texts.append(seg_text)
-        if texts:
-            return _format_plain_text(" ".join(texts))
-
-    return _format_plain_text(raw_text)
-
-
-def _format_json_transcript(raw_text: str) -> str:
-    """Format a generic JSON transcript."""
-    try:
-        data = json.loads(raw_text)
-    except (json.JSONDecodeError, ValueError):
-        return _format_plain_text(raw_text)
-
-    # Try common keys
-    if isinstance(data, dict):
-        for key in ("text", "transcript", "content", "body"):
-            if key in data and isinstance(data[key], str):
-                return _format_plain_text(data[key])
-
-    # If it's a list of objects with text
-    if isinstance(data, list):
-        texts = []
-        for item in data:
-            if isinstance(item, dict):
-                text = item.get("text") or item.get("transcript") or ""
-                if text.strip():
-                    texts.append(text.strip())
-            elif isinstance(item, str):
-                texts.append(item.strip())
-        if texts:
-            return "\n\n".join(texts)
-
-    return _format_plain_text(raw_text)
-
-
-def _format_article_text(raw_text: str) -> str:
-    """Format extracted article text, preserving paragraph structure."""
-    # Article text from trafilatura is typically already paragraphed
-    # Just clean up excessive whitespace while preserving paragraph breaks
-    lines = raw_text.split("\n")
-    paragraphs = []
-    current_paragraph = []
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            if current_paragraph:
-                paragraphs.append(" ".join(current_paragraph))
-                current_paragraph = []
-        else:
-            current_paragraph.append(stripped)
-
-    if current_paragraph:
-        paragraphs.append(" ".join(current_paragraph))
-
-    return "\n\n".join(paragraphs)
-
-
-def _format_social_post(raw_text: str) -> str:
-    """Format social media post text. Preserve original formatting mostly."""
-    # Social posts are typically short; preserve line breaks as they are intentional
-    return raw_text.strip()
-
-
-def _format_plain_text(raw_text: str) -> str:
-    """
-    Format plain text transcripts into readable paragraphs.
-
-    Splits long continuous text into paragraphs at sentence boundaries
-    approximately every 3-5 sentences for readability.
-    """
-    text = raw_text.strip()
-
-    # If text already has paragraph breaks, respect them
-    if "\n\n" in text:
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-        return "\n\n".join(paragraphs)
-
-    # If text has single line breaks that look like paragraph separators
-    if "\n" in text:
-        lines = [line.strip() for line in text.split("\n") if line.strip()]
-        # If lines are relatively long (> 80 chars average), treat them as paragraphs
-        avg_len = sum(len(line) for line in lines) / max(len(lines), 1)
-        if avg_len > 80:
-            return "\n\n".join(lines)
-        # Otherwise join them and split into paragraphs
-        text = " ".join(lines)
-
-    # Split long continuous text into paragraphs at sentence boundaries
-    sentences = _split_sentences(text)
-    if len(sentences) <= 5:
-        return text
-
-    paragraphs = []
-    current = []
-    for i, sentence in enumerate(sentences):
-        current.append(sentence)
-        # Create a paragraph every 4-6 sentences
-        if len(current) >= 5 or (len(current) >= 3 and i == len(sentences) - 1):
-            paragraphs.append(" ".join(current))
-            current = []
-
-    if current:
-        paragraphs.append(" ".join(current))
-
-    return "\n\n".join(paragraphs)
-
-
-def _split_sentences(text: str) -> list:
-    """Split text into sentences using basic heuristics."""
-    # Split on sentence-ending punctuation followed by space and uppercase
-    # or just on period/question/exclamation followed by space
-    parts = re.split(r'(?<=[.!?])\s+', text)
-    return [p for p in parts if p.strip()]
+    if source_format == "markdown":
+        # Parsed documents carry their own markdown structure (headings, lists).
+        # Re-paragraphing them would damage it.
+        return raw_text.strip()
+    return normalize_transcript_text(raw_text, source=source_format)

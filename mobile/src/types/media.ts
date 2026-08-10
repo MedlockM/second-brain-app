@@ -97,6 +97,10 @@ export interface TranscriptInfo {
   transcription_s3_key?: string;
   source?: string;
   language?: string;
+  /**
+   * Number of transcript paragraphs. Every producer reports the same unit since
+   * task-232, so the value is comparable across sources.
+   */
   segments_count?: number;
   duration_seconds?: number;
 }

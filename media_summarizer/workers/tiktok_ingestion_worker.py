@@ -27,6 +27,11 @@ from urllib.parse import urlsplit
 import httpx
 import yt_dlp
 
+from media_summarizer.core.services.transcript_formatting import (
+    count_paragraphs,
+    group_caption_lines,
+    normalize_transcript_text,
+)
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.deepgram_dispatch import (
     DEEPGRAM_TRANSCRIPTION_QUEUE,
@@ -406,18 +411,25 @@ async def _fetch_subtitle_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]
         payload = response.text
         content_type = response.headers.get("content-type", "")
 
-    text = _parse_caption_payload(
+    cue_text = _parse_caption_payload(
         payload=payload,
         ext=str(candidate.get("ext") or ""),
         content_type=content_type,
     )
+    if not cue_text:
+        raise NativeSubtitlesUnavailable("native_subtitles_absent")
+
+    # Caption cues are display units, not sentences: group them into paragraphs
+    # before the text is stored (task-231 option B).
+    text = group_caption_lines(cue_text.splitlines(), source="tiktok")
     if not text:
         raise NativeSubtitlesUnavailable("native_subtitles_absent")
 
     return {
         "text": text,
         "language": str(candidate.get("language") or "").strip() or None,
-        "segments_count": len([line for line in text.splitlines() if line.strip()]),
+        # Paragraph count, comparable with the Deepgram path (task-231 §13.1).
+        "segments_count": count_paragraphs(text),
         "source_detail": (
             f"tiktok_native_subtitles:{candidate.get('language') or 'unknown'}:"
             f"{candidate.get('ext') or 'unknown'}"
@@ -712,9 +724,9 @@ def _extract_apify_transcript_text(items: list[Dict[str, Any]]) -> Optional[str]
     Extract transcript text from Apify TikTok transcript actor dataset items.
 
     Each item carries `success` (bool) and `transcript` (WEBVTT string) per the
-    actor schema. We strip the VTT cues (timestamps, NOTE/STYLE blocks) and
-    keep only the spoken lines, joined by newlines. Returns None when the
-    actor signalled failure or the transcript is empty.
+    actor schema. We strip the VTT cues (timestamps, NOTE/STYLE blocks), keep
+    only the spoken lines and group them into paragraphs (task-231 option B).
+    Returns None when the actor signalled failure or the transcript is empty.
     """
     if not items:
         return None
@@ -730,8 +742,8 @@ def _extract_apify_transcript_text(items: list[Dict[str, Any]]) -> Optional[str]
     if not isinstance(raw, str) or not raw.strip():
         return None
 
-    text = _parse_timed_text_payload(raw)
-    return text or None
+    cue_text = _parse_timed_text_payload(raw)
+    return group_caption_lines(cue_text.splitlines(), source="tiktok") or None
 
 
 def _build_apify_native_extraction_metadata(
@@ -753,7 +765,7 @@ def _build_apify_native_extraction_metadata(
         "direct_media_url_present": False,
         "direct_media_url_status": None,
         "resolved_url": None,
-        "segments_count": len([line for line in transcript_text.splitlines() if line.strip()]),
+        "segments_count": count_paragraphs(transcript_text),
         "last_error_code": None,
         "fetched_at": _now_iso_utc(),
     }
@@ -769,7 +781,8 @@ def _build_apify_native_transcription_metadata(
         "provider": "apify_native_transcript",
         "model_used": "scrape_creators_tiktok_transcripts",
         "language": None,
-        "segments_count": len([line for line in transcript_text.splitlines() if line.strip()]),
+        # Paragraph count, comparable with the Deepgram path (task-231 §13.1).
+        "segments_count": count_paragraphs(transcript_text),
         "duration_seconds": 0,
         "source_url": source_url,
         "transcribed_at": _now_iso_utc(),
@@ -778,11 +791,17 @@ def _build_apify_native_transcription_metadata(
 
 
 async def _upload_native_transcript(job_id: str, text: str) -> str:
+    """Upload the transcript, normalized to paragraph-delimited plain text.
+
+    The normalizer is idempotent, so text already grouped upstream passes
+    through untouched.
+    """
     transcript_s3_key = f"{job_id}.txt"
+    normalized = normalize_transcript_text(text, source="tiktok")
     await s3.upload_file_object(
         bucket=TRANSCRIPT_BUCKET,
         key=transcript_s3_key,
-        file_obj=BytesIO(text.encode("utf-8")),
+        file_obj=BytesIO(normalized.encode("utf-8")),
         content_type="text/plain",
         metadata={
             "content-type": "text/plain",
