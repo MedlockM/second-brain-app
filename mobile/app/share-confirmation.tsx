@@ -16,6 +16,10 @@ import {
   type ShareIntakeState,
 } from "../src/contexts/ShareIntentContext";
 import {
+  getQuotaErrorTitle,
+  quotaErrorOffersUpgrade,
+} from "../src/lib/quotaError";
+import {
   Colors,
   Typography,
   Spacing,
@@ -90,6 +94,12 @@ export default function ShareConfirmationScreen() {
     router.push("/media/tags?mode=share");
   };
 
+  // Offered when the backend refused the submission for a tier allowance. The
+  // share intake is left untouched so the user can Save again once subscribed.
+  const handleOpenPaywall = () => {
+    router.push("/paywall");
+  };
+
   const canSave = intake.status === "ready" || intake.status === "error";
 
   const topBarTitle =
@@ -138,6 +148,7 @@ export default function ShareConfirmationScreen() {
           onOpenCollection={handleOpenCollection}
           onOpenTags={handleOpenTags}
           onRetry={handleRetry}
+          onOpenPaywall={handleOpenPaywall}
         />
       </View>
     </SafeAreaView>
@@ -154,6 +165,7 @@ function ShareContent({
   onOpenCollection,
   onOpenTags,
   onRetry,
+  onOpenPaywall,
 }: {
   intake: ShareIntakeState;
   selectedFolder: ShareSelectedFolder | null;
@@ -161,6 +173,7 @@ function ShareContent({
   onOpenCollection: () => void;
   onOpenTags: () => void;
   onRetry: () => void;
+  onOpenPaywall: () => void;
 }) {
   switch (intake.status) {
     case "idle":
@@ -292,14 +305,44 @@ function ShareContent({
         </View>
       );
 
-    case "error":
+    case "error": {
+      // A quota refusal is not a failure the user can retry into success: it is
+      // a limit, so it reads as one. The message comes straight from the quota
+      // enforcer and already names the limit that was reached.
+      const quotaErrorCode = intake.quotaErrorCode ?? null;
+      const offersUpgrade =
+        quotaErrorCode !== null && quotaErrorOffersUpgrade(quotaErrorCode);
+
       return (
-        <View style={styles.centerContent}>
+        <View style={styles.centerContent} testID="share-error-state">
           <View style={styles.errorIcon}>
-            <Ionicons name="alert-circle" size={48} color={Colors.error} />
+            <Ionicons
+              name={quotaErrorCode ? "lock-closed" : "alert-circle"}
+              size={48}
+              color={quotaErrorCode ? Colors.primary : Colors.error}
+            />
           </View>
-          <Text style={styles.errorTitle}>Save failed</Text>
-          <Text style={styles.errorMessage}>{intake.message}</Text>
+          <Text style={styles.errorTitle}>
+            {quotaErrorCode ? getQuotaErrorTitle(quotaErrorCode) : "Save failed"}
+          </Text>
+          <Text testID="share-error-message" style={styles.errorMessage}>
+            {intake.message}
+          </Text>
+          {offersUpgrade && (
+            <Pressable
+              testID="share-quota-upgrade-button"
+              style={({ pressed }) => [
+                styles.upgradeButton,
+                pressed && styles.upgradeButtonPressed,
+              ]}
+              onPress={onOpenPaywall}
+              accessibilityLabel="See plans"
+              accessibilityRole="button"
+            >
+              <Ionicons name="sparkles" size={18} color={Colors.onPrimary} />
+              <Text style={styles.upgradeButtonText}>See plans</Text>
+            </Pressable>
+          )}
           <Pressable
             style={styles.retryButton}
             onPress={onRetry}
@@ -311,6 +354,7 @@ function ShareContent({
           </Pressable>
         </View>
       );
+    }
 
     default:
       return null;
@@ -691,6 +735,27 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: Typography.body.lineHeight,
     marginBottom: Spacing.lg,
+  },
+  upgradeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primary,
+    minHeight: TouchTarget.minimum,
+    marginBottom: Spacing.sm,
+    ...Shadows.soft,
+  },
+  upgradeButtonPressed: {
+    opacity: 0.85,
+  },
+  upgradeButtonText: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: "700",
+    color: Colors.onPrimary,
   },
   retryButton: {
     flexDirection: "row",

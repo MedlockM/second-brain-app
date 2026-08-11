@@ -41,11 +41,11 @@ export async function apiRequest<T = unknown>(
   const response = await fetch(url, fetchOptions);
 
   if (!response.ok) {
-    const { message, code } = await parseErrorResponse(
+    const { message, code, quotaErrorCode } = await parseErrorResponse(
       response,
       `Request failed: ${method} ${path}`,
     );
-    throw createHttpError(message, response.status, code);
+    throw createHttpError(message, response.status, code, quotaErrorCode);
   }
 
   // Handle 204 No Content

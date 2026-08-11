@@ -21,6 +21,11 @@ import {
   SharedContentValidationError,
 } from "../services/sharedContentService";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
+import {
+  getQuotaErrorCode,
+  getQuotaErrorMessage,
+  type QuotaErrorCode,
+} from "../lib/quotaError";
 import type { IngestUrlResponse } from "../types/media";
 import type { SharedFileAttachment } from "../types/sharedContent";
 
@@ -55,6 +60,12 @@ export interface ShareIntakeState {
   contentType: ShareContentType;
   /** Audio file attachment (for audio shares) */
   audioFile: SharedFileAttachment | null;
+  /**
+   * Set when the backend refused the submission through the quota enforcer.
+   * Drives the quota-specific error card, including whether the paywall is
+   * offered. Null/undefined for any other failure.
+   */
+  quotaErrorCode?: QuotaErrorCode | null;
 }
 
 export interface ShareSelectedFolder {
@@ -88,9 +99,37 @@ const INITIAL_STATE: ShareIntakeState = {
   response: null,
   contentType: "url",
   audioFile: null,
+  quotaErrorCode: null,
 };
 
 const ShareIntentContext = createContext<ShareIntentContextValue | null>(null);
+
+/**
+ * Build the error half of the intake state from a failed submission.
+ *
+ * A quota refusal keeps the backend wording: it is the only text that names the
+ * limit that was hit, and getFriendlyErrorMessage would collapse it into a
+ * generic "You need more minutes or credits to continue."
+ */
+function toSubmissionError(
+  error: unknown,
+  fallback: string,
+): { message: string; quotaErrorCode: QuotaErrorCode | null } {
+  const quotaErrorCode = getQuotaErrorCode(error);
+  if (quotaErrorCode) {
+    return {
+      message: getQuotaErrorMessage(error, quotaErrorCode),
+      quotaErrorCode,
+    };
+  }
+  if (error instanceof SharedContentValidationError) {
+    return { message: error.message, quotaErrorCode: null };
+  }
+  return {
+    message: getFriendlyErrorMessage(error, { fallback }),
+    quotaErrorCode: null,
+  };
+}
 
 /**
  * Provider that consumes the official expo-share-intent package context
@@ -358,15 +397,18 @@ export function ShareIntentProvider({
         response,
         contentType: "url",
         audioFile: null,
+        quotaErrorCode: null,
       });
     } catch (error) {
-      const message = getFriendlyErrorMessage(error, {
-        fallback: "Failed to save the link. Please try again.",
-      });
+      const { message, quotaErrorCode } = toSubmissionError(
+        error,
+        "Failed to save the link. Please try again.",
+      );
       setIntake((prev) => ({
         ...prev,
         status: "error",
         message,
+        quotaErrorCode,
       }));
     }
   }, [intake, token, selectedFolder, selectedTags]);
@@ -432,6 +474,7 @@ export function ShareIntentProvider({
           },
           contentType: "text",
           audioFile: null,
+          quotaErrorCode: null,
         });
       } else if (intake.contentType === "audio" && intake.audioFile) {
         const response = await SharedContentService.ingestSharedAudio(
@@ -477,21 +520,19 @@ export function ShareIntentProvider({
           },
           contentType: "audio",
           audioFile: intake.audioFile,
+          quotaErrorCode: null,
         });
       }
     } catch (error) {
-      let message: string;
-      if (error instanceof SharedContentValidationError) {
-        message = error.message;
-      } else {
-        message = getFriendlyErrorMessage(error, {
-          fallback: "Failed to save the content. Please try again.",
-        });
-      }
+      const { message, quotaErrorCode } = toSubmissionError(
+        error,
+        "Failed to save the content. Please try again.",
+      );
       setIntake((prev) => ({
         ...prev,
         status: "error",
         message,
+        quotaErrorCode,
       }));
     }
   }, [intake, token, selectedFolder, selectedTags]);
@@ -522,6 +563,7 @@ export function ShareIntentProvider({
         ...prev,
         status: "ready",
         message: null,
+        quotaErrorCode: null,
       }));
     }
   }, [intake]);

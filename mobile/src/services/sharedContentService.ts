@@ -191,11 +191,11 @@ export class SharedContentService {
     });
 
     if (!response.ok) {
-      const { message, code } = await parseErrorResponse(
+      const { message, code, quotaErrorCode } = await parseErrorResponse(
         response,
         "Failed to submit shared content.",
       );
-      throw createHttpError(message, response.status, code);
+      throw createHttpError(message, response.status, code, quotaErrorCode);
     }
 
     if (response.status === 204) {
