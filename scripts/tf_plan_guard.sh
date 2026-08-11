@@ -86,7 +86,7 @@ STATEFUL='["aws_dynamodb_table","aws_s3_bucket","aws_s3_object","aws_secretsmana
 STATEFUL_DELETES=$(jq -r "
   .resource_changes[]?
   | select(.change.actions | index(\"delete\"))
-  | select(${STATEFUL} | index(.type))
+  | select(.type as \$t | ${STATEFUL} | index(\$t))
   | \"  - \(.address) [\(.change.actions | join(\",\"))]\"
 " "${PLAN_JSON}")
 
@@ -104,7 +104,7 @@ echo "OK: 0 delete actions on tables, buckets, secrets or the ECR repository."
 OTHER_DELETES=$(jq -r "
   .resource_changes[]?
   | select(.change.actions | index(\"delete\"))
-  | select((${STATEFUL} | index(.type)) | not)
+  | select((.type as \$t | ${STATEFUL} | index(\$t)) | not)
   | \"  - \(.address) [\(.change.actions | join(\",\"))]\"
 " "${PLAN_JSON}")
 

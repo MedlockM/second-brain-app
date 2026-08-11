@@ -39,12 +39,21 @@ locals {
     USER_RSS_FEEDS_TABLE          = aws_dynamodb_table.user_rss_feeds.name
   }
 
-  # Every table ARN this environment owns, plus its indexes. Used to scope the
-  # Lambda IAM policies away from the account-wide "table/*" they used to grant.
-  table_arns = concat(
-    [for t in local.table_names : "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${t}"],
-    [for t in local.table_names : "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${t}/index/*"],
-  )
+  # Every table this environment owns, plus its indexes, matched through the
+  # environment suffix that task-237 appends to 100% of the table names. Used to
+  # scope the Lambda IAM policies away from the account-wide "table/*" they used
+  # to grant.
+  #
+  # This is a wildcard rather than the 24 explicit ARNs on purpose: enumerating
+  # them (48 ARNs with the indexes) pushes the managed policy past the hard
+  # 6144-byte quota and the apply fails with `LimitExceeded: Cannot exceed quota
+  # for PolicySize: 6144`. The suffix wildcard keeps the property that matters —
+  # a dev Lambda cannot address a -staging or -prod table, nor any of the legacy
+  # unsuffixed tables — and it survives the next table being added.
+  table_arns = [
+    "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/*${local.suffix}",
+    "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/*${local.suffix}/index/*",
+  ]
 
   # -------------------------------------------------------------------------
   # SQS queues

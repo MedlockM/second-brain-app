@@ -13,9 +13,11 @@ table is only ever read.
 Usage:
     scripts/dynamo_copy_env.py --from users --to users-dev
     scripts/dynamo_copy_env.py --from users --to users-dev --dry-run
-    scripts/dynamo_copy_env.py --manifest tables.txt --suffix -dev
+    scripts/dynamo_copy_env.py --manifest tables.txt --suffix=-dev
 
     # tables.txt is one legacy table name per line; --suffix builds the target.
+    # Note the `=` in --suffix=-dev: a value starting with "-" is otherwise read
+    # as another flag.
 
 Verification (do NOT trust DescribeTable.ItemCount, it lags by ~6 hours):
     aws dynamodb scan --table-name users-dev --select COUNT
