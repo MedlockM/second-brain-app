@@ -3,9 +3,10 @@ id: task-239
 title: >-
   Freeze the media-library data loss: disable processing_jobs TTL and enable
   PITR
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-11 16:10'
+updated_date: '2026-08-11 16:29'
 labels:
   - infra
   - terraform
