@@ -76,4 +76,38 @@ Point factuel à connaître, pas une précaution : d'après le benchmark task-21
 **Attention — piège d'interaction avec task-239** : le TTL de `processing_jobs` est maintenant `enabled = false` dans `dynamodb_core_tables.tf`, volontairement. La restructuration ne doit **pas** le réactiver en recopiant une version antérieure du fichier vers `modules/platform/`. Les branches `recover/task-237` et `recover/task-237-v2` ont été créées **avant** ce gel : leur copie de `dynamodb_core_tables.tf` contient encore le TTL actif. Reprendre depuis ces branches en écrasant le fichier ferait repartir la suppression des 16 lignes `completed` sauvées. Vérifier `aws dynamodb describe-time-to-live --table-name processing_jobs` → doit rester `DISABLED` après la migration. Seule la Phase 4 (task-242) peut légitimement le réactiver.
 
 Nouveau critère #10 ajouté pour les 21 `prevent_destroy` : trois runs consécutifs ont buté dessus sans qu'aucun critère ne le couvre, ce qui condamnait chaque agent à le redécouvrir.
+
+## 2026-08-11 — Quatrième tentative, interrompue elle aussi (erreur API « connection lost »)
+
+**Cette tentative est allée beaucoup plus loin que les trois précédentes : elle a réellement appliqué sur AWS.** Travail préservé sur `recover/task-237-v3` (4 commits, 77 fichiers, +2202/-1198) — les trois premiers commits étaient déjà faits par l'agent, le quatrième (`3ae9e48`) est le WIP non commité que le dispatcher a sauvé du worktree avant suppression :
+
+- `8081892` restructuration en racines par environnement au-dessus d'un module partagé
+- `743ba6b` `scripts/tf_plan_guard.sh` + `scripts/dynamo_copy_env.py`
+- `6589260` « fix three defects found by actually applying the dev migration »
+- `3ae9e48` (WIP récupéré) suppression des fallbacks de noms de ressources dans ~42 fichiers — critère #6, **non relu**
+
+**`recover/task-237-v3` remplace `recover/task-237-v2` comme point de reprise.**
+
+### État réel constaté côté AWS (vérifié par le dispatcher, région **eu-west-3**)
+
+- **Rien n'a été détruit.** Les tables historiques non suffixées (`processing_jobs`, `user_folders`, `media_artifacts`, …) existent toujours, intactes.
+- Les jeux suffixés `-dev` **et** `-staging` ont été créés (23 tables chacun).
+- **La copie des données dev a réussi** : `processing_jobs-dev` = 22 items, `media_artifacts-dev` = 166, `users-dev` = 25 — identiques aux sources. Critère #3 vraisemblablement tenu, à reconfirmer.
+- **Piège de vérification à connaître** : `describe-table --query Table.ItemCount` renvoie `0` sur ces tables fraîchement créées ; DynamoDB ne rafraîchit cette métadonnée que toutes les ~6 h. Seul `scan --select COUNT` donne le vrai compte. Ne pas conclure à une perte de données sur `ItemCount`.
+- **Piège de région** : le compte a `AWS_REGION=us-east-1` exporté dans l'environnement du shell alors que le projet vit en `eu-west-3`. Un `list-tables` sans `--region` renvoie une liste vide et donne l'illusion que tout a disparu. Toujours passer `--region eu-west-3`.
+- Le TTL de `processing_jobs` est resté `DISABLED`, et `processing_jobs-dev` est aussi `DISABLED` : **le piège task-239 a été correctement évité** par cette tentative.
+- Les deux Lambdas `media-summarizer-api-dev` et `media-summarizer-api-staging` sont déployées, chacune avec son `ENVIRONMENT`, son `RUNTIME_SECRET_NAME` et ses noms de tables suffixés.
+- Les deux API répondent `200 {"status":"healthy","database":"connected"}` sur **leurs endpoints respectifs et indépendants** — critère #8 vraisemblablement tenu. Chemin exact : `/api/v1/health/` **avec le slash final** (sans slash → `307`, et `/health` → `404`).
+
+### Point de blocage exact — critère #7 non terminé
+
+L'agent s'est arrêté sur la phrase « Now criterion #7: the staging runtime secret ». Constat : `media-summarizer-runtime-staging` **existe mais est vide (0 clé)**, là où `media-summarizer-runtime-dev` en contient 37 (dont 2 vides). **Staging est donc vert au health check mais fonctionnellement creux** : la connexion DynamoDB passe par le rôle IAM, mais toutes les intégrations tierces (Deepgram, OpenAI, Apify, RevenueCat, …) échoueraient. C'est le premier travail à reprendre.
+
+### Observation technique laissée par l'agent
+
+`terraform plan -refresh-only -detailed-exitcode` renvoie **toujours** `2` avec le provider aws 5.x, y compris sur un staging fraîchement appliqué : c'est de la normalisation d'attributs calculés, pas de la vraie dérive. L'assertion qui porte réellement pour le critère #4 est `plan -detailed-exitcode` = `0` sur dev, et elle passait.
+
+### Divergence à traiter en priorité à la reprise
+
+**AWS a été modifié mais `main` ne contient aucun de ces changements** — la restructuration Terraform, les scripts et la suppression des fallbacks vivent uniquement sur `recover/task-237-v3`. Le dispatcher n'a délibérément **pas** mergé : l'agent a échoué avant la fin, les 77 fichiers ne sont ni relus ni testés, et aucun critère n'a été validé par lui. Cette dérive entre l'infra réelle et le dépôt est le risque principal du moment : la prochaine tentative doit la résorber en premier, soit en finissant et en mergeant `recover/task-237-v3`, soit en décidant explicitement de revenir en arrière côté AWS.
 <!-- SECTION:NOTES:END -->
