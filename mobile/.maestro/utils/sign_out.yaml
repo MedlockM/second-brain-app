@@ -9,8 +9,18 @@ appId: com.secondbrainlabs.core
 
 - extendedWaitUntil:
     visible:
-      id: "account-sign-out-button"
+      id: "account-screen"
     timeout: 10000
+
+# The menu no longer fits the fold on short screens now that the subscription
+# entry point sits above it, and a tap on an off-screen row fails with nothing
+# more than "element not found". Scroll it in first; the screen body is a
+# ScrollView, and this is a no-op when the row is already on screen.
+- scrollUntilVisible:
+    element:
+      id: "account-sign-out-button"
+    direction: DOWN
+    timeout: 15000
 
 - tapOn:
     id: "account-sign-out-button"

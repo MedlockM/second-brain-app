@@ -1,6 +1,9 @@
 # Flow 07: RevenueCat paywall smoke test
-# Opens the route directly so the test does not depend on a temporary product
-# entry point. It verifies packages are loaded but never taps Subscribe.
+# Enters through the Account tab CTA, the same path a real user takes, so the
+# flow breaks if the paywall ever becomes unreachable again. It verifies
+# packages are loaded and that closing returns to the caller, never taps
+# Subscribe. The media-summarizer://paywall deep link still works but is no
+# longer the only way in, so the flow no longer depends on it.
 appId: com.secondbrainlabs.core
 tags:
   - critical
@@ -19,48 +22,25 @@ tags:
 
 - runFlow: utils/login.yaml
 
-# iOS asks for confirmation before handing a scheme URL to the app
-# ('Open in "Media Summarizer"?'), and without that confirmation the paywall
-# never mounts. autoVerify dismisses the dialog; Android opens the scheme
-# directly and ignores the flag.
-- openLink:
-    link: "media-summarizer://paywall"
-    autoVerify: true
+- tapOn:
+    id: "account-tab-button"
 
-# autoVerify alone leaves the dialog up on this runner, so the confirm button
-# still has to be tapped. It carries its label in accessibilityText only, which
-# no text selector reaches, hence the position: the alert is a fixed two-button
-# row and this point is the centre of its right-hand Open button, measured off a
-# captured hierarchy.
-#
-# The pre-wait is long on purpose. Tapping this point once the paywall is up hits
-# a tier's Subscribe button and pushes a StoreKit sheet over the screen, so the
-# tap must only fire when the paywall is genuinely absent rather than slow.
-- runFlow:
-    when:
-      platform: iOS
-    commands:
-      - extendedWaitUntil:
-          visible:
-            id: "paywall-screen"
-          timeout: 20000
-          optional: true
-      - runFlow:
-          when:
-            notVisible:
-              id: "paywall-screen"
-          commands:
-            - tapOn:
-                point: "67%,56%"
-            # The dialog belongs to the app that opened the link, and the session
-            # keeps querying that app after the tap: two runs timed out here
-            # while a separate `maestro hierarchy` process saw the paywall
-            # mounted with valid bounds. Re-target the driver at our app.
-            # `stopApp: false` brings it to the front without a cold launch,
-            # which would discard the route the link just opened.
-            - launchApp:
-                appId: com.secondbrainlabs.core
-                stopApp: false
+- extendedWaitUntil:
+    visible:
+      id: "account-screen"
+    timeout: 15000
+
+# The CTA reads "Upgrade" or "Manage subscription" depending on whether the test
+# account holds an entitlement, so it is only ever addressed by test id. The
+# scroll is a no-op while the card stays above the fold.
+- scrollUntilVisible:
+    element:
+      id: "account-upgrade-button"
+    direction: DOWN
+    timeout: 15000
+
+- tapOn:
+    id: "account-upgrade-button"
 
 - extendedWaitUntil:
     visible:
@@ -93,15 +73,21 @@ tags:
 - assertNotVisible:
     text: "Unavailable"
 
-- scrollUntilVisible:
-    element:
-      id: "paywall-close-button"
-    direction: UP
-    timeout: 10000
+# The Close button lives in the fixed header, outside the tier ScrollView, so it
+# stays on screen however far the list is scrolled. Asserting it instead of
+# scrolling to it also avoids a swipe-down on an iOS sheet, which the system
+# reads as a dismissal.
+- assertVisible:
+    id: "paywall-close-button"
 - tapOn:
     id: "paywall-close-button"
 
+# Closing returns to the screen that opened the paywall — the Account tab, not
+# the inbox. The Account screen sits behind the sheet on iOS, so the dismissal
+# itself is what has to be asserted.
 - extendedWaitUntil:
-    visible:
-      id: "inbox-screen"
-    timeout: 5000
+    notVisible:
+      id: "paywall-screen"
+    timeout: 10000
+- assertVisible:
+    id: "account-screen"
