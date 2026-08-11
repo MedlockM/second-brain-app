@@ -27,15 +27,39 @@ tags:
     link: "media-summarizer://paywall"
     autoVerify: true
 
-# A blind positional fallback was tried here and made things worse: the dialog
-# buttons are only addressable by accessibilityText, and when the paywall was
-# merely slow to mount the tap landed on a tier's Subscribe button instead.
-# autoVerify is the only safe way to clear the dialog, so give the route the room
-# it needs rather than second-guessing it.
+# autoVerify alone leaves the dialog up on this runner, so the confirm button
+# still has to be tapped. It carries its label in accessibilityText only, which
+# no text selector reaches, hence the position: the alert is a fixed two-button
+# row and this point is the centre of its right-hand Open button, measured off a
+# captured hierarchy.
+#
+# The pre-wait is long on purpose. Tapping this point once the paywall is up hits
+# a tier's Subscribe button and pushes a StoreKit sheet over the screen, so the
+# tap must only fire when the paywall is genuinely absent rather than slow.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - extendedWaitUntil:
+          visible:
+            id: "paywall-screen"
+          timeout: 45000
+          optional: true
+      - runFlow:
+          when:
+            notVisible:
+              id: "paywall-screen"
+          commands:
+            - tapOn:
+                point: "67%,56%"
+
+# Resuming from the dialog remounts the route, which is slower than a plain
+# in-app navigation: a previous run showed the paywall present in the failure
+# dump, just past a 45s budget.
 - extendedWaitUntil:
     visible:
       id: "paywall-screen"
-    timeout: 60000
+    timeout: 90000
 - assertVisible:
     text: "Choose Your Plan"
 - assertVisible:
