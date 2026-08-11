@@ -3,10 +3,10 @@ id: task-244
 title: >-
   Add UI entry points to the paywall (Account upgrade CTA + quota-refusal
   trigger)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-11 16:24'
-updated_date: '2026-08-11 18:05'
+updated_date: '2026-08-11 16:51'
 labels:
   - mobile
   - billing
