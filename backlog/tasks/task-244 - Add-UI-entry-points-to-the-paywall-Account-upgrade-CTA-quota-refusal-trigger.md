@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-11 16:24'
+updated_date: '2026-08-11 16:32'
 labels:
   - mobile
   - billing
@@ -57,4 +58,20 @@ Conséquence : le paywall est inatteignable pour un utilisateur réel, donc **au
 - [ ] #4 The paywall route is declared in app/_layout.tsx alongside the other Stack.Screen entries
 - [ ] #5 07_paywall.yaml reaches the paywall through the Account CTA instead of the media-summarizer://paywall deep link, and still passes on iOS and Android
 - [ ] #6 Closing the paywall returns to the screen that opened it
+
+- [ ] #7 utils/sign_out.yaml still reaches account-sign-out-button with the new Upgrade menu item present — if the item pushes it out of view, the flow scrolls to it or the Account screen becomes scrollable
+- [ ] #8 01_login, 06_search and 07_paywall all pass on iOS and Android in the same run as the UI change, not in a follow-up
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Impact E2E à traiter dans cette même tâche
+
+Ajouter un item au menu Account n'affecte pas seulement le flow paywall :
+
+- `utils/sign_out.yaml` tape `account-sign-out-button`, et il est appelé par `utils/ensure_logged_out.yaml`, lui-même utilisé par **01_login, 06_search et 07_paywall**. Un item de plus dans le menu impacte donc les trois flows.
+- `mobile/app/(tabs)/account.tsx` **n'est pas scrollable** (`SafeAreaView` + carte de menu à hauteur fixe, aucun `ScrollView`). Un item supplémentaire peut pousser le bouton de déconnexion hors de la zone visible : le tap échoue alors sans message explicite, exactement le mode d'échec débusqué en août 2026 sur la suite iOS (bouton Close du paywall sous la Dynamic Island).
+
+Les flows doivent donc être ajustés **dans la même PR** que le changement d'UI, pas dans une tâche de suivi : sinon `main` reste rouge dans l'intervalle. Le mécanisme de cache de `.github/scripts/run-ios-maestro.sh` rejouera automatiquement les trois flows, puisque toute modification du binaire invalide l'empreinte de build.
+<!-- SECTION:NOTES:END -->

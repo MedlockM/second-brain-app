@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-09 16:57'
-updated_date: '2026-08-11 16:10'
+updated_date: '2026-08-11 16:32'
 labels:
   - infra
   - terraform
@@ -37,6 +37,8 @@ Scope covers: restructuring `infrastructure/terraform/` per the validated archit
 - [ ] #7 A staging environment is created and its runtime secret is provisioned, with enable_alarms set per the approved decision
 - [ ] #8 The staging API health endpoint returns a healthy response over its own endpoint, independent of dev
 - [ ] #9 infrastructure/terraform/README.md documents the per-environment plan and apply procedure, replacing the unsafe historical guidance of copying terraform.tfvars with a different environment value
+
+- [ ] #10 Les 21 erreurs prevent_destroy qui font avorter le plan sur la nouvelle structure sont traitées, et un terraform plan complet aboutit en listant bien les Lambdas API et workers
 <!-- AC:END -->
 
 ## Implementation Notes
