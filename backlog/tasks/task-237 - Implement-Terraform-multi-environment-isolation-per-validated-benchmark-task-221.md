@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-09 16:57'
-updated_date: '2026-08-11 13:21'
+updated_date: '2026-08-11 14:22'
 labels:
   - infra
   - terraform
@@ -51,4 +51,16 @@ Scope covers: restructuring `infrastructure/terraform/` per the validated archit
 - `1e4342e wip(task-237)` — 41 fichiers, +201/-282 : suppression des fallbacks de noms de ressources hardcodés dans les endpoints, services, utils et workers (critère #6).
 
 Aucun `terraform plan` n'a été lancé, rien n'est relu ni testé, aucun critère d'acceptation vérifié, l'environnement staging n'existe pas. À la reprise : repartir de cette branche plutôt que de zéro, mais tout revalider — en particulier les critères #3 (migration des données dev sans perte), #4 (preuve qu'un plan staging ne détruit rien en dev) et #10 (aucun apply sans plan relu).
+
+2026-08-11 — Deuxième tentative, également interrompue (run arrêté avant merge, pas de fin normale). Travail sauvegardé sur `recover/task-237-v2` (commit a9cf70e, 78 fichiers, +2153/-1158). Va plus loin que `recover/task-237` :
+
+- `infrastructure/terraform/envs/{dev,staging,prod}/` : racines par environnement au-dessus de `modules/platform/`
+- `envs/dev/moved.tf` généré par `scripts/gen_moved_blocks.py` (migration du state sans destruction)
+- `.github/workflows/deploy-lambda-env.yml` : déploiement environment-aware
+- `media_summarizer/utils/env.py` + suppression des fallbacks hardcodés dans ~50 fichiers (critère #6)
+- `scripts/tf_plan_guard.sh`, `scripts/dynamo_copy_env.py`
+
+Découverte utile consignée par l'agent : un `terraform plan` naïf sur la nouvelle structure avorte sur **21 erreurs `prevent_destroy`** et ne produit donc pas un inventaire complet — les Lambdas API et workers n'apparaissent pas dans le plan. L'agent a simulé le plan post-`state rm` sur une **copie scratch du state dans /tmp**, sans jamais toucher l'état réel. Vérifié : aucun `terraform apply`/`destroy`/`state rm`/`import` n'a été exécuté sur l'infra réelle, et `infrastructure/terraform/` du repo principal est intact (17 fichiers .tf à la racine, inchangés).
+
+Toujours : rien de relu ni testé, aucun critère d'acceptation validé, staging n'existe pas. Les 21 `prevent_destroy` sont le prochain obstacle concret à traiter, et la reprise doit partir de `recover/task-237-v2` (pas de `recover/task-237`, qui est un sous-ensemble).
 <!-- SECTION:NOTES:END -->

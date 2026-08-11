@@ -4,7 +4,7 @@ title: Establish durable canonical persistence for saved user media
 status: To Do
 assignee: []
 created_date: '2026-08-02 22:38'
-updated_date: '2026-08-11 13:21'
+updated_date: '2026-08-11 14:22'
 labels: []
 dependencies:
   - task-218
@@ -35,4 +35,6 @@ Implement the durable persistence foundation selected by the owner in docs/resea
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-08-10 — Dispatch interrompu : le run `dispatch_backlog.sh --max-dispatch 3` a été tué par un 403 Bedrock (`BedrockOfficeHoursDenyPolicy`, deny explicite sur `us.anthropic.claude-opus-5`), pas par une fin normale. Travail partiel sauvegardé sur la branche `recover/task-219` (commit c56c9d8, basé sur bcf0cfa) : ajout de `media_summarizer/core/models/user_media.py`, `core/services/user_media_service.py`, `utils/user_media.py` et modification de `core/models/__init__.py`. L'agent était encore en phase de reconnaissance/amorce — RIEN n'est relu ni testé, aucun critère d'acceptation vérifié. À la reprise : lire ce snapshot avant de recommencer, mais le considérer comme une piste, pas comme un acquis.
+
+2026-08-11 — Deuxième tentative, également interrompue. L'agent est resté en phase de reconnaissance (routes du routeur media, gate d'ownership des artefacts, variables d'env des workers, tests et workflows CI, écritures de statut dans les workers) sans produire un seul fichier modifié — rien à sauvegarder pour ce run. `recover/task-219` (c56c9d8) reste le seul snapshot existant, inchangé. Deux runs consécutifs ont échoué à dépasser la phase d'analyse sur cette tâche : ses 10 critères couvrent modèle de données, idempotence, concurrence, rétention, infra et vérification AWS dev. Envisager de la découper avant un troisième dispatch.
 <!-- SECTION:NOTES:END -->
