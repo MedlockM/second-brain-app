@@ -71,6 +71,15 @@ const TIER_INFO = [
 export default function PaywallScreen() {
   const router = useRouter();
   const { refreshEntitlements } = usePurchases();
+  // Reached by deep link there is no screen underneath, and router.back() is a
+  // no-op that traps the user on the paywall. Fall back to the inbox.
+  const dismiss = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(tabs)");
+  };
   const [offerings, setOfferings] = useState<PurchasesOfferings | null>(null);
   const [isLoadingOfferings, setIsLoadingOfferings] = useState(true);
   const [isPurchasing, setIsPurchasing] = useState(false);
@@ -98,7 +107,7 @@ export default function PaywallScreen() {
           Alert.alert(
             "Purchase Successful",
             "Your subscription is now active. Enjoy!",
-            [{ text: "OK", onPress: () => router.back() }],
+            [{ text: "OK", onPress: () => dismiss() }],
           );
           break;
         case "cancelled":
@@ -129,7 +138,7 @@ export default function PaywallScreen() {
       Alert.alert(
         "Purchases Restored",
         "Your previous purchases have been restored.",
-        [{ text: "OK", onPress: () => router.back() }],
+        [{ text: "OK", onPress: () => dismiss() }],
       );
     } catch (error: any) {
       Alert.alert(
@@ -159,7 +168,7 @@ export default function PaywallScreen() {
       <View style={styles.header}>
         <TouchableOpacity
           testID="paywall-close-button"
-          onPress={() => router.back()}
+          onPress={() => dismiss()}
           style={styles.closeButton}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
