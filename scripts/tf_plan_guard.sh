@@ -10,22 +10,32 @@
 # layer 5 is a post-apply refresh-only plan against the OTHER environments.
 #
 # Usage:
-#   scripts/tf_plan_guard.sh <env> <planfile> [other-env ...]
+#   scripts/tf_plan_guard.sh [--allow-replace] <env> <planfile> [other-env ...]
 #
 # Examples:
 #   # Gate a first staging plan and cross-check it against live dev names:
 #   terraform -chdir=infrastructure/terraform/envs/staging plan -out=tfplan
 #   scripts/tf_plan_guard.sh staging tfplan dev
 #
-#   # Gate a dev plan during the task-237 migration (no cross-check needed):
-#   scripts/tf_plan_guard.sh dev tfplan
+#   # Gate the dev rename plan, which legitimately replaces queues and Lambdas:
+#   scripts/tf_plan_guard.sh --allow-replace dev tfplan
+#
+# --allow-replace tolerates the replacement of rebuildable resources (queues,
+# Lambdas, log groups, IAM roles, alarms) but NEVER of a table, a bucket, a
+# secret or the ECR repository.
 #
 # Exit codes: 0 = plan is safe to apply, 1 = hard fail, do NOT apply.
 
 set -euo pipefail
 
+ALLOW_REPLACE=0
+if [[ "${1:-}" == "--allow-replace" ]]; then
+  ALLOW_REPLACE=1
+  shift
+fi
+
 if [[ $# -lt 2 ]]; then
-  echo "usage: $0 <env> <planfile> [other-env ...]" >&2
+  echo "usage: $0 [--allow-replace] <env> <planfile> [other-env ...]" >&2
   exit 64
 fi
 
@@ -68,17 +78,52 @@ terraform -chdir="${ENV_DIR}" show -json "${PLAN_FILE}" >"${PLAN_JSON}"
 
 echo "== Layer 2: no destructive action in the ${ENV_NAME} plan =========="
 
-DESTRUCTIVE=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' "${PLAN_JSON}")
-if [[ "${DESTRUCTIVE}" -ne 0 ]]; then
-  echo "FAIL: the plan contains ${DESTRUCTIVE} delete action(s):" >&2
-  jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | "  - \(.address) [\(.change.actions | join(","))]"' "${PLAN_JSON}" >&2
+# Stateful families: a delete here destroys data that exists nowhere else, so it
+# is a hard fail whatever the flags. Renaming any of them means following the M3
+# forget-and-copy runbook (README §Renaming), never letting Terraform replace.
+STATEFUL='["aws_dynamodb_table","aws_s3_bucket","aws_s3_object","aws_secretsmanager_secret","aws_secretsmanager_secret_version","aws_ecr_repository"]'
+
+STATEFUL_DELETES=$(jq -r "
+  .resource_changes[]?
+  | select(.change.actions | index(\"delete\"))
+  | select(${STATEFUL} | index(.type))
+  | \"  - \(.address) [\(.change.actions | join(\",\"))]\"
+" "${PLAN_JSON}")
+
+if [[ -n "${STATEFUL_DELETES}" ]]; then
+  echo "FAIL: the plan destroys stateful resources:" >&2
+  echo "${STATEFUL_DELETES}" >&2
   echo >&2
-  echo "A delete in an environment plan means either a rename of a ForceNew" >&2
-  echo "attribute (data loss: follow the M3 runbook in" >&2
-  echo "infrastructure/terraform/README.md instead) or the wrong state." >&2
+  echo "A delete on a table or a bucket means a rename of a ForceNew attribute." >&2
+  echo "Follow the forget-and-copy runbook in infrastructure/terraform/README.md" >&2
+  echo "(terraform state rm, apply, copy, delete the legacy object later) instead." >&2
   exit 1
 fi
-echo "OK: 0 delete actions."
+echo "OK: 0 delete actions on tables, buckets, secrets or the ECR repository."
+
+OTHER_DELETES=$(jq -r "
+  .resource_changes[]?
+  | select(.change.actions | index(\"delete\"))
+  | select((${STATEFUL} | index(.type)) | not)
+  | \"  - \(.address) [\(.change.actions | join(\",\"))]\"
+" "${PLAN_JSON}")
+
+if [[ -n "${OTHER_DELETES}" ]]; then
+  if [[ "${ALLOW_REPLACE}" -eq 1 ]]; then
+    echo "NOTE: --allow-replace was given; the plan replaces stateless resources:"
+    echo "${OTHER_DELETES}"
+  else
+    echo "FAIL: the plan deletes or replaces resources:" >&2
+    echo "${OTHER_DELETES}" >&2
+    echo >&2
+    echo "Queues, Lambdas, log groups, roles and alarms are rebuildable, but a" >&2
+    echo "replacement is never silent: re-run with --allow-replace once you have" >&2
+    echo "read the list above (a first apply of a new environment needs none)." >&2
+    exit 1
+  fi
+else
+  echo "OK: 0 delete actions at all."
+fi
 
 echo
 echo "== Layer 3: every created name carries the '-${ENV_NAME}' token ===="
