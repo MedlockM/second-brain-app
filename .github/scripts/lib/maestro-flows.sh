@@ -32,6 +32,50 @@ sha256() {
 
 # Expand a suite file (a flow whose steps are only `runFlow:` entries) into the
 # flows it chains, so the suite stays the single source of truth for its scope.
+# A hierarchy captured on a filled-in form carries the field contents verbatim,
+# so a dump taken on the login screen publishes the test account's password. This
+# repository is public and the artifact is world-readable: blank the text of any
+# node whose resource-id looks like a credential field before it is written.
+#
+# Node identity is what the dump is for, so ids, bounds and the rest are kept;
+# only the value goes. Falls back to dropping the payload entirely rather than
+# risk publishing it if the dump is not the JSON we expect.
+redact_hierarchy() {
+  python3 -c '
+import json, re, sys
+
+SENSITIVE = re.compile(r"password|email|token|secret|otp|code", re.I)
+VALUE_KEYS = ("text", "value", "title", "hintText", "accessibilityText")
+
+raw = sys.stdin.read()
+try:
+    tree = json.loads(raw)
+except ValueError:
+    # Not a hierarchy: `maestro hierarchy` failed and this is its diagnostic.
+    # Those messages are safe, but only up to a length that cannot hide a dump.
+    sys.stdout.write(raw[:2000])
+    sys.exit(0)
+
+def scrub(node):
+    if isinstance(node, list):
+        for item in node:
+            scrub(item)
+        return
+    if not isinstance(node, dict):
+        return
+    attributes = node.get("attributes")
+    if isinstance(attributes, dict) and SENSITIVE.search(attributes.get("resource-id", "") or ""):
+        for key in VALUE_KEYS:
+            if attributes.get(key):
+                attributes[key] = "[redacted]"
+    for value in node.values():
+        scrub(value)
+
+scrub(tree)
+json.dump(tree, sys.stdout, indent=2)
+' 2>/dev/null || echo '{"error":"hierarchy dump withheld: could not be redacted"}'
+}
+
 expand_flow() {
   local flow="$1"
   local step_count run_flow_count
@@ -167,9 +211,8 @@ XML
       echo "::error::Maestro flow ${name} failed."
       failed=1
       # Names the screen the flow actually ended on, which the JUnit assertion
-      # message alone never says. Carries no credentials and no screenshot, so it
-      # is safe to publish from a public repository.
-      maestro hierarchy > "${report_dir}/${name}-hierarchy.json" 2>&1 || true
+      # message alone never says.
+      maestro hierarchy 2>&1 | redact_hierarchy > "${report_dir}/${name}-hierarchy.json" || true
       # A driver that never starts produces no JUnit file at all, which reads as
       # "flow never ran" in the artifact. Record the reason instead.
       if [[ ! -f "${report_dir}/${name}.xml" ]]; then
