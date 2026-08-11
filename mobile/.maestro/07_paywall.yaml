@@ -27,32 +27,15 @@ tags:
     link: "media-summarizer://paywall"
     autoVerify: true
 
-# Fallback for when autoVerify misses the dialog. The confirm button carries its
-# label in accessibilityText only, so no text selector can reach it — hence the
-# position: the alert is a fixed two-button row with Open on the right. The
-# optional wait first rules out a paywall that simply mounted slowly, so the tap
-# only ever fires while the dialog is genuinely still up.
-- runFlow:
-    when:
-      platform: iOS
-    commands:
-      - extendedWaitUntil:
-          visible:
-            id: "paywall-screen"
-          timeout: 20000
-          optional: true
-      - runFlow:
-          when:
-            notVisible:
-              id: "paywall-screen"
-          commands:
-            - tapOn:
-                point: "67%,56%"
-
+# A blind positional fallback was tried here and made things worse: the dialog
+# buttons are only addressable by accessibilityText, and when the paywall was
+# merely slow to mount the tap landed on a tier's Subscribe button instead.
+# autoVerify is the only safe way to clear the dialog, so give the route the room
+# it needs rather than second-guessing it.
 - extendedWaitUntil:
     visible:
       id: "paywall-screen"
-    timeout: 45000
+    timeout: 60000
 - assertVisible:
     text: "Choose Your Plan"
 - assertVisible:
