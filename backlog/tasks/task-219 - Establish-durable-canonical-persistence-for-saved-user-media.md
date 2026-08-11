@@ -4,6 +4,7 @@ title: Establish durable canonical persistence for saved user media
 status: To Do
 assignee: []
 created_date: '2026-08-02 22:38'
+updated_date: '2026-08-11 13:21'
 labels: []
 dependencies:
   - task-218
@@ -29,3 +30,9 @@ Implement the durable persistence foundation selected by the owner in docs/resea
 - [ ] #9 Durable records participate in the defined account-deletion, retention, backup, and recovery lifecycle
 - [ ] #10 AWS dev verification demonstrates that a saved media record remains available after its associated processing job is absent
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-08-10 — Dispatch interrompu : le run `dispatch_backlog.sh --max-dispatch 3` a été tué par un 403 Bedrock (`BedrockOfficeHoursDenyPolicy`, deny explicite sur `us.anthropic.claude-opus-5`), pas par une fin normale. Travail partiel sauvegardé sur la branche `recover/task-219` (commit c56c9d8, basé sur bcf0cfa) : ajout de `media_summarizer/core/models/user_media.py`, `core/services/user_media_service.py`, `utils/user_media.py` et modification de `core/models/__init__.py`. L'agent était encore en phase de reconnaissance/amorce — RIEN n'est relu ni testé, aucun critère d'acceptation vérifié. À la reprise : lire ce snapshot avant de recommencer, mais le considérer comme une piste, pas comme un acquis.
+<!-- SECTION:NOTES:END -->

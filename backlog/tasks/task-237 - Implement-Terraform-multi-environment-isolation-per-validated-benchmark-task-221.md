@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-09 16:57'
-updated_date: '2026-08-10 16:45'
+updated_date: '2026-08-11 13:21'
 labels:
   - infra
   - terraform
@@ -44,4 +44,11 @@ Scope covers: restructuring `infrastructure/terraform/` per the validated archit
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-08-10 — task-225 (duplicate of this task, same task-221 dependency and same scope) was archived in favour of this task. Its four unique acceptance criteria were merged here: effective staging environment creation + runtime secret, staging health endpoint independent of dev, infrastructure/terraform/README.md procedure rewrite, and the no-apply-without-reviewed-plan safety gate. Scope note carried over from task-225: this task delivers the staging environment and unblocks Phase 9 of docs/V1_LAUNCH_PLAN.md; creating the production environment stays out of scope (Phase 10, after staging is validated).
+
+2026-08-10 — Dispatch interrompu : le run `dispatch_backlog.sh --max-dispatch 3` a été tué par un 403 Bedrock (`BedrockOfficeHoursDenyPolicy`, deny explicite sur `us.anthropic.claude-opus-5`), pas par une fin normale. Travail partiel sauvegardé sur la branche `recover/task-237`, deux commits au-dessus de bcf0cfa :
+
+- `9691224 refactor(terraform): split into per-environment roots over a shared module` — 33 fichiers, +1791/-741 : `infrastructure/terraform/` éclaté en `modules/platform/` (dynamodb, sqs, s3, lambda_api, lambda_workers, iam, secrets, alarms, dashboard, runtime_env, locals, variables) + `shared/` (ecr) ; ajout de `scripts/dynamo_copy_env.py` et `scripts/tf_plan_guard.sh`.
+- `1e4342e wip(task-237)` — 41 fichiers, +201/-282 : suppression des fallbacks de noms de ressources hardcodés dans les endpoints, services, utils et workers (critère #6).
+
+Aucun `terraform plan` n'a été lancé, rien n'est relu ni testé, aucun critère d'acceptation vérifié, l'environnement staging n'existe pas. À la reprise : repartir de cette branche plutôt que de zéro, mais tout revalider — en particulier les critères #3 (migration des données dev sans perte), #4 (preuve qu'un plan staging ne détruit rien en dev) et #10 (aucun apply sans plan relu).
 <!-- SECTION:NOTES:END -->
