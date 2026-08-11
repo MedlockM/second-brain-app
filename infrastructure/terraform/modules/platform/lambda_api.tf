@@ -71,13 +71,11 @@ variable "api_warmup_schedule_expression" {
 # =============================================================================
 
 resource "aws_cloudwatch_log_group" "lambda_api" {
-  name              = "/aws/lambda/${var.project_name}-api"
+  name              = "/aws/lambda/${var.project_name}-api${local.suffix}"
   retention_in_days = 14
 
   tags = {
-    Name        = "${var.project_name}-api-logs"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-api${local.suffix}-logs"
   }
 }
 
@@ -86,10 +84,10 @@ resource "aws_cloudwatch_log_group" "lambda_api" {
 # =============================================================================
 
 resource "aws_lambda_function" "api" {
-  function_name                  = "${var.project_name}-api"
+  function_name                  = "${var.project_name}-api${local.suffix}"
   role                           = aws_iam_role.lambda_api.arn
   package_type                   = "Image"
-  image_uri                      = "${aws_ecr_repository.lambda.repository_url}:${var.api_image_tag}"
+  image_uri                      = "${var.ecr_repository_url}:${var.api_image_tag}"
   timeout                        = 30
   memory_size                    = 1024
   architectures                  = ["arm64"]
@@ -99,38 +97,14 @@ resource "aws_lambda_function" "api" {
     command = ["media_summarizer.api.lambda_handler.handler"]
   }
 
+  # Every table, queue and bucket name this environment owns. The application
+  # code no longer carries hardcoded defaults, so this block is the only source
+  # of resource names at runtime (see runtime_env.tf).
   environment {
-    variables = {
-      ENVIRONMENT         = var.environment
-      RUNTIME_SECRET_NAME = aws_secretsmanager_secret.runtime.name
-      # AWS_DEFAULT_REGION is reserved by Lambda runtime; boto3 reads it automatically
-      # from the execution context. See:
-      # https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-runtime
+    variables = merge(local.lambda_environment, {
       # Disable the S3 preflight check on Lambda (infra is guaranteed by Terraform)
       PRESTART_INFRA_CHECK = "0"
-
-      # S3 bucket names — injected by Terraform, NOT via Secrets Manager.
-      AUDIO_BUCKET            = aws_s3_bucket.audio.bucket
-      TRANSCRIPT_BUCKET       = aws_s3_bucket.transcripts.bucket
-      SUMMARY_BUCKET          = aws_s3_bucket.summaries.bucket
-      SUMMARY_SHORT_BUCKET    = aws_s3_bucket.summary_short.bucket
-      SUMMARY_DETAILED_BUCKET = aws_s3_bucket.summary_detailed.bucket
-      NOTES_BUCKET            = aws_s3_bucket.notes.bucket
-      FLASHCARDS_BUCKET       = aws_s3_bucket.flashcards.bucket
-      QUIZ_BUCKET             = aws_s3_bucket.quiz.bucket
-      DOCUMENT_BUCKET         = aws_s3_bucket.documents.bucket
-      ARCHIVE_BUCKET          = aws_s3_bucket.archives.bucket
-
-      # DynamoDB table names for artifact persistence
-      MEDIA_ARTIFACTS_TABLE         = aws_dynamodb_table.media_artifacts_v1.name
-      ARTIFACT_IDEMPOTENCE_TABLE    = aws_dynamodb_table.artifact_idempotence_v1.name
-      TRANSLATION_IDEMPOTENCE_TABLE = aws_dynamodb_table.translation_idempotence_v1.name
-      MEDIA_IDEMPOTENCE_TABLE       = aws_dynamodb_table.media_idempotence_v1.name
-      USER_MEDIA_SUBMISSIONS_TABLE  = aws_dynamodb_table.user_media_submissions_v1.name
-
-      # DynamoDB table names for media flow
-      MEDIA_WATCHERS_TABLE = aws_dynamodb_table.media_watchers_v1.name
-    }
+    })
   }
 
   depends_on = [
@@ -146,9 +120,7 @@ resource "aws_lambda_function" "api" {
   }
 
   tags = {
-    Name        = "${var.project_name}-api"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-api${local.suffix}"
   }
 }
 
@@ -157,7 +129,10 @@ resource "aws_lambda_function" "api" {
 # =============================================================================
 
 resource "aws_apigatewayv2_api" "main" {
-  name          = "${var.project_name}-api"
+  # NOT ForceNew in the AWS provider: renaming the API updates it in place and
+  # preserves its ID and its execute-api URL, so mobile clients and OAuth
+  # redirect URIs keep working across the task-237 rename.
+  name          = "${var.project_name}-api${local.suffix}"
   protocol_type = "HTTP"
 
   cors_configuration {
@@ -170,9 +145,7 @@ resource "aws_apigatewayv2_api" "main" {
   }
 
   tags = {
-    Name        = "${var.project_name}-api"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-api${local.suffix}"
   }
 }
 
@@ -205,9 +178,7 @@ resource "aws_apigatewayv2_stage" "default" {
   }
 
   tags = {
-    Name        = "${var.project_name}-api-default-stage"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-api${local.suffix}-default-stage"
   }
 }
 
@@ -240,15 +211,13 @@ resource "aws_lambda_permission" "api_gateway" {
 resource "aws_cloudwatch_event_rule" "api_warmup" {
   count = var.api_warmup_enabled ? 1 : 0
 
-  name                = "${var.project_name}-api-warmup"
+  name                = "${var.project_name}-api-warmup${local.suffix}"
   description         = "Low-cost scheduled warm-up and health validation for the interactive API"
   schedule_expression = var.api_warmup_schedule_expression
   state               = "ENABLED"
 
   tags = {
-    Name        = "${var.project_name}-api-warmup"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-api-warmup${local.suffix}"
   }
 }
 
@@ -256,7 +225,7 @@ resource "aws_cloudwatch_event_target" "api_warmup" {
   count = var.api_warmup_enabled ? 1 : 0
 
   rule      = aws_cloudwatch_event_rule.api_warmup[0].name
-  target_id = "${var.project_name}-api"
+  target_id = "${var.project_name}-api${local.suffix}"
   arn       = aws_lambda_function.api.arn
   input = jsonencode({
     source = "media-summarizer.api-warmup"
@@ -283,9 +252,7 @@ resource "aws_acm_certificate" "api" {
   validation_method = "DNS"
 
   tags = {
-    Name        = "${var.project_name}-api-cert"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-api${local.suffix}-cert"
   }
 
   lifecycle {
@@ -304,9 +271,7 @@ resource "aws_apigatewayv2_domain_name" "api" {
   }
 
   tags = {
-    Name        = "${var.project_name}-api-domain"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-api${local.suffix}-domain"
   }
 }
 
@@ -342,6 +307,11 @@ output "api_endpoint" {
 output "api_function_name" {
   description = "Name of the API Lambda function"
   value       = aws_lambda_function.api.function_name
+}
+
+output "api_gateway_id" {
+  description = "API Gateway HTTP API ID. Stable across the task-237 rename, and the only safe way for CI to resolve an environment's endpoint (API names are not unique)."
+  value       = aws_apigatewayv2_api.main.id
 }
 
 output "api_bootstrap_image_uri" {

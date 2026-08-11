@@ -136,6 +136,7 @@ docker-compose.override.yml
 *.tfstate
 *.tfstate.backup
 *.tfstate.lock.info
+tfplan
 tfplan-*
 *.tfplan
 *.tfvars
@@ -146,6 +147,7 @@ terraform.rc
 # Lambda build artifacts produced at terraform apply time
 infrastructure/terraform/.lambda-builds/
 infrastructure/terraform/*.zip
+infrastructure/terraform/modules/platform/.build/
 
 # =============================================================================
 # LocalStack

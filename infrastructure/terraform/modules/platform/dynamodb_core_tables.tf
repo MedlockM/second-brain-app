@@ -2,7 +2,7 @@
 
 # Users table
 resource "aws_dynamodb_table" "users_v2" {
-  name         = "users"
+  name         = "users${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -22,15 +22,23 @@ resource "aws_dynamodb_table" "users_v2" {
   }
 
   tags = {
-    Name        = "users"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "users${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 # Processing jobs table
 resource "aws_dynamodb_table" "processing_jobs_v1" {
-  name         = "processing_jobs"
+  name         = "processing_jobs${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -74,23 +82,25 @@ resource "aws_dynamodb_table" "processing_jobs_v1" {
   stream_enabled   = true
   stream_view_type = "OLD_IMAGE"
 
-  # 35-day continuous restore window (task-239). No recovery net existed before:
-  # PITR was off and the deployed job-archiver Lambda is a no-op placeholder.
+  tags = {
+    Name = "processing_jobs${local.suffix}"
+  }
+
   point_in_time_recovery {
     enabled = true
   }
 
-  tags = {
-    Name        = "processing_jobs"
-    Environment = var.environment
-    Project     = var.project_name
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 
 # Auth tokens table used for refresh/email verification tokens
 resource "aws_dynamodb_table" "auth_tokens_v1" {
-  name         = "auth_tokens"
+  name         = "auth_tokens${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -131,15 +141,23 @@ resource "aws_dynamodb_table" "auth_tokens_v1" {
   }
 
   tags = {
-    Name        = "auth_tokens"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "auth_tokens${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 # Media idempotence table (global media key reservation)
 resource "aws_dynamodb_table" "media_idempotence_v1" {
-  name         = "media_idempotence"
+  name         = "media_idempotence${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "media_key"
 
@@ -149,15 +167,23 @@ resource "aws_dynamodb_table" "media_idempotence_v1" {
   }
 
   tags = {
-    Name        = "media_idempotence"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "media_idempotence${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 # User media submissions table (per-user dedup of submissions)
 resource "aws_dynamodb_table" "user_media_submissions_v1" {
-  name         = "user_media_submissions"
+  name         = "user_media_submissions${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
   range_key    = "media_key"
@@ -171,22 +197,24 @@ resource "aws_dynamodb_table" "user_media_submissions_v1" {
     type = "S"
   }
 
-  # 35-day continuous restore window (task-239) — backfill source for the
-  # durable library record, must survive.
+  tags = {
+    Name = "user_media_submissions${local.suffix}"
+  }
+
   point_in_time_recovery {
     enabled = true
   }
 
-  tags = {
-    Name        = "user_media_submissions"
-    Environment = var.environment
-    Project     = var.project_name
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 # Media artifacts table (canonical artifact records + request pointers)
 resource "aws_dynamodb_table" "media_artifacts_v1" {
-  name         = "media_artifacts"
+  name         = "media_artifacts${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "artifact_id"
 
@@ -225,22 +253,24 @@ resource "aws_dynamodb_table" "media_artifacts_v1" {
     projection_type = "ALL"
   }
 
-  # 35-day continuous restore window (task-239) — the artifact rows are the
-  # richest surviving proof of media whose job was deleted.
+  tags = {
+    Name = "media_artifacts${local.suffix}"
+  }
+
   point_in_time_recovery {
     enabled = true
   }
 
-  tags = {
-    Name        = "media_artifacts"
-    Environment = var.environment
-    Project     = var.project_name
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 # Artifact idempotence table (generation locks for deduplication)
 resource "aws_dynamodb_table" "artifact_idempotence_v1" {
-  name         = "artifact_idempotence"
+  name         = "artifact_idempotence${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "generation_fingerprint"
 
@@ -250,9 +280,17 @@ resource "aws_dynamodb_table" "artifact_idempotence_v1" {
   }
 
   tags = {
-    Name        = "artifact_idempotence"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "artifact_idempotence${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -260,7 +298,7 @@ resource "aws_dynamodb_table" "artifact_idempotence_v1" {
 # Prevents thundering herd: only the first caller reserves the translation slot,
 # subsequent /raw-content polls read the state without re-enqueuing (task-203).
 resource "aws_dynamodb_table" "translation_idempotence_v1" {
-  name         = "translation_idempotence"
+  name         = "translation_idempotence${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "translation_fingerprint"
 
@@ -270,9 +308,17 @@ resource "aws_dynamodb_table" "translation_idempotence_v1" {
   }
 
   tags = {
-    Name        = "translation_idempotence"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "translation_idempotence${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -313,7 +359,7 @@ output "auth_tokens_table_name" {
 # media_summarizer/utils/media_watchers.py which uses media_key as the
 # canonical identity key for all media types (podcasts, docs, videos, etc.).
 resource "aws_dynamodb_table" "media_watchers_v1" {
-  name         = "media_watchers"
+  name         = "media_watchers${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "media_key"
   range_key    = "user_id"
@@ -328,9 +374,17 @@ resource "aws_dynamodb_table" "media_watchers_v1" {
   }
 
   tags = {
-    Name        = "media_watchers"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "media_watchers${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -346,7 +400,7 @@ output "media_watchers_table_name" {
 
 # User tags table (private per-user tags for media labeling)
 resource "aws_dynamodb_table" "user_tags_v1" {
-  name         = "user_tags"
+  name         = "user_tags${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -365,15 +419,18 @@ resource "aws_dynamodb_table" "user_tags_v1" {
     projection_type = "ALL"
   }
 
-  # 35-day continuous restore window (task-239) — user-owned organization data.
+  tags = {
+    Name = "user_tags${local.suffix}"
+  }
+
   point_in_time_recovery {
     enabled = true
   }
 
-  tags = {
-    Name        = "user_tags"
-    Environment = var.environment
-    Project     = var.project_name
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -384,7 +441,7 @@ output "user_tags_table_name" {
 
 # User folders table (hierarchical media organization)
 resource "aws_dynamodb_table" "user_folders_v1" {
-  name         = "user_folders"
+  name         = "user_folders${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -403,15 +460,18 @@ resource "aws_dynamodb_table" "user_folders_v1" {
     projection_type = "ALL"
   }
 
-  # 35-day continuous restore window (task-239) — user-owned organization data.
+  tags = {
+    Name = "user_folders${local.suffix}"
+  }
+
   point_in_time_recovery {
     enabled = true
   }
 
-  tags = {
-    Name        = "user_folders"
-    Environment = var.environment
-    Project     = var.project_name
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -422,7 +482,7 @@ output "user_folders_table_name" {
 
 # Pricing configuration table (dynamic pricing/quota parameters, no redeploy needed)
 resource "aws_dynamodb_table" "pricing_config_v1" {
-  name         = "pricing_config"
+  name         = "pricing_config${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "config_key"
 
@@ -432,9 +492,17 @@ resource "aws_dynamodb_table" "pricing_config_v1" {
   }
 
   tags = {
-    Name        = "pricing_config"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "pricing_config${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 

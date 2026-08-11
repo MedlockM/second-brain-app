@@ -2,7 +2,7 @@
 
 # Monthly usage counters per user (hard caps enforcement)
 resource "aws_dynamodb_table" "user_usage_monthly" {
-  name         = "user_usage_monthly"
+  name         = "user_usage_monthly${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
   range_key    = "period"
@@ -13,19 +13,27 @@ resource "aws_dynamodb_table" "user_usage_monthly" {
   }
   attribute {
     name = "period"
-    type = "S"  # format: YYYY-MM
+    type = "S" # format: YYYY-MM
   }
 
   tags = {
-    Name        = "user_usage_monthly"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "user_usage_monthly${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 # Daily usage counters per user (rate limits enforcement)
 resource "aws_dynamodb_table" "user_usage_daily" {
-  name         = "user_usage_daily"
+  name         = "user_usage_daily${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
   range_key    = "date"
@@ -36,7 +44,7 @@ resource "aws_dynamodb_table" "user_usage_daily" {
   }
   attribute {
     name = "date"
-    type = "S"  # format: YYYY-MM-DD
+    type = "S" # format: YYYY-MM-DD
   }
 
   ttl {
@@ -45,9 +53,17 @@ resource "aws_dynamodb_table" "user_usage_daily" {
   }
 
   tags = {
-    Name        = "user_usage_daily"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "user_usage_daily${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 

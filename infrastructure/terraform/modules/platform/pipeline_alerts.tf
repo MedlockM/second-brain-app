@@ -15,17 +15,18 @@
 
 resource "aws_sns_topic" "pipeline_alerts" {
   count = var.enable_alarms ? 1 : 0
-  name  = "${var.project_name}-pipeline-alerts-${var.environment}"
+  name  = "${var.project_name}-pipeline-alerts${local.suffix}"
 
   tags = {
-    Name        = "${var.project_name}-pipeline-alerts"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-pipeline-alerts${local.suffix}"
   }
 }
 
+# Only created when an address is supplied. No address is committed to the
+# repository: subscribe out-of-band, or pass -var alert_email=... on the apply
+# that creates the topic.
 resource "aws_sns_topic_subscription" "pipeline_alerts_email" {
-  count     = var.enable_alarms ? 1 : 0
+  count     = var.enable_alarms && var.alert_email != "" ? 1 : 0
   topic_arn = aws_sns_topic.pipeline_alerts[0].arn
   protocol  = "email"
   endpoint  = var.alert_email
@@ -37,7 +38,7 @@ resource "aws_sns_topic_subscription" "pipeline_alerts_email" {
 
 resource "aws_cloudwatch_metric_alarm" "api_latency_p95" {
   count               = var.enable_alarms ? 1 : 0
-  alarm_name          = "${var.project_name}-api-latency-p95-breach"
+  alarm_name          = "${var.project_name}-api-latency-p95-breach${local.suffix}"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = var.api_slow_request_threshold_ms
@@ -52,14 +53,12 @@ resource "aws_cloudwatch_metric_alarm" "api_latency_p95" {
   extended_statistic = "p95"
 
   dimensions = {
-    ApiId = local.api_gateway_name
+    ApiId = local.api_gateway_id
   }
 
   tags = {
-    Name        = "${var.project_name}-api-latency-p95-breach"
-    Environment = var.environment
-    Project     = var.project_name
-    Severity    = "high"
+    Name     = "${var.project_name}-api-latency-p95-breach${local.suffix}"
+    Severity = "high"
   }
 }
 
@@ -69,7 +68,7 @@ resource "aws_cloudwatch_metric_alarm" "api_latency_p95" {
 
 resource "aws_cloudwatch_metric_alarm" "api_5xx_rate" {
   count               = var.enable_alarms ? 1 : 0
-  alarm_name          = "${var.project_name}-api-5xx-rate-breach"
+  alarm_name          = "${var.project_name}-api-5xx-rate-breach${local.suffix}"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = "1"
@@ -93,7 +92,7 @@ resource "aws_cloudwatch_metric_alarm" "api_5xx_rate" {
       period      = "300"
       stat        = "Sum"
       dimensions = {
-        ApiId = local.api_gateway_name
+        ApiId = local.api_gateway_id
       }
     }
   }
@@ -106,16 +105,14 @@ resource "aws_cloudwatch_metric_alarm" "api_5xx_rate" {
       period      = "300"
       stat        = "Sum"
       dimensions = {
-        ApiId = local.api_gateway_name
+        ApiId = local.api_gateway_id
       }
     }
   }
 
   tags = {
-    Name        = "${var.project_name}-api-5xx-rate-breach"
-    Environment = var.environment
-    Project     = var.project_name
-    Severity    = "critical"
+    Name     = "${var.project_name}-api-5xx-rate-breach${local.suffix}"
+    Severity = "critical"
   }
 }
 
@@ -126,11 +123,11 @@ resource "aws_cloudwatch_metric_alarm" "api_5xx_rate" {
 resource "aws_cloudwatch_metric_alarm" "dlq_depth" {
   for_each = var.enable_alarms ? local.queue_dlq_map : {}
 
-  alarm_name          = "${var.project_name}-dlq-${each.value}-non-empty"
+  alarm_name          = "${var.project_name}-dlq-${replace(each.key, "_", "-")}-non-empty${local.suffix}"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = "0"
-  alarm_description   = "DLQ ${each.value} has messages (source queue: ${each.key}). Poison messages require investigation. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#dlq-messages"
+  alarm_description   = "DLQ ${each.value.dlq} has messages (source queue: ${each.value.queue}). Poison messages require investigation. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#dlq-messages"
   alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
   treat_missing_data  = "notBreaching"
 
@@ -140,14 +137,12 @@ resource "aws_cloudwatch_metric_alarm" "dlq_depth" {
   statistic   = "Sum"
 
   dimensions = {
-    QueueName = each.value
+    QueueName = each.value.dlq
   }
 
   tags = {
-    Name        = "${var.project_name}-dlq-${each.value}-alarm"
-    Environment = var.environment
-    Project     = var.project_name
-    Severity    = "medium"
+    Name     = "${var.project_name}-dlq-${replace(each.key, "_", "-")}-non-empty${local.suffix}"
+    Severity = "medium"
   }
 }
 
@@ -158,7 +153,7 @@ resource "aws_cloudwatch_metric_alarm" "dlq_depth" {
 resource "aws_cloudwatch_metric_alarm" "lambda_error_rate" {
   for_each = var.enable_alarms ? toset(local.lambda_workers) : toset([])
 
-  alarm_name          = "${var.project_name}-${each.key}-lambda-error-rate"
+  alarm_name          = "${var.project_name}-${each.key}-lambda-error-rate${local.suffix}"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "2"
   threshold           = "5"
@@ -182,7 +177,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_error_rate" {
       period      = "300"
       stat        = "Sum"
       dimensions = {
-        FunctionName = "${var.project_name}-${each.key}"
+        FunctionName = local.worker_function_names[each.key]
       }
     }
   }
@@ -195,16 +190,14 @@ resource "aws_cloudwatch_metric_alarm" "lambda_error_rate" {
       period      = "300"
       stat        = "Sum"
       dimensions = {
-        FunctionName = "${var.project_name}-${each.key}"
+        FunctionName = local.worker_function_names[each.key]
       }
     }
   }
 
   tags = {
-    Name        = "${var.project_name}-${each.key}-lambda-error-rate"
-    Environment = var.environment
-    Project     = var.project_name
-    Severity    = "high"
+    Name     = "${var.project_name}-${each.key}-lambda-error-rate${local.suffix}"
+    Severity = "high"
   }
 }
 
@@ -215,7 +208,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_error_rate" {
 resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
   for_each = var.enable_alarms ? toset(local.lambda_workers) : toset([])
 
-  alarm_name          = "${var.project_name}-${each.key}-lambda-throttled"
+  alarm_name          = "${var.project_name}-${each.key}-lambda-throttled${local.suffix}"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = "0"
@@ -229,14 +222,12 @@ resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
   statistic   = "Sum"
 
   dimensions = {
-    FunctionName = "${var.project_name}-${each.key}"
+    FunctionName = local.worker_function_names[each.key]
   }
 
   tags = {
-    Name        = "${var.project_name}-${each.key}-lambda-throttled"
-    Environment = var.environment
-    Project     = var.project_name
-    Severity    = "high"
+    Name     = "${var.project_name}-${each.key}-lambda-throttled${local.suffix}"
+    Severity = "high"
   }
 }
 
@@ -246,7 +237,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
 
 resource "aws_cloudwatch_metric_alarm" "deepgram_error_rate" {
   count               = var.enable_alarms ? 1 : 0
-  alarm_name          = "${var.project_name}-deepgram-error-rate-breach"
+  alarm_name          = "${var.project_name}-deepgram-error-rate-breach${local.suffix}"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = "5"
@@ -266,7 +257,7 @@ resource "aws_cloudwatch_metric_alarm" "deepgram_error_rate" {
     id = "m1"
     metric {
       metric_name = "DeepgramErrors"
-      namespace   = "MediaSummarizer/Pipeline"
+      namespace   = local.metrics_namespace
       period      = "900"
       stat        = "Sum"
     }
@@ -276,17 +267,15 @@ resource "aws_cloudwatch_metric_alarm" "deepgram_error_rate" {
     id = "m2"
     metric {
       metric_name = "DeepgramCallsTotal"
-      namespace   = "MediaSummarizer/Pipeline"
+      namespace   = local.metrics_namespace
       period      = "900"
       stat        = "Sum"
     }
   }
 
   tags = {
-    Name        = "${var.project_name}-deepgram-error-rate-breach"
-    Environment = var.environment
-    Project     = var.project_name
-    Severity    = "high"
+    Name     = "${var.project_name}-deepgram-error-rate-breach${local.suffix}"
+    Severity = "high"
   }
 }
 
@@ -296,7 +285,7 @@ resource "aws_cloudwatch_metric_alarm" "deepgram_error_rate" {
 
 resource "aws_cloudwatch_metric_alarm" "llamaparse_fallback_rate" {
   count               = var.enable_alarms ? 1 : 0
-  alarm_name          = "${var.project_name}-llamaparse-fallback-rate-breach"
+  alarm_name          = "${var.project_name}-llamaparse-fallback-rate-breach${local.suffix}"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = var.llamaparse_fallback_threshold_per_hour
@@ -306,14 +295,12 @@ resource "aws_cloudwatch_metric_alarm" "llamaparse_fallback_rate" {
   treat_missing_data  = "notBreaching"
 
   metric_name = "UnstructuredFallbackTriggered"
-  namespace   = "MediaSummarizer/Pipeline"
+  namespace   = local.metrics_namespace
   period      = "3600"
   statistic   = "Sum"
 
   tags = {
-    Name        = "${var.project_name}-llamaparse-fallback-rate-breach"
-    Environment = var.environment
-    Project     = var.project_name
-    Severity    = "medium"
+    Name     = "${var.project_name}-llamaparse-fallback-rate-breach${local.suffix}"
+    Severity = "medium"
   }
 }
