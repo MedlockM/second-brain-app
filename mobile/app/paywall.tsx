@@ -15,6 +15,7 @@ import {
   Alert,
   Platform,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { PurchasesOfferings, PurchasesPackage } from "react-native-purchases";
 import {
@@ -162,8 +163,11 @@ export default function PaywallScreen() {
     );
   };
 
+  // Without the top inset the Close button sits at y=16..64, underneath the
+  // Dynamic Island, where the system swallows the tap: unreachable on any recent
+  // iPhone. Every other screen already insets the same way.
   return (
-    <View style={styles.container} testID="paywall-screen">
+    <SafeAreaView style={styles.container} edges={["top"]} testID="paywall-screen">
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -279,7 +283,7 @@ export default function PaywallScreen() {
               "the end of the current period."}
         </Text>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
