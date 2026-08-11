@@ -1,11 +1,21 @@
 import { useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useUserPreferences } from "../../src/contexts/UserPreferencesContext";
+import { usePurchases } from "../../src/contexts/PurchasesContext";
 import { V1_READING_LANGUAGES } from "../../src/services/userPreferencesService";
 import { FeedbackService } from "../../src/services/feedbackService";
 import {
@@ -18,15 +28,36 @@ import {
 } from "../../src/constants/theme";
 
 /**
+ * Display names of the backend subscription tiers (see the entitlements
+ * endpoint OFFERINGS_CONFIG), used to name the plan the user is on.
+ */
+const TIER_LABELS: Record<"S" | "M" | "L", string> = {
+  S: "Reader",
+  M: "Mix",
+  L: "Audio-Heavy",
+};
+
+/**
  * Account screen - skeleton following the design mockup.
- * Shows user info and logout action.
+ * Shows user info, the subscription entry point and the logout action.
  * Full implementation (stats, integrations, appearance) deferred to later tasks.
  */
 export default function AccountScreen() {
   const { user, token, logout } = useAuth();
   const { readingLanguage } = useUserPreferences();
+  const { isSubscribed, entitlementStatus } = usePurchases();
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const router = useRouter();
+
+  // Both states lead to the paywall: it is where a plan is picked, switched or
+  // restored. Only the wording and the icon change.
+  const subscriptionTier = entitlementStatus?.subscription_tier ?? null;
+  const subscriptionLabel = isSubscribed ? "Manage subscription" : "Upgrade";
+  const subscriptionSubtitle = isSubscribed
+    ? subscriptionTier
+      ? `${TIER_LABELS[subscriptionTier]} plan active`
+      : "Subscription active"
+    : "Unlock more imports and audio minutes";
 
   // Get display label for current reading language
   const readingLanguageLabel =
@@ -77,66 +108,107 @@ export default function AccountScreen() {
     }
   };
 
+  // The menu grows past the fold on short screens, and an off-screen row is
+  // untappable without any visible sign of it, so the whole body scrolls.
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView testID="account-screen" style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <Text style={styles.title}>Account</Text>
       </View>
 
-      {/* Profile Section */}
-      <View style={styles.profileSection}>
-        <View style={styles.avatar}>
-          <Ionicons name="person" size={40} color={Colors.textMuted} />
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Profile Section */}
+        <View style={styles.profileSection}>
+          <View style={styles.avatar}>
+            <Ionicons name="person" size={40} color={Colors.textMuted} />
+          </View>
+          <Text style={styles.email}>{user?.email ?? ""}</Text>
         </View>
-        <Text style={styles.email}>{user?.email ?? ""}</Text>
-      </View>
 
-      {/* Menu */}
-      <View style={styles.menuCard}>
-        <MenuItem
-          icon="language-outline"
-          label="Reading Language"
-          subtitle={readingLanguageLabel}
-          onPress={() => router.push("/settings/reading-language")}
-        />
-        <MenuItem
-          icon="settings-outline"
-          label="Settings"
-          onPress={() => {}}
-        />
-        <MenuItem
-          icon="download-outline"
-          label="Export Data"
-          onPress={() => {}}
-        />
-        <MenuItem
-          icon="bulb-outline"
-          label="Feature Requests"
-          onPress={handleFeedback}
-          isLoading={isFeedbackLoading}
-        />
-        <MenuItem
-          icon="bug-outline"
-          label="Report a Bug"
-          onPress={handleBugReport}
-        />
-        <View style={styles.menuDivider} />
-        <TouchableOpacity
-          testID="account-sign-out-button"
-          style={styles.menuItem}
-          onPress={handleLogout}
-          activeOpacity={0.7}
-          accessibilityLabel="Sign Out"
+        {/* Subscription entry point */}
+        <Pressable
+          testID="account-upgrade-button"
+          style={({ pressed }) => [
+            styles.subscriptionCard,
+            pressed && styles.subscriptionCardPressed,
+          ]}
+          onPress={() => router.push("/paywall")}
+          accessibilityLabel={`${subscriptionLabel}: ${subscriptionSubtitle}`}
           accessibilityRole="button"
         >
-          <View style={[styles.menuIcon, styles.menuIconDanger]}>
-            <Ionicons name="log-out-outline" size={18} color={Colors.error} />
+          <View style={styles.subscriptionIcon}>
+            <Ionicons
+              name={isSubscribed ? "shield-checkmark" : "sparkles"}
+              size={20}
+              color={Colors.onPrimary}
+            />
           </View>
-          <Text style={[styles.menuLabel, styles.menuLabelDanger, { flex: 1 }]}>
-            Sign Out
-          </Text>
-        </TouchableOpacity>
-      </View>
+          <View style={styles.subscriptionTextContainer}>
+            <Text style={styles.subscriptionLabel}>{subscriptionLabel}</Text>
+            <Text style={styles.subscriptionSubtitle}>
+              {subscriptionSubtitle}
+            </Text>
+          </View>
+          <Ionicons
+            name="chevron-forward"
+            size={18}
+            color={Colors.textMuted}
+          />
+        </Pressable>
+
+        {/* Menu */}
+        <View style={styles.menuCard}>
+          <MenuItem
+            icon="language-outline"
+            label="Reading Language"
+            subtitle={readingLanguageLabel}
+            onPress={() => router.push("/settings/reading-language")}
+          />
+          <MenuItem
+            icon="settings-outline"
+            label="Settings"
+            onPress={() => {}}
+          />
+          <MenuItem
+            icon="download-outline"
+            label="Export Data"
+            onPress={() => {}}
+          />
+          <MenuItem
+            icon="bulb-outline"
+            label="Feature Requests"
+            onPress={handleFeedback}
+            isLoading={isFeedbackLoading}
+          />
+          <MenuItem
+            icon="bug-outline"
+            label="Report a Bug"
+            onPress={handleBugReport}
+          />
+          <View style={styles.menuDivider} />
+          <TouchableOpacity
+            testID="account-sign-out-button"
+            style={styles.menuItem}
+            onPress={handleLogout}
+            activeOpacity={0.7}
+            accessibilityLabel="Sign Out"
+            accessibilityRole="button"
+          >
+            <View style={[styles.menuIcon, styles.menuIconDanger]}>
+              <Ionicons name="log-out-outline" size={18} color={Colors.error} />
+            </View>
+            <Text
+              style={[styles.menuLabel, styles.menuLabelDanger, { flex: 1 }]}
+            >
+              Sign Out
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -199,6 +271,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Colors.textMain,
   },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: Spacing.xxl,
+  },
   profileSection: {
     alignItems: "center",
     paddingVertical: Spacing.lg,
@@ -215,6 +293,43 @@ const styles = StyleSheet.create({
   email: {
     fontSize: Typography.label.fontSize,
     color: Colors.textMuted,
+  },
+  subscriptionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    minHeight: TouchTarget.comfortable,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    ...Shadows.soft,
+  },
+  subscriptionCardPressed: {
+    backgroundColor: Colors.surfaceContainerLow,
+  },
+  subscriptionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: Spacing.sm + 4,
+  },
+  subscriptionTextContainer: {
+    flex: 1,
+  },
+  subscriptionLabel: {
+    fontSize: Typography.body.fontSize,
+    fontWeight: "600",
+    color: Colors.textMain,
+  },
+  subscriptionSubtitle: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textMuted,
+    marginTop: 2,
   },
   menuCard: {
     marginHorizontal: Spacing.lg,

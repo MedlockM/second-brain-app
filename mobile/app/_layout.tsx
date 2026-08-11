@@ -109,6 +109,17 @@ export default function RootLayout() {
                     animation: "slide_from_right",
                   }}
                 />
+                {/* Opened from the Account tab and from a quota refusal on the
+                    share confirmation screen, so it presents over whatever
+                    pushed it and dismisses back to it. */}
+                <Stack.Screen
+                  name="paywall"
+                  options={{
+                    presentation: "modal",
+                    animation: "slide_from_bottom",
+                    gestureEnabled: true,
+                  }}
+                />
               </Stack>
             </InboxProvider>
           </ShareIntentProvider>

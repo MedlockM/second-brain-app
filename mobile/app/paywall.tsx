@@ -72,8 +72,10 @@ const TIER_INFO = [
 export default function PaywallScreen() {
   const router = useRouter();
   const { refreshEntitlements } = usePurchases();
-  // Reached by deep link there is no screen underneath, and router.back() is a
-  // no-op that traps the user on the paywall. Fall back to the inbox.
+  // Pushed from the Account tab or from a quota refusal, back returns to the
+  // caller. Reached by deep link (media-summarizer://paywall) there is no screen
+  // underneath, and router.back() is a no-op that traps the user on the paywall,
+  // so fall back to the inbox.
   const dismiss = () => {
     if (router.canGoBack()) {
       router.back();
