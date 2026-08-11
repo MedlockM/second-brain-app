@@ -59,15 +59,26 @@ resource "aws_dynamodb_table" "processing_jobs_v1" {
     projection_type = "ALL"
   }
 
-  # TTL configuration for auto-deletion
+  # TTL FROZEN (task-239, Phase 0 of the task-218 benchmark §5.1).
+  # Every library read path resolves through this table, so expiring a job also
+  # destroyed the user's media entry, folder membership and tags. The TTL stays
+  # disabled until the durable `user_media` record owns the library; it is
+  # re-enabled in Phase 4 once nothing user-facing reads processing_jobs.
+  # DO NOT flip this back to `true` before that phase.
   ttl {
     attribute_name = "expire_at"
-    enabled        = true
+    enabled        = false
   }
 
   # Enable Streams for archiving (job_archiver Lambda)
   stream_enabled   = true
   stream_view_type = "OLD_IMAGE"
+
+  # 35-day continuous restore window (task-239). No recovery net existed before:
+  # PITR was off and the deployed job-archiver Lambda is a no-op placeholder.
+  point_in_time_recovery {
+    enabled = true
+  }
 
   tags = {
     Name        = "processing_jobs"
@@ -160,6 +171,12 @@ resource "aws_dynamodb_table" "user_media_submissions_v1" {
     type = "S"
   }
 
+  # 35-day continuous restore window (task-239) — backfill source for the
+  # durable library record, must survive.
+  point_in_time_recovery {
+    enabled = true
+  }
+
   tags = {
     Name        = "user_media_submissions"
     Environment = var.environment
@@ -206,6 +223,12 @@ resource "aws_dynamodb_table" "media_artifacts_v1" {
     name            = "generation-fingerprint-index"
     hash_key        = "generation_fingerprint"
     projection_type = "ALL"
+  }
+
+  # 35-day continuous restore window (task-239) — the artifact rows are the
+  # richest surviving proof of media whose job was deleted.
+  point_in_time_recovery {
+    enabled = true
   }
 
   tags = {
@@ -342,6 +365,11 @@ resource "aws_dynamodb_table" "user_tags_v1" {
     projection_type = "ALL"
   }
 
+  # 35-day continuous restore window (task-239) — user-owned organization data.
+  point_in_time_recovery {
+    enabled = true
+  }
+
   tags = {
     Name        = "user_tags"
     Environment = var.environment
@@ -373,6 +401,11 @@ resource "aws_dynamodb_table" "user_folders_v1" {
     name            = "user-index"
     hash_key        = "user_id"
     projection_type = "ALL"
+  }
+
+  # 35-day continuous restore window (task-239) — user-owned organization data.
+  point_in_time_recovery {
+    enabled = true
   }
 
   tags = {
