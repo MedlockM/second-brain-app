@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from typing import Any, Dict
 
@@ -37,6 +36,7 @@ from media_summarizer.core.services.transcript_translation import (
     persist_detected_language,
 )
 from media_summarizer.utils import database_async, s3
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -50,9 +50,7 @@ from media_summarizer.utils.translation_idempotence import (
 
 logger = logging.getLogger(__name__)
 
-TRANSCRIPT_TRANSLATION_QUEUE = os.environ.get(
-    "TRANSCRIPT_TRANSLATION_QUEUE", "transcript-translation-queue"
-)
+TRANSCRIPT_TRANSLATION_QUEUE = required_env("TRANSCRIPT_TRANSLATION_QUEUE")
 
 
 async def process_message(message: Dict[str, Any]) -> None:

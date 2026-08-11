@@ -28,6 +28,7 @@ from media_summarizer.core.services.transcript_formatting import (
     normalize_transcript_text,
 )
 from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -41,13 +42,9 @@ from media_summarizer.workers.base_worker import (
 
 logger = logging.getLogger(__name__)
 
-TRANSCRIPT_BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcripts")
-ARTICLE_EXTRACTION_QUEUE = os.environ.get(
-    "ARTICLE_EXTRACTION_QUEUE", "article-extraction-queue"
-)
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
+ARTICLE_EXTRACTION_QUEUE = required_env("ARTICLE_EXTRACTION_QUEUE")
+EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 
 ARTICLE_WORKER_MAX_RETRIES = max(
     1, int(os.environ.get("ARTICLE_WORKER_MAX_RETRIES", "3"))

@@ -1,8 +1,13 @@
 """
 Configuration module for Media Summarizer.
 
-This module provides configuration settings for the application,
-including support for test environments and E2E testing.
+Holds provider credentials, tunables and environment flags.
+
+It deliberately holds NO AWS resource names. Table, queue and bucket names are
+read through ``media_summarizer.utils.required_env`` at the point of use, so that
+a missing name fails loudly instead of silently falling back to the dev
+resource — which, with dev/staging/prod in one account, would mean one
+environment writing into another's data (task-237).
 """
 
 import os
@@ -19,36 +24,6 @@ class Settings:
         # AWS Configuration
         self.AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "eu-west-3")
 
-        # Database tables
-        self.USERS_TABLE = os.getenv("USERS_TABLE", "users")
-        self.TRANSACTIONS_TABLE = os.getenv("TRANSACTIONS_TABLE", "transactions")
-        self.PODCASTS_TABLE = os.getenv("PODCASTS_TABLE", "podcasts")
-        self.EPISODES_TABLE = os.getenv("EPISODES_TABLE", "episodes")
-
-        # S3 Buckets
-        self.AUDIO_BUCKET = os.getenv("AUDIO_BUCKET", "media-summarizer-audio")
-        self.TRANSCRIPT_BUCKET = os.getenv("TRANSCRIPT_BUCKET", "media-summarizer-transcripts")
-        self.SUMMARY_BUCKET = os.getenv("SUMMARY_BUCKET", "media-summarizer-summaries")
-        self.SUMMARY_SHORT_BUCKET = os.getenv("SUMMARY_SHORT_BUCKET", "media-summarizer-summary-short")
-        self.SUMMARY_DETAILED_BUCKET = os.getenv("SUMMARY_DETAILED_BUCKET", "media-summarizer-summary-detailed")
-        self.QUIZ_BUCKET = os.getenv("QUIZ_BUCKET", "media-summarizer-quiz")
-        self.NOTES_BUCKET = os.getenv("NOTES_BUCKET", "media-summarizer-notes")
-        self.FLASHCARDS_BUCKET = os.getenv("FLASHCARDS_BUCKET", "media-summarizer-flashcards")
-
-        # SQS Queues
-        self.TRANSCRIPTION_QUEUE = os.getenv("TRANSCRIPTION_QUEUE", "transcription-queue")
-        self.DEEPGRAM_TRANSCRIPTION_QUEUE = os.getenv(
-            "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
-        )
-        self.YOUTUBE_INGESTION_QUEUE = os.getenv(
-            "YOUTUBE_INGESTION_QUEUE", "youtube-ingestion-queue"
-        )
-        self.TIKTOK_INGESTION_QUEUE = os.getenv(
-            "TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue"
-        )
-        self.ARTIFACT_GENERATOR_QUEUE = os.getenv(
-            "ARTIFACT_GENERATOR_QUEUE", "artifact-generator-queue"
-        )
         self.ARTIFACT_TYPES_ALLOWED = os.getenv(
             "ARTIFACT_TYPES_ALLOWED", "summary_short,summary_detailed,quiz,notes,flashcards"
         )
@@ -111,8 +86,6 @@ class Settings:
             "UNSTRUCTURED_API_URL", "https://api.unstructuredapp.io"
         )
         self.UNSTRUCTURED_TIMEOUT_SECONDS = int(os.getenv("UNSTRUCTURED_TIMEOUT_SECONDS", "120"))
-        self.DOCUMENT_BUCKET = os.getenv("DOCUMENT_BUCKET", "media-summarizer-documents")
-        self.DOCUMENT_PARSING_QUEUE = os.getenv("DOCUMENT_PARSING_QUEUE", "document-parsing-queue")
 
         # Podcast Index Configuration
         self.PODCASTINDEXORG_API_KEY = os.getenv("PODCASTINDEXORG_API_KEY", "")
@@ -122,17 +95,14 @@ class Settings:
         self.ALGOLIA_APP_ID = os.getenv("ALGOLIA_APP_ID", "")
         self.ALGOLIA_API_KEY = os.getenv("ALGOLIA_API_KEY", "")
         self.ALGOLIA_SEARCH_API_KEY = os.getenv("ALGOLIA_SEARCH_API_KEY", "")
-        self.SEARCH_INDEXING_QUEUE = os.getenv("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
 
         # Pricing Configuration
-        self.PRICING_CONFIG_TABLE = os.getenv("PRICING_CONFIG_TABLE", "pricing_config")
         self.PRICING_ADMIN_SECRET = os.getenv("PRICING_ADMIN_SECRET", "")
 
         # RevenueCat Configuration
         self.REVENUCAT_API_KEY = os.getenv("REVENUCAT_API_KEY", "")
         self.REVENUCAT_WEBHOOK_SECRET = os.getenv("REVENUCAT_WEBHOOK_SECRET", "")
         self.REVENUCAT_PROJECT_ID = os.getenv("REVENUCAT_PROJECT_ID", "")
-        self.REVENUCAT_EVENTS_TABLE = os.getenv("REVENUCAT_EVENTS_TABLE", "revenucat_events")
 
         # Apify TikTok Configuration
         self.APIFY_TIKTOK_API_TOKEN = os.getenv("APIFY_TIKTOK_API_TOKEN", "")

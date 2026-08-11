@@ -13,6 +13,7 @@ from typing import List
 from aiobotocore.session import get_session
 
 from media_summarizer.utils.database_async import AWS_REGION
+from media_summarizer.utils.env import required_env
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +26,13 @@ def required_s3_buckets_from_env() -> List[str]:
         if chunk.strip()
     }
     buckets = [
-        os.environ.get("AUDIO_BUCKET", "media-summarizer-audio"),
-        os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcripts"),
-        os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries"),
-        os.environ.get("QUIZ_BUCKET", "media-summarizer-quiz"),
+        required_env("AUDIO_BUCKET"),
+        required_env("TRANSCRIPT_BUCKET"),
+        required_env("SUMMARY_BUCKET"),
+        required_env("QUIZ_BUCKET"),
     ]
     if "notes" in allowed_artifact_types:
-        buckets.append(os.environ.get("NOTES_BUCKET", "media-summarizer-notes"))
+        buckets.append(required_env("NOTES_BUCKET"))
     # Filter out empty values and duplicates while preserving order
     seen = set()
     result: List[str] = []

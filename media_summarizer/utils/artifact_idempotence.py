@@ -5,19 +5,17 @@ Generation lock helpers for artifact cache/idempotence.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
 from botocore.exceptions import ClientError
 
 from media_summarizer.core.models.media_artifact import ArtifactGenerationLock
 from media_summarizer.utils import database_async
+from media_summarizer.utils.env import required_env
 
 logger = logging.getLogger(__name__)
 
-ARTIFACT_IDEMPOTENCE_TABLE = os.environ.get(
-    "ARTIFACT_IDEMPOTENCE_TABLE", "artifact_idempotence"
-)
+ARTIFACT_IDEMPOTENCE_TABLE = required_env("ARTIFACT_IDEMPOTENCE_TABLE")
 
 
 async def get_generation_lock(

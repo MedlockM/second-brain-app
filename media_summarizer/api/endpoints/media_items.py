@@ -4,7 +4,6 @@ Episodes API endpoints for retrieving user's completed episodes with summaries.
 
 import json
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +12,7 @@ from pydantic import BaseModel, Field
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.utils import database_async, s3
+from media_summarizer.utils.env import required_env
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ async def get_my_episodes(
         )
 
         episodes = []
-        summary_bucket = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
+        summary_bucket = required_env("SUMMARY_BUCKET")
 
         for job in jobs_with_content:
             try:

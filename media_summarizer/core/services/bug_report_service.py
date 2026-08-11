@@ -17,10 +17,12 @@ from typing import Any, Dict, Optional
 import httpx
 from pydantic import BaseModel, Field
 
+from media_summarizer.utils.env import required_env
+
 logger = logging.getLogger(__name__)
 
 # Configuration
-BUG_REPORTS_TABLE = os.environ.get("BUG_REPORTS_TABLE", "bug_reports")
+BUG_REPORTS_TABLE = required_env("BUG_REPORTS_TABLE")
 BUG_REPORT_ROUTING_WEBHOOK = os.environ.get("BUG_REPORT_ROUTING_WEBHOOK", "")
 
 

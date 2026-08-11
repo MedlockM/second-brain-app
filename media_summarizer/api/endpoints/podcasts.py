@@ -6,7 +6,6 @@ Provides /api/v1/podcasts/submit to create a processing job directly from a podc
 """
 
 import logging
-import os
 from typing import List, Optional
 from urllib.parse import urlsplit
 
@@ -24,6 +23,7 @@ from media_summarizer.core.services.quota_enforcer import (
 )
 from media_summarizer.utils import database_async, podcast_index, sqs
 from media_summarizer.utils.database_async import get_db
+from media_summarizer.utils.env import required_env
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -40,12 +40,8 @@ _PLATFORM_HOST_MAP: dict[str, str] = {
     "www.deezer.com": "deezer",
     "deezer.com": "deezer",
 }
-DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
-    "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
-)
-PODCASTINDEX_RESOLUTION_QUEUE = os.environ.get(
-    "PODCASTINDEX_RESOLUTION_QUEUE", "podcastindex-resolution-queue"
-)
+DEEPGRAM_TRANSCRIPTION_QUEUE = required_env("DEEPGRAM_TRANSCRIPTION_QUEUE")
+PODCASTINDEX_RESOLUTION_QUEUE = required_env("PODCASTINDEX_RESOLUTION_QUEUE")
 
 
 def _looks_like_audio_url(url: str) -> bool:

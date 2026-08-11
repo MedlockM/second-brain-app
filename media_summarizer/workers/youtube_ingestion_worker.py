@@ -67,6 +67,7 @@ from media_summarizer.core.services.transcript_formatting import (
     normalize_transcript_text,
 )
 from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.language_codes import (
     normalize_language_code,
     resolve_language_code,
@@ -92,18 +93,10 @@ from media_summarizer.workers.base_worker import (
 
 logger = logging.getLogger(__name__)
 
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
-)
-YOUTUBE_INGESTION_QUEUE = os.environ.get(
-    "YOUTUBE_INGESTION_QUEUE", "youtube-ingestion-queue"
-)
-DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
-    "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
-)
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
+YOUTUBE_INGESTION_QUEUE = required_env("YOUTUBE_INGESTION_QUEUE")
+DEEPGRAM_TRANSCRIPTION_QUEUE = required_env("DEEPGRAM_TRANSCRIPTION_QUEUE")
+EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 YTDLP_TIMEOUT_SECONDS = float(os.environ.get("YTDLP_TIMEOUT_SECONDS", "30"))
 YOUTUBE_SUBTITLE_FETCH_TIMEOUT_SECONDS = float(
     os.environ.get("YOUTUBE_SUBTITLE_FETCH_TIMEOUT_SECONDS", "20")

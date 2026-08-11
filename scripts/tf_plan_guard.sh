@@ -73,6 +73,12 @@ done
 # repository are handled separately (see layer 3 below).
 NAME_KEYS='[.name, .bucket, .function_name, .repository_name, .alarm_name, .dashboard_name, .queue_name]'
 
+# Names that legitimately carry no environment token and are legitimately
+# identical in every environment:
+#   $default — the API Gateway default stage, an AWS-reserved literal scoped to
+#              the API id, so each environment has its own "$default".
+WHITELIST_RE='^\$default$'
+
 PLAN_JSON="${WORK_DIR}/plan.json"
 terraform -chdir="${ENV_DIR}" show -json "${PLAN_FILE}" >"${PLAN_JSON}"
 
@@ -140,10 +146,7 @@ jq -r "
   | .[] | select(. != null) | select(type == \"string\")
 " "${PLAN_JSON}" | sort -u | grep -vE -- "-${ENV_NAME}\$" >"${UNSUFFIXED}" || true
 
-# Whitelist: names that legitimately carry no environment token.
-#   $default            — the API Gateway default stage, an AWS-reserved literal
-#   <domain names>       — custom domains are already per-environment hostnames
-grep -vE '^\$default$' "${UNSUFFIXED}" >"${UNSUFFIXED}.filtered" || true
+grep -vE "${WHITELIST_RE}" "${UNSUFFIXED}" >"${UNSUFFIXED}.filtered" || true
 mv "${UNSUFFIXED}.filtered" "${UNSUFFIXED}"
 
 if [[ -s "${UNSUFFIXED}" ]]; then
@@ -170,7 +173,7 @@ jq -r "
   | .change.after // {}
   | ${NAME_KEYS}
   | .[] | select(. != null) | select(type == \"string\")
-" "${PLAN_JSON}" | sort -u >"${PLANNED}"
+" "${PLAN_JSON}" | sort -u | grep -vE "${WHITELIST_RE}" >"${PLANNED}" || true
 
 COLLISIONS=0
 for other in "${OTHER_ENVS[@]}"; do

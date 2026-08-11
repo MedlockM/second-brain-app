@@ -14,15 +14,15 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from media_summarizer.utils import database_async
+from media_summarizer.utils.env import required_env
 
 logger = logging.getLogger(__name__)
 
-PRICING_CONFIG_TABLE = os.environ.get("PRICING_CONFIG_TABLE", "pricing_config")
+PRICING_CONFIG_TABLE = required_env("PRICING_CONFIG_TABLE")
 
 
 async def get_all_config() -> Dict[str, Any]:

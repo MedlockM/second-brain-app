@@ -9,7 +9,6 @@ Tables:
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -26,13 +25,12 @@ from media_summarizer.utils.database_async import (
     _log_dynamodb_success,
     get_session,
 )
+from media_summarizer.utils.env import required_env
 
 logger = logging.getLogger(__name__)
 
-REVIEW_SCHEDULE_TABLE = os.environ.get("REVIEW_SCHEDULE_TABLE", "review_schedule")
-USER_REVIEW_SETTINGS_TABLE = os.environ.get(
-    "USER_REVIEW_SETTINGS_TABLE", "user_review_settings"
-)
+REVIEW_SCHEDULE_TABLE = required_env("REVIEW_SCHEDULE_TABLE")
+USER_REVIEW_SETTINGS_TABLE = required_env("USER_REVIEW_SETTINGS_TABLE")
 
 
 # ---------- Review Schedule CRUD ----------

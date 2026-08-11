@@ -14,10 +14,11 @@ from botocore.exceptions import ClientError
 
 from media_summarizer.core.models.media_artifact import MediaArtifactRecord
 from media_summarizer.utils import database_async
+from media_summarizer.utils.env import required_env
 
 logger = logging.getLogger(__name__)
 
-MEDIA_ARTIFACTS_TABLE = os.environ.get("MEDIA_ARTIFACTS_TABLE", "media_artifacts")
+MEDIA_ARTIFACTS_TABLE = required_env("MEDIA_ARTIFACTS_TABLE")
 MEDIA_ITEM_INDEX = os.environ.get(
     "MEDIA_ARTIFACTS_MEDIA_ITEM_INDEX", "media-item-index"
 )

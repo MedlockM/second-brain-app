@@ -37,6 +37,7 @@ from media_summarizer.utils.deepgram_dispatch import (
     DEEPGRAM_TRANSCRIPTION_QUEUE,
     enqueue_deepgram_transcription,
 )
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.ingestion_sentinels import (
     strip_e2e_force_ip_block_sentinel,
 )
@@ -57,15 +58,9 @@ from media_summarizer.workers.base_worker import (
 
 logger = logging.getLogger(__name__)
 
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
-)
-TIKTOK_INGESTION_QUEUE = os.environ.get(
-    "TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue"
-)
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
+TIKTOK_INGESTION_QUEUE = required_env("TIKTOK_INGESTION_QUEUE")
+EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 YTDLP_TIMEOUT_SECONDS = float(os.environ.get("YTDLP_TIMEOUT_SECONDS", "30"))
 TIKTOK_SUBTITLE_FETCH_TIMEOUT_SECONDS = float(
     os.environ.get("TIKTOK_SUBTITLE_FETCH_TIMEOUT_SECONDS", "20")

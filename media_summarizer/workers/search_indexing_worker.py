@@ -22,6 +22,7 @@ from typing import Any, Dict
 
 from media_summarizer.core.services import search_indexing
 from media_summarizer.utils import s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -30,10 +31,8 @@ from media_summarizer.utils.logging_config import (
 
 logger = logging.getLogger(__name__)
 
-SEARCH_INDEXING_QUEUE = os.environ.get("SEARCH_INDEXING_QUEUE", "search-indexing-queue")
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
-)
+SEARCH_INDEXING_QUEUE = required_env("SEARCH_INDEXING_QUEUE")
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
 
 # Backoff
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"

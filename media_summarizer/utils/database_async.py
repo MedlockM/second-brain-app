@@ -17,6 +17,7 @@ from botocore.exceptions import ClientError
 
 from media_summarizer.core.models import Folder, JobStatus, ProcessingJob, Tag, User, UserRssFeed
 from media_summarizer.core.models.auth import AuthToken, TokenType
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
 
 # Removed CreditTransaction import (legacy credits system fully deprecated)
@@ -33,18 +34,19 @@ if not AWS_REGION:
         "AWS region not configured: set AWS_REGION or AWS_DEFAULT_REGION."
     )
 
-# Table names (can be overridden by environment variables for testing)
-USERS_TABLE = os.environ.get("USERS_TABLE", "users")
-PODCASTS_TABLE = os.environ.get("PODCASTS_TABLE", "podcasts")
-EPISODES_TABLE = os.environ.get("EPISODES_TABLE", "episodes")
-CREDIT_TRANSACTIONS_TABLE = os.environ.get(
-    "CREDIT_TRANSACTIONS_TABLE", "credit_transactions"
-)
-PROCESSING_JOBS_TABLE = os.environ.get("PROCESSING_JOBS_TABLE", "processing_jobs")
-AUTH_TOKENS_TABLE = os.environ.get("AUTH_TOKENS_TABLE", "auth_tokens")
-USER_FOLDERS_TABLE = os.environ.get("USER_FOLDERS_TABLE", "user_folders")
-USER_TAGS_TABLE = os.environ.get("USER_TAGS_TABLE", "user_tags")
-USER_RSS_FEEDS_TABLE = os.environ.get("USER_RSS_FEEDS_TABLE", "user_rss_feeds")
+# Table names, injected by Terraform from
+# infrastructure/terraform/modules/platform/runtime_env.tf. No defaults: see
+# media_summarizer/utils/env.py.
+#
+# PODCASTS_TABLE, EPISODES_TABLE and CREDIT_TRANSACTIONS_TABLE used to be
+# declared here too. They had no readers left and Terraform never created the
+# tables, so they resolved to their hardcoded fallbacks and pointed at nothing.
+USERS_TABLE = required_env("USERS_TABLE")
+PROCESSING_JOBS_TABLE = required_env("PROCESSING_JOBS_TABLE")
+AUTH_TOKENS_TABLE = required_env("AUTH_TOKENS_TABLE")
+USER_FOLDERS_TABLE = required_env("USER_FOLDERS_TABLE")
+USER_TAGS_TABLE = required_env("USER_TAGS_TABLE")
+USER_RSS_FEEDS_TABLE = required_env("USER_RSS_FEEDS_TABLE")
 
 # Session aioboto3 for async operations (created lazily)
 _session = None

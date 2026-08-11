@@ -18,16 +18,14 @@ See ``deepgram_worker.VALID_DEEPGRAM_MODES`` for the accepted values:
 
 from __future__ import annotations
 
-import os
 from typing import Any, Optional
 
 from media_summarizer.utils import sqs
+from media_summarizer.utils.env import required_env
 
 DeepgramMode = str  # one of: "pull" | "push" | "pull_with_push_fallback"
 
-DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
-    "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
-)
+DEEPGRAM_TRANSCRIPTION_QUEUE = required_env("DEEPGRAM_TRANSCRIPTION_QUEUE")
 
 
 async def enqueue_deepgram_transcription(

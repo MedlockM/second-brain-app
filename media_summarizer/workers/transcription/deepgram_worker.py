@@ -35,6 +35,7 @@ from media_summarizer.core.services.transcript_formatting import (
     deepgram_transcript_text,
 )
 from media_summarizer.utils import s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -63,19 +64,11 @@ class RetryableDeepgramError(Exception):
     """Raised for transient/retryable Deepgram request failures."""
 
 
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
-)
-AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
-DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
-    "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
-)
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
+AUDIO_BUCKET = required_env("AUDIO_BUCKET")
+EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
+EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
+DEEPGRAM_TRANSCRIPTION_QUEUE = required_env("DEEPGRAM_TRANSCRIPTION_QUEUE")
 
 # Worker retry handling (SQS-level via base worker)
 WORKER_MAX_RETRIES = int(os.environ.get("DEEPGRAM_WORKER_MAX_RETRIES", "3"))

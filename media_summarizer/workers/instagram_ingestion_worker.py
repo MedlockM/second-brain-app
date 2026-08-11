@@ -41,6 +41,7 @@ from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
 )
 from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.deepgram_dispatch import enqueue_deepgram_transcription
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -54,12 +55,8 @@ from media_summarizer.workers.base_worker import (
 
 logger = logging.getLogger(__name__)
 
-INSTAGRAM_INGESTION_QUEUE = os.environ.get(
-    "INSTAGRAM_INGESTION_QUEUE", "instagram-ingestion-queue"
-)
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
+INSTAGRAM_INGESTION_QUEUE = required_env("INSTAGRAM_INGESTION_QUEUE")
+EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 INSTAGRAM_WORKER_MAX_RETRIES = max(
     1, int(os.environ.get("INSTAGRAM_WORKER_MAX_RETRIES", "3"))
 )

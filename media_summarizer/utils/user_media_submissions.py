@@ -12,16 +12,14 @@ Table schema:
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
 
 from media_summarizer.utils import database_async
+from media_summarizer.utils.env import required_env
 
-USER_MEDIA_SUBMISSIONS_TABLE = os.environ.get(
-    "USER_MEDIA_SUBMISSIONS_TABLE", "user_media_submissions"
-)
+USER_MEDIA_SUBMISSIONS_TABLE = required_env("USER_MEDIA_SUBMISSIONS_TABLE")
 
 
 def _now_iso() -> str:

@@ -19,14 +19,15 @@ import os
 
 from media_summarizer.core.services.rss_feed_service import poll_feed
 from media_summarizer.utils import database_async, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event, setup_logging
 from media_summarizer.workers.base_worker import process_message_with_retry
 
 logger = logging.getLogger(__name__)
 
-RSS_FEED_POLL_QUEUE = os.environ.get("RSS_FEED_POLL_QUEUE", "rss-feed-poll-queue")
-ARTICLE_EXTRACTION_QUEUE = os.environ.get("ARTICLE_EXTRACTION_QUEUE", "article-extraction-queue")
-DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get("DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue")
+RSS_FEED_POLL_QUEUE = required_env("RSS_FEED_POLL_QUEUE")
+ARTICLE_EXTRACTION_QUEUE = required_env("ARTICLE_EXTRACTION_QUEUE")
+DEEPGRAM_TRANSCRIPTION_QUEUE = required_env("DEEPGRAM_TRANSCRIPTION_QUEUE")
 
 # Polling interval: re-enqueue after this many seconds (default 1 hour)
 POLL_INTERVAL_SECONDS = int(os.environ.get("RSS_POLL_INTERVAL_SECONDS", "3600"))

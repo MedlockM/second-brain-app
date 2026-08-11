@@ -19,18 +19,18 @@ All counter increments use atomic ADD operations to avoid race conditions.
 from __future__ import annotations
 
 import logging
-import os
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
 from media_summarizer.utils import database_async
+from media_summarizer.utils.env import required_env
 
 logger = logging.getLogger(__name__)
 
-USER_USAGE_MONTHLY_TABLE = os.environ.get("USER_USAGE_MONTHLY_TABLE", "user_usage_monthly")
-USER_USAGE_DAILY_TABLE = os.environ.get("USER_USAGE_DAILY_TABLE", "user_usage_daily")
+USER_USAGE_MONTHLY_TABLE = required_env("USER_USAGE_MONTHLY_TABLE")
+USER_USAGE_DAILY_TABLE = required_env("USER_USAGE_DAILY_TABLE")
 
 
 def _current_period() -> str:

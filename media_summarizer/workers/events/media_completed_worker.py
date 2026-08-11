@@ -1,7 +1,7 @@
 """
 Media completed events consumer -- fan-out to media watchers + primary-user indexing.
 
-- Consumes events from MEDIA_COMPLETED_EVENTS_QUEUE (episode-completed-events)
+- Consumes events from EPISODE_COMPLETED_EVENTS_QUEUE (episode-completed-events-<env>)
 - Canonical event_type: episode_completion_status (with status: success/failure)
 - For each media key, fetches watchers and marks their processing state
 - In V1, all user notifications are via mobile app polling; email notifications disabled
@@ -23,18 +23,18 @@ import time
 from typing import Any, Dict, Optional
 
 from media_summarizer.utils import media_watchers, s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
-MEDIA_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "MEDIA_COMPLETED_EVENTS_QUEUE",
-    os.environ.get("EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"),
-)
-SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
-SEARCH_INDEXING_QUEUE = os.environ.get(
-    "SEARCH_INDEXING_QUEUE", "search-indexing-queue"
-)
+# The MEDIA_COMPLETED_EVENTS_QUEUE alias this consumer used to accept was never
+# injected by Terraform, so it only ever resolved through its own fallback.
+# task-143 settled EPISODE_COMPLETED_EVENTS_QUEUE as the canonical name shared by
+# every producer, and pr.yml guards against the other spelling coming back.
+MEDIA_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
+SUMMARY_BUCKET = required_env("SUMMARY_BUCKET")
+SEARCH_INDEXING_QUEUE = required_env("SEARCH_INDEXING_QUEUE")
 
 # Backoff
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"

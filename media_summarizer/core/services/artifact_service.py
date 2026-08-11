@@ -29,6 +29,7 @@ from media_summarizer.core.services.transcript_translation import (
     resolve_or_enqueue_translated_transcript,
 )
 from media_summarizer.utils import artifact_idempotence, media_artifacts, s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
@@ -36,18 +37,14 @@ logger = logging.getLogger(__name__)
 ARTIFACT_GENERATION_ENABLED = os.environ.get(
     "ARTIFACT_GENERATION_ENABLED", "true"
 ).lower() == "true"
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
-)
-SUMMARY_BUCKET = os.environ.get("SUMMARY_BUCKET", "media-summarizer-summaries")
-SUMMARY_SHORT_BUCKET = os.environ.get("SUMMARY_SHORT_BUCKET", "media-summarizer-summary-short")
-SUMMARY_DETAILED_BUCKET = os.environ.get("SUMMARY_DETAILED_BUCKET", "media-summarizer-summary-detailed")
-QUIZ_BUCKET = os.environ.get("QUIZ_BUCKET", "media-summarizer-quiz")
-NOTES_BUCKET = os.environ.get("NOTES_BUCKET", "media-summarizer-notes")
-FLASHCARDS_BUCKET = os.environ.get("FLASHCARDS_BUCKET", "media-summarizer-flashcards")
-ARTIFACT_GENERATOR_QUEUE = os.environ.get(
-    "ARTIFACT_GENERATOR_QUEUE", "artifact-generator-queue"
-)
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
+SUMMARY_BUCKET = required_env("SUMMARY_BUCKET")
+SUMMARY_SHORT_BUCKET = required_env("SUMMARY_SHORT_BUCKET")
+SUMMARY_DETAILED_BUCKET = required_env("SUMMARY_DETAILED_BUCKET")
+QUIZ_BUCKET = required_env("QUIZ_BUCKET")
+NOTES_BUCKET = required_env("NOTES_BUCKET")
+FLASHCARDS_BUCKET = required_env("FLASHCARDS_BUCKET")
+ARTIFACT_GENERATOR_QUEUE = required_env("ARTIFACT_GENERATOR_QUEUE")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.4-nano-2026-03-17")
 # LLM models per artifact type — validated by owner in task-72 benchmark:
 # summary_short: gpt-5-nano-2025-08-07

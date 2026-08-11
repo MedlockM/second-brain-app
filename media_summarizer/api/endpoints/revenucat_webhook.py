@@ -8,7 +8,6 @@ Idempotency is enforced via a revenucat_events DynamoDB table.
 """
 
 import logging
-import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -24,6 +23,7 @@ from media_summarizer.core.models.billing import (
     SubscriptionTier,
 )
 from media_summarizer.utils import database_async, minute_db
+from media_summarizer.utils.env import required_env
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ PRODUCT_TIER_MAP: Dict[str, SubscriptionTier] = {
     "audio_heavy_monthly": SubscriptionTier.L,
 }
 
-REVENUCAT_EVENTS_TABLE = os.environ.get("REVENUCAT_EVENTS_TABLE", "revenucat_events")
+REVENUCAT_EVENTS_TABLE = required_env("REVENUCAT_EVENTS_TABLE")
 
 
 async def _check_idempotency(event_id: str) -> bool:

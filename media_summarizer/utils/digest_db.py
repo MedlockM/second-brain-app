@@ -9,7 +9,6 @@ Tables:
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -27,13 +26,12 @@ from media_summarizer.utils.database_async import (
     _log_dynamodb_success,
     get_session,
 )
+from media_summarizer.utils.env import required_env
 
 logger = logging.getLogger(__name__)
 
-USER_DIGESTS_TABLE = os.environ.get("USER_DIGESTS_TABLE", "user_digests")
-USER_DIGEST_SETTINGS_TABLE = os.environ.get(
-    "USER_DIGEST_SETTINGS_TABLE", "user_digest_settings"
-)
+USER_DIGESTS_TABLE = required_env("USER_DIGESTS_TABLE")
+USER_DIGEST_SETTINGS_TABLE = required_env("USER_DIGEST_SETTINGS_TABLE")
 
 
 # ---------- Digest CRUD ----------
