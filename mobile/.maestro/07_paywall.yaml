@@ -19,29 +19,35 @@ tags:
 
 - runFlow: utils/login.yaml
 
-- openLink: "media-summarizer://paywall"
-
 # iOS asks for confirmation before handing a scheme URL to the app
-# ('Open in "Media Summarizer"?'). Without this tap the link is never followed
-# and the paywall never mounts. Android opens the scheme directly.
-# The alert takes a moment to appear, so wait for it before probing: an
-# immediate `when` check would race it and skip the tap.
+# ('Open in "Media Summarizer"?'), and without that confirmation the paywall
+# never mounts. autoVerify dismisses the dialog; Android opens the scheme
+# directly and ignores the flag.
+- openLink:
+    link: "media-summarizer://paywall"
+    autoVerify: true
+
+# Fallback for when autoVerify misses the dialog. The confirm button carries its
+# label in accessibilityText only, so no text selector can reach it — hence the
+# position: the alert is a fixed two-button row with Open on the right. The
+# optional wait first rules out a paywall that simply mounted slowly, so the tap
+# only ever fires while the dialog is genuinely still up.
 - runFlow:
     when:
       platform: iOS
     commands:
       - extendedWaitUntil:
           visible:
-            text: "Open"
-          timeout: 15000
+            id: "paywall-screen"
+          timeout: 20000
           optional: true
       - runFlow:
           when:
-            visible:
-              text: "Open"
+            notVisible:
+              id: "paywall-screen"
           commands:
             - tapOn:
-                text: "Open"
+                point: "67%,56%"
 
 - extendedWaitUntil:
     visible:
