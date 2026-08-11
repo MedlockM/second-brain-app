@@ -177,6 +177,8 @@ test_search_episodes.py
 tmp/
 temp/
 
-# Maestro iOS resumable-run marker (written by CI)
+# Maestro resumable-run markers and per-flow reports (written by CI)
 .maestro-ios-passed
 maestro-ios-reports/
+.maestro-android-passed
+maestro-android-reports/

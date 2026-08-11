@@ -91,10 +91,6 @@ jobs:
           done
           exit "$missing"
 
-      - name: Install mobile dependencies
-        working-directory: mobile
-        run: npm ci
-
       - name: Install Maestro CLI
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
@@ -103,6 +99,45 @@ jobs:
       - name: Verify Maestro installation
         run: maestro --version
 
+      # Covers everything baked into the APK: sources, lockfile, native config,
+      # the EXPO_PUBLIC_* values embedded in the JS bundle, and the toolchain. The
+      # Maestro flows are excluded, so editing a flow reuses the cached APK
+      # instead of paying for a prebuild plus Gradle assemble.
+      - name: Compute Android E2E fingerprints
+        id: fingerprints
+        env:
+          EXPO_PUBLIC_API_BASE_URL: ${{ secrets.E2E_API_BASE_URL || 'https://jji077bi8e.execute-api.eu-west-3.amazonaws.com' }}
+          EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY: ${{ secrets.E2E_REVENUECAT_TEST_KEY }}
+        run: |
+          app_fingerprint=$(
+            {
+              git ls-files -s -- mobile ':!mobile/.maestro'
+              printf 'api=%s\n' "$EXPO_PUBLIC_API_BASE_URL"
+              printf 'revenuecat=%s\n' "$EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY"
+              printf 'toolchain=%s\n' "$(java -version 2>&1 | tr '\n' ' ')"
+            } | sha256sum | cut -c1-16
+          )
+          echo "app=$app_fingerprint" >> "$GITHUB_OUTPUT"
+
+      # restore/save rather than actions/cache: the latter only saves in its post
+      # step when the job succeeds, which would never cache the build on a red
+      # run — precisely the run whose next attempt needs it.
+      - name: Restore cached Android E2E APK
+        id: apk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: mobile/android/app/build/outputs/apk/debug
+          key: android-e2e-apk-${{ steps.fingerprints.outputs.app }}
+
+      # node_modules and the native tooling only exist to produce the APK, so on
+      # a cache hit the whole build chain is skipped.
+      - name: Install mobile dependencies
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        run: npm ci
+
+      # Unconditional: cheap, and the emulator needs the headroom even when the
+      # APK came from the cache.
       - name: Free disk space for Android native tooling
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
@@ -115,6 +150,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Build self-contained Android E2E APK
+        if: steps.apk-cache.outputs.cache-hit != 'true'
         working-directory: mobile
         env:
           E2E_EMBED_DEBUG_BUNDLE: "1"
@@ -127,12 +163,38 @@ jobs:
           cd android
           ./gradlew assembleDebug -PreactNativeArchitectures=x86_64
 
+      # Saved before the cleanup below, which prunes everything around the APK.
+      - name: Save cached Android E2E APK
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: mobile/android/app/build/outputs/apk/debug
+          key: android-e2e-apk-${{ steps.fingerprints.outputs.app }}
+
+      # Unconditional: the emulator needs the headroom either way, and every path
+      # here is a no-op when the build was skipped. Note what is absent — the APK
+      # under app/build/outputs/debug, which the run depends on.
       - name: Free Android build space before starting emulator
         run: |
           rm -rf mobile/node_modules mobile/android/.gradle mobile/android/app/build/intermediates
           rm -rf "$HOME/.gradle/caches"
           sudo rm -rf /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/cmake
           df -h /
+
+      # Flows that already passed against this exact app + flow fingerprint are
+      # skipped, so a re-run only replays what is still red. Any source or flow
+      # edit changes a fingerprint and replays the whole suite.
+      - name: Restore passed Android flows
+        uses: actions/cache/restore@v4
+        with:
+          path: .maestro-android-passed
+          # Keyed on the app build only: the marker file records a per-flow hash,
+          # so editing one flow replays that flow and leaves the others skipped.
+          # Each attempt saves under a unique suffix, so the newest entry for this
+          # build is picked up by prefix.
+          key: android-e2e-passed-${{ steps.fingerprints.outputs.app }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            android-e2e-passed-${{ steps.fingerprints.outputs.app }}-
 
       - name: Run Maestro E2E tests on Android
         uses: reactivecircus/android-emulator-runner@v2
@@ -154,19 +216,28 @@ jobs:
           disable-animations: true
           script: bash .github/scripts/run-android-maestro.sh
 
+      # Saved even when the run is red: the flows that did pass stay recorded so
+      # the next attempt resumes after them.
+      - name: Save passed Android flows
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .maestro-android-passed
+          key: android-e2e-passed-${{ steps.fingerprints.outputs.app }}-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Upload Maestro test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: maestro-android-results-api${{ matrix.api-level }}
-          path: maestro-report.xml
+          path: maestro-android-reports/
           retention-days: 1
 
       - name: Publish test results
         uses: EnricoMi/publish-unit-test-result-action@v2
         if: always()
         with:
-          files: maestro-report.xml
+          files: maestro-android-reports/*.xml
           check_name: "Maestro Android E2E (API ${{ matrix.api-level }})"
           comment_mode: "off"
 

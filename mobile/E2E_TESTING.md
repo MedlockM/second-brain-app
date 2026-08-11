@@ -180,7 +180,18 @@ Escalate to Appium if **all** of the following are true:
 
 ### Understanding Test Results
 
-Maestro produces JUnit XML reports and screenshots/video on failure. In CI, these are uploaded as artifacts.
+CI runs one Maestro invocation per flow, so each flow gets its own JUnit file in
+`maestro-ios-reports/` or `maestro-android-reports/`, uploaded as an artifact. A
+failing flow also gets a `<flow>-hierarchy.json` dump naming the screen it ended
+on. Screenshots and video are deliberately not published: this repository is
+public and a screenshot of a logged-in session leaks account data.
+
+Both platforms resume: a flow that passed is recorded in a marker file
+(`.maestro-{ios,android}-passed`) keyed on the hash of the flow plus every
+sub-flow it pulls in, and cached alongside the app-build cache. A re-run replays
+only what is still red and reports the rest as `<skipped>`. Editing one flow
+changes that flow's hash only, so its siblings stay skipped; editing app sources
+changes the build fingerprint and replays the whole suite against a fresh binary.
 
 ### Triage Decision Tree
 
@@ -238,8 +249,9 @@ A release is considered E2E-ready when:
 
 After each CI run:
 1. Check the GitHub Actions summary for pass/fail status
-2. If failed, download the `maestro-*-screenshots` artifact for visual context
-3. Review the JUnit XML for specific assertion failures
+2. Download the `maestro-{ios,android}-results` artifact
+3. Review the failing flow's JUnit XML for the assertion, and its
+   `-hierarchy.json` for the screen the flow actually ended on
 4. Cross-reference with recent code changes to identify the regression source
 
 ## Maintenance
