@@ -180,6 +180,10 @@ XML
 
     echo "::error::Maestro flow ${name} failed."
     failed=1
+    # Names the screen the flow actually ended on, which the JUnit assertion
+    # message alone never says. Carries no credentials and no screenshot, so it
+    # is safe to publish from a public repository.
+    maestro hierarchy > "${report_dir}/${name}-hierarchy.json" 2>&1 || true
     # A driver that never starts produces no JUnit file at all, which reads as
     # "flow never ran" in the artifact. Record the reason instead.
     if [[ ! -f "${report_dir}/${name}.xml" ]]; then
@@ -194,12 +198,6 @@ XML
 </testsuites>
 XML
     fi
-    # The view hierarchy names the screen the flow actually ended on, which the
-    # JUnit assertion message alone never says. It carries no credentials and no
-    # screenshot, so it is safe to publish from a public repository.
-    echo "View hierarchy at failure:"
-    maestro hierarchy > "${report_dir}/${name}-hierarchy.json" 2>&1 || true
-    head -c 20000 "${report_dir}/${name}-hierarchy.json" || true
     echo "::endgroup::"
     break
   done
