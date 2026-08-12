@@ -196,6 +196,13 @@ resource "aws_cloudwatch_log_metric_filter" "deepgram_errors" {
 # =============================================================================
 
 resource "aws_cloudwatch_dashboard" "pipeline_observability" {
+  # Gated because this is the most expensive resource in an idle environment:
+  # CloudWatch bills per dashboard past the 3-dashboard free tier, measured at
+  # ~$3.00/mo — more than the 43 alarms it visualises. It used to be
+  # ungated, so a second environment silently doubled the account's
+  # CloudWatch bill the day it was created.
+  count = var.enable_dashboard ? 1 : 0
+
   dashboard_name = "${var.project_name}-pipeline-observability${local.suffix}"
 
   dashboard_body = jsonencode({

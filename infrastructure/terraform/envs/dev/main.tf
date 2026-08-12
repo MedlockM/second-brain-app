@@ -50,8 +50,11 @@ module "platform" {
   environment        = "dev" # literal #2
   ecr_repository_url = data.terraform_remote_state.shared.outputs.lambda_ecr_repository_url
 
-  # dev stays cheap: no CloudWatch alarms (42 alarms ≈ $4.20/mo) and unreserved
-  # API concurrency.
+  # dev stays cheap: no CloudWatch alarms (43 alarms ≈ $3.30/mo measured) and
+  # unreserved API concurrency. The dashboard and the worker SQS polling stay ON
+  # — dev is the environment actually being worked in, so its ~$3.00/mo
+  # dashboard and live queues are the point. See envs/staging/main.tf for the
+  # mothballed counterpart.
   enable_alarms = false
 
   alert_email = var.alert_email

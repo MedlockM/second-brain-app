@@ -120,24 +120,50 @@ keys.
 Renaming or deleting a secret is not free: Secrets Manager holds a deleted name
 for a 7-30 day recovery window during which it cannot be reused.
 
-## CloudWatch alarms
+## Cost switches: what an idle environment bills, and how to stop it
 
-Alarms are enabled per environment through the `enable_alarms` variable, set in
-the environment's `main.tf` — not in a tfvars file:
+Three independent booleans, set in the environment's `main.tf` — not in a tfvars
+file. They exist because an environment with **zero users** is not free:
+creating staging took the whole account from **$0.233/day to $0.295/day
+(+27%)**, on an account that billed $8.11 in July. Figures below are measured on
+Cost Explorer, not estimated.
 
-| Environment | `enable_alarms` |
-|---|---|
-| dev | `false` — keeps dev free of monitoring cost |
-| staging | `true` |
-| prod | `true` |
+| Variable | What it provisions | Measured cost | dev | staging | prod |
+|---|---|---|---|---|---|
+| `enable_alarms` | 1 SNS topic + **43 alarms** | ~$3.30/mo | `false` | `false` | `true` |
+| `enable_dashboard` | 1 CloudWatch dashboard | ~$3.00/mo | `true` | `false` | `true` |
+| `enable_worker_polling` | 14 SQS event source mappings | ~$0.90/mo | `true` | `false` | `true` |
 
-When enabled, one SNS topic (`*-pipeline-alerts-<env>`) and **43 alarms** are
-provisioned — 7 alarm blocks, most fanned out per worker or per DLQ via
-`for_each`, which is why the count is not the number of `resource` blocks. That
-is the figure measured on staging (`terraform state list`), not the estimate of
-42 in the benchmark. Cost is roughly $4.30/month per environment. When disabled,
-alarms and the topic are skipped entirely; Lambda log groups are still created
-and retained. See `modules/platform/pipeline_alerts.tf`.
+`enable_dashboard` is separate from `enable_alarms` on purpose: the dashboard
+costs **more than the 43 alarms it visualises**, and it used to be ungated, so a
+second environment silently doubled the account's CloudWatch bill the day it was
+created. CloudWatch bills per dashboard past a 3-dashboard free tier.
+
+`enable_worker_polling = false` keeps the mappings in the state but stops the
+long-poll: 14 idle mappings otherwise issue ~74k SQS Tier-1 requests a day
+against queues that never receive anything. The `job-archiver` mapping reads a
+DynamoDB stream, not SQS, so it stays enabled and costs nothing.
+
+The 43 alarms come from 7 alarm blocks, most fanned out per worker or per DLQ via
+`for_each` — which is why the count is not the number of `resource` blocks. It is
+the figure measured with `terraform state list`, not the estimate of 42 in the
+benchmark. See `modules/platform/pipeline_alerts.tf`.
+
+### Mothballing an environment (staging today)
+
+**staging is mothballed as of 2026-08-12**: all three switches are `false`. Every
+table, bucket, queue, Lambda and the runtime secret stay in place — the
+environment is a validated prod rehearsal and rebuilding it costs far more than
+the ~$7.60/month it was burning while empty. Only the metered extras are off.
+
+Waking it up is Phase 9 step 1 of `docs/V1_LAUNCH_PLAN.md`: flip the three
+booleans back to `true`, plan, gate, apply. Nothing else is needed.
+
+Note that turning a switch off produces a plan full of `delete` actions, so
+`tf_plan_guard.sh` will (correctly) refuse it until you re-run with
+`--allow-replace`. Read the list first: it must contain **only** alarms, the
+dashboard and the SNS topic. Layer 2 independently asserts that no table,
+bucket, secret or ECR repository is deleted, and that assertion must stay `OK`.
 
 ## Copying data between environments
 

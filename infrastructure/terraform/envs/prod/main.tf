@@ -62,8 +62,14 @@ module "platform" {
   environment        = "prod" # literal #2
   ecr_repository_url = data.terraform_remote_state.shared.outputs.lambda_ecr_repository_url
 
-  enable_alarms = true
-  alert_email   = var.alert_email
+  # prod is the one environment where the metered extras are never a waste:
+  # alarms, dashboard and live queues are all on. Do NOT mothball prod the way
+  # envs/staging is mothballed — an unwatched production is the failure these
+  # cost ~$7/mo to prevent.
+  enable_alarms         = true
+  enable_dashboard      = true
+  enable_worker_polling = true
+  alert_email           = var.alert_email
 
   # No secret_payload on purpose (task-221 §7.3): Terraform creates the empty
   # secret shell and the owner populates it once out-of-band with

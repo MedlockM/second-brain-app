@@ -27,9 +27,21 @@ variable "project_name" {
 }
 
 variable "enable_alarms" {
-  description = "Provision CloudWatch alarms + SNS topics. Off in dev to save ~$4.20/mo (42 alarms × $0.10). Enable for staging/prod."
+  description = "Provision CloudWatch alarms + SNS topics. Measured cost when on: ~$3.30/mo (43 alarms × $0.10 - free tier). Enable for an environment that is actually being watched."
   type        = bool
   default     = false
+}
+
+variable "enable_dashboard" {
+  description = "Provision the CloudWatch dashboard. Billed per dashboard beyond the 3-dashboard free tier: measured at ~$3.00/mo, which is the single largest line item of an idle environment. Independent of enable_alarms on purpose — an environment can be worth a dashboard without being worth 43 alarms, and vice versa."
+  type        = bool
+  default     = true
+}
+
+variable "enable_worker_polling" {
+  description = "Whether the SQS event source mappings are enabled. When false the mappings still exist but the workers stop long-polling their queues. An idle environment's 14 mappings bill ~$0.90/mo in Tier-1 SQS requests polling queues that are always empty. Set false to mothball an environment without destroying anything."
+  type        = bool
+  default     = true
 }
 
 variable "ecr_repository_url" {

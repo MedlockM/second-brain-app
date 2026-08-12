@@ -137,4 +137,89 @@ Le secret `media-summarizer-runtime-staging` contient **0 clé** contre 37 pour 
 - Les **22 tables historiques non suffixées** coexistent avec les `-dev`. Filet de sécurité utile, mais données dupliquées : ne rien y toucher avant d'avoir confirmé que les Lambdas lisent bien les `-dev`.
 - L'ancien state `s3://…/infrastructure/terraform.tfstate` (serial 20, 104 ressources) existe toujours à côté des trois nouveaux (`env/dev`, `env/staging`, `env/shared`). Plus référencé par aucun code depuis le merge.
 - ~~Le secret `E2E_TEST_USER_PASSWORD` **n'a pas été rotaté** après la fuite du 2026-08-11 16:52 (dernière mise à jour : 2026-08-10).~~ **Fait le 2026-08-12** : nouveau secret (48 caractères aléatoires), `password_hash` remplacé dans `users-dev` et `users`, et les 93 refresh tokens du compte révoqués — la rotation seule ne les invalidait pas, `/auth/refresh` ne contrôle que `is_active`/`used_at`.
+
+## 2026-08-12 — staging mis en veille (décision owner) : le critère #7 devient sans objet pour l'instant
+
+L'owner a posé deux contraintes : **staging ne doit rien coûter** tant qu'il ne
+sert pas, et **staging ne doit pas être détruit**. Les deux sont satisfaites par
+une mise en veille des seuls postes facturés.
+
+### Le coût réel de staging, mesuré (et non estimé)
+
+Ma propre estimation initiale — « ~4,30 $/mois d'alarmes, négligeable » — était
+**fausse**. Cost Explorer montre que le total du compte est passé de
+**0,233 $/jour** (5→10 août) à **0,295 $/jour** le 11, jour de création de
+staging : **+27 %** pour un environnement à 0 ligne et 0 objet, sur un compte qui
+facturait 8,11 $ en juillet.
+
+| Poste | Coût/mois | Détail mesuré |
+|---|---|---|
+| 43 alarmes CloudWatch | ~3,30 $ | `enable_alarms = true` |
+| 1 dashboard CloudWatch | ~3,00 $ | `DashboardsUsageHour`, facturé au-delà de 3 dashboards |
+| 14 mappings SQS | ~0,90 $ | 298k → 372k requêtes Tier-1/jour sur des queues vides |
+| 2ᵉ secret | ~0,40 $ | conservé (nécessaire au réveil) |
+
+**Le dashboard coûtait plus cher que les 43 alarmes qu'il visualise, et il
+n'était pas gaté** : n'importe quel nouvel environnement doublait donc la
+facture CloudWatch du compte à sa création. C'est le défaut le plus utile trouvé
+ici.
+
+### Ce qui a été fait
+
+Deux nouvelles variables dans `modules/platform/variables.tf`, indépendantes de
+`enable_alarms` :
+
+- `enable_dashboard` (défaut `true`) → `count` sur `aws_cloudwatch_dashboard`
+- `enable_worker_polling` (défaut `true`) → pilote `enabled` sur les
+  `aws_lambda_event_source_mapping.worker`. Les mappings **restent dans le
+  state**, ils cessent seulement de poller.
+
+`envs/staging/main.tf` : les trois à `false`. `envs/dev` garde dashboard +
+polling (c'est l'environnement de travail). `envs/prod` les a explicitement à
+`true` avec un commentaire interdisant de le mettre en veille.
+
+### Vérifications
+
+- **Plan analysé ressource par ressource avant apply** : `0 to add, 13 to change,
+  45 to destroy`, et les 45 suppressions sont **exclusivement** 43 alarmes + 1
+  dashboard + 1 topic SNS. Les 24 tables, 11 buckets, 26 queues, 15 Lambdas et le
+  secret sont tous en `no-op`.
+- **Guard passé** : couche 2 `OK: 0 delete actions on tables, buckets, secrets or
+  the ECR repository`, couche 3 OK, couche 4 `OK: no collision with dev (130 live
+  names checked)` → `PASS`. Le guard refuse d'abord le plan sans
+  `--allow-replace`, ce qui est le comportement voulu : il force à lire la liste
+  des suppressions.
+- **Post-apply côté AWS** : 0 alarme `-staging`, plus de topic SNS, dashboard dev
+  seul survivant, 13 mappings `Disabled` côté staging et **14 `Enabled` côté
+  dev**. Persistant intact : 24 tables, 11 buckets, 26 queues, 15 Lambdas, secret.
+- Le mapping `job-archiver-staging` reste `Enabled` : il lit un **stream
+  DynamoDB**, pas SQS, donc il ne génère pas de requêtes facturées.
+- `plan -detailed-exitcode` = **0** sur staging **et** sur dev. Dev avait d'abord
+  renvoyé `2` sur un simple `has moved` d'adresse dû au nouveau `count` (`0 to
+  add, 0 to change, 0 to destroy`) — normalisé par un apply.
+- Les deux API répondent toujours `200 {"status":"healthy","database":"connected"}`.
+
+### Conséquence sur le critère #7 et sur la Phase 10
+
+Le critère #7 (secret runtime staging + `enable_alarms`) est **volontairement
+suspendu** : peupler 37 credentials tiers distincts pour un environnement en
+veille n'a pas de sens, et le benchmark §7.3 interdit de recopier ceux de dev
+(même index Algolia, même facturation). Le réveil = remettre les trois booléens
+à `true`, ce qui est exactement l'étape 1 de la Phase 9.
+
+**Création de prod : écartée pour l'instant, et c'est conforme au plan.** Prod est
+en Phase 10 (jour 10+) alors que la Phase 9 impose de « mesurer le coût avant
+passage prod ». Trois bloquants factuels de toute façon : aucun domaine ne
+résout (`api.secondbrainlabs.com` et `api.mediasummarizer.com`), RevenueCat
+**live** exige les produits App Store validés (Phase 6, non faite), et prod
+coûterait ~7 $/mois que l'owner ne veut pas payer.
+
+**Sur l'isolation par compte AWS** (question owner, équivalent des resource groups
+Azure) : il n'existe pas d'équivalent réel — les « Resource Groups » AWS sont des
+vues par tags, sans frontière de permission ni de facturation. La seule isolation
+dure est un compte séparé via Organizations (ce compte n'appartient à aucune org).
+À noter pour lever une inquiétude : cela **n'impose pas de changer
+d'identifiants** — un profil `~/.aws/config` avec `role_arn` + `source_profile`
+suffit (`aws --profile prod`). Le vrai coût est le setup : bucket de state, rôle
+OIDC, ECR cross-account.
 <!-- SECTION:NOTES:END -->

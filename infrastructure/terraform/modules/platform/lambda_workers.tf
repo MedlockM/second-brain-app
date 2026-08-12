@@ -150,7 +150,12 @@ resource "aws_lambda_event_source_mapping" "worker" {
   event_source_arn = each.value.queue_arn
   function_name    = aws_lambda_function.worker[each.key].arn
   batch_size       = 1
-  enabled          = true
+
+  # Disabling the mapping stops the long-poll without deleting it: an idle
+  # environment's 14 mappings issue ~74k SQS Tier-1 requests a day against
+  # queues that never receive anything (~$0.90/mo). Re-enabling is a one-line
+  # apply, so a mothballed environment stays one command from usable.
+  enabled = var.enable_worker_polling
 
   # Scale up slowly to avoid throttling
   scaling_config {
