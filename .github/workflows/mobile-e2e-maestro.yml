@@ -241,6 +241,19 @@ jobs:
           check_name: "Maestro Android E2E (API ${{ matrix.api-level }})"
           comment_mode: "off"
 
+      - name: Delete E2E test account
+        if: always()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: eu-west-3
+        run: |
+          pip3 install boto3
+          email="e2e-register-${{ github.run_id }}-${{ github.run_attempt }}-android@test.local"
+          echo "Deleting E2E account: $email"
+          python3 scripts/delete_e2e_account.py "$email"
+
   # -------------------------------------------------------------------
   # iOS E2E Tests (macOS runner required for iOS Simulator)
   # -------------------------------------------------------------------
@@ -413,6 +426,19 @@ jobs:
           name: maestro-ios-results
           path: maestro-ios-reports/
           retention-days: 1
+
+      - name: Delete E2E test account
+        if: always()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: eu-west-3
+        run: |
+          pip3 install boto3
+          email="e2e-register-${{ github.run_id }}-${{ github.run_attempt }}-ios@test.local"
+          echo "Deleting E2E account: $email"
+          python3 scripts/delete_e2e_account.py "$email"
 
   # -------------------------------------------------------------------
   # Summary

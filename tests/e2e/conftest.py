@@ -25,9 +25,23 @@ import os
 os.environ["AWS_REGION"] = os.getenv("E2E_AWS_REGION", "eu-west-3")
 os.environ["AWS_DEFAULT_REGION"] = os.environ["AWS_REGION"]
 
+# Export required table env vars BEFORE any media_summarizer import.
+# Reason: database_async.py calls required_env() at module load (task-237),
+# which raises RuntimeError if these are unset. E2E runs against dev, so
+# hardcode the -dev suffixed names here.
+os.environ.setdefault("USERS_TABLE", "users-dev")
+os.environ.setdefault("PROCESSING_JOBS_TABLE", "processing_jobs-dev")
+os.environ.setdefault("AUTH_TOKENS_TABLE", "auth_tokens-dev")
+os.environ.setdefault("USER_FOLDERS_TABLE", "user_folders-dev")
+os.environ.setdefault("USER_TAGS_TABLE", "user_tags-dev")
+os.environ.setdefault("USER_RSS_FEEDS_TABLE", "user_rss_feeds-dev")
+
 import asyncio
+import subprocess
+import sys
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 import httpx
@@ -163,178 +177,37 @@ async def poll_until(
 async def _teardown_user(client: httpx.AsyncClient, user: Dict[str, str]) -> None:
     """Best-effort cleanup of everything a test user persisted in AWS dev.
 
-    Each step is wrapped in try/except so a partial failure doesn't block the
-    rest. Errors are printed but not raised — teardown must not turn a passing
-    test into a failure.
+    Calls scripts/delete_e2e_account.py which sweeps both -dev and unsuffixed
+    tables, deleting the account and all its child rows (auth tokens, processing
+    jobs, artifacts, tags, folders, submissions, usage counters). The deletion is
+    comprehensive and reuses the same logic as purge_e2e_accounts.py (task-246).
+
+    Errors are printed but not raised — teardown must not turn a passing test
+    into a failure.
     """
     user_id = user["id"]
-    print(f"\n[e2e] teardown user {user_id}")
+    email = user["email"]
+    print(f"\n[e2e] teardown user {user_id} ({email})")
+
+    # Call the deletion script which handles both -dev and unsuffixed tables.
+    repo_root = Path(__file__).resolve().parents[2]
+    script = repo_root / "scripts" / "delete_e2e_account.py"
 
     try:
-        from media_summarizer.utils import database_async
-    except Exception as exc:
-        print(f"[e2e] teardown: cannot import database_async ({exc!r}); skipping")
-        return
-
-    await _teardown_user_inner(client, user, database_async)
-
-
-async def _teardown_user_inner(
-    client: httpx.AsyncClient,
-    user: Dict[str, str],
-    database_async,  # type: ignore[no-redef]
-) -> None:
-    user_id = user["id"]
-
-    # 1. List orphaned data before deleting.
-    jobs = await _safe_call(
-        "list processing jobs",
-        lambda: database_async.get_processing_jobs_by_user_id(user_id),
-        default=[],
-    )
-    tags = await _safe_call(
-        "list tags",
-        lambda: database_async.get_tags_by_user_id(user_id),
-        default=[],
-    )
-    folders = await _safe_call(
-        "list folders",
-        lambda: database_async.get_folders_by_user_id(user_id),
-        default=[],
-    )
-
-    # 2. Delete all artifacts for each processing job (via media_artifacts GSI).
-    for job in jobs or []:
-        job_id = getattr(job, "id", None) or getattr(job, "job_id", None)
-        if not job_id:
-            continue
-        await _safe_call(
-            f"delete artifacts for media {job_id}",
-            lambda jid=job_id: _delete_artifacts_for_media(jid),
+        result = subprocess.run(
+            [sys.executable, str(script), email],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
-
-    # 3. Delete processing jobs.
-    for job in jobs or []:
-        job_id = getattr(job, "id", None) or getattr(job, "job_id", None)
-        if not job_id:
-            continue
-        await _safe_call(
-            f"delete processing job {job_id}",
-            lambda jid=job_id: database_async.delete_processing_job(jid),
-        )
-
-    # 4. Delete tags + folders (no high-level helpers — direct boto3).
-    for tag in tags or []:
-        tag_id = getattr(tag, "id", None) or getattr(tag, "tag_id", None)
-        if tag_id:
-            await _safe_call(
-                f"delete tag {tag_id}",
-                lambda tid=tag_id: _delete_item(database_async.USER_TAGS_TABLE, "id", tid),
+        if result.stdout:
+            print(result.stdout.strip())
+        if result.stderr:
+            print(result.stderr.strip(), file=sys.stderr)
+        if result.returncode != 0:
+            print(
+                f"[e2e] teardown script exited {result.returncode}; "
+                "account may not have been deleted"
             )
-    for folder in folders or []:
-        folder_id = getattr(folder, "id", None) or getattr(folder, "folder_id", None)
-        if folder_id:
-            await _safe_call(
-                f"delete folder {folder_id}",
-                lambda fid=folder_id: _delete_item(database_async.USER_FOLDERS_TABLE, "id", fid),
-            )
-
-    # 5. Delete the user — try the authenticated API first (exercises the real
-    # flow), fallback to direct DB delete. The DELETE route is authenticated
-    # and only accepts the caller's own id (task-222), so log in again here: the
-    # session-scoped `auth_token` fixture may have expired over a long run.
-    api_ok = False
-    delete_headers = await _login_headers(client, user)
-    if delete_headers:
-        try:
-            resp = await client.delete(
-                f"/api/v1/users/{user_id}", headers=delete_headers
-            )
-            api_ok = resp.status_code in (200, 204, 404)
-            print(f"[e2e]   api DELETE /users/{user_id} -> {resp.status_code}")
-        except Exception as exc:
-            print(f"[e2e]   api DELETE failed: {exc!r}")
-    if not api_ok:
-        await _safe_call(
-            f"delete user {user_id} (db fallback)",
-            lambda: database_async.delete_user(user_id),
-        )
-
-    # 6. Delete auth tokens last: every login above created refresh-token rows,
-    # including the one this teardown just used.
-    auth_tokens = await _safe_call(
-        "list auth tokens",
-        lambda: database_async.get_auth_tokens_by_user_id(user_id),
-        default=[],
-    )
-    for token in auth_tokens or []:
-        token_id = getattr(token, "id", None) or getattr(token, "token_id", None)
-        if not token_id:
-            continue
-        await _safe_call(
-            f"delete auth token {token_id}",
-            lambda tid=token_id: database_async.delete_auth_token(tid),
-        )
-
-    print(f"[e2e] teardown done for {user_id}")
-
-
-async def _login_headers(
-    client: httpx.AsyncClient, user: Dict[str, str]
-) -> Optional[Dict[str, str]]:
-    """Log the test user in and return Bearer headers, or None on failure."""
-    try:
-        resp = await client.post(
-            "/api/v1/auth/login",
-            json={"email": user["email"], "password": user["password"]},
-        )
-        resp.raise_for_status()
-        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
     except Exception as exc:
-        print(f"[e2e]   teardown login failed: {exc!r}")
-        return None
-
-
-async def _safe_call(
-    label: str,
-    fn: Callable[[], Awaitable[Any]],
-    default: Optional[Any] = None,
-) -> Any:
-    try:
-        result = await fn()
-        return result
-    except Exception as exc:
-        print(f"[e2e]   {label} failed: {exc!r}")
-        return default
-
-
-async def _delete_artifacts_for_media(media_item_id: str) -> None:
-    """Query media_artifacts GSI media-item-index and delete every row."""
-    import aioboto3
-
-    from media_summarizer.utils.media_artifacts import MEDIA_ARTIFACTS_TABLE
-
-    region = os.getenv("AWS_DEFAULT_REGION", "eu-west-3")
-    session = aioboto3.Session(region_name=region)
-    async with session.resource("dynamodb") as dynamodb:
-        table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
-        resp = await table.query(
-            IndexName="media-item-index",
-            KeyConditionExpression="media_item_id = :mid",
-            ExpressionAttributeValues={":mid": media_item_id},
-        )
-        for item in resp.get("Items", []):
-            artifact_id = item.get("artifact_id")
-            if artifact_id:
-                await table.delete_item(Key={"artifact_id": artifact_id})
-
-
-async def _delete_item(table_name: str, key_name: str, key_value: str) -> None:
-    """Delete a single item by primary key from any DynamoDB table."""
-    import aioboto3
-
-    region = os.getenv("AWS_DEFAULT_REGION", "eu-west-3")
-    session = aioboto3.Session(region_name=region)
-    async with session.resource("dynamodb") as dynamodb:
-        table = await dynamodb.Table(table_name)
-        await table.delete_item(Key={key_name: key_value})
+        print(f"[e2e] teardown failed: {exc!r}")
