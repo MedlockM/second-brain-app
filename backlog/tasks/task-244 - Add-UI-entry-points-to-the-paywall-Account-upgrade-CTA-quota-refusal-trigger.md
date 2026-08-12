@@ -3,10 +3,10 @@ id: task-244
 title: >-
   Add UI entry points to the paywall (Account upgrade CTA + quota-refusal
   trigger)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-11 16:24'
-updated_date: '2026-08-11 16:51'
+updated_date: '2026-08-12 15:07'
 labels:
   - mobile
   - billing
@@ -56,11 +56,11 @@ Conséquence : le paywall est inatteignable pour un utilisateur réel, donc **au
 - [x] #2 A submission refused by the backend with X-Quota-Error-Code: tier_quota_exceeded surfaces a message naming the limit reached plus an action that opens the paywall
 - [x] #3 A submission refused with audio_too_long surfaces the per-import limit and does NOT open the paywall
 - [x] #4 The paywall route is declared in app/_layout.tsx alongside the other Stack.Screen entries
-- [ ] #5 07_paywall.yaml reaches the paywall through the Account CTA instead of the media-summarizer://paywall deep link, and still passes on iOS and Android
+- [x] #5 07_paywall.yaml reaches the paywall through the Account CTA instead of the media-summarizer://paywall deep link, and still passes on iOS and Android
 - [x] #6 Closing the paywall returns to the screen that opened it
 
-- [ ] #7 utils/sign_out.yaml still reaches account-sign-out-button with the new Upgrade menu item present — if the item pushes it out of view, the flow scrolls to it or the Account screen becomes scrollable
-- [ ] #8 01_login, 06_search and 07_paywall all pass on iOS and Android in the same run as the UI change, not in a follow-up
+- [x] #7 utils/sign_out.yaml still reaches account-sign-out-button with the new Upgrade menu item present — if the item pushes it out of view, the flow scrolls to it or the Account screen becomes scrollable
+- [x] #8 01_login, 06_search and 07_paywall all pass on iOS and Android in the same run as the UI change, not in a follow-up
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -110,4 +110,26 @@ Non cochés : ils exigent un run vert, impossible depuis le sandbox de l'agent (
 - Android tourne automatiquement sur la PR (`mobile-e2e-maestro.yml`, déclencheur `pull_request` sur `mobile/**`).
 - iOS est `workflow_dispatch` uniquement : lancer « Mobile E2E Tests (Maestro) » avec `platform: both` (ou `ios`) sur la branche. Le diff touche `mobile/` hors `.maestro`, donc l'empreinte de build change et les trois flows sont rejoués sans reprise de cache.
 - Points de vigilance au premier run : la sheet modale iOS du paywall (géométrie du bouton Close, `notVisible: paywall-screen` après fermeture) et le `scrollUntilVisible` de `sign_out.yaml` sur l'écran Account devenu scrollable.
+
+## Validation CI — critères #5, #7, #8 (2026-08-12)
+
+Les trois critères qui exigeaient un run vert sont satisfaits par le **run 31609176711** (`workflow_dispatch`, `platform=both`, sha `1d337e4`) : **iOS et Android verts dans le même run**, aucun flow sauté.
+
+| Flow | Android | iOS |
+|---|---|---|
+| `01_login` | Passed 1m41 | Passed 2m15 |
+| `06_search` | Passed 44s | Passed 1m07 |
+| `07_paywall` | Passed 48s | Passed 53s |
+
+**#5** — `07_paywall` entre par le CTA de l'onglet Account (`account-tab-button` → `account-upgrade-button`) et passe sur les deux plateformes. Tout le contournement du dialogue iOS « Open in… » (tap positionnel 67%,56% + `launchApp stopApp:false`) a disparu du flow, et l'entrée par sheet modale n'a posé aucun problème de géométrie sur le bouton Close — le point de vigilance signalé à l'implémentation ne s'est pas matérialisé.
+
+**#7** — `utils/sign_out.yaml` atteint bien `account-sign-out-button` avec le nouvel item Upgrade présent. La preuve est indirecte mais complète : le sous-flow est appelé par `ensure_logged_out.yaml`, donc par les trois flows, et les six exécutions passent. L'écran Account rendu scrollable + le `scrollUntilVisible` suffisent.
+
+**#8** — les trois flows passent sur les deux plateformes dans un seul et même run, pas en suivi.
+
+### Note de méthode sur la preuve
+
+Un premier run `both` (31514654593) avait donné Android vert et iOS rouge, mais pour une cause étrangère à cette tâche : le backend dev répondait 500 sur toutes les routes pendant la fenêtre iOS. Cause identifiée dans les logs CloudWatch — `AccessDeniedException` sur `secretsmanager:GetSecretValue`, parce qu'un `terraform apply` de task-237 (isolation multi-environnements) avait recréé les rôles Lambda à 17:09 sans leurs policies. Android avait tourné à 17:02-17:06, avant la panne. Une fois task-237 reconvergée (`/api/v1/health` → `healthy`), iOS est passé au vert.
+
+Le run de validation finale a été lancé après **purge délibérée des caches de marqueurs** des deux plateformes (`ios-e2e-passed-*`, `android-e2e-passed-*`), pour que les six flows soient réellement rejoués et non reportés comme `<skipped>` sur la foi d'un run antérieur. Les caches de build ont été conservés : le binaire est inchangé, seul le mécanisme de reprise a été neutralisé. Vérifié dans le run : `iOS build: skipped` (cache hit), `Android build: success` (l'empreinte APK inclut la version de Java du runner, qui a bougé).
 <!-- SECTION:NOTES:END -->
