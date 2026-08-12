@@ -1,10 +1,10 @@
 ---
 id: task-246
 title: Purge the orphaned E2E accounts and their rows from dev DynamoDB
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-12 16:39'
-updated_date: '2026-08-12 17:05'
+updated_date: '2026-08-12 17:39'
 labels:
   - cleanup
   - infra
@@ -68,7 +68,7 @@ Enjeu de sécurité, pas seulement d'hygiène : tous ces comptes partagent le mo
 - [x] #3 e2e-maestro-20260809200952@test.local is protected by an explicit exclusion list and survives the purge
 - [x] #4 No account whose email matches none of the known E2E prefixes is deleted, verified by comparing the account count before and after against the expected delta
 - [x] #5 After the purge, users-dev and users contain only the permanent E2E account plus genuine accounts, and no auth_tokens row references a deleted user_id
-- [ ] #6 A full E2E run (01_login, 06_search, 07_paywall) passes on both platforms after the purge
+- [x] #6 The permanent E2E account survived the purge and is the only E2E account left in users-dev and users (AC reworded by the owner on 2026-08-12: a Maestro run is no longer an acceptance criterion — see AGENTS.md "Never make a Maestro run an acceptance criterion")
 - [x] #7 The script is idempotent: a second run reports nothing left to delete
 <!-- AC:END -->
 
@@ -155,10 +155,29 @@ Note for task-249: the 21 unsuffixed tables are frozen duplicates slated for
 deletion. Purging them was therefore redundant with dropping them, but it was
 in scope and it is done.
 
-### Not validated
+### Closing verification, 2026-08-12 (owner reworded AC #6)
 
-AC #6: no Maestro run was executed. It needs CI or local emulators, which this
-worktree does not have. The three flows (01_login, 06_search, 07_paywall) on
-iOS and Android remain to be run as the only real proof that nothing in use was
-carried away.
+Re-verified directly against AWS, not from the agent's report:
+
+- `users-dev` and `users` each hold exactly two rows,
+  `e2e-maestro-20260809200952@test.local` and `marc.medlock@live.fr`. The
+  permanent E2E account survived on both suffixes.
+- `auth_tokens-dev` still has 12 distinct `user_id`s with no matching `users`
+  row (`auth_tokens`: 9), all `e2e-test-<epoch>-<hex>@test.local`. Cross-checked
+  against the 31 `user_id`s recorded in the dumps: **zero overlap** — these are
+  the pre-existing residue described under "Deliberately not deleted", not
+  something this purge left behind. Their cause is the `delete_user()` bug that
+  task-247 fixes.
+- The recovery dumps are no longer at `tmp/purge-e2e-dumps/`; all six files are
+  intact in the VS Code trash
+  (`~/snap/code/254/.local/share/Trash/files/tmp/purge-e2e-dumps/`). They are
+  the only undo for the non-PITR legacy `users` table, and they hold password
+  hashes and refresh tokens. Left in place, not restored.
+
+### Optional, not blocking
+
+No Maestro run was executed, and it is no longer required to close this task.
+Running 01_login, 06_search and 07_paywall on iOS and Android would still be
+the most end-to-end confirmation that nothing in use was carried away — worth
+doing opportunistically at the next CI run, not worth blocking on.
 <!-- SECTION:NOTES:END -->

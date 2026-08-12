@@ -55,6 +55,17 @@ When creating a new task in the backlog, split it in two when the work requires 
 
 When the task is a bug fix, refactor, or well-understood feature with no open technology/architecture question, create a single task — do NOT create a dummy benchmark task.
 
+### Never make a Maestro run an acceptance criterion
+
+Do NOT write acceptance criteria of the form "a full E2E run passes on both platforms" or "the Maestro flows pass". A Maestro run is owner-triggered (`workflow_dispatch`), takes 10-50 minutes, and is flaky on the iOS simulator — an agent cannot satisfy such an AC, so the task stays `In Progress` forever and blocks everything downstream. This applies to task creation AND to task execution: an implementer must not add one either.
+
+Validate the behaviour through what an agent can actually reach: the code path, the deployed endpoint, a direct AWS/API check, or a targeted script. When a change genuinely needs mobile visual confirmation, say so in the description as a note to the owner — not as an AC.
+
+Two carve-outs:
+
+- **Tasks whose deliverable *is* the Maestro suite** (write a flow, wire the CI job) legitimately reference it — the flow's existence and its wiring are readable in the YAML. Even there, prefer "the flow exists and the job invokes it" over "the run is green". The rule targets a Maestro run used as a *validation gate on unrelated work*.
+- **An AC requiring a *deployed* backend endpoint is fine**: the deploy is automatic on merge to `main`, so an agent can verify it once the workflow finishes. Check the deployed image digest against the merge commit before ticking it — `deploy-lambda.yml` is `paths`-filtered, and it never fires at all while `main` is unpushed.
+
 ## Benchmark lifecycle
 
 The owner signals their decision through the `owner_decision` field in the front-matter of the main `README.md` of the research directory. Five values are supported:

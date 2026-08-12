@@ -1,10 +1,10 @@
 ---
 id: task-240
 title: Create the durable user_media table and dual-write on every save
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-11 16:11'
-updated_date: '2026-08-12 17:19'
+updated_date: '2026-08-12 17:42'
 labels:
   - backend
   - infra
@@ -51,7 +51,7 @@ Les agents ont tous les droits pour exécuter `terraform apply` et les commandes
 - [x] #7 processing_status et last_job_id sont nullables et aucun chemin de lecture n'en dépend pour afficher la bibliothèque
 - [x] #8 L'écriture durable est placée derrière DURABLE_MEDIA_ENABLED et les lectures passent toujours par processing_jobs
 - [x] #9 Un échec d'écriture durable est loggé et remonte une alarme, il n'est pas avalé
-- [ ] #10 Vérification en AWS dev: une sauvegarde réelle produit la ligne user_media attendue, et la répéter ne crée pas de doublon
+- [x] #10 Vérification en AWS dev: une sauvegarde réelle produit la ligne user_media attendue, et la répéter ne crée pas de doublon
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -72,7 +72,7 @@ Les agents ont tous les droits pour exécuter `terraform apply` et les commandes
 
 ---
 
-2026-08-12 — **Implémenté et appliqué sur AWS dev.** 9 critères sur 10 vérifiés ; le #10 l'est partiellement (détail plus bas).
+2026-08-12 — **Implémenté et appliqué sur AWS dev.** Les 10 critères sont vérifiés ; le #10 l'a été par le owner après merge, avec une réserve sur l'endpoint déployé (détail plus bas).
 
 **Infra (`modules/platform/`, jamais de fichier `.tf` racine — l'arborescence task-237 est en place)**
 
@@ -107,7 +107,23 @@ Les agents ont tous les droits pour exécuter `terraform apply` et les commandes
 - flag à `0` → `None` retourné, rien écrit ; table inexistante → `DurableMediaWriteError` levée et l'événement `durable_media.write_failed` émis ;
 - `aws logs test-metric-filter` confirme que le pattern `{ $.event = "durable_media.write_failed" }` matche la vraie ligne JSON produite par `log_event` et **pas** `durable_media.created`.
 
-**#10 laissé décoché** : la sauvegarde a été exercée en appelant le vrai code du chemin de sauvegarde contre les vraies tables dev, mais **pas** via l'endpoint HTTP déployé — pousser une image Lambda depuis une branche non mergée vers l'API dev sort du périmètre (c'est le job de `deploy-lambda.yml` au merge). À faire après déploiement : un `POST /api/media/ingest-url`, puis `aws dynamodb query --table-name user_media-dev --key-condition-expression "user_id = :u"` doit rendre 1 ligne, et rejouer la même URL ne doit pas en créer une seconde.
+**#10 coché le 2026-08-12 par le owner, sur la vérification ci-dessous** (l'agent d'implémentation l'avait laissé décoché faute d'endpoint déployé).
+
+**Contre-vérification #10, 2026-08-12, après merge** — `create_if_absent` et `get_user_media` appelés depuis le repo mergé contre la vraie table `user_media-dev`, région `eu-west-3` :
+
+| Contrôle | Résultat |
+|---|---|
+| `build_media_item_id` déterministe (2 appels) | même id `mi_4f5b0f95…` |
+| 1er save | `created=True`, ligne présente |
+| 2e save du même `(user_id, media_key)` | `created=False`, **aucun doublon** |
+| 5 saves concurrents (`asyncio.gather`) | `created=True` **0 fois**, 0 exception |
+| Relecture (`ConsistentRead`) | title/media_key/saved_at/folder_sort_key conformes |
+| `scan --select COUNT` après les 7 tentatives | **1 seule ligne** |
+| `purge_at` / `processing_status` | absents de l'item (invariants I2/I3) |
+
+Invariants d'infrastructure relus directement sur AWS : TTL `user_media-dev` = `ENABLED` sur `purge_at` **uniquement**, PITR `ENABLED`, streams `NEW_AND_OLD_IMAGES` ; TTL `processing_jobs-dev` **et** `processing_jobs` = `DISABLED` (gel task-239 intact). `USER_MEDIA_TABLE=user_media-dev` et `DURABLE_MEDIA_ENABLED=1` bien injectés dans `media-summarizer-api-dev`. Ligne de sonde supprimée après coup, `user_media-dev` de nouveau à 0 ligne.
+
+**Réserve explicite : l'endpoint HTTP déployé n'a toujours pas servi ce code.** L'image de `media-summarizer-api-dev` est `api-latest` → commit `602742f` (2026-08-10), qui ne contient pas `media_summarizer/utils/user_media.py`. Cause : les 20 commits de `main`, dont ce merge, **ne sont pas poussés** sur `origin/main`, donc `deploy-lambda.yml` n'a jamais été déclenché. La preuve ci-dessus porte sur le code de production exécuté contre la vraie table, pas sur un `POST /api/media/ingest-url`. Ce dernier reste souhaitable après le push, sans être bloquant : le chemin exercé est exactement celui que l'endpoint appelle.
 
 **Aucun test automatisé ajouté** (contrainte de l'agent d'implémentation), alors que la task en demandait un sur la concurrence. Le critère #4 a été prouvé à la place par la sonde concurrente ci-dessus, exécutée contre AWS dev.
 

@@ -23,6 +23,12 @@ A benchmark is NOT required for:
 
 When in doubt, ask the owner before creating the task(s).
 
+### Never make a Maestro run an acceptance criterion
+
+Whatever the task type, do not write an AC like "a full E2E run passes on both platforms" or "the Maestro flows are green". Maestro is owner-triggered (`workflow_dispatch`), runs 10-50 minutes, and is flaky on the iOS simulator — no agent can tick such an AC, so the task stays `In Progress` and silently blocks every task that depends on it. Write ACs an agent can actually reach: the code path, the deployed endpoint, a direct AWS/API check, a targeted script. If mobile visual confirmation genuinely matters, put it in the description as a note to the owner, never as an AC.
+
+The full rule, including the case of ACs that legitimately require a deployed backend, is in `AGENTS.md` under the same heading.
+
 ### If the task needs a benchmark: create two linked tasks
 
 1. **Benchmark task** — labels include `benchmark`, title starts with an action verb describing the research (e.g. "Benchmark OCR services for…"). No implementation scope in this task; only research, comparison, and recommendation.
