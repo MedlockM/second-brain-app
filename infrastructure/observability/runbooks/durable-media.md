@@ -1,7 +1,7 @@
 # Durable Media Library Runbook
 
 Operational runbook for the `user_media` durable library table (task-240, Phase 1 of
-the task-218 benchmark). Alarms are defined in
+the task-218 benchmark) and its Phase 2 backfill (task-241). Alarms are defined in
 `infrastructure/terraform/modules/platform/durable_media_alerts.tf`.
 
 Replace `<env>` with `dev`, `staging` or `prod` in every command below.
@@ -12,6 +12,7 @@ Replace `<env>` with `dev`, `staging` or `prod` in every command below.
 
 - [Write Failed](#write-failed)
 - [Unexplained TTL Deletions](#unexplained-ttl)
+- [Phase 2 Backfill](#backfill)
 - [Emergency Rollback](#rollback)
 
 ---
@@ -133,6 +134,94 @@ that reintroduces the original data loss, one row at a time and silently.
    ```
    Never restore over the live table.
 3. Remove the illegitimate writer, then re-enable the TTL through Terraform.
+
+---
+
+## Backfill
+
+`scripts/backfill_user_media.py` reconstructs library rows that were lost before the
+durable table existed, from the five surviving sources in §5.3 of the benchmark. It is
+idempotent and re-runnable: run it whenever the write-failed alarm has left a gap, or
+after restoring anything.
+
+### Running it
+
+```bash
+# 1. Always dry-run first. Writes nothing, prints one line per row.
+scripts/backfill_user_media.py --suffix=-dev
+
+# 2. Read the two reports it prints the path of, in particular the quarantine one.
+# 3. Then apply.
+scripts/backfill_user_media.py --suffix=-dev --apply
+
+# 4. Re-run to prove convergence: everything must come back as NOOP.
+scripts/backfill_user_media.py --suffix=-dev --apply
+```
+
+`--suffix` only accepts `-dev` and `-staging`; prod is deliberately unreachable from
+the script. `--user-id <uuid>` restricts a run to one account, `--no-algolia` /
+`--no-s3` skip a source that is unavailable.
+
+### What it writes, and what it must never write
+
+- Writes: `user_media<env>` (conditional `PutItem` for new rows, attribute-level
+  `UpdateItem` that only fills *missing* attributes on rows that already exist) and
+  `media_idempotence<env>` (unsticking reservations, see below).
+- Reads only: `processing_jobs`, `media_artifacts`, `user_media_submissions`,
+  `user_folders`, `users`, Algolia and S3. The script contains no write call against
+  any of them, so artifact rows, search records and S3 objects keep their existing
+  `media_item_id` and every deep link stays valid.
+- Reconstructed rows keep their **legacy** `media_item_id` (a job uuid) verbatim,
+  because that is the id `media_artifacts` and the Algolia `objectID`s already use.
+  Only new saves get the deterministic `mi_…` id. Both formats coexist; the id is
+  opaque and nothing may parse it.
+
+### Reading the output
+
+Per-row actions: `CREATE` (new row), `UPDATE` (existing row, missing attributes
+filled — `filled=` lists them), `NOOP` (nothing to do). Ledger actions: `KEEP`
+(reservation is legitimate, its job is alive), `PROCESSED` (job gone but the content
+and a library row survive), `RESET` (reservation released so the media can be
+re-ingested), `SKIP_RACE` (the row changed under the backfill and was left alone).
+
+Both reports land in `--report-dir` (default `tmp/backfill-user-media`, gitignored):
+a JSON file with per-row provenance, and a markdown quarantine file for owner review.
+
+### Quarantine
+
+Anything whose owner cannot be established from a job, a submission or an Algolia
+record is **quarantined, never guessed** — ownership is never inferred from an
+environment happening to have a single real user, and never from an artifact or an S3
+object, which carry no `user_id`. Quarantined entries are reported and left alone.
+Deciding them is a human job: identify the account, then re-run with `--user-id`.
+
+### Ledger repair
+
+Reservations frozen at `reserved` whose job has been deleted are what makes
+re-submitting a URL return a `media_item_id` that 404s. The backfill advances such a
+row to `processed` only when the content survives **and** a library row now carries
+that id; otherwise it releases the reservation (a conditional delete, exactly like
+`media_idempotence.release_reservation`) so the media can be re-ingested. Both writes
+are conditioned on `status = reserved AND job_id = <the value that was read>`, so a
+submission that re-reserved the key in the meantime is never disturbed. When
+`--apply` is used, the pre-image of the ledger is dumped to the report dir *before*
+any deletion.
+
+### Undoing a backfill
+
+```bash
+scripts/backfill_user_media.py --suffix=-dev --rollback           # dry run
+scripts/backfill_user_media.py --suffix=-dev --rollback --apply
+```
+
+This deletes exactly the rows the backfill created, identified by `backfilled_from`,
+which a live save never writes. Rows that already existed and were only enriched carry
+`backfill_enriched_from` instead: the rollback lists them and refuses to delete them,
+because a real user save created them. To undo an enrichment, strip the attributes
+listed under `filled` in that run's JSON report.
+
+The ledger repair is **not** rolled back: released reservations are gone (re-ingesting
+is the intended path) and repaired ones are legitimately `processed`.
 
 ---
 
