@@ -165,6 +165,17 @@ Note that turning a switch off produces a plan full of `delete` actions, so
 dashboard and the SNS topic. Layer 2 independently asserts that no table,
 bucket, secret or ECR repository is deleted, and that assertion must stay `OK`.
 
+## Feature flags injected into the runtime
+
+`durable_media_enabled` (default `true`) drives `DURABLE_MEDIA_ENABLED` in the
+Lambda environment. It gates the dual-write of the durable `user_media` library
+table (task-240). The application reads it **at call time**, so an incident can be
+stopped with `aws lambda update-function-configuration` without a redeploy; flip
+the variable in `envs/<env>/main.tf` to make that rollback survive the next apply.
+Reads still resolve through `processing_jobs` until task-220, which is why turning
+the flag off is a complete rollback: the table is additive and orphan rows are
+inert. See `infrastructure/observability/runbooks/durable-media.md`.
+
 ## Copying data between environments
 
 `scripts/dynamo_copy_env.py` scans a table set and writes it into the
@@ -201,7 +212,7 @@ This is automated by `.github/workflows/deploy-lambda.yml` on push to main.
 | `envs/<env>/outputs.tf` | Environment outputs (API endpoint, secret name, ...) |
 | `shared/ecr.tf` | The one ECR repository shared by all environments |
 | `modules/platform/locals.tf` | `local.suffix = "-${var.environment}"` |
-| `modules/platform/variables.tf` | `environment`, `aws_region`, `project_name`, `enable_alarms`, `ecr_repository_url` (`alert_email` is declared in `pipeline_dashboard.tf`) |
+| `modules/platform/variables.tf` | `environment`, `aws_region`, `project_name`, `enable_alarms`, `enable_dashboard`, `enable_worker_polling`, `durable_media_enabled`, `ecr_repository_url` (`alert_email` is declared in `pipeline_dashboard.tf`) |
 | `modules/platform/secrets.tf` | Runtime secret shell + read policy + outputs |
 | `modules/platform/runtime_env.tf` | Single source of truth for the resource names injected into the Lambdas |
 | `modules/platform/sqs.tf` | SQS queues and dead-letter queues |
