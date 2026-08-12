@@ -18,6 +18,11 @@ env:
   AWS_DEFAULT_REGION: eu-west-3
   ECR_REPOSITORY: media-summarizer-lambda
   IMAGE_TAG: ${{ github.sha }}
+  # Which environment a push to main deploys. Every AWS lookup below is scoped by
+  # this value: since task-237 the account holds dev AND staging side by side, and
+  # a name-based or prefix-based lookup would hit whichever environment happens to
+  # match — including, once it exists, production.
+  DEPLOY_ENVIRONMENT: dev
 
 permissions:
   id-token: write
@@ -101,18 +106,21 @@ jobs:
 
       - name: Deploy API by immutable digest
         run: |
+          # The function is media-summarizer-api-<env> since task-237; the
+          # unsuffixed name no longer exists in the account.
+          API_FUNCTION="media-summarizer-api-${DEPLOY_ENVIRONMENT}"
           aws lambda update-function-code \
-            --function-name media-summarizer-api \
+            --function-name "$API_FUNCTION" \
             --image-uri "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.build-api.outputs.digest }}" \
             --no-cli-pager
           aws lambda wait function-updated-v2 \
-            --function-name media-summarizer-api
+            --function-name "$API_FUNCTION"
           API_STATE=$(aws lambda get-function-configuration \
-            --function-name media-summarizer-api \
+            --function-name "$API_FUNCTION" \
             --query 'State' \
             --output text)
           API_UPDATE=$(aws lambda get-function-configuration \
-            --function-name media-summarizer-api \
+            --function-name "$API_FUNCTION" \
             --query 'LastUpdateStatus' \
             --output text)
           test "$API_STATE" = "Active"
@@ -162,10 +170,28 @@ jobs:
 
       - name: Deploy workers by immutable digest
         run: |
-          WORKERS=$(aws lambda list-functions \
-            --query "Functions[?starts_with(FunctionName, 'media-summarizer-worker-')].FunctionName" \
-            --output text)
-          test -n "$WORKERS" || { echo "No media-summarizer-worker-* functions found"; exit 1; }
+          # Discover workers by Environment tag, NOT by name prefix. The old
+          # `starts_with(FunctionName, 'media-summarizer-worker-')` wildcard now
+          # matches every environment's workers at once, so it would push this
+          # image to staging — and later to production — on a push to main.
+          WORKERS=$(aws resourcegroupstaggingapi get-resources \
+            --resource-type-filters lambda:function \
+            --tag-filters "Key=Environment,Values=${DEPLOY_ENVIRONMENT}" \
+            --query 'ResourceTagMappingList[].ResourceARN' \
+            --output text \
+            | tr '\t' '\n' \
+            | awk -F: '$NF ~ /^media-summarizer-worker-/ { print $NF }')
+          test -n "$WORKERS" || { echo "No media-summarizer-worker-* functions tagged Environment=${DEPLOY_ENVIRONMENT}"; exit 1; }
+          # Fail loudly if the tag filter ever returns another environment's
+          # function: silently deploying across environments is the failure this
+          # step exists to prevent.
+          for FUNCTION_NAME in $WORKERS; do
+            case "$FUNCTION_NAME" in
+              *-"${DEPLOY_ENVIRONMENT}") ;;
+              *) echo "Refusing to deploy: $FUNCTION_NAME is not a ${DEPLOY_ENVIRONMENT} function"; exit 1 ;;
+            esac
+          done
+          echo "Deploying to: $(echo "$WORKERS" | tr '\n' ' ')"
           for FUNCTION_NAME in $WORKERS; do
             aws lambda update-function-code \
               --function-name "$FUNCTION_NAME" \
@@ -203,23 +229,41 @@ jobs:
 
       - name: Wait for API and validate public health endpoint
         run: |
+          API_FUNCTION="media-summarizer-api-${DEPLOY_ENVIRONMENT}"
           aws lambda wait function-active-v2 \
-            --function-name media-summarizer-api
+            --function-name "$API_FUNCTION"
           API_STATE=$(aws lambda get-function-configuration \
-            --function-name media-summarizer-api \
+            --function-name "$API_FUNCTION" \
             --query 'State' \
             --output text)
           API_UPDATE=$(aws lambda get-function-configuration \
-            --function-name media-summarizer-api \
+            --function-name "$API_FUNCTION" \
             --query 'LastUpdateStatus' \
             --output text)
           test "$API_STATE" = "Active"
           test "$API_UPDATE" = "Successful"
-          API_ENDPOINT=$(aws apigatewayv2 get-apis \
-            --query "Items[?Name=='media-summarizer-api'].ApiEndpoint | [0]" \
+          # Resolve the endpoint by API id, not by name. API Gateway names are not
+          # unique across environments, so `Items[?Name=='media-summarizer-api']
+          # .ApiEndpoint | [0]` picked one non-deterministically: the gate could
+          # pass by health-checking a different environment than the one just
+          # deployed. The Environment tag is the source of truth.
+          API_ARN=$(aws resourcegroupstaggingapi get-resources \
+            --resource-type-filters apigateway \
+            --tag-filters "Key=Environment,Values=${DEPLOY_ENVIRONMENT}" \
+            --query 'ResourceTagMappingList[].ResourceARN' \
+            --output text \
+            | tr '\t' '\n' \
+            | grep -E '/apis/[^/]+$' \
+            | head -1)
+          test -n "$API_ARN" || { echo "No API Gateway tagged Environment=${DEPLOY_ENVIRONMENT}"; exit 1; }
+          API_ID="${API_ARN##*/}"
+          API_ENDPOINT=$(aws apigatewayv2 get-api \
+            --api-id "$API_ID" \
+            --query 'ApiEndpoint' \
             --output text)
           test -n "$API_ENDPOINT"
           test "$API_ENDPOINT" != "None"
+          echo "Health-checking ${DEPLOY_ENVIRONMENT} API $API_ID"
           HEALTH_BODY=$(mktemp)
           curl --fail --silent --show-error \
             --retry 5 --retry-all-errors --retry-delay 3 \
