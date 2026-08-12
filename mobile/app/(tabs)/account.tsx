@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -12,12 +12,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useUserPreferences } from "../../src/contexts/UserPreferencesContext";
 import { usePurchases } from "../../src/contexts/PurchasesContext";
 import { V1_READING_LANGUAGES } from "../../src/services/userPreferencesService";
 import { FeedbackService } from "../../src/services/feedbackService";
+import { SubscriptionStatusCard } from "../../src/components/SubscriptionStatusCard";
 import {
   Colors,
   Typography,
@@ -28,36 +29,49 @@ import {
 } from "../../src/constants/theme";
 
 /**
- * Display names of the backend subscription tiers (see the entitlements
- * endpoint OFFERINGS_CONFIG), used to name the plan the user is on.
- */
-const TIER_LABELS: Record<"S" | "M" | "L", string> = {
-  S: "Reader",
-  M: "Mix",
-  L: "Audio-Heavy",
-};
-
-/**
  * Account screen - skeleton following the design mockup.
- * Shows user info, the subscription entry point and the logout action.
- * Full implementation (stats, integrations, appearance) deferred to later tasks.
+ * Shows user info, the subscription state, the paywall entry point and the
+ * logout action. Full implementation (stats, integrations, appearance) deferred
+ * to later tasks.
  */
 export default function AccountScreen() {
   const { user, token, logout } = useAuth();
   const { readingLanguage } = useUserPreferences();
-  const { isSubscribed, entitlementStatus } = usePurchases();
+  const {
+    isSubscribed,
+    entitlementStatus,
+    isLoading: isEntitlementLoading,
+    refreshEntitlements,
+  } = usePurchases();
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const router = useRouter();
 
-  // Both states lead to the paywall: it is where a plan is picked, switched or
-  // restored. Only the wording and the icon change.
-  const subscriptionTier = entitlementStatus?.subscription_tier ?? null;
-  const subscriptionLabel = isSubscribed ? "Manage subscription" : "Upgrade";
+  // This is the screen where the remaining minutes are read, and they move on
+  // every audio import, so refresh on focus instead of trusting the value
+  // fetched at sign-in. Also picks up a purchase made from the paywall.
+  useFocusEffect(
+    useCallback(() => {
+      void refreshEntitlements();
+    }, [refreshEntitlements]),
+  );
+
+  // Every state leads to the paywall: it is where a plan is picked, switched or
+  // restored. Only the wording and the icon change. The tier itself is shown by
+  // SubscriptionStatusCard, so the subtitle does not repeat it.
+  // When the backend state is unknown (request failed, nothing from RevenueCat
+  // either) the CTA stays neutral: promising an "Upgrade" would imply we know
+  // the user is not subscribed, and we do not.
+  const isSubscriptionStateUnknown = entitlementStatus === null && !isSubscribed;
+  const subscriptionLabel = isSubscribed
+    ? "Manage subscription"
+    : isSubscriptionStateUnknown
+      ? "View plans"
+      : "Upgrade";
   const subscriptionSubtitle = isSubscribed
-    ? subscriptionTier
-      ? `${TIER_LABELS[subscriptionTier]} plan active`
-      : "Subscription active"
-    : "Unlock more imports and audio minutes";
+    ? "Change plan or restore a purchase"
+    : isSubscriptionStateUnknown
+      ? "See what each subscription includes"
+      : "Unlock more imports and audio minutes";
 
   // Get display label for current reading language
   const readingLanguageLabel =
@@ -128,6 +142,13 @@ export default function AccountScreen() {
           </View>
           <Text style={styles.email}>{user?.email ?? ""}</Text>
         </View>
+
+        {/* Subscription state (display only, enforcement stays backend-side) */}
+        <SubscriptionStatusCard
+          entitlement={entitlementStatus}
+          isLoading={isEntitlementLoading}
+          onRetry={() => void refreshEntitlements()}
+        />
 
         {/* Subscription entry point */}
         <Pressable
