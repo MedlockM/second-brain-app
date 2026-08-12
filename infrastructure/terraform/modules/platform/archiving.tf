@@ -163,6 +163,14 @@ resource "aws_lambda_event_source_mapping" "job_archiver" {
   batch_size        = 100
 
   # Filter: Only process REMOVE events (TTL deletions)
+  #
+  # Not every REMOVE is a retention expiry: the account purge (task-224) deletes a
+  # user's job rows explicitly, and archiving those would copy the data of an
+  # account being erased into the archive bucket. The purge stamps
+  # `purge_reason = "account_deletion"` on each row before deleting it, so the
+  # OLD_IMAGE carries the signal. The real archiver (task-242, placeholder above)
+  # must skip those records; the filter stays as-is because a stream filter cannot
+  # match on the absence of an attribute.
   filter_criteria {
     filter {
       pattern = jsonencode({

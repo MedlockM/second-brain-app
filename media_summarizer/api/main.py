@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
 from media_summarizer.api.endpoints import (
+    account,
     artifacts,
     auth,
     auth_social,
@@ -29,7 +30,6 @@ from media_summarizer.api.endpoints import (
     review,
     search,
     tags,
-    users,
 )
 from media_summarizer.api.error_handling import (
     general_exception_handler,
@@ -145,7 +145,7 @@ app.include_router(auth_social.router, prefix="/api/v1/auth", tags=["authenticat
 app.include_router(
     podcast_search.router, prefix="/api/v1/podcast-search", tags=["podcast-search"]
 )
-app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
+app.include_router(account.router, prefix="/api/account", tags=["account"])
 app.include_router(podcasts.router, prefix="/api/v1", tags=["podcasts"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
 app.include_router(folders.router, prefix="/api/folders", tags=["folders"])

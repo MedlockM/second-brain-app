@@ -195,11 +195,6 @@ export default function AccountScreen() {
             onPress={() => {}}
           />
           <MenuItem
-            icon="download-outline"
-            label="Export Data"
-            onPress={() => {}}
-          />
-          <MenuItem
             icon="bulb-outline"
             label="Feature Requests"
             onPress={handleFeedback}
@@ -227,6 +222,35 @@ export default function AccountScreen() {
             >
               Sign Out
             </Text>
+          </TouchableOpacity>
+          {/*
+            App Store guideline 5.1.1(v) requires deletion to be reachable from
+            inside the app, so it sits here in plain sight next to Sign Out
+            rather than behind a support request. The row only navigates: the
+            consequences and both confirmations live on the dedicated screen.
+          */}
+          <TouchableOpacity
+            testID="account-delete-account-button"
+            style={styles.menuItem}
+            onPress={() => router.push("/settings/delete-account")}
+            activeOpacity={0.7}
+            accessibilityLabel="Delete Account"
+            accessibilityRole="button"
+          >
+            <View style={[styles.menuIcon, styles.menuIconDanger]}>
+              <Ionicons name="trash-outline" size={18} color={Colors.error} />
+            </View>
+            <Text
+              style={[styles.menuLabel, styles.menuLabelDanger, { flex: 1 }]}
+            >
+              Delete Account
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={Colors.textMuted}
+              style={styles.menuChevron}
+            />
           </TouchableOpacity>
         </View>
       </ScrollView>

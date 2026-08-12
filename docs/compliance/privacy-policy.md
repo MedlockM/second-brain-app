@@ -1,8 +1,8 @@
 # Privacy Policy
 
 **Media Summarizer**
-**Last updated:** 2026-05-19
-**Effective date:** 2026-05-19
+**Last updated:** 2026-08-12
+**Effective date:** 2026-08-12
 
 ## 1. Introduction
 
@@ -126,7 +126,7 @@ We do NOT:
 - **Usage analytics** - retained for up to 12 months, then aggregated or deleted
 - **Crash reports** - retained for up to 6 months
 
-After account deletion, all your data is permanently removed within 30 days, except where retention is required by law.
+When you delete your account from within the app, your account and its content are erased from our live systems straight away: account record, media items, transcripts, summaries, notes, flashcards, stored files and search index entries. Copies held in our encrypted infrastructure backups are not individually editable and expire automatically within 35 days, after which nothing remains. We keep only what the law requires us to keep.
 
 ## 8. Your Rights
 
@@ -136,14 +136,19 @@ You have the following rights regarding your data:
 
 You can view all your submitted media, generated artifacts, and account information directly within the app.
 
+The app has no self-service export, so if you want a machine-readable copy of everything we hold about you, email us at **privacy@mediasummarizer.com** from the address on your account. We handle the request manually and answer **within one month** of receiving it, as required by the GDPR. If the request is unusually complex we may extend that period by up to two further months, and we will tell you why before the first month is up.
+
 ### 8.2 Deletion
 
 - **Individual items** - you can delete any media item and its associated artifacts at any time
-- **Account deletion** - you can request full account deletion, which removes all your data from our systems within 30 days
+- **Account deletion** - open **Account > Delete Account** in the app. The deletion is permanent, takes effect immediately, and covers everything listed in section 7. We cannot restore a deleted account, so ask for a copy of your data (section 8.1) before you delete it if you want to keep one.
+- **By email** - if you cannot reach the app (for example you lost access to your device), email **privacy@mediasummarizer.com** and we will delete the account for you within one month.
 
-### 8.3 Data Export
+Deleting your account does **not** cancel an active App Store or Google Play subscription. Only the store can do that: cancel it in your Apple or Google account settings, otherwise billing continues.
 
-You can request an export of all your data (submitted URLs, transcripts, generated artifacts) by contacting us at the address below.
+### 8.3 Data Portability
+
+You can ask us for your personal data in a structured, commonly used, machine-readable format, or ask us to send it to another controller where technically feasible. As with access requests, this is handled manually: email **privacy@mediasummarizer.com** and we will respond **within one month**.
 
 ### 8.4 Correction
 
@@ -185,6 +190,7 @@ If you have questions about this Privacy Policy or wish to exercise your data ri
 
 - Legal basis for processing: contract performance (providing the Service) and legitimate interests (analytics, security)
 - You have additional rights including data portability and the right to lodge a complaint with a supervisory authority
+- Erasure (art. 17) is self-service in the app; access (art. 15) and portability (art. 20) are handled manually by email within one month, as described in section 8
 - Data transfers outside the EEA are protected by Standard Contractual Clauses
 
 ### For Australian Residents (Privacy Act 1988)

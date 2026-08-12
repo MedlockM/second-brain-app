@@ -177,10 +177,17 @@ async def poll_until(
 async def _teardown_user(client: httpx.AsyncClient, user: Dict[str, str]) -> None:
     """Best-effort cleanup of everything a test user persisted in AWS dev.
 
-    Calls scripts/delete_e2e_account.py which sweeps both -dev and unsuffixed
-    tables, deleting the account and all its child rows (auth tokens, processing
-    jobs, artifacts, tags, folders, submissions, usage counters). The deletion is
-    comprehensive and reuses the same logic as purge_e2e_accounts.py (task-246).
+    Two steps, in order:
+
+    1. ``DELETE /api/account`` (task-224), so a real run exercises the shipped
+       deletion flow rather than only the test-side shortcut.
+    2. ``scripts/delete_e2e_account.py`` (task-247), which sweeps both -dev and
+       unsuffixed tables and removes every child row (auth tokens, processing
+       jobs, artifacts, tags, folders, submissions, usage counters), reusing the
+       same logic as purge_e2e_accounts.py (task-246).
+
+    Step 2 always runs, whatever step 1 answered: the API purge is not the
+    cleanup guarantee, the sweep is.
 
     Errors are printed but not raised — teardown must not turn a passing test
     into a failure.
@@ -189,7 +196,20 @@ async def _teardown_user(client: httpx.AsyncClient, user: Dict[str, str]) -> Non
     email = user["email"]
     print(f"\n[e2e] teardown user {user_id} ({email})")
 
-    # Call the deletion script which handles both -dev and unsuffixed tables.
+    # First exercise the real deletion flow (task-224): DELETE /api/account
+    # derives the account from the session and takes no id. This is best-effort
+    # and deliberately not load-bearing — the script sweep below is the
+    # guaranteed cleanup, and it still runs whatever the API answered.
+    delete_headers = await _login_headers(client, user)
+    if delete_headers:
+        try:
+            resp = await client.delete("/api/account", headers=delete_headers)
+            print(f"[e2e]   api DELETE /api/account ({user_id}) -> {resp.status_code}")
+        except Exception as exc:
+            print(f"[e2e]   api DELETE failed: {exc!r}")
+
+    # Guaranteed sweep (task-247): handles both -dev and unsuffixed tables and
+    # removes the child rows the API purge may not have reached.
     repo_root = Path(__file__).resolve().parents[2]
     script = repo_root / "scripts" / "delete_e2e_account.py"
 
@@ -211,3 +231,25 @@ async def _teardown_user(client: httpx.AsyncClient, user: Dict[str, str]) -> Non
             )
     except Exception as exc:
         print(f"[e2e] teardown failed: {exc!r}")
+
+    print(f"[e2e] teardown done for {user_id}")
+
+
+async def _login_headers(
+    client: httpx.AsyncClient, user: Dict[str, str]
+) -> Optional[Dict[str, str]]:
+    """Log the test user in and return Bearer headers, or None on failure.
+
+    The session-scoped `auth_token` fixture may have expired over a long run, so
+    the teardown logs in again rather than reusing it.
+    """
+    try:
+        resp = await client.post(
+            "/api/v1/auth/login",
+            json={"email": user["email"], "password": user["password"]},
+        )
+        resp.raise_for_status()
+        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+    except Exception as exc:
+        print(f"[e2e]   login for teardown failed: {exc!r}")
+        return None

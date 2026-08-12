@@ -62,6 +62,25 @@ async def reserve_generation(lock: ArtifactGenerationLock) -> bool:
         raise
 
 
+async def delete_generation_lock(generation_fingerprint: str) -> None:
+    """Delete a generation lock. Idempotent.
+
+    Only legitimate when no artifact still points at the generated object: the
+    lock is content-addressed and therefore shared between users who imported
+    identical content, so the account purge must check for surviving siblings
+    before calling this.
+    """
+    session = database_async.get_session()
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(ARTIFACT_IDEMPOTENCE_TABLE)
+        await table.delete_item(
+            Key={"generation_fingerprint": generation_fingerprint}
+        )
+
+
 async def save_generation_lock(lock: ArtifactGenerationLock) -> ArtifactGenerationLock:
     session = database_async.get_session()
     async with session.resource(
