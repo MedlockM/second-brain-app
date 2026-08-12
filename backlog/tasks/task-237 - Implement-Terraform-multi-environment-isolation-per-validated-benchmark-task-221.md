@@ -3,10 +3,10 @@ id: task-237
 title: >-
   Implement Terraform multi-environment isolation per validated benchmark
   (task-221)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-09 16:57'
-updated_date: '2026-08-11 16:32'
+updated_date: '2026-08-12 00:15'
 labels:
   - infra
   - terraform
@@ -110,4 +110,31 @@ L'agent s'est arrêté sur la phrase « Now criterion #7: the staging runtime se
 ### Divergence à traiter en priorité à la reprise
 
 **AWS a été modifié mais `main` ne contient aucun de ces changements** — la restructuration Terraform, les scripts et la suppression des fallbacks vivent uniquement sur `recover/task-237-v3`. Le dispatcher n'a délibérément **pas** mergé : l'agent a échoué avant la fin, les 77 fichiers ne sont ni relus ni testés, et aucun critère n'a été validé par lui. Cette dérive entre l'infra réelle et le dépôt est le risque principal du moment : la prochaine tentative doit la résorber en premier, soit en finissant et en mergeant `recover/task-237-v3`, soit en décidant explicitement de revenir en arrière côté AWS.
+
+## Divergence résorbée — `recover/task-237-v3` mergé le 2026-08-12 (`9bfbb7b`)
+
+La branche a été **relue et vérifiée avant merge**, pas acceptée sur parole. Ce qui a été contrôlé :
+
+- **`main` décrit désormais l'infra réelle** : `terraform plan -detailed-exitcode` depuis `envs/dev` **et** `envs/staging` renvoie `0` / `No changes`. La dérive dépôt↔AWS est fermée.
+- **Les 47 noms `required_env()` sont injectés sur les 30 Lambdas** (15 × dev + 15 × staging), aucune manquante. `job-archiver` est le seul à n'en avoir aucune : il ne lit que `ARCHIVE_BUCKET`, présent.
+- **Les 91 appels `required_env()` au niveau module se résolvent réellement** : les deux API renvoient `200 {"status":"healthy","database":"connected"}` sur `/api/v1/health/`. C'était le risque majeur du commit WIP `3ae9e48` — un import suffisait à faire crasher une Lambda si une variable manquait.
+- **Aucun croisement d'environnement** : 24 tables par env, toutes suffixées correctement, aucune ne pointe vers l'autre env.
+- **Pas de régression E2E** : `pytest -m e2e` donne **11 failed / 2 passed / 6 errors** à l'identique sur `main` et sur la branche, avec le même `404` sur la même URL. Ces échecs **préexistent** au chantier task-237.
+- **Le fix de rédaction des identifiants (`1d337e4`) survit au merge** : `merge-tree` confirme `redact_hierarchy` présent dans l'arbre résultant. Le fichier n'apparaissait « supprimé » que parce que la branche est basée sur `3a907b5`, antérieur à sa création.
+- **Le gel task-239 a tenu** : TTL `DISABLED` + PITR `ENABLED` sur les 5 tables `-dev` critiques.
+
+### Reste à faire — critère #7 toujours ouvert
+
+Le secret `media-summarizer-runtime-staging` contient **0 clé** contre 37 pour dev. Staging reste vert au health check et fonctionnellement creux. C'est le point de reprise.
+
+### Deux défauts constatés, hors périmètre du merge
+
+1. **Le teardown E2E ne nettoie plus en local.** `tests/e2e/conftest.py:173-177` avale l'échec d'import de `database_async` et sort. Ce garde est **identique sur `main`** (donc pas une régression de code), mais son effet a changé : maintenant que `required_env()` lève sans env, l'import échoue toujours en local et le teardown est systématiquement sauté. Conséquence mesurée : **7 utilisateurs `e2e-test-*` orphelins dans `users-dev`**, 3 dans `users`. À traiter, sinon la table se remplit à chaque run local.
+2. **La rédaction des dumps ne couvre que les nœuds dont le `resource-id` matche** `password|email|token|secret|otp|code`. Un identifiant affiché dans un nœud sans `resource-id` parlant passerait encore.
+
+### Non traité, à décider par le propriétaire
+
+- Les **22 tables historiques non suffixées** coexistent avec les `-dev`. Filet de sécurité utile, mais données dupliquées : ne rien y toucher avant d'avoir confirmé que les Lambdas lisent bien les `-dev`.
+- L'ancien state `s3://…/infrastructure/terraform.tfstate` (serial 20, 104 ressources) existe toujours à côté des trois nouveaux (`env/dev`, `env/staging`, `env/shared`). Plus référencé par aucun code depuis le merge.
+- Le secret `E2E_TEST_USER_PASSWORD` **n'a pas été rotaté** après la fuite du 2026-08-11 16:52 (dernière mise à jour : 2026-08-10).
 <!-- SECTION:NOTES:END -->
