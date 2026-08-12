@@ -3,10 +3,10 @@ id: task-224
 title: >-
   Implement in-app account deletion with full data purge and remove the
   non-functional Export Data control
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-05 17:54'
-updated_date: '2026-08-11 16:12'
+updated_date: '2026-08-12 19:34'
 labels:
   - feature
   - compliance
