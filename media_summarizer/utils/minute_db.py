@@ -15,7 +15,6 @@ Note: Table creation and index management are handled outside this module (infra
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, List, Optional
 
 from boto3.dynamodb.conditions import Key
@@ -23,11 +22,12 @@ from botocore.exceptions import ClientError
 
 from media_summarizer.core.models.billing import Follow, Subscription
 from media_summarizer.utils import database_async
+from media_summarizer.utils.env import required_env
 
 # Table names (overridable via env)
-SUBSCRIPTIONS_TABLE = os.environ.get("SUBSCRIPTIONS_TABLE", "subscriptions")
-FOLLOWS_TABLE = os.environ.get("FOLLOWS_TABLE", "follows")
-FEED_FORECASTS_TABLE = os.environ.get("FEED_FORECASTS_TABLE", "feed_forecasts")
+SUBSCRIPTIONS_TABLE = required_env("SUBSCRIPTIONS_TABLE")
+FOLLOWS_TABLE = required_env("FOLLOWS_TABLE")
+FEED_FORECASTS_TABLE = required_env("FEED_FORECASTS_TABLE")
 
 
 # ---------- Subscriptions ----------

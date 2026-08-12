@@ -2,7 +2,7 @@
 
 # Subscriptions table
 resource "aws_dynamodb_table" "subscriptions" {
-  name         = "subscriptions"
+  name         = "subscriptions${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -23,15 +23,23 @@ resource "aws_dynamodb_table" "subscriptions" {
   }
 
   tags = {
-    Name        = "subscriptions"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "subscriptions${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 # Follows (forecast/reservations)
 resource "aws_dynamodb_table" "follows" {
-  name         = "follows"
+  name         = "follows${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
   range_key    = "feed_id"
@@ -46,15 +54,23 @@ resource "aws_dynamodb_table" "follows" {
   }
 
   tags = {
-    Name        = "follows"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "follows${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 # Feed forecasts (shared cache): PK (feed_id, month_key)
 resource "aws_dynamodb_table" "feed_forecasts" {
-  name         = "feed_forecasts"
+  name         = "feed_forecasts${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "feed_id"
   range_key    = "month_key"
@@ -74,9 +90,17 @@ resource "aws_dynamodb_table" "feed_forecasts" {
   }
 
   tags = {
-    Name        = "feed_forecasts"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "feed_forecasts${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 

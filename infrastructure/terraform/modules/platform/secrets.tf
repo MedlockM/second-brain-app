@@ -1,0 +1,76 @@
+# Consolidated Secrets Manager entry for all runtime secrets the application
+# reads via os.getenv(). One JSON secret per environment (dev, staging, prod).
+# The Lambda cold-start hook (media_summarizer/workers/lambda_handlers.py and
+# media_summarizer/api/lambda_handler.py) reads RUNTIME_SECRET_NAME and calls
+# os.environ.setdefault() for each key, so Terraform-injected variables always
+# win over secret keys of the same name.
+#
+# Terraform creates the secret SHELL ONLY and never writes its value
+# (task-221 §7.3): `secret_string` is stored in PLAINTEXT inside the Terraform
+# state, and with three environments that would mean three plaintext copies of
+# every third-party credential in the state bucket.
+#
+# Populate or rotate a secret out-of-band, then redeploy the consumers so the
+# cold start picks up the new values:
+#
+#   aws secretsmanager put-secret-value \
+#     --secret-id media-summarizer-runtime-<env> \
+#     --secret-string file://runtime-secrets.json   # then delete the local file
+#
+# Each environment MUST get its own third-party credentials: RevenueCat sandbox
+# vs live, a distinct JWT_SECRET_KEY, separate Apify / Deepgram / OpenAI keys
+# (at minimum for cost attribution) and a distinct ALGOLIA_INDEX_NAME.
+
+resource "aws_secretsmanager_secret" "runtime" {
+  name        = "${var.project_name}-runtime${local.suffix}"
+  description = "Consolidated runtime secrets for ${var.project_name} ${var.environment}. Value is managed out-of-band, never by Terraform."
+
+  tags = {
+    Name = "${var.project_name}-runtime${local.suffix}"
+  }
+}
+
+# Empty initial version so the secret exists and is readable before the first
+# out-of-band `put-secret-value`. ignore_changes means Terraform never proposes
+# to overwrite whatever the owner has populated.
+resource "aws_secretsmanager_secret_version" "runtime" {
+  secret_id     = aws_secretsmanager_secret.runtime.id
+  secret_string = jsonencode({})
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+}
+
+# IAM policy granting GetSecretValue on the runtime secret. Attach it to any
+# role that needs to read secrets (Lambda execution roles).
+resource "aws_iam_policy" "runtime_secret_read" {
+  name        = "${var.project_name}-runtime-secret-read${local.suffix}"
+  description = "Allows reading the consolidated runtime secret."
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = aws_secretsmanager_secret.runtime.arn
+      }
+    ]
+  })
+}
+
+# Outputs so other modules / Lambda definitions can wire the secret into their
+# `environment` or `secrets` blocks without re-declaring it.
+output "runtime_secret_arn" {
+  description = "ARN of the consolidated runtime secret."
+  value       = aws_secretsmanager_secret.runtime.arn
+}
+
+output "runtime_secret_name" {
+  description = "Name of the consolidated runtime secret (for AWS CLI lookups)."
+  value       = aws_secretsmanager_secret.runtime.name
+}

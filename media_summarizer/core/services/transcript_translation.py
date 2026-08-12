@@ -42,6 +42,7 @@ from typing import Any, Dict, Optional, Tuple
 import aiohttp
 
 from media_summarizer.utils import s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
 from media_summarizer.utils.translation_idempotence import (
     TranslationStatus,
@@ -55,12 +56,8 @@ logger = logging.getLogger(__name__)
 
 # --- Configuration -----------------------------------------------------------
 
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
-)
-TRANSCRIPT_TRANSLATION_QUEUE = os.environ.get(
-    "TRANSCRIPT_TRANSLATION_QUEUE", "transcript-translation-queue"
-)
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
+TRANSCRIPT_TRANSLATION_QUEUE = required_env("TRANSCRIPT_TRANSLATION_QUEUE")
 LLM_API_URL = os.environ.get(
     "LLM_API_URL", "https://api.openai.com/v1/chat/completions"
 )

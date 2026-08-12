@@ -22,7 +22,6 @@ Formatting architecture (task-232, benchmark task-231 option B):
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
 from media_summarizer.core.models import ProcessingJob
@@ -39,6 +38,7 @@ from media_summarizer.core.services.transcript_translation import (
     should_translate,
 )
 from media_summarizer.utils import s3
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
 from media_summarizer.utils.translation_idempotence import (
     TranslationStatus,
@@ -50,9 +50,7 @@ from media_summarizer.utils.translation_idempotence import (
 
 logger = logging.getLogger(__name__)
 
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
-)
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
 
 class RawContentNotAvailableError(Exception):
     """Raised when raw content is not yet available for a media item."""

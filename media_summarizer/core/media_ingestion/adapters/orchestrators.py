@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, Dict, Optional
@@ -26,39 +25,21 @@ from media_summarizer.core.services.transcript_formatting import (
 )
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils import media_idempotence as episode_idempotence
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.language_codes import normalize_language_code
 from media_summarizer.utils.logging_config import log_event
 from media_summarizer.utils.user_media_submissions import mark_user_submission as mark_user_media_submission
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
-    "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
-)
-DEFAULT_PODCASTINDEX_RESOLUTION_QUEUE = os.environ.get(
-    "PODCASTINDEX_RESOLUTION_QUEUE", "podcastindex-resolution-queue"
-)
-DEFAULT_ARTICLE_EXTRACTION_QUEUE = os.environ.get(
-    "ARTICLE_EXTRACTION_QUEUE", "article-extraction-queue"
-)
-DEFAULT_X_INGESTION_QUEUE = os.environ.get(
-    "X_INGESTION_QUEUE", "x-ingestion-queue"
-)
-DEFAULT_YOUTUBE_INGESTION_QUEUE = os.environ.get(
-    "YOUTUBE_INGESTION_QUEUE", "youtube-ingestion-queue"
-)
-DEFAULT_TIKTOK_INGESTION_QUEUE = os.environ.get(
-    "TIKTOK_INGESTION_QUEUE", "tiktok-ingestion-queue"
-)
-DEFAULT_INSTAGRAM_IMAGE_QUEUE = os.environ.get(
-    "INSTAGRAM_IMAGE_QUEUE", "instagram-image-queue"
-)
-DEFAULT_EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
-DEFAULT_TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
-)
+DEFAULT_DEEPGRAM_TRANSCRIPTION_QUEUE = required_env("DEEPGRAM_TRANSCRIPTION_QUEUE")
+DEFAULT_PODCASTINDEX_RESOLUTION_QUEUE = required_env("PODCASTINDEX_RESOLUTION_QUEUE")
+DEFAULT_ARTICLE_EXTRACTION_QUEUE = required_env("ARTICLE_EXTRACTION_QUEUE")
+DEFAULT_X_INGESTION_QUEUE = required_env("X_INGESTION_QUEUE")
+DEFAULT_YOUTUBE_INGESTION_QUEUE = required_env("YOUTUBE_INGESTION_QUEUE")
+DEFAULT_TIKTOK_INGESTION_QUEUE = required_env("TIKTOK_INGESTION_QUEUE")
+DEFAULT_EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
+DEFAULT_TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
 
 
 def _now_iso() -> str:
@@ -131,7 +112,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         x_ingestion_queue: Optional[str] = None,
         youtube_ingestion_queue: Optional[str] = None,
         tiktok_ingestion_queue: Optional[str] = None,
-        instagram_image_queue: Optional[str] = None,
     ) -> None:
         self._deepgram_transcription_queue = (
             deepgram_transcription_queue
@@ -146,9 +126,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         self._x_ingestion_queue = x_ingestion_queue or DEFAULT_X_INGESTION_QUEUE
         self._youtube_ingestion_queue = (
             youtube_ingestion_queue or DEFAULT_YOUTUBE_INGESTION_QUEUE
-        )
-        self._instagram_image_queue = (
-            instagram_image_queue or DEFAULT_INSTAGRAM_IMAGE_QUEUE
         )
         self._tiktok_ingestion_queue = (
             tiktok_ingestion_queue or DEFAULT_TIKTOK_INGESTION_QUEUE
@@ -404,40 +381,29 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     audio_s3_key=resolved.audio_s3_key,
                 )
             elif resolved.media_type == MediaType.IMAGE_POST:
-                # Instagram image posts (single + carousel) — dispatch to image/OCR queue
-                # Caption is persisted in metadata; images sent for visual processing
-                job.mark_extracting()
-                await database_async.update_processing_job(job)
-                await sqs.send_message(
-                    queue_name=self._instagram_image_queue,
-                    message_body={
-                        "job_id": job.id,
-                        "user_id": command.user.user_id,
-                        "user_email": command.user.user_email,
-                        "media_key": resolved.media_key,
-                        "normalized_url": resolved.normalized_url,
-                        "source_platform": resolved.source_platform.value,
-                        "resolver_key": resolved.resolver_key,
-                        "image_urls": resolved.metadata.get("image_urls", []),
-                        "image_count": resolved.metadata.get("image_count", 0),
-                        "post_type": resolved.metadata.get("post_type"),
-                        "caption": resolved.metadata.get("caption"),
-                        "comments": resolved.metadata.get("comments", []),
-                        "comments_count": resolved.metadata.get("comments_count", 0),
-                        "episode_title": title,
-                        "podcast_title": title,
-                    },
+                # Instagram image posts (single + carousel). The OCR/vision
+                # pipeline they need does not exist: this branch enqueued to
+                # "instagram-image-queue", a queue Terraform has never created
+                # and no worker has ever consumed, so every image post silently
+                # stalled in EXTRACTING forever. Fail the job with a user-facing
+                # reason instead of pretending it was queued.
+                job.mark_failed(
+                    error_message="unsupported_content: Instagram image posts are not supported yet.",
+                    error_step="ingestion_core",
                 )
-                pipeline_enqueued = True
-                outcome_status = ProcessingLifecycleStatus.EXTRACTING
+                await database_async.update_processing_job(job)
+                await episode_idempotence.mark_failed(
+                    media_key=resolved.media_key,
+                    job_id=job.id,
+                )
+                outcome_status = ProcessingLifecycleStatus.FAILED
                 log_event(
                     logger,
-                    logging.INFO,
-                    "worker.enqueued",
-                    "Instagram image post enqueued for OCR/vision processing",
+                    logging.WARNING,
+                    "media.ingest.unsupported",
+                    "Instagram image post rejected: no OCR/vision pipeline exists",
                     job_id=job.id,
                     media_item_id=job.id,
-                    queue=self._instagram_image_queue,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
                     post_type=resolved.metadata.get("post_type"),

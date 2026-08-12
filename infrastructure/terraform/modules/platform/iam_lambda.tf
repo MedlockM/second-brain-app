@@ -5,7 +5,7 @@
 # =============================================================================
 
 resource "aws_iam_role" "lambda_worker" {
-  name = "${var.project_name}-lambda-worker"
+  name = "${var.project_name}-lambda-worker${local.suffix}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -21,14 +21,12 @@ resource "aws_iam_role" "lambda_worker" {
   })
 
   tags = {
-    Name        = "${var.project_name}-lambda-worker"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-lambda-worker${local.suffix}"
   }
 }
 
 resource "aws_iam_policy" "lambda_worker" {
-  name        = "${var.project_name}-lambda-worker-policy"
+  name        = "${var.project_name}-lambda-worker-policy${local.suffix}"
   description = "Policy for all worker Lambda functions"
 
   policy = jsonencode({
@@ -119,7 +117,11 @@ resource "aws_iam_policy" "lambda_worker" {
           "dynamodb:BatchGetItem",
           "dynamodb:BatchWriteItem"
         ]
-        Resource = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/*"
+        # Scoped to THIS environment's tables only (task-237). The previous
+        # "table/*" grant let a dev Lambda read and write every table in the
+        # account, which with three environments means a dev bug can corrupt
+        # prod data. local.table_arns covers the tables and their indexes.
+        Resource = local.table_arns
       },
       {
         # ListTables is account-wide (no per-table ARN). Used by /health check.
@@ -146,9 +148,7 @@ resource "aws_iam_policy" "lambda_worker" {
   })
 
   tags = {
-    Name        = "${var.project_name}-lambda-worker-policy"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-lambda-worker-policy${local.suffix}"
   }
 }
 
@@ -162,7 +162,7 @@ resource "aws_iam_role_policy_attachment" "lambda_worker" {
 # =============================================================================
 
 resource "aws_iam_role" "lambda_api" {
-  name = "${var.project_name}-lambda-api"
+  name = "${var.project_name}-lambda-api${local.suffix}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -178,14 +178,12 @@ resource "aws_iam_role" "lambda_api" {
   })
 
   tags = {
-    Name        = "${var.project_name}-lambda-api"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-lambda-api${local.suffix}"
   }
 }
 
 resource "aws_iam_policy" "lambda_api" {
-  name        = "${var.project_name}-lambda-api-policy"
+  name        = "${var.project_name}-lambda-api-policy${local.suffix}"
   description = "Policy for the API Lambda function"
 
   policy = jsonencode({
@@ -272,7 +270,11 @@ resource "aws_iam_policy" "lambda_api" {
           "dynamodb:BatchGetItem",
           "dynamodb:BatchWriteItem"
         ]
-        Resource = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/*"
+        # Scoped to THIS environment's tables only (task-237). The previous
+        # "table/*" grant let a dev Lambda read and write every table in the
+        # account, which with three environments means a dev bug can corrupt
+        # prod data. local.table_arns covers the tables and their indexes.
+        Resource = local.table_arns
       },
       {
         # ListTables is account-wide (no per-table ARN). Used by /health check.
@@ -299,9 +301,7 @@ resource "aws_iam_policy" "lambda_api" {
   })
 
   tags = {
-    Name        = "${var.project_name}-lambda-api-policy"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-lambda-api-policy${local.suffix}"
   }
 }
 

@@ -6,18 +6,16 @@
 # =============================================================================
 
 resource "aws_sqs_queue" "rss_resolution_dlq" {
-  name                      = "podcastindex-resolution-dlq"
+  name                      = "podcastindex-resolution-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "podcastindex-resolution-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "podcastindex-resolution-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "rss_resolution" {
-  name                       = "podcastindex-resolution-queue"
+  name                       = "podcastindex-resolution-queue${local.suffix}"
   visibility_timeout_seconds = 300
   message_retention_seconds  = 1209600 # 14 days
 
@@ -27,9 +25,7 @@ resource "aws_sqs_queue" "rss_resolution" {
   })
 
   tags = {
-    Name        = "podcastindex-resolution-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "podcastindex-resolution-queue${local.suffix}"
   }
 }
 
@@ -38,18 +34,16 @@ resource "aws_sqs_queue" "rss_resolution" {
 # =============================================================================
 
 resource "aws_sqs_queue" "article_extraction_dlq" {
-  name                      = "article-extraction-dlq"
+  name                      = "article-extraction-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "article-extraction-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "article-extraction-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "article_extraction" {
-  name                       = "article-extraction-queue"
+  name                       = "article-extraction-queue${local.suffix}"
   visibility_timeout_seconds = 360
   message_retention_seconds  = 1209600
 
@@ -59,9 +53,7 @@ resource "aws_sqs_queue" "article_extraction" {
   })
 
   tags = {
-    Name        = "article-extraction-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "article-extraction-queue${local.suffix}"
   }
 }
 
@@ -70,18 +62,16 @@ resource "aws_sqs_queue" "article_extraction" {
 # =============================================================================
 
 resource "aws_sqs_queue" "x_ingestion_dlq" {
-  name                      = "x-ingestion-dlq"
+  name                      = "x-ingestion-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "x-ingestion-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "x-ingestion-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "x_ingestion" {
-  name                       = "x-ingestion-queue"
+  name                       = "x-ingestion-queue${local.suffix}"
   visibility_timeout_seconds = 300
   message_retention_seconds  = 1209600
 
@@ -91,9 +81,7 @@ resource "aws_sqs_queue" "x_ingestion" {
   })
 
   tags = {
-    Name        = "x-ingestion-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "x-ingestion-queue${local.suffix}"
   }
 }
 
@@ -102,18 +90,16 @@ resource "aws_sqs_queue" "x_ingestion" {
 # =============================================================================
 
 resource "aws_sqs_queue" "youtube_ingestion_dlq" {
-  name                      = "youtube-ingestion-dlq"
+  name                      = "youtube-ingestion-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "youtube-ingestion-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "youtube-ingestion-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "youtube_ingestion" {
-  name                       = "youtube-ingestion-queue"
+  name                       = "youtube-ingestion-queue${local.suffix}"
   visibility_timeout_seconds = 720
   message_retention_seconds  = 1209600
 
@@ -123,9 +109,7 @@ resource "aws_sqs_queue" "youtube_ingestion" {
   })
 
   tags = {
-    Name        = "youtube-ingestion-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "youtube-ingestion-queue${local.suffix}"
   }
 }
 
@@ -134,18 +118,16 @@ resource "aws_sqs_queue" "youtube_ingestion" {
 # =============================================================================
 
 resource "aws_sqs_queue" "instagram_ingestion_dlq" {
-  name                      = "instagram-ingestion-dlq"
+  name                      = "instagram-ingestion-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "instagram-ingestion-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "instagram-ingestion-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "instagram_ingestion" {
-  name                       = "instagram-ingestion-queue"
+  name                       = "instagram-ingestion-queue${local.suffix}"
   visibility_timeout_seconds = 720
   message_retention_seconds  = 1209600
 
@@ -155,9 +137,7 @@ resource "aws_sqs_queue" "instagram_ingestion" {
   })
 
   tags = {
-    Name        = "instagram-ingestion-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "instagram-ingestion-queue${local.suffix}"
   }
 }
 
@@ -166,18 +146,16 @@ resource "aws_sqs_queue" "instagram_ingestion" {
 # =============================================================================
 
 resource "aws_sqs_queue" "tiktok_ingestion_dlq" {
-  name                      = "tiktok-ingestion-dlq"
+  name                      = "tiktok-ingestion-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "tiktok-ingestion-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "tiktok-ingestion-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "tiktok_ingestion" {
-  name                       = "tiktok-ingestion-queue"
+  name                       = "tiktok-ingestion-queue${local.suffix}"
   visibility_timeout_seconds = 720
   message_retention_seconds  = 1209600
 
@@ -187,9 +165,7 @@ resource "aws_sqs_queue" "tiktok_ingestion" {
   })
 
   tags = {
-    Name        = "tiktok-ingestion-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "tiktok-ingestion-queue${local.suffix}"
   }
 }
 
@@ -198,18 +174,16 @@ resource "aws_sqs_queue" "tiktok_ingestion" {
 # =============================================================================
 
 resource "aws_sqs_queue" "deepgram_transcription_dlq" {
-  name                      = "deepgram-transcription-dlq"
+  name                      = "deepgram-transcription-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "deepgram-transcription-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "deepgram-transcription-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "deepgram_transcription" {
-  name                       = "deepgram-transcription-queue"
+  name                       = "deepgram-transcription-queue${local.suffix}"
   visibility_timeout_seconds = 3600
   message_retention_seconds  = 1209600
 
@@ -219,9 +193,7 @@ resource "aws_sqs_queue" "deepgram_transcription" {
   })
 
   tags = {
-    Name        = "deepgram-transcription-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "deepgram-transcription-queue${local.suffix}"
   }
 }
 
@@ -231,18 +203,16 @@ resource "aws_sqs_queue" "deepgram_transcription" {
 # =============================================================================
 
 resource "aws_sqs_queue" "artifact_generator_dlq" {
-  name                      = "artifact-generator-dlq"
+  name                      = "artifact-generator-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "artifact-generator-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "artifact-generator-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "artifact_generator" {
-  name                       = "artifact-generator-queue"
+  name                       = "artifact-generator-queue${local.suffix}"
   visibility_timeout_seconds = 1800
   message_retention_seconds  = 1209600
 
@@ -252,9 +222,7 @@ resource "aws_sqs_queue" "artifact_generator" {
   })
 
   tags = {
-    Name        = "artifact-generator-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "artifact-generator-queue${local.suffix}"
   }
 }
 
@@ -263,18 +231,16 @@ resource "aws_sqs_queue" "artifact_generator" {
 # =============================================================================
 
 resource "aws_sqs_queue" "document_parsing_dlq" {
-  name                      = "document-parsing-dlq"
+  name                      = "document-parsing-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "document-parsing-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "document-parsing-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "document_parsing" {
-  name                       = "document-parsing-queue"
+  name                       = "document-parsing-queue${local.suffix}"
   visibility_timeout_seconds = 3600
   message_retention_seconds  = 1209600
 
@@ -284,9 +250,7 @@ resource "aws_sqs_queue" "document_parsing" {
   })
 
   tags = {
-    Name        = "document-parsing-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "document-parsing-queue${local.suffix}"
   }
 }
 
@@ -295,18 +259,16 @@ resource "aws_sqs_queue" "document_parsing" {
 # =============================================================================
 
 resource "aws_sqs_queue" "search_indexing_dlq" {
-  name                      = "search-indexing-dlq"
+  name                      = "search-indexing-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "search-indexing-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "search-indexing-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "search_indexing" {
-  name                       = "search-indexing-queue"
+  name                       = "search-indexing-queue${local.suffix}"
   visibility_timeout_seconds = 360
   message_retention_seconds  = 1209600
 
@@ -316,9 +278,7 @@ resource "aws_sqs_queue" "search_indexing" {
   })
 
   tags = {
-    Name        = "search-indexing-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "search-indexing-queue${local.suffix}"
   }
 }
 
@@ -327,18 +287,16 @@ resource "aws_sqs_queue" "search_indexing" {
 # =============================================================================
 
 resource "aws_sqs_queue" "rss_feed_poll_dlq" {
-  name                      = "rss-feed-poll-dlq"
+  name                      = "rss-feed-poll-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "rss-feed-poll-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "rss-feed-poll-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "rss_feed_poll" {
-  name                       = "rss-feed-poll-queue"
+  name                       = "rss-feed-poll-queue${local.suffix}"
   visibility_timeout_seconds = 720
   message_retention_seconds  = 1209600
 
@@ -348,9 +306,7 @@ resource "aws_sqs_queue" "rss_feed_poll" {
   })
 
   tags = {
-    Name        = "rss-feed-poll-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "rss-feed-poll-queue${local.suffix}"
   }
 }
 
@@ -359,18 +315,16 @@ resource "aws_sqs_queue" "rss_feed_poll" {
 # =============================================================================
 
 resource "aws_sqs_queue" "media_completed_events_dlq" {
-  name                      = "episode-completed-events-dlq"
+  name                      = "episode-completed-events-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "episode-completed-events-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "episode-completed-events-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "media_completed_events" {
-  name                       = "episode-completed-events"
+  name                       = "episode-completed-events${local.suffix}"
   visibility_timeout_seconds = 360
   message_retention_seconds  = 1209600
 
@@ -380,9 +334,7 @@ resource "aws_sqs_queue" "media_completed_events" {
   })
 
   tags = {
-    Name        = "episode-completed-events"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "episode-completed-events${local.suffix}"
   }
 }
 
@@ -392,18 +344,16 @@ resource "aws_sqs_queue" "media_completed_events" {
 # =============================================================================
 
 resource "aws_sqs_queue" "transcript_translation_dlq" {
-  name                      = "transcript-translation-dlq"
+  name                      = "transcript-translation-dlq${local.suffix}"
   message_retention_seconds = 1209600 # 14 days
 
   tags = {
-    Name        = "transcript-translation-dlq"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "transcript-translation-dlq${local.suffix}"
   }
 }
 
 resource "aws_sqs_queue" "transcript_translation" {
-  name                       = "transcript-translation-queue"
+  name                       = "transcript-translation-queue${local.suffix}"
   visibility_timeout_seconds = 600
   message_retention_seconds  = 1209600
 
@@ -413,9 +363,7 @@ resource "aws_sqs_queue" "transcript_translation" {
   })
 
   tags = {
-    Name        = "transcript-translation-queue"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "transcript-translation-queue${local.suffix}"
   }
 }
 
@@ -426,37 +374,37 @@ resource "aws_sqs_queue" "transcript_translation" {
 output "queue_urls" {
   description = "URLs of the SQS queues"
   value = {
-    podcastindex_resolution  = aws_sqs_queue.rss_resolution.url
-    article_extraction       = aws_sqs_queue.article_extraction.url
-    x_ingestion              = aws_sqs_queue.x_ingestion.url
-    youtube_ingestion        = aws_sqs_queue.youtube_ingestion.url
-    instagram_ingestion      = aws_sqs_queue.instagram_ingestion.url
-    tiktok_ingestion         = aws_sqs_queue.tiktok_ingestion.url
-    deepgram_transcription   = aws_sqs_queue.deepgram_transcription.url
-    artifact_generator       = aws_sqs_queue.artifact_generator.url
-    document_parsing         = aws_sqs_queue.document_parsing.url
-    search_indexing          = aws_sqs_queue.search_indexing.url
-    rss_feed_poll            = aws_sqs_queue.rss_feed_poll.url
-    media_completed_events   = aws_sqs_queue.media_completed_events.url
-    transcript_translation   = aws_sqs_queue.transcript_translation.url
+    podcastindex_resolution = aws_sqs_queue.rss_resolution.url
+    article_extraction      = aws_sqs_queue.article_extraction.url
+    x_ingestion             = aws_sqs_queue.x_ingestion.url
+    youtube_ingestion       = aws_sqs_queue.youtube_ingestion.url
+    instagram_ingestion     = aws_sqs_queue.instagram_ingestion.url
+    tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion.url
+    deepgram_transcription  = aws_sqs_queue.deepgram_transcription.url
+    artifact_generator      = aws_sqs_queue.artifact_generator.url
+    document_parsing        = aws_sqs_queue.document_parsing.url
+    search_indexing         = aws_sqs_queue.search_indexing.url
+    rss_feed_poll           = aws_sqs_queue.rss_feed_poll.url
+    media_completed_events  = aws_sqs_queue.media_completed_events.url
+    transcript_translation  = aws_sqs_queue.transcript_translation.url
   }
 }
 
 output "dlq_arns" {
   description = "ARNs of the Dead Letter Queues (for replay tooling)"
   value = {
-    podcastindex_resolution  = aws_sqs_queue.rss_resolution_dlq.arn
-    article_extraction       = aws_sqs_queue.article_extraction_dlq.arn
-    x_ingestion              = aws_sqs_queue.x_ingestion_dlq.arn
-    youtube_ingestion        = aws_sqs_queue.youtube_ingestion_dlq.arn
-    instagram_ingestion      = aws_sqs_queue.instagram_ingestion_dlq.arn
-    tiktok_ingestion         = aws_sqs_queue.tiktok_ingestion_dlq.arn
-    deepgram_transcription   = aws_sqs_queue.deepgram_transcription_dlq.arn
-    artifact_generator       = aws_sqs_queue.artifact_generator_dlq.arn
-    document_parsing         = aws_sqs_queue.document_parsing_dlq.arn
-    search_indexing           = aws_sqs_queue.search_indexing_dlq.arn
-    rss_feed_poll            = aws_sqs_queue.rss_feed_poll_dlq.arn
-    media_completed_events   = aws_sqs_queue.media_completed_events_dlq.arn
-    transcript_translation   = aws_sqs_queue.transcript_translation_dlq.arn
+    podcastindex_resolution = aws_sqs_queue.rss_resolution_dlq.arn
+    article_extraction      = aws_sqs_queue.article_extraction_dlq.arn
+    x_ingestion             = aws_sqs_queue.x_ingestion_dlq.arn
+    youtube_ingestion       = aws_sqs_queue.youtube_ingestion_dlq.arn
+    instagram_ingestion     = aws_sqs_queue.instagram_ingestion_dlq.arn
+    tiktok_ingestion        = aws_sqs_queue.tiktok_ingestion_dlq.arn
+    deepgram_transcription  = aws_sqs_queue.deepgram_transcription_dlq.arn
+    artifact_generator      = aws_sqs_queue.artifact_generator_dlq.arn
+    document_parsing        = aws_sqs_queue.document_parsing_dlq.arn
+    search_indexing         = aws_sqs_queue.search_indexing_dlq.arn
+    rss_feed_poll           = aws_sqs_queue.rss_feed_poll_dlq.arn
+    media_completed_events  = aws_sqs_queue.media_completed_events_dlq.arn
+    transcript_translation  = aws_sqs_queue.transcript_translation_dlq.arn
   }
 }

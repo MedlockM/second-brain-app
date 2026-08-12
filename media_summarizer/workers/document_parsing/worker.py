@@ -34,6 +34,7 @@ from media_summarizer.infrastructure.resolvers.unstructured_resolver import (
     UnstructuredResolver,
 )
 from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -45,12 +46,10 @@ from media_summarizer.workers.base_worker import process_message_with_retry
 logger = logging.getLogger(__name__)
 
 # Configuration
-DOCUMENT_BUCKET = os.environ.get("DOCUMENT_BUCKET", "media-summarizer-documents")
-TRANSCRIPT_BUCKET = os.environ.get("TRANSCRIPT_BUCKET", "media-summarizer-transcripts")
-DOCUMENT_PARSING_QUEUE = os.environ.get("DOCUMENT_PARSING_QUEUE", "document-parsing-queue")
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
+DOCUMENT_BUCKET = required_env("DOCUMENT_BUCKET")
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
+DOCUMENT_PARSING_QUEUE = required_env("DOCUMENT_PARSING_QUEUE")
+EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 
 # Visibility timeout: document parsing can take up to 2-3 minutes
 DOCUMENT_PARSING_VISIBILITY_TIMEOUT = int(

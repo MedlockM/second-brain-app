@@ -30,6 +30,7 @@ from media_summarizer.core.services.artifact_service import (
     mark_artifact_generating,
 )
 from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -39,12 +40,8 @@ from media_summarizer.utils.logging_config import (
 
 logger = logging.getLogger(__name__)
 
-ARTIFACT_GENERATOR_QUEUE = os.environ.get(
-    "ARTIFACT_GENERATOR_QUEUE", "artifact-generator-queue"
-)
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
-)
+ARTIFACT_GENERATOR_QUEUE = required_env("ARTIFACT_GENERATOR_QUEUE")
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
 LLM_API_URL = os.environ.get(
     "LLM_API_URL", "https://api.openai.com/v1/chat/completions"
 )

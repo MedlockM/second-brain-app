@@ -25,6 +25,7 @@ from media_summarizer.core.services.transcript_formatting import (
     normalize_transcript_text,
 )
 from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -42,18 +43,10 @@ from media_summarizer.workers.podcast_platform_resolvers import (
 
 logger = logging.getLogger(__name__)
 
-PODCASTINDEX_RESOLUTION_QUEUE = os.environ.get(
-    "PODCASTINDEX_RESOLUTION_QUEUE", "podcastindex-resolution-queue"
-)
-DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get(
-    "DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue"
-)
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcriptions"
-)
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
+PODCASTINDEX_RESOLUTION_QUEUE = required_env("PODCASTINDEX_RESOLUTION_QUEUE")
+DEEPGRAM_TRANSCRIPTION_QUEUE = required_env("DEEPGRAM_TRANSCRIPTION_QUEUE")
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
+EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 PODCASTINDEX_MAX_RETRIES = max(1, int(os.environ.get("PODCASTINDEX_MAX_RETRIES", "3")))
 PODCASTINDEX_WORKER_MAX_RETRIES = max(
     1, int(os.environ.get("PODCASTINDEX_WORKER_MAX_RETRIES", "3"))

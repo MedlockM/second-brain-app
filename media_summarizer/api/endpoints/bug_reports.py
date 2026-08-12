@@ -32,12 +32,13 @@ from media_summarizer.core.services.bug_report_service import (
     BugReportService,
 )
 from media_summarizer.utils import s3 as s3_utils
+from media_summarizer.utils.env import required_env
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # Configuration
-BUG_REPORT_BUCKET = os.environ.get("BUG_REPORT_BUCKET", "media-summarizer-bug-reports")
+BUG_REPORTS_BUCKET = required_env("BUG_REPORTS_BUCKET")
 BUG_REPORT_MAX_FILE_SIZE = int(os.environ.get("BUG_REPORT_MAX_FILE_SIZE", str(50 * 1024 * 1024)))  # 50 MB
 BUG_REPORT_RATE_LIMIT = int(os.environ.get("BUG_REPORT_RATE_LIMIT_PER_HOUR", "5"))
 
@@ -156,7 +157,7 @@ async def request_upload_url(
     # Generate presigned PUT URL
     try:
         upload_url = await s3_utils.generate_presigned_url(
-            bucket=BUG_REPORT_BUCKET,
+            bucket=BUG_REPORTS_BUCKET,
             key=s3_key,
             expiration=900,  # 15 minutes
             http_method="PUT",
@@ -242,7 +243,7 @@ async def _validate_attachment(attachment_key: str, user_id: str) -> None:
 
     # Head object to verify it exists and check content-type
     try:
-        metadata = await s3_utils.get_object_metadata(BUG_REPORT_BUCKET, attachment_key)
+        metadata = await s3_utils.get_object_metadata(BUG_REPORTS_BUCKET, attachment_key)
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

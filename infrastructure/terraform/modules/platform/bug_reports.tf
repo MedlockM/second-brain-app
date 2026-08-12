@@ -7,7 +7,7 @@
 
 # DynamoDB table for bug reports
 resource "aws_dynamodb_table" "bug_reports" {
-  name         = "bug_reports"
+  name         = "bug_reports${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -37,9 +37,17 @@ resource "aws_dynamodb_table" "bug_reports" {
   }
 
   tags = {
-    Name        = "bug_reports"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "bug_reports${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -48,9 +56,11 @@ resource "aws_s3_bucket" "bug_reports" {
   bucket = "${var.project_name}-bug-reports-${data.aws_caller_identity.current.account_id}-${var.environment}"
 
   tags = {
-    Name        = "${var.project_name}-bug-reports"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-bug-reports${local.suffix}"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -72,6 +82,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "bug_reports" {
     id     = "expire-attachments-90-days"
     status = "Enabled"
 
+    # Empty filter matches all objects in the bucket. Required by the provider:
+    # exactly one of filter / prefix must be set.
+    filter {}
+
     expiration {
       days = 90
     }
@@ -91,7 +105,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "bug_reports" {
 
 # IAM Policy for API to generate presigned URLs and head objects
 resource "aws_iam_policy" "bug_reports_s3" {
-  name        = "${var.project_name}-bug-reports-s3-${var.environment}"
+  name        = "${var.project_name}-bug-reports-s3${local.suffix}"
   description = "Allows the API to generate presigned PUT URLs and validate uploaded bug report attachments."
 
   policy = jsonencode({

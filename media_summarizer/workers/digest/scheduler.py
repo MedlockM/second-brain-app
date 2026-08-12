@@ -34,10 +34,16 @@ logger = logging.getLogger(__name__)
 # Stagger delay between summary_short generation requests (seconds)
 STAGGER_DELAY_SECONDS = float(os.environ.get("DIGEST_STAGGER_DELAY_SECONDS", "2.0"))
 
-# Push notification queue for weekly digest
-PUSH_NOTIFICATION_QUEUE = os.environ.get(
-    "PUSH_NOTIFICATION_QUEUE", "push-notification-queue"
-)
+# Push notification queue for the weekly digest.
+#
+# Deliberately OPTIONAL, unlike every other queue name in the codebase. Real push
+# notifications are post-V1 (task-102 keeps this producer alive for then), so
+# Terraform does not create the queue in any environment and the variable is
+# unset everywhere. It used to default to the literal "push-notification-queue",
+# which meant every weekly digest tried to publish to a queue that did not exist
+# and logged an error. When the queue is provisioned, inject
+# PUSH_NOTIFICATION_QUEUE and this producer starts working with no code change.
+PUSH_NOTIFICATION_QUEUE = os.environ.get("PUSH_NOTIFICATION_QUEUE", "").strip()
 
 
 async def _get_all_user_ids() -> List[str]:
@@ -209,7 +215,19 @@ async def assemble_and_publish_weekly_digests() -> int:
 async def _send_weekly_digest_push_notification(
     user_id: str, digest: DigestRecord
 ) -> None:
-    """Send a push notification to the user about their weekly digest."""
+    """Send a push notification to the user about their weekly digest.
+
+    No-op while PUSH_NOTIFICATION_QUEUE is unset (the V1 default): the digest is
+    still assembled and published, users just discover it by polling.
+    """
+    if not PUSH_NOTIFICATION_QUEUE:
+        logger.debug(
+            "PUSH_NOTIFICATION_QUEUE unset; skipping push for user %s (weekly digest %s)",
+            user_id,
+            digest.period_key,
+        )
+        return
+
     item_count = len(digest.media_items)
     message = {
         "user_id": user_id,

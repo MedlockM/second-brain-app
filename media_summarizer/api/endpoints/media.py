@@ -68,6 +68,7 @@ from media_summarizer.core.services.raw_content_service import (
     get_raw_content,
 )
 from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.language_codes import normalize_language_code
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 from media_summarizer.utils.media_artifacts import safe_list_media_artifacts_by_media_item
@@ -75,10 +76,10 @@ from media_summarizer.utils.media_artifacts import safe_list_media_artifacts_by_
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-DEEPGRAM_TRANSCRIPTION_QUEUE = os.environ.get("DEEPGRAM_TRANSCRIPTION_QUEUE", "deepgram-transcription-queue")
-DOCUMENT_PARSING_QUEUE = os.environ.get("DOCUMENT_PARSING_QUEUE", "document-parsing-queue")
-DOCUMENT_BUCKET = os.environ.get("DOCUMENT_BUCKET", "media-summarizer-documents")
-AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET", "media-summarizer-audio")
+DEEPGRAM_TRANSCRIPTION_QUEUE = required_env("DEEPGRAM_TRANSCRIPTION_QUEUE")
+DOCUMENT_PARSING_QUEUE = required_env("DOCUMENT_PARSING_QUEUE")
+DOCUMENT_BUCKET = required_env("DOCUMENT_BUCKET")
+AUDIO_BUCKET = required_env("AUDIO_BUCKET")
 
 # Pre-signed URL validity for audio uploads (10 minutes)
 AUDIO_PRESIGNED_URL_EXPIRATION = int(os.environ.get("AUDIO_PRESIGNED_URL_EXPIRATION", "600"))

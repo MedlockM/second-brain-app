@@ -3,11 +3,13 @@
 # S3 Bucket for Job Archives
 resource "aws_s3_bucket" "archives" {
   bucket = "${var.project_name}-archives-${data.aws_caller_identity.current.account_id}-${var.environment}"
-  
+
   tags = {
-    Name        = "${var.project_name}-archives"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-archives${local.suffix}"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -23,7 +25,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "archives" {
     filter {}
 
     transition {
-      days          = 0 # Move immediately upon creation
+      days          = 0            # Move immediately upon creation
       storage_class = "GLACIER_IR" # Instant Retrieval (good balance for occasional audit)
     }
 
@@ -35,7 +37,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "archives" {
 
 # IAM Role for Archiver Lambda
 resource "aws_iam_role" "lambda_archiver" {
-  name = "${var.project_name}-lambda-archiver"
+  name = "${var.project_name}-lambda-archiver${local.suffix}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -51,15 +53,13 @@ resource "aws_iam_role" "lambda_archiver" {
   })
 
   tags = {
-    Name        = "${var.project_name}-lambda-archiver"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-lambda-archiver${local.suffix}"
   }
 }
 
 # IAM Policy for Archiver Lambda
 resource "aws_iam_policy" "lambda_archiver" {
-  name        = "${var.project_name}-lambda-archiver-policy"
+  name        = "${var.project_name}-lambda-archiver-policy${local.suffix}"
   description = "Policy for Job Archiver Lambda"
 
   policy = jsonencode({
@@ -100,15 +100,43 @@ resource "aws_iam_role_policy_attachment" "lambda_archiver" {
   policy_arn = aws_iam_policy.lambda_archiver.arn
 }
 
+# Placeholder deployment package, generated at plan time.
+#
+# This used to be `filename = "job_archiver.zip"`: an untracked 477-byte zip
+# that happened to sit in the old flat root directory. Any operator on a fresh
+# clone — and any environment other than dev — could not even plan. The
+# placeholder is generated here instead, so every environment can be created
+# from a clean checkout. task-242 owns the real implementation; until then the
+# TTL that feeds this Lambda's stream filter is frozen off (task-239), so the
+# handler is never invoked.
+data "archive_file" "job_archiver" {
+  type        = "zip"
+  output_path = "${path.module}/.build/job_archiver${local.suffix}.zip"
+
+  source {
+    filename = "job_archiver.py"
+    content  = <<-PY
+      """Placeholder job archiver. Implemented by task-242."""
+
+
+      def lambda_handler(event, context):
+          records = event.get("Records", [])
+          print(f"job-archiver placeholder: {len(records)} record(s) ignored")
+          return {"archived": 0, "ignored": len(records)}
+    PY
+  }
+}
+
 # Lambda Function for Archiving
 resource "aws_lambda_function" "job_archiver" {
-  filename         = "job_archiver.zip" # Placeholder, will be built by CI/CD
-  function_name    = "${var.project_name}-job-archiver"
-  role            = aws_iam_role.lambda_archiver.arn
-  handler         = "job_archiver.lambda_handler"
-  runtime         = "python3.11"
-  timeout         = 60
-  memory_size     = 128
+  filename         = data.archive_file.job_archiver.output_path
+  source_code_hash = data.archive_file.job_archiver.output_base64sha256
+  function_name    = "${var.project_name}-job-archiver${local.suffix}"
+  role             = aws_iam_role.lambda_archiver.arn
+  handler          = "job_archiver.lambda_handler"
+  runtime          = "python3.11"
+  timeout          = 60
+  memory_size      = 128
 
   environment {
     variables = {
@@ -117,15 +145,13 @@ resource "aws_lambda_function" "job_archiver" {
   }
 
   tags = {
-    Name        = "${var.project_name}-job-archiver"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-job-archiver${local.suffix}"
   }
 }
 
 # CloudWatch Log Group for Archiver
 resource "aws_cloudwatch_log_group" "lambda_archiver" {
-  name              = "/aws/lambda/${var.project_name}-job-archiver"
+  name              = "/aws/lambda/${var.project_name}-job-archiver${local.suffix}"
   retention_in_days = 7
 }
 
@@ -135,7 +161,7 @@ resource "aws_lambda_event_source_mapping" "job_archiver" {
   function_name     = aws_lambda_function.job_archiver.arn
   starting_position = "LATEST"
   batch_size        = 100
-  
+
   # Filter: Only process REMOVE events (TTL deletions)
   filter_criteria {
     filter {

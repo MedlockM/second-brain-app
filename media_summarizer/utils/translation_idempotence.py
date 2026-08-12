@@ -21,20 +21,18 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Optional
 
 from botocore.exceptions import ClientError
 
 from media_summarizer.utils import database_async
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
-TRANSLATION_IDEMPOTENCE_TABLE = os.environ.get(
-    "TRANSLATION_IDEMPOTENCE_TABLE", "translation_idempotence"
-)
+TRANSLATION_IDEMPOTENCE_TABLE = required_env("TRANSLATION_IDEMPOTENCE_TABLE")
 
 
 class TranslationStatus:

@@ -6,81 +6,126 @@
 resource "aws_s3_bucket" "audio" {
   bucket = "${var.project_name}-audio-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
-    Name        = "${var.project_name}-audio"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-audio${local.suffix}"
+  }
+
+  # Buckets hold the only copy of every transcript, summary and uploaded
+  # document. prevent_destroy errors at PLAN time, so "I destroyed the
+  # wrong environment" becomes "the plan refused to run".
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 resource "aws_s3_bucket" "transcripts" {
   bucket = "${var.project_name}-transcripts-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
-    Name        = "${var.project_name}-transcripts"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-transcripts${local.suffix}"
+  }
+
+  # Buckets hold the only copy of every transcript, summary and uploaded
+  # document. prevent_destroy errors at PLAN time, so "I destroyed the
+  # wrong environment" becomes "the plan refused to run".
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 resource "aws_s3_bucket" "summaries" {
   bucket = "${var.project_name}-summaries-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
-    Name        = "${var.project_name}-summaries"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-summaries${local.suffix}"
+  }
+
+  # Buckets hold the only copy of every transcript, summary and uploaded
+  # document. prevent_destroy errors at PLAN time, so "I destroyed the
+  # wrong environment" becomes "the plan refused to run".
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 resource "aws_s3_bucket" "summary_short" {
   bucket = "${var.project_name}-summary-short-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
-    Name        = "${var.project_name}-summary-short"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-summary-short${local.suffix}"
+  }
+
+  # Buckets hold the only copy of every transcript, summary and uploaded
+  # document. prevent_destroy errors at PLAN time, so "I destroyed the
+  # wrong environment" becomes "the plan refused to run".
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 resource "aws_s3_bucket" "summary_detailed" {
   bucket = "${var.project_name}-summary-detailed-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
-    Name        = "${var.project_name}-summary-detailed"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-summary-detailed${local.suffix}"
+  }
+
+  # Buckets hold the only copy of every transcript, summary and uploaded
+  # document. prevent_destroy errors at PLAN time, so "I destroyed the
+  # wrong environment" becomes "the plan refused to run".
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 resource "aws_s3_bucket" "notes" {
   bucket = "${var.project_name}-notes-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
-    Name        = "${var.project_name}-notes"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-notes${local.suffix}"
+  }
+
+  # Buckets hold the only copy of every transcript, summary and uploaded
+  # document. prevent_destroy errors at PLAN time, so "I destroyed the
+  # wrong environment" becomes "the plan refused to run".
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 resource "aws_s3_bucket" "flashcards" {
   bucket = "${var.project_name}-flashcards-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
-    Name        = "${var.project_name}-flashcards"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-flashcards${local.suffix}"
+  }
+
+  # Buckets hold the only copy of every transcript, summary and uploaded
+  # document. prevent_destroy errors at PLAN time, so "I destroyed the
+  # wrong environment" becomes "the plan refused to run".
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 resource "aws_s3_bucket" "quiz" {
   bucket = "${var.project_name}-quiz-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
-    Name        = "${var.project_name}-quiz"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-quiz${local.suffix}"
+  }
+
+  # Buckets hold the only copy of every transcript, summary and uploaded
+  # document. prevent_destroy errors at PLAN time, so "I destroyed the
+  # wrong environment" becomes "the plan refused to run".
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 resource "aws_s3_bucket" "documents" {
   bucket = "${var.project_name}-documents-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
-    Name        = "${var.project_name}-documents"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "${var.project_name}-documents${local.suffix}"
+  }
+
+  # Buckets hold the only copy of every transcript, summary and uploaded
+  # document. prevent_destroy errors at PLAN time, so "I destroyed the
+  # wrong environment" becomes "the plan refused to run".
+  lifecycle {
+    prevent_destroy = true
   }
 }
 

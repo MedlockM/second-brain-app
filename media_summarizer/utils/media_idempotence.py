@@ -8,17 +8,17 @@ Canonical schema (MEDIA_IDEMPOTENCE_TABLE, default "media_idempotence"):
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from botocore.exceptions import ClientError
 
 from media_summarizer.utils import database_async
+from media_summarizer.utils.env import required_env
 
 logger = logging.getLogger(__name__)
 
-MEDIA_IDEMPOTENCE_TABLE = os.environ.get("MEDIA_IDEMPOTENCE_TABLE", "media_idempotence")
+MEDIA_IDEMPOTENCE_TABLE = required_env("MEDIA_IDEMPOTENCE_TABLE")
 
 
 def _now_iso() -> str:

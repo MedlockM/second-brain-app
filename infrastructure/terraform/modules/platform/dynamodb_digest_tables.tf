@@ -2,7 +2,7 @@
 
 # User digests table: stores assembled daily/weekly digests
 resource "aws_dynamodb_table" "user_digests_v1" {
-  name         = "user_digests"
+  name         = "user_digests${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
   range_key    = "digest_key"
@@ -17,15 +17,23 @@ resource "aws_dynamodb_table" "user_digests_v1" {
   }
 
   tags = {
-    Name        = "user_digests"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "user_digests${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
 # User digest settings table: stores per-user digest preferences
 resource "aws_dynamodb_table" "user_digest_settings_v1" {
-  name         = "user_digest_settings"
+  name         = "user_digest_settings${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "user_id"
 
@@ -35,9 +43,17 @@ resource "aws_dynamodb_table" "user_digest_settings_v1" {
   }
 
   tags = {
-    Name        = "user_digest_settings"
-    Environment = var.environment
-    Project     = var.project_name
+    Name = "user_digest_settings${local.suffix}"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 

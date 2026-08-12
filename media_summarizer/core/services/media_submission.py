@@ -22,6 +22,12 @@ from media_summarizer.utils import (
     media_watchers,
     sqs,
 )
+from media_summarizer.utils.env import required_env
+
+# Injected by Terraform (modules/platform/runtime_env.tf). No fallback: the queue
+# name carries the environment suffix, so guessing it would enqueue staging work
+# onto the dev pipeline.
+DEEPGRAM_TRANSCRIPTION_QUEUE = required_env("DEEPGRAM_TRANSCRIPTION_QUEUE")
 
 
 async def submit_media_for_user(
@@ -154,7 +160,7 @@ async def submit_media_for_user(
 
     # Enqueue to deepgram transcription queue (direct path, no download worker needed)
     await sqs.send_message(
-        queue_name="deepgram-transcription-queue",
+        queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
         message_body={
             "job_id": created_job.id,
             "user_id": user.id,

@@ -26,6 +26,7 @@ from media_summarizer.core.services.transcript_formatting import (
     normalize_transcript_text,
 )
 from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -39,13 +40,9 @@ from media_summarizer.workers.base_worker import (
 
 logger = logging.getLogger(__name__)
 
-TRANSCRIPT_BUCKET = os.environ.get(
-    "TRANSCRIPT_BUCKET", "media-summarizer-transcripts"
-)
-X_INGESTION_QUEUE = os.environ.get("X_INGESTION_QUEUE", "x-ingestion-queue")
-EPISODE_COMPLETED_EVENTS_QUEUE = os.environ.get(
-    "EPISODE_COMPLETED_EVENTS_QUEUE", "episode-completed-events"
-)
+TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
+X_INGESTION_QUEUE = required_env("X_INGESTION_QUEUE")
+EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 X_API_TIMEOUT_SECONDS = float(os.environ.get("X_API_TIMEOUT_SECONDS", "20"))
 X_WORKER_MAX_RETRIES = max(1, int(os.environ.get("X_WORKER_MAX_RETRIES", "3")))
 X_API_BASE_URL = os.environ.get("X_API_BASE_URL", "https://api.x.com/2").rstrip("/")

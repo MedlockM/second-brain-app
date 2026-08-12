@@ -9,17 +9,17 @@ Canonical schema (MEDIA_WATCHERS_TABLE, default "media_watchers"):
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from botocore.exceptions import ClientError
 
 from media_summarizer.utils import database_async
+from media_summarizer.utils.env import required_env
 
 logger = logging.getLogger(__name__)
 
-MEDIA_WATCHERS_TABLE = os.environ.get("MEDIA_WATCHERS_TABLE", "media_watchers")
+MEDIA_WATCHERS_TABLE = required_env("MEDIA_WATCHERS_TABLE")
 
 
 def _now_iso() -> str:
