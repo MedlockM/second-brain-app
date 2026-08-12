@@ -81,11 +81,37 @@ Chiffrer l'exposition financière actuelle avant/après est attendu : c'est ce q
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/research/task-250-audio-minutes-quota-accuracy/README.md exists with owner_decision: pending in its front-matter
-- [ ] #2 The README quantifies the current exposure: for each audio platform, minutes really consumed versus minutes debited, with the factor and an estimated monthly euro cost
-- [ ] #3 Option A is assessed per SourcePlatform value (spotify, apple_podcasts, deezer, rss, youtube, instagram, tiktok, x, whatsapp, web, direct_url, unknown): whether duration is obtainable before acceptance, by which mechanism, at what third-party cost and what added share latency
-- [ ] #4 The platforms where no pre-acceptance duration is reliably obtainable are named explicitly, with what the fallback would be for them
-- [ ] #5 Option B is assessed with its SQS redelivery idempotency problem and an explicit answer on what happens to an overrun detected after the fact (negative balance, clamped to zero, or next import blocked)
-- [ ] #6 The recommendation states, per platform, which mechanism applies, and may combine A and B rather than picking one
-- [ ] #7 No implementation: no change to quota_enforcer.py, the endpoints or the workers in this task
+- [x] #1 docs/research/task-250-audio-minutes-quota-accuracy/README.md exists with owner_decision: pending in its front-matter
+- [x] #2 The README quantifies the current exposure: for each audio platform, minutes really consumed versus minutes debited, with the factor and an estimated monthly euro cost
+- [x] #3 Option A is assessed per SourcePlatform value (spotify, apple_podcasts, deezer, rss, youtube, instagram, tiktok, x, whatsapp, web, direct_url, unknown): whether duration is obtainable before acceptance, by which mechanism, at what third-party cost and what added share latency
+- [x] #4 The platforms where no pre-acceptance duration is reliably obtainable are named explicitly, with what the fallback would be for them
+- [x] #5 Option B is assessed with its SQS redelivery idempotency problem and an explicit answer on what happens to an overrun detected after the fact (negative balance, clamped to zero, or next import blocked)
+- [x] #6 The recommendation states, per platform, which mechanism applies, and may combine A and B rather than picking one
+- [x] #7 No implementation: no change to quota_enforcer.py, the endpoints or the workers in this task
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Mode: initial** (no `docs/research/task-250-*` directory existed, no prior `README.owner-rejected-*.md`, no `complement-request-*.md`). Research only — no source file was modified, satisfying AC #7.
+
+Deliverable: `docs/research/task-250-audio-minutes-quota-accuracy/README.md` (`owner_decision: pending`, 431 lines).
+
+**Recommendation, awaiting owner validation**: neither Option A nor Option B as stated, but a three-layer hybrid — Layer 0 fix `classify_media_type` and the two independent platform detections plus the three missing enforcement points; Layer 1 gate on the real duration inside the existing resolution workers *before* the Deepgram enqueue (Option A's mechanisms, moved off the request path, 0 ms added share latency); Layer 2 settle from Deepgram's `metadata.duration` under a conditional DynamoDB write (Option B, hardened). Per-platform mechanism table in the `Recommendation` section covers all twelve `SourcePlatform` values.
+
+Findings beyond the task description, all read from the code:
+- `spotify`, `apple_podcasts`, `deezer` and `direct_url` are classified `article`, so they debit **zero** audio minutes while still reaching Deepgram; the `text_only` tier gate never fires for them either.
+- `POST /media/upload-audio` and `POST /media/ingest-shared-content` have **no quota enforcement at all** (the task assumed the direct-upload path escaped the bug); `rss_feed_poll_worker` is a third unmetered Deepgram producer.
+- `duration_seconds = 0` also disables `audio_too_long` / `max_audio_per_import_minutes` and the cost hard-block, not just the monthly cap.
+- The `minutes_used` field the task proposes reconciling on is a producer hint defaulting to 1, and it is emitted **twice** per job to the same queue — a naive consumer double-debits every job before any SQS redelivery.
+
+Quantified exposure (AC #2): up to **EUR 224.40/month of Deepgram per `mix` subscriber** (net revenue EUR 3.542) via URL shares alone, plus two endpoints with no ceiling; **EUR 132.00/month on a EUR 2.125 Reader plan** that is sold as excluding audio; expected overspend ~EUR 92/month at 100 subscribers under stated assumptions. After the recommended fix: 360 min/month, EUR 1.58.
+
+New mechanism identified and measured (AC #3/#4): an **HTTP Range container probe** (one 64 KB ranged GET, occasionally a second 4 KB one) yields an exact duration for any MP3 enclosure, free, with **+0.01 % / +0.01 % / -0.02 %** error measured on three real podcast feeds across three CDNs. This closes the reliability gap on `apple_podcasts` and `rss`, where `trackTimeMillis` / `itunes:duration` are missing precisely on the newest episodes (measured: 3 of the newest 5 on lexfridman.com).
+
+Overrun policy answered explicitly (AC #5): store the true over-cap value, clamp only for display (`entitlements.py:118` already does `max(0, cap - used)`, so no mobile change), never negative, never refund, next import refused naturally.
+
+Side finding for a possible separate task: `providers.transcription.cost_per_minute_eur = 0.003` understates the Deepgram Nova-3 PAYG rate (USD 0.0048/min) by 47 %, which makes `audio_heavy` loss-making at full usage even with a perfectly exact quota.
+
+Task left in `To Do` with `owner_decision: pending`; the owner's `Decision` field is what `task-251` must follow.
+<!-- SECTION:NOTES:END -->
