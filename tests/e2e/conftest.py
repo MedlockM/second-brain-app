@@ -42,7 +42,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import httpx
 import pytest

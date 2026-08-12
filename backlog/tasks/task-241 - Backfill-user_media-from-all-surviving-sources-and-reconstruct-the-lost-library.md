@@ -3,9 +3,10 @@ id: task-241
 title: >-
   Backfill user_media from all surviving sources and reconstruct the lost
   library
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-11 16:11'
+updated_date: '2026-08-12 19:12'
 labels:
   - backend
   - migration

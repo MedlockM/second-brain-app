@@ -3,9 +3,10 @@ id: task-247
 title: >-
   Make the E2E teardown actually delete its accounts, for both pytest and
   Maestro CI runs
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-12 16:39'
+updated_date: '2026-08-12 18:51'
 labels:
   - e2e
   - tooling
@@ -77,6 +78,7 @@ Le nettoyage lui-même (`_teardown_user_inner`) est correct et complet ; il n'es
 
 ## Implementation Notes
 
+<!-- SECTION:NOTES:BEGIN -->
 **Delivered:**
 
 1. **Created `scripts/delete_e2e_account.py`** — a reusable per-account deletion script that:
@@ -116,3 +118,4 @@ Le nettoyage lui-même (`_teardown_user_inner`) est correct et complet ; il n'es
 
 - The deletion script is idempotent: calling it multiple times on the same email is safe
 - No duplication: shared logic lives in one place (`purge_e2e_accounts.py`), imported by the per-account script
+<!-- SECTION:NOTES:END -->

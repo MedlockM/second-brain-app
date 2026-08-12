@@ -45,7 +45,9 @@ if str(_scripts_dir) not in sys.path:
 # Import shared selection rules and table topology from purge_e2e_accounts.py
 # to avoid drift. When a child table is added there, this script picks it up
 # automatically.
-from purge_e2e_accounts import (
+# E402 is unavoidable and deliberate: the sys.path insert above has to run
+# before this sibling import can resolve.
+from purge_e2e_accounts import (  # noqa: E402
     ALLOWED_SUFFIXES,
     E2E_EMAIL_DOMAIN,
     E2E_EMAIL_PREFIXES,
