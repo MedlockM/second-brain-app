@@ -57,11 +57,12 @@ La fixture `test_user` (scope session) crée un user avec un email horodaté `e2
 2. Pour chaque processing_job, supprime tous les artifacts associés via la GSI `media-item-index` de `media_artifacts`
 3. Supprime les processing_jobs eux-mêmes
 4. Supprime tags et folders
-5. Se re-logue pour obtenir un access token frais, puis supprime le user via `DELETE /api/v1/users/{id}` (puis fallback DynamoDB direct)
+5. Se re-logue pour obtenir un access token frais, puis supprime le user via `DELETE /api/account` (puis fallback DynamoDB direct)
 6. Supprime les auth_tokens **en dernier**, y compris ceux créés par ce login
 
-La route de suppression est authentifiée depuis `task-222` et n'accepte que l'id
-du compte appelant. Le teardown se re-logue juste avant le DELETE plutôt que de
+La route de suppression est authentifiée et déduit le compte de la session : elle
+ne prend aucun id (`task-224`), et purge l'intégralité des données du compte, pas
+seulement la ligne `users`. Le teardown se re-logue juste avant le DELETE plutôt que de
 réutiliser la fixture `auth_token` (scope session), qui peut avoir expiré sur une
 run longue. Si le login échoue, le teardown passe directement au fallback
 DynamoDB.

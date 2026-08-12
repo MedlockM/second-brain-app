@@ -85,6 +85,37 @@ async def get_media_artifact_by_id(artifact_id: str) -> Optional[MediaArtifactRe
         return MediaArtifactRecord.from_dynamodb_item(item)
 
 
+async def delete_media_artifact(artifact_id: str) -> None:
+    """Delete one artifact row. Idempotent: a missing row is a silent no-op."""
+    session = database_async.get_session()
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
+        await table.delete_item(Key={"artifact_id": artifact_id})
+
+
+async def delete_request_pointer(request_fingerprint: str) -> None:
+    """Delete the request pointer of one (media item, artifact type, params).
+
+    The pointer lives in the same table under a ``request#`` id and carries no
+    ``media_item_id``, so it is invisible to the media-item index: the account
+    purge has to delete it from the fingerprint stored on the artifact row.
+    Leaving it behind would keep a dangling ``active_artifact_id`` that a later
+    request for identical content could resolve to a deleted artifact.
+    """
+    session = database_async.get_session()
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
+        await table.delete_item(
+            Key={"artifact_id": build_request_pointer_id(request_fingerprint)}
+        )
+
+
 async def get_request_pointer(request_fingerprint: str) -> Optional[Dict[str, Any]]:
     session = database_async.get_session()
     async with session.resource(

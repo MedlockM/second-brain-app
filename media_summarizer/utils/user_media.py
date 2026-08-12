@@ -17,9 +17,11 @@ convention, because both were violated in the incident this table exists to fix:
       never overwrite the folder or tags a user set from another device.
 
   I2  ``purge_at`` and ``deleted_at`` are rejected by the generic update helper.
-      Writing them requires ``mark_deleted``, which does not exist yet: no
-      user-deletion use case ships in Phase 1, so in Phase 1 *nothing* can set a
-      TTL on a library row. That is the point.
+      Writing them requires ``mark_deleted``, which still does not exist: no
+      per-item deletion use case ships yet, so *nothing* can set a TTL on a
+      library row. That is the point. Account deletion (task-224) is a different
+      use case and uses ``delete_all_for_user``, which removes the rows outright
+      instead of scheduling them -- an erasure request is not a soft delete.
 
 Table name resolution is lazy on purpose. ``required_env`` raises when the
 variable is missing, and this module is imported by the API save path; resolving
@@ -34,6 +36,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from media_summarizer.core.models.user_media import (
@@ -141,6 +144,77 @@ async def get_user_media(user_id: str, media_item_id: str) -> Optional[UserMedia
         )
         item = resp.get("Item")
         return UserMediaRecord.from_dynamodb_item(item) if item else None
+
+
+async def list_all_for_user(user_id: str) -> List[UserMediaRecord]:
+    """Every library row of one user, fully paginated.
+
+    Queries the base table rather than an LSI: the caller is the account purge,
+    which needs *all* rows including any whose ``saved_at`` or ``folder_sort_key``
+    a future writer might leave unset. A projection would be cheaper but the rows
+    are needed whole to reach the artifacts keyed by ``media_item_id``.
+    """
+    table_name = user_media_table_name()
+    session = database_async.get_session()
+    records: List[UserMediaRecord] = []
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        kwargs: Dict[str, Any] = {
+            "KeyConditionExpression": Key("user_id").eq(user_id),
+        }
+        while True:
+            resp = await table.query(**kwargs)
+            for item in resp.get("Items", []):
+                records.append(UserMediaRecord.from_dynamodb_item(item))
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            kwargs["ExclusiveStartKey"] = last_key
+    return records
+
+
+async def delete_all_for_user(user_id: str) -> int:
+    """Hard-delete every library row of one user. Account deletion only.
+
+    This is the "user-initiated deletion use case" invariant I2 was holding the
+    door open for, and it deliberately does *not* go through ``purge_at``: an
+    erasure request under GDPR art. 17 removes the row now, it does not schedule
+    it for later. The TTL therefore stays unused, and ``mark_deleted`` (per-item
+    soft deletion) still does not exist.
+
+    Idempotent: deleting an already-deleted partition is a no-op that returns 0.
+    """
+    table_name = user_media_table_name()
+    session = database_async.get_session()
+    deleted = 0
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        kwargs: Dict[str, Any] = {
+            "KeyConditionExpression": Key("user_id").eq(user_id),
+            "ProjectionExpression": "user_id, media_item_id",
+        }
+        while True:
+            resp = await table.query(**kwargs)
+            for item in resp.get("Items", []):
+                await table.delete_item(
+                    Key={
+                        "user_id": item["user_id"],
+                        "media_item_id": item["media_item_id"],
+                    }
+                )
+                deleted += 1
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            kwargs["ExclusiveStartKey"] = last_key
+    logger.info("user_media: deleted %d library rows for user %s", deleted, user_id)
+    return deleted
 
 
 async def update_attributes(

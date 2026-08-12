@@ -131,6 +131,24 @@ async def get_translation_lock(
         return TranslationLock.from_dynamodb_item(item)
 
 
+async def delete_translation_lock(translation_fingerprint: str) -> None:
+    """Delete one translation lock. Idempotent.
+
+    Safe to call per user, unlike the artifact generation lock: the fingerprint
+    hashes the transcript S3 key, and transcript keys are per job, so a lock is
+    never shared between two accounts.
+    """
+    session = database_async.get_session()
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(TRANSLATION_IDEMPOTENCE_TABLE)
+        await table.delete_item(
+            Key={"translation_fingerprint": translation_fingerprint}
+        )
+
+
 async def reserve_translation(
     *,
     transcript_s3_key: str,

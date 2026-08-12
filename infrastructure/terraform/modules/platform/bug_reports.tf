@@ -103,10 +103,14 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "bug_reports" {
   }
 }
 
-# IAM Policy for API to generate presigned URLs and head objects
+# IAM Policy for API to generate presigned URLs and head objects.
+# DeleteObject is required by the account purge (task-224): a bug report
+# screenshot is user-submitted personal data, so an erasure request has to reach
+# it. Without this permission, any user who ever attached a screenshot gets a 500
+# on account deletion instead of an erasure.
 resource "aws_iam_policy" "bug_reports_s3" {
   name        = "${var.project_name}-bug-reports-s3${local.suffix}"
-  description = "Allows the API to generate presigned PUT URLs and validate uploaded bug report attachments."
+  description = "Allows the API to manage bug report attachments (presigned PUT, validation, erasure)."
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -116,7 +120,8 @@ resource "aws_iam_policy" "bug_reports_s3" {
         Action = [
           "s3:PutObject",
           "s3:GetObject",
-          "s3:HeadObject"
+          "s3:HeadObject",
+          "s3:DeleteObject"
         ]
         Resource = "${aws_s3_bucket.bug_reports.arn}/*"
       }

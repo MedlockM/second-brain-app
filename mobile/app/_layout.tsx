@@ -109,6 +109,12 @@ export default function RootLayout() {
                     animation: "slide_from_right",
                   }}
                 />
+                <Stack.Screen
+                  name="settings/delete-account"
+                  options={{
+                    animation: "slide_from_right",
+                  }}
+                />
                 {/* Opened from the Account tab and from a quota refusal on the
                     share confirmation screen, so it presents over whatever
                     pushed it and dismisses back to it. */}

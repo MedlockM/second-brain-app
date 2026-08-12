@@ -149,13 +149,13 @@ These are **not** considered "sharing" under Google Play Data Safety because the
 ### How can users request deletion?
 
 1. **In-app:** Users can delete individual media items and their associated artifacts
-2. **Account deletion:** Available through account settings or by contacting support
-3. **Email:** Users can email privacy@mediasummarizer.com to request full data deletion
+2. **Account deletion:** In-app, from Account > Delete Account (no support request needed)
+3. **Email:** Users can email privacy@mediasummarizer.com to request full data deletion, for users who lost access to the app
 
 ### Deletion timeline
 
 - Individual items: deleted immediately
-- Full account deletion: all data permanently removed within 30 days
+- Full account deletion: erased from live systems immediately; encrypted infrastructure backups expire within 35 days
 
 ### What data may be retained after deletion?
 

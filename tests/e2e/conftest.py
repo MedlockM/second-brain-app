@@ -240,18 +240,16 @@ async def _teardown_user_inner(
             )
 
     # 5. Delete the user — try the authenticated API first (exercises the real
-    # flow), fallback to direct DB delete. The DELETE route is authenticated
-    # and only accepts the caller's own id (task-222), so log in again here: the
+    # flow), fallback to direct DB delete. The route derives the account from the
+    # session and takes no id (task-224), so log in again here: the
     # session-scoped `auth_token` fixture may have expired over a long run.
     api_ok = False
     delete_headers = await _login_headers(client, user)
     if delete_headers:
         try:
-            resp = await client.delete(
-                f"/api/v1/users/{user_id}", headers=delete_headers
-            )
+            resp = await client.delete("/api/account", headers=delete_headers)
             api_ok = resp.status_code in (200, 204, 404)
-            print(f"[e2e]   api DELETE /users/{user_id} -> {resp.status_code}")
+            print(f"[e2e]   api DELETE /api/account ({user_id}) -> {resp.status_code}")
         except Exception as exc:
             print(f"[e2e]   api DELETE failed: {exc!r}")
     if not api_ok:
