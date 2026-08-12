@@ -4,18 +4,77 @@ Provisions all AWS resources for the V1 stack: DynamoDB tables, S3 buckets,
 SQS queues, Lambda functions (API + workers), API Gateway HTTP API, ECR,
 Secrets Manager, IAM, CloudWatch dashboards/alarms.
 
-## Architecture (Lambda-only, no ECS)
+## Layout: one root per environment over one shared module
 
-All backend compute runs as AWS Lambda functions deployed as ARM64 container
-images from a shared ECR repository. The FastAPI API is fronted by API Gateway
-HTTP API. Workers are triggered by SQS event source mappings (one Lambda per
-queue). No VPC is required.
+Per the validated benchmark
+(`docs/research/task-221-terraform-multi-env-isolation/README.md`, owner
+decision: **option B**), each environment is a **separate root directory** with
+its own **literal** backend key and its own **literal** `environment` value:
+
+```
+infrastructure/terraform/
+  envs/dev/       key = "env/dev/terraform.tfstate"        environment = "dev"
+  envs/staging/   key = "env/staging/terraform.tfstate"    environment = "staging"
+  envs/prod/      key = "env/prod/terraform.tfstate"       environment = "prod"   # NEVER APPLIED YET
+  shared/         key = "env/shared/terraform.tfstate"     account-scoped singletons (ECR)
+  modules/platform/   every resource, parameterised by `environment`
+```
+
+Nothing is interpolated into a backend key and nothing is passed on the command
+line to select an environment. **The directory you `cd` into is the
+environment.** That is the property the whole design rests on: a plan run in
+`envs/staging` can only ever propose changes to resources present in staging's
+state, so it structurally cannot touch dev.
+
+Every physical resource name carries a mandatory `-${var.environment}` suffix
+(`local.suffix` in `modules/platform/locals.tf`). There is no unsuffixed name
+left in the module.
+
+> **Never** run Terraform from `infrastructure/terraform/` itself — it is not a
+> root module. The historical single-root layout, where you copied
+> `terraform.tfvars` and edited `environment` to switch target, is **gone**. It
+> was unsafe by construction: one state file, one set of names, and a one-word
+> edit between "I am changing dev" and "I am changing prod".
+
+## Plan and apply
+
+```bash
+cd infrastructure/terraform/envs/dev        # the directory IS the environment
+terraform init
+terraform plan -out=tfplan
+
+# Gate the plan before applying it. From the repo root:
+scripts/tf_plan_guard.sh dev tfplan staging   # cross-check against staging names
+
+terraform apply tfplan                       # apply the reviewed plan, not a fresh one
+```
+
+Applying the **saved plan file** rather than re-planning is deliberate: it
+guarantees what the guard inspected is exactly what gets applied.
+
+`scripts/tf_plan_guard.sh <env> <planfile> [other-env ...]` implements layers
+2-4 of the proof suite from the benchmark §6: it refuses a plan that deletes a
+table, bucket, secret or the ECR repository; it verifies every created name ends
+in `-<env>`; and, given other environment names, it verifies the plan touches
+none of them. Pass `--allow-replace` only when replacing genuinely stateless
+resources, and read what it lists before accepting.
+
+Checking for drift:
+
+```bash
+terraform plan -detailed-exitcode      # 0 = no changes, 2 = changes pending
+```
+
+Note that `plan -refresh-only -detailed-exitcode` returns `2` even on a freshly
+applied environment with the aws 5.x provider — that is computed-attribute
+normalisation, not real drift. The assertion that means something is
+`plan -detailed-exitcode` = `0`.
 
 ## Where do secrets live?
 
-Application code (`media_summarizer/core/config.py`) reads every secret via
-`os.getenv(...)`. The config module never calls Secrets Manager directly.
-Where the env var comes from depends on the runtime:
+Application code reads every secret via `os.getenv(...)`. The config module
+never calls Secrets Manager directly. Where the env var comes from depends on
+the runtime:
 
 | Runtime | Source |
 |---|---|
@@ -23,55 +82,75 @@ Where the env var comes from depends on the runtime:
 | Lambda (API + workers) | Fetched from Secrets Manager at cold start by the handler init code (`lambda_handler.py` / `lambda_handlers.py`) and injected into `os.environ` |
 | GitHub Actions (mobile builds, infra deploys) | repo secrets injected as env vars in the workflow |
 
-The single source of truth in production is the `media-summarizer-runtime-<env>`
-Secrets Manager entry created by `secrets.tf`.
+**AWS resource names are not secrets and do not come from this path.** Terraform
+injects all of them into the Lambdas from
+`modules/platform/runtime_env.tf`, and `media_summarizer/utils/required_env()`
+raises if one is missing. There is deliberately no fallback: a Lambda with a
+missing `USERS_TABLE` used to silently read and write the *dev* `users` table,
+which with three environments in one account is a cross-environment corruption
+bug. Loud failure is the intended behaviour.
 
-## CloudWatch Alarms and Monitoring
+### Populating a runtime secret (out-of-band, never via Terraform)
 
-### Enabling Alarms (enable_alarms variable)
-
-By default, CloudWatch alarms are **disabled** (`enable_alarms = false`) to minimize costs in dev environments (~$4.20/month per environment when enabled).
-
-To enable alarms for staging and production:
-
-```bash
-# Edit terraform.tfvars and set:
-enable_alarms = true
-```
-
-When enabled:
-- 42 CloudWatch alarms are provisioned (one per stage, per worker type, for SQS DLQs, etc.)
-- 1 SNS topic (`pipeline_alerts`) is created for routing all alarm notifications
-- Monthly cost: approximately $4.20 per environment (42 alarms × $0.10/alarm)
-
-When disabled:
-- All alarms and the SNS topic are skipped (zero cost for monitoring infrastructure)
-- Log groups for Lambda functions are still created and retained
-
-See `pipeline_alerts.tf` for the complete list of alarms and their SLOs.
-
-## Bootstrapping a new environment
+Terraform creates the secret **shell only** and never writes its value
+(benchmark §7.3): `secret_string` is stored in **plaintext inside the state
+file**, so letting Terraform manage it would mean three plaintext copies of
+every third-party credential in the state bucket. `secrets.tf` carries
+`lifecycle { ignore_changes = [secret_string] }`, so Terraform will never
+propose to overwrite what you put there.
 
 ```bash
-cd infrastructure/terraform
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars: set environment (dev/staging/prod), secret_payload, enable_alarms
-terraform init
-terraform plan
-terraform apply
+aws secretsmanager put-secret-value \
+  --secret-id media-summarizer-runtime-<env> \
+  --region eu-west-3 \
+  --secret-string file://runtime-secrets.json
+
+rm runtime-secrets.json      # do not leave it on disk
 ```
 
-`secret_payload` is `sensitive = true` and the resource has
-`lifecycle { ignore_changes = [secret_string] }` so once applied, operators can
-rotate values directly in the AWS Console without Terraform reverting them.
+Then redeploy the consumers so a cold start picks up the new values.
 
-To force-update from Terraform after a rotation, comment out the
-`ignore_changes` line, run `apply`, then restore it.
+Each environment **must** get its **own** third-party credentials — RevenueCat
+sandbox vs live, a distinct `JWT_SECRET_KEY`, separate Apify / Deepgram /
+OpenAI keys (at minimum for cost attribution) and a distinct
+`ALGOLIA_INDEX_NAME`. Do **not** copy dev's payload into staging: it would
+point staging at dev's Algolia index and bill both environments to the same
+keys.
+
+Renaming or deleting a secret is not free: Secrets Manager holds a deleted name
+for a 7-30 day recovery window during which it cannot be reused.
+
+## CloudWatch alarms
+
+Alarms are enabled per environment through the `enable_alarms` variable, set in
+the environment's `main.tf` — not in a tfvars file:
+
+| Environment | `enable_alarms` |
+|---|---|
+| dev | `false` — keeps dev free of monitoring cost |
+| staging | `true` |
+| prod | `true` |
+
+When enabled, one SNS topic (`*-pipeline-alerts-<env>`) and **43 alarms** are
+provisioned — 7 alarm blocks, most fanned out per worker or per DLQ via
+`for_each`, which is why the count is not the number of `resource` blocks. That
+is the figure measured on staging (`terraform state list`), not the estimate of
+42 in the benchmark. Cost is roughly $4.30/month per environment. When disabled,
+alarms and the topic are skipped entirely; Lambda log groups are still created
+and retained. See `modules/platform/pipeline_alerts.tf`.
+
+## Copying data between environments
+
+`scripts/dynamo_copy_env.py` scans a table set and writes it into the
+correspondingly suffixed tables of another environment. It was written for the
+dev migration onto suffixed names and is the tool to reach for when seeding
+staging from dev — with the same caveat as secrets: seed only data you are
+willing to duplicate.
 
 ## Deploying code changes
 
-After `terraform apply` creates the infrastructure, deploy code by building and
-pushing the Lambda container image:
+After the infrastructure exists, deploy code by building and pushing the Lambda
+container image:
 
 ```bash
 # Build for ARM64
@@ -82,26 +161,31 @@ docker buildx build --platform linux/arm64 \
   --push .
 
 # Update Lambda functions to use the new image
-aws lambda update-function-code --function-name media-summarizer-api --image-uri <ecr-url>:api-latest
-aws lambda update-function-code --function-name media-summarizer-worker-<name> --image-uri <ecr-url>:worker-latest
+aws lambda update-function-code --function-name media-summarizer-api-<env> --image-uri <ecr-url>:api-latest
+aws lambda update-function-code --function-name media-summarizer-worker-<name>-<env> --image-uri <ecr-url>:worker-latest
 ```
 
 This is automated by `.github/workflows/deploy-lambda.yml` on push to main.
 
 ## Files
 
-| File | Role |
+| Path | Role |
 |---|---|
-| `main.tf` | Provider configuration, shared variables, data sources |
-| `secrets.tf` | Consolidated runtime secret + read policy + outputs |
-| `terraform.tfvars.example` | Template for `terraform.tfvars` (gitignored) |
-| `sqs.tf` | SQS queues and dead-letter queues |
-| `s3.tf` | S3 buckets for media pipeline |
-| `ecr.tf` | ECR repository for Lambda container images |
-| `iam_lambda.tf` | IAM roles and policies for Lambda functions |
-| `lambda_workers.tf` | Worker Lambda functions + SQS event source mappings + CloudWatch log groups |
-| `lambda_api.tf` | API Lambda + API Gateway HTTP API + CloudWatch log group |
-| `dynamodb_*.tf` | DynamoDB tables |
-| `pipeline_alerts.tf` | Pipeline-specific alerting rules + SNS topic for alerts |
-| `pipeline_dashboard.tf` | Pipeline observability dashboard + metric filters |
-| `archiving.tf` | Archive bucket + lifecycle + archiver Lambda |
+| `envs/<env>/main.tf` | Backend key + provider + one `module "platform"` call with the literal environment |
+| `envs/<env>/outputs.tf` | Environment outputs (API endpoint, secret name, ...) |
+| `shared/ecr.tf` | The one ECR repository shared by all environments |
+| `modules/platform/locals.tf` | `local.suffix = "-${var.environment}"` |
+| `modules/platform/variables.tf` | `environment`, `aws_region`, `project_name`, `enable_alarms`, `ecr_repository_url` (`alert_email` is declared in `pipeline_dashboard.tf`) |
+| `modules/platform/secrets.tf` | Runtime secret shell + read policy + outputs |
+| `modules/platform/runtime_env.tf` | Single source of truth for the resource names injected into the Lambdas |
+| `modules/platform/sqs.tf` | SQS queues and dead-letter queues |
+| `modules/platform/s3.tf` | S3 buckets for the media pipeline |
+| `modules/platform/iam_lambda.tf` | IAM roles and policies for the Lambdas |
+| `modules/platform/lambda_workers.tf` | Worker Lambdas + SQS event source mappings + log groups |
+| `modules/platform/lambda_api.tf` | API Lambda + API Gateway HTTP API + log group |
+| `modules/platform/dynamodb_*.tf` | DynamoDB tables |
+| `modules/platform/pipeline_alerts.tf` | Alerting rules + SNS topic |
+| `modules/platform/pipeline_dashboard.tf` | Observability dashboard + metric filters |
+| `modules/platform/archiving.tf` | Archive bucket + lifecycle + archiver Lambda |
+| `scripts/tf_plan_guard.sh` | Refuses a plan that crosses environments or destroys stateful resources |
+| `scripts/dynamo_copy_env.py` | Copies table contents between environment suffixes |
