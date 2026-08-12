@@ -66,12 +66,12 @@ Le nettoyage lui-même (`_teardown_user_inner`) est correct et complet ; il n'es
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [x] #1 A local pytest E2E run deletes its e2e-test-* account: the account count in users-dev is unchanged before and after the run
+- [ ] #1 A local pytest E2E run deletes its e2e-test-* account: the account count in users-dev is unchanged before and after the run
 - [x] #2 The teardown no longer returns silently when database_async cannot be imported — either the import succeeds, or the failure is loud enough to be noticed in the run output
 - [x] #3 The Maestro workflow deletes the e2e-register-* account it created, in a step that runs on red runs too and never fails the job
 - [x] #4 Both teardowns remove the account's rows in the linked tables (auth_tokens, processing_jobs, user_usage_monthly, ...), not just the users row
 - [x] #5 Both teardowns cover the unsuffixed users table as well as users-dev, for as long as the historical tables coexist
-- [x] #6 Two consecutive full CI runs leave the account count in users-dev and users unchanged
+- [ ] #6 Two consecutive full CI runs leave the account count in users-dev and users unchanged
 - [x] #7 The permanent E2E account designated by E2E_TEST_USER_EMAIL is never deleted by either teardown
 <!-- AC:END -->
 
@@ -79,17 +79,16 @@ Le nettoyage lui-même (`_teardown_user_inner`) est correct et complet ; il n'es
 
 **Delivered:**
 
-1. **Created `scripts/delete_e2e_account.py`** — a reusable deletion script that:
+1. **Created `scripts/delete_e2e_account.py`** — a reusable per-account deletion script that:
    - Takes an email as argument and deletes the account + all child rows from both `-dev` and unsuffixed tables
-   - Reuses the table topology and deletion logic from `purge_e2e_accounts.py` (task-246)
-   - Covers all child tables: `auth_tokens`, `processing_jobs`, `user_tags`, `user_folders`, `user_media_submissions`, `user_usage_monthly`, `media_artifacts`
-   - Respects `PROTECTED_EMAILS` (includes `e2e-maestro-20260809200952@test.local`)
+   - **Imports** shared selection rules and table topology from `purge_e2e_accounts.py` to avoid drift (scope item 3: "réutiliser le balayage au lieu d'en écrire un second")
+   - When a child table is added to the purge script, this script automatically picks it up
    - Never fails: exits 0 even if the account doesn't exist or is protected
    - Designed to be called from both test teardowns and CI cleanup steps
 
 2. **Fixed pytest teardown** (`tests/e2e/conftest.py`):
-   - Exported required table env vars (`USERS_TABLE`, `PROCESSING_JOBS_TABLE`, etc.) before any `media_summarizer` import to prevent the `required_env()` RuntimeError that was silently skipping the teardown
-   - Replaced the old manual teardown logic (which only touched `-dev` tables and missed `user_media_submissions` and `user_usage_monthly`) with a call to `delete_e2e_account.py`
+   - Exported required table env vars (`USERS_TABLE`, `PROCESSING_JOBS_TABLE`, etc.) at module load (before any `media_summarizer` import) to prevent the `required_env()` RuntimeError that was silently skipping the teardown
+   - Replaced the old manual teardown logic with a call to `delete_e2e_account.py`
    - The new teardown is comprehensive, consistent with the purge script, and covers both table suffixes
 
 3. **Added Maestro CI cleanup steps** (`.github/workflows/mobile-e2e-maestro.yml`):
@@ -100,20 +99,20 @@ Le nettoyage lui-même (`_teardown_user_inner`) est correct et complet ; il n'es
    - Android deletes `e2e-register-<run_id>-<attempt>-android@test.local`
    - iOS deletes `e2e-register-<run_id>-<attempt>-ios@test.local`
 
-**Verification:**
+**What was verified:**
 
-- Verified the script correctly rejects non-purgeable accounts (wrong prefix, wrong domain, protected)
-- Verified the script handles non-existent accounts gracefully (exits 0)
-- Syntax-checked `conftest.py` and the deletion script
-- Confirmed DynamoDB access works (current count: 2 accounts in `users-dev`)
+- AC #2: conftest.py now exports `*_TABLE` env vars at module load, so `database_async` import succeeds
+- AC #3: workflow steps have `if: always()` and `continue-on-error: true`, verified by inspection
+- AC #4: `delete_e2e_account.py` calls `collect_children()` from `purge_e2e_accounts.py`, which sweeps all child tables including `user_media_submissions` and `user_usage_monthly`
+- AC #5: `ALLOWED_SUFFIXES = ("-dev", "")` imported from purge script; both suffixes are swept
+- AC #7: `PROTECTED_EMAILS` imported from purge script includes `e2e-maestro-20260809200952@test.local`; verified the script rejects it
 
-**Owner verification needed:**
+**What needs owner verification:**
 
-- AC #1: Run a local pytest E2E session and verify the throwaway account is deleted (count unchanged)
-- AC #6: Trigger two consecutive Maestro CI runs (workflow_dispatch) and verify the cleanup steps run and the account count remains stable
+- AC #1: Run a local pytest E2E session (`pytest tests/e2e/`) and confirm the throwaway account is deleted. Before/after DynamoDB scan counts should match.
+- AC #6: Trigger two consecutive Maestro CI runs (workflow_dispatch) and confirm both cleanup steps execute and the final account count in `users-dev` and `users` is unchanged from baseline.
 
 **Notes:**
 
 - The deletion script is idempotent: calling it multiple times on the same email is safe
-- The script uses `boto3.client("dynamodb")` low-level API (like `purge_e2e_accounts.py`) to handle both `-dev` and unsuffixed tables consistently
-- The permanent E2E account (`e2e-maestro-20260809200952@test.local`) is protected at the script level, so it can never be deleted by accident even if the caller passes it explicitly
+- No duplication: shared logic lives in one place (`purge_e2e_accounts.py`), imported by the per-account script
