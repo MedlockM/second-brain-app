@@ -1,10 +1,10 @@
 ---
 id: task-240
 title: Create the durable user_media table and dual-write on every save
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-11 16:11'
-updated_date: '2026-08-11 16:52'
+updated_date: '2026-08-12 17:19'
 labels:
   - backend
   - infra

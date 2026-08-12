@@ -3,10 +3,10 @@ id: task-245
 title: >-
   Surface subscription state in the mobile app (isSubscribed is computed but
   never consumed)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-11 16:24'
-updated_date: '2026-08-12 17:30'
+updated_date: '2026-08-12 17:01'
 labels:
   - mobile
   - billing
