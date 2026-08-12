@@ -3,10 +3,10 @@ id: task-245
 title: >-
   Surface subscription state in the mobile app (isSubscribed is computed but
   never consumed)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-11 16:24'
-updated_date: '2026-08-12 17:01'
+updated_date: '2026-08-12 18:35'
 labels:
   - mobile
   - billing
@@ -26,25 +26,35 @@ priority: medium
 
 L'utilisateur n'a donc aujourd'hui **aucun moyen de voir** son tier, ses minutes restantes ou la date de fin de période, alors que le backend fournit tout.
 
-## À clarifier avec l'owner avant implémentation
+## Décision de l'owner — 2026-08-12 : affichage seul, pas de grisage
 
-Le vrai « gating » (restreindre des fonctionnalités selon le tier) est déjà assuré **côté backend** par `quota_enforcer.py` (task-110, Done), qui est la seule place où il est fiable — un gating purement client serait contournable. La question ouverte est donc :
+**Réponse : display-only. Aucun grisage préventif côté client.** La question posée ci-dessous est donc tranchée, et le critère #1 est satisfait par cette section.
 
-- Faut-il seulement **afficher** l'état (tier + minutes restantes dans Account, éventuellement un indicateur d'approche de limite) ?
-- Ou aussi **désactiver côté client** certaines actions par anticipation (griser l'import audio quand le solde est épuisé), pour éviter un aller-retour réseau soldé par une erreur ?
+Ce qui a instruit la décision, vérifié dans le code le 2026-08-12 :
 
-Trancher ce point avant de coder : la première option est un affichage, la seconde duplique une règle métier côté client et doit rester cosmétique.
+- **Il n'existe aucun bouton d'import dans l'app.** Le seul chemin d'entrée de contenu est le share intent du système (`ShareIntentContext` → `MediaService.ingestUrl`). Hors `bug-report.tsx`, aucun picker de fichier ; `search.tsx`, `media/[id].tsx` et `collections` ne font que lire. Il n'y a donc quasiment rien à griser — la feuille de partage d'iOS/Android n'est pas désactivable par l'app.
+- **Le refus est déjà traité correctement** au seul endroit où il peut survenir. `share-confirmation.tsx:308-345` affiche un état dédié : icône cadenas plutôt qu'erreur rouge, titre issu de `quotaError.ts`, message chiffré venant du backend, et bouton « See plans » **uniquement** quand l'achat résout réellement le refus (`quotaErrorOffersUpgrade`, vrai pour `tier_quota_exceeded` seulement). Livré par task-244.
+- **Le seul candidat crédible au grisage était la génération d'artifact** (`media/[id].tsx:547`), et `api/endpoints/artifacts.py` **n'appelle pas** `quota_enforcer` : la griser côté client inventerait une règle que le backend n'applique pas.
 
-## Scope indicatif (à confirmer selon la réponse ci-dessus)
+Question de départ, conservée pour mémoire : fallait-il seulement afficher l'état, ou aussi désactiver côté client certaines actions par anticipation ? Le gating réel reste assuré **côté backend** par `quota_enforcer.py` (task-110), seule place où il est fiable.
+
+## Trouvaille en marge de cette tâche → task-250 / task-251
+
+L'instruction de la question ci-dessus a mis au jour un bug de comptabilité **indépendant de cette tâche** : le quota « minutes d'audio » compte en réalité les *imports* audio, pas les minutes. Au partage, `check_submission_allowed` et `record_submission` sont appelés avec `duration_seconds=0` (la durée est inconnue avant résolution de l'URL), ce qui débite 1 minute forfaitaire ; la durée réelle recalculée par `deepgram_worker.py:686` est émise dans l'événement SQS mais **jamais consommée**.
+
+Conséquence : les « minutes restantes » affichées par la carte livrée ici sont fidèles à ce que renvoie le backend, mais ce chiffre n'a pas le sens que son libellé annonce. **La carte n'est pas en cause** — le trou est en amont. Traité par le benchmark task-250 et l'implémentation task-251.
+
+## Scope, arrêté par la décision ci-dessus
 
 1. Afficher dans l'onglet Account le tier courant, les minutes restantes et la fin de période à partir de `entitlementStatus`.
 2. Gérer les états `null` / chargement / erreur réseau sans casser l'écran (l'endpoint peut échouer : `PurchasesContext.tsx` logge déjà l'erreur et laisse `entitlementStatus` à `null`).
-3. Optionnel selon décision : indication anticipée quand le solde est proche de zéro, complémentaire au refus backend traité par task-244.
 
 ## Hors scope
 
 - Les points d'entrée du paywall (task-244).
 - Toute règle d'enforcement côté client qui remplacerait `quota_enforcer.py`.
+- **Le grisage préventif d'actions côté client** — écarté par la décision du 2026-08-12.
+- **L'indication anticipée d'approche de limite** — retirée du scope avec le grisage : elle reposerait sur un solde dont la sémantique est fausse tant que task-251 n'a pas corrigé la comptabilité.
 
 ## Références
 
@@ -52,11 +62,12 @@ Trancher ce point avant de coder : la première option est un affichage, la seco
 - `media_summarizer/api/endpoints/entitlements.py`
 - `media_summarizer/core/services/quota_enforcer.py`, task-110 (enforcement backend, Done)
 - task-244 (points d'entrée paywall + traitement des refus de quota)
+- task-250 / task-251 (le compteur de minutes compte des imports, pas des minutes — trouvé en instruisant cette tâche)
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The owner has confirmed whether the scope is display-only or also includes client-side pre-emptive disabling, and the task description records the answer
+- [x] #1 The owner has confirmed whether the scope is display-only or also includes client-side pre-emptive disabling, and the task description records the answer
 - [x] #2 The Account tab shows the current tier, remaining minutes, and period end from entitlementStatus
 - [x] #3 A null or failed entitlements response leaves the Account tab usable, with no crash and no misleading 'free tier' claim
 - [x] #4 usePurchases is consumed by at least one screen other than paywall.tsx
@@ -65,9 +76,11 @@ Trancher ce point avant de coder : la première option est un affichage, la seco
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-## Scope question still open — implemented display-only
+## Scope question at implementation time — implemented display-only
 
-The question recorded in the description (display-only vs. also disabling actions client-side before the network round-trip) **was not answered by the owner**, and nothing here should be read as an answer. This run implemented **option 1 only, display**, which is the conservative reading: option 2 duplicates a business rule that only `quota_enforcer.py` can enforce reliably, and the description itself flags it as having to stay cosmetic. AC #1 is therefore left unchecked.
+> **Périmé depuis le 2026-08-12, conservé pour l'historique.** L'owner a depuis tranché *display-only, sans grisage* (voir « Clôture par l'owner » en bas de ces notes et « Décision de l'owner » dans la description). Le choix conservateur de cet agent se trouve être celui retenu : rien à reprendre. Le paragraphe « If the owner later picks… » ci-dessous ne décrit donc plus un reste-à-faire.
+
+The question recorded in the description (display-only vs. also disabling actions client-side before the network round-trip) **was not answered by the owner** *at the time of this run*, and nothing here should be read as an answer. This run implemented **option 1 only, display**, which is the conservative reading: option 2 duplicates a business rule that only `quota_enforcer.py` can enforce reliably, and the description itself flags it as having to stay cosmetic. AC #1 was therefore left unchecked by the implementer.
 
 If the owner later picks the pre-emptive-disabling variant, what remains to do is scoped and small:
 
@@ -113,4 +126,10 @@ Amber Clarity tokens only (`Colors`, `Typography`, `Spacing`, `BorderRadius`, `S
 - `cd mobile && npm run lint` — 0 errors, 10 warnings, all pre-existing and none in the three files touched (`npx eslint` on those three files alone: silent).
 - No automated tests added, per the project rule for this agent. No Maestro assertion was added on the new card for the same reason; the existing flows still traverse the Account tab and both `scrollUntilVisible` targets (`account-upgrade-button`, `account-sign-out-button`) keep working with one more card above the menu, since the body has been a `ScrollView` since task-244.
 - **Not verified on a device or simulator** (none available in the agent sandbox): the four card states were reasoned through statically, not rendered. Worth a look on first run: the two metric tiles side by side on a narrow screen (`AUDIO MIN LEFT` is the longest label, and wraps to two lines if it has to), and the unavailable state, which is easiest to trigger by killing the API host.
+
+## Clôture par l'owner — 2026-08-12
+
+Critère #1 satisfait : la décision est **display-only, sans grisage préventif**, inscrite dans la section « Décision de l'owner » de la description avec les trois constats de code qui l'ont motivée (aucun bouton d'import dans l'app, refus déjà traité par task-244 dans `share-confirmation.tsx`, et `artifacts.py` qui n'appelle pas `quota_enforcer`). Le scope a été resserré en conséquence : le grisage **et** l'indication anticipée d'approche de limite sont explicitement hors périmètre.
+
+Un défaut réel a été trouvé en instruisant la question, et il ne remet pas cette carte en cause : `minutes_remaining` est un compteur d'**imports** audio, pas de minutes (`duration_seconds=0` au partage, durée réelle jamais réconciliée). La carte affiche fidèlement ce que le backend renvoie ; c'est le backend qui compte faux. Suivi par **task-250** (benchmark des deux corrections possibles) et **task-251** (implémentation). Tant que task-251 n'est pas faite, le libellé « AUDIO MIN LEFT » surestime ce qui reste réellement disponible.
 <!-- SECTION:NOTES:END -->
