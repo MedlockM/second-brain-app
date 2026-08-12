@@ -57,6 +57,7 @@ from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models.media_artifact import MediaArtifactRecord
 from media_summarizer.core.ports.document_parser import DocumentFormat
 from media_summarizer.core.services import folder_service, media_search_service, tag_service
+from media_summarizer.core.services.durable_media_service import try_save_media_for_user
 from media_summarizer.core.services.media_search_service import SearchFilters
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
@@ -766,6 +767,21 @@ async def upload_document(
                 headers={"X-Quota-Error-Code": quota_result.error_code},
             )
 
+        # Media key for idempotence (user + filename + size). Computed before the
+        # job so it can seed the durable library id.
+        media_key = f"doc:{user.id}:{file_name}:{len(content)}"
+
+        # Durable library entry first (task-240, task-218 §4.3): the job, the S3
+        # object and the queue message are operational and may be retried; what
+        # the user saved must not depend on any of them surviving.
+        durable_media_item_id = await try_save_media_for_user(
+            user_id=user.id,
+            media_key=media_key,
+            title=file_name,
+            source_platform="document",
+            media_type="document",
+        )
+
         # Create processing job
         job = ProcessingJob(
             user_id=user.id,
@@ -774,6 +790,12 @@ async def upload_document(
             source_platform="document",
             media_type="document",
             title=file_name,
+            # Nullable pointer to the durable row; nothing reads it in Phase 1.
+            # media_key is deliberately NOT stored on the job: the canonical
+            # contract exposes `job.media_key or job.id` (see
+            # _build_media_item_contract), and populating it here would silently
+            # change a client-visible field that is out of this task's scope.
+            media_item_id=durable_media_item_id,
         )
         job = await database_async.create_processing_job(job)
 
@@ -788,9 +810,6 @@ async def upload_document(
             content_type=file.content_type or "application/octet-stream",
             metadata={"original-filename": file_name},
         )
-
-        # Generate a media_key for idempotence (based on user + filename + size)
-        media_key = f"doc:{user.id}:{file_name}:{len(content)}"
 
         # Enqueue document parsing message
         await sqs.send_message(
@@ -897,6 +916,13 @@ async def upload_audio(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+        # Same convention as the document upload: a deterministic key over
+        # (user, filename, size), so re-uploading the same file converges on the
+        # single library row it already has instead of duplicating it. Used only to
+        # derive the durable id -- not stored on the job, which would change the
+        # client-visible media_key of the canonical contract.
+        media_key = f"audio:{user.id}:{file_name}:{len(content)}"
+
         # Create processing job
         job = ProcessingJob(
             user_id=user.id,
@@ -944,6 +970,18 @@ async def upload_audio(
                     detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
                 )
             job.tag_ids = unique_tag_ids
+
+        # Durable library entry first (task-240, task-218 §4.3). Placed after tag
+        # validation so the library row carries the organization the user asked
+        # for, and before the job so nothing user-owned depends on the pipeline.
+        job.media_item_id = await try_save_media_for_user(
+            user_id=user.id,
+            media_key=media_key,
+            title=file_name,
+            source_platform="audio",
+            media_type="audio",
+            tag_ids=job.tag_ids,
+        )
 
         job = await database_async.create_processing_job(job)
 

@@ -19,6 +19,7 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.services.durable_media_service import try_save_media_for_user
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     normalize_transcript_text,
@@ -147,6 +148,26 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         - Handles direct transcription for shared text and Apify social video transcripts.
         - Manages idempotence via media_key deduplication.
         """
+        title = resolved.title or f"{resolved.source_platform.value}:{resolved.media_type.value}"
+
+        # The durable library entry is created FIRST (task-218 §4.3): everything
+        # below it -- the idempotence reservation, the processing job, the queue
+        # sends -- is operational state that may fail without the user losing what
+        # they saved. Placing it before the duplicate short-circuit is deliberate:
+        # a media_key already processed *globally* is still a brand-new library
+        # entry for THIS user, and that is the case §1.6.1 got wrong by handing
+        # the requesting user another user's job id.
+        durable_media_item_id = await try_save_media_for_user(
+            user_id=command.user.user_id,
+            media_key=resolved.media_key,
+            title=title,
+            source_url=resolved.normalized_url,
+            source_platform=resolved.source_platform.value,
+            media_type=resolved.media_type.value,
+            folder_id=command.request.folder_id,
+            tag_ids=list(dict.fromkeys(command.request.tag_ids or [])),
+        )
+
         existing = await episode_idempotence.already_processed(media_key=resolved.media_key)
         if existing and existing.get("job_id"):
             log_event(
@@ -156,13 +177,12 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 "Existing media submission reused through idempotence",
                 job_id=existing.get("job_id"),
                 media_item_id=existing.get("job_id"),
+                durable_media_item_id=durable_media_item_id,
                 resolver_key=resolved.resolver_key,
                 media_type=resolved.media_type.value,
                 source_platform=resolved.source_platform.value,
             )
             return _build_duplicate_outcome(resolved=resolved, existing=existing)
-
-        title = resolved.title or f"{resolved.source_platform.value}:{resolved.media_type.value}"
 
         job = ProcessingJob(
             user_id=command.user.user_id,
@@ -173,6 +193,10 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             title=title,
             source_platform=resolved.source_platform.value,
             media_type=resolved.media_type.value,
+            # Pointer from the operational row to the durable one. Nullable, and
+            # nothing reads it in Phase 1: it exists so the status mirror can find
+            # the library row, and so task-220 has the join it needs.
+            media_item_id=durable_media_item_id,
         )
 
         reservation_created = False

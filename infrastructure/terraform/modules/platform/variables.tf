@@ -44,6 +44,12 @@ variable "enable_worker_polling" {
   default     = true
 }
 
+variable "durable_media_enabled" {
+  description = "Whether every user save also writes the durable user_media library record (task-240, Phase 1 of the task-218 benchmark). The table is additive and orphan rows are harmless, so the rollback for the whole phase is flipping this to false. Reads still resolve through processing_jobs until task-220 flips them."
+  type        = bool
+  default     = true
+}
+
 variable "ecr_repository_url" {
   description = "URL of the shared Lambda ECR repository, owned by ../../shared and passed in from the environment root."
   type        = string

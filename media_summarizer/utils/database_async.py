@@ -353,6 +353,35 @@ async def get_processing_jobs_by_status(status: JobStatus) -> List[ProcessingJob
         raise
 
 
+async def _mirror_job_to_durable_library(job: ProcessingJob) -> None:
+    """Refresh the durable library row's denormalised snapshot (task-240).
+
+    Hooked here rather than at each of the ~15 worker call sites, because a status
+    transition that forgets to mirror is invisible: the library row would keep
+    saying "pending" forever and the metadata the workers resolve late (a YouTube
+    title, an audio duration) would never reach the durable record.
+
+    Strictly best-effort and never raising: the durable row is a *denormalisation*
+    of state that has already been committed to processing_jobs one line above.
+    A failure here is logged as the alarmed durable_media.write_failed event by
+    the service, so it is reported without turning a cosmetic staleness into a
+    pipeline failure.
+
+    Imported lazily: the service depends on this module, so a top-level import
+    would be circular.
+    """
+    if not job.media_item_id:
+        return
+    try:
+        from media_summarizer.core.services.durable_media_service import mirror_job
+
+        await mirror_job(job)
+    except Exception as exc:  # noqa: BLE001 - best-effort by contract
+        logger.warning(
+            "Durable library mirror skipped for job %s: %s", job.id, exc
+        )
+
+
 async def update_processing_job(job: ProcessingJob) -> ProcessingJob:
     """Update a processing job in DynamoDB."""
     try:
@@ -366,6 +395,7 @@ async def update_processing_job(job: ProcessingJob) -> ProcessingJob:
                 table=PROCESSING_JOBS_TABLE,
                 job_id=job.id,
             )
+            await _mirror_job_to_durable_library(job)
             return job
     except ClientError as e:
         _log_dynamodb_error(

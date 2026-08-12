@@ -30,6 +30,13 @@ from .review_schedule import CardState, ReviewScheduleRecord, UserReviewSettings
 from .rss_feed import FeedStatus, UserRssFeed
 from .tag import Tag
 from .user import User
+from .user_media import (
+    USER_MEDIA_SCHEMA_VERSION,
+    UserMediaRecord,
+    UserMediaStatus,
+    build_folder_sort_key,
+    build_media_item_id,
+)
 
 # Export all models
 __all__ = [
@@ -60,4 +67,9 @@ __all__ = [
     "DigestStatus",
     "DigestMediaItem",
     "UserDigestSettings",
+    "UserMediaRecord",
+    "UserMediaStatus",
+    "USER_MEDIA_SCHEMA_VERSION",
+    "build_media_item_id",
+    "build_folder_sort_key",
 ]
