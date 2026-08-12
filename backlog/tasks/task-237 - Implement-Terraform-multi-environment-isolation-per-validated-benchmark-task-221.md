@@ -136,5 +136,5 @@ Le secret `media-summarizer-runtime-staging` contient **0 clé** contre 37 pour 
 
 - Les **22 tables historiques non suffixées** coexistent avec les `-dev`. Filet de sécurité utile, mais données dupliquées : ne rien y toucher avant d'avoir confirmé que les Lambdas lisent bien les `-dev`.
 - L'ancien state `s3://…/infrastructure/terraform.tfstate` (serial 20, 104 ressources) existe toujours à côté des trois nouveaux (`env/dev`, `env/staging`, `env/shared`). Plus référencé par aucun code depuis le merge.
-- Le secret `E2E_TEST_USER_PASSWORD` **n'a pas été rotaté** après la fuite du 2026-08-11 16:52 (dernière mise à jour : 2026-08-10).
+- ~~Le secret `E2E_TEST_USER_PASSWORD` **n'a pas été rotaté** après la fuite du 2026-08-11 16:52 (dernière mise à jour : 2026-08-10).~~ **Fait le 2026-08-12** : nouveau secret (48 caractères aléatoires), `password_hash` remplacé dans `users-dev` et `users`, et les 93 refresh tokens du compte révoqués — la rotation seule ne les invalidait pas, `/auth/refresh` ne contrôle que `is_active`/`used_at`.
 <!-- SECTION:NOTES:END -->

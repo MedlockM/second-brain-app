@@ -21,6 +21,28 @@ Configure these GitHub Actions secrets before running the workflow:
 The workflow passes a unique `MAESTRO_RUN_ID` based on the GitHub run and
 attempt, so flow 01 can create an idempotent email address.
 
+## Rotating `E2E_TEST_USER_PASSWORD`
+
+The flows type this password into a text field, so a leak is a real account
+takeover on dev — do the rotation whenever a dump, a log, or an artifact may
+have carried it. Four steps, none of which can be skipped:
+
+1. `gh secret set E2E_TEST_USER_PASSWORD -R <repo>` with a fresh random value.
+   Keep it hex: the value is typed by `inputText`, and characters a soft
+   keyboard may transform cost a red suite for no added entropy.
+2. Replace `password_hash` on the test account with a bcrypt hash of the new
+   value, in **both** `users-dev` and the unsuffixed `users` (task-237 left the
+   historical tables in place). Guard the write with a condition on the old
+   hash so a concurrent change is not silently overwritten.
+3. Revoke every refresh token of that account in `auth_tokens-dev` and
+   `auth_tokens` (`user-index` GSI, set `is_active = false` and `used_at`).
+   Changing the password does **not** invalidate them: `/auth/refresh` only
+   checks `is_active`, `used_at` and expiry, so a 30-day session minted with the
+   leaked password would otherwise survive the rotation.
+4. Delete the `*-e2e-passed-*` caches before the verification run, keeping the
+   build caches. Otherwise `01_login` is reported as `<skipped>` on the strength
+   of the previous run and the new credential is never actually exercised.
+
 ## Execution model
 
 - Pull requests and pushes touching `mobile/**` run Android on an emulator.
