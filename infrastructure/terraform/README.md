@@ -396,10 +396,21 @@ This is automated by `.github/workflows/deploy-lambda.yml`: push to main deploys
 
 ### One deploy role per account
 
-| Environment | Role | Assumable by |
-|---|---|---|
-| dev | `media-summarizer-gha-deploy` in `125313707865` | jobs with no GitHub environment (push to main) |
-| prod | `media-summarizer-gha-deploy-prod` in `866874944541` | only jobs declaring GitHub environment `production` |
+| Environment | Role | Assumable by | Declared in |
+|---|---|---|---|
+| dev | `media-summarizer-gha-deploy` in `125313707865` | jobs with no GitHub environment (push to main) | `envs/dev/gha_oidc.tf` |
+| prod | `media-summarizer-gha-deploy-prod` in `866874944541` | only jobs declaring GitHub environment `production` | `envs/prod/gha_oidc.tf` |
+
+Both roles are Terraform-managed since task-256. The dev one was created by hand
+in June 2026 and drifted outside every state until then, which is exactly how it
+came to be missing the `tag:GetResources` grant that `deploy-lambda.yml` needs to
+discover its targets by `Environment` tag: prod got the permission from a code
+change, dev had no code to change and `deploy-workers` failed for three days.
+Both were adopted with `terraform import`, never recreated — the role ARN is the
+`AWS_DEPLOY_ROLE_ARN` secret and its trust relationship is what every deploy
+depends on, so a replacement would break CI for the duration of the change. The
+dev file lists the three permission divergences from prod (unsuffixed name,
+branch-pinned OIDC subject, ECR push) and why each one is intentional.
 
 Neither role can reach the other environment, for two independent reasons: every
 ARN in a role's policy belongs to its own account, and the prod role's trust
@@ -421,6 +432,7 @@ must not be able to mint an artifact that never went through dev.
 |---|---|
 | `envs/<env>/main.tf` | Backend key + provider + one `module "platform"` call with the literal environment |
 | `envs/<env>/outputs.tf` | Environment outputs (API endpoint, secret name, ...) |
+| `envs/dev/gha_oidc.tf` | GitHub OIDC provider + push-to-main deploy role in the dev/management account (imported, not created) |
 | `envs/prod/gha_oidc.tf` | GitHub OIDC provider + prod-only deploy role in the prod account |
 | `shared/ecr.tf` | The one ECR repository shared by all environments, and its cross-account pull policy |
 | `modules/platform/locals.tf` | `local.suffix = "-${var.environment}"` |
