@@ -13,15 +13,26 @@ on:
       - "infrastructure/docker/lambda-api.Dockerfile"
       - "infrastructure/docker/lambda.Dockerfile"
       - ".github/workflows/deploy-lambda.yml"
+  # Production is never deployed automatically. It is promoted, by hand, from an
+  # image a push to main already built and validated in dev.
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag suffix to promote to production: a git SHA already built by a main deploy, or 'latest'. The api-<tag> and worker-<tag> images must both exist in the shared registry."
+        required: true
+        default: latest
 
 env:
   AWS_DEFAULT_REGION: eu-west-3
   ECR_REPOSITORY: media-summarizer-lambda
   IMAGE_TAG: ${{ github.sha }}
+  # The one registry, in the dev/management account, shared by every environment
+  # (shared/ecr.tf). Prod pulls from here cross-account so that the digest it runs
+  # is the digest validated in dev.
+  ECR_REGISTRY_ACCOUNT_ID: "125313707865"
   # Which environment a push to main deploys. Every AWS lookup below is scoped by
-  # this value: since task-237 the account holds dev AND staging side by side, and
-  # a name-based or prefix-based lookup would hit whichever environment happens to
-  # match — including, once it exists, production.
+  # this value: a name-based or prefix-based lookup would hit whichever
+  # environment happens to match.
   DEPLOY_ENVIRONMENT: dev
 
 permissions:
@@ -30,6 +41,7 @@ permissions:
 
 jobs:
   changes:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       api: ${{ steps.filter.outputs.api }}
@@ -264,6 +276,137 @@ jobs:
           test -n "$API_ENDPOINT"
           test "$API_ENDPOINT" != "None"
           echo "Health-checking ${DEPLOY_ENVIRONMENT} API $API_ID"
+          HEALTH_BODY=$(mktemp)
+          curl --fail --silent --show-error \
+            --retry 5 --retry-all-errors --retry-delay 3 \
+            --output "$HEALTH_BODY" \
+            "$API_ENDPOINT/api/v1/health/"
+          jq -e '.status == "healthy"' "$HEALTH_BODY"
+
+  # ---------------------------------------------------------------------------
+  # Production. Manual, and a PROMOTION rather than a build: it re-points the
+  # prod functions at an image digest that a push to main already built, pushed
+  # and health-checked in dev. Nothing is compiled here, so there is no way for
+  # prod to run bytes that never existed in dev.
+  #
+  # Two independent reasons this job cannot touch dev:
+  #
+  #   1. `environment: production` makes GitHub mint an OIDC token whose `sub` is
+  #      repo:<owner>/<repo>:environment:production. The dev deploy role's trust
+  #      policy only accepts repo:<owner>/<repo>:ref:refs/heads/main, so this job
+  #      cannot assume the dev role even if handed its ARN. Conversely the jobs
+  #      above declare no environment, so they can never mint the production
+  #      subject the prod role requires.
+  #   2. The prod role lives in account 866874944541 and every ARN in its policy
+  #      is an 866874944541 ARN. There is no dev resource it can name.
+  #
+  # AWS_DEPLOY_ROLE_ARN must be an *environment* secret of `production` (a
+  # repository secret would be readable by the dev jobs too). The account-id
+  # assertion below is what turns a forgotten environment secret into an
+  # immediate failure instead of a confusing one.
+  # ---------------------------------------------------------------------------
+  promote-prod:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_ENVIRONMENT: prod
+      PROMOTE_TAG: ${{ inputs.image_tag }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Assert the assumed identity is the prod account
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          echo "Assumed role in account $ACCOUNT"
+          test "$ACCOUNT" = "866874944541" || {
+            echo "Refusing to continue: expected the prod account 866874944541."
+            echo "AWS_DEPLOY_ROLE_ARN is probably missing from the 'production' GitHub environment,"
+            echo "so the repository-level (dev) value was used instead."
+            exit 1
+          }
+
+      - name: Resolve the digests to promote
+        id: digests
+        run: |
+          # Digests, never tags: a tag is a pointer and prod must run the exact
+          # bytes dev validated. describe-images is a cross-account read against
+          # the shared registry, allowed by ConsumerAccountImagePull in
+          # shared/ecr.tf plus EcrPullSharedRepository in the prod role.
+          for KIND in api worker; do
+            DIGEST=$(aws ecr describe-images \
+              --registry-id "$ECR_REGISTRY_ACCOUNT_ID" \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageTag=${KIND}-${PROMOTE_TAG}" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text)
+            test -n "$DIGEST" && test "$DIGEST" != "None" || {
+              echo "No image tagged ${KIND}-${PROMOTE_TAG} in the shared registry"; exit 1; }
+            echo "${KIND}=${DIGEST}" >> "$GITHUB_OUTPUT"
+            echo "${KIND}-${PROMOTE_TAG} -> ${DIGEST}"
+          done
+
+      - name: Promote the API image
+        run: |
+          REGISTRY="${ECR_REGISTRY_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+          API_FUNCTION="media-summarizer-api-${DEPLOY_ENVIRONMENT}"
+          aws lambda update-function-code \
+            --function-name "$API_FUNCTION" \
+            --image-uri "${REGISTRY}/${ECR_REPOSITORY}@${{ steps.digests.outputs.api }}" \
+            --no-cli-pager
+          aws lambda wait function-updated-v2 --function-name "$API_FUNCTION"
+          test "$(aws lambda get-function-configuration --function-name "$API_FUNCTION" --query State --output text)" = "Active"
+          test "$(aws lambda get-function-configuration --function-name "$API_FUNCTION" --query LastUpdateStatus --output text)" = "Successful"
+
+      - name: Promote the worker images
+        run: |
+          REGISTRY="${ECR_REGISTRY_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+          # Same tag-based discovery as dev. Redundant across accounts — nothing
+          # but prod functions is reachable with these credentials — but kept so
+          # the two paths fail the same way if the tag ever goes missing.
+          WORKERS=$(aws resourcegroupstaggingapi get-resources \
+            --resource-type-filters lambda:function \
+            --tag-filters "Key=Environment,Values=${DEPLOY_ENVIRONMENT}" \
+            --query 'ResourceTagMappingList[].ResourceARN' \
+            --output text \
+            | tr '\t' '\n' \
+            | awk -F: '$NF ~ /^media-summarizer-worker-/ { print $NF }')
+          test -n "$WORKERS" || { echo "No media-summarizer-worker-* functions tagged Environment=${DEPLOY_ENVIRONMENT}"; exit 1; }
+          for FUNCTION_NAME in $WORKERS; do
+            case "$FUNCTION_NAME" in
+              *-"${DEPLOY_ENVIRONMENT}") ;;
+              *) echo "Refusing to deploy: $FUNCTION_NAME is not a ${DEPLOY_ENVIRONMENT} function"; exit 1 ;;
+            esac
+          done
+          echo "Promoting: $(echo "$WORKERS" | tr '\n' ' ')"
+          for FUNCTION_NAME in $WORKERS; do
+            aws lambda update-function-code \
+              --function-name "$FUNCTION_NAME" \
+              --image-uri "${REGISTRY}/${ECR_REPOSITORY}@${{ steps.digests.outputs.worker }}" \
+              --no-cli-pager
+          done
+          for FUNCTION_NAME in $WORKERS; do
+            aws lambda wait function-updated-v2 --function-name "$FUNCTION_NAME"
+            test "$(aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --query State --output text)" = "Active"
+            test "$(aws lambda get-function-configuration --function-name "$FUNCTION_NAME" --query LastUpdateStatus --output text)" = "Successful"
+          done
+
+      - name: Validate the prod health endpoint
+        run: |
+          API_ARN=$(aws resourcegroupstaggingapi get-resources \
+            --resource-type-filters apigateway \
+            --tag-filters "Key=Environment,Values=${DEPLOY_ENVIRONMENT}" \
+            --query 'ResourceTagMappingList[].ResourceARN' \
+            --output text \
+            | tr '\t' '\n' \
+            | grep -E '/apis/[^/]+$' \
+            | head -1)
+          test -n "$API_ARN" || { echo "No API Gateway tagged Environment=${DEPLOY_ENVIRONMENT}"; exit 1; }
+          API_ENDPOINT=$(aws apigatewayv2 get-api --api-id "${API_ARN##*/}" --query ApiEndpoint --output text)
           HEALTH_BODY=$(mktemp)
           curl --fail --silent --show-error \
             --retry 5 --retry-all-errors --retry-delay 3 \

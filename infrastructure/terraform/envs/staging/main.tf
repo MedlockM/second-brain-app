@@ -1,9 +1,29 @@
-# staging environment root.
+# staging environment root — A BLUEPRINT, NOT A LIVE ENVIRONMENT.
 #
-# The two literals below are the entire isolation mechanism: the backend key is
-# a compile-time constant of this directory, and `environment` drives every
-# physical resource name inside the module. A plan run here can only propose
-# changes to resources present in THIS state, and can only name resources
+# staging was destroyed by task-248 and promoted into prod (the environment token
+# is ForceNew on nearly every resource, so promoting an environment is a destroy
+# plus an apply elsewhere, never a rename). `env/staging/terraform.tfstate` is an
+# empty state; nothing named "-staging" exists on AWS.
+#
+# The directory is kept on purpose: `terraform apply` here builds a full,
+# disposable third copy of the platform for an afternoon of testing before a
+# risky migration, and the teardown path has now been walked end to end for real.
+#
+# READ THIS BEFORE APPLYING IT AGAIN:
+#   * It lands in the DEV account (125313707865) — see the backend and the absence
+#     of `allowed_account_ids` below. It is therefore the one remaining case where
+#     `scripts/tf_plan_guard.sh staging tfplan dev` does real work, because two
+#     environments would then share one account. Run it.
+#   * Its runtime secret shell will be empty, and the previous
+#     media-summarizer-runtime-staging was force-deleted, so the name is free.
+#   * Deleting it again means repeating the destroy dance: lift
+#     `deletion_protection_enabled` on every table by hand first, and force-delete
+#     the secret, or the name stays blocked for 30 days.
+#
+# The two literals below are the entire isolation mechanism WITHIN an account: the
+# backend key is a compile-time constant of this directory, and `environment`
+# drives every physical resource name inside the module. A plan run here can only
+# propose changes to resources present in THIS state, and can only name resources
 # ending in "-staging".
 
 terraform {
@@ -51,20 +71,18 @@ module "platform" {
   environment        = "staging" # literal #2
   ecr_repository_url = data.terraform_remote_state.shared.outputs.lambda_ecr_repository_url
 
-  # MOTHBALLED 2026-08-12 — owner decision: staging must not cost money until
-  # Phase 9 of docs/V1_LAUNCH_PLAN.md actually uses it. Every table, bucket,
-  # queue and Lambda stays in place (all empty: 0 rows, 0 objects); only the
-  # metered extras are switched off. Measured on Cost Explorer: creating staging
-  # took the whole account from $0.233/day to $0.295/day (+27%), i.e. ~$7.60/mo
-  # for an environment with no users, on an account that billed $8.11 in July.
+  # The three metered extras stay off in this blueprint. When staging existed they
+  # cost, measured on Cost Explorer, ~$7.60/month for an environment with zero
+  # users — it took the whole account from $0.233/day to $0.295/day (+27%) on an
+  # account that billed $8.11 in July.
   #
   #   enable_alarms         43 alarms          ~$3.30/mo
   #   enable_dashboard      1 dashboard        ~$3.00/mo
   #   enable_worker_polling 14 SQS mappings    ~$0.90/mo
   #
-  # Flip all three back to true to wake staging up — that is the whole of
-  # Phase 9 step 1. Deliberately NOT a destroy: the environment is a validated
-  # prod rehearsal and rebuilding it costs far more than $7.60.
+  # A short-lived rehearsal environment needs none of them: you are watching it by
+  # hand for a few hours. `enable_worker_polling` is the one to consider flipping,
+  # and only if the rehearsal actually needs queues to drain by themselves.
   enable_alarms         = false
   enable_dashboard      = false
   enable_worker_polling = false
