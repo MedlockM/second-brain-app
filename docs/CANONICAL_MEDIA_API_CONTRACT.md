@@ -72,6 +72,7 @@ Operational behavior now implemented in runtime:
 3. `POST /api/media/{media_item_id}/artifacts`
 4. `GET /api/media/{media_item_id}/artifacts`
 5. `GET /api/artifacts/{artifact_id}`
+6. `DELETE /api/media/{media_item_id}`
 
 Authentication:
 - all endpoints require authenticated user context
@@ -343,6 +344,31 @@ Malformed `notes` model output is handled with strict validation:
 - validate required sections and item shapes
 - mark artifact `failed` with `VALIDATION_ERROR` if validation fails
 - never persist a degraded fallback payload as `ready`
+
+### 6) DELETE /api/media/{media_item_id}
+
+No request body.
+
+Response (`DeleteMediaResponse`):
+```json
+{
+  "status": "success",
+  "media_item_id": "mi_9f2c1d0b7a4e5f6081c2d3e4f5a6b7c8",
+  "deleted_at": "2026-08-13T09:41:02+00:00",
+  "purge_at": 1758620462,
+  "grace_days": 30
+}
+```
+
+Semantics (task-243, §6.2 of the task-218 benchmark):
+- the item leaves every read surface immediately: library reads skip soft-deleted rows and the search records are deleted synchronously
+- `purge_at` is epoch seconds; after it, the row, its artifacts, its S3 objects and its search records are destroyed irreversibly by the lifecycle worker
+- inside the grace window a deletion is recoverable by support (clear `deleted_at`/`purge_at`)
+- idempotent: deleting an already-deleted item returns `200` with the original `purge_at`, never `404`, and never pushes the purge date out
+- re-ingesting the same URL before the purge cancels it: the item comes back rather than reappearing as an invisible row scheduled for destruction
+- `media_item_id` in the response is the durable library id, which may differ from the id in the path while reads still resolve through `processing_jobs` (task-220)
+- unknown or foreign id returns `404 MEDIA_NOT_FOUND`
+- this is the only endpoint in the system allowed to schedule a library row for purge; retention rules are in `docs/DATA_RETENTION.md`
 
 ## Domain enums (locked)
 

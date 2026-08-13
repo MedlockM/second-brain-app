@@ -62,6 +62,33 @@ paths:
           $ref: '#/components/responses/MediaNotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteMediaItem
+      tags: [media]
+      description: >
+        Remove one item from the caller's library. The item disappears from every
+        read surface immediately and is destroyed irreversibly after the grace
+        window. Idempotent: an already-deleted item returns 200 with its original
+        purge_at. Only path in the system allowed to schedule a library purge.
+      parameters:
+        - name: media_item_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Item removed from the library and scheduled for purge
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteMediaResponse'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '404':
+          $ref: '#/components/responses/MediaNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/media/{media_item_id}/artifacts:
     post:
       operationId: createMediaArtifact
@@ -194,6 +221,25 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MediaArtifactContract'
+    DeleteMediaResponse:
+      type: object
+      required: [status, media_item_id, purge_at, grace_days]
+      properties:
+        status: { type: string }
+        media_item_id:
+          type: string
+          description: Durable library id that was deleted.
+        deleted_at:
+          type: [string, 'null']
+          description: When the item left the library (ISO-8601 UTC).
+        purge_at:
+          type: integer
+          description: >
+            Epoch seconds after which the item and everything it owns are
+            destroyed irreversibly.
+        grace_days:
+          type: integer
+          minimum: 0
     ArtifactCreateRequest:
       type: object
       required: [artifact_type]

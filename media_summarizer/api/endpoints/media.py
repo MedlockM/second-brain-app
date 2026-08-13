@@ -56,7 +56,12 @@ from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models.media_artifact import MediaArtifactRecord
 from media_summarizer.core.ports.document_parser import DocumentFormat
-from media_summarizer.core.services import folder_service, media_search_service, tag_service
+from media_summarizer.core.services import (
+    folder_service,
+    media_deletion_service,
+    media_search_service,
+    tag_service,
+)
 from media_summarizer.core.services.durable_media_service import try_save_media_for_user
 from media_summarizer.core.services.media_search_service import SearchFilters
 from media_summarizer.core.services.quota_enforcer import (
@@ -212,6 +217,32 @@ class PatchMediaResponse(BaseModel):
     media_id: str
     folder_id: str
     previous_folder_id: Optional[str] = None
+
+
+# ---------- Deletion models ----------
+
+class DeleteMediaResponse(BaseModel):
+    status: str = "success"
+    media_item_id: str = Field(
+        ...,
+        description=(
+            "The durable library id that was deleted. May differ from the id in the "
+            "path while reads still resolve through processing_jobs (task-220)."
+        ),
+    )
+    deleted_at: Optional[str] = Field(
+        None, description="When the item left the user's library (ISO-8601 UTC)"
+    )
+    purge_at: int = Field(
+        ...,
+        description=(
+            "Epoch seconds after which the item and everything it owns are "
+            "irreversibly destroyed. Until then the deletion is recoverable by support."
+        ),
+    )
+    grace_days: int = Field(
+        ..., description="Days between the deletion and the irreversible purge"
+    )
 
 
 # ---------- Tag assignment models ----------
@@ -1430,6 +1461,65 @@ async def get_media_item(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve media item",
+        )
+    finally:
+        reset_log_context(token)
+
+
+@router.delete("/{media_item_id}", response_model=DeleteMediaResponse)
+async def delete_media_item(
+    media_item_id: str,
+    current_user: AuthUser = Depends(get_current_user),
+) -> DeleteMediaResponse:
+    """Delete one media item from the user's library.
+
+    The item disappears from every read surface immediately and is destroyed for
+    good after the grace window (see ``core/services/media_deletion_service.py``
+    and ``docs/DATA_RETENTION.md``). This is the only path in the system allowed
+    to schedule a library row for purge.
+
+    Idempotent: deleting an already-deleted item returns 200 with the original
+    ``purge_at`` rather than 404, so a client retrying on a flaky network cannot
+    turn a successful deletion into an error — nor push the purge date out.
+    """
+    token = bind_log_context(user_id=current_user.id, media_item_id=media_item_id)
+    try:
+        result = await media_deletion_service.delete_media_for_user(
+            user_id=current_user.id,
+            media_item_id=media_item_id,
+        )
+        return DeleteMediaResponse(
+            media_item_id=result.media_item_id,
+            deleted_at=result.deleted_at,
+            purge_at=result.purge_at,
+            grace_days=media_deletion_service.PURGE_GRACE_DAYS,
+        )
+    except media_deletion_service.MediaNotFound:
+        log_event(
+            logger,
+            logging.WARNING,
+            "media.delete.not_found",
+            "Media item not found",
+            media_item_id=media_item_id,
+            error_code="MEDIA_NOT_FOUND",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found"
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.delete.failed",
+            "Failed to delete media item",
+            media_item_id=media_item_id,
+            error_type=type(exc).__name__,
+            error_code="DELETE_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete media item",
         )
     finally:
         reset_log_context(token)

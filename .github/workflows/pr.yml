@@ -52,6 +52,9 @@ jobs:
             exit 1
           fi
 
+      - name: Guard — single writer of the user_media TTL (task-243)
+        run: python scripts/check_purge_at_writers.py
+
   mobile:
     name: Mobile (lint + typecheck)
     runs-on: ubuntu-latest
