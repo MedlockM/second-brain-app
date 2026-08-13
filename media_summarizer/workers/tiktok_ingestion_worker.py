@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 import httpx
 import yt_dlp
 
+from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     group_caption_lines,
@@ -1047,6 +1048,28 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
         job.mark_transcribing()
         await database_async.update_processing_job(job)
 
+        # No captions: this clip is about to be transcribed by the minute, so it
+        # is charged to the audio quota like any other Deepgram job (task-250
+        # Layer 1). yt-dlp already resolved the exact duration.
+        gate = await audio_quota_gate.gate_audio_transcription(
+            job_id=job.id,
+            user_id=message_body.get("user_id"),
+            job=job,
+            media_key=message_body.get("media_key"),
+            known_duration_seconds=int(
+                audio_result.get("audio_duration_seconds") or 0
+            ),
+            error_step="tiktok_ingestion",
+        )
+        if not gate.allowed:
+            return {
+                "mode": "quota_refused",
+                "job_id": job.id,
+                "media_key": message_body.get("media_key"),
+                "tiktok_id": tiktok_id,
+                "error_code": gate.error_code,
+            }
+
         await enqueue_deepgram_transcription(
             job_id=job.id,
             audio_url=audio_result["audio_url"],
@@ -1058,7 +1081,8 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             normalized_url=normalized_url,
             episode_title=message_body.get("episode_title") or job.title,
             podcast_title=message_body.get("podcast_title") or job.source_platform,
-            audio_duration_seconds=audio_result["audio_duration_seconds"],
+            audio_duration_seconds=gate.duration_seconds,
+            quota_debited_minutes=gate.debited_minutes,
         )
 
         return {

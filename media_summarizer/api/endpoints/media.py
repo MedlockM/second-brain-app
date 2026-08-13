@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import os
 from typing import List, Optional
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
@@ -53,19 +52,29 @@ from media_summarizer.api.models.media_contracts import (
 from media_summarizer.api.models.media_contracts import (
     TranscriptStatus as CanonicalTranscriptStatus,
 )
+from media_summarizer.core.media_ingestion.adapters.classifiers import RuleBasedUrlClassifier
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models.media_artifact import MediaArtifactRecord
 from media_summarizer.core.models.user_media import UserMediaRecord, UserMediaStatus
 from media_summarizer.core.ports.document_parser import DocumentFormat
-from media_summarizer.core.services import folder_service, media_search_service, tag_service
+from media_summarizer.core.services import (
+    audio_duration_probe,
+    folder_service,
+    media_search_service,
+    quota_enforcer,
+    tag_service,
+)
 from media_summarizer.core.services.durable_media_service import (
     resolve_job_for_record,
     save_media_for_user,
 )
+from media_summarizer.core.services.media_identity import derive_media_identity
 from media_summarizer.core.services.media_search_service import SearchFilters
 from media_summarizer.core.services.quota_enforcer import (
+    QUOTA_CATEGORY_AUDIO,
     check_submission_allowed,
+    classify_media_type,
     estimate_submission_cost,
     record_submission,
 )
@@ -110,33 +119,29 @@ SUPPORTED_SHARED_AUDIO_MIME_TYPES = frozenset([
 ])
 
 _AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
-_YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com"}
-_TIKTOK_HOSTS = {"tiktok.com", "www.tiktok.com", "vm.tiktok.com"}
-_INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com"}
+
+# Same classifier the ingestion router uses, so the quota engine and the
+# pipeline can never disagree on what a URL is.
+_URL_CLASSIFIER = RuleBasedUrlClassifier()
 
 
-def _detect_platform(url: str) -> tuple[str, str]:
-    """Return (source_platform, resolver_key) for a given URL.
+def _detect_quota_platform(url: str) -> str:
+    """Return the source platform of a URL for the quota pre-check.
 
-    Used only for early platform detection for quota checking.
-    The actual platform resolution is done in the use case.
+    Uses the same classifier as the ingestion pipeline itself. A second,
+    home-grown detection used to live here and only knew four platforms, so a
+    Spotify or Apple Podcasts URL was announced to the quota engine as `web` —
+    which is how audio submissions ended up counted as articles and how the
+    text-only tier's audio refusal became unreachable (task-250 Layer 0).
+
+    Falls back to `unknown` (quota category `article`) when the URL cannot be
+    classified: the use case rejects it a few lines later with a proper error.
     """
     try:
-        split = urlsplit(url)
-        host = (split.netloc or "").lower().removeprefix("www.")
-        path = (split.path or "").lower()
-    except ValueError:
-        return "unknown", "unknown"
-
-    if host in _YOUTUBE_HOSTS:
-        return "youtube", "youtube"
-    if host in _TIKTOK_HOSTS:
-        return "tiktok", "tiktok"
-    if host in _INSTAGRAM_HOSTS:
-        return "instagram", "apify"
-    if path.endswith(_AUDIO_EXTENSIONS):
-        return "audio", "deepgram"
-    return "web", "article"
+        normalized_url, _ = derive_media_identity(url)
+        return _URL_CLASSIFIER.classify(normalized_url).source_platform.value
+    except Exception:
+        return "unknown"
 
 
 class IngestUrlRequest(BaseModel):
@@ -698,7 +703,7 @@ async def ingest_url(
 
         # Quota enforcement check before processing
         # Detect source platform for quota checking
-        source_platform_for_quota, _ = _detect_platform(url)
+        source_platform_for_quota = _detect_quota_platform(url)
         quota_result = await check_submission_allowed(
             user_id=user.id,
             source_platform=source_platform_for_quota,
@@ -737,17 +742,25 @@ async def ingest_url(
         use_case = build_default_ingest_url_use_case()
         outcome = await use_case.execute(command)
 
-        # Record quota usage after successful submission
-        estimated_cost = estimate_submission_cost(
-            outcome.metadata.get("source_platform", source_platform_for_quota),
-            duration_seconds=0
+        # Record quota usage after successful submission.
+        #
+        # Audio is deliberately not debited here: the duration is unknown at this
+        # point, and the resolution worker that finds the audio URL debits the
+        # real number of minutes at its own gate (task-250 Layer 1). Debiting a
+        # placeholder minute here as well would charge every podcast twice.
+        resolved_platform = outcome.metadata.get(
+            "source_platform", source_platform_for_quota
         )
-        await record_submission(
-            user_id=user.id,
-            source_platform=outcome.metadata.get("source_platform", source_platform_for_quota),
-            duration_seconds=0,
-            estimated_cost_eur=estimated_cost,
-        )
+        if classify_media_type(resolved_platform) != QUOTA_CATEGORY_AUDIO:
+            await record_submission(
+                user_id=user.id,
+                source_platform=resolved_platform,
+                duration_seconds=0,
+                estimated_cost_eur=estimate_submission_cost(
+                    resolved_platform, duration_seconds=0
+                ),
+                idempotency_token=quota_enforcer.gate_token(outcome.media_item_id),
+            )
 
         log_event(
             logger,
@@ -1026,6 +1039,30 @@ async def upload_audio(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+        # Quota enforcement (task-250 Layer 0). This endpoint used to enqueue a
+        # Deepgram transcription without consulting the quota engine at all: a
+        # text-only subscriber could transcribe by uploading a file, and no
+        # minute was ever counted.
+        #
+        # The whole file is in memory, so the real duration is read from the
+        # container here and the check is exact — this is the one path that knows
+        # the duration up front. A container we cannot parse yields 0, which the
+        # gate treats as "accept, debit one provisional minute, settle later".
+        upload_duration_seconds = (
+            audio_duration_probe.probe_duration_seconds_from_bytes(content) or 0
+        )
+        quota_result = await check_submission_allowed(
+            user_id=user.id,
+            source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
+            duration_seconds=upload_duration_seconds,
+        )
+        if not quota_result.allowed:
+            raise HTTPException(
+                status_code=quota_result.http_status,
+                detail=quota_result.message,
+                headers={"X-Quota-Error-Code": quota_result.error_code},
+            )
+
         # Same convention as the document upload: a deterministic key over
         # (user, filename, size), so re-uploading the same file converges on the
         # single library row it already has instead of duplicating it. Used only to
@@ -1117,6 +1154,20 @@ async def upload_audio(
             http_method="GET",
         )
 
+        # Debit the audio minutes now that the job exists, exactly once for this
+        # job id. The transcription worker will settle the difference with the
+        # duration Deepgram bills, so an unparsable container still ends up
+        # counted correctly and a parsable one is not counted twice.
+        debited_minutes = await record_submission(
+            user_id=user.id,
+            source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
+            duration_seconds=upload_duration_seconds,
+            estimated_cost_eur=estimate_submission_cost(
+                quota_enforcer.QUOTA_PLATFORM_AUDIO, upload_duration_seconds
+            ),
+            idempotency_token=quota_enforcer.gate_token(job.id),
+        )
+
         # Enqueue transcription message with the pre-signed URL
         await sqs.send_message(
             queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
@@ -1127,6 +1178,8 @@ async def upload_audio(
                 "audio_url": presigned_url,
                 "audio_s3_key": audio_s3_key,
                 "original_name": file_name,
+                "audio_duration_seconds": upload_duration_seconds,
+                "quota_debited_minutes": debited_minutes,
                 "deepgram_mode": "pull",
             },
         )
@@ -1293,6 +1346,7 @@ async def ingest_shared_content(
         staged_audio_s3_key: Optional[str] = None
         content_hash: Optional[str] = None
         content_size_bytes: Optional[int] = None
+        shared_audio_duration_seconds: int = 0
 
         if domain_share_type == SharedContentType.TEXT:
             # Validate text field
@@ -1342,6 +1396,32 @@ async def ingest_shared_content(
 
             # Compute content hash for deduplication
             content_hash = hashlib.sha256(audio_content).hexdigest()
+
+            # Quota enforcement (task-250 Layer 0). Shared audio used to reach
+            # Deepgram without the quota engine ever being consulted: a
+            # text-only subscriber could transcribe by sharing a voice note,
+            # and not a single minute was counted.
+            #
+            # The bytes are in memory, so the container gives the real duration
+            # for free and the refusal below is exact. The debit itself happens
+            # once in the ingestion orchestrator, where the job id exists; this
+            # check is only here to answer the share sheet with a real HTTP
+            # error instead of a job that fails a second later.
+            shared_audio_duration_seconds = (
+                audio_duration_probe.probe_duration_seconds_from_bytes(audio_content)
+                or 0
+            )
+            quota_result = await check_submission_allowed(
+                user_id=current_user.id,
+                source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
+                duration_seconds=shared_audio_duration_seconds,
+            )
+            if not quota_result.allowed:
+                raise HTTPException(
+                    status_code=quota_result.http_status,
+                    detail=quota_result.message,
+                    headers={"X-Quota-Error-Code": quota_result.error_code},
+                )
 
             # Determine file extension from MIME
             _mime_to_ext = {
@@ -1396,6 +1476,7 @@ async def ingest_shared_content(
             original_name=original_name,
             content_size_bytes=content_size_bytes,
             staged_audio_s3_key=staged_audio_s3_key,
+            audio_duration_seconds=shared_audio_duration_seconds,
             folder_id=resolved_folder_id,
             tag_ids=unique_tag_ids,
         )

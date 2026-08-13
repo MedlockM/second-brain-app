@@ -15,6 +15,7 @@ from media_summarizer.core.services.durable_media_service import save_media_for_
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
     estimate_submission_cost,
+    gate_token,
     record_submission,
 )
 from media_summarizer.utils import (
@@ -172,6 +173,19 @@ async def submit_media_for_user(
     # Persist update
     await database_async.update_processing_job(created_job)
 
+    # Record submission in quota usage counters. This path receives the episode
+    # duration from its caller, so the debit is exact and happens before the
+    # enqueue: the transcription worker is told how many minutes were already
+    # charged and only settles the difference (task-250 Layer 1/2).
+    estimated_cost = estimate_submission_cost(source or "audio", duration_seconds or 0)
+    debited_minutes = await record_submission(
+        user_id=user.id,
+        source_platform=source or "audio",
+        duration_seconds=duration_seconds or 0,
+        estimated_cost_eur=estimated_cost,
+        idempotency_token=gate_token(created_job.id),
+    )
+
     # Enqueue to deepgram transcription queue (direct path, no download worker needed)
     await sqs.send_message(
         queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
@@ -183,6 +197,7 @@ async def submit_media_for_user(
             "media_title": media_title,
             "source_title": source_title,
             "audio_duration_seconds": duration_seconds,
+            "quota_debited_minutes": debited_minutes,
             "media_key": media_key,
             "media_image": media_image,
             # RSS feed URL for Podcasting 2.0 transcript lookup
@@ -195,15 +210,6 @@ async def submit_media_for_user(
             "podcast_title": source_title,
             "episode_image": media_image,
         },
-    )
-
-    # Record submission in quota usage counters
-    estimated_cost = estimate_submission_cost(source or "audio", duration_seconds or 0)
-    await record_submission(
-        user_id=user.id,
-        source_platform=source or "audio",
-        duration_seconds=duration_seconds or 0,
-        estimated_cost_eur=estimated_cost,
     )
 
     return {

@@ -20,6 +20,7 @@ from media_summarizer.core.media_ingestion.adapters.podcast_resolver_foundation 
     normalize_podcast_source_url,
 )
 from media_summarizer.core.media_ingestion.domain import SourcePlatform
+from media_summarizer.core.services import audio_quota_gate, quota_enforcer
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     normalize_transcript_text,
@@ -316,6 +317,24 @@ async def process_message(message: dict) -> None:
         if short_circuited:
             return
 
+        # --- Quota gate (task-250 Layer 1) ---
+        # Last chance to refuse before spending Deepgram minutes. The episode
+        # duration usually comes from the podcast index; when it does not, the
+        # gate falls back to an HTTP Range probe on the enclosure and, failing
+        # that, to a provisional minute settled after transcription.
+        gate = await audio_quota_gate.gate_audio_transcription(
+            job_id=job.id,
+            user_id=body.get("user_id"),
+            job=job,
+            media_key=body.get("media_key"),
+            audio_url=audio_url,
+            known_duration_seconds=int(resolution.get("audio_duration_seconds") or 0),
+            source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
+            error_step="podcast_resolution",
+        )
+        if not gate.allowed:
+            return
+
         # --- Fallback: enqueue to Deepgram for audio transcription ---
         await sqs.send_message(
             queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
@@ -329,7 +348,8 @@ async def process_message(message: dict) -> None:
                 "media_key": body.get("media_key"),
                 "normalized_url": body.get("normalized_url"),
                 "episode_image": episode_image,
-                "audio_duration_seconds": resolution.get("audio_duration_seconds") or 0,
+                "audio_duration_seconds": gate.duration_seconds,
+                "quota_debited_minutes": gate.debited_minutes,
                 "deepgram_mode": "pull",
             },
         )
@@ -343,6 +363,8 @@ async def process_message(message: dict) -> None:
             media_item_id=job.id,
             queue=DEEPGRAM_TRANSCRIPTION_QUEUE,
             transcript_source="deepgram",
+            audio_duration_seconds=gate.duration_seconds,
+            quota_debited_minutes=gate.debited_minutes,
         )
     finally:
         reset_log_context(context_token)

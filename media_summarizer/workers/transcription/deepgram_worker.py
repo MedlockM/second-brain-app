@@ -30,6 +30,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from media_summarizer.core.services import quota_enforcer
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     deepgram_transcript_text,
@@ -486,6 +487,15 @@ def extract_transcript(payload: Dict[str, Any]) -> Dict[str, Any]:
         or "unknown"
     )
 
+    # `metadata.duration` is the length of audio Deepgram actually processed and
+    # billed. It is the authoritative figure for the audio-minutes quota: every
+    # other duration in this pipeline is either a producer hint or wall-clock
+    # latency (task-250 Layer 2).
+    try:
+        audio_duration_seconds = float(metadata.get("duration") or 0.0)
+    except (TypeError, ValueError):
+        audio_duration_seconds = 0.0
+
     return {
         "text": transcript_text,
         "language": language,
@@ -493,7 +503,96 @@ def extract_transcript(payload: Dict[str, Any]) -> Dict[str, Any]:
         # same unit so the value is comparable across sources (task-231 s13.1).
         "segments_count": count_paragraphs(transcript_text),
         "request_id": metadata.get("request_id"),
+        "audio_duration_seconds": audio_duration_seconds,
     }
+
+
+async def _settle_audio_quota(
+    *,
+    message_body: Dict[str, Any],
+    job: Any,
+    job_id: str,
+    billed_audio_seconds: float,
+) -> None:
+    """Reconcile the monthly audio counter with the duration Deepgram billed.
+
+    This is the only place in the pipeline that knows the real duration of every
+    transcription, whatever the platform it came from, so it is where the quota
+    is made accurate (task-250 Layer 2). It deliberately does *not* live in the
+    media-completed events consumer: the completion event is published twice
+    (`episode_completion_status` and `episode_completed`), so debiting there
+    would charge every job twice.
+
+    Never raises: the user has already been billed by Deepgram, so a counter
+    problem must not fail a transcription that succeeded.
+    """
+    # Producers whose quota category is not `audio` opt out explicitly
+    # (social video keeps its own category per the validated task-250 decision).
+    # Everything else that reaches this worker is metered in audio minutes.
+    quota_platform = (
+        message_body.get("quota_source_platform")
+        or quota_enforcer.QUOTA_PLATFORM_AUDIO
+    )
+    if quota_enforcer.classify_media_type(quota_platform) != quota_enforcer.QUOTA_CATEGORY_AUDIO:
+        log_event(
+            logger,
+            logging.INFO,
+            "quota.settlement_skipped_non_audio",
+            "Transcription is not metered in audio minutes; nothing to settle",
+            job_id=job_id,
+            quota_source_platform=quota_platform,
+        )
+        return
+
+    user_id = message_body.get("user_id") or getattr(job, "user_id", None)
+    if not user_id:
+        log_event(
+            logger,
+            logging.WARNING,
+            "quota.settlement_skipped_no_user",
+            "Cannot settle audio minutes: no user_id on the message or the job",
+            job_id=job_id,
+            source_platform=message_body.get("source_platform"),
+        )
+        return
+
+    try:
+        already_debited = int(float(message_body.get("quota_debited_minutes") or 0))
+    except (TypeError, ValueError):
+        already_debited = 0
+
+    try:
+        applied = await quota_enforcer.settle_audio_minutes(
+            user_id=user_id,
+            job_id=job_id,
+            actual_duration_seconds=billed_audio_seconds,
+            already_debited_minutes=already_debited,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "quota.settlement_error",
+            "Audio minutes settlement failed; the transcription is unaffected",
+            job_id=job_id,
+            user_id=user_id,
+            billed_audio_seconds=billed_audio_seconds,
+            exc_info=exc,
+        )
+        return
+
+    log_event(
+        logger,
+        logging.INFO,
+        "quota.settled",
+        "Audio minutes settled from the provider-billed duration",
+        job_id=job_id,
+        user_id=user_id,
+        source_platform=message_body.get("source_platform"),
+        billed_audio_seconds=billed_audio_seconds,
+        already_debited_minutes=already_debited,
+        settled_delta_minutes=applied,
+    )
 
 
 async def publish_failure_event(
@@ -657,6 +756,24 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
 
     transcript = extract_transcript(deepgram_payload)
     transcript_text = transcript["text"]
+
+    # --- Quota settlement (task-250 Layer 2) --------------------------------
+    # Deepgram has now told us how much audio it billed. Reconcile the user's
+    # monthly counter with that figure before anything else, so a later failure
+    # (S3 upload, event publication) cannot lose the debit. The settlement only
+    # applies the delta with what the producer already debited at its gate, and
+    # is idempotent per job, so an SQS redelivery cannot debit twice.
+    billed_audio_seconds = float(transcript.get("audio_duration_seconds") or 0.0)
+    minutes_used = (
+        max(1, ceil(billed_audio_seconds / 60)) if billed_audio_seconds > 0 else 1
+    )
+    await _settle_audio_quota(
+        message_body=message_body,
+        job=job,
+        job_id=job_id,
+        billed_audio_seconds=billed_audio_seconds,
+    )
+
     transcript_s3_key = f"{job_id}.txt"
     await upload_transcription(transcript_s3_key, transcript_text)
 
@@ -668,6 +785,9 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
         "language": transcript.get("language"),
         "segments_count": transcript.get("segments_count", 0),
         "duration_seconds": transcription_duration,
+        # Length of the audio itself, as billed by Deepgram — not to be confused
+        # with `duration_seconds` above, which is how long the call took.
+        "audio_duration_seconds": billed_audio_seconds,
         "audio_url": audio_url.strip() if isinstance(audio_url, str) and audio_url.strip() else None,
         "audio_s3_key": audio_s3_key.strip()
         if isinstance(audio_s3_key, str) and audio_s3_key.strip()
@@ -683,17 +803,6 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
         job.set_transcription_metadata(transcription_metadata)
         job.set_processing_duration("transcription", int(transcription_duration))
         await database_async.update_processing_job(job)
-
-    audio_duration_seconds_raw = message_body.get("audio_duration_seconds")
-    try:
-        audio_duration_seconds = int(float(audio_duration_seconds_raw))
-    except (TypeError, ValueError):
-        audio_duration_seconds = 0
-    minutes_used = (
-        max(1, ceil(audio_duration_seconds / 60))
-        if audio_duration_seconds > 0
-        else 1
-    )
 
     await sqs.send_message(
         queue_name=EPISODE_COMPLETED_EVENTS_QUEUE,

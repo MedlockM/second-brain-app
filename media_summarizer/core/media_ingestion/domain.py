@@ -97,6 +97,10 @@ class IngestSharedContentRequest:
     original_name: Optional[str] = None
     content_size_bytes: Optional[int] = None
     staged_audio_s3_key: Optional[str] = None
+    # Real duration of the shared audio, probed from the bytes by the endpoint.
+    # The orchestrator needs it to charge the audio quota for what it is about to
+    # transcribe (task-250 Layer 1); 0 or None means "could not be determined".
+    audio_duration_seconds: Optional[int] = None
     folder_id: Optional[str] = None
     tag_ids: Optional[List[str]] = None
 

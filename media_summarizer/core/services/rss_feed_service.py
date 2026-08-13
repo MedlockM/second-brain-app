@@ -90,6 +90,36 @@ def _get_item_link(entry: Any) -> Optional[str]:
     return None
 
 
+def _get_item_duration_seconds(entry: Any) -> int:
+    """Duration of a feed item from `itunes:duration`, or 0 when absent.
+
+    Podcast feeds publish the episode length themselves, which lets the audio
+    quota gate charge the right number of minutes without downloading a single
+    byte of audio. Accepted shapes: `3600`, `23:45`, `1:23:45`.
+    """
+    raw = getattr(entry, "itunes_duration", None)
+    if not raw:
+        return 0
+    text = str(raw).strip()
+    if not text:
+        return 0
+    try:
+        if ":" in text:
+            parts = [float(p) for p in text.split(":")]
+            if len(parts) > 3:
+                return 0
+            seconds = 0.0
+            for part in parts:
+                seconds = seconds * 60 + part
+        else:
+            seconds = float(text)
+    except (TypeError, ValueError):
+        return 0
+    if seconds <= 0:
+        return 0
+    return int(seconds)
+
+
 def _get_audio_enclosure(entry: Any) -> Optional[Dict[str, Any]]:
     """Return the first audio enclosure from a feed entry, or None."""
     enclosures = getattr(entry, "enclosures", [])
@@ -166,6 +196,7 @@ def parse_feed(feed_url: str) -> Dict[str, Any]:
             "published": published,
             "audio_url": audio_url,
             "item_type": item_type,
+            "duration_seconds": _get_item_duration_seconds(entry) if audio_enc else 0,
         })
 
     return {
