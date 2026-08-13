@@ -22,12 +22,17 @@ WORKDIR /app
 # Stage 2: Dependencies (cached unless pyproject.toml changes)
 FROM base AS dependencies
 
-# Copy only pyproject.toml first (better cache)
-COPY pyproject.toml ./
+# Copy the manifest and its lockfile first (better cache)
+COPY pyproject.toml uv.lock ./
 
-# Install dependencies using uv's native pyproject.toml support
-# -r pyproject.toml installs dependencies WITHOUT the project itself
-RUN uv pip install --system -r pyproject.toml
+# Install the locked versions, never the pyproject ranges — resolving at build
+# time makes every build a different image (see the comment in
+# lambda-api.Dockerfile: an unpinned fastapi took dev down).
+# --no-emit-project: the project itself is the source tree copied below.
+RUN uv export --frozen --no-dev --no-emit-project --format requirements-txt \
+      -o /tmp/requirements.txt \
+    && uv pip install --system -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 # Stage 3: Final image with source code
 FROM dependencies AS final

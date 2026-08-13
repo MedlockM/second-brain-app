@@ -9,17 +9,25 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and install Python dependencies
-COPY pyproject.toml ./
-RUN pip install -e .
-RUN pip install -e ".[dev]"
+# Install uv to resolve from the lockfile rather than the pyproject ranges —
+# resolving at build time makes every build a different image (see the comment
+# in lambda-api.Dockerfile: an unpinned fastapi took dev down).
+RUN pip install --no-cache-dir uv
 
-# Install additional E2E testing dependencies
-RUN pip install \
-    docker \
-    pytest-xdist \
-    pytest-html \
-    pytest-json-report
+# Copy the manifest and its lockfile, then install the locked dev set.
+COPY pyproject.toml uv.lock ./
+RUN uv export --frozen --extra dev --no-emit-project --format requirements-txt \
+      -o /tmp/requirements.txt \
+    && uv pip install --system -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
+
+# E2E-runner-only dependencies. These are not in pyproject.toml, so they are
+# not in the lock either; pin them here so this image stays reproducible too.
+RUN uv pip install --system \
+    docker==7.1.0 \
+    pytest-xdist==3.6.1 \
+    pytest-html==4.1.1 \
+    pytest-json-report==1.5.0
 
 # Copy application code
 COPY . .
