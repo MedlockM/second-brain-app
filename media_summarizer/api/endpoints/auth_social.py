@@ -14,6 +14,7 @@ Notes:
 import base64
 import logging
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -268,6 +269,43 @@ def _b64_to_int(s: str) -> int:
     return int.from_bytes(base64.urlsafe_b64decode(s), "big")
 
 
+def _normalize_apple_private_key(raw: str) -> str:
+    """Turn an APPLE_PRIVATE_KEY env value into a loadable PEM.
+
+    The variable travels as a single line with ``\\n`` escapes, which makes it easy
+    to carry decoration that a PEM parser rejects. It has happened: the value was
+    once copied out of .env into Secrets Manager with its surrounding quotes and a
+    trailing ``# PEM, single line with \\n escapes`` comment included, and Apple
+    Sign-In broke in the deployed environment (task-136). python-dotenv strips both
+    when reading a .env, so the corruption is invisible locally and only surfaces
+    where the value comes from the secret instead.
+
+    Terraform used to catch this in a ``validation`` block on the secret payload,
+    but that block went away with ``secret_payload`` (task-221 §7.3: an inline
+    ``secret_string`` leaks the value in plaintext into the state). This function
+    is now the only place that can, so it raises with the variable name rather than
+    letting ``jwt.encode`` fail on an opaque backend error.
+
+    Deliberately scoped to this one variable: no other credential is known to be
+    polluted, and stripping quotes and comments off every secret would hide real
+    corruption in values where a ``#`` or a quote is legitimate content.
+    """
+    key = raw.strip()
+    # Requiring whitespace before the # keeps a base64 body containing one intact.
+    key = re.sub(r"\s+#.*$", "", key, flags=re.DOTALL).strip()
+    if len(key) >= 2 and key[0] == key[-1] and key[0] in "\"'":
+        key = key[1:-1].strip()
+    key = key.replace("\\n", "\n")
+    if not key.startswith("-----BEGIN"):
+        raise RuntimeError(
+            "APPLE_PRIVATE_KEY is not a PEM private key: expected it to start with "
+            "'-----BEGIN' after normalization. Store the raw PEM with \\n escapes, "
+            "with no surrounding quotes and no trailing comment (task-136). In a "
+            "deployed environment the value comes from the runtime secret, not .env."
+        )
+    return key
+
+
 def _apple_build_client_secret() -> str:
     """Generate Apple client_secret JWT (ES256)."""
     if not (APPLE_TEAM_ID and APPLE_KEY_ID and APPLE_CLIENT_ID and APPLE_PRIVATE_KEY):
@@ -281,9 +319,7 @@ def _apple_build_client_secret() -> str:
         "sub": APPLE_CLIENT_ID,
     }
     headers = {"kid": APPLE_KEY_ID, "alg": "ES256"}
-    private_key = APPLE_PRIVATE_KEY
-    # Ensure proper newlines for PEM formatting if provided inline
-    private_key = private_key.replace("\\n", "\n")
+    private_key = _normalize_apple_private_key(APPLE_PRIVATE_KEY)
     token = jwt.encode(claims, private_key, algorithm="ES256", headers=headers)
     return token
 
