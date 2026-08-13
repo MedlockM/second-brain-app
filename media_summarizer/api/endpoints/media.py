@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
+from media_summarizer.api.dependencies.media_access import get_media_for_user
 from media_summarizer.api.models.media_contracts import (
     LEGACY_PROCESSING_JOB_STATUS_MAP,
 )
@@ -55,9 +56,13 @@ from media_summarizer.api.models.media_contracts import (
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models.media_artifact import MediaArtifactRecord
+from media_summarizer.core.models.user_media import UserMediaRecord, UserMediaStatus
 from media_summarizer.core.ports.document_parser import DocumentFormat
 from media_summarizer.core.services import folder_service, media_search_service, tag_service
-from media_summarizer.core.services.durable_media_service import try_save_media_for_user
+from media_summarizer.core.services.durable_media_service import (
+    resolve_job_for_record,
+    save_media_for_user,
+)
 from media_summarizer.core.services.media_search_service import SearchFilters
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
@@ -232,19 +237,26 @@ class PatchMediaTagsResponse(BaseModel):
 # ---------- Search / List models ----------
 
 class MediaSearchItem(BaseModel):
+    """One row of the library list, projected from the durable ``user_media`` record.
+
+    ``status`` is the *library* processing status (pending/processing/ready/failed)
+    and is nullable by contract: the entry exists in the library whether or not
+    anything is known about its processing (task-220, invariant I3). The former
+    ``completed_at`` / ``error_message`` fields are gone -- they were processing-job
+    attributes, and a list read no longer reads jobs.
+    """
+
     media_item_id: str
     title: Optional[str] = None
     source_platform: Optional[str] = None
     media_type: Optional[str] = None
-    status: str
+    status: Optional[str] = None
     folder_id: Optional[str] = None
     tag_ids: List[str] = Field(default_factory=list)
     source_url: Optional[str] = None
     media_image: Optional[str] = None
     created_at: str
     updated_at: str
-    completed_at: Optional[str] = None
-    error_message: Optional[str] = None
 
 
 class MediaSearchResponse(BaseModel):
@@ -271,12 +283,14 @@ _LEGACY_MEDIA_TYPE_MAP = {
 }
 
 
-def _canonical_media_type(job: ProcessingJob) -> CanonicalMediaType:
-    raw = (job.media_type or "").lower().strip()
+def _canonical_media_type(
+    media_type: Optional[str], source_platform: Optional[str]
+) -> CanonicalMediaType:
+    raw = (media_type or "").lower().strip()
     if raw in _LEGACY_MEDIA_TYPE_MAP:
         return _LEGACY_MEDIA_TYPE_MAP[raw]
     if raw == "video":
-        platform = (job.source_platform or "").lower().strip()
+        platform = (source_platform or "").lower().strip()
         if platform in ("tiktok", "instagram", "x"):
             return CanonicalMediaType.SHORT_VIDEO
         if platform == "youtube":
@@ -288,22 +302,50 @@ def _canonical_media_type(job: ProcessingJob) -> CanonicalMediaType:
         return CanonicalMediaType.UNKNOWN
 
 
-def _canonical_source_platform(job: ProcessingJob) -> CanonicalSourcePlatform:
-    raw = (job.source_platform or "").lower().strip()
+def _canonical_source_platform(source_platform: Optional[str]) -> CanonicalSourcePlatform:
+    raw = (source_platform or "").lower().strip()
     try:
         return CanonicalSourcePlatform(raw)
     except ValueError:
         return CanonicalSourcePlatform.UNKNOWN
 
 
-def _canonical_job_status(job: ProcessingJob) -> CanonicalJobLifecycle:
-    return LEGACY_PROCESSING_JOB_STATUS_MAP.get(
-        job.status.value, CanonicalJobLifecycle.PENDING
+# Library status -> job lifecycle, used when the operational job is gone.
+#
+# ``READY -> COMPLETED`` is the load-bearing entry: the mobile detail screen polls
+# until it sees ``completed``, so an item whose job expired must still report a
+# terminal status or the client spins forever on data that will never change.
+_LIBRARY_STATUS_TO_JOB_LIFECYCLE = {
+    UserMediaStatus.PENDING: CanonicalJobLifecycle.PENDING,
+    UserMediaStatus.PROCESSING: CanonicalJobLifecycle.EXTRACTING,
+    UserMediaStatus.READY: CanonicalJobLifecycle.COMPLETED,
+    UserMediaStatus.FAILED: CanonicalJobLifecycle.FAILED,
+}
+
+
+def _canonical_job_status(
+    record: UserMediaRecord, job: Optional[ProcessingJob]
+) -> CanonicalJobLifecycle:
+    """Lifecycle status of the item, job-first and library-second.
+
+    A live job is the finest-grained answer, so it wins when it exists. When it
+    does not, the library's own coarse status answers instead -- and an unknown
+    library status resolves to ``COMPLETED`` rather than ``PENDING`` on purpose:
+    with no job in existence nothing is in flight, and claiming otherwise would
+    tell the client to keep waiting for a pipeline that is not running.
+    """
+    if job is not None:
+        return LEGACY_PROCESSING_JOB_STATUS_MAP.get(
+            job.status.value, CanonicalJobLifecycle.PENDING
+        )
+    if record.processing_status is None:
+        return CanonicalJobLifecycle.COMPLETED
+    return _LIBRARY_STATUS_TO_JOB_LIFECYCLE.get(
+        record.processing_status, CanonicalJobLifecycle.COMPLETED
     )
 
 
-def _canonical_media_item_status(job: ProcessingJob) -> CanonicalMediaItemStatus:
-    job_status = _canonical_job_status(job)
+def _canonical_media_item_status(job_status: CanonicalJobLifecycle) -> CanonicalMediaItemStatus:
     if job_status == CanonicalJobLifecycle.PENDING:
         return CanonicalMediaItemStatus.INGESTED
     if job_status == CanonicalJobLifecycle.RESOLVING:
@@ -339,8 +381,11 @@ def _canonical_progress(job_status: CanonicalJobLifecycle) -> CanonicalProcessin
     )
 
 
-def _canonical_transcript(job: ProcessingJob) -> CanonicalTranscriptInfo:
-    job_status = _canonical_job_status(job)
+def _canonical_transcript(
+    job_status: CanonicalJobLifecycle,
+    record: UserMediaRecord,
+    job: Optional[ProcessingJob],
+) -> CanonicalTranscriptInfo:
     if job_status in (
         CanonicalJobLifecycle.READY_FOR_ARTIFACTS,
         CanonicalJobLifecycle.COMPLETED,
@@ -355,8 +400,19 @@ def _canonical_transcript(job: ProcessingJob) -> CanonicalTranscriptInfo:
     else:
         status = CanonicalTranscriptStatus.PENDING
 
-    tx_meta = job.transcription_metadata if isinstance(job.transcription_metadata, dict) else {}
-    ext_meta = job.extraction_metadata if isinstance(job.extraction_metadata, dict) else {}
+    # Everything below is pipeline detail that only ever lived on the job. With no
+    # job left, the transcript block degrades to its status alone -- which is why
+    # the status is derived from the library row and not from this metadata.
+    tx_meta = (
+        job.transcription_metadata
+        if job is not None and isinstance(job.transcription_metadata, dict)
+        else {}
+    )
+    ext_meta = (
+        job.extraction_metadata
+        if job is not None and isinstance(job.extraction_metadata, dict)
+        else {}
+    )
 
     source = tx_meta.get("provider") or ext_meta.get("transcript_source")
     if isinstance(source, str):
@@ -376,13 +432,18 @@ def _canonical_transcript(job: ProcessingJob) -> CanonicalTranscriptInfo:
     except (TypeError, ValueError):
         segments = None
 
-    language = tx_meta.get("language") or ext_meta.get("language")
+    language = (
+        tx_meta.get("language") or ext_meta.get("language") or record.language
+    )
     if not isinstance(language, str):
         language = None
 
+    if duration is None and record.duration_seconds is not None:
+        duration = float(record.duration_seconds)
+
     return CanonicalTranscriptInfo(
         status=status,
-        transcription_s3_key=job.transcription_s3_key,
+        transcription_s3_key=job.transcription_s3_key if job is not None else None,
         source=source,
         language=language,
         segments_count=segments,
@@ -390,34 +451,77 @@ def _canonical_transcript(job: ProcessingJob) -> CanonicalTranscriptInfo:
     )
 
 
-def _build_media_item_contract(job: ProcessingJob) -> CanonicalMediaItemContract:
+def _build_media_item_contract(
+    record: UserMediaRecord,
+    job: Optional[ProcessingJob],
+    job_status: CanonicalJobLifecycle,
+) -> CanonicalMediaItemContract:
+    """Project the durable library row onto the canonical media item contract.
+
+    The record is the authority for identity, metadata and organization; the job
+    is only an enrichment, and every field it used to provide has a durable
+    counterpart. ``media_item_id`` is the durable id, which for rows reconstructed
+    by the task-241 backfill is the very id the artifacts and Algolia objects are
+    already keyed by.
+    """
     return CanonicalMediaItemContract(
-        media_item_id=job.id,
-        media_key=job.media_key or job.id,
-        original_url=job.source_url or "",
-        normalized_url=job.source_url or "",
-        media_type=_canonical_media_type(job),
-        source_platform=_canonical_source_platform(job),
-        status=_canonical_media_item_status(job),
-        transcript=_canonical_transcript(job),
+        media_item_id=record.media_item_id,
+        media_key=record.media_key or record.media_item_id,
+        original_url=record.source_url or "",
+        normalized_url=record.source_url or "",
+        media_type=_canonical_media_type(record.media_type, record.source_platform),
+        source_platform=_canonical_source_platform(record.source_platform),
+        status=_canonical_media_item_status(job_status),
+        transcript=_canonical_transcript(job_status, record, job),
         artifact_statuses={},
-        created_at=job.created_at.isoformat(),
-        updated_at=job.updated_at.isoformat(),
+        created_at=record.saved_at.isoformat(),
+        updated_at=record.updated_at.isoformat(),
     )
 
 
-def _build_processing_job_contract(job: ProcessingJob) -> CanonicalProcessingJobContract:
-    job_status = _canonical_job_status(job)
+def _build_processing_job_contract(
+    record: UserMediaRecord,
+    job: Optional[ProcessingJob],
+    job_status: CanonicalJobLifecycle,
+) -> CanonicalProcessingJobContract:
+    """Processing state as an *enrichment* of the library row.
+
+    Deliberately still a required, non-null block of the response: the mobile
+    client dereferences ``processing_job.status`` unconditionally, and the point of
+    task-220 is that an expired job stops being visible to users -- not that it
+    starts returning null and crashing the app. When no job survives, the block is
+    synthesized from the durable row: the timestamps become the library's own, the
+    dangling ``last_job_id`` is reported as the job id (correlation only, it may no
+    longer resolve), and pipeline-only fields are simply absent.
+    """
+    if job is not None:
+        return CanonicalProcessingJobContract(
+            job_id=job.id,
+            status=job_status,
+            progress=_canonical_progress(job_status),
+            created_at=job.created_at.isoformat(),
+            updated_at=job.updated_at.isoformat(),
+            started_at=job.started_at.isoformat() if job.started_at else None,
+            completed_at=job.completed_at.isoformat() if job.completed_at else None,
+            error_code=None,
+            error_message=job.error_message,
+        )
+
+    is_terminal = job_status in (
+        CanonicalJobLifecycle.COMPLETED,
+        CanonicalJobLifecycle.FAILED,
+        CanonicalJobLifecycle.CANCELLED,
+    )
     return CanonicalProcessingJobContract(
-        job_id=job.id,
+        job_id=record.last_job_id or record.media_item_id,
         status=job_status,
         progress=_canonical_progress(job_status),
-        created_at=job.created_at.isoformat(),
-        updated_at=job.updated_at.isoformat(),
-        started_at=job.started_at.isoformat() if job.started_at else None,
-        completed_at=job.completed_at.isoformat() if job.completed_at else None,
+        created_at=record.saved_at.isoformat(),
+        updated_at=record.updated_at.isoformat(),
+        started_at=None,
+        completed_at=record.updated_at.isoformat() if is_terminal else None,
         error_code=None,
-        error_message=job.error_message,
+        error_message=None,
     )
 
 
@@ -773,8 +877,10 @@ async def upload_document(
 
         # Durable library entry first (task-240, task-218 §4.3): the job, the S3
         # object and the queue message are operational and may be retried; what
-        # the user saved must not depend on any of them surviving.
-        durable_media_item_id = await try_save_media_for_user(
+        # the user saved must not depend on any of them surviving. Since task-220
+        # the library is read from this row, so a failure here fails the upload:
+        # returning 202 for a save the user will never see is worse than an error.
+        durable_media_item_id = await save_media_for_user(
             user_id=user.id,
             media_key=media_key,
             title=file_name,
@@ -790,11 +896,10 @@ async def upload_document(
             source_platform="document",
             media_type="document",
             title=file_name,
-            # Nullable pointer to the durable row; nothing reads it in Phase 1.
-            # media_key is deliberately NOT stored on the job: the canonical
-            # contract exposes `job.media_key or job.id` (see
-            # _build_media_item_contract), and populating it here would silently
-            # change a client-visible field that is out of this task's scope.
+            # Pointer to the durable library row this job is working for. The job
+            # deliberately stays free of `media_key`: the completion events and the
+            # watcher fan-out key off it, and this upload path has no entry in the
+            # global idempotence ledger to point at.
             media_item_id=durable_media_item_id,
         )
         job = await database_async.create_processing_job(job)
@@ -838,14 +943,19 @@ async def upload_document(
             logging.INFO,
             "media.upload.created",
             "Document uploaded and queued for parsing",
-            media_item_id=job.id,
+            media_item_id=durable_media_item_id or job.id,
+            job_id=job.id,
             source_platform="document",
             file_name=file_name,
             file_size_bytes=len(content),
         )
 
         return UploadDocumentResponse(
-            media_item_id=job.id,
+            # The durable id is what every read path now resolves. It falls back to
+            # the job id only when the durable write is switched off, which is the
+            # documented rollback state and keeps the ids consistent with the
+            # pre-task-220 behaviour.
+            media_item_id=durable_media_item_id or job.id,
             status=job.status.value,
             source_platform="document",
             file_name=file_name,
@@ -933,7 +1043,9 @@ async def upload_audio(
             title=file_name,
         )
 
-        # Parse and validate tag_ids if provided
+        # Parse and validate tag_ids if provided. They are organization, so they
+        # land on the durable library row -- never on the job.
+        resolved_tag_ids: List[str] = []
         parsed_tag_ids: Optional[List[str]] = None
         if tag_ids:
             import json as _json
@@ -969,18 +1081,18 @@ async def upload_audio(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
                 )
-            job.tag_ids = unique_tag_ids
+            resolved_tag_ids = unique_tag_ids
 
         # Durable library entry first (task-240, task-218 §4.3). Placed after tag
         # validation so the library row carries the organization the user asked
         # for, and before the job so nothing user-owned depends on the pipeline.
-        job.media_item_id = await try_save_media_for_user(
+        job.media_item_id = await save_media_for_user(
             user_id=user.id,
             media_key=media_key,
             title=file_name,
             source_platform="audio",
             media_type="audio",
-            tag_ids=job.tag_ids,
+            tag_ids=resolved_tag_ids,
         )
 
         job = await database_async.create_processing_job(job)
@@ -1024,7 +1136,8 @@ async def upload_audio(
             logging.INFO,
             "media.upload_audio.created",
             "Audio file uploaded and queued for transcription",
-            media_item_id=job.id,
+            media_item_id=job.media_item_id or job.id,
+            job_id=job.id,
             source_platform="audio",
             file_name=file_name,
             file_size_bytes=len(content),
@@ -1032,7 +1145,7 @@ async def upload_audio(
         )
 
         return UploadAudioResponse(
-            media_item_id=job.id,
+            media_item_id=job.media_item_id or job.id,
             status=job.status.value,
             source_platform="audio",
         )
@@ -1368,29 +1481,15 @@ async def get_media_item(
 ):
     token = bind_log_context(user_id=current_user.id, media_item_id=media_item_id)
     try:
-        job = await database_async.get_processing_job_by_id(media_item_id)
+        # Ownership is the key: the durable row is looked up under
+        # (user_id, media_item_id), so another user's item is indistinguishable
+        # from a non-existent one and no separate 403 branch is needed.
+        record = await get_media_for_user(media_item_id, current_user.id)
 
-        if job is None:
-            log_event(
-                logger,
-                logging.WARNING,
-                "media.get.not_found",
-                "Media item not found",
-                media_item_id=media_item_id,
-                error_code="MEDIA_NOT_FOUND",
-            )
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found")
-
-        if job.user_id != current_user.id:
-            log_event(
-                logger,
-                logging.WARNING,
-                "media.get.forbidden",
-                "Access denied to media item",
-                media_item_id=media_item_id,
-                error_code="ACCESS_DENIED",
-            )
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        # Processing state is an optional enrichment. A missing job is a normal,
+        # expected outcome once the operational row has expired.
+        job = await resolve_job_for_record(record)
+        job_status = _canonical_job_status(record, job)
 
         log_event(
             logger,
@@ -1398,19 +1497,20 @@ async def get_media_item(
             "media.get.succeeded",
             "Media item retrieved",
             media_item_id=media_item_id,
-            status=job.status.value,
+            status=job_status.value,
+            has_job=job is not None,
         )
 
         artifact_records = await safe_list_media_artifacts_by_media_item(media_item_id)
         artifacts: List[CanonicalMediaArtifactContract] = []
-        for record in artifact_records:
-            mapped = _build_artifact_contract(record)
+        for artifact_record in artifact_records:
+            mapped = _build_artifact_contract(artifact_record)
             if mapped is not None:
                 artifacts.append(mapped)
 
         return CanonicalMediaStatusResponse(
-            media_item=_build_media_item_contract(job),
-            processing_job=_build_processing_job_contract(job),
+            media_item=_build_media_item_contract(record, job, job_status),
+            processing_job=_build_processing_job_contract(record, job, job_status),
             artifacts=artifacts,
         )
 
@@ -1540,34 +1640,24 @@ async def get_media_raw_content(
     """
     token = bind_log_context(user_id=current_user.id, media_item_id=media_item_id)
     try:
-        job = await database_async.get_processing_job_by_id(media_item_id)
+        record = await get_media_for_user(media_item_id, current_user.id)
 
+        # Unlike the library reads, this one genuinely needs the job: the
+        # transcript location lives nowhere else. A library item whose job is gone
+        # therefore has no retrievable raw content -- which is a 404 on the
+        # content, not on the item.
+        job = await resolve_job_for_record(record)
         if job is None:
             log_event(
                 logger,
-                logging.WARNING,
-                "media.raw_content.not_found",
-                "Media item not found",
+                logging.INFO,
+                "media.raw_content.not_available",
+                "Raw content unavailable: no processing job survives for this item",
                 media_item_id=media_item_id,
-                error_code="MEDIA_NOT_FOUND",
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Media item not found",
-            )
-
-        if job.user_id != current_user.id:
-            log_event(
-                logger,
-                logging.WARNING,
-                "media.raw_content.forbidden",
-                "Access denied to media item raw content",
-                media_item_id=media_item_id,
-                error_code="ACCESS_DENIED",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied",
+                detail="Raw content is no longer available for this media item",
             )
 
         raw = await get_raw_content(job, reading_language=current_user.reading_language)

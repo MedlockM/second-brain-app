@@ -1,14 +1,14 @@
 """
-Durable library persistence — the use-case layer of task-240 (Phase 1).
+Durable library persistence — the use-case layer of task-240/220.
 
 Every user save goes through :func:`save_media_for_user`, which creates or reuses
 exactly one ``user_media`` row. This is the write half of Option A
 (``docs/research/task-218-durable-media-library-persistence/README.md`` §4.3).
 
-Reads still resolve through ``processing_jobs`` in Phase 1: switching them is
-task-220. Until then this table is written but not read by the API, which is what
-makes the phase safe to roll back — flip ``DURABLE_MEDIA_ENABLED`` off and the
-orphan rows left behind are inert.
+Since task-220 (Phase 3) the API *reads* this table too, which changed the
+failure contract of the save path: a save whose durable row is missing is a save
+the user cannot see, so it now fails the request instead of being swallowed. The
+Phase-1 ``try_save_media_for_user`` wrapper that absorbed those failures is gone.
 
 Failure policy, straight from §6.5 and from the incident that motivated the whole
 benchmark:
@@ -228,30 +228,47 @@ async def save_media_for_user(
     return stored.media_item_id
 
 
-async def try_save_media_for_user(**kwargs: Any) -> Optional[str]:
-    """Phase-1 call-site wrapper: never fails the user's save.
+async def resolve_job_for_record(
+    record: UserMediaRecord,
+) -> Optional[ProcessingJob]:
+    """Find the operational job behind a library row, if one still exists.
 
-    ``save_media_for_user`` raises, and in the end state (once task-220 makes
-    ``user_media`` the read path) that is exactly right: a save whose library row
-    is missing is a save that did not happen, and the request must fail.
+    Reserved for the few callers that genuinely need *pipeline* data the library
+    row does not carry — today only the transcript location (raw content,
+    artifact generation, digests). Library reads must never call this: that is
+    invariant I3, and the whole point of task-220 is that a missing job is a
+    non-event for the library.
 
-    In Phase 1 reads still resolve through ``processing_jobs``, so a row that
-    fails to land costs the user nothing today. Failing the whole ingestion over
-    a table nothing reads yet would trade a real, user-visible regression for a
-    bookkeeping one. The failure is already logged at ERROR and alarmed by the
-    time it gets here — it is reported, not silenced — and task-241's backfill
-    reconciles any row that was missed.
+    Two candidate ids, in order of trust:
 
-    TASK-220: when reads flip to ``user_media``, delete this wrapper and call
-    ``save_media_for_user`` directly at every call site. Leaving it in place
-    afterwards would let a user believe an item is in their library when it is
-    not.
+    1. ``last_job_id``, the pointer the mirror keeps fresh.
+    2. the ``media_item_id`` itself, but only when it is *not* a derived
+       ``mi_`` id — rows reconstructed by the task-241 backfill kept their legacy
+       job id verbatim, so for those the two are the same value.
+
+    Ownership is re-verified on the resolved job. ``processing_jobs`` is keyed by
+    job id alone, so a dangling pointer could otherwise cross a user boundary.
     """
-    try:
-        return await save_media_for_user(**kwargs)
-    except DurableMediaWriteError:
-        # Already logged as durable_media.write_failed (ERROR + alarm).
+    if record is None:
         return None
+
+    from media_summarizer.utils import database_async
+
+    candidates: List[str] = []
+    if record.last_job_id:
+        candidates.append(record.last_job_id)
+    if record.media_item_id and not record.media_item_id.startswith("mi_"):
+        candidates.append(record.media_item_id)
+
+    for job_id in candidates:
+        try:
+            job = await database_async.get_processing_job_by_id(job_id)
+        except Exception as exc:  # noqa: BLE001 - a dead job is not an error here
+            logger.warning("Could not load job %s: %s", job_id, exc)
+            continue
+        if job and job.user_id == record.user_id:
+            return job
+    return None
 
 
 async def mirror_attributes(
@@ -300,12 +317,19 @@ async def mirror_job(job: ProcessingJob) -> bool:
     would never reach the durable record — hollowing out AC #5 while technically
     satisfying it at creation time.
 
-    No-op unless ``job.media_item_id`` points at a durable row, so a job created
-    while the flag was off is never mirrored onto a row that does not exist.
+    Targets ``job.media_item_id``, falling back to ``job.id``: jobs created before
+    task-240 carry no pointer, and the task-241 backfill reconstructed their
+    library row under the legacy job id. Aiming at a row that does not exist is
+    harmless -- the underlying update is conditional on ``attribute_exists`` -- so
+    the fallback buys legacy jobs a working mirror at no risk.
     """
     if not user_media_store.durable_media_enabled():
         return False
-    if not job or not job.media_item_id or not job.user_id:
+    if not job or not job.user_id:
+        return False
+
+    media_item_id = job.media_item_id or job.id
+    if not media_item_id:
         return False
 
     attributes: Dict[str, Any] = {"last_job_id": job.id}
@@ -341,6 +365,6 @@ async def mirror_job(job: ProcessingJob) -> bool:
 
     return await mirror_attributes(
         user_id=job.user_id,
-        media_item_id=job.media_item_id,
+        media_item_id=media_item_id,
         attributes=attributes,
     )

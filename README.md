@@ -10,7 +10,6 @@ Plateforme "second cerveau" : enregistrer n'importe quel média en un share, l'o
 | `docs/CANONICAL_MEDIA_API_CONTRACT.md` | Frozen | Contrats API (5 endpoints canoniques) |
 | `docs/CANONICAL_MEDIA_API_OPENAPI.yaml` | Frozen | OpenAPI spec |
 | `docs/MEDIA_INGESTION_CORE_ARCHITECTURE.md` | Current | Architecture hexagonale d'ingestion |
-| `docs/MEDIA_KEY_SUBMISSION_GUARD_CONTRACT.md` | Current | Contrat de déduplication par media_key |
 | `docs/MEDIA_KEY_MIGRATION.md` | Current | Modèle d'identité runtime (media_key) |
 | `docs/SHARED_CONTENT_INGESTION_PROPOSAL.md` | Proposed | Design WhatsApp text/audio (task-61) |
 | `docs/URL_SAFETY_POLICY.md` | Current | Validation et sécurité des URLs |

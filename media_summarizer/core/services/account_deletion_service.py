@@ -95,7 +95,6 @@ _JOB_CONCURRENCY = 8
 # inventory required by AC#3: adding a user-scoped table without adding it here
 # is the bug this shape exists to make obvious.
 _USER_PARTITION_TABLES: Tuple[Tuple[str, Optional[str]], ...] = (
-    ("USER_MEDIA_SUBMISSIONS_TABLE", "media_key"),
     ("USER_USAGE_MONTHLY_TABLE", "period"),
     ("USER_USAGE_DAILY_TABLE", "date"),
     ("REVIEW_SCHEDULE_TABLE", "card_id"),
@@ -235,9 +234,9 @@ async def _collect_inventory(user_id: str) -> _Inventory:
 async def _list_processing_jobs(user_id: str) -> List[ProcessingJob]:
     """Paginated read of the user's jobs.
 
-    ``database_async.get_processing_jobs_by_user_id`` stops at the first 1 MB
-    page, which is right for an inbox screen and wrong for an erasure: the jobs it
-    dropped are the ones whose S3 objects would survive.
+    Deliberately not a single ``query`` on the ``user-index``: that stops at the
+    first 1 MB page, and for an erasure the jobs it dropped are exactly the ones
+    whose S3 objects would survive.
     """
     items = await _query_user_index(required_env("PROCESSING_JOBS_TABLE"), user_id)
     return [ProcessingJob.from_dynamodb_item(item) for item in items]

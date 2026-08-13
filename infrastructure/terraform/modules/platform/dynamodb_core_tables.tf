@@ -181,34 +181,20 @@ resource "aws_dynamodb_table" "media_idempotence_v1" {
   }
 }
 
-# User media submissions table (per-user dedup of submissions)
-resource "aws_dynamodb_table" "user_media_submissions_v1" {
-  name         = "user_media_submissions${local.suffix}"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "user_id"
-  range_key    = "media_key"
-
-  attribute {
-    name = "user_id"
-    type = "S"
-  }
-  attribute {
-    name = "media_key"
-    type = "S"
-  }
-
-  tags = {
-    Name = "user_media_submissions${local.suffix}"
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
-
-  deletion_protection_enabled = true
+# user_media_submissions is gone (task-220). Its rows only ever held per-user
+# (user_id, media_key, job_id) pointers, half of them dangling; the durable
+# user_media table now carries that ownership fact properly, and the task-241
+# backfill already consumed the last of them.
+#
+# Dropped from state rather than destroyed: the table was created with
+# deletion_protection_enabled and prevent_destroy, so a plain resource removal
+# would fail the plan. This leaves the physical table untouched in AWS for the
+# owner to delete by hand, and stops Terraform from managing it.
+removed {
+  from = aws_dynamodb_table.user_media_submissions_v1
 
   lifecycle {
-    prevent_destroy = true
+    destroy = false
   }
 }
 

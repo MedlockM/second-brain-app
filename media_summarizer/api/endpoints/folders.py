@@ -54,6 +54,10 @@ class FolderResponse(BaseModel):
     name: str
     parent_folder_id: Optional[str] = None
     is_default: bool = False
+    # Items stored directly in this folder, counted from the durable library
+    # (task-220). A freshly created folder is necessarily empty, so the create
+    # endpoint returns 0 without querying.
+    media_count: int = 0
     created_at: str
     updated_at: str
 
@@ -161,6 +165,9 @@ async def update_folder(
             name=folder.name,
             parent_folder_id=folder.parent_folder_id,
             is_default=folder.is_default,
+            media_count=await folder_service.count_media_in_folder(
+                current_user.id, folder.id
+            ),
             created_at=folder.created_at.isoformat(),
             updated_at=folder.updated_at.isoformat(),
         )

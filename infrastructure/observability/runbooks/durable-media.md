@@ -167,7 +167,9 @@ the script. `--user-id <uuid>` restricts a run to one account, `--no-algolia` /
 - Writes: `user_media<env>` (conditional `PutItem` for new rows, attribute-level
   `UpdateItem` that only fills *missing* attributes on rows that already exist) and
   `media_idempotence<env>` (unsticking reservations, see below).
-- Reads only: `processing_jobs`, `media_artifacts`, `user_media_submissions`,
+- Reads only: `processing_jobs`, `media_artifacts`, `user_media_submissions`
+  (dropped from Terraform by task-220 — the script is a historical migration
+  artifact and this source is gone once the owner deletes the physical table),
   `user_folders`, `users`, Algolia and S3. The script contains no write call against
   any of them, so artifact rows, search records and S3 objects keep their existing
   `media_item_id` and every deep link stays valid.

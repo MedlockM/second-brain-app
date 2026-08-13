@@ -43,6 +43,7 @@ RETRY_DELAY = 0.01 if TEST_MODE else 2
 
 async def _enqueue_search_indexing(
     *,
+    media_item_id: Optional[str],
     job_id: Optional[str],
     user_id: Optional[str],
     transcription_s3_key: Optional[str],
@@ -57,18 +58,25 @@ async def _enqueue_search_indexing(
     ingestion path that publishes ``episode_completion_status`` with a
     ``transcription_s3_key`` is indexed here, regardless of producer.
 
+    ``media_item_id`` is the durable library id and becomes the Algolia objectID
+    (task-220). It used to be the processing-job id, which meant a search hit
+    pointed at a row that was allowed to expire; ``job_id`` is now kept for logs
+    only.
+
     Failure is logged as a warning and never propagates -- it must not break
     the event handling nor the watcher fan-out. The enqueue is skipped (with a
-    structured log) when ``transcription_s3_key`` or ``user_id`` is missing.
+    structured log) when ``transcription_s3_key``, ``media_item_id`` or
+    ``user_id`` is missing.
     """
-    if not transcription_s3_key or not user_id:
+    if not transcription_s3_key or not user_id or not media_item_id:
         log_event(
             logger,
             logging.WARNING,
             "search_indexing.skipped",
-            "Skipped search indexing enqueue: missing transcription_s3_key or user_id",
+            "Skipped search indexing enqueue: missing transcription_s3_key, media_item_id or user_id",
             job_id=job_id,
             has_transcription_s3_key=bool(transcription_s3_key),
+            has_media_item_id=bool(media_item_id),
             has_user_id=bool(user_id),
         )
         return
@@ -77,7 +85,7 @@ async def _enqueue_search_indexing(
         await sqs.send_message(
             queue_name=SEARCH_INDEXING_QUEUE,
             message_body={
-                "media_item_id": job_id,
+                "media_item_id": media_item_id,
                 "user_id": user_id,
                 "transcription_s3_key": transcription_s3_key,
                 "title": title,
@@ -169,6 +177,7 @@ async def process_event(message: Dict[str, Any]) -> None:
 
     if canonical_job and canonical_job.user_id:
         await _enqueue_search_indexing(
+            media_item_id=canonical_job.media_item_id or canonical_job_id,
             job_id=canonical_job_id,
             user_id=canonical_job.user_id,
             transcription_s3_key=transcription_s3_key,
@@ -231,6 +240,10 @@ async def process_event(message: Dict[str, Any]) -> None:
             watcher_user_id = (getattr(job, "user_id", None) if job else None) or w.get("user_id")
             if watcher_user_id and watcher_user_id not in indexed_user_ids:
                 await _enqueue_search_indexing(
+                    media_item_id=(
+                        getattr(job, "media_item_id", None) if job else None
+                    )
+                    or job_id,
                     job_id=job_id,
                     user_id=watcher_user_id,
                     transcription_s3_key=transcription_s3_key,

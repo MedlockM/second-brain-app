@@ -19,7 +19,7 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.models import ProcessingJob
-from media_summarizer.core.services.durable_media_service import try_save_media_for_user
+from media_summarizer.core.services.durable_media_service import save_media_for_user
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     normalize_transcript_text,
@@ -29,7 +29,6 @@ from media_summarizer.utils import media_idempotence as episode_idempotence
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.language_codes import normalize_language_code
 from media_summarizer.utils.logging_config import log_event
-from media_summarizer.utils.user_media_submissions import mark_user_submission as mark_user_media_submission
 
 logger = logging.getLogger(__name__)
 
@@ -71,21 +70,32 @@ def _build_duplicate_outcome(
     *,
     resolved: ResolvedMedia,
     existing: Dict[str, Any],
+    durable_media_item_id: Optional[str],
 ) -> IngestionOutcome:
+    """Outcome for a media_key someone (maybe another user) already processed.
+
+    The ids returned here are the caller's own library ids, never the id of the
+    job that happens to hold the global idempotence reservation. Handing back a
+    foreign job id is the §1.6.1 defect: the requesting user would poll and open
+    an item that does not belong to them, while their own library row stayed
+    invisible. Deduplication is a *pipeline* optimisation; the library entry is
+    per user (task-218 §4.3).
+    """
     existing_job_id = existing.get("job_id")
     if not existing_job_id:
         raise OrchestrationError(
             "Duplicate media_key detected but idempotence row has no job_id."
         )
     mapped_status = _status_from_idempotence(existing.get("status"))
+    caller_media_item_id = durable_media_item_id or existing_job_id
     return IngestionOutcome(
-        media_item_id=existing_job_id,
+        media_item_id=caller_media_item_id,
         job_id=existing_job_id,
         status=mapped_status,
         media_key=resolved.media_key,
         normalized_url=resolved.normalized_url,
         deduplicated=True,
-        duplicate_of_media_item_id=existing_job_id,
+        duplicate_of_media_item_id=caller_media_item_id,
         metadata={
             "idempotence_status": existing.get("status"),
             "resolver_key": resolved.resolver_key,
@@ -142,7 +152,8 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         Submit resolved media for processing.
 
         For all commands (IngestUrlCommand and IngestSharedContentCommand):
-        - Applies optional folder_id and tag_ids from the command request to the job.
+        - Creates the durable library row, carrying the requested folder_id and
+          tag_ids. Organization lives there and nowhere else (task-220).
         - Allocates a minute hold for quota enforcement.
         - Routes to appropriate worker queues based on media family and type.
         - Handles direct transcription for shared text and Apify social video transcripts.
@@ -157,7 +168,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         # a media_key already processed *globally* is still a brand-new library
         # entry for THIS user, and that is the case §1.6.1 got wrong by handing
         # the requesting user another user's job id.
-        durable_media_item_id = await try_save_media_for_user(
+        durable_media_item_id = await save_media_for_user(
             user_id=command.user.user_id,
             media_key=resolved.media_key,
             title=title,
@@ -176,13 +187,16 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 "media.ingest.duplicate_reused",
                 "Existing media submission reused through idempotence",
                 job_id=existing.get("job_id"),
-                media_item_id=existing.get("job_id"),
-                durable_media_item_id=durable_media_item_id,
+                media_item_id=durable_media_item_id or existing.get("job_id"),
                 resolver_key=resolved.resolver_key,
                 media_type=resolved.media_type.value,
                 source_platform=resolved.source_platform.value,
             )
-            return _build_duplicate_outcome(resolved=resolved, existing=existing)
+            return _build_duplicate_outcome(
+                resolved=resolved,
+                existing=existing,
+                durable_media_item_id=durable_media_item_id,
+            )
 
         job = ProcessingJob(
             user_id=command.user.user_id,
@@ -193,11 +207,15 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             title=title,
             source_platform=resolved.source_platform.value,
             media_type=resolved.media_type.value,
-            # Pointer from the operational row to the durable one. Nullable, and
-            # nothing reads it in Phase 1: it exists so the status mirror can find
-            # the library row, and so task-220 has the join it needs.
+            # Pointer from the operational row to the durable one: how the status
+            # mirror finds the library row, and how the workers know which
+            # media_item_id to publish (task-220).
             media_item_id=durable_media_item_id,
         )
+
+        # The id the outside world uses. It is the durable one; ``job.id`` is only
+        # the fallback for the flag-off path, where no library row was written.
+        canonical_media_item_id = durable_media_item_id or job.id
 
         reservation_created = False
         job_created = False
@@ -211,7 +229,11 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     media_key=resolved.media_key
                 )
                 if duplicate:
-                    return _build_duplicate_outcome(resolved=resolved, existing=duplicate)
+                    return _build_duplicate_outcome(
+                        resolved=resolved,
+                        existing=duplicate,
+                        durable_media_item_id=durable_media_item_id,
+                    )
                 raise OrchestrationError(
                     f"Unable to reserve media key '{resolved.media_key}'."
                 )
@@ -219,39 +241,10 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             await database_async.create_processing_job(job)
             job_created = True
 
-            # Apply folder_id and tag_ids from the command request if present
-            if command.request.folder_id:
-                job.folder_id = command.request.folder_id
-            if command.request.tag_ids:
-                job.tag_ids = list(dict.fromkeys(command.request.tag_ids))
-            # After applying changes, update the job in the database
-            if command.request.folder_id or command.request.tag_ids:
-                await database_async.update_processing_job(job)
-
-            try:
-                await mark_user_media_submission(
-                    user_id=command.user.user_id,
-                    media_key=resolved.media_key,
-                    job_id=job.id,
-                    source=command.request.source_app
-                    or (
-                        "ingest-shared-content"
-                        if isinstance(command, IngestSharedContentCommand)
-                        else "ingest-url"
-                    ),
-                )
-            except Exception as exc:
-                log_event(
-                    logger,
-                    logging.WARNING,
-                    "external_call.failed",
-                    "Failed to record user media submission",
-                    provider="dynamodb",
-                    user_id=command.user.user_id,
-                    job_id=job.id,
-                    resolver_key=resolved.resolver_key,
-                    exc_info=exc,
-                )
+            # No folder/tag write on the job: the requested organization was
+            # already persisted on the durable row above, which is now the only
+            # place it lives (task-220). The job used to carry a second copy that
+            # every read had to prefer or reconcile.
 
             pipeline_enqueued = False
             podcastindex_resolution_enqueued = False
@@ -314,7 +307,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "transcription.completed",
                     "Social video transcript stored from Apify native transcript",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
                     transcript_source="apify_native",
@@ -364,7 +357,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "transcription.completed",
                     "Shared text transcript stored without queued transcription",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
                     transcript_source="shared_text",
@@ -397,7 +390,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "transcription.enqueued",
                     "Staged audio transcription enqueued",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     queue=self._deepgram_transcription_queue,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
@@ -427,7 +420,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "media.ingest.unsupported",
                     "Instagram image post rejected: no OCR/vision pipeline exists",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
                     post_type=resolved.metadata.get("post_type"),
@@ -466,7 +459,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "transcription.enqueued",
                     "Social video transcription enqueued",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     queue=self._deepgram_transcription_queue,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
@@ -494,7 +487,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "transcription.enqueued",
                     "Direct audio transcription enqueued",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     queue=self._deepgram_transcription_queue,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
@@ -522,7 +515,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "worker.enqueued",
                     "X ingestion enqueued",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     queue=self._x_ingestion_queue,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
@@ -547,7 +540,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "worker.enqueued",
                     "Article extraction enqueued",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     queue=self._article_extraction_queue,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
@@ -576,7 +569,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "worker.enqueued",
                     "TikTok ingestion enqueued",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     queue=self._tiktok_ingestion_queue,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
@@ -621,7 +614,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "worker.enqueued",
                     "YouTube ingestion enqueued",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     queue=self._youtube_ingestion_queue,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
@@ -653,14 +646,14 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "worker.enqueued",
                     "Podcast resolution enqueued",
                     job_id=job.id,
-                    media_item_id=job.id,
+                    media_item_id=canonical_media_item_id,
                     queue=self._podcastindex_resolution_queue,
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
                 )
 
             return IngestionOutcome(
-                media_item_id=job.id,
+                media_item_id=canonical_media_item_id,
                 job_id=job.id,
                 status=(
                     outcome_status

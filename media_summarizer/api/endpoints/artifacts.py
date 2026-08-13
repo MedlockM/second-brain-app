@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
+from media_summarizer.api.dependencies.media_access import get_media_for_user
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.services.artifact_service import (
     ArtifactGenerationDisabledError,
@@ -17,7 +18,8 @@ from media_summarizer.core.services.artifact_service import (
     list_media_artifact_records,
     request_artifact_generation,
 )
-from media_summarizer.utils import database_async, s3
+from media_summarizer.core.services.durable_media_service import resolve_job_for_record
+from media_summarizer.utils import s3
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
 router = APIRouter()
@@ -52,15 +54,6 @@ class ArtifactContentResponse(BaseModel):
     )
 
 
-async def _get_job_for_user(media_item_id: str, user_id: str):
-    job = await database_async.get_processing_job_by_id(media_item_id)
-    if job is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found")
-    if job.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    return job
-
-
 @router.post("/media/{media_item_id}/artifacts", response_model=ArtifactResponse, status_code=status.HTTP_202_ACCEPTED)
 async def create_artifact(
     media_item_id: str,
@@ -75,10 +68,26 @@ async def create_artifact(
         artifact_type=artifact_type,
     )
     try:
-        job = await _get_job_for_user(media_item_id, current_user.id)
+        media = await get_media_for_user(media_item_id, current_user.id)
+
+        # Artifact *generation* is the one media-scoped operation that genuinely
+        # needs the pipeline row: the transcript lives on the job, not in the
+        # library. Ownership already came from the library row above, so this
+        # lookup only answers "is there still a transcript to work from".
+        job = await resolve_job_for_record(media)
+        if job is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "The transcript for this media item is no longer available, "
+                    "so new artifacts cannot be generated. Existing artifacts "
+                    "remain accessible."
+                ),
+            )
 
         record, reused = await request_artifact_generation(
             media_item_id=media_item_id,
+            user_id=current_user.id,
             job=job,
             artifact_type=artifact_type,
             parameters=payload.parameters,
@@ -161,7 +170,9 @@ async def list_artifacts(
 ):
     token = bind_log_context(user_id=current_user.id, media_item_id=media_item_id)
     try:
-        await _get_job_for_user(media_item_id, current_user.id)
+        # Ownership only: listing artifacts must keep working after the pipeline
+        # row expired, which is exactly what a user does weeks after saving.
+        await get_media_for_user(media_item_id, current_user.id)
 
         records = await list_media_artifact_records(media_item_id)
         artifacts = []
@@ -234,8 +245,8 @@ async def get_artifact(
             )
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
 
-        # Verify ownership
-        await _get_job_for_user(record.media_item_id, current_user.id)
+        # Verify ownership against the durable library row
+        await get_media_for_user(record.media_item_id, current_user.id)
 
         s3_key: Optional[str] = None
         if record.storage is not None:
@@ -304,8 +315,8 @@ async def get_artifact_content(
                 detail="Artifact not found",
             )
 
-        # Verify ownership
-        await _get_job_for_user(record.media_item_id, current_user.id)
+        # Verify ownership against the durable library row
+        await get_media_for_user(record.media_item_id, current_user.id)
 
         if record.storage is None:
             # Artifact exists but isn't ready yet (queued / generating / failed).

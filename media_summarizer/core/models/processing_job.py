@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -67,9 +67,9 @@ class ProcessingJob(BaseModel):
     summary_s3_key: Optional[str] = None
     quiz_s3_key: Optional[str] = None  # S3 key for generated quiz
 
-    # Organization
-    folder_id: Optional[str] = None  # Folder this media belongs to (user_folders table)
-    tag_ids: List[str] = Field(default_factory=list)  # User tag IDs associated with this media
+    # Organization lives on the durable ``user_media`` row only (task-220). The
+    # job used to carry folder_id/tag_ids as a second copy, which meant a folder
+    # move was lost the moment the job expired.
 
     # Media metadata
     media_date_published: Optional[int] = None  # Unix timestamp - when content was published
@@ -160,7 +160,6 @@ class ProcessingJob(BaseModel):
             "transcription_s3_key",
             "summary_s3_key",
             "quiz_s3_key",
-            "folder_id",
             "media_date_published",
             "extraction_metadata",
             "transcription_metadata",
@@ -180,10 +179,6 @@ class ProcessingJob(BaseModel):
                     item[field] = _sanitize_floats_for_dynamodb(value)
                 else:
                     item[field] = value
-
-        # Handle list fields (store only when non-empty)
-        if self.tag_ids:
-            item["tag_ids"] = self.tag_ids
 
         # Handle datetime fields
         datetime_fields = ["started_at", "completed_at"]

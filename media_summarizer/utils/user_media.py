@@ -40,6 +40,7 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from media_summarizer.core.models.user_media import (
+    NO_FOLDER_SEGMENT,
     UserMediaRecord,
     UserMediaStatus,
     build_folder_sort_key,
@@ -174,6 +175,95 @@ async def list_all_for_user(user_id: str) -> List[UserMediaRecord]:
                 break
             kwargs["ExclusiveStartKey"] = last_key
     return records
+
+
+async def list_library_for_user(user_id: str) -> List[UserMediaRecord]:
+    """Every *visible* library row of one user, fully paginated.
+
+    THE read path behind ``GET /api/media``, Search, the folder views and the
+    folder counts (task-220). It queries the base table and never touches
+    ``processing_jobs``: invariant I3 says a library read must not require an
+    operational row, so the list keeps working after a job expires.
+
+    Strongly consistent, so a save is immediately visible in the list the app
+    fetches right after it.
+    """
+    table_name = user_media_table_name()
+    session = database_async.get_session()
+    records: List[UserMediaRecord] = []
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        kwargs: Dict[str, Any] = {
+            "KeyConditionExpression": Key("user_id").eq(user_id),
+            "ConsistentRead": True,
+        }
+        while True:
+            resp = await table.query(**kwargs)
+            for item in resp.get("Items", []):
+                record = UserMediaRecord.from_dynamodb_item(item)
+                if record.is_deleted:
+                    continue
+                records.append(record)
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            kwargs["ExclusiveStartKey"] = last_key
+    return records
+
+
+async def list_for_folder(user_id: str, folder_id: Optional[str]) -> List[UserMediaRecord]:
+    """One folder's direct contents, via the folder LSI.
+
+    Direct contents only: sub-folder inclusion is a folder-tree concern and is
+    resolved by the caller, which then unions several calls or filters the full
+    library. ``folder_id=None`` returns the rows that sit outside any folder.
+    """
+    table_name = user_media_table_name()
+    prefix = f"{folder_id or NO_FOLDER_SEGMENT}#"
+    session = database_async.get_session()
+    records: List[UserMediaRecord] = []
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        kwargs: Dict[str, Any] = {
+            "IndexName": "folder-index",
+            "KeyConditionExpression": (
+                Key("user_id").eq(user_id) & Key("folder_sort_key").begins_with(prefix)
+            ),
+            "ConsistentRead": True,
+        }
+        while True:
+            resp = await table.query(**kwargs)
+            for item in resp.get("Items", []):
+                record = UserMediaRecord.from_dynamodb_item(item)
+                if record.is_deleted:
+                    continue
+                records.append(record)
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            kwargs["ExclusiveStartKey"] = last_key
+    return records
+
+
+async def count_media_per_folder(user_id: str) -> Dict[str, int]:
+    """Number of visible library rows per folder id.
+
+    One Query for the whole user rather than one per folder: a user has a handful
+    of folders and a bounded library, so scanning the partition once is cheaper
+    than N LSI queries. Rows with no folder are counted under
+    ``NO_FOLDER_SEGMENT``.
+    """
+    counts: Dict[str, int] = {}
+    for record in await list_library_for_user(user_id):
+        key = record.folder_id or NO_FOLDER_SEGMENT
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 async def delete_all_for_user(user_id: str) -> int:

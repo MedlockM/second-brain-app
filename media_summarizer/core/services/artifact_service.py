@@ -386,11 +386,19 @@ def build_status_snapshots(
 async def request_artifact_generation(
     *,
     media_item_id: str,
+    user_id: str,
     job: ProcessingJob,
     artifact_type: Any,
     parameters: Optional[Dict[str, Any]] = None,
     reading_language: Optional[str] = None,
 ) -> Tuple[MediaArtifactRecord, bool]:
+    """Queue (or reuse) an artifact for ``media_item_id`` on behalf of ``user_id``.
+
+    ``user_id`` travels with the queue message so the worker never has to resolve
+    a processing job just to learn who owns the item (task-220): ``media_item_id``
+    is a durable library id, and looking it up in ``processing_jobs`` would return
+    nothing.
+    """
     if not ARTIFACT_GENERATION_ENABLED:
         raise ArtifactGenerationDisabledError("Artifact generation is disabled.")
 
@@ -601,6 +609,7 @@ async def request_artifact_generation(
         message = {
             "artifact_id": record.artifact_id,
             "media_item_id": media_item_id,
+            "user_id": user_id,
             "artifact_type": resolved_type.value,
             "parameters": normalized_parameters,
             "transcript_s3_key": transcript_s3_key,

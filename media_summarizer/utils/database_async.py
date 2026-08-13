@@ -273,6 +273,10 @@ async def create_processing_job(job: ProcessingJob) -> ProcessingJob:
                 table=PROCESSING_JOBS_TABLE,
                 job_id=job.id,
             )
+            # Mirror immediately so the library row carries last_job_id from the
+            # start. Without it, a freshly created item has no way back to its
+            # pipeline row until the first status transition.
+            await _mirror_job_to_durable_library(job)
             return job
         except ClientError as e:
             if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
@@ -303,29 +307,6 @@ async def get_processing_job_by_id(job_id: str) -> Optional[ProcessingJob]:
             e,
             table=PROCESSING_JOBS_TABLE,
             job_id=job_id,
-        )
-        raise
-
-
-async def get_processing_jobs_by_user_id(user_id: str) -> List[ProcessingJob]:
-    """Get all processing jobs for a user."""
-    try:
-        session = get_session()
-        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
-            table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
-
-            response = await table.query(
-                IndexName="user-index",
-                KeyConditionExpression=Key("user_id").eq(user_id),
-            )
-            items = response.get("Items", [])
-            return [ProcessingJob.from_dynamodb_item(item) for item in items]
-    except ClientError as e:
-        _log_dynamodb_error(
-            "get_processing_jobs_by_user_id",
-            e,
-            table=PROCESSING_JOBS_TABLE,
-            user_id=user_id,
         )
         raise
 
@@ -370,8 +351,6 @@ async def _mirror_job_to_durable_library(job: ProcessingJob) -> None:
     Imported lazily: the service depends on this module, so a top-level import
     would be circular.
     """
-    if not job.media_item_id:
-        return
     try:
         from media_summarizer.core.services.durable_media_service import mirror_job
 
@@ -383,18 +362,62 @@ async def _mirror_job_to_durable_library(job: ProcessingJob) -> None:
 
 
 async def update_processing_job(job: ProcessingJob) -> ProcessingJob:
-    """Update a processing job in DynamoDB."""
+    """Patch an existing processing job in DynamoDB.
+
+    Attribute-level ``UpdateItem`` guarded by ``attribute_exists(id)``, not the
+    full-row ``PutItem`` this used to be (task-220). Two reasons:
+
+    - **A job row is allowed to disappear.** ``processing_jobs`` is operational
+      state with a TTL, so a late worker write must not resurrect a half-populated
+      row that the library would then have to reconcile with.
+    - **A rewrite clobbers.** Concurrent workers touching different attributes of
+      the same job each carried a full snapshot; the last writer won and silently
+      reverted the others.
+
+    A write against a job that no longer exists is a no-op, logged, and *still*
+    mirrors onto the durable library row: the user's item keeps moving forward even
+    when its pipeline row is gone.
+    """
+    item = job.to_dynamodb_item()
+    set_parts: List[str] = []
+    expr_names: Dict[str, str] = {}
+    expr_values: Dict[str, Any] = {}
+    for index, (key, value) in enumerate(item.items()):
+        if key == "id":
+            continue
+        name_ref = f"#a{index}"
+        value_ref = f":v{index}"
+        expr_names[name_ref] = key
+        expr_values[value_ref] = value
+        set_parts.append(f"{name_ref} = {value_ref}")
+
     try:
         session = get_session()
         async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
 
-            await table.put_item(Item=job.to_dynamodb_item())
-            _log_dynamodb_success(
-                "update_processing_job",
-                table=PROCESSING_JOBS_TABLE,
-                job_id=job.id,
-            )
+            try:
+                await table.update_item(
+                    Key={"id": job.id},
+                    UpdateExpression="SET " + ", ".join(set_parts),
+                    ExpressionAttributeNames=expr_names,
+                    ExpressionAttributeValues=expr_values,
+                    ConditionExpression="attribute_exists(id)",
+                )
+                _log_dynamodb_success(
+                    "update_processing_job",
+                    table=PROCESSING_JOBS_TABLE,
+                    job_id=job.id,
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                    raise
+                logger.warning(
+                    "Processing job %s no longer exists; skipped operational "
+                    "update and mirrored the durable library row only",
+                    job.id,
+                )
+
             await _mirror_job_to_durable_library(job)
             return job
     except ClientError as e:
@@ -762,25 +785,6 @@ async def delete_folder(folder_id: str) -> bool:
             e,
             table=USER_FOLDERS_TABLE,
             folder_id=folder_id,
-        )
-        raise
-
-
-async def get_processing_jobs_by_folder_id(
-    user_id: str, folder_id: str
-) -> List[ProcessingJob]:
-    """Get all processing jobs in a specific folder for a user."""
-    try:
-        # We query by user first, then filter by folder_id
-        jobs = await get_processing_jobs_by_user_id(user_id)
-        return [job for job in jobs if getattr(job, "folder_id", None) == folder_id]
-    except Exception as e:
-        _log_dynamodb_error(
-            "get_processing_jobs_by_folder_id",
-            e,
-            table=PROCESSING_JOBS_TABLE,
-            folder_id=folder_id,
-            user_id=user_id,
         )
         raise
 

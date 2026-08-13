@@ -25,7 +25,9 @@ from media_summarizer.core.models.media_artifact import (
     MediaArtifactStatus,
     MediaArtifactType,
 )
+from media_summarizer.core.services.durable_media_service import resolve_job_for_record
 from media_summarizer.utils import database_async, digest_db, media_artifacts
+from media_summarizer.utils import user_media as user_media_store
 
 logger = logging.getLogger(__name__)
 
@@ -62,35 +64,35 @@ async def _get_media_items_for_period(
     user_id: str, start_date: date, end_date: date
 ) -> List[DigestMediaItem]:
     """
-    Retrieve media items added by the user in the given date range.
-    Uses the processing_jobs table (user-index) and filters by created_at.
-    """
-    jobs = await database_async.get_processing_jobs_by_user_id(user_id)
+    Retrieve library items saved by the user in the given date range.
 
-    # Filter jobs that have a transcript (ready for artifact generation)
-    # and were created within the period
+    Reads the durable ``user_media`` library and keys the digest on
+    ``media_item_id`` (task-220). That id is the same one the artifact table uses,
+    so ``_check_summary_short_status`` and the mobile deep link both resolve. The
+    job is still consulted, but only to answer "is there a transcript to summarize":
+    an item whose job has expired cannot produce a new summary_short and therefore
+    has no place in a digest that exists to serve one.
+    """
     start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
     end_dt = datetime.combine(
         end_date, datetime.max.time().replace(microsecond=0), tzinfo=timezone.utc
     )
 
     media_items: List[DigestMediaItem] = []
-    for job in jobs:
-        if not job.created_at:
+    for record in await user_media_store.list_library_for_user(user_id):
+        if not (start_dt <= record.saved_at <= end_dt):
             continue
-        if not (start_dt <= job.created_at <= end_dt):
-            continue
-        # Only include jobs that have a transcript (can generate summary_short)
-        if not getattr(job, "transcription_s3_key", None):
+        job = await resolve_job_for_record(record)
+        if job is None or not getattr(job, "transcription_s3_key", None):
             continue
 
         media_items.append(
             DigestMediaItem(
-                media_item_id=job.id,
-                title=getattr(job, "title", None),
-                media_type=getattr(job, "media_type", None),
-                source_platform=getattr(job, "source_platform", None),
-                added_at=job.created_at.isoformat(),
+                media_item_id=record.media_item_id,
+                title=record.title,
+                media_type=record.media_type,
+                source_platform=record.source_platform,
+                added_at=record.saved_at.isoformat(),
             )
         )
 
@@ -220,10 +222,16 @@ async def _refresh_digest_statuses(record: DigestRecord) -> DigestRecord:
     return record
 
 
-async def trigger_summary_short_generation(media_item_id: str) -> Optional[str]:
+async def trigger_summary_short_generation(
+    user_id: str, media_item_id: str
+) -> Optional[str]:
     """
-    Trigger summary_short generation for a media item if not already generated.
+    Trigger summary_short generation for a library item if not already generated.
     Uses the artifact service's idempotence system to avoid duplicates.
+
+    ``user_id`` is now required: ``media_item_id`` is a durable library id, so the
+    owner comes from the library key rather than from a processing job that may no
+    longer exist.
 
     Returns the artifact_id if generation was triggered or already exists, None on error.
     """
@@ -232,15 +240,15 @@ async def trigger_summary_short_generation(media_item_id: str) -> Optional[str]:
         request_artifact_generation,
     )
 
-    # Get the processing job for this media item
-    job = await database_async.get_processing_job_by_id(media_item_id)
-    if not job:
+    media = await user_media_store.get_user_media(user_id, media_item_id)
+    if media is None or media.is_deleted:
         logger.warning(
-            "Cannot trigger summary_short for %s: job not found", media_item_id
+            "Cannot trigger summary_short for %s: no library row", media_item_id
         )
         return None
 
-    if not getattr(job, "transcription_s3_key", None):
+    job = await resolve_job_for_record(media)
+    if job is None or not getattr(job, "transcription_s3_key", None):
         logger.debug(
             "Cannot trigger summary_short for %s: no transcript", media_item_id
         )
@@ -250,7 +258,7 @@ async def trigger_summary_short_generation(media_item_id: str) -> Optional[str]:
     # the user's language (common detect+translate step, task-192).
     reading_language: Optional[str] = None
     try:
-        user = await database_async.get_user_by_id(job.user_id)
+        user = await database_async.get_user_by_id(user_id)
         if user is not None:
             reading_language = user.reading_language
     except Exception:  # pragma: no cover - non-fatal lookup
@@ -259,6 +267,7 @@ async def trigger_summary_short_generation(media_item_id: str) -> Optional[str]:
     try:
         record, reused = await request_artifact_generation(
             media_item_id=media_item_id,
+            user_id=user_id,
             job=job,
             artifact_type=MediaArtifactType.SUMMARY_SHORT,
             reading_language=reading_language,

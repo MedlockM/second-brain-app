@@ -7,7 +7,9 @@ completion: URL-derived `media_key`.
 
 - `media_idempotence` (PK: `media_key`)
 - `media_watchers` (PK: `media_key`, SK: `user_id`)
-- `user_media_submissions` (PK: `user_id`, SK: `media_key`)
+- `user_media` (PK: `user_id`, SK: `media_item_id`) — durable per-user library row,
+  the source of truth for ownership since task-220. Replaces the removed
+  `user_media_submissions` pointer table.
 
 ## Runtime Behavior
 
@@ -21,9 +23,12 @@ completion: URL-derived `media_key`.
 
 ## Environment Variables
 
-- `MEDIA_IDEMPOTENCE_TABLE` (default: `media_idempotence`)
-- `MEDIA_WATCHERS_TABLE` (default: `media_watchers`)
-- `USER_MEDIA_SUBMISSIONS_TABLE` (default: `user_media_submissions`)
+- `MEDIA_IDEMPOTENCE_TABLE`
+- `MEDIA_WATCHERS_TABLE`
+- `USER_MEDIA_TABLE`
+
+No default is provided for any of them: since task-237 the runtime fails fast
+when a table name is missing from the environment.
 
 ## Deployment Sequence
 

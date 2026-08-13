@@ -29,7 +29,7 @@ from media_summarizer.core.services.artifact_service import (
     fail_artifact_generation,
     mark_artifact_generating,
 )
-from media_summarizer.utils import database_async, s3, sqs
+from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
@@ -290,19 +290,23 @@ async def _init_fsrs_cards(
     artifact_id: str,
     flashcards: Any,
 ) -> None:
-    """Initialize FSRS review schedule cards for spaced repetition (flashcards only)."""
+    """Initialize FSRS review schedule cards for spaced repetition (flashcards only).
+
+    The owner comes from the message, not from a processing-job lookup: since
+    task-220 ``media_item_id`` is a durable library id, and resolving it against
+    ``processing_jobs`` would return nothing and silently skip FSRS init.
+    """
     media_item_id = body.get("media_item_id")
-    if not media_item_id:
+    user_id = body.get("user_id")
+    if not media_item_id or not user_id:
         return
     try:
-        job = await database_async.get_processing_job_by_id(media_item_id)
-        if job:
-            await fsrs_service.initialize_cards_for_flashcards(
-                user_id=job.user_id,
-                media_item_id=media_item_id,
-                artifact_id=artifact_id,
-                flashcards=flashcards,
-            )
+        await fsrs_service.initialize_cards_for_flashcards(
+            user_id=user_id,
+            media_item_id=media_item_id,
+            artifact_id=artifact_id,
+            flashcards=flashcards,
+        )
     except Exception as fsrs_exc:
         # Non-fatal: flashcard generation succeeded, FSRS init is best-effort
         log_event(

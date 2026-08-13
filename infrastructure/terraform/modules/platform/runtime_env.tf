@@ -17,7 +17,6 @@ locals {
     PROCESSING_JOBS_TABLE         = aws_dynamodb_table.processing_jobs_v1.name
     AUTH_TOKENS_TABLE             = aws_dynamodb_table.auth_tokens_v1.name
     MEDIA_IDEMPOTENCE_TABLE       = aws_dynamodb_table.media_idempotence_v1.name
-    USER_MEDIA_SUBMISSIONS_TABLE  = aws_dynamodb_table.user_media_submissions_v1.name
     USER_MEDIA_TABLE              = aws_dynamodb_table.user_media_v1.name
     MEDIA_ARTIFACTS_TABLE         = aws_dynamodb_table.media_artifacts_v1.name
     ARTIFACT_IDEMPOTENCE_TABLE    = aws_dynamodb_table.artifact_idempotence_v1.name
@@ -107,11 +106,16 @@ locals {
       # automatically from the execution context. See
       # https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-runtime
 
-      # Feature flag for the durable user_media dual-write (task-240, Phase 1 of
-      # the task-218 benchmark). Read at call time by the application, so an
-      # emergency rollback is `aws lambda update-function-configuration
-      # --environment ...DURABLE_MEDIA_ENABLED=0` on the affected function; set
-      # the variable below to false to make that rollback durable across applies.
+      # Kill-switch for durable user_media *writes* (task-240 Phase 1). Read at
+      # call time, so an emergency rollback is `aws lambda
+      # update-function-configuration --environment
+      # ...DURABLE_MEDIA_ENABLED=0` on the affected function; set the variable
+      # below to false to make that rollback durable across applies.
+      #
+      # Since task-220 (Phase 3) the library, Search and folder READS come from
+      # user_media unconditionally, so flipping this off alone would leave users
+      # with an empty library. It is no longer a standalone rollback: it must be
+      # paired with a code rollback to the pre-task-220 revision.
       DURABLE_MEDIA_ENABLED = var.durable_media_enabled ? "1" : "0"
     },
     local.bucket_names,

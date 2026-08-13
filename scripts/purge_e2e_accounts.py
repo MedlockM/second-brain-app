@@ -113,7 +113,6 @@ CHILD_TABLES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("processing_jobs", "gsi", ("id",)),
     ("user_tags", "gsi", ("id",)),
     ("user_folders", "gsi", ("id",)),
-    ("user_media_submissions", "pk", ("user_id", "media_key")),
     ("user_usage_monthly", "pk", ("user_id", "period")),
 )
 

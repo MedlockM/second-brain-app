@@ -15,6 +15,7 @@ from media_summarizer.core.models.folder import (
     Folder,
 )
 from media_summarizer.utils import database_async
+from media_summarizer.utils import user_media as user_media_store
 
 logger = logging.getLogger(__name__)
 
@@ -122,9 +123,15 @@ async def list_folders(user_id: str) -> List[Dict[str, Any]]:
 
     Also ensures the default folder exists. Returns a list of folder dicts
     that can be reconstructed into a tree on the client side.
+
+    ``media_count`` is the number of items stored *directly* in the folder,
+    counted from the durable ``user_media`` library (task-220). Counting there
+    rather than from ``processing_jobs`` is the whole point: an item whose job has
+    expired still belongs to its folder, and the count must say so.
     """
     _default = await ensure_default_folder(user_id)  # Side-effect: creates if missing
     all_folders = await database_async.get_folders_by_user_id(user_id)
+    counts = await user_media_store.count_media_per_folder(user_id)
 
     result = []
     for f in all_folders:
@@ -133,6 +140,7 @@ async def list_folders(user_id: str) -> List[Dict[str, Any]]:
             "name": f.name,
             "parent_folder_id": f.parent_folder_id,
             "is_default": f.is_default,
+            "media_count": counts.get(f.id, 0),
             "created_at": f.created_at.isoformat(),
             "updated_at": f.updated_at.isoformat(),
         })
@@ -140,6 +148,15 @@ async def list_folders(user_id: str) -> List[Dict[str, Any]]:
     # Sort: default first, then alphabetical
     result.sort(key=lambda x: (not x["is_default"], x["name"].lower()))
     return result
+
+
+async def count_media_in_folder(user_id: str, folder_id: str) -> int:
+    """Number of library items stored directly in one folder.
+
+    Single ``folder-index`` query on the durable table, so the count is right even
+    for items whose processing job is long gone.
+    """
+    return len(await user_media_store.list_for_folder(user_id, folder_id))
 
 
 async def update_folder(
@@ -230,14 +247,19 @@ async def delete_folder(user_id: str, folder_id: str) -> Dict[str, Any]:
     descendant_ids = _get_descendant_ids(folder_id, all_folders)
     all_folder_ids_to_delete = [folder_id] + descendant_ids
 
-    # Move media items from all deleted folders to "Uncategorized"
+    # Move media items from all deleted folders to "Uncategorized".
+    # Reassignment happens on the durable library rows, so an item whose
+    # processing job has expired is reassigned like any other instead of being
+    # left pointing at a folder that no longer exists (task-220, AC #4).
     moved_media_count = 0
     for fid in all_folder_ids_to_delete:
-        jobs = await database_async.get_processing_jobs_by_folder_id(user_id, fid)
-        for job in jobs:
-            job.folder_id = default.id
-            job.touch()
-            await database_async.update_processing_job(job)
+        for record in await user_media_store.list_for_folder(user_id, fid):
+            await user_media_store.update_organization(
+                user_id=user_id,
+                media_item_id=record.media_item_id,
+                folder_id=default.id,
+                saved_at=record.saved_at,
+            )
             moved_media_count += 1
 
     # Move direct children of deleted folders whose parent is being deleted
@@ -265,16 +287,18 @@ async def delete_folder(user_id: str, folder_id: str) -> Dict[str, Any]:
 async def assign_folder_to_media(
     user_id: str, media_id: str, folder_id: Optional[str]
 ) -> Dict[str, Any]:
-    """Assign a media item (processing job) to a folder.
+    """Assign a library item to a folder.
 
     If folder_id is None, assigns to the default 'Uncategorized' folder.
+
+    Ownership comes from the ``user_media`` key itself: the lookup is scoped to
+    ``(user_id, media_item_id)``, so another user's item simply does not exist
+    here. No processing job is consulted, which is what lets a user reorganize an
+    item long after its job expired.
     """
-    # Get the job
-    job = await database_async.get_processing_job_by_id(media_id)
-    if job is None:
+    record = await user_media_store.get_user_media(user_id, media_id)
+    if record is None or record.is_deleted:
         raise ValueError(f"Media item {media_id} not found")
-    if job.user_id != user_id:
-        raise ValueError("Media item does not belong to this user")
 
     # Resolve target folder
     if folder_id is None:
@@ -287,10 +311,15 @@ async def assign_folder_to_media(
         if target.user_id != user_id:
             raise ValueError("Folder does not belong to this user")
 
-    old_folder_id = job.folder_id
-    job.folder_id = folder_id
-    job.touch()
-    await database_async.update_processing_job(job)
+    old_folder_id = record.folder_id
+    updated = await user_media_store.update_organization(
+        user_id=user_id,
+        media_item_id=media_id,
+        folder_id=folder_id,
+        saved_at=record.saved_at,
+    )
+    if not updated:
+        raise ValueError(f"Media item {media_id} not found")
 
     logger.info(
         f"Assigned media {media_id} to folder {folder_id} "

@@ -27,7 +27,8 @@ from media_summarizer.core.models.digest import (
     DigestStatus,
 )
 from media_summarizer.core.services import digest_service
-from media_summarizer.utils import database_async, digest_db, sqs
+from media_summarizer.utils import digest_db, sqs
+from media_summarizer.utils import user_media as user_media_store
 
 logger = logging.getLogger(__name__)
 
@@ -95,24 +96,23 @@ async def pre_generate_summary_shorts() -> int:
         if not await _is_digest_enabled(user_id):
             continue
 
-        # Get today's media items that need summary_short
-        jobs = await database_async.get_processing_jobs_by_user_id(user_id)
-
+        # Today's library items, read from the durable table so the ids match the
+        # ones the digest and the artifact table use (task-220). The transcript
+        # check stays inside trigger_summary_short_generation, which is the only
+        # place that needs the pipeline row.
         start_dt = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
         end_dt = datetime.combine(
             today, datetime.max.time().replace(microsecond=0), tzinfo=timezone.utc
         )
 
-        for job in jobs:
-            if not job.created_at:
-                continue
-            if not (start_dt <= job.created_at <= end_dt):
-                continue
-            if not getattr(job, "transcription_s3_key", None):
+        for record in await user_media_store.list_library_for_user(user_id):
+            if not (start_dt <= record.saved_at <= end_dt):
                 continue
 
             # Trigger summary_short generation (idempotent - skips if already exists)
-            artifact_id = await digest_service.trigger_summary_short_generation(job.id)
+            artifact_id = await digest_service.trigger_summary_short_generation(
+                user_id, record.media_item_id
+            )
             if artifact_id:
                 triggered += 1
                 # Stagger to avoid burst
