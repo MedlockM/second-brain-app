@@ -7,15 +7,10 @@
 # and the bill splits per account for free. "Resource Groups" would not have done
 # any of that — they are tag-based views with no permission or billing boundary.
 #
-# Credentials: no second key pair. `~/.aws/config` carries
-#
-#   [profile prod]
-#   role_arn       = arn:aws:iam::866874944541:role/OrganizationAccountAccessRole
-#   source_profile = second-brain-app
-#   region         = eu-west-3
-#
-# so `AWS_PROFILE=prod terraform ...` assumes into prod from the existing keys.
-# See infrastructure/terraform/README.md, "Two accounts, one set of keys".
+# Credentials: no second key pair. `[profile prod]` in ~/.aws/config assumes into
+# this account from the dev keys, so `AWS_PROFILE=prod terraform ...` just works.
+# That profile is tracked at infrastructure/aws/config.example (it holds no
+# secret); see infrastructure/terraform/README.md, "Two accounts, one set of keys".
 #
 # The two literals below are the isolation mechanism WITHIN an account: the
 # backend key is a compile-time constant of this directory, and `environment`

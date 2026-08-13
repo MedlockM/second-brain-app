@@ -82,16 +82,17 @@ boundary.
 
 **There is no second access key.** The prod account is driven by assuming into it
 from the dev keys, through the `OrganizationAccountAccessRole` that AWS
-Organizations creates in every member account. In `~/.aws/config`:
+Organizations creates in every member account. The `[profile prod]` block that
+does it is tracked, so a new workstation copies it rather than retyping it:
 
-```ini
-[profile prod]
-role_arn          = arn:aws:iam::866874944541:role/OrganizationAccountAccessRole
-source_profile    = second-brain-app
-region            = eu-west-3
-output            = json
-role_session_name = media-summarizer-prod
+```bash
+install -m 600 -D infrastructure/aws/config.example ~/.aws/config   # from the repo root
 ```
+
+That file holds no credential — only this account id and role name, which
+`envs/prod/main.tf` and `gha_oidc.tf` already state in plain text. Its sibling
+`~/.aws/credentials`, which does hold the key, is untracked and untrackable; see
+`docs/DEVBOX_SETUP.md` §4.
 
 Then every prod command is the normal command with one prefix:
 

@@ -32,13 +32,23 @@ ici**, seulement le moyen de la récupérer. Le repo est public (`AGENTS.md`).
 
 ## 1. Ce qui ne se régénère pas
 
-Presque tout se reconstruit. Deux exceptions à transférer hors ligne (clé USB ou
-gestionnaire de mots de passe — **jamais** un service en ligne) :
+Presque tout se reconstruit. **Une seule exception** à transférer hors ligne (clé
+USB ou gestionnaire de mots de passe — **jamais** un service en ligne) :
 
 | Fichier | Pourquoi | Alternative si perdu |
 |---|---|---|
-| `~/.aws/credentials` | Clés statiques du profil `second-brain-app` | Créer une nouvelle access key dans IAM et révoquer l'ancienne |
-| `~/.aws/config` | Profils `second-brain-app` et `prod` | Reconstructible depuis §4 |
+| `~/.aws/credentials` | Porte l'access key du profil `second-brain-app`, la seule valeur qui authentifie. AWS ne l'affiche qu'à la création et ne la stocke nulle part sous forme récupérable | Créer une nouvelle access key dans IAM, puis **supprimer l'ancienne** (voir §4) |
+
+Son voisin `~/.aws/config` n'en est pas une : il ne contient aucun secret et vit
+dans le repo (`infrastructure/aws/config.example`, §4).
+
+Et si vous vous demandez pourquoi `credentials` ne peut pas rejoindre Secrets
+Manager comme les 37 credentials tiers : lire un secret exige d'être déjà
+authentifié auprès d'AWS, or c'est précisément ce que ce fichier fournit. Un
+coffre ne peut pas contenir sa propre clé. La sortie de cette impasse est AWS IAM
+Identity Center (`aws sso login`, credentials temporaires dans
+`~/.aws/sso/cache/`), qui supprimerait le fichier au lieu de le déplacer — chantier
+non engagé à ce jour.
 
 Tout le reste se retrouve : le `.env` racine depuis Secrets Manager (§6), le
 `mobile/.env` depuis EAS (§7), les dossiers natifs mobiles par `expo prebuild`,
@@ -84,7 +94,27 @@ LocalStack (déprécié par task-130).
 
 ## 4. Profils AWS
 
-`~/.aws/credentials` — un seul jeu de clés, celui du compte dev :
+Les deux fichiers suivent des chemins opposés, parce qu'un seul des deux contient
+un secret.
+
+**`~/.aws/config` est dans le repo** — aucune valeur qui authentifie, uniquement
+des identifiants de ressources que `envs/prod/main.tf` porte déjà en clair :
+
+```bash
+install -m 600 -D infrastructure/aws/config.example ~/.aws/config
+```
+
+Il déclare `second-brain-app` (compte dev, porteur des clés) et `prod`, qui n'a
+pas de clés propres et assume le rôle que AWS Organizations crée dans chaque
+compte membre — détail dans `infrastructure/terraform/README.md`, section
+« Two accounts, one set of keys ». Le fichier commente chaque profil ; le lire
+vaut mieux que le recopier ici, sinon les deux divergent.
+
+Une seule valeur mérite d'être personnalisée : `role_session_name`, c'est ce qui
+apparaît dans CloudTrail côté prod.
+
+**`~/.aws/credentials` n'y sera jamais.** À écrire à la main, avec le seul jeu de
+clés du projet :
 
 ```ini
 [second-brain-app]
@@ -92,22 +122,10 @@ aws_access_key_id     = <access key>
 aws_secret_access_key = <secret>
 ```
 
-`~/.aws/config` — le profil `prod` n'a pas de clés propres, il assume le rôle que
-AWS Organizations crée dans chaque compte membre (détail dans
-`infrastructure/terraform/README.md`, section « Two accounts, one set of keys ») :
-
-```ini
-[profile second-brain-app]
-region = eu-west-3
-output = json
-
-[profile prod]
-role_arn          = arn:aws:iam::866874944541:role/OrganizationAccountAccessRole
-source_profile    = second-brain-app
-region            = eu-west-3
-output            = json
-role_session_name = <votre nom>
-```
+Si la clé est perdue : IAM → utilisateur → *Security credentials* → créer une
+access key, la coller ici, puis **supprimer l'ancienne**. Les deux peuvent
+coexister le temps de la bascule ; laisser traîner l'ancienne, c'est un
+credential actif hors de votre contrôle.
 
 Vérification :
 

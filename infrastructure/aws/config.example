@@ -1,0 +1,35 @@
+# AWS CLI profile configuration — copy to ~/.aws/config on a new workstation.
+#
+#   install -m 600 -D infrastructure/aws/config.example ~/.aws/config
+#
+# This file is tracked deliberately: it holds NO credential. Every value in it is
+# a resource identifier that `terraform plan` would print anyway, and the prod
+# account id and role name already appear across infrastructure/terraform/
+# (envs/prod/main.tf, shared/main.tf, envs/prod/gha_oidc.tf). Redacting them here
+# would protect nothing and let this file drift from the code.
+#
+# Its counterpart ~/.aws/credentials is NOT in this repo and must never be. That
+# file holds the access key, i.e. the one value that authenticates you. It cannot
+# live in Secrets Manager either -- reading a secret requires the credentials you
+# would be trying to read (see docs/DEVBOX_SETUP.md §1). Transfer it offline, or
+# mint a new access key in IAM and delete the old one.
+
+# Dev / management account 125313707865. Holds the only access key: this is the
+# profile the app, the E2E suite and every local terraform run target.
+[profile second-brain-app]
+region = eu-west-3
+output = json
+
+# Prod account 866874944541 (Organizations member since task-248). No key of its
+# own on purpose -- it assumes the role Organizations creates in every member
+# account, using the dev profile above as the source. One set of keys, two
+# accounts: nothing to store, nothing to rotate, and revoking the dev key revokes
+# prod access with it.
+#
+# role_session_name is what shows up in prod CloudTrail. Keep it identifying.
+[profile prod]
+role_arn          = arn:aws:iam::866874944541:role/OrganizationAccountAccessRole
+source_profile    = second-brain-app
+region            = eu-west-3
+output            = json
+role_session_name = media-summarizer-prod

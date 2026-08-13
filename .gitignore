@@ -13,6 +13,11 @@ aws-temp-creds
 stripe_test_creds
 podcastindex_creds
 *_creds
+# An ~/.aws/credentials copied into the repo, under any path. Its sibling
+# ~/.aws/config IS tracked (infrastructure/aws/config.example) because it holds no
+# secret, so the two names must be treated differently rather than by directory.
+credentials
+credentials.*
 *.pem
 *.key
 *.p8
