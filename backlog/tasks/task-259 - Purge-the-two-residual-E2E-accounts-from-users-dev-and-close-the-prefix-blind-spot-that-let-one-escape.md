@@ -3,7 +3,7 @@ id: task-259
 title: >-
   Purge the two residual E2E accounts from users-dev and close the prefix blind
   spot that let one escape
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-13 18:51'
 labels:
