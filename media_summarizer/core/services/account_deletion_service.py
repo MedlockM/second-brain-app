@@ -27,15 +27,14 @@ partial failure is a no-op on whatever already went (AC#6).
 
 Content shared between accounts
 -------------------------------
-Artifacts are content-addressed: ``complete_artifact_generation`` writes one
-``ArtifactStorageRef`` onto every artifact row that shares a
-``generation_fingerprint`` and stores the same ref in the generation lock, so two
-users who imported the same episode read the same S3 object. Deleting it because
-one of them left would silently break the other. The purge therefore deletes an
-artifact object and its generation lock only when *no* sibling artifact survives.
-Transcripts, audio and documents need no such guard: their keys are derived from
-a job id (or, for share-extension uploads, from ``shared-audio/<user_id>/``), and
-both are per user.
+The per-media cascade — artifact rows, their S3 objects, the generation locks and
+the objects a processing job wrote — lives in
+``core/services/media_purge_service.py`` and is shared with the ``user_media`` TTL
+purge (task-243). Both paths must remove exactly the same things: because
+``media_item_id`` is deterministic in ``(user_id, media_key)``, an artifact that
+outlives its media row would reattach to the next save of the same URL. See that
+module for the shared-object rule that keeps one account's departure from
+breaking another's copy of the same episode.
 
 Deliberately out of scope
 -------------------------
@@ -58,21 +57,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from boto3.dynamodb.conditions import Attr, Key
 
-from media_summarizer.core.models.media_artifact import MediaArtifactRecord
 from media_summarizer.core.models.processing_job import ProcessingJob
-from media_summarizer.core.services import search_indexing
-from media_summarizer.utils import (
-    artifact_idempotence,
-    database_async,
-    media_artifacts,
-    s3,
-    translation_idempotence,
-    user_media,
-)
+from media_summarizer.core.services import media_purge_service, search_indexing
+from media_summarizer.utils import database_async, s3, user_media
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
 
@@ -276,51 +267,11 @@ async def _purge_search_index(user_id: str, report: PurgeReport) -> None:
 
 
 async def _purge_artifacts(inventory: _Inventory, report: PurgeReport) -> None:
-    doomed: Dict[str, MediaArtifactRecord] = {}
-    for media_item_id in sorted(inventory.media_item_ids):
-        for record in await media_artifacts.list_media_artifacts_by_media_item(
-            media_item_id
-        ):
-            doomed[record.artifact_id] = record
-
-    by_generation: Dict[str, List[MediaArtifactRecord]] = {}
-    for record in doomed.values():
-        if record.generation_fingerprint:
-            by_generation.setdefault(record.generation_fingerprint, []).append(record)
-
-    for fingerprint, records in by_generation.items():
-        siblings = await media_artifacts.list_media_artifacts_by_generation_fingerprint(
-            fingerprint
+    report.merge(
+        await media_purge_service.purge_artifacts_for_media_items(
+            inventory.media_item_ids
         )
-        if any(sibling.artifact_id not in doomed for sibling in siblings):
-            # Another account still reads this object. Its row and its request
-            # pointer are this user's and still go; the bytes stay.
-            report.add("artifact_objects_kept_shared", len(records))
-            continue
-        for bucket, key in _storage_refs(siblings or records):
-            await s3.delete_object(bucket, key)
-            report.add("artifact_objects_deleted")
-        await artifact_idempotence.delete_generation_lock(fingerprint)
-        report.add("artifact_generation_locks_deleted")
-
-    for record in doomed.values():
-        if record.request_fingerprint:
-            await media_artifacts.delete_request_pointer(record.request_fingerprint)
-            report.add("artifact_request_pointers_deleted")
-        await media_artifacts.delete_media_artifact(record.artifact_id)
-        report.add("artifact_rows_deleted")
-
-
-def _storage_refs(
-    records: Iterable[MediaArtifactRecord],
-) -> List[Tuple[str, str]]:
-    """Deduplicated (bucket, key) pairs. Records without storage never generated."""
-    refs: Dict[Tuple[str, str], None] = {}
-    for record in records:
-        storage = record.storage
-        if storage and storage.bucket and storage.key:
-            refs[(storage.bucket, storage.key)] = None
-    return list(refs.keys())
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -333,23 +284,16 @@ async def _purge_media_objects(
     inventory: _Inventory,
     report: PurgeReport,
 ) -> None:
-    audio_bucket = required_env("AUDIO_BUCKET")
-    transcript_bucket = required_env("TRANSCRIPT_BUCKET")
-    document_bucket = required_env("DOCUMENT_BUCKET")
-    summary_bucket = required_env("SUMMARY_BUCKET")
-    quiz_bucket = required_env("QUIZ_BUCKET")
-
     semaphore = asyncio.Semaphore(_JOB_CONCURRENCY)
 
     async def purge_one(job: ProcessingJob) -> Dict[str, int]:
         async with semaphore:
-            return await _purge_job_objects(
-                job,
-                audio_bucket=audio_bucket,
-                transcript_bucket=transcript_bucket,
-                document_bucket=document_bucket,
-                summary_bucket=summary_bucket,
-                quiz_bucket=quiz_bucket,
+            return await media_purge_service.purge_job_objects(
+                job.id,
+                transcription_s3_key=job.transcription_s3_key,
+                audio_s3_key=job.audio_s3_key,
+                summary_s3_key=job.summary_s3_key,
+                quiz_s3_key=job.quiz_s3_key,
             )
 
     for counts in await asyncio.gather(*(purge_one(job) for job in inventory.jobs)):
@@ -359,85 +303,10 @@ async def _purge_media_objects(
     # that never completed, so it is swept per user rather than per job.
     report.add(
         "audio_objects_deleted",
-        await _purge_prefix(audio_bucket, f"shared-audio/{user_id}/"),
+        await media_purge_service.purge_prefix(
+            required_env("AUDIO_BUCKET"), f"shared-audio/{user_id}/"
+        ),
     )
-
-
-async def _purge_job_objects(
-    job: ProcessingJob,
-    *,
-    audio_bucket: str,
-    transcript_bucket: str,
-    document_bucket: str,
-    summary_bucket: str,
-    quiz_bucket: str,
-) -> Dict[str, int]:
-    """Every S3 object one job produced, plus the translation locks it owns.
-
-    Prefix sweeps are keyed on the bare job id, which is safe because job ids are
-    fixed-length UUIDs: none is a prefix of another.
-    """
-    counts: Dict[str, int] = {}
-
-    def bump(step: str, count: int = 1) -> None:
-        counts[step] = counts.get(step, 0) + count
-
-    transcript_keys = await _list_prefix(transcript_bucket, job.id)
-    if job.transcription_s3_key and job.transcription_s3_key not in transcript_keys:
-        transcript_keys.append(job.transcription_s3_key)
-
-    for key in transcript_keys:
-        source_key, language = _split_translated_key(key)
-        if source_key and language:
-            # The lock is fingerprinted on the *source* key, so it is recoverable
-            # only from the translated object that proves it exists.
-            await translation_idempotence.delete_translation_lock(
-                translation_idempotence.build_translation_fingerprint(
-                    transcript_s3_key=source_key,
-                    target_language=language,
-                )
-            )
-            bump("translation_locks_deleted")
-        await s3.delete_object(transcript_bucket, key)
-        bump("transcript_objects_deleted")
-
-    bump("audio_objects_deleted", await _purge_prefix(audio_bucket, job.id))
-    if job.audio_s3_key and not job.audio_s3_key.startswith(job.id):
-        await s3.delete_object(audio_bucket, job.audio_s3_key)
-        bump("audio_objects_deleted")
-
-    # Documents are stored under a per-job folder ("<job_id>/<file_name>").
-    bump("document_objects_deleted", await _purge_prefix(document_bucket, f"{job.id}/"))
-
-    # Pre-artifact jobs wrote their summary and quiz straight to a bucket instead
-    # of going through media_artifacts, so those keys only exist on the job row.
-    if job.summary_s3_key:
-        await s3.delete_object(summary_bucket, job.summary_s3_key)
-        bump("legacy_summary_objects_deleted")
-    if job.quiz_s3_key:
-        await s3.delete_object(quiz_bucket, job.quiz_s3_key)
-        bump("legacy_quiz_objects_deleted")
-
-    return counts
-
-
-def _split_translated_key(key: str) -> Tuple[Optional[str], Optional[str]]:
-    """Recover ``(source_key, language)`` from a translated transcript key.
-
-    Inverse of ``build_translated_transcript_key``: ``<stem>.translated.<lang>.<ext>``
-    -> ``(<stem>.<ext>, <lang>)``. Returns ``(None, None)`` for a source key.
-    """
-    marker = ".translated."
-    if marker not in key:
-        return None, None
-    stem, remainder = key.split(marker, 1)
-    parts = remainder.split(".", 1)
-    language = parts[0]
-    if not language:
-        return None, None
-    if len(parts) == 1:
-        return stem, language
-    return f"{stem}.{parts[1]}", language
 
 
 async def _purge_bug_report_attachments(
@@ -455,37 +324,6 @@ async def _purge_bug_report_attachments(
     for key in sorted(inventory.bug_report_attachment_keys):
         await s3.delete_object(bucket, key)
         report.add("bug_report_attachments_deleted")
-
-
-async def _list_prefix(bucket: str, prefix: str) -> List[str]:
-    if not prefix:
-        raise ValueError("refusing to list a whole bucket: prefix is required")
-    return [
-        str(obj["Key"])
-        for obj in await s3.list_objects(bucket, prefix=prefix, max_keys=1000)
-        if obj.get("Key")
-    ]
-
-
-async def _purge_prefix(bucket: str, prefix: str) -> int:
-    """Delete every object under a prefix, one page at a time.
-
-    Re-listing after each page rather than paginating with a continuation token:
-    the page just deleted is gone, so the next LIST returns the next 1000 keys.
-    An empty ``prefix`` would mean "empty this bucket" and is rejected outright.
-    """
-    if not prefix:
-        raise ValueError("refusing to purge a whole bucket: prefix is required")
-    deleted = 0
-    while True:
-        keys = await _list_prefix(bucket, prefix)
-        if not keys:
-            return deleted
-        for key in keys:
-            await s3.delete_object(bucket, key)
-            deleted += 1
-        if len(keys) < 1000:
-            return deleted
 
 
 # ---------------------------------------------------------------------------

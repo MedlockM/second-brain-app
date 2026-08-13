@@ -145,3 +145,22 @@ transcript_translation_handler = _build_handler(
     "media_summarizer.workers.transcript_translation_worker"
 )
 
+
+# ---------------------------------------------------------------------------
+# Non-SQS handlers
+# ---------------------------------------------------------------------------
+
+
+def media_lifecycle_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """user_media purge cascade (DynamoDB stream) and daily reconciliation (task-243).
+
+    Not built by ``_build_handler``: the events are a DynamoDB stream batch and a
+    scheduled tick, not SQS messages, and the module routes on the event shape
+    itself. It lives here anyway so it inherits the cold-start secret load above —
+    the cascade deletes search records and needs the Algolia credentials.
+    """
+    import importlib
+
+    module = importlib.import_module("media_summarizer.workers.cleanup.media_lifecycle")
+    return module.handle_event(event)
+

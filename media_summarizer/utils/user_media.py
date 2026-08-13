@@ -17,11 +17,15 @@ convention, because both were violated in the incident this table exists to fix:
       never overwrite the folder or tags a user set from another device.
 
   I2  ``purge_at`` and ``deleted_at`` are rejected by the generic update helper.
-      Writing them requires ``mark_deleted``, which still does not exist: no
-      per-item deletion use case ships yet, so *nothing* can set a TTL on a
-      library row. That is the point. Account deletion (task-224) is a different
-      use case and uses ``delete_all_for_user``, which removes the rows outright
-      instead of scheduling them -- an erasure request is not a soft delete.
+      Exactly two functions in the codebase touch them, both here (task-243, §6.2),
+      which is what ``scripts/check_purge_at_writers.py`` enforces in CI:
+      :func:`mark_deleted` sets them, reachable only from the user-initiated
+      deletion use case (``core/services/media_deletion_service.py``), and the
+      private ``_clear_deletion`` removes them when :func:`create_if_absent` finds
+      the user re-saving content they had deleted. Account deletion (task-224) is a
+      different use case and uses ``delete_all_for_user``, which removes the rows
+      outright instead of scheduling them -- an erasure request is not a soft
+      delete.
 
 Table name resolution is lazy on purpose. ``required_env`` raises when the
 variable is missing, and this module is imported by the API save path; resolving
@@ -89,6 +93,13 @@ async def create_if_absent(record: UserMediaRecord) -> tuple[UserMediaRecord, bo
     concurrent saves of the same content by the same user race on a single
     DynamoDB item and exactly one wins; the loser reads back the winner's row.
 
+    Saving content the user had deleted **revives** the row instead of returning a
+    soft-deleted one: the id is deterministic in ``(user_id, media_key)``, so the
+    "new" save collides with the row still waiting for its ``purge_at``. Returning
+    it untouched would give the user an item that is invisible everywhere and gets
+    destroyed 30 days later — a save silently swallowed by an old deletion, which
+    is the incident class this table exists to prevent.
+
     Returns:
         ``(record, created)`` where ``created`` is False when the row already
         existed. On a lost race the returned record is the *stored* one, so the
@@ -127,11 +138,70 @@ async def create_if_absent(record: UserMediaRecord) -> tuple[UserMediaRecord, bo
                 # than inventing a row, because a library entry that vanishes is
                 # exactly the class of bug being fixed.
                 raise
-            return UserMediaRecord.from_dynamodb_item(item), False
+            stored = UserMediaRecord.from_dynamodb_item(item)
+            if not stored.is_deleted:
+                return stored, False
+            revived = await _clear_deletion(
+                table, record.user_id, record.media_item_id
+            )
+            if revived is None:
+                # Someone else revived it first, or the TTL swept it between the
+                # read and the update. Either way the caller wants the current row.
+                return stored, False
+            return revived, False
 
 
-async def get_user_media(user_id: str, media_item_id: str) -> Optional[UserMediaRecord]:
-    """Read one library row. Strongly consistent for read-after-save."""
+async def _clear_deletion(
+    table: Any,
+    user_id: str,
+    media_item_id: str,
+) -> Optional[UserMediaRecord]:
+    """Cancel a pending purge because the user saved the same content again.
+
+    The second half of invariant I2: this module owns ``deleted_at``/``purge_at``,
+    so cancelling a deletion lives here too and stays reachable only from
+    :func:`create_if_absent`. Deliberately *not* exposed as a helper — an
+    "un-delete this row" function callable from anywhere is how a TTL attribute
+    acquires a second writer.
+
+    Returns ``None`` when the row is no longer soft-deleted (a concurrent revive,
+    or the TTL got there first).
+    """
+    try:
+        resp = await table.update_item(
+            Key={"user_id": user_id, "media_item_id": media_item_id},
+            UpdateExpression="SET updated_at = :updated_at REMOVE deleted_at, purge_at",
+            ExpressionAttributeValues={":updated_at": _now_iso()},
+            ConditionExpression="attribute_exists(deleted_at)",
+            ReturnValues="ALL_NEW",
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return None
+        raise
+
+    logger.info(
+        "user_media: revived soft-deleted %s for user %s (re-saved before purge)",
+        media_item_id,
+        user_id,
+    )
+    return UserMediaRecord.from_dynamodb_item(resp["Attributes"])
+
+
+async def get_user_media(
+    user_id: str,
+    media_item_id: str,
+    *,
+    include_deleted: bool = False,
+) -> Optional[UserMediaRecord]:
+    """Read one library row. Strongly consistent for read-after-save.
+
+    A soft-deleted row reads as absent by default: §6.2 requires an item the user
+    deleted to leave every read path *immediately*, while the row itself lingers
+    until its ``purge_at`` sweeps it 30 days later. Only the deletion use case
+    (which must see its own soft delete to be idempotent) and the purge cascade
+    pass ``include_deleted=True``.
+    """
     table_name = user_media_table_name()
     session = database_async.get_session()
     async with session.resource(
@@ -144,7 +214,12 @@ async def get_user_media(user_id: str, media_item_id: str) -> Optional[UserMedia
             ConsistentRead=True,
         )
         item = resp.get("Item")
-        return UserMediaRecord.from_dynamodb_item(item) if item else None
+        if not item:
+            return None
+        record = UserMediaRecord.from_dynamodb_item(item)
+        if record.is_deleted and not include_deleted:
+            return None
+        return record
 
 
 async def list_all_for_user(user_id: str) -> List[UserMediaRecord]:
@@ -154,6 +229,10 @@ async def list_all_for_user(user_id: str) -> List[UserMediaRecord]:
     which needs *all* rows including any whose ``saved_at`` or ``folder_sort_key``
     a future writer might leave unset. A projection would be cheaper but the rows
     are needed whole to reach the artifacts keyed by ``media_item_id``.
+
+    Soft-deleted rows are **included**, deliberately: an erasure request must take
+    the rows a user deleted last week with it instead of waiting 30 days for their
+    ``purge_at``. Library read paths must not use this function.
     """
     table_name = user_media_table_name()
     session = database_async.get_session()
@@ -269,11 +348,10 @@ async def count_media_per_folder(user_id: str) -> Dict[str, int]:
 async def delete_all_for_user(user_id: str) -> int:
     """Hard-delete every library row of one user. Account deletion only.
 
-    This is the "user-initiated deletion use case" invariant I2 was holding the
-    door open for, and it deliberately does *not* go through ``purge_at``: an
-    erasure request under GDPR art. 17 removes the row now, it does not schedule
-    it for later. The TTL therefore stays unused, and ``mark_deleted`` (per-item
-    soft deletion) still does not exist.
+    Deliberately does *not* go through ``purge_at``, unlike :func:`mark_deleted`:
+    an erasure request under GDPR art. 17 removes the row now, it does not
+    schedule it for later. Soft-deleted rows still awaiting their TTL are taken
+    too, since the query covers the whole partition.
 
     Idempotent: deleting an already-deleted partition is a no-op that returns 0.
     """
@@ -305,6 +383,75 @@ async def delete_all_for_user(user_id: str) -> int:
             kwargs["ExclusiveStartKey"] = last_key
     logger.info("user_media: deleted %d library rows for user %s", deleted, user_id)
     return deleted
+
+
+async def mark_deleted(
+    *,
+    user_id: str,
+    media_item_id: str,
+    grace_days: int,
+) -> Optional[UserMediaRecord]:
+    """Soft-delete one library row and schedule its purge. THE only ``purge_at`` writer.
+
+    Invariant I2 in one function: ``deleted_at`` and ``purge_at`` are written here
+    and nowhere else in the codebase, and every other write helper in this module
+    refuses them. ``scripts/check_purge_at_writers.py`` fails CI if a second writer
+    appears, because the whole point of ``user_media`` is that no clock except the
+    user's own can expire a library row.
+
+    The condition is ``attribute_exists(media_item_id) AND
+    attribute_not_exists(deleted_at)``: deleting twice must not push the purge date
+    30 more days into the future, which would let a client that retries keep an
+    item alive indefinitely.
+
+    Returns:
+        The soft-deleted record, or ``None`` when the row does not exist or was
+        already soft-deleted. The caller distinguishes the two by reading the row.
+    """
+    if grace_days < 0:
+        raise ValueError("grace_days must be >= 0")
+
+    now = datetime.now(timezone.utc)
+    # Epoch seconds: DynamoDB TTL only ever reads a Number attribute, and the
+    # sweep happens within 48h of that instant (best effort, not a guarantee).
+    purge_at = int(now.timestamp()) + grace_days * 86400
+
+    table_name = user_media_table_name()
+    session = database_async.get_session()
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        try:
+            resp = await table.update_item(
+                Key={"user_id": user_id, "media_item_id": media_item_id},
+                UpdateExpression=(
+                    "SET deleted_at = :deleted_at, purge_at = :purge_at, "
+                    "updated_at = :updated_at"
+                ),
+                ExpressionAttributeValues={
+                    ":deleted_at": now.isoformat(),
+                    ":purge_at": purge_at,
+                    ":updated_at": now.isoformat(),
+                },
+                ConditionExpression=(
+                    "attribute_exists(media_item_id) AND attribute_not_exists(deleted_at)"
+                ),
+                ReturnValues="ALL_NEW",
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                return None
+            raise
+
+    logger.info(
+        "user_media: soft-deleted %s for user %s, purge_at=%d",
+        media_item_id,
+        user_id,
+        purge_at,
+    )
+    return UserMediaRecord.from_dynamodb_item(resp["Attributes"])
 
 
 async def update_attributes(
