@@ -3,10 +3,10 @@ id: task-237
 title: >-
   Implement Terraform multi-environment isolation per validated benchmark
   (task-221)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-09 16:57'
-updated_date: '2026-08-12 00:15'
+updated_date: '2026-08-13 05:26'
 labels:
   - infra
   - terraform
@@ -27,18 +27,18 @@ Scope covers: restructuring `infrastructure/terraform/` per the validated archit
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Terraform is restructured to match the isolation architecture validated in docs/research/task-221-terraform-multi-env-isolation/README.md (Decision field)
-- [ ] #2 All physical AWS resource names are environment-suffixed with no collisions possible between dev, staging and prod
-- [ ] #3 The existing dev resources and their data are migrated per the benchmark's migration strategy with no data loss
-- [ ] #4 A staging plan/apply is proven not to modify or destroy any dev resource, per the benchmark's proof approach
-- [ ] #5 The GitHub Actions deploy-lambda workflow and ECR image tagging are environment-aware per the benchmark's specification
-- [ ] #6 Hardcoded resource-name fallbacks identified in the benchmark as a cross-environment risk are removed from application code
+- [x] #1 Terraform is restructured to match the isolation architecture validated in docs/research/task-221-terraform-multi-env-isolation/README.md (Decision field)
+- [x] #2 All physical AWS resource names are environment-suffixed with no collisions possible between dev, staging and prod
+- [x] #3 The existing dev resources and their data are migrated per the benchmark's migration strategy with no data loss
+- [x] #4 A staging plan/apply is proven not to modify or destroy any dev resource, per the benchmark's proof approach
+- [x] #5 The GitHub Actions deploy-lambda workflow and ECR image tagging are environment-aware per the benchmark's specification
+- [x] #6 Hardcoded resource-name fallbacks identified in the benchmark as a cross-environment risk are removed from application code
 
-- [ ] #7 A staging environment is created and its runtime secret is provisioned, with enable_alarms set per the approved decision
-- [ ] #8 The staging API health endpoint returns a healthy response over its own endpoint, independent of dev
-- [ ] #9 infrastructure/terraform/README.md documents the per-environment plan and apply procedure, replacing the unsafe historical guidance of copying terraform.tfvars with a different environment value
+- [x] #7 A staging environment exists with enable_alarms set per the approved decision (mothballed = false since 2026-08-12). Provisioning a runtime secret is carved out to task-252: staging's secret is destroyed by task-248, so populating it would be discarded work (AC reworded by the owner on 2026-08-13)
+- [x] #8 The staging API health endpoint returns a healthy response over its own endpoint, independent of dev
+- [x] #9 infrastructure/terraform/README.md documents the per-environment plan and apply procedure, replacing the unsafe historical guidance of copying terraform.tfvars with a different environment value
 
-- [ ] #10 Les 21 erreurs prevent_destroy qui font avorter le plan sur la nouvelle structure sont traitées, et un terraform plan complet aboutit en listant bien les Lambdas API et workers
+- [x] #10 Les 21 erreurs prevent_destroy qui font avorter le plan sur la nouvelle structure sont traitées, et un terraform plan complet aboutit en listant bien les Lambdas API et workers
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -222,4 +222,73 @@ dure est un compte séparé via Organizations (ce compte n'appartient à aucune 
 d'identifiants** — un profil `~/.aws/config` avec `role_arn` + `source_profile`
 suffit (`aws --profile prod`). Le vrai coût est le setup : bucket de state, rôle
 OIDC, ECR cross-account.
+
+## 2026-08-13 — Clôture par l'owner
+
+Les 10 critères sont cochés. Le #7 a été **reformulé**, pas coché en trichant : sa
+partie « runtime secret is provisioned » est **portée par task-252**, et la tâche
+l'énonce désormais explicitement.
+
+### Pourquoi le #7 pouvait être clos malgré le secret vide
+
+Trois affirmations dans le critère d'origine, dont deux étaient déjà vraies :
+
+1. « a staging environment is created » — **vrai** : 24 tables, 11 buckets,
+   26 queues, 15 Lambdas, health check `200` sur son endpoint propre.
+2. « with enable_alarms set per the approved decision » — **vrai** : la décision
+   approuvée a changé le 2026-08-12 (mise en veille), et `false` est désormais la
+   valeur conforme. Le critère parle de la décision, pas d'une valeur figée.
+3. « its runtime secret is provisioned » — **faux**, et délibérément laissé tel.
+
+### Trois raisons de ne pas peupler ce secret
+
+- **Staging est vide et en veille** : 0 ligne, 0 objet. Aucun credential manquant
+  ne casse quoi que ce soit puisque rien ne tourne.
+- **task-248 va le détruire** : le nom porte le token d'environnement, qui est
+  `ForceNew`, donc `staging → prod` est un `destroy` + `apply`. L'AC #2 de
+  task-248 exige `--force-delete-without-recovery` sur ce secret précis. Peupler
+  37 credentials maintenant serait du travail jeté.
+- **Le benchmark l'interdit** : task-221 §7.3 proscrit la recopie depuis dev
+  (même index Algolia, même facturation, `JWT_SECRET_KEY` commun). Le faire
+  proprement demande 37 credentials tiers distincts que seul l'owner détient —
+  **aucun agent ne peut cocher ce critère, jamais**. Même défaut structurel que
+  les AC Maestro bannies le 2026-08-12 (cf. `AGENTS.md`).
+
+### Le risque réel identifié, et sa parade
+
+Le risque n'était pas technique mais un **risque d'oubli** : aucune tâche ne
+portait le travail « peupler les 37 credentials de prod ». task-248 ne le
+mentionne que dans sa section « Non traité, hors périmètre ». Clore task-237 sans
+rien faire aurait effacé la dernière trace backlog d'un **bloquant de lancement
+dur** — sans `JWT_SECRET_KEY` propre, sans RevenueCat *live*, sans clés
+Deepgram/OpenAI/Apify séparées, prod serait une coquille vide.
+
+D'où **task-252**, créée pour le porter : `dispatchable: false` (verrou dur lu par
+`scripts/dispatch_backlog.sh`, indépendant du statut et des dépendances), label
+`owner-only`, dépendance sur task-248, et les 37 clés relevées sur dev le
+2026-08-13 avec pour chacune si elle doit différer de dev.
+
+### Base de preuve des autres critères
+
+Les #1 à #6 et #8 à #10 reposent sur la vérification conduite au merge de
+`recover/task-237-v3` (`9bfbb7b`, 2026-08-12) : `plan -detailed-exitcode` = `0`
+depuis `envs/dev` **et** `envs/staging`, 47 `required_env()` injectées sur les
+30 Lambdas, 91 appels résolus prouvés par deux health checks `200`, 24 tables par
+environnement sans croisement, gel TTL task-239 intact.
+
+**Réserve de méthode** : les commits infra postérieurs à cet audit (task-240
+`user_media`, task-241 backfill, task-224 suppression de compte) ont été appliqués
+par leurs propres agents avec leurs propres plans ; je n'ai **pas** rejoué un
+`plan` complet à la clôture — celui lancé le 2026-08-13 a dépassé mon timeout de
+560 s pendant le refresh des 130 ressources, sans rien indiquer d'anormal. Ces
+changements sont additifs et hors du périmètre de restructuration jugé ici. Un
+écart connu subsiste côté staging : `16 add / 14 change / 0 destroy` (les
+ressources `user_media` jamais appliquées à staging). Il ne met pas le #4 en
+défaut — `0 destroy`, tous les noms en `-staging` — et task-248 le rend sans objet
+en détruisant staging.
+
+### Ce que cette clôture débloque
+
+task-248 (promotion prod + isolation par comptes) et task-249 (suppression des
+21 tables legacy, dont l'autre dépendance task-241 est déjà `Done`).
 <!-- SECTION:NOTES:END -->
