@@ -1,13 +1,29 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark: making the audio-minutes quota count real minutes (resolve-before-accept vs reconcile-after)
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — texte libre décrivant la décision finale : accept recommandation X, reject parce que Y, accept with modifications Z, OU, si redo, les consignes précises de correction à intégrer au prochain passage)_
-**Validated at**: _(date ISO à remplir par l'owner)_
+**Decision**: Accept the recommendation as written — the three-layer hybrid (Layer 0 classification fix + Layer 1 duration gate inside the resolution workers before the Deepgram enqueue + Layer 2 settlement from Deepgram's `metadata.duration` under an idempotent conditional write). Neither literal Option A nor literal Option B is retained, for the reasons given in sections 3.5 and 5.1.
+
+All three layers are in scope for implementation, in order 0 → 1 → 2. Specifically retained:
+
+- **Layer 0**: fix `classify_media_type` so `spotify`, `apple_podcasts`, `deezer`, `direct_url` and `manual` land in the `audio` category; unify the two platform detections so the `text_only` tier gate actually fires; add the three missing enforcement points (`POST /media/upload-audio`, `POST /media/ingest-shared-content`, `rss_feed_poll_worker`).
+- **Layer 1**: one `check_and_debit(duration)` call inside the resolution workers before the Deepgram enqueue, plus the shared HTTP Range container-probe helper (parse ID3v2 length + MPEG frame header + `Xing`/`Info` directly — no `ffmpeg` dependency). Recommended probe budget 5 s. Never refuse a legitimate share on a metadata failure: fall back to a provisional 1 minute and let Layer 2 settle.
+- **Layer 2**: settle inside `deepgram_worker` from `metadata.duration` right after `extract_transcript` — *not* in `media_completed_worker`, and never off the `minutes_used` producer hint. Idempotency via **Variant 1** (atomic conditional `ADD` with a `settled_jobs` string set on the usage item); verify DynamoDB's evaluation of `contains` on a missing attribute at implementation time, and fall back to Variant 2 if that shape does not hold.
+
+Overrun policy accepted as recommended: **store the true value, clamp only for display, never negative, never refund, the next import is refused naturally.** No mobile change required.
+
+Accepted residual risks and follow-ups:
+
+- `unknown` stays inexact before the spend (Layer 2 only) — accepted.
+- **M4A/AAC is a genuine implementation risk**: the Range probe was validated on MP3 only. Validate the `mvhd`/tail-Range path during implementation; if it does not hold, fall back to Layer 2 for that container rather than blocking the task.
+- The pricing findings in section 2.5 (`audio_heavy` loss-making at full usage, `cost_per_minute_eur: 0.003` understating the real Deepgram PAYG rate by 47 %) are **out of scope here** and go to a separate task revisiting the `task-65` assumptions.
+- The LLM cost side and tier sizing remain out of scope.
+
+**Validated at**: 2026-08-13
 
 ---
 
