@@ -46,6 +46,28 @@ Read `README.md` for project overview and V1 scope. Read `docs/CANONICAL_MEDIA_A
 - LLM model, OCR service, cloud provider, and pricing model are all open choices — never hardcode a specific solution without a benchmark justifying it.
 - Debug instrumentation is temporary. When you add `console.log` / `console.error` / `print` / extra log lines to diagnose a specific bug, **remove them as soon as the bug is fixed**, in the same session. Do not leave them in the codebase as "useful future logs" — they pollute the signal in real logs and rot. Keep only logs that belong to the permanent observability story (structured logger calls, telemetry events) and were already there before the investigation.
 
+## Never write secrets or account identity into backlog tasks
+
+**This repository is public and `main` is unprotected.** Anything you write into a task file, a research README, a dispatch summary or a commit message is published the moment `main` is pushed, and stays in the git history even if a later commit removes it. Task files are the highest-risk surface because agents naturally paste command output into `Implementation Notes` as proof of work.
+
+Never write the following into any tracked file:
+
+- **Root/login emails of cloud accounts**, including `+alias` forms. An AWS root email is half of a password reset on the account that runs production. This is not rotatable — it is the owner's billing identity.
+- **Any credential or credential-shaped string**: access keys (`AKIA…`, `ASIA…`), secret access keys, session tokens, API keys, bearer tokens, OAuth client secrets, `ghp_`/`xox…` tokens, private keys, connection strings with a password, real user passwords.
+- **Support/quota/case request identifiers** and any other opaque handle that identifies a session with a provider's support system.
+- **Raw dumps of `aws sts get-caller-identity`, `create-organization`, `create-account`, `secretsmanager get-secret-value`, `terraform output`, or `.env` files.** Summarise the outcome; never paste the payload.
+
+Write the *outcome* and the *way to retrieve the value*, not the value:
+
+> Bad: `email owner+aws-prod@example.com`, request `a1b2c3d4e5f6…`
+> Good: the member account's login is a `+aws-prod` alias of the management account's root email — deliberately not recorded here (public repo); retrieve it from the Organizations console. Quota `L-B99A9384`, PENDING; find the request via `aws service-quotas list-requested-service-quota-change-history --service-code lambda`.
+
+**Resource identifiers that Terraform needs are not secrets and must stay.** AWS account IDs already appear in `allowed_account_ids`, state-bucket names and IAM ARNs across `infrastructure/terraform/`, so redacting them from a task note protects nothing and desynchronises the note from the code. Same for resource names, table names, region, ARNs and log-group names. The line is: *does this value let someone authenticate, reset a credential, or impersonate the owner?* If yes, it never gets written down. If it is just a name a `terraform plan` would print anyway, write it.
+
+If a task genuinely cannot be documented without a secret, say so in the note and point to task-252 (`Provision the 37 runtime credentials of the prod secret`) — the owner holds those values.
+
+Before you commit, grep your own diff. If you added an email, a token-shaped string or a support id, remove it before `git add`.
+
 ## Task creation convention
 
 When creating a new task in the backlog, split it in two when the work requires a technology/architecture decision not yet made:

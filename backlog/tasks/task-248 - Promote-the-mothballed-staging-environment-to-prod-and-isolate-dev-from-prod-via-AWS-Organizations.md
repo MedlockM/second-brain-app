@@ -99,7 +99,7 @@ Les trois volets sont livrés. **9 AC sur 11 sont cochés ; #4 et #10 restent ou
 ### Actions irréversibles effectuées (2026-08-12 / 2026-08-13)
 
 1. **Organisation AWS créée** : `o-7sf5u7j5hd`, compte de gestion `125313707865`, feature set `ALL`. Une organisation ne se supprime qu'après avoir sorti tous les comptes membres.
-2. **Compte membre créé** : `866874944541` / `media-summarizer-prod`, email `marc.medlock+aws-prod@outlook.com` (dérivé de l'email racine `marc.medlock@outlook.com` révélé par la réponse de `create-organization`). `OrganizationAccountAccessRole` créé par AWS, accès facturation `ALLOW`. **Un compte AWS ne se supprime pas avant 90 jours de fermeture.**
+2. **Compte membre créé** : `866874944541` / `media-summarizer-prod`. Son email de connexion est un alias `+aws-prod` de l'email racine du compte de gestion — **volontairement non consigné ici** : l'email racine d'un compte AWS est la moitié d'une réinitialisation de mot de passe et ce dépôt est public. Le propriétaire le retrouve dans la console Organizations ou son gestionnaire de mots de passe. `OrganizationAccountAccessRole` créé par AWS, accès facturation `ALLOW`. **Un compte AWS ne se supprime pas avant 90 jours de fermeture.**
 3. **145 ressources staging détruites** (`Apply complete! Resources: 0 added, 0 changed, 145 destroyed`).
 4. **`media-summarizer-runtime-staging` supprimé sans fenêtre de récupération.**
 5. **Protection contre suppression retirée sur 24 tables staging** (toutes détruites depuis).
@@ -108,7 +108,7 @@ Les trois volets sont livrés. **9 AC sur 11 sont cochés ; #4 et #10 restent ou
 8. **199 ressources prod créées.**
 9. **`[profile prod]` ajouté à `~/.aws/config`** (hors dépôt, nécessaire à l'AC #7).
 10. **GitHub Environment `production` créé** (id 19802739056), branche `main` seule autorisée, secret d'environnement `AWS_DEPLOY_ROLE_ARN` renseigné.
-11. **Demande d'augmentation de quota Lambda** dans le compte prod : `97e574db524940b89cb3b02ebd0feef8pLTsKtTF` (L-B99A9384, 10 → 1000), **PENDING**.
+11. **Demande d'augmentation de quota Lambda** dans le compte prod : quota `L-B99A9384` (concurrence réservée, 10 → 1000), **PENDING**. L'identifiant de la demande n'est pas consigné ici (dépôt public) ; il se retrouve via `aws service-quotas list-requested-service-quota-change-history --service-code lambda` avec le profil prod.
 
 ### Preuves collectées avant chaque destruction
 

@@ -112,9 +112,11 @@ module "platform" {
   #   ReservedConcurrentExecutions for function decreases account's
   #   UnreservedConcurrentExecution below its minimum value of [10].
   #
-  # An increase to 1000 has been requested (Service Quotas request
-  # 97e574db524940b89cb3b02ebd0feef8pLTsKtTF, L-B99A9384, PENDING at the time of
-  # writing). LAUNCH PREREQUISITE: once it is granted, delete this line so the
+  # An increase to 1000 has been requested (Service Quotas L-B99A9384, PENDING at
+  # the time of writing; find the request id with `aws service-quotas
+  # list-requested-service-quota-change-history --service-code lambda` under the
+  # prod profile — it is not recorded here because this repository is public).
+  # LAUNCH PREREQUISITE: once it is granted, delete this line so the
   # module default of 10 applies again, then plan and apply. Until then prod
   # serves zero users, so an unreserved API changes nothing observable — but a
   # launched prod whose API competes with 14 workers over 10 total concurrent

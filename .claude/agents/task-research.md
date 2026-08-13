@@ -22,6 +22,7 @@ Séquence obligatoire :
 7. `git add` + `git commit` avec un message descriptif en anglais
 
 Contraintes :
+- **Jamais de secret ni d'identité de compte dans un fichier suivi.** Le dépôt est public : ce que tu écris dans un README de recherche, une note de tâche ou un message de commit est publié au prochain push et reste dans l'historique git. Interdits : emails racine/de connexion de comptes cloud (y compris les alias `+xxx`), clés et tokens (`AKIA…`, `ASIA…`, `ghp_`, `sk-…`, clés privées, mots de passe réels), identifiants de demande de support/quota, et tout dump brut de `aws sts get-caller-identity`, `create-account`, `get-secret-value`, `terraform output` ou `.env`. Cela vaut aussi pour les clés d'API des fournisseurs que tu évalues : un benchmark cite les tarifs et les quotas, jamais un identifiant d'accès. Écris le résultat et le moyen de retrouver la valeur, pas la valeur. En revanche, les identifiants de ressources dont Terraform a besoin (ID de compte AWS, ARN, noms de tables/buckets, région) ne sont **pas** des secrets et doivent rester. Critère : est-ce que cette valeur permet de s'authentifier, de réinitialiser un identifiant ou d'usurper le propriétaire ? Si oui, elle ne s'écrit pas. Grep ton propre diff avant `git add`. Détail dans `AGENTS.md`.
 - Ne modifie PAS le code source
 - Cite tes sources avec des URLs
 - Les benchmarks doivent être exhaustifs et basés sur de la recherche internet

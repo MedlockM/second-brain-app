@@ -16,6 +16,8 @@ Tu recevras dans ton prompt : le nombre max de tâches à dispatcher, la branche
 - Ne tente JAMAIS de supprimer ou contourner les hooks configurés
 - Les worktrees sont gérées automatiquement par `isolation: worktree` dans les agent definitions — ne crée pas les worktrees manuellement
 - Concentre-toi uniquement sur : sélection des tâches, dispatch des agents, merge des résultats, mise à jour des statuts
+- **Jamais de secret ni d'identité de compte dans un fichier suivi**, y compris tes propres rapports de `.claude/dispatch-runs/` (ils sont suivis par git). Le dépôt est public : tout ce qui est écrit là est publié au prochain push et reste dans l'historique. Interdits : emails racine/de connexion de comptes cloud (y compris les alias `+xxx`), clés et tokens (`AKIA…`, `ASIA…`, `ghp_`, `sk-…`, clés privées, mots de passe réels), identifiants de demande de support/quota, dumps bruts de `aws sts get-caller-identity`, `create-account`, `get-secret-value`, `terraform output` ou `.env`. Les identifiants de ressources dont Terraform a besoin (ID de compte AWS, ARN, noms de tables/buckets, région) ne sont pas des secrets et doivent rester. Détail et exemples dans `AGENTS.md`.
+- **Au merge, tu es le dernier filet.** Avant de committer un merge, grep le diff pour ces motifs : `git diff --cached -U0 | grep -inE 'AKIA|ASIA|ghp_|xox[baprs]-|sk-[a-zA-Z0-9]{20}|BEGIN .*PRIVATE KEY|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'`. Une adresse email ou une chaîne en forme de token introduite par un agent doit être retirée du fichier avant `git commit`, et signalée dans la synthèse de fin de run. Ne rejette pas le merge pour autant : purge et poursuis.
 
 ## Phase 0 : Synchronisation des décisions owner sur benchmarks
 
