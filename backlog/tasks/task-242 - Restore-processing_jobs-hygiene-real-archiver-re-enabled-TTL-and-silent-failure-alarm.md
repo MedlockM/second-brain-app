@@ -3,9 +3,10 @@ id: task-242
 title: >-
   Restore processing_jobs hygiene: real archiver, re-enabled TTL and
   silent-failure alarm
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-11 16:12'
+updated_date: '2026-08-13 07:41'
 labels:
   - infra
   - terraform
@@ -50,6 +51,7 @@ Les agents ont tous les droits pour exécuter `terraform apply` et les commandes
 
 ## Implementation Notes
 
+<!-- SECTION:NOTES:BEGIN -->
 **AC #1 ✓ SATISFIED**: Job archiver deployed
 - Replaced placeholder code in archiving.tf with real media_summarizer/workers/cleanup/job_archiver.py
 - CodeSize increased from 477 bytes → 1396 bytes, confirming real code is deployed
@@ -180,3 +182,4 @@ alarmes sans exister).
 - **Reste ouvert, hors périmètre** : `user_media_submissions-dev` existe toujours côté AWS tout en
   ayant quitté la gestion Terraform. À réimporter ou supprimer par la tâche qui possède la
   migration `user_media`.
+<!-- SECTION:NOTES:END -->
