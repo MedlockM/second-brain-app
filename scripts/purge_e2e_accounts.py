@@ -10,7 +10,7 @@ survive a partial run.
 Selection is deliberately conservative and layered:
 
 1. the email must end with `@test.local` (no real account can);
-2. the local part must start with one of `E2E_EMAIL_PREFIXES`;
+2. the local part must start with `e2e-` or `phase4-test-`;
 3. the email must not be in `PROTECTED_EMAILS` -- an explicit exclusion list,
    checked before any prefix logic, that holds the permanent Maestro account
    designated by the `E2E_TEST_USER_EMAIL` secret.
@@ -61,10 +61,11 @@ PROTECTED_EMAILS = frozenset(
 )
 
 #: Local-part prefixes of throwaway accounts created by test tooling:
-#: - `e2e-register-` : mobile/.maestro/01_login.yaml, one per CI run
-#: - `e2e-test-`     : the `test_user` fixture of tests/e2e/conftest.py
-#: - `phase4-test-`  : the historical Phase 4 validation script
-E2E_EMAIL_PREFIXES = ("e2e-register-", "e2e-test-", "phase4-test-")
+#: - `e2e-*` : any account starting with `e2e-` (covers register, test, and ad-hoc
+#:   task-specific accounts like `e2e-task249-`); using a wildcard because
+#:   enumerating prefixes made ad-hoc accounts escape (task-259)
+#: - `phase4-test-` : the historical Phase 4 validation script
+E2E_EMAIL_PREFIXES = ("e2e-", "phase4-test-")
 
 #: No real user can hold an address in this domain.
 E2E_EMAIL_DOMAIN = "@test.local"

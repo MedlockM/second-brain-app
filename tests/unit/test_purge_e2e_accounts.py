@@ -59,6 +59,15 @@ class TestIsPurgeable:
         assert not purge.is_purgeable(None)
         assert not purge.is_purgeable("")
 
+    def test_ad_hoc_e2e_task_prefix_is_purgeable(self):
+        assert purge.is_purgeable("e2e-task249-1786605697@test.local")
+
+    def test_permanent_maestro_account_is_protected_even_with_wildcard_prefix(self):
+        assert purge.is_purgeable("e2e-maestro-20260809200952@test.local") is False
+
+    def test_e2e_prefix_outside_test_domain_is_never_purgeable_even_with_wildcard(self):
+        assert not purge.is_purgeable("e2e-anything-1234567@example.com")
+
 
 class TestSelectAccounts:
     def test_splits_the_measured_dev_population(self):
