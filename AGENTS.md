@@ -39,7 +39,7 @@ Read `README.md` for project overview and V1 scope. Read `docs/CANONICAL_MEDIA_A
 
 ## Delivery rules
 
-- Pre-production: no backward compatibility required. Remove obsolete code directly.
+- Pre-production: no backward compatibility required. Remove obsolete code directly. The full rule, and why it is stronger than it looks, is in "Nothing is deployed yet" below.
 - No automated tests unless explicitly requested.
 - Hexagonal architecture when already in place. KISS otherwise.
 - Benchmarks must be exhaustive and based on internet research.
@@ -67,6 +67,27 @@ Write the *outcome* and the *way to retrieve the value*, not the value:
 If a task genuinely cannot be documented without a secret, say so in the note and point to task-252 (`Provision the 37 runtime credentials of the prod secret`) — the owner holds those values.
 
 Before you commit, grep your own diff. If you added an email, a token-shaped string or a support id, remove it before `git add`.
+
+## Nothing is deployed yet — delete legacy instead of bridging it
+
+**The app has never shipped.** It is not on the App Store, not on Google Play, not in TestFlight, not in Internal Testing. There are **zero users other than the owner**, zero production data, zero paying customers, zero active subscriptions. AWS `prod` exists but is a dormant shell that has never served traffic, and its runtime secret is empty. The only live environment is `-dev`, whose contents are the owner's own test fixtures.
+
+So there is **no installed base to protect**, and every argument that starts with "but existing users would…" is false here. Two migration reflexes that are correct in a shipped product are *wrong* in this repo:
+
+- **Compatibility shims and fallback paths.** Do not keep an old lookup "in case something still emits the old shape", do not leave a deprecated field readable "for old rows", do not keep two code paths behind a flag. Replace, delete, move on.
+- **Data migrations and dual-writes.** A `-dev` table holding a handful of owner-made fixtures does not need a migration script. Delete the rows, or leave them: they gate nothing.
+
+This extends past code, to third-party dashboards the repo configures — RevenueCat entitlements, offerings and packages, Google/Apple product identifiers, Algolia indices, EAS environment variables. Scaffolding auto-created by a provider (RevenueCat's default `$rc_monthly`/`$rc_annual` packages, its `monthly`/`yearly` products) is legacy too: if no code reads it, delete it rather than working around it.
+
+**What is not "legacy", and must stay:**
+
+- **Input contracts you do not control.** A third-party webhook that may send either `entitlement_ids` or `entitlement_id` depending on its payload version: handle both. That is the shape of someone else's API, not your own history.
+- **Fixtures a test flow depends on.** The RevenueCat Test Store products backing `mobile/.maestro/07_paywall.yaml`, the persistent "Commonplace book" article on dev.
+- **Anything the owner has explicitly decided to keep**, even if it looks vestigial — `infrastructure/terraform/envs/staging/` is kept on purpose as a throwaway reference.
+
+When you are unsure whether something is load-bearing, grep for its readers first. Nothing read by no code survives on the grounds that removing it feels risky: **in this repo, deleting it is the low-risk option.** And when a plan or a task description justifies keeping something by invoking existing users, customers or production data, treat that justification as a factual error and say so.
+
+This flips one ordering habit too: a cleanup that restructures a layout should run **before** the tasks that populate it, not after. Wiring new store products to an entitlement layout you are about to dismantle means doing the work twice.
 
 ## Task creation convention
 

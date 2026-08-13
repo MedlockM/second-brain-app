@@ -4,6 +4,7 @@ title: Provision Google Play subscriptions and connect the Android app to Revenu
 status: To Do
 assignee: []
 created_date: '2026-08-09 21:05'
+updated_date: '2026-08-13 19:15'
 labels:
   - phase-6
   - mobile
@@ -13,6 +14,7 @@ labels:
   - iap
 dependencies:
   - task-163
+  - task-262
 priority: high
 ---
 
@@ -27,8 +29,8 @@ Complete the production-like Android billing configuration that is intentionally
 - [ ] #1 The Google Play application for package com.secondbrainlabs.core exists and is eligible for Internal Testing
 - [ ] #2 A Google Play app is connected in the RevenueCat project and its Google service credentials validate successfully
 - [ ] #3 The Text-Only, Mix, and Audio-Heavy monthly subscriptions exist in Google Play with the validated V1 prices and active base plans
-- [ ] #4 All three Google Play products are imported into RevenueCat, attached to entitlement pro, and mapped to packages text_only, mix, and audio_heavy in the current offering
+- [ ] #4 All three Google Play products are imported into RevenueCat, attached to their matching tier entitlement from task-262 (tier_text_only, tier_mix, tier_audio_heavy), and mapped to packages text_only, mix and audio_heavy in the current offering
 - [ ] #5 The real RevenueCat Google public SDK key is configured securely for Android development, preview, CI, and production profiles, while the Test Store key remains restricted to tests
 - [ ] #6 An Internal Testing build fetches all three packages through Google Play without configuration errors
-- [ ] #7 A Google Play license tester completes a sandbox purchase and restore, and RevenueCat Customer Info reports entitlement pro as active
+- [ ] #7 A Google Play license tester completes a sandbox purchase and restore, and RevenueCat Customer Info reports the matching tier entitlement as active
 <!-- AC:END -->

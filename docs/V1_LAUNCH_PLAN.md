@@ -49,11 +49,21 @@
 - **Production release** : `docs/RELEASE_LOG.md` reste la source de vérité :
   v1.0.0 `Pre-release`, aucun tag (`git tag -l` vide), aucun build production,
   aucune soumission.
-- **Backlog quasi vidé** : 237 tâches, dont **13 non-`Done`** (62, 118, 145, 163,
-  164, 165, 166, 172, 180, 186, 229, 238, 252). `task-212`/`task-213`
+- **Backlog quasi vidé** : 243 tâches, dont **16 non-`Done`** (62, 118, 145, 163,
+  164, 165, 166, 172, 180, 186, 229, 238, 252, 260, 261, 262). `task-212`/`task-213`
   (architecture LLM) sont **archivées** sur `owner_decision: abandoned`.
   `task-162` a été passée à `Done` le 2026-08-13 : ses 3 ACs étaient cochés et son
-  SHA-1 consigné, seul le statut était resté en retard.
+  SHA-1 consigné, seul le statut était resté en retard. `task-261` et `task-262`
+  ont été créées le 2026-08-13 en découpant le reste de la Phase 6.
+- **Rien n'est déployé sur les stores, et ça change la façon d'écrire les tâches** :
+  ni App Store, ni Play Store, ni TestFlight, ni Internal Testing ; zéro
+  utilisateur hors owner, zéro donnée de production, zéro abonnement actif. Aucune
+  couche de compatibilité, aucun fallback « au cas où », aucune migration de
+  données n'est justifiable — on supprime, on ne pontifie pas. La règle complète,
+  ses deux exceptions et ses conséquences sur l'ordre des tâches sont consignées
+  dans `AGENTS.md` (« Nothing is deployed yet — delete legacy instead of bridging
+  it ») et `CLAUDE.md`. Toute justification par « les utilisateurs existants
+  seraient… » est, dans ce dépôt, une erreur factuelle.
 
 ### Chemin critique restant, dans l'ordre
 
@@ -63,8 +73,10 @@ bloquant au moins bloquant :
 1. **Re-run `pytest -m e2e` contre dev** — dernier gate backend ouvert (Phase 4).
 2. **Build Android unique + validations device** — `task-163` ACs #6-#8,
    `task-164`, `task-165`, puis `task-166` clôture la Phase 5.
-3. **Billing réel** — Phase 6 et `task-238` : `REVENUCAT_WEBHOOK_SECRET`, produits
-   IAP, offerings/entitlements, achat et restore en sandbox.
+3. **Billing réel** — Phase 6, dans l'ordre `task-262` → {`task-261`, `task-238`} :
+   `REVENUCAT_WEBHOOK_SECRET` (vide partout, le webhook répond 500), refonte des
+   entitlements par tier, produits IAP iOS puis Android, achat et restore en
+   sandbox. Le circuit billing n'a jamais tourné : `revenucat_events-dev` = 0 item.
 4. **Owner-only, sans substitut possible** — les 37 credentials du secret prod
    (`task-252`), le quota Lambda prod, les vérifications d'éligibilité du compte
    Google Play — dont un éventuel closed testing de 14 jours qui, s'il
@@ -140,7 +152,7 @@ un staging ou une soumission.
 |---|---|---|
 | Branding app | `task-186` | Nom marketing final requis avant App Store Connect / Play Console |
 | App icons | `task-180` | Remplacer les placeholders avant soumission |
-| RevenueCat / IAP | Phase 6, `task-238` | `REVENUCAT_WEBHOOK_SECRET` absent ; produits, offerings/entitlements et tests sandbox réels non prouvés ; `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` encore un placeholder dans les trois environnements EAS |
+| RevenueCat / IAP | Phase 6 : `task-262`, puis `task-261` (iOS) et `task-238` (Android) | `REVENUCAT_WEBHOOK_SECRET` vide en local **et** dans le secret dev → le webhook répond `500`, `revenucat_events-dev` = 0 item. L'entitlement `pro`, l'offering `default` et les 3 packages existent, mais leurs 3 produits sont **Test Store** : l'app iOS RevenueCat porte 0 produit et aucune clé App Store Connect, et aucune app Google Play n'est déclarée. `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` encore un placeholder dans les trois environnements EAS |
 | Domaine production | Phase 10 | Au 2026-08-13 : `secondbrainlabs.com` **résout** mais redirige en `301` vers `sbl.so` ; `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont toujours en `NXDOMAIN`. Le profil EAS production pointe encore vers le second |
 | Store/legal | Phase 10 | Les textes existent au dépôt (`docs/compliance/privacy-policy.md`, `terms-of-service.md`, `apple-app-privacy.md`, `google-play-data-safety.md`, `CHECKLIST.md`) mais **ne sont pas hébergés** : `secondbrainlabs.com/privacy` et `/terms` redirigent vers `sbl.so/...` qui répond **404**. Liens in-app absents, listings/screenshots/review accounts à finaliser |
 
@@ -173,7 +185,7 @@ un staging ou une soumission.
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; les quatre vérifications d'éligibilité du compte restent à confirmer par l'owner (identité, profil de paiement, adresse publique, closed testing 12 testeurs / 14 jours) — runbook `task-260`, détail en Phase 2.2. Aucune preuve plus récente dans le repo |
 | **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée, aucune Android. Les trois environnements EAS **sont peuplés** (constaté le 2026-08-13) — `development` porte six variables `EXPO_PUBLIC_*` ; seul `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` reste un placeholder |
-| **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : clés backend et mobiles présentes localement ; webhook secret absent, produits/offering/entitlements et validation sandbox non prouvés |
+| **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : projet `proj879a771a` avec entitlement, offering courant et 3 packages tiers déjà en place, mais **uniquement sur le Test Store** ; app iOS sans produit ni clé ASC, pas d'app Play, webhook secret vide (`500`). Aucun achat sandbox réel possible en l'état |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | Partiel : projet + consent screen Test + OAuth Web backend + OAuth iOS OK ; OAuth Android et publication Production restent à faire |
 | **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (compte créé, clé en local dans `.env`) |
 | **Deepgram** | usage-based | Transcription audio | OK (compte créé, clé en local dans `.env`) |
@@ -325,8 +337,15 @@ UNSTRUCTURED_TIMEOUT_SECONDS=120
 ```bash
 REVENUCAT_API_KEY=sk_...             # secret API key (backend)
 REVENUCAT_PROJECT_ID=...
-REVENUCAT_WEBHOOK_SECRET=...         # configuré dans le dashboard RC
+REVENUCAT_WEBHOOK_SECRET=...         # valeur au choix de l'owner, saisie dans le dashboard RC
 ```
+
+`REVENUCAT_WEBHOOK_SECRET` n'est pas fourni par RevenueCat : c'est un secret
+partagé que l'owner choisit et colle dans RevenueCat → Integrations → Webhooks
+(champ Authorization header), puis reporte à l'identique dans `.env` et dans
+`media-summarizer-runtime-<env>`. Il n'est pas exposé par l'API v2
+(`/v2/projects/<id>/webhooks` → `404`), donc c'est une étape nécessairement
+manuelle. Il est **vide partout** au 2026-08-13 : voir Phase 6.
 
 Côté mobile (`mobile/.env` ou EAS secrets) — naming attendu par `mobile/app.config.ts` :
 
@@ -414,8 +433,12 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    2026-06-25 et ne représente plus le code courant. Aucune build Android
    n'existe. Aucun env EAS development/preview/production n'est configuré.
 5. RevenueCat account + projet + clés backend/mobile : **partiellement fait**.
-   `REVENUCAT_WEBHOOK_SECRET` est toujours vide au 2026-07-31. Les produits IAP,
-   offerings/entitlements, webhook réel et tests sandbox restent à prouver.
+   `REVENUCAT_WEBHOOK_SECRET` est toujours vide au 2026-08-13, en local comme dans
+   le secret dev. L'entitlement, l'offering courant et les 3 packages de tier
+   existent, mais leurs produits sont ceux du **Test Store** ; l'app iOS
+   RevenueCat n'a ni produit ni clé App Store Connect, et il n'y a pas d'app Play.
+   Restent à prouver : les produits IAP réels, le webhook, les tests sandbox.
+   Détail et ordre d'exécution en Phase 6.
 6. Comptes API tiers : les clés locales documentées restent présentes pour
    **OpenAI**, **Deepgram**, **PodcastIndex.org**, **X Developer Platform**,
    **Apify**, **LlamaParse**, **Unstructured.io** et **Algolia**. Google OAuth
@@ -732,30 +755,81 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    rebuild iOS `development` sera de toute façon nécessaire pour `task-164`, ne
    serait-ce que pour tester le code courant.
 
-### Phase 6 — Tests IAP sandbox (jour 5-6)
+### Phase 6 — Tests IAP sandbox (jour 5-6) — **code fait, setup stores ~0 %, validation 0 %**
 
-> Le code RevenueCat mobile/backend est implémenté (`task-99`) : SDK mobile, paywall, endpoint `POST /api/webhooks/revenucat`, table `revenucat_events`, endpoint entitlements. Ce qui reste en Phase 6 est le setup dashboard/stores et la validation sandbox réelle.
->
-> **État 2026-07-31** : `REVENUCAT_API_KEY`,
-> `REVENUCAT_PROJECT_ID` et les clés mobiles Apple/Google sont présentes
-> localement, mais `REVENUCAT_WEBHOOK_SECRET` est vide. Aucun fichier
-> `StoreKit.storekit` ni résultat de test achat/restore n'est présent dans le
-> repo.
+> Le code RevenueCat mobile/backend est implémenté (`task-99`, complété par
+> `task-244` et `task-245`) : SDK mobile, paywall 3 tiers, `restorePurchases`,
+> endpoint `POST /api/webhooks/revenucat` (6 event types, idempotence par
+> `event_id` + TTL 30 j), table `revenucat_events`, `GET /api/v1/entitlements/status`.
+> Les routes sont montées (`api/main.py:158,160`) et déployées. Ce qui reste est
+> le setup stores et la validation sandbox réelle.
 
-1. **iOS** :
-   - App Store Connect → Apps → IAP → créer 3 produits (correspondance Offerings RevenueCat).
-   - StoreKit configuration locale (`mobile/ios/StoreKit.storekit`) pour Xcode
-     simulator — fichier toujours absent au 2026-07-31.
-   - Sandbox tester accounts dans App Store Connect.
-   - Build TestFlight → tester achat avec un compte sandbox.
-2. **Android** :
-   - Play Console → IAP → créer les mêmes produits.
-   - License Tester emails dans Play Console.
-   - Build Internal Testing → installer via lien Play Store internal → tester achat.
-3. **RevenueCat dashboard** :
-   - Vérifier que les Customer Info reflètent l'achat sandbox.
-   - Tester le webhook → backend reçoit l'événement → DynamoDB `revenucat_events` est rempli → `subscriptions` table mise à jour → quota élevé.
-4. Tester `restorePurchases` depuis l'app (cas user qui réinstalle).
+**État vérifié au 2026-08-13** (API RevenueCat v2, AWS dev, `eas env:list`) :
+
+- **`REVENUCAT_WEBHOOK_SECRET` est vide**, en local *et* dans
+  `media-summarizer-runtime-dev` (la clé existe, sa valeur est `""`). Le webhook
+  répond donc `HTTP 500 "Webhook secret not configured"` — sondé en direct.
+  Conséquence : `revenucat_events-dev` contient **0 item**, le circuit n'a jamais
+  tourné une seule fois. Le secret n'est pas généré par RevenueCat, c'est une
+  valeur au choix de l'owner saisie dans le dashboard ; l'endpoint
+  `/v2/projects/<id>/webhooks` répond `404`, donc cette étape est
+  obligatoirement manuelle.
+- **Le projet RevenueCat `proj879a771a` est plus avancé que ce que ce plan
+  disait** : l'entitlement `pro`, l'offering `default` (courant) et les 3 packages
+  `text_only`/`mix`/`audio_heavy` existent, avec 3 produits mensuels rattachés.
+  **Mais ces 3 produits appartiennent au Test Store** (`appa51ecf7585`,
+  identifiants `*_test`) : toute la chaîne est câblée sur le simulateur
+  RevenueCat, jamais sur StoreKit ni Play Billing.
+- **L'app iOS `app0d4b00c12f`** (bundle `com.secondbrainlabs.core`) est déclarée
+  avec une In-App Purchase key, mais porte **0 produit** et
+  `app_store_connect_api_key_configured: false`.
+- **Aucune app Google Play** dans le projet RevenueCat, et
+  `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` vaut littéralement
+  `your_revenucat_google_api_key_here` dans les **trois** environnements EAS —
+  donc `initializePurchases()` sort sur son `console.warn` sans configurer le SDK
+  sur Android.
+- L'unique ligne de `subscriptions-dev` (tier `L`, `period_end` 2029) est une
+  **fixture manuelle** du 2026-08-02 pour tester l'UI, pas la trace d'un achat.
+- **`mobile/ios/StoreKit.storekit` est retiré du périmètre** : ce fichier ne sert
+  qu'au test StoreKit dans le simulateur Xcode, et l'owner n'a pas de Mac
+  (cf. Phase 7, contrainte de budget CI). La validation iOS passe par TestFlight +
+  compte sandbox. Ce n'est pas un reste à faire, c'est un hors-sujet.
+
+**Ordre d'exécution** — `task-262` d'abord, c'est ce qui conditionne les deux autres :
+
+1. **`REVENUCAT_WEBHOOK_SECRET`** (owner, ~15 min, ne dépend de rien) : générer
+   une valeur aléatoire, la saisir dans RevenueCat → Integrations → Webhooks avec
+   l'URL `…/api/webhooks/revenucat`, la mettre dans `.env`, puis dans le secret
+   dev **en read-modify-write** (`put-secret-value` remplace tout le JSON : passer
+   par `jq` sur la valeur courante et vérifier `jq 'length'` = 37 avant push).
+   Forcer ensuite un cold start de `media-summarizer-api-dev` — le secret n'est lu
+   qu'à l'init du conteneur et le warm-up EventBridge empêche le recyclage
+   spontané ; ré-appliquer la même `image_uri` suffit (elle est sous
+   `ignore_changes`, donc aucune dérive Terraform). Gate : le webhook passe de
+   `500` à `401` sur un token invalide.
+2. **`task-262` — résolution du tier par entitlement** : trois entitlements
+   `tier_text_only`/`tier_mix`/`tier_audio_heavy`, suppression de
+   `PRODUCT_TIER_MAP`, de l'entitlement `pro`, du legacy
+   `Second Brain Labs Pro` et du scaffolding RevenueCat (`monthly`/`yearly`,
+   `$rc_monthly`/`$rc_annual`). À faire **avant** `task-238` et `task-261`, qui
+   rattachent des produits à cette structure. Aucune couche de compatibilité :
+   rien n'est déployé, il n'y a ni client ni abonnement à préserver.
+3. **`task-261` — iOS** : 3 subscriptions dans App Store Connect
+   (`com.secondbrainlabs.core.{text_only,mix,audio_heavy}_monthly`, 3/5/9 €),
+   clé API App Store Connect côté RevenueCat, compte sandbox tester, build
+   TestFlight, achat + restore. Les étapes ASC sont owner-only ; le câblage
+   RevenueCat est vérifiable par API.
+4. **`task-238` — Android** : app Google Play, mêmes 3 produits, clé publique
+   Google réelle en remplacement du placeholder, license tester, build Internal
+   Testing, achat + restore. Dépend aussi du build Android (`task-163`).
+5. **Boucler le circuit webhook** une fois un achat sandbox réalisé :
+   l'événement atterrit dans `revenucat_events-dev`, `subscriptions-dev` porte le
+   bon tier, et `GET /api/v1/entitlements/status` renvoie `is_active: true` avec
+   le `minutes_remaining` correspondant.
+
+Le Test Store et ses 3 produits `*_test` **restent en place** :
+`mobile/.maestro/07_paywall.yaml` en dépend via `E2E_REVENUECAT_TEST_KEY`. Ils
+sont rattachés aux entitlements de tier comme n'importe quel autre produit.
 
 ### Phase 7 — CI/CD (jour 6-7)
 
@@ -1079,13 +1153,17 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 - [x] Deepgram API key + budget configuré (en local dans `.env`)
 - [x] Algolia App créée + index configuré (App ID + Admin API key + index name en local dans `.env`)
 - [~] RevenueCat — clés backend et mobiles présentes localement, mais
-  `REVENUCAT_WEBHOOK_SECRET` reste vide. Restent à faire : webhook sur le futur
-  endpoint prod, 3 produits IAP iOS/Android, import dans RC, Entitlements +
-  Offerings, comptes sandbox/license testers, achat/restore et propagation vers
-  quotas. Côté app, les entrées UI existent désormais (`task-244` : CTA d'upgrade
-  dans Account + déclenchement sur refus de quota ; `task-245` : l'état
-  d'abonnement est réellement consommé par l'UI) — le paywall n'est donc plus un
-  écran orphelin, seul le circuit d'achat réel manque
+  `REVENUCAT_WEBHOOK_SECRET` reste **vide en local et dans le secret dev**, donc le
+  webhook répond `500` et `revenucat_events-dev` n'a jamais reçu un seul
+  événement. L'offering `default`, ses 3 packages de tier et l'entitlement
+  existent — mais rattachés aux produits **Test Store**, jamais aux stores réels.
+  Restent à faire : le webhook secret (owner, ~15 min), la refonte des
+  entitlements par tier (`task-262`, à faire en premier), les 3 produits IAP iOS
+  (`task-261`) puis Android (`task-238`), comptes sandbox/license testers,
+  achat/restore et propagation vers les quotas. Côté app, les entrées UI existent
+  déjà (`task-244` : CTA d'upgrade dans Account + déclenchement sur refus de
+  quota ; `task-245` : l'état d'abonnement est réellement consommé par l'UI) — le
+  paywall n'est donc plus un écran orphelin, seul le circuit d'achat réel manque
 - [x] Pricing admin secret généré au 2026-06-08 (`PRICING_ADMIN_SECRET` en local dans `.env`, requis pour `PUT /api/pricing/admin`)
 - [ ] EAS iOS development build **courante** : l'ancienne build du 2026-06-11
   a expiré et précède le HEAD actuel (`task-161`)
@@ -1120,7 +1198,7 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 | Quota Deepgram explosé par un user TikTok abusif | Rate limiter TikTok 2-tier déjà en place + quotas par user dans `minute_buckets`. |
 | Apify API down | Instagram fail visible (status `failed`), pas de cascade. Surveiller en CloudWatch. Apify team fixes scrapers within 24-72h typically. |
 | Quota LlamaParse free tier (1000 pages/jour) dépassé | Fallback Unstructured automatique dans le worker `document_parsing`. Si Unstructured aussi épuisé : job `failed` avec message clair, surveiller en CloudWatch. |
-| RevenueCat webhook drop | Réconciliation possible via `GET /api/entitlements/status` qui requête RevenueCat directement. |
+| RevenueCat webhook drop | Réconciliation possible via `GET /api/entitlements/status` qui requête RevenueCat directement. Le drop *silencieux* aujourd'hui possible (tier non résolu → `warning` puis `return`, sans alarme) est traité par `task-262` : résolution par entitlement, et log `error` explicite quand elle échoue. |
 | URL X privée / supprimée | Worker X retourne `failed` proprement, message d'erreur à l'utilisateur. |
 | ~~API interactive indisponible après longue inactivité~~ | **Traité** (`task-217`, 2026-08-06) : image API minimale, reserved concurrency configurable, warm-up EventBridge, health gate de release. Cold 5,2 s / warm 1,0 s au 2026-08-13. |
 | ~~Collision/destruction entre dev/staging/prod~~ | **Traité** (`task-237`, `task-248`) : une racine Terraform par environnement, 100 % des noms suffixés, et surtout **une frontière de compte AWS** entre dev et prod — un plan lancé avec les identifiants de prod ne peut rien toucher dans dev. |

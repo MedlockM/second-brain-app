@@ -2,6 +2,19 @@
 
 Instructions specific to Claude working on this repository. Read `AGENTS.md` first for general project rules.
 
+## Nothing is deployed yet — scope tasks as deletions, not migrations
+
+Full rule in `AGENTS.md`, section "Nothing is deployed yet". The fact: **the app has never shipped** — not on the App Store, not on Google Play, not in TestFlight. Zero users besides the owner, zero production data, zero active subscriptions; AWS `prod` is a dormant shell that has never served traffic. There is no installed base.
+
+This changes how you *write* tasks, not just how they are implemented:
+
+- **Never scope a compatibility layer.** No "keep the old map as a fallback", no "support both shapes during a transition", no dual-write, no deprecation window. A cleanup task deletes the old thing in the same run. If you catch yourself writing an AC that preserves an artifact so that "existing behaviour is unaffected", the premise is wrong — check whether anything actually reads it.
+- **Never justify keeping something by invoking users, customers, or production data.** There are none. That reasoning is a factual error about this project, and it produces tasks that carry dead code forever.
+- **Order cleanups first.** When one task restructures a layout (a schema, a set of third-party entitlements, a naming convention) and others populate it, the restructure comes **first** and the others depend on it. The reverse ordering makes the populating tasks do their work twice and leaves their ACs stale.
+- **Legacy includes third-party dashboards**, not just code: RevenueCat entitlements/offerings/packages, store product identifiers, EAS variables, Algolia indices. Provider-generated scaffolding nobody reads gets deleted too.
+
+Two things are *not* legacy and must be kept when scoping: **input contracts you do not control** (a third-party webhook whose payload version varies — handle every shape it may send) and **fixtures a test flow depends on** (the RevenueCat Test Store products behind `mobile/.maestro/07_paywall.yaml`, the persistent "Commonplace book" article on dev).
+
 ## Task creation convention
 
 When the owner asks you to create a new task in the backlog, decide whether it needs a benchmark before implementation:
