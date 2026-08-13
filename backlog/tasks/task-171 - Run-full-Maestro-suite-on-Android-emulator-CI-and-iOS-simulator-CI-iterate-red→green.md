@@ -3,10 +3,10 @@ id: task-171
 title: >-
   Run full Maestro suite on Android emulator CI and iOS simulator CI, iterate
   red→green
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 05:59'
-updated_date: '2026-08-09 20:13'
+updated_date: '2026-08-13 14:19'
 labels:
   - phase-5
   - mobile
@@ -65,4 +65,12 @@ Cette tâche exécute la suite Maestro complète après l'ajout des flows 168–
 Workflow refondu pour Maestro 2.8.0, builds Release autonomes, Android x86_64 sur émulateur, iOS Simulator manuel, vrais codes de sortie, JUnit et artifacts. Correctif reproductible patch-package ajouté pour Foojay 0.5/Gradle 9 (React Native 0.83), avec Foojay 1.0.
 
 2026-08-09 — Ancienne CI diagnostiquée : install Maestro 1.38.0 en 404 puis commande absente, et publication JUnit en 403. Source corrigée (Maestro 2.8, permissions checks:write). Le build Gradle local dépasse désormais IBM_SEMERU et atteint la configuration app ; il s'arrête seulement faute de SDK Android local. Tous les secrets E2E requis sont configurés. Les runs finaux attendent le commit/push de ces changements.
+
+2026-08-13 — Clôturée sur décision de l'owner, avec la couverture réelle consignée ici plutôt que par des AC cochés à tort. Les AC #1, #2, #4 et #5 restent non cochés : ils demandaient un run de la suite complète à exit 0 sur les deux plateformes, ce qui n'a pas eu lieu.
+
+Ce qui est acquis : le run 31612429695 (workflow_dispatch sur 1d337e4, 2026-08-12) est vert sur les deux plateformes, mais avec `flow_filter: suites/tasks_168_170` — donc 3 flows sur 7. `01_login`, `06_search` et `07_paywall` sont passés sur émulateur Android API 33 et simulateur iPhone 16 / iOS 18.5, avec des durées réelles et `status="SUCCESS"` dans les rapports JUnit. L'AC #3 (aucun mécanisme masquant un échec, rapports et artifacts publiés) était déjà coché et le reste : le workflow propage les vrais codes de sortie.
+
+Ce qui ne l'est pas : les 4 autres flows n'ont jamais tourné en CI. `02_share_intake` est volontairement neutralisé (tag `skipped`, réduit à un smoke test auth) car le share natif n'est pas pilotable par Maestro. `03_inbox_visibility`, `04_media_detail_progression` et `05_artifact_trigger_action` sont cassés : ils amorcent tous par `openLink: "media-summarizer://share?url=…"` puis attendent `assertVisible: "Save Link"`, or `redirectSystemPath` dans `mobile/app/+native-intent.tsx` redirige ce pattern vers `/(tabs)/inbox` depuis le 2026-06-11. Le flow 05 porte en outre quatre défauts de selector et de timeout indépendants de l'UI.
+
+Pourquoi on clôt quand même : l'UI va être refondue, donc réparer et faire passer la suite maintenant serait à refaire. La CI Maestro passe en sommeil via task-254, qui consigne l'état des 7 flows et le plan de réactivation dans `docs/V1_LAUNCH_PLAN.md`. La couverture complète des 7 flows sera reprise à ce moment-là.
 <!-- SECTION:NOTES:END -->

@@ -4,6 +4,7 @@ title: Wire Maestro suite into mandatory PR check on mobile/** + add status badg
 status: To Do
 assignee: []
 created_date: '2026-06-10 06:00'
+updated_date: '2026-08-13 14:20'
 labels:
   - phase-5
   - mobile
@@ -13,6 +14,7 @@ labels:
 dependencies:
   - task-171
 priority: high
+dispatchable: false
 ---
 
 ## Description
@@ -68,3 +70,13 @@ L'owner n'a pas de Mac local (cf. task-171) : toute exécution Maestro iOS passe
 - [ ] #4 docs/V1_LAUNCH_PLAN.md Phase 7 mentionne Maestro Android comme required check et le régime nightly/manuel d'iOS sous contrainte budget (200 min/mois)
 - [ ] #5 Action manuelle owner (branch protection) documentée en checklist du ticket, incluant la note de ne PAS rendre le job iOS obligatoire
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-08-13 — Verrouillée avec `dispatchable: false`. Sa dépendance task-171 est passée `Done` aujourd'hui, ce qui la rendait sélectionnable ; or son scope est l'inverse exact de task-254, qui met la CI Maestro en sommeil en retirant les déclencheurs `push` et `pull_request` le temps que l'UI soit refondue. Un agent qui prendrait cette tâche rétablirait ce que task-254 vient de neutraliser.
+
+Elle reste dans le backlog : son contenu est la cible finale, et la section de réactivation créée par task-254 dans `docs/V1_LAUNCH_PLAN.md` y renvoie explicitement. Ce qu'elle porte et qu'il ne faut pas perdre : Android bloquant sur chaque PR touchant `mobile/**`, iOS **jamais** en required check (runner macOS à x10 sur les minutes Actions, plan gratuit ≈ 200 min/mois), README `mobile/.maestro/`, et la branch protection comme action owner finale.
+
+À déverrouiller au jalon « UI figée », après la réactivation des flows — retirer la ligne `dispatchable: false` du front-matter suffit.
+<!-- SECTION:NOTES:END -->
