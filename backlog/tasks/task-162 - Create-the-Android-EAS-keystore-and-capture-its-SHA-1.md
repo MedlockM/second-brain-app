@@ -1,0 +1,74 @@
+---
+id: task-162
+title: >-
+  Create the Android EAS keystore and capture its SHA-1 (no build yet, so the
+  APK is built only once)
+status: To Do
+assignee: []
+created_date: '2026-06-10 05:38'
+labels:
+  - phase-5
+  - mobile
+  - release
+  - android
+dependencies:
+  - task-160
+priority: high
+dispatchable: false
+---
+
+## Description
+
+<!-- SECTION:DESCRIPTION:BEGIN -->
+> ⚠️ **MANUAL — OWNER ONLY. NEVER DISPATCH TO A SUBAGENT.**
+> Cette tâche doit être exécutée à la main par l'owner. Même si à un moment elle est marquée `dispatchable: true` par erreur, **aucun agent ne doit la prendre**. Raison : `eas credentials` est un menu interactif qui exige une session EAS authentifiée sur le compte de l'owner. Le résultat à reporter (SHA-1 du keystore) est un input critique pour task-163 — un SHA-1 mal relevé produit un OAuth Client ID invalide, et l'erreur Android côté login Google est laconique (`DEVELOPER_ERROR`), donc pénible à diagnostiquer.
+
+## Context
+
+Phase 5 du V1_LAUNCH_PLAN, étape 4. Cette tâche ne fait **plus** de build : elle se limite à **créer le keystore Android EAS et à en relever le SHA-1**. Le build de l'APK a été déplacé en fin de chaîne, dans task-163, pour n'avoir à le lancer qu'une seule fois.
+
+### Pourquoi ce découpage (décision owner du 2026-08-13)
+
+Le SHA-1 du keystore est requis par Google pour délivrer l'OAuth Client ID Android (task-163). Or `mobile/app.config.ts:114-115` cuit `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` dans `extra` **au moment du build** : un binaire construit avant que le Client ID existe embarque `""`, et le bouton « Continue with Google » y est mort quoi qu'on fasse ensuite. L'ancien découpage imposait donc deux builds Android : un pour obtenir le keystore, un second après provisionnement de la variable.
+
+`eas credentials` sait générer un keystore **sans lancer de build**. En le créant seul ici, on obtient le SHA-1 tout de suite, task-163 peut créer le Client ID et renseigner la variable, et le build unique intervient ensuite avec la bonne valeur déjà en place. Un seul build Android au total.
+
+## Prérequis
+
+- task-160 ✅ (prebuild a généré `mobile/android/`)
+- `eas-cli` installé, `eas whoami` retourne un compte valide
+- Le nom de package est déjà figé : `com.secondbrainlabs.core` (`mobile/app.config.ts:77`)
+
+## Scope manuel
+
+1. `cd mobile && eas credentials --platform android`
+2. Sélectionne le profil **`development`** (build profile), puis, dans le menu Android :
+   - `Keystore: Manage everything needed to build your project` → `Set up a new keystore` (libellés susceptibles de varier selon la version d'`eas-cli` ; l'objectif est de faire générer un keystore par EAS, pas d'en téléverser un).
+   - Laisse EAS générer le keystore (option recommandée), ne fournis pas de `.jks` existant.
+3. Toujours dans `eas credentials`, affiche le keystore créé et relève :
+   - **SHA-1 certificate fingerprint** (format `AB:CD:EF:…`) — c'est la valeur que consomme task-163
+   - **SHA-256** (au cas où Google le demande)
+4. Note dans ce ticket le SHA-1, le SHA-256, et l'URL de la page credentials du dashboard EAS.
+
+**Ne lance pas `eas build` dans cette tâche.** Le build unique est l'étape finale de task-163, une fois la variable d'environnement en place.
+
+## Pièges connus
+
+- Le SHA-1 du keystore EAS sera **différent** d'un futur upload key Google Play (Phase 10), qui imposera de créer un 2ᵉ OAuth Client ID Android. Ici c'est bien le SHA-1 EAS qui compte.
+- Si le keystore n'apparaît pas immédiatement après création, attends 1-2 min (sync dashboard) puis retry.
+- Si `eas credentials` propose de créer le keystore au niveau du projet plutôt que du profil `development`, c'est acceptable : `development`, `preview` et `production` partageront alors la même clé, ce qui est le comportement EAS par défaut et n'invalide pas le SHA-1.
+
+## References
+
+- task-163 — consomme le SHA-1, crée le Client ID, renseigne la variable et lance le build unique
+- `docs/V1_LAUNCH_PLAN.md` Phase 5 §4 + section 5
+- `mobile/eas.json` profil `development`
+- `mobile/app.config.ts:114-115` (la variable est cuite dans `extra` au build)
+<!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 Un keystore Android est créé côté EAS via eas credentials --platform android, sans qu'aucun build n'ait été lancé
+- [ ] #2 Le SHA-1 du keystore est relevé et noté dans ce ticket au format AB:CD:EF:...
+- [ ] #3 Le SHA-256 du keystore et l'URL de la page credentials du dashboard EAS sont notés dans ce ticket
+<!-- AC:END -->

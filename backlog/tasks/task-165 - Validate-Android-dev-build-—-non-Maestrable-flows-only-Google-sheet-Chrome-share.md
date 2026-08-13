@@ -39,8 +39,8 @@ Sign in with Apple n'est **pas applicable sur Android** — vérifie juste que l
 
 ## Prérequis
 
-- task-162 ✅ (APK installé sur device Android)
-- task-163 ✅ (Google OAuth Client ID Android provisionné)
+- task-162 ✅ (keystore EAS créé, SHA-1 relevé)
+- task-163 ✅ (Google OAuth Client ID Android provisionné, variable déclarée côté EAS, build unique lancé et APK installé sur device)
 - Compte Google ajouté comme utilisateur test dans Google Cloud Console
 - task-170 ✅ recommandé (suite Maestro verte AVANT cette tâche)
 

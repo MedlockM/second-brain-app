@@ -28,7 +28,7 @@ Crée `scripts/mobile_release_check.sh` qui exécute en séquence :
 
 1. **eas.json valide** : `jq . mobile/eas.json > /dev/null` doit passer
 2. **app.config.ts présent** : `test -f mobile/app.config.ts`
-3. **.env rempli** : pour chaque clé `EXPO_PUBLIC_*` listée dans `mobile/.env.example`, vérifie qu'elle existe dans `mobile/.env` et n'est pas vide. **Exception** : `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` peut rester vide (différé après task-162).
+3. **.env rempli** : pour chaque clé `EXPO_PUBLIC_*` listée dans `mobile/.env.example`, vérifie qu'elle existe dans `mobile/.env` et n'est pas vide. **Exception** : `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` peut rester vide (différé jusqu'à task-163).
 4. **Bundle ID intact** : grep `com.secondbrainlabs.core` doit matcher dans `mobile/app.config.ts`, `mobile/eas.json`, `mobile/plugins/withShareExtension.js`, `mobile/ios-share-extension/Info.plist`
 5. **Expo SDK version** : lit `mobile/package.json`, affiche la version du package `expo`, warn (sans fail) si != `~52.x`
 

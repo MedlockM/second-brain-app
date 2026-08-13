@@ -60,7 +60,7 @@
 |---|---|---|
 | Email + password | OK (backend + mobile) | — |
 | **Sign in with Apple** | Code OK — backend + mobile câblés. Obligatoire App Store car Google login présent | OK (chaîne Apple Developer complète provisionnée 2026-06-08 : Service ID, Sign in with Apple Key `.p8`, Team ID, Key ID, Return URL prod renseignés dans `.env`) |
-| **Continue with Google** | Code OK — backend + mobile câblés. Backend Web client ID + secret OK dans `.env`. OAuth Web + iOS provisionnés côté Google Cloud | OAuth Client ID Android à créer après le premier build EAS Android + écran de consentement Google à publier en Production en Phase 10 |
+| **Continue with Google** | Code OK — backend + mobile câblés. Backend Web client ID + secret OK dans `.env`. OAuth Web + iOS provisionnés côté Google Cloud | OAuth Client ID Android à créer après le keystore EAS Android (`task-162`, sans build), puis build Android unique une fois la variable déclarée + écran de consentement Google à publier en Production en Phase 10 |
 
 ---
 
@@ -86,8 +86,8 @@ un staging ou une soumission.
 | Zone | Tâches | Statut |
 |---|---|---|
 | Déploiement/test backend courant | Phase 4 | Pousser/déployer le HEAD, puis re-run E2E AWS dev complet ; le runtime AWS date du 2026-06-15 |
-| Mobile dev builds | `task-161`, `task-162` | iOS : ancienne build réussie mais expirée, **rebuild courant requis** ; Android : première build toujours à faire |
-| Google OAuth Android | `task-163` | À faire après `task-162`, car le SHA-1 du keystore EAS est requis |
+| Mobile dev builds | `task-161`, `task-162`, `task-163` | iOS : ancienne build réussie mais expirée, **rebuild courant requis** ; Android : `task-162` crée le keystore sans build, `task-163` lance l'unique build |
+| Google OAuth Android | `task-163` | À faire après `task-162`, car le SHA-1 du keystore EAS est requis. `task-163` porte aussi la déclaration de `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` côté EAS **puis** le build Android — dans cet ordre, sinon l'APK embarque `""` |
 | Validation device non automatisable | `task-164`, `task-165` | À faire sur devices physiques : Apple Sign-In, Google sheet, Safari/Chrome share |
 | Maestro V1 | `task-168`, `task-169`, `task-170`, `task-171`, `task-172` | Flows 06 search et 07 paywall absents ; workflow CI cassé avant exécution et résultats masqués par `|| true` |
 | Clôture Phase 5 | `task-166` | Mettre ce plan à jour une fois `task-164/165/171/172` terminées |
@@ -150,12 +150,17 @@ faut d'abord corriger l'isolation Terraform (state + noms de ressources par
 environnement), sinon un `terraform apply` avec `environment = "prod"` ne crée
 pas une stack indépendante sûre.
 
-Bootstrap : `cp infrastructure/terraform/terraform.tfvars.example terraform.tfvars`,
-remplir `secret_payload`, puis `terraform apply`. Voir `infrastructure/terraform/README.md`.
+Bootstrap : `terraform -chdir=infrastructure/terraform/envs/<env> apply`. Il n'y a
+plus de `terraform.tfvars` à copier (task-237 : un root module par environnement,
+valeurs en littéraux dans `envs/<env>/main.tf`) ni de `secret_payload` à remplir
+(task-221 §7.3 : un `secret_string` inline fuiterait en clair dans le state).
+Terraform ne crée que la coquille vide du secret ; les valeurs y sont poussées
+hors-bande par `aws secretsmanager put-secret-value`. Voir
+`infrastructure/terraform/README.md`.
 
 Local : **un seul fichier `.env`** à la racine, chargé automatiquement par
 `python-dotenv` depuis `media_summarizer/__init__.py` (override=False, donc les
-vraies variables d'env priment). Modèle complet : `.env.example` (18 sections
+vraies variables d'env priment). Modèle complet : `.env.example` (20 sections
 numérotées). Les anciens `.env.dev` et `.env.prod` sont **legacy et gitignorés**
 — ne pas les utiliser ni les recréer.
 
@@ -517,10 +522,16 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    `expo-share-intent` est configuré.
 1. Configurer les variables EAS pour development/preview/production. Les trois
    environnements sont vides au 2026-07-31 et `mobile/.env` est gitignored.
-2. `task-162` — première build
-   `eas build --platform android --profile development` + récupération du
-   SHA-1 keystore EAS (aucune build Android n'existe au 2026-07-31).
-3. `task-163` — créer l'OAuth Client ID Android dans Google Cloud Console avec `package=com.secondbrainlabs.core` + SHA-1 EAS.
+2. `task-162` — créer le keystore Android via `eas credentials --platform android`
+   et relever son SHA-1. **Pas de build ici** : `mobile/app.config.ts:114-115`
+   cuit `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` dans `extra` au moment du build,
+   donc un APK construit avant l'existence du Client ID embarque `""` de façon
+   définitive. Créer le keystore seul évite le double build.
+3. `task-163` — créer l'OAuth Client ID Android dans Google Cloud Console avec
+   `package=com.secondbrainlabs.core` + SHA-1 EAS, déclarer
+   `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` côté EAS (secret projet ou bloc `env`
+   du profil `development` de `mobile/eas.json`), **puis seulement** lancer
+   `eas build --platform android --profile development` — une seule fois.
 4. `task-164` — validation iOS sur device physique :
    - Sign in with Apple → user créé/lié → inbox.
    - Continue with Google → `ASWebAuthenticationSession` → user créé/lié → inbox.
@@ -642,8 +653,8 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    - **État 2026-07-31** : `api.secondbrainlabs.com` ne résout pas et
      `api.mediasummarizer.com` ne résout pas non plus. Le profil EAS production
      pointe toujours vers `https://api.mediasummarizer.com`.
-   - Le support Terraform existe déjà dans `infrastructure/terraform/lambda_api.tf` (`api_custom_domain`, `api_zone_id`, `aws_acm_certificate`, API Gateway domain mapping, Route53 record conditionnel).
-   - Renseigner `api_custom_domain = "api.secondbrainlabs.com"` et `api_zone_id` dans `terraform.tfvars`, puis `terraform apply`.
+   - Le support Terraform existe déjà dans `infrastructure/terraform/modules/platform/lambda_api.tf` (`api_custom_domain`, `api_zone_id`, `aws_acm_certificate`, API Gateway domain mapping, Route53 record conditionnel) : les ressources sont conditionnées par `count` sur ces deux variables, donc vides tant qu'elles ne sont pas renseignées.
+   - Passer `api_custom_domain = "api.secondbrainlabs.com"` et `api_zone_id` au bloc `module "platform"` de `infrastructure/terraform/envs/prod/main.tf`, puis `terraform -chdir=infrastructure/terraform/envs/prod apply`.
    - Créer/valider le DNS Cloudflare ou Route53 selon la zone réellement utilisée. Si Cloudflare reste le DNS autoritaire, créer le CNAME vers le `target_domain_name` exposé par Terraform.
    - `terraform apply` puis vérifier `curl https://api.secondbrainlabs.com/api/v1/auth/apple/callback` → HTTP 302.
    - **Apple Developer Portal** → Identifiers → Service IDs → `com.secondbrainlabs.core.signinwithapple` → Configure → ajouter Domain `secondbrainlabs.com` (déjà présent) et Return URL `https://api.secondbrainlabs.com/api/v1/auth/apple/callback` (déjà présent), **retirer** les entrées `jji077bi8e.execute-api.*` ajoutées en Phase 5.
@@ -723,8 +734,9 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 - [x] Pricing admin secret généré au 2026-06-08 (`PRICING_ADMIN_SECRET` en local dans `.env`, requis pour `PUT /api/pricing/admin`)
 - [ ] EAS iOS development build **courante** : l'ancienne build du 2026-06-11
   a expiré et précède le HEAD actuel (`task-161`)
-- [ ] EAS Android development build + SHA-1 keystore : aucune build Android au
-  2026-07-31 (`task-162`)
+- [ ] SHA-1 keystore Android via `eas credentials`, sans build (`task-162`)
+- [ ] EAS Android development build : aucune build Android au 2026-07-31 ;
+  lancée une seule fois en fin de `task-163`, après déclaration du Client ID
 - [ ] Variables EAS development/preview/production : aucun env configuré ;
   injecter API URL, OAuth, RevenueCat et feedback selon le profil
 - [ ] Nom marketing final : requis avant `task-186`, App Store Connect, Play Console et Google OAuth Branding
@@ -776,10 +788,11 @@ ruff check .
 mypy media_summarizer
 cd mobile && npm run typecheck && npm run lint
 
-# Apply infra dev uniquement (depuis infrastructure/terraform/)
-# NE PAS appliquer staging/prod avant séparation du state et des noms.
-terraform plan
-terraform apply
+# Apply infra — un root module par environnement depuis task-237, le state et les
+# noms de ressources sont séparés. Jamais depuis infrastructure/terraform/ : ce
+# n'est pas un root module.
+terraform -chdir=infrastructure/terraform/envs/dev plan
+terraform -chdir=infrastructure/terraform/envs/dev apply
 
 # Deploy Lambda container (GitHub Actions target; local equivalent uses the same Dockerfile/ECR)
 docker buildx build --platform linux/arm64 --provenance=false --sbom=false -f infrastructure/docker/lambda.Dockerfile .
@@ -789,7 +802,7 @@ docker buildx build --platform linux/arm64 --provenance=false --sbom=false -f in
 
 - `AGENTS.md` — guardrails projet
 - `CLAUDE.md` — convention de création de tâches
-- `.env.example` — gabarit complet des variables (18 sections numérotées)
+- `.env.example` — gabarit complet des variables (20 sections numérotées)
 - `infrastructure/terraform/README.md` — runbook Secrets Manager + Lambda deployment
 - `infrastructure/terraform/secrets.tf` — secret consolidé `media-summarizer-runtime-<env>`
 - `infrastructure/terraform/terraform.tfvars.example` — modèle `secret_payload` à recopier
