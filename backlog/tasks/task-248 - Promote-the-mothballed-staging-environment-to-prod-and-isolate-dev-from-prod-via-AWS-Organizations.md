@@ -3,9 +3,10 @@ id: task-248
 title: >-
   Promote the mothballed staging environment to prod and isolate dev from prod
   via AWS Organizations
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-12 16:40'
+updated_date: '2026-08-13 08:13'
 labels:
   - infra
   - terraform
@@ -86,7 +87,7 @@ Séparer les comptes **avant** de peupler prod : refaire la manœuvre après avo
 - [x] #7 Un profil AWS assumant un rôle (`role_arn` + `source_profile`) permet de piloter prod sans second jeu de clés, et la procédure est documentée dans infrastructure/terraform/README.md
 - [x] #8 `envs/prod/` pointe sur le backend, la table de verrouillage et le provider du compte prod, et `terraform plan -detailed-exitcode` y renvoie 0 après apply
 - [x] #9 Les Lambdas du compte prod tirent effectivement leur image de l'ECR partagé (policy cross-account ajustée), prouvé par une invocation réelle et non par la seule lecture de la policy
-- [ ] #10 Un `terraform plan -detailed-exitcode` dans `envs/dev` renvoie 0 après l'ensemble des opérations : la séparation n'a rien cassé en dev
+- [x] #10 Un `terraform plan -detailed-exitcode` dans `envs/dev` renvoie 0 après l'ensemble des opérations : la séparation n'a rien cassé en dev
 - [x] #11 Le rôle OIDC GitHub Actions du compte prod existe et le workflow de déploiement sait cibler prod sans pouvoir atteindre dev
 <!-- AC:END -->
 
@@ -226,4 +227,22 @@ Le job prod est un **promote**, pas un build : il ne compile rien, il repointe l
 - Le secret runtime de prod reste **vide** (hors périmètre, task-252, owner).
 - La réservation de concurrence de l'API prod est désactivée en attendant le quota (voir plus haut).
 - Le rôle GitHub Actions de dev (`media-summarizer-gha-deploy` dans `125313707865`) reste **non géré par Terraform**, créé à la main hors bande. C'est un écart connu, signalé en tête de `envs/prod/gha_oidc.tf` ; l'adopter dans le state de dev est un chantier à part.
+
+## 2026-08-13 — vérification du dispatcher après merge : AC #10 coché, AC #4 reste ouvert
+
+**AC #10 est coché sur preuve relevée par le dispatcher après le merge, pas par l'agent.** L'agent avait raison de le laisser ouvert au moment où il travaillait : `envs/dev` portait alors un diff étranger à ce ticket (2 metric filters orphelins + un `source_code_hash` non déterministe) provenant de task-242, dispatchée **en parallèle** sur la même dev. Il a eu raison de ne pas appliquer ce diff et de ne pas réécrire le critère.
+
+Ce diff a été fermé par le merge de task-242 dans `main` (les metric filters `JobArchiverRemoveRecords` / `JobArchiverObjectsArchived` sont désormais dans le code, donc plus orphelins). Rejeu par le dispatcher sur `main` après les trois merges :
+
+```
+terraform plan -detailed-exitcode -lock-timeout=120s   # dans infrastructure/terraform/envs/dev
+No changes. Your infrastructure matches the configuration.
+PLAN_EXIT=0
+```
+
+Verrou acquis puis relâché normalement. **La séparation dev/prod n'a donc rien cassé en dev** — c'est exactement ce que le critère demandait. Les trois racines (`envs/dev`, `envs/prod`, `shared`) passent aussi `terraform validate`.
+
+**AC #4 reste décoché à juste titre** — et ce n'est pas un oubli à requalifier plus tard : Cost Explorer a ~24 h de latence et ne renvoie aucune donnée pour le 2026-08-13. Le critère devient mesurable **à partir du 2026-08-14**. L'agent a explicitement refusé de citer `get-cost-forecast` (~0,288 $) comme preuve, puisque cette extrapolation porte sur une journée qui contenait encore staging — c'est le bon réflexe. La commande de rejeu exacte est dans ses notes plus haut.
+
+Cette tâche est passée à `Done` avec l'AC #4 ouvert **pour une raison de sûreté** : la laisser en `To Do` la rendrait ré-dispatchable, et un agent relancé sur un ticket dont les volets 1 et 3 sont irréversibles (organisation créée, compte `866874944541` non supprimable avant 90 jours, 145 ressources staging détruites) pourrait tenter de refaire un travail destructeur déjà accompli. La vérification de coût est un contrôle d'une minute qui appartient au propriétaire, pas un motif de rouvrir ce chantier.
 <!-- SECTION:NOTES:END -->
