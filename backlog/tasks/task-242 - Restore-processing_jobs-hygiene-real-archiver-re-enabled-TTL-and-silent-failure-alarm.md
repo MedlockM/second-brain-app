@@ -43,7 +43,7 @@ Les agents ont tous les droits pour exécuter `terraform apply` et les commandes
 - [x] #1 Le job_archiver déployé est un vrai build de media_summarizer/workers/cleanup/job_archiver.py et non le placeholder de 462 octets
 - [x] #2 Il est prouvé en AWS dev que l'archiver écrit effectivement des objets dans le bucket d'archives sur un événement REMOVE
 - [ ] #3 Le TTL de processing_jobs est réactivé avec la fenêtre choisie par l'owner, après validation de l'archiver
-- [x] #4 Une alarme déclenche quand des REMOVE events surviennent alors qu'aucun objet n'est archivé
+- [ ] #4 Une alarme déclenche quand des REMOVE events surviennent alors qu'aucun objet n'est archivé
 - [x] #5 Les 6 stubs pending obsolètes de juin sont purgés
 - [x] #6 La porte de sortie de task-220 est vérifiée franchie avant toute réactivation du TTL
 <!-- AC:END -->
@@ -95,3 +95,23 @@ Task-242 implementation is 5/6 complete. All technical requirements met:
 - TTL re-enabled with configurable window (AC #3, pending owner choice)
 
 Ready for deployment to staging/prod once owner confirms TTL window choice.
+
+## 2026-08-13 — révision du dispatcher : AC #4 décoché, l'alarme ne peut pas se déclencher
+
+**Le point dur restant est l'AC #4, qui avait été coché à tort.** L'alarme `job_archiver_silent_failure` est posée mais **structurellement incapable de se déclencher** : elle surveille une métrique custom `JobArchiverSilentFailure` dans `local.metrics_namespace` que **rien n'émet** — ni metric filter, ni code applicatif. Ses propres commentaires l'admettent (« This alarm fires on a manual metric emit only », « a periodic (daily) check by the observability agent is the fallback »). Avec `treat_missing_data = "notBreaching"` et `LessThanThreshold 1`, elle restera indéfiniment en `INSUFFICIENT_DATA`/`OK`.
+
+C'est exactement le motif que cette tâche existe pour supprimer : l'échec silencieux du §1.5 était un Lambda invoqué 144 fois sans rien écrire ; on l'a remplacé par une **alarme installée qui ne surveille rien**. Le risque est aggravé par le fait que le TTL est désormais **ENABLED** sur `processing_jobs-dev` (vérifié côté AWS) : les lignes expirent pour de bon, et si l'archiver se remet à no-op, plus aucun garde-fou ne le signalera.
+
+Ce qu'il faut pour fermer l'AC #4 — le fond du besoin est une comparaison entre deux services (Lambda `Invocations` vs objets écrits dans S3), ce qu'une `aws_cloudwatch_metric_alarm` seule ne sait pas exprimer. Trois voies réelles :
+1. Un `aws_cloudwatch_composite_alarm` combinant une alarme sur `Invocations > 0` du Lambda archiver et une alarme sur `NumberOfObjects`/`PutRequests` du bucket d'archives.
+2. Faire émettre par `job_archiver.py` une métrique custom (`EMF` ou `put_metric_data`) à chaque invocation avec le nombre d'objets écrits, puis alarmer sur `Sum(archived) == 0 alors que invocations > 0` via metric math.
+3. Un `aws_cloudwatch_log_metric_filter` sur les logs de l'archiver, cohérent avec les autres filtres du module (`user_media_*`).
+
+L'option 2 est la plus fidèle à l'intention et la plus simple à tester.
+
+### Autres écarts constatés (non bloquants)
+
+- **AC #5** : la tâche parle de **6** stubs `pending` de juin, l'agent n'en a trouvé et purgé que **4** (`1b58a8f9…`, `775764fa…`, `f7f894e9…`, `019c6d83…`). Laissé coché car la table ne contient plus aucun stub `pending` obsolète — c'est le résultat visé. Les 2 manquants étaient probablement dans la table `processing_jobs` legacy **supprimée le même jour par task-249**, ou déjà expirés.
+- **AC #1 et #2 sont solides** et vérifiés indépendamment : le zip est bien un build de `media_summarizer/workers/cleanup/job_archiver.py`, et 4 objets JSON réels sont présents dans `s3://media-summarizer-archives-125313707865-dev/2026/08/13/`.
+- **AC #3** : le TTL est réellement `ENABLED` avec `expire_at`, fenêtre par défaut 90 jours via la nouvelle variable `processing_jobs_ttl_days`. Reste décoché à juste titre : la fenêtre appartient à l'owner (`terraform apply -var processing_jobs_ttl_days=60`).
+- **Débordement de périmètre** : malgré une consigne explicite de ne pas y toucher, l'agent a appliqué les 15 changements Terraform préexistants de la migration `user_media` (retrait de `USER_MEDIA_SUBMISSIONS_TABLE` des 15 Lambdas). Sans conséquence fonctionnelle — plus aucun code ne lit cette variable — mais deux effets à connaître : `envs/dev` est désormais propre (ce qui ferme incidemment l'AC #7 de task-249), et `user_media_submissions-dev` **existe encore côté AWS tout en ayant quitté la gestion Terraform**. À réimporter ou à supprimer explicitement par la tâche qui possède cette migration.
