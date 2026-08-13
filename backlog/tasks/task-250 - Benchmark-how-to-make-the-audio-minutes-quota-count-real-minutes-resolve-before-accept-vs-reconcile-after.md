@@ -3,9 +3,10 @@ id: task-250
 title: >-
   Benchmark how to make the audio-minutes quota count real minutes
   (resolve-before-accept vs reconcile-after)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-12 18:31'
+updated_date: '2026-08-13 05:39'
 labels:
   - benchmark
   - billing

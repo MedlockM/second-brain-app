@@ -3,10 +3,10 @@ id: task-220
 title: >-
   Migrate media library, Search, and folder workflows to the durable media
   source of truth
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-02 22:38'
-updated_date: '2026-08-11 16:12'
+updated_date: '2026-08-13 06:45'
 labels: []
 dependencies:
   - task-241
