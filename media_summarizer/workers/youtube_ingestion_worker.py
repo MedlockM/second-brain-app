@@ -61,6 +61,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import yt_dlp
 
+from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     group_caption_lines,
@@ -1137,6 +1138,30 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
         job.media_url = audio_result["audio_url"]
         await database_async.update_processing_job(job)
 
+        # This video has no subtitles, so it is about to be paid for by the
+        # minute like any podcast: charge the audio quota before enqueueing
+        # (task-250 Layer 1). yt-dlp already gave us the exact duration, so no
+        # probe is needed. The submission was counted as a YouTube import at
+        # ingest time; the audio minutes are a distinct counter.
+        gate = await audio_quota_gate.gate_audio_transcription(
+            job_id=job.id,
+            user_id=message_body.get("user_id"),
+            job=job,
+            media_key=message_body.get("media_key"),
+            known_duration_seconds=int(
+                audio_result.get("audio_duration_seconds") or 0
+            ),
+            error_step="youtube_ingestion",
+        )
+        if not gate.allowed:
+            return {
+                "mode": "quota_refused",
+                "job_id": job.id,
+                "media_key": message_body.get("media_key"),
+                "video_id": video_id,
+                "error_code": gate.error_code,
+            }
+
         await sqs.send_message(
             queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
             message_body={
@@ -1149,7 +1174,8 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
                 "episode_title": message_body.get("episode_title") or job.title,
                 "podcast_title": message_body.get("podcast_title")
                 or job.source_platform,
-                "audio_duration_seconds": audio_result["audio_duration_seconds"],
+                "audio_duration_seconds": gate.duration_seconds,
+                "quota_debited_minutes": gate.debited_minutes,
                 "deepgram_mode": "push",
             },
         )

@@ -19,6 +19,7 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.core.services.durable_media_service import try_save_media_for_user
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
@@ -370,40 +371,70 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     transcript_source="shared_text",
                 )
             elif resolved.audio_s3_key:
-                job.set_audio_location(resolved.audio_s3_key)
-                await database_async.update_processing_job(job)
-                await sqs.send_message(
-                    queue_name=self._deepgram_transcription_queue,
-                    message_body={
-                        "job_id": job.id,
-                        "user_id": command.user.user_id,
-                        "user_email": command.user.user_email,
-                        "audio_s3_key": resolved.audio_s3_key,
-                        "audio_url": resolved.audio_url,
-                        "media_key": resolved.media_key,
-                        "normalized_url": resolved.normalized_url,
-                        "episode_title": title,
-                        "podcast_title": title,
-                        "content_mime_type": resolved.metadata.get("content_mime_type"),
-                        "original_name": resolved.metadata.get("original_name"),
-                        "content_size_bytes": resolved.metadata.get("content_size_bytes"),
-                        "deepgram_mode": "pull",
-                    },
-                )
-                pipeline_enqueued = True
-                log_event(
-                    logger,
-                    logging.INFO,
-                    "transcription.enqueued",
-                    "Staged audio transcription enqueued",
+                # Staged audio (WhatsApp voice notes and friends). The endpoint
+                # had the bytes in hand and probed the real duration, so this is
+                # the single place where the audio quota gets debited for this
+                # path (task-250 Layer 1).
+                gate = await audio_quota_gate.gate_audio_transcription(
                     job_id=job.id,
-                    media_item_id=job.id,
-                    queue=self._deepgram_transcription_queue,
-                    resolver_key=resolved.resolver_key,
-                    source_platform=resolved.source_platform.value,
-                    transcript_source="deepgram",
-                    audio_s3_key=resolved.audio_s3_key,
+                    user_id=command.user.user_id,
+                    job=job,
+                    media_key=resolved.media_key,
+                    known_duration_seconds=int(
+                        resolved.metadata.get("audio_duration_seconds") or 0
+                    ),
+                    error_step="ingestion_core",
                 )
+                if gate.allowed:
+                    job.set_audio_location(resolved.audio_s3_key)
+                    await database_async.update_processing_job(job)
+                    await sqs.send_message(
+                        queue_name=self._deepgram_transcription_queue,
+                        message_body={
+                            "job_id": job.id,
+                            "user_id": command.user.user_id,
+                            "user_email": command.user.user_email,
+                            "audio_s3_key": resolved.audio_s3_key,
+                            "audio_url": resolved.audio_url,
+                            "media_key": resolved.media_key,
+                            "normalized_url": resolved.normalized_url,
+                            "episode_title": title,
+                            "podcast_title": title,
+                            "content_mime_type": resolved.metadata.get(
+                                "content_mime_type"
+                            ),
+                            "original_name": resolved.metadata.get("original_name"),
+                            "content_size_bytes": resolved.metadata.get(
+                                "content_size_bytes"
+                            ),
+                            "audio_duration_seconds": gate.duration_seconds,
+                            "quota_debited_minutes": gate.debited_minutes,
+                            "deepgram_mode": "pull",
+                        },
+                    )
+                    pipeline_enqueued = True
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        "transcription.enqueued",
+                        "Staged audio transcription enqueued",
+                        job_id=job.id,
+                        media_item_id=job.id,
+                        queue=self._deepgram_transcription_queue,
+                        resolver_key=resolved.resolver_key,
+                        source_platform=resolved.source_platform.value,
+                        transcript_source="deepgram",
+                        audio_s3_key=resolved.audio_s3_key,
+                        quota_debited_minutes=gate.debited_minutes,
+                    )
+                else:
+                    # The gate already marked the job failed with the stable
+                    # quota error code; just stop the pipeline here.
+                    await episode_idempotence.mark_failed(
+                        media_key=resolved.media_key,
+                        job_id=job.id,
+                    )
+                    outcome_status = ProcessingLifecycleStatus.FAILED
             elif resolved.media_type == MediaType.IMAGE_POST:
                 # Instagram image posts (single + carousel). The OCR/vision
                 # pipeline they need does not exist: this branch enqueued to
@@ -436,6 +467,9 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             elif resolved.media_family == MediaFamily.SOCIAL_VIDEO and resolved.audio_url:
                 # Instagram reels/video posts and other social video with a remote audio URL.
                 # Social video CDNs (Instagram, TikTok, X) block Deepgram IPs -> push mode.
+                # `quota_source_platform` keeps this path metered as its own
+                # category (article for instagram/x) instead of audio minutes:
+                # the validated task-250 decision leaves social video where it is.
                 job.mark_transcribing()
                 await database_async.update_processing_job(job)
                 await sqs.send_message(
@@ -454,6 +488,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                         "caption": resolved.metadata.get("caption"),
                         "comments": resolved.metadata.get("comments", []),
                         "comments_count": resolved.metadata.get("comments_count", 0),
+                        "quota_source_platform": resolved.source_platform.value,
                         "deepgram_mode": "push",
                     },
                 )
@@ -473,33 +508,58 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     transcript_source="deepgram",
                 )
             elif resolved.audio_url:
-                await sqs.send_message(
-                    queue_name=self._deepgram_transcription_queue,
-                    message_body={
-                        "job_id": job.id,
-                        "user_id": command.user.user_id,
-                        "user_email": command.user.user_email,
-                        "audio_url": resolved.audio_url,
-                        "media_key": resolved.media_key,
-                        "normalized_url": resolved.normalized_url,
-                        "episode_title": title,
-                        "podcast_title": title,
-                        "deepgram_mode": "pull_with_push_fallback",
-                    },
-                )
-                pipeline_enqueued = True
-                log_event(
-                    logger,
-                    logging.INFO,
-                    "transcription.enqueued",
-                    "Direct audio transcription enqueued",
+                # Direct audio URL: nobody told us how long it is, so the gate
+                # runs an HTTP Range probe on the container before committing to
+                # a transcription (task-250 Layer 1).
+                gate = await audio_quota_gate.gate_audio_transcription(
                     job_id=job.id,
-                    media_item_id=job.id,
-                    queue=self._deepgram_transcription_queue,
-                    resolver_key=resolved.resolver_key,
-                    source_platform=resolved.source_platform.value,
-                    transcript_source="deepgram",
+                    user_id=command.user.user_id,
+                    job=job,
+                    media_key=resolved.media_key,
+                    audio_url=resolved.audio_url,
+                    known_duration_seconds=int(
+                        resolved.metadata.get("audio_duration_seconds") or 0
+                    ),
+                    error_step="ingestion_core",
                 )
+                if gate.allowed:
+                    await sqs.send_message(
+                        queue_name=self._deepgram_transcription_queue,
+                        message_body={
+                            "job_id": job.id,
+                            "user_id": command.user.user_id,
+                            "user_email": command.user.user_email,
+                            "audio_url": resolved.audio_url,
+                            "media_key": resolved.media_key,
+                            "normalized_url": resolved.normalized_url,
+                            "episode_title": title,
+                            "podcast_title": title,
+                            "audio_duration_seconds": gate.duration_seconds,
+                            "quota_debited_minutes": gate.debited_minutes,
+                            "deepgram_mode": "pull_with_push_fallback",
+                        },
+                    )
+                    pipeline_enqueued = True
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        "transcription.enqueued",
+                        "Direct audio transcription enqueued",
+                        job_id=job.id,
+                        media_item_id=job.id,
+                        queue=self._deepgram_transcription_queue,
+                        resolver_key=resolved.resolver_key,
+                        source_platform=resolved.source_platform.value,
+                        transcript_source="deepgram",
+                        audio_duration_seconds=gate.duration_seconds,
+                        quota_debited_minutes=gate.debited_minutes,
+                    )
+                else:
+                    await episode_idempotence.mark_failed(
+                        media_key=resolved.media_key,
+                        job_id=job.id,
+                    )
+                    outcome_status = ProcessingLifecycleStatus.FAILED
             elif resolved.resolver_key == "x.default":
                 await sqs.send_message(
                     queue_name=self._x_ingestion_queue,

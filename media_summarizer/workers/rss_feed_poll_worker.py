@@ -17,6 +17,7 @@ import json
 import logging
 import os
 
+from media_summarizer.core.services import audio_quota_gate, quota_enforcer
 from media_summarizer.core.services.rss_feed_service import poll_feed
 from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.env import required_env
@@ -69,6 +70,32 @@ async def _route_item_to_pipeline(
     job = await database_async.create_processing_job(job)
 
     if item_type == "audio" and audio_url:
+        # Quota gate (task-250 Layer 0/1): automatic polling used to enqueue
+        # Deepgram transcriptions without touching the counters at all, so a
+        # single subscribed feed could spend an unbounded number of minutes.
+        gate = await audio_quota_gate.gate_audio_transcription(
+            job_id=job.id,
+            user_id=user_id,
+            job=job,
+            media_key=guid,
+            audio_url=audio_url,
+            known_duration_seconds=int(item.get("duration_seconds") or 0),
+            source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
+            error_step="rss_feed_poll",
+        )
+        if not gate.allowed:
+            log_event(
+                logger,
+                logging.INFO,
+                "rss_poll.item_quota_refused",
+                "RSS audio item refused by the quota gate; nothing was transcribed",
+                job_id=job.id,
+                item_type="audio",
+                guid=guid,
+                error_code=gate.error_code,
+            )
+            return
+
         # Route to deepgram transcription (direct path, no download worker needed)
         await sqs.send_message(
             queue_name=DEEPGRAM_TRANSCRIPTION_QUEUE,
@@ -82,6 +109,8 @@ async def _route_item_to_pipeline(
                 "episode_title": title,
                 "normalized_url": audio_url,
                 "source_platform": "rss_feed",
+                "audio_duration_seconds": gate.duration_seconds,
+                "quota_debited_minutes": gate.debited_minutes,
                 "deepgram_mode": "pull",
             },
         )
@@ -93,6 +122,8 @@ async def _route_item_to_pipeline(
             job_id=job.id,
             item_type="audio",
             guid=guid,
+            audio_duration_seconds=gate.duration_seconds,
+            quota_debited_minutes=gate.debited_minutes,
         )
     else:
         # Route to article extraction

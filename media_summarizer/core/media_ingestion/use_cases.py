@@ -181,6 +181,7 @@ class IngestSharedContentUseCase:
                     "content_mime_type": request.content_mime_type,
                     "original_name": request.original_name,
                     "content_size_bytes": request.content_size_bytes,
+                    "audio_duration_seconds": int(request.audio_duration_seconds or 0),
                 },
             )
             return await self._orchestrator.submit(command=command, resolved=resolved)

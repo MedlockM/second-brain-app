@@ -5,7 +5,8 @@ Two tables:
 - user_usage_monthly: monthly counters for hard cap enforcement
   PK: user_id (S), SK: period (S, format YYYY-MM)
   Attributes: audio_minutes_used, articles_count, documents_count,
-              youtube_count, cost_eur_estimated, last_updated
+              youtube_count, cost_eur_estimated, last_updated,
+              settled_jobs (SS, idempotency tokens of already-applied debits)
 
 - user_usage_daily: daily counters for rate limit enforcement
   PK: user_id (S), SK: date (S, format YYYY-MM-DD)
@@ -14,6 +15,11 @@ Two tables:
   TTL: ttl_epoch (auto-expire after 3 days)
 
 All counter increments use atomic ADD operations to avoid race conditions.
+
+`settled_jobs` grows by at most two tokens per audio import (the submission debit
+and the Deepgram settlement). The highest tier allows 20 imports/day, so a full
+month stays around 55 kB — well inside the 400 kB DynamoDB item limit — and the
+item is scoped to a single month, so the set resets every period.
 """
 
 from __future__ import annotations
@@ -23,6 +29,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, Optional
+
+from botocore.exceptions import ClientError
 
 from media_summarizer.utils import database_async
 from media_summarizer.utils.env import required_env
@@ -92,10 +100,19 @@ async def increment_monthly_usage(
     youtube: int = 0,
     cost_eur: float = 0.0,
     period: Optional[str] = None,
-) -> None:
+    idempotency_token: Optional[str] = None,
+) -> bool:
     """
     Atomically increment monthly usage counters.
     Creates the record if it does not exist.
+
+    When `idempotency_token` is provided, the token is added to the item's
+    `settled_jobs` string set in the same atomic update, under a condition that
+    rejects the write if the token is already present. This makes a redelivered
+    SQS message (or a retried worker run) debit the counters exactly once.
+
+    Returns True when the counters were incremented, False when the write was
+    skipped because the token had already been applied.
     """
     if period is None:
         period = _current_period()
@@ -133,7 +150,17 @@ async def increment_monthly_usage(
             expr_values[":ce"] = Decimal(str(round(cost_eur, 4)))
 
         if not update_parts:
-            return
+            return False
+
+        condition_expr: Optional[str] = None
+        if idempotency_token:
+            update_parts.append("#sj :sj")
+            expr_names["#sj"] = "settled_jobs"
+            expr_values[":sj"] = {idempotency_token}
+            expr_values[":token"] = idempotency_token
+            condition_expr = (
+                "attribute_not_exists(#sj) OR NOT contains(#sj, :token)"
+            )
 
         # Always update last_updated
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -142,12 +169,31 @@ async def increment_monthly_usage(
         expr_names["#lu"] = "last_updated"
         expr_values[":lu"] = now_iso
 
-        await table.update_item(
-            Key={"user_id": user_id, "period": period},
-            UpdateExpression=update_expr,
-            ExpressionAttributeNames=expr_names,
-            ExpressionAttributeValues=expr_values,
-        )
+        request: Dict[str, Any] = {
+            "Key": {"user_id": user_id, "period": period},
+            "UpdateExpression": update_expr,
+            "ExpressionAttributeNames": expr_names,
+            "ExpressionAttributeValues": expr_values,
+        }
+        if condition_expr:
+            request["ConditionExpression"] = condition_expr
+
+        try:
+            await table.update_item(**request)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                logger.info(
+                    "quota.monthly_increment_skipped_duplicate",
+                    extra={
+                        "user_id": user_id,
+                        "period": period,
+                        "idempotency_token": idempotency_token,
+                    },
+                )
+                return False
+            raise
+
+        return True
 
 
 async def get_daily_usage(user_id: str, date: Optional[str] = None) -> Dict[str, Any]:
@@ -192,10 +238,17 @@ async def increment_daily_usage(
     text_imports: int = 0,
     document_imports: int = 0,
     date: Optional[str] = None,
-) -> None:
+    idempotency_token: Optional[str] = None,
+) -> bool:
     """
     Atomically increment daily usage counters.
     Creates the record if it does not exist. Sets TTL for auto-cleanup.
+
+    `idempotency_token` behaves like in `increment_monthly_usage`: a token that
+    was already applied to this day's item makes the write a no-op instead of
+    inflating the daily import count on an SQS redelivery.
+
+    Returns True when the counters were incremented, False when skipped.
     """
     if date is None:
         date = _current_date()
@@ -225,7 +278,17 @@ async def increment_daily_usage(
             expr_values[":di"] = document_imports
 
         if not update_parts:
-            return
+            return False
+
+        condition_expr: Optional[str] = None
+        if idempotency_token:
+            update_parts.append("#sj :sj")
+            expr_names["#sj"] = "settled_jobs"
+            expr_values[":sj"] = {idempotency_token}
+            expr_values[":token"] = idempotency_token
+            condition_expr = (
+                "attribute_not_exists(#sj) OR NOT contains(#sj, :token)"
+            )
 
         # Set TTL on every write
         ttl_val = _daily_ttl_epoch()
@@ -233,12 +296,31 @@ async def increment_daily_usage(
         expr_names["#ttl"] = "ttl_epoch"
         expr_values[":ttl"] = ttl_val
 
-        await table.update_item(
-            Key={"user_id": user_id, "date": date},
-            UpdateExpression=update_expr,
-            ExpressionAttributeNames=expr_names,
-            ExpressionAttributeValues=expr_values,
-        )
+        request: Dict[str, Any] = {
+            "Key": {"user_id": user_id, "date": date},
+            "UpdateExpression": update_expr,
+            "ExpressionAttributeNames": expr_names,
+            "ExpressionAttributeValues": expr_values,
+        }
+        if condition_expr:
+            request["ConditionExpression"] = condition_expr
+
+        try:
+            await table.update_item(**request)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                logger.info(
+                    "quota.daily_increment_skipped_duplicate",
+                    extra={
+                        "user_id": user_id,
+                        "date": date,
+                        "idempotency_token": idempotency_token,
+                    },
+                )
+                return False
+            raise
+
+        return True
 
 
 async def record_import_timestamp(

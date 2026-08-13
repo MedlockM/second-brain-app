@@ -38,26 +38,61 @@ QUOTA_CATEGORY_ARTICLE = "article"
 QUOTA_CATEGORY_DOCUMENT = "document"
 QUOTA_CATEGORY_YOUTUBE = "youtube"
 
+# Deepgram nova-3 (~0.003 EUR/min) plus downstream LLM processing.
+_AUDIO_COST_EUR_PER_MINUTE = 0.008
+
+
+# Canonical platform string to pass to the quota engine for a submission that
+# will be transcribed. Every path that spends Deepgram minutes must classify as
+# audio, whatever the URL it came from (task-250 Layer 0).
+QUOTA_PLATFORM_AUDIO = "audio"
+
+# Platforms whose ingestion always ends in a paid transcription. `spotify`,
+# `apple_podcasts`, `deezer` and `direct_url` used to fall through to the
+# `article` default, which made the audio caps and the `text_only` tier gate
+# unreachable for them.
+_AUDIO_PLATFORMS = frozenset(
+    {
+        "podcast",
+        "audio",
+        "deepgram",
+        "rss",
+        "rss_feed",
+        "spotify",
+        "apple_podcasts",
+        "deezer",
+        "direct_url",
+        "manual",
+    }
+)
+
+_YOUTUBE_PLATFORMS = frozenset({"youtube", "video"})
+
+_DOCUMENT_PLATFORMS = frozenset({"document", "pdf", "docx"})
+
 
 def classify_media_type(source_platform: str) -> str:
     """
     Map source_platform (or media_type) to a quota category.
 
     Returns one of: audio, article, document, youtube
-    """
-    platform_lower = (source_platform or "").lower()
 
-    if platform_lower in ("podcast", "audio", "rss", "deepgram"):
+    Anything unrecognised stays `article`: a wrong guess must not silently open
+    the audio budget. Paths that know they are about to transcribe pass
+    `QUOTA_PLATFORM_AUDIO` explicitly instead of relying on this mapping (a
+    YouTube video without captions, a TikTok without subtitles, a WhatsApp voice
+    note).
+    """
+    platform_lower = (source_platform or "").strip().lower()
+
+    if platform_lower in _AUDIO_PLATFORMS:
         return QUOTA_CATEGORY_AUDIO
-    if platform_lower in ("youtube", "video"):
+    if platform_lower in _YOUTUBE_PLATFORMS:
         return QUOTA_CATEGORY_YOUTUBE
-    if platform_lower in ("document", "pdf", "docx"):
+    if platform_lower in _DOCUMENT_PLATFORMS:
         return QUOTA_CATEGORY_DOCUMENT
-    if platform_lower in (
-        "web", "article", "tiktok", "instagram", "x", "twitter",
-    ):
-        return QUOTA_CATEGORY_ARTICLE
-    # Default: treat unknown as article (safe, non-audio)
+    # Default: treat unknown as article (safe, non-audio). Covers web, article,
+    # tiktok, instagram, x, twitter, whatsapp text shares and `unknown`.
     return QUOTA_CATEGORY_ARTICLE
 
 
@@ -205,6 +240,12 @@ async def check_submission_allowed(
 
     This is the primary gate that must be called before any media ingestion.
 
+    Fails open on purpose: if the tier or the counters cannot be read, the
+    entitlement is *unknown*, not absent. Locking a paying subscriber out of the
+    product because a DynamoDB call failed is a worse outcome than letting one
+    submission through, so the failure is logged and the submission proceeds. A
+    successful read that shows no subscription still denies.
+
     Args:
         user_id: The user's ID
         source_platform: Source platform or media type string (e.g., 'podcast', 'youtube', 'web', 'document')
@@ -213,6 +254,35 @@ async def check_submission_allowed(
     Returns:
         QuotaCheckResult indicating whether submission is allowed or denied with a stable error code.
     """
+    try:
+        return await _evaluate_submission_allowed(
+            user_id=user_id,
+            source_platform=source_platform,
+            duration_seconds=duration_seconds,
+        )
+    except Exception as exc:
+        logger.error(
+            "quota.check_failed_open",
+            extra={
+                "user_id": user_id,
+                "source_platform": source_platform,
+                "duration_seconds": duration_seconds,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=exc,
+        )
+        return QuotaCheckResult.ok()
+
+
+async def _evaluate_submission_allowed(
+    *,
+    user_id: str,
+    source_platform: str,
+    duration_seconds: int = 0,
+) -> QuotaCheckResult:
+    """Quota evaluation proper. Raises on infrastructure failure; the caller
+    (`check_submission_allowed`) decides what to do about it."""
     media_category = classify_media_type(source_platform)
 
     # Resolve user tier
@@ -380,7 +450,8 @@ async def record_submission(
     source_platform: str,
     duration_seconds: int = 0,
     estimated_cost_eur: float = 0.0,
-) -> None:
+    idempotency_token: Optional[str] = None,
+) -> int:
     """
     Record a successful submission in the usage counters.
 
@@ -391,10 +462,19 @@ async def record_submission(
         source_platform: Source platform string
         duration_seconds: Audio duration in seconds (0 for non-audio)
         estimated_cost_eur: Estimated processing cost in EUR
+        idempotency_token: When set, the counters are incremented at most once
+            for this token, whatever how many times the caller runs (SQS
+            redelivery, worker retry).
+
+    Returns:
+        The number of audio minutes debited (0 for non-audio submissions). Audio
+        callers must carry this figure downstream so the Deepgram settlement only
+        applies the difference with the real duration.
     """
     media_category = classify_media_type(source_platform)
 
     # Increment monthly counters
+    minutes_used = 0
     monthly_kwargs: Dict[str, Any] = {}
     if media_category == QUOTA_CATEGORY_AUDIO:
         minutes_used = max(1, ceil(duration_seconds / 60)) if duration_seconds > 0 else 1
@@ -411,7 +491,11 @@ async def record_submission(
 
     if monthly_kwargs:
         try:
-            await quota_usage_db.increment_monthly_usage(user_id, **monthly_kwargs)
+            await quota_usage_db.increment_monthly_usage(
+                user_id,
+                idempotency_token=idempotency_token,
+                **monthly_kwargs,
+            )
         except Exception as e:
             logger.error(
                 "Failed to increment monthly usage counters for user %s: %s",
@@ -429,12 +513,194 @@ async def record_submission(
 
     if daily_kwargs:
         try:
-            await quota_usage_db.increment_daily_usage(user_id, **daily_kwargs)
+            await quota_usage_db.increment_daily_usage(
+                user_id,
+                idempotency_token=idempotency_token,
+                **daily_kwargs,
+            )
         except Exception as e:
             logger.error(
                 "Failed to increment daily usage counters for user %s: %s",
                 user_id, e,
             )
+
+    return minutes_used
+
+
+@dataclass
+class AudioQuotaGateResult:
+    """Outcome of the single audio gate that guards a Deepgram enqueue."""
+
+    allowed: bool
+    debited_minutes: int = 0
+    provisional: bool = False
+    error_code: Optional[str] = None
+    message: Optional[str] = None
+    http_status: int = 200
+
+
+def gate_token(job_id: str) -> str:
+    """Idempotency token of the submission-time debit for a job."""
+    return f"{job_id}:gate"
+
+
+def settlement_token(job_id: str) -> str:
+    """Idempotency token of the post-transcription settlement for a job."""
+    return f"{job_id}:settle"
+
+
+async def gate_audio_submission(
+    *,
+    user_id: str,
+    job_id: str,
+    duration_seconds: int = 0,
+    source_platform: str = QUOTA_PLATFORM_AUDIO,
+) -> AudioQuotaGateResult:
+    """
+    Single check-and-debit gate for a submission that is about to cost Deepgram
+    minutes (task-250 Layer 1).
+
+    Every producer that enqueues on the Deepgram queue calls this immediately
+    before sending the message, and forwards `debited_minutes` in the payload so
+    the settlement in the transcription worker only applies the delta.
+
+    `duration_seconds <= 0` means the duration could not be established in time.
+    The submission is still accepted — refusing a legitimate share because a
+    metadata probe timed out is not acceptable — and a provisional single minute
+    is debited, which the settlement corrects with Deepgram's own figure.
+    """
+    check = await check_submission_allowed(
+        user_id=user_id,
+        source_platform=source_platform,
+        duration_seconds=max(0, duration_seconds),
+    )
+    if not check.allowed:
+        return AudioQuotaGateResult(
+            allowed=False,
+            error_code=check.error_code,
+            message=check.message,
+            http_status=check.http_status,
+        )
+
+    debited = await record_submission(
+        user_id=user_id,
+        source_platform=source_platform,
+        duration_seconds=max(0, duration_seconds),
+        estimated_cost_eur=estimate_submission_cost(
+            source_platform, max(0, duration_seconds)
+        ),
+        idempotency_token=gate_token(job_id),
+    )
+
+    provisional = duration_seconds <= 0
+    logger.info(
+        "quota.audio_gate_debited",
+        extra={
+            "user_id": user_id,
+            "job_id": job_id,
+            "source_platform": source_platform,
+            "duration_seconds": duration_seconds,
+            "debited_minutes": debited,
+            "provisional": provisional,
+        },
+    )
+    return AudioQuotaGateResult(
+        allowed=True,
+        debited_minutes=debited,
+        provisional=provisional,
+    )
+
+
+async def settle_audio_minutes(
+    *,
+    user_id: str,
+    job_id: str,
+    actual_duration_seconds: float,
+    already_debited_minutes: int = 0,
+) -> int:
+    """
+    Reconcile the monthly audio counter with the duration the provider actually
+    billed (task-250 Layer 2).
+
+    Called from the transcription worker with Deepgram's own `metadata.duration`.
+    Only the difference with what the gate already debited is applied, under a
+    per-job idempotency token, so a redelivered message cannot debit twice.
+
+    Overrun policy decided by the owner: the true value is stored even when it
+    takes the user past their monthly cap — the counter is the truth, the display
+    clamps it, and the *next* import is refused naturally. Minutes are never
+    refunded, so a delta of zero or less is a no-op.
+
+    Returns the number of minutes actually added (0 when nothing was due or when
+    the settlement had already been applied).
+    """
+    real_minutes = (
+        max(1, ceil(actual_duration_seconds / 60))
+        if actual_duration_seconds and actual_duration_seconds > 0
+        else 0
+    )
+    if real_minutes <= 0:
+        logger.warning(
+            "quota.settlement_skipped_no_duration",
+            extra={"user_id": user_id, "job_id": job_id},
+        )
+        return 0
+
+    delta = real_minutes - max(0, already_debited_minutes)
+    if delta <= 0:
+        logger.info(
+            "quota.settlement_no_delta",
+            extra={
+                "user_id": user_id,
+                "job_id": job_id,
+                "real_minutes": real_minutes,
+                "already_debited_minutes": already_debited_minutes,
+            },
+        )
+        return 0
+
+    try:
+        applied = await quota_usage_db.increment_monthly_usage(
+            user_id,
+            audio_minutes=delta,
+            cost_eur=round(delta * _AUDIO_COST_EUR_PER_MINUTE, 4),
+            idempotency_token=settlement_token(job_id),
+        )
+    except Exception as exc:
+        # Losing a settlement under-counts one job. Failing the transcription the
+        # user already paid for would be worse, so this is logged and swallowed.
+        logger.error(
+            "quota.settlement_failed",
+            extra={
+                "user_id": user_id,
+                "job_id": job_id,
+                "real_minutes": real_minutes,
+                "delta_minutes": delta,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=exc,
+        )
+        return 0
+
+    if not applied:
+        logger.info(
+            "quota.settlement_already_applied",
+            extra={"user_id": user_id, "job_id": job_id, "delta_minutes": delta},
+        )
+        return 0
+
+    logger.info(
+        "quota.settlement_applied",
+        extra={
+            "user_id": user_id,
+            "job_id": job_id,
+            "real_minutes": real_minutes,
+            "already_debited_minutes": already_debited_minutes,
+            "delta_minutes": delta,
+        },
+    )
+    return delta
 
 
 def estimate_submission_cost(
@@ -453,7 +719,7 @@ def estimate_submission_cost(
     if media_category == QUOTA_CATEGORY_AUDIO:
         # Deepgram nova-3: 0.003 EUR/min transcription + ~0.005 EUR/min LLM processing
         minutes = max(1, ceil(duration_seconds / 60)) if duration_seconds > 0 else 1
-        return round(minutes * 0.008, 4)  # ~0.008 EUR/min total
+        return round(minutes * _AUDIO_COST_EUR_PER_MINUTE, 4)
     else:
         # Non-audio: flat cost per item (LLM summarization)
         return 0.005  # ~0.005 EUR per text/doc/youtube item

@@ -41,6 +41,7 @@ async def enqueue_deepgram_transcription(
     episode_title: Optional[str] = None,
     podcast_title: Optional[str] = None,
     audio_duration_seconds: int = 0,
+    quota_debited_minutes: int = 0,
     content_mime_type: Optional[str] = None,
     original_name: Optional[str] = None,
     queue_name: str = DEEPGRAM_TRANSCRIPTION_QUEUE,
@@ -50,6 +51,11 @@ async def enqueue_deepgram_transcription(
     Producers MUST set ``deepgram_mode`` explicitly: the Deepgram worker
     logs a warning and silently falls back to ``pull`` when the field is
     missing, which masks bugs.
+
+    ``quota_debited_minutes`` is how many audio minutes the producer already
+    debited at its quota gate. The worker settles the difference with Deepgram's
+    own duration, so a producer that omits it makes the user pay the whole real
+    duration a second time.
     """
     body: dict[str, Any] = {
         "job_id": job_id,
@@ -57,6 +63,7 @@ async def enqueue_deepgram_transcription(
         "deepgram_mode": deepgram_mode,
         "source_platform": source_platform,
         "audio_duration_seconds": audio_duration_seconds,
+        "quota_debited_minutes": quota_debited_minutes,
     }
     optional_fields = {
         "media_key": media_key,
