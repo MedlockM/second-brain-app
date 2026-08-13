@@ -5,8 +5,11 @@
 # state bucket, nothing about it is a chicken-and-egg problem: prod's state
 # already exists by the time this is applied, so the role can be reviewed as
 # code. dev's equivalent (media-summarizer-gha-deploy in 125313707865) was
-# created by hand out-of-band and is still unmanaged; that is a known gap, not a
-# pattern to copy.
+# created by hand out-of-band and stayed unmanaged until task-256, which imported
+# it into env/dev/terraform.tfstate — see envs/dev/gha_oidc.tf for the adoption
+# runbook and for the three places where dev deliberately diverges from the shape
+# below. Adding a permission to one role and not the other is now a visible diff
+# rather than a red CI run three weeks later.
 #
 # The isolation claim, in two independent layers:
 #
