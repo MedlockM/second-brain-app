@@ -306,35 +306,187 @@ resource "aws_cloudwatch_metric_alarm" "llamaparse_fallback_rate" {
 }
 
 # =============================================================================
-# Alarm: Job Archiver Silent Failure (REMOVE events processed but no objects archived)
+# Job archiver silent failure (task-242)
 # =============================================================================
-# This tripwire detects the §1.5 failure mode: the archiver Lambda is invoked by
-# the DynamoDB stream but silently no-ops while deleting rows. We alarm when
-# REMOVE events are processed by the event source mapping (visible in Lambda metrics
-# as Invocations > 0 over 24 hours) but S3 archives show zero new objects.
-# The owner's account owns the job_archiver Lambda directly in AWS,
-# so we check: Invocations > 0 over 24h, AND zero new objects in the archives bucket over the same period.
-resource "aws_cloudwatch_metric_alarm" "job_archiver_silent_failure" {
+# The §1.5 incident: the archiver Lambda was invoked 144 times by the
+# processing_jobs stream and never wrote a single object. Nothing noticed,
+# because "the Lambda ran without error" was the only thing being watched.
+# With the TTL re-enabled the rows now really disappear, so the guardrail has to
+# answer the outcome question: were the deletions we saw actually archived?
+#
+# That is a comparison between what the archiver received and what it produced,
+# so it needs two metrics and two alarms:
+#
+#   job_archiver_archive_gap    -- the handler ran and dropped deletions
+#                                  (remove_records - archived > 0).
+#   job_archiver_silent_failure -- composite: the Lambda was invoked at all
+#                                  (AWS/Lambda Invocations, a metric the
+#                                  application cannot fail to emit) while
+#                                  nothing was archived. This is the case a
+#                                  log-derived metric alone cannot see: a
+#                                  regression back to a no-op handler logs
+#                                  nothing, so its metrics are simply absent.
+#
+# Both metrics come from the one JSON summary line emitted per invocation by
+# media_summarizer/workers/cleanup/job_archiver.py, per the module convention
+# (metrics are derived from log metric filters; the application never calls
+# put_metric_data). Metric filters are free, so they stay ungated; the alarms
+# follow var.enable_alarms like every other alarm here.
+#
+# Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#archiver-failure
+
+# REMOVE records handed to the archiver by the stream event source mapping.
+resource "aws_cloudwatch_log_metric_filter" "job_archiver_remove_records" {
+  name           = "job-archiver-remove-records${local.suffix}"
+  log_group_name = aws_cloudwatch_log_group.lambda_archiver.name
+  pattern        = "{ $.event = \"job_archiver.batch_completed\" }"
+
+  metric_transformation {
+    name          = "JobArchiverRemoveRecords"
+    namespace     = local.metrics_namespace
+    value         = "$.remove_records"
+    default_value = "0"
+  }
+}
+
+# Objects the archiver actually wrote to the archives bucket. The denominator of
+# the metric above: read alone, either number means nothing.
+resource "aws_cloudwatch_log_metric_filter" "job_archiver_objects_archived" {
+  name           = "job-archiver-objects-archived${local.suffix}"
+  log_group_name = aws_cloudwatch_log_group.lambda_archiver.name
+  pattern        = "{ $.event = \"job_archiver.batch_completed\" }"
+
+  metric_transformation {
+    name          = "JobArchiverObjectsArchived"
+    namespace     = local.metrics_namespace
+    value         = "$.archived"
+    default_value = "0"
+  }
+}
+
+# -----------------------------------------------------------------------------
+# Alarm: deletions seen but not archived.
+#
+# Threshold 0, not a rate: an unarchived deletion is a job row that is gone with
+# no audit trail, and there is no acceptable background level of it.
+# -----------------------------------------------------------------------------
+resource "aws_cloudwatch_metric_alarm" "job_archiver_archive_gap" {
   count               = var.enable_alarms ? 1 : 0
-  alarm_name          = "${var.project_name}-job-archiver-silent-failure${local.suffix}"
+  alarm_name          = "${var.project_name}-job-archiver-archive-gap${local.suffix}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "1"
+  threshold           = "0"
+  alarm_description   = "The job archiver received REMOVE events it did not archive: deleted processing_jobs rows are being lost with no audit trail. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#archiver-failure"
+  alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
+  ok_actions          = [aws_sns_topic.pipeline_alerts[0].arn]
+  treat_missing_data  = "notBreaching"
+
+  metric_query {
+    id          = "e1"
+    expression  = "m1 - m2"
+    label       = "REMOVE records not archived"
+    return_data = true
+  }
+
+  metric_query {
+    id = "m1"
+    metric {
+      metric_name = "JobArchiverRemoveRecords"
+      namespace   = local.metrics_namespace
+      period      = "300"
+      stat        = "Sum"
+    }
+  }
+
+  metric_query {
+    id = "m2"
+    metric {
+      metric_name = "JobArchiverObjectsArchived"
+      namespace   = local.metrics_namespace
+      period      = "300"
+      stat        = "Sum"
+    }
+  }
+
+  tags = {
+    Name     = "${var.project_name}-job-archiver-archive-gap${local.suffix}"
+    Severity = "critical"
+  }
+}
+
+# -----------------------------------------------------------------------------
+# Child alarm: the archiver Lambda ran. AWS/Lambda Invocations is emitted by the
+# platform, not by the function, so this side of the comparison survives any
+# regression in the handler -- including the no-op placeholder of §1.5.
+# No actions: it is only read by the composite alarm below.
+# -----------------------------------------------------------------------------
+resource "aws_cloudwatch_metric_alarm" "job_archiver_invoked" {
+  count               = var.enable_alarms ? 1 : 0
+  alarm_name          = "${var.project_name}-job-archiver-invoked${local.suffix}"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = "1"
+  threshold           = "1"
+  alarm_description   = "Support alarm (no actions): the job archiver Lambda was invoked during the period. Read by ${var.project_name}-job-archiver-silent-failure${local.suffix}."
+  treat_missing_data  = "notBreaching"
+
+  metric_name = "Invocations"
+  namespace   = "AWS/Lambda"
+  period      = "300"
+  statistic   = "Sum"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.job_archiver.function_name
+  }
+
+  tags = {
+    Name     = "${var.project_name}-job-archiver-invoked${local.suffix}"
+    Severity = "none"
+  }
+}
+
+# -----------------------------------------------------------------------------
+# Child alarm: nothing was archived. treat_missing_data = "breaching" is the
+# whole point -- a handler that writes nothing and logs nothing produces no
+# datapoint at all, and "no data" is precisely the symptom to catch. On its own
+# this alarm is in ALARM whenever the archiver is idle, which is why it carries
+# no actions and is only meaningful ANDed with job_archiver_invoked.
+# -----------------------------------------------------------------------------
+resource "aws_cloudwatch_metric_alarm" "job_archiver_nothing_archived" {
+  count               = var.enable_alarms ? 1 : 0
+  alarm_name          = "${var.project_name}-job-archiver-nothing-archived${local.suffix}"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = "1"
   threshold           = "1"
-  alarm_description   = "Job archiver invoked (REMOVE events received) but no objects written to archives bucket in the last 24h. The archiver may be silently discarding deletions. Review archiver logs immediately. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#archiver-failure"
-  alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
-  treat_missing_data  = "notBreaching"
+  alarm_description   = "Support alarm (no actions): no object was archived during the period. Read by ${var.project_name}-job-archiver-silent-failure${local.suffix}."
+  treat_missing_data  = "breaching"
 
-  # Composite alarm would be ideal (Invocations > 0 AND PutObject count == 0),
-  # but CloudWatch doesn't support composite alarms with metric math across
-  # different services (Lambda Invocations vs S3 PutObject). Instead, we use
-  # a metric filter on archiver logs to emit a custom metric "ArchiveFailure"
-  # that the app observability layer can increment when it detects the mismatch.
-  # For now, a periodic (daily) check by the observability agent is the fallback.
-  # This alarm fires on a manual metric emit only.
-  metric_name = "JobArchiverSilentFailure"
+  metric_name = "JobArchiverObjectsArchived"
   namespace   = local.metrics_namespace
-  period      = "86400"
+  period      = "300"
   statistic   = "Sum"
+
+  tags = {
+    Name     = "${var.project_name}-job-archiver-nothing-archived${local.suffix}"
+    Severity = "none"
+  }
+}
+
+# -----------------------------------------------------------------------------
+# The tripwire itself: invoked AND nothing archived. This is the exact shape of
+# the §1.5 failure, and unlike the metric alarm it replaces it does not depend
+# on any code path inside the archiver to raise its hand.
+# -----------------------------------------------------------------------------
+resource "aws_cloudwatch_composite_alarm" "job_archiver_silent_failure" {
+  count             = var.enable_alarms ? 1 : 0
+  alarm_name        = "${var.project_name}-job-archiver-silent-failure${local.suffix}"
+  alarm_description = "The job archiver Lambda was invoked but archived nothing: deletions of processing_jobs rows are being discarded silently, as in the task-218 §1.5 incident. Runbook: infrastructure/observability/runbooks/pipeline-alerts.md#archiver-failure"
+  alarm_actions     = [aws_sns_topic.pipeline_alerts[0].arn]
+  ok_actions        = [aws_sns_topic.pipeline_alerts[0].arn]
+
+  alarm_rule = join(" AND ", [
+    "ALARM(${aws_cloudwatch_metric_alarm.job_archiver_invoked[0].alarm_name})",
+    "ALARM(${aws_cloudwatch_metric_alarm.job_archiver_nothing_archived[0].alarm_name})",
+  ])
 
   tags = {
     Name     = "${var.project_name}-job-archiver-silent-failure${local.suffix}"

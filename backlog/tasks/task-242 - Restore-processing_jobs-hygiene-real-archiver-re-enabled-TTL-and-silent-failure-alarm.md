@@ -43,7 +43,7 @@ Les agents ont tous les droits pour exécuter `terraform apply` et les commandes
 - [x] #1 Le job_archiver déployé est un vrai build de media_summarizer/workers/cleanup/job_archiver.py et non le placeholder de 462 octets
 - [x] #2 Il est prouvé en AWS dev que l'archiver écrit effectivement des objets dans le bucket d'archives sur un événement REMOVE
 - [ ] #3 Le TTL de processing_jobs est réactivé avec la fenêtre choisie par l'owner, après validation de l'archiver
-- [ ] #4 Une alarme déclenche quand des REMOVE events surviennent alors qu'aucun objet n'est archivé
+- [x] #4 Une alarme déclenche quand des REMOVE events surviennent alors qu'aucun objet n'est archivé
 - [x] #5 Les 6 stubs pending obsolètes de juin sont purgés
 - [x] #6 La porte de sortie de task-220 est vérifiée franchie avant toute réactivation du TTL
 <!-- AC:END -->
@@ -115,3 +115,68 @@ L'option 2 est la plus fidèle à l'intention et la plus simple à tester.
 - **AC #1 et #2 sont solides** et vérifiés indépendamment : le zip est bien un build de `media_summarizer/workers/cleanup/job_archiver.py`, et 4 objets JSON réels sont présents dans `s3://media-summarizer-archives-125313707865-dev/2026/08/13/`.
 - **AC #3** : le TTL est réellement `ENABLED` avec `expire_at`, fenêtre par défaut 90 jours via la nouvelle variable `processing_jobs_ttl_days`. Reste décoché à juste titre : la fenêtre appartient à l'owner (`terraform apply -var processing_jobs_ttl_days=60`).
 - **Débordement de périmètre** : malgré une consigne explicite de ne pas y toucher, l'agent a appliqué les 15 changements Terraform préexistants de la migration `user_media` (retrait de `USER_MEDIA_SUBMISSIONS_TABLE` des 15 Lambdas). Sans conséquence fonctionnelle — plus aucun code ne lit cette variable — mais deux effets à connaître : `envs/dev` est désormais propre (ce qui ferme incidemment l'AC #7 de task-249), et `user_media_submissions-dev` **existe encore côté AWS tout en ayant quitté la gestion Terraform**. À réimporter ou à supprimer explicitement par la tâche qui possède cette migration.
+
+## 2026-08-13 — AC #4 refait sur des métriques réelles (alarme prouvée en ALARM puis OK)
+
+L'alarme fantôme `aws_cloudwatch_metric_alarm.job_archiver_silent_failure` (métrique
+`JobArchiverSilentFailure` que rien n'émettait) est **supprimée**. Elle est remplacée par
+une chaîne qui mesure l'écart entre ce que l'archiver reçoit et ce qu'il produit, dans
+`infrastructure/terraform/modules/platform/pipeline_alerts.tf` :
+
+- `job_archiver.py` émet désormais **une ligne JSON pure par invocation** :
+  `{"event": "job_archiver.batch_completed", "remove_records": N, "archived": M, "failed": F}`.
+  Via `print` et non `logger.info` : le formatteur Lambda préfixe `[INFO] RequestId…`, ce qui
+  rendrait l'événement non parsable par un pattern JSON et la métrique silencieusement vide —
+  exactement la classe de panne visée.
+- Deux `aws_cloudwatch_log_metric_filter` (non gatés, gratuits) sur le log group de l'archiver :
+  `JobArchiverRemoveRecords` (`$.remove_records`) et `JobArchiverObjectsArchived` (`$.archived`),
+  conformément à la convention du module (les métriques viennent des filtres de logs, l'appli
+  n'appelle jamais `put_metric_data` — c'est la raison concrète de ne pas suivre la voie 2 telle
+  quelle : même sémantique, mécanisme du module).
+- `job_archiver_archive_gap` : metric math `m1 - m2 > 0` sur 300 s → des REMOVE reçus non archivés
+  (perte partielle **ou** totale) pendant que le handler tourne.
+- `job_archiver_silent_failure` : désormais un **`aws_cloudwatch_composite_alarm`** =
+  `ALARM(job-archiver-invoked) AND ALARM(job-archiver-nothing-archived)`. Le premier enfant lit
+  `AWS/Lambda Invocations` (métrique émise par la plateforme, pas par la fonction) et le second a
+  `treat_missing_data = "breaching"` : une régression vers un handler no-op qui ne loggue rien
+  produit **zéro datapoint**, et « pas de donnée » est précisément le symptôme. C'est ce qu'un
+  filtre de logs seul ne peut pas voir, et ce que l'ancienne alarme ne voyait pas non plus.
+  Les deux enfants n'ont aucune action ; seule la composite notifie SNS.
+
+### Preuve que l'alarme se déclenche réellement (dev, eu-west-3)
+
+`enable_alarms = false` en dev : les alarmes ont été créées temporairement par
+`terraform apply -target=…` (avec `enable_alarms = true` en local), pilotées, puis **détruites**
+en repassant à `false`. `envs/dev` est de nouveau `plan` exit 0 / « No changes ».
+
+1. Invocation d'échec (REMOVE sans `OldImage`) sur le Lambda réellement déployé, 07:28 UTC :
+   `aws lambda invoke --region eu-west-3 --function-name media-summarizer-job-archiver-dev …`
+   → `{"event": "job_archiver.batch_completed", "remove_records": 1, "archived": 0, "failed": 1}`
+2. Métriques réellement produites par les filtres (`get-metric-statistics`, fenêtre 07:25 UTC) :
+   `JobArchiverRemoveRecords Sum = 1.0`, `JobArchiverObjectsArchived Sum = 0.0`.
+3. `describe-alarms` à 07:32 UTC :
+   - `media-summarizer-job-archiver-archive-gap-dev` → **ALARM**
+     (« 1 datapoint [1.0 (13/08/26 07:24:00)] was greater than the threshold (0.0) »)
+   - `media-summarizer-job-archiver-invoked-dev` → **ALARM** (`[1.0] >= 1.0`)
+   - `media-summarizer-job-archiver-nothing-archived-dev` → **ALARM** (`[0.0] < 1.0`)
+   - `media-summarizer-job-archiver-silent-failure-dev` (composite) → **ALARM**,
+     `StateReason` : « …job-archiver-invoked-dev transitioned to ALARM at 13 August 2026 07:29:55 UTC »
+4. Contrôle positif (l'alarme n'est pas bloquée en ALARM) : invocation avec `OldImage`, 07:32 UTC
+   → objet écrit dans le bucket d'archives, `{"remove_records": 1, "archived": 1, "failed": 0}` ;
+   à 07:36 UTC `archive-gap` → **OK**, `nothing-archived` → **OK**, composite → **OK**.
+   L'objet sonde `2026/08/13/task-242-ac4-probe.json` a été supprimé du bucket ; les 4 archives
+   réelles de l'AC #2 sont intactes.
+
+Runbook : section `#archiver-failure` ajoutée dans
+`infrastructure/observability/runbooks/pipeline-alerts.md` (l'ancre était référencée par les
+alarmes sans exister).
+
+### État des autres AC
+
+- **AC #3 laissé décoché volontairement** : le TTL est `ENABLED` avec 90 jours par défaut via
+  `processing_jobs_ttl_days`, mais le choix de la fenêtre appartient à l'owner
+  (`terraform apply -var processing_jobs_ttl_days=60`). Rien n'a été touché ici.
+- **AC #1, #2, #5, #6** non retouchés (déjà vérifiés).
+- **Reste ouvert, hors périmètre** : `user_media_submissions-dev` existe toujours côté AWS tout en
+  ayant quitté la gestion Terraform. À réimporter ou supprimer par la tâche qui possède la
+  migration `user_media`.
