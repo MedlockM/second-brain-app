@@ -48,7 +48,7 @@ Read `README.md` for project overview and V1 scope. Read `docs/CANONICAL_MEDIA_A
 
 ## Never write secrets or account identity into backlog tasks
 
-**This repository is public and `main` is unprotected.** Anything you write into a task file, a research README, a dispatch summary or a commit message is published the moment `main` is pushed, and stays in the git history even if a later commit removes it. Task files are the highest-risk surface because agents naturally paste command output into `Implementation Notes` as proof of work.
+**This repository is public, and `main` refuses force-pushes and deletion** (light branch protection, posed by task-257 on 2026-08-13 — it blocks history rewriting only, normal pushes and local merge commits are untouched). Anything you write into a task file, a research README, a dispatch summary or a commit message is published the moment `main` is pushed, and stays in the git history even if a later commit removes it — and scrubbing it after the fact now requires the owner to lift the protection first. Task files are the highest-risk surface because agents naturally paste command output into `Implementation Notes` as proof of work.
 
 Never write the following into any tracked file:
 
