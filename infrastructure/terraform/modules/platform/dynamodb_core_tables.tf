@@ -67,16 +67,21 @@ resource "aws_dynamodb_table" "processing_jobs_v1" {
     projection_type = "ALL"
   }
 
-  # TTL FROZEN (task-239, Phase 0 of the task-218 benchmark §5.1).
-  # Every library read path resolves through this table, so expiring a job also
-  # destroyed the user's media entry, folder membership and tags. The TTL stays
-  # disabled until the durable `user_media` record owns the library; it is
-  # re-enabled in Phase 4 once nothing user-facing reads processing_jobs.
-  # DO NOT flip this back to `true` before that phase.
+  # TTL RE-ENABLED (task-242, Phase 4 of the task-218 benchmark §5.5).
+  # Phase 3 (task-220) has migrated all library reads to the durable user_media table,
+  # so processing_jobs can now safely expire. The TTL is re-enabled with a configurable
+  # window (30-90 days, default 90) to preserve job records for debugging while removing
+  # stale records. The real job_archiver now writes deletions to S3.
+  # The TTL attribute (expire_at) is set by job workers on every status transition:
+  # media_summarizer/core/models/processing_job.py:250 and :361.
   ttl {
     attribute_name = "expire_at"
-    enabled        = false
+    enabled        = true
   }
+
+  # TTL window is parameterized per the owner's decision (task-242 AC #3 pending owner choice)
+  # Default: 90 days (conservative, prioritizes debugging trail over cleanup aggressiveness)
+  # To override: terraform apply -var processing_jobs_ttl_days=60 (or 30)
 
   # Enable Streams for archiving (job_archiver Lambda)
   stream_enabled   = true

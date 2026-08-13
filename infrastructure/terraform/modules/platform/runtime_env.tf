@@ -117,6 +117,12 @@ locals {
       # with an empty library. It is no longer a standalone rollback: it must be
       # paired with a code rollback to the pre-task-220 revision.
       DURABLE_MEDIA_ENABLED = var.durable_media_enabled ? "1" : "0"
+
+      # Job TTL window (task-242, Phase 4). The processing_jobs table TTL is
+      # re-enabled with a configurable window. Default: 90 days (conservative,
+      # preserves debugging trails). The job creation code reads this to set
+      # the expire_at timestamp. Range: 30-90 days.
+      PROCESSING_JOBS_TTL_DAYS = tostring(var.processing_jobs_ttl_days)
     },
     local.bucket_names,
     local.table_names,

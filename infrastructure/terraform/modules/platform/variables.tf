@@ -54,3 +54,14 @@ variable "ecr_repository_url" {
   description = "URL of the shared Lambda ECR repository, owned by ../../shared and passed in from the environment root."
   type        = string
 }
+
+variable "processing_jobs_ttl_days" {
+  description = "TTL window for processing_jobs table in days. Phase 4 (task-242): once nothing user-facing reads processing_jobs, the TTL is re-enabled to clean up stale job records. Recommend 90 days to preserve job debugging trails. Range: 30-90. Settable by the owner via -var processing_jobs_ttl_days=NN."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = var.processing_jobs_ttl_days >= 30 && var.processing_jobs_ttl_days <= 90
+    error_message = "processing_jobs_ttl_days must be between 30 and 90 days."
+  }
+}

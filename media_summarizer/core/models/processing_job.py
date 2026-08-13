@@ -2,6 +2,7 @@
 Processing job model for tracking media processing jobs using DynamoDB.
 """
 
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -9,6 +10,26 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def _get_ttl_days() -> int:
+    """Get the job TTL window in days from the environment.
+
+    Configurable per task-242 Phase 4: the TTL is re-enabled with a window
+    that can be 30, 60, or 90 days (default 90). Set at Lambda deployment time
+    via the PROCESSING_JOBS_TTL_DAYS environment variable.
+
+    Returns: TTL window in days (default 90 if not set or on parse error).
+    """
+    try:
+        ttl_days = int(os.environ.get("PROCESSING_JOBS_TTL_DAYS", "90"))
+        # Validate range even at runtime (defense in depth)
+        if 30 <= ttl_days <= 90:
+            return ttl_days
+    except (ValueError, TypeError):
+        pass
+
+    return 90  # Fallback: most conservative value
 
 
 def _sanitize_floats_for_dynamodb(value: Any) -> Any:
@@ -242,8 +263,9 @@ class ProcessingJob(BaseModel):
             self.error_step = error_step
             
         # Update TTL on status change (extend life)
-        # Keep jobs for 30 days after last update
-        self.expire_at = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+        # TTL window is configurable per task-242 Phase 4 (default 90 days)
+        ttl_days = _get_ttl_days()
+        self.expire_at = int((datetime.now(timezone.utc) + timedelta(days=ttl_days)).timestamp())
         self.updated_at = datetime.now(timezone.utc)
 
     def increment_retry(self) -> bool:
@@ -354,7 +376,9 @@ class ProcessingJob(BaseModel):
                 setattr(self, key, value)
         
         # Update TTL on any update
-        self.expire_at = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+        # TTL window is configurable per task-242 Phase 4 (default 90 days)
+        ttl_days = _get_ttl_days()
+        self.expire_at = int((datetime.now(timezone.utc) + timedelta(days=ttl_days)).timestamp())
         self.updated_at = datetime.now(timezone.utc)
         return self
 

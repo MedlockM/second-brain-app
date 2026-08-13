@@ -100,31 +100,19 @@ resource "aws_iam_role_policy_attachment" "lambda_archiver" {
   policy_arn = aws_iam_policy.lambda_archiver.arn
 }
 
-# Placeholder deployment package, generated at plan time.
+# Real job archiver deployment package (task-242).
 #
-# This used to be `filename = "job_archiver.zip"`: an untracked 477-byte zip
-# that happened to sit in the old flat root directory. Any operator on a fresh
-# clone — and any environment other than dev — could not even plan. The
-# placeholder is generated here instead, so every environment can be created
-# from a clean checkout. task-242 owns the real implementation; until then the
-# TTL that feeds this Lambda's stream filter is frozen off (task-239), so the
-# handler is never invoked.
+# Archives REMOVE events (both TTL deletions and manual deletes) from the
+# processing_jobs stream to S3 for long-term audit and recovery purposes.
+# The archiver source is in media_summarizer/workers/cleanup/job_archiver.py.
 data "archive_file" "job_archiver" {
   type        = "zip"
   output_path = "${path.module}/.build/job_archiver${local.suffix}.zip"
 
-  source {
-    filename = "job_archiver.py"
-    content  = <<-PY
-      """Placeholder job archiver. Implemented by task-242."""
-
-
-      def lambda_handler(event, context):
-          records = event.get("Records", [])
-          print(f"job-archiver placeholder: {len(records)} record(s) ignored")
-          return {"archived": 0, "ignored": len(records)}
-    PY
-  }
+  # Archive the job_archiver.py file
+  # No external dependencies needed; json, logging, os, datetime are stdlib,
+  # and boto3 is included in the Lambda python3.11 runtime.
+  source_file = "${path.module}/../../../../media_summarizer/workers/cleanup/job_archiver.py"
 }
 
 # Lambda Function for Archiving
