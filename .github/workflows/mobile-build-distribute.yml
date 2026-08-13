@@ -1,11 +1,40 @@
 name: Mobile Build & Distribute
 
+# ---------------------------------------------------------------------------
+# TRIGGER CONTRACT — revised 2026-08-13
+#
+# This workflow spends EAS build quota and can push binaries to TestFlight and
+# Google Play Internal Testing. It therefore has exactly two entry points:
+#
+#   1. Push of a `mobile-v*` tag  -> production build on both platforms,
+#                                    followed by `eas submit` to both stores.
+#                                    This is the release path documented in
+#                                    docs/PRODUCTION_RELEASE_RUNBOOK.md.
+#   2. `workflow_dispatch`        -> whatever the operator asks for. Defaults
+#                                    are deliberately harmless: `preview`
+#                                    profile, `submit=false`. Submitting to a
+#                                    store from a manual run requires ticking
+#                                    `submit` explicitly.
+#
+# A push to a branch (including `main`) builds NOTHING. Until 2026-08-13 the
+# `push` block mixed `branches: [main]` + `paths: [mobile/**]` with
+# `tags: [mobile-v*]`; GitHub treats those as two independent triggers, not as a
+# conjunction, so every commit touching `mobile/` fired a production build on
+# both platforms and an unattended store submission. Static mobile checks on
+# `main` live in pr.yml / main.yml (typecheck + lint); nothing here needs to run
+# per-commit. Do not re-add a branch filter to the `push` trigger.
+#
+# Owner prerequisite: the `EXPO_TOKEN` repository secret must exist, otherwise
+# every `eas` call fails with "An Expo user account is required to proceed".
+# Both build jobs assert it in their first step. See mobile/MOBILE_CI_CD.md.
+# ---------------------------------------------------------------------------
+
+permissions:
+  contents: read
+
 on:
   push:
-    branches: [main]
-    paths:
-      - "mobile/**"
-      - ".github/workflows/mobile-build-distribute.yml"
+    # Tags only — no `branches:` here, on purpose (see the contract above).
     tags:
       - "mobile-v*"
   workflow_dispatch:
@@ -22,15 +51,15 @@ on:
       profile:
         description: "EAS build profile"
         required: true
-        default: "production"
+        default: "preview"
         type: choice
         options:
           - preview
           - production
       submit:
-        description: "Submit to store after build"
+        description: "Submit to the store after build (TestFlight / Play internal)"
         required: true
-        default: true
+        default: false
         type: boolean
 
 env:
@@ -53,6 +82,18 @@ jobs:
       build_id: ${{ steps.build.outputs.build_id }}
 
     steps:
+      # Fail here rather than 10 steps later inside `eas build`.
+      - name: Require EXPO_TOKEN
+        run: |
+          if [[ -z "${EXPO_TOKEN}" ]]; then
+            echo "::error::EXPO_TOKEN secret is empty. Create a robot token at" \
+                 "https://expo.dev/settings/access-tokens then run" \
+                 "'gh secret set EXPO_TOKEN'. Every eas command in this workflow" \
+                 "needs it (see mobile/MOBILE_CI_CD.md)."
+            exit 1
+          fi
+          echo "EXPO_TOKEN is present."
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -61,7 +102,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-          cache-dependency-path: mobile/package.json
+          cache-dependency-path: mobile/package-lock.json
 
       - name: Install dependencies
         working-directory: mobile
@@ -70,16 +111,21 @@ jobs:
       - name: Install EAS CLI
         run: npm install -g eas-cli
 
-      - name: Determine build profile
-        id: profile
+      - name: Resolve build profile and submit flag
+        id: plan
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "profile=${{ github.event.inputs.profile }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == refs/tags/mobile-v* ]]; then
-            echo "profile=production" >> $GITHUB_OUTPUT
+            # Operator-chosen. Defaults are preview + no submit.
+            PROFILE="${{ github.event.inputs.profile }}"
+            SUBMIT="${{ github.event.inputs.submit }}"
           else
-            echo "profile=production" >> $GITHUB_OUTPUT
+            # Only reachable on a `mobile-v*` tag push: the release path.
+            PROFILE="production"
+            SUBMIT="true"
           fi
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+          echo "submit=$SUBMIT" >> "$GITHUB_OUTPUT"
+          echo "Resolved profile=$PROFILE submit=$SUBMIT"
 
       - name: Run EAS Build for iOS
         id: build
@@ -87,7 +133,7 @@ jobs:
         run: |
           BUILD_OUTPUT=$(eas build \
             --platform ios \
-            --profile ${{ steps.profile.outputs.profile }} \
+            --profile ${{ steps.plan.outputs.profile }} \
             --non-interactive \
             --json \
             --no-wait)
@@ -95,7 +141,8 @@ jobs:
           echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
           echo "## iOS Build Started" >> $GITHUB_STEP_SUMMARY
           echo "- Build ID: \`$BUILD_ID\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Profile: ${{ steps.profile.outputs.profile }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Profile: ${{ steps.plan.outputs.profile }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Submit after build: ${{ steps.plan.outputs.submit }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Wait for iOS build to complete
         working-directory: mobile
@@ -117,10 +164,14 @@ jobs:
             sleep 30
           done
 
+      # Belt and braces: even if someone re-adds a branch trigger, a store
+      # submission stays reserved to `mobile-v*` tags and manual dispatch.
       - name: Submit to TestFlight
         if: >-
           env.build_status == 'success' &&
-          (github.event_name != 'workflow_dispatch' || github.event.inputs.submit == 'true')
+          steps.plan.outputs.submit == 'true' &&
+          (github.event_name == 'workflow_dispatch' ||
+           startsWith(github.ref, 'refs/tags/mobile-v'))
         working-directory: mobile
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -151,6 +202,18 @@ jobs:
       build_id: ${{ steps.build.outputs.build_id }}
 
     steps:
+      # Fail here rather than 10 steps later inside `eas build`.
+      - name: Require EXPO_TOKEN
+        run: |
+          if [[ -z "${EXPO_TOKEN}" ]]; then
+            echo "::error::EXPO_TOKEN secret is empty. Create a robot token at" \
+                 "https://expo.dev/settings/access-tokens then run" \
+                 "'gh secret set EXPO_TOKEN'. Every eas command in this workflow" \
+                 "needs it (see mobile/MOBILE_CI_CD.md)."
+            exit 1
+          fi
+          echo "EXPO_TOKEN is present."
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -159,7 +222,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-          cache-dependency-path: mobile/package.json
+          cache-dependency-path: mobile/package-lock.json
 
       - name: Install dependencies
         working-directory: mobile
@@ -168,16 +231,21 @@ jobs:
       - name: Install EAS CLI
         run: npm install -g eas-cli
 
-      - name: Determine build profile
-        id: profile
+      - name: Resolve build profile and submit flag
+        id: plan
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "profile=${{ github.event.inputs.profile }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == refs/tags/mobile-v* ]]; then
-            echo "profile=production" >> $GITHUB_OUTPUT
+            # Operator-chosen. Defaults are preview + no submit.
+            PROFILE="${{ github.event.inputs.profile }}"
+            SUBMIT="${{ github.event.inputs.submit }}"
           else
-            echo "profile=production" >> $GITHUB_OUTPUT
+            # Only reachable on a `mobile-v*` tag push: the release path.
+            PROFILE="production"
+            SUBMIT="true"
           fi
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+          echo "submit=$SUBMIT" >> "$GITHUB_OUTPUT"
+          echo "Resolved profile=$PROFILE submit=$SUBMIT"
 
       - name: Write Google Play service account key
         working-directory: mobile
@@ -190,7 +258,7 @@ jobs:
         run: |
           BUILD_OUTPUT=$(eas build \
             --platform android \
-            --profile ${{ steps.profile.outputs.profile }} \
+            --profile ${{ steps.plan.outputs.profile }} \
             --non-interactive \
             --json \
             --no-wait)
@@ -198,7 +266,8 @@ jobs:
           echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
           echo "## Android Build Started" >> $GITHUB_STEP_SUMMARY
           echo "- Build ID: \`$BUILD_ID\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Profile: ${{ steps.profile.outputs.profile }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Profile: ${{ steps.plan.outputs.profile }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Submit after build: ${{ steps.plan.outputs.submit }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Wait for Android build to complete
         working-directory: mobile
@@ -218,10 +287,14 @@ jobs:
             sleep 30
           done
 
+      # Belt and braces: even if someone re-adds a branch trigger, a store
+      # submission stays reserved to `mobile-v*` tags and manual dispatch.
       - name: Submit to Google Play Internal Testing
         if: >-
           env.build_status == 'success' &&
-          (github.event_name != 'workflow_dispatch' || github.event.inputs.submit == 'true')
+          steps.plan.outputs.submit == 'true' &&
+          (github.event_name == 'workflow_dispatch' ||
+           startsWith(github.ref, 'refs/tags/mobile-v'))
         working-directory: mobile
         run: |
           eas submit \
@@ -246,6 +319,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [ios-build, android-build]
     if: failure()
+    # Needed by `gh issue create` below; everything else stays read-only.
+    permissions:
+      contents: read
+      issues: write
 
     steps:
       - name: Determine failed jobs
@@ -274,6 +351,7 @@ jobs:
           echo "1. Check the failed job logs above for error details" >> $GITHUB_STEP_SUMMARY
           echo "2. See \`mobile/MOBILE_CI_CD.md\` for troubleshooting guidance" >> $GITHUB_STEP_SUMMARY
           echo "3. Common issues:" >> $GITHUB_STEP_SUMMARY
+          echo "   - Missing \`EXPO_TOKEN\` repository secret" >> $GITHUB_STEP_SUMMARY
           echo "   - Expired signing certificates (iOS)" >> $GITHUB_STEP_SUMMARY
           echo "   - Invalid service account key (Android)" >> $GITHUB_STEP_SUMMARY
           echo "   - EAS build quota exceeded" >> $GITHUB_STEP_SUMMARY
@@ -305,7 +383,7 @@ jobs:
                     },
                     {
                       "type": "mrkdwn",
-                      "text": "*Branch:*\n${{ github.ref_name }}"
+                      "text": "*Ref:*\n${{ github.ref_name }}"
                     },
                     {
                       "type": "mrkdwn",
@@ -333,25 +411,33 @@ jobs:
               ]
             }'
 
+      # Only labels that actually exist in the repository may be passed here:
+      # `gh issue create` hard-fails on an unknown label, which used to make the
+      # failure-notification job fail and hide the real build failure. As of
+      # 2026-08-13 the repo only has the 9 GitHub defaults (`gh label list`), so
+      # `bug` is the single label used. Create a `ci/cd` label first if you want
+      # it back.
       - name: Create GitHub Issue for persistent failures
+        # `push` now only ever means a `mobile-v*` release tag, i.e. exactly the
+        # case worth an issue. Manual dispatch failures stay in the run summary.
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh issue create \
             --repo "${{ github.repository }}" \
-            --title "Mobile build distribution failed on ${{ github.ref_name }}" \
+            --title "CI: mobile build distribution failed on ${{ github.ref_name }}" \
             --body "## Build Failure
 
           **Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           **Failed platforms:** ${{ steps.failures.outputs.failed_jobs }}
-          **Branch:** ${{ github.ref_name }}
+          **Release tag:** ${{ github.ref_name }}
           **Commit:** ${{ github.sha }}
 
           Please investigate the failed build logs and resolve the issue.
 
           See \`mobile/MOBILE_CI_CD.md\` for troubleshooting guidance." \
-            --label "bug,ci/cd"
+            --label "bug"
 
   # -------------------------------------------------------------------
   # Success Summary
@@ -367,9 +453,11 @@ jobs:
         run: |
           echo "## Mobile Distribution Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Platform | Status | Build ID |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|--------|----------|" >> $GITHUB_STEP_SUMMARY
-          echo "| iOS (TestFlight) | Submitted | \`${{ needs.ios-build.outputs.build_id }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Android (Internal Testing) | Submitted | \`${{ needs.android-build.outputs.build_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Build ID |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| iOS | \`${{ needs.ios-build.outputs.build_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Android | \`${{ needs.android-build.outputs.build_id }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Internal testers will receive the new build shortly." >> $GITHUB_STEP_SUMMARY
+          echo "Store submission only happened if this run was a \`mobile-v*\` tag" >> $GITHUB_STEP_SUMMARY
+          echo "or a manual dispatch with \`submit=true\` — check the submission" >> $GITHUB_STEP_SUMMARY
+          echo "steps above before telling testers a new build is coming." >> $GITHUB_STEP_SUMMARY

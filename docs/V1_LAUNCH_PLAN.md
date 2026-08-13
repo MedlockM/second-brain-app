@@ -772,14 +772,20 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    ferme la dernière faille de ce gate — jusqu'à présent la CI installait depuis
    les intervalles de `pyproject.toml` et pouvait donc linter avec un `ruff`/`mypy`
    différent de celui du lock et du poste owner.
-4. **Mobile build workflow rouge, et toujours trop agressif** — inchangé :
-   `.github/workflows/mobile-build-distribute.yml` lance une build production et
-   tente une soumission à chaque push `main` touchant `mobile/**`. Il échoue en
-   ~2 s sur `An Expo user account is required to proceed` (`EXPO_TOKEN` vide), pour
-   iOS **et** Android, puis échoue une seconde fois en tentant d'ouvrir une issue
-   avec un label `ci/cd` inexistant. Trois corrections distinctes : renseigner
-   `EXPO_TOKEN`, réserver production à un tag/dispatch explicite (preview/internal
-   pour la validation courante), créer le label ou le retirer du workflow.
+4. **Mobile build workflow — désarmé le 2026-08-13** (`task-258`) :
+   `.github/workflows/mobile-build-distribute.yml` ne se déclenche plus que sur
+   tag `mobile-v*` (build `production` + `eas submit`) ou `workflow_dispatch`
+   (défauts `preview` / `submit=false`). Le couple `branches: [main]` + `paths:`
+   du trigger `push` est supprimé : un push sur `main` ne construit plus rien et
+   ne peut plus soumettre au store. L'étape de notification n'utilise plus que le
+   label `bug` (le label `ci/cd` n'existe pas et faisait échouer
+   `gh issue create`), le workflow déclare `permissions` (`contents: read`, plus
+   `issues: write` sur `notify-failure`), et les deux jobs de build commencent par
+   une garde `Require EXPO_TOKEN` qui échoue en quelques secondes avec un message
+   explicite. **Reste à faire, owner uniquement** : créer un robot token sur
+   https://expo.dev/settings/access-tokens puis `gh secret set EXPO_TOKEN`. Sans
+   ce secret le workflow est inoffensif mais non fonctionnel. Contrat de
+   déclenchement détaillé dans `mobile/MOBILE_CI_CD.md`.
 5. **Secrets GitHub** : six configurés, dont les cinq requis par Maestro
    (`E2E_TEST_USER_EMAIL`/`_PASSWORD`, `E2E_SEARCH_TEST_TERM`,
    `E2E_REVENUECAT_TEST_KEY`, `E2E_REVENUECAT_APPLE_KEY`). Ajouter encore

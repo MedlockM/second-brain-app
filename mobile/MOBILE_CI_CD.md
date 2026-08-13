@@ -8,17 +8,22 @@ The pipeline uses **EAS Build** (Expo Application Services) for cloud-based nati
 and **EAS Submit** for publishing to TestFlight (iOS) and Google Play Internal Testing (Android).
 
 ```
-Push to main (mobile/**) or tag mobile-v*
-    |
-    v
+Push of a mobile-v* tag         Manual workflow_dispatch
+    |                                |
+    | profile=production             | profile + submit chosen by the operator
+    | submit=true                    | (defaults: preview, submit=false)
+    v                                v
 GitHub Actions (.github/workflows/mobile-build-distribute.yml)
     |
     +-- iOS: EAS Build -> EAS Submit -> TestFlight (internal)
     |
     +-- Android: EAS Build -> EAS Submit -> Google Play (internal track)
     |
-    +-- On failure: Slack notification + GitHub Issue
+    +-- On failure: Slack notification + GitHub Issue (tag runs only)
 ```
+
+A push to a branch, `main` included, builds nothing — see
+[Workflow Triggers](#workflow-triggers) for the full contract.
 
 ## Required Secrets & Variables
 
@@ -28,7 +33,7 @@ Configure these in GitHub repository Settings > Secrets and variables > Actions:
 
 | Secret | Description | How to obtain |
 |--------|-------------|---------------|
-| `EXPO_TOKEN` | Expo access token for EAS CLI authentication | [expo.dev/accounts/tokens](https://expo.dev/accounts/[account]/settings/access-tokens) - Create a Robot token |
+| `EXPO_TOKEN` | Expo access token for EAS CLI authentication. **Not provisioned as of 2026-08-13** — builds fail fast until it is set, see [Owner prerequisite](#owner-prerequisite-expo_token) | <https://expo.dev/settings/access-tokens> - create a robot token, then `gh secret set EXPO_TOKEN` |
 | `APPLE_ID` | Apple ID email used for App Store Connect | Your Apple Developer account email |
 | `ASC_APP_ID` | App Store Connect App ID (numeric) | App Store Connect > App > General > App Information > Apple ID |
 | `APPLE_TEAM_ID` | Apple Developer Team ID | [developer.apple.com/account](https://developer.apple.com/account) > Membership > Team ID |
@@ -146,18 +151,65 @@ eas submit --platform ios --profile production --id <build-id>
 
 ## Workflow Triggers
 
-The pipeline runs automatically when:
-- Code is pushed to `main` with changes in `mobile/`
-- A tag matching `mobile-v*` is created (e.g., `mobile-v1.0.0`)
-- Manually triggered via GitHub Actions UI (workflow_dispatch)
+`mobile-build-distribute.yml` spends EAS build quota and can push binaries to the
+stores, so it has exactly two entry points:
+
+| Event | Builds | Profile | `eas submit` |
+|-------|--------|---------|--------------|
+| Push of a `mobile-v*` tag | iOS + Android | `production` | Yes — TestFlight + Play internal track |
+| `workflow_dispatch` | Operator's choice of platform | Operator's choice, default `preview` | Only if the operator sets `submit=true` (default `false`) |
+| Push to a branch (`main` included) | **Nothing** | — | — |
+
+### What no longer happens on push to `main`
+
+Until 2026-08-13 the `push` trigger combined `branches: [main]` +
+`paths: ["mobile/**"]` with `tags: ["mobile-v*"]`. GitHub applies `branches` to
+branch pushes and `tags` to tag pushes: the tag filter was an *additional*
+trigger, not an extra condition. Every commit on `main` touching `mobile/`
+therefore started a `production` build on both platforms and an unattended store
+submission. The `branches`/`paths` filters were removed (`task-258`); the `push`
+trigger now only matches `mobile-v*` tags. **Do not re-add a branch filter.**
+
+Per-commit mobile feedback comes from `pr.yml` / `main.yml` (`npm run typecheck`,
+`npm run lint`) — nothing in the build/distribute pipeline needs to run on every
+commit. To exercise a build outside a release, use `workflow_dispatch` with
+`profile=preview` and `submit=false`:
+
+```bash
+gh workflow run mobile-build-distribute.yml \
+  -f platform=android -f profile=preview -f submit=false
+```
+
+Both build jobs also guard the submission steps with
+`github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/mobile-v')`,
+so a store submission stays impossible from a branch push even if the trigger is
+loosened again by mistake.
 
 ### Manual Trigger Options
 
 | Input | Options | Default |
 |-------|---------|---------|
 | Platform | ios, android, all | all |
-| Profile | preview, production | production |
-| Submit | true, false | true |
+| Profile | preview, production | preview |
+| Submit | true, false | false |
+
+### Owner prerequisite: `EXPO_TOKEN`
+
+Every `eas` invocation in both mobile workflows authenticates with the
+`EXPO_TOKEN` repository secret. As of 2026-08-13 that secret is **not
+provisioned**: without it, `eas build --non-interactive` dies immediately with
+`An Expo user account is required to proceed`, so no build or submission can
+succeed regardless of the trigger.
+
+Both build jobs now start with a `Require EXPO_TOKEN` step that fails the run in
+a couple of seconds with an explicit error message, before Node, `npm ci` or the
+EAS CLI are installed. To provision it:
+
+1. Create a robot access token at <https://expo.dev/settings/access-tokens>
+2. `gh secret set EXPO_TOKEN` (paste the token when prompted)
+
+Never commit the token value; the workflow only ever references it as
+`secrets.EXPO_TOKEN`.
 
 ## Observability & Failure Handling
 
@@ -166,7 +218,17 @@ The pipeline runs automatically when:
 When a build or submission fails:
 1. **GitHub Step Summary** - Detailed failure info in the workflow run
 2. **Slack notification** - Posted to configured webhook (if `SLACK_WEBHOOK_URL` is set)
-3. **GitHub Issue** - Auto-created for push-triggered failures (labeled `bug` + `ci/cd`)
+3. **GitHub Issue** - Auto-created for tag-triggered failures, labeled `bug`
+
+The issue is only labeled `bug` on purpose: `gh issue create` hard-fails on a
+label that does not exist in the repository, and the repo currently only carries
+the 9 default GitHub labels (`gh label list`). The workflow used to pass
+`bug,ci/cd` and the notification job died on it, hiding the actual build failure.
+If you want a dedicated label, create it first
+(`gh label create ci/cd --description "CI/CD pipeline" --color 0e8a16`) and then
+add it to the `--label` flag. The `notify-failure` job declares
+`permissions: issues: write` so the default `GITHUB_TOKEN` is allowed to open
+the issue.
 
 ### Monitoring Build Status
 
@@ -230,7 +292,13 @@ Free EAS plans have limited concurrent builds. Options:
 - Upgrade to EAS Production plan for priority queue
 - Use `--local` flag for local builds
 
-### Generic: "EXPO_TOKEN invalid"
+### Generic: "EXPO_TOKEN secret is empty" (job fails in seconds)
+
+The `Require EXPO_TOKEN` guard tripped: the secret is missing or empty. Create a
+robot token at <https://expo.dev/settings/access-tokens> and run
+`gh secret set EXPO_TOKEN`.
+
+### Generic: "An Expo user account is required to proceed" / "EXPO_TOKEN invalid"
 
 1. Verify the token exists and is not expired at expo.dev
 2. Create a new Robot token if needed
