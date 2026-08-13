@@ -1,5 +1,15 @@
 # Maestro E2E
 
+> **Automatic CI is mothballed since 2026-08-13.** The workflow no longer runs
+> on `push` or on `pull_request`: the app UI is being redesigned, every flow
+> asserts on screen copy and testIDs, so the suite would be rewritten at each
+> design iteration. Nothing was deleted — the seven flows, the runner scripts,
+> the GitHub secrets and the AWS dev fixture all stay provisioned, and
+> `workflow_dispatch` still works (see [Running a run](#running-a-run)).
+> Flow-by-flow state at the time of the freeze and the reactivation plan:
+> `docs/V1_LAUNCH_PLAN.md`, Phase 7, section « Maestro E2E CI — en sommeil
+> depuis le 2026-08-13 ».
+
 The suite covers application-owned UI. Native sheets outside the app process
 (Apple/Google authentication and real OS share sheets) stay in tasks 164/165.
 No physical Android device is required for this suite: GitHub Actions builds a
@@ -45,15 +55,37 @@ have carried it. Four steps, none of which can be skipped:
 
 ## Execution model
 
-- Pull requests and pushes touching `mobile/**` run Android on an emulator.
-- `workflow_dispatch` can run Android, iOS, or both.
-- iOS stays manual because macOS runner minutes are rationed.
+- No automatic trigger: the `push` and `pull_request` blocks are commented out
+  in `.github/workflows/mobile-e2e-maestro.yml` since 2026-08-13. Restoring them
+  means removing the comment markers, nothing else.
+- `workflow_dispatch` can run Android, iOS, or both, and is the only entry point
+  until the UI is frozen.
+- iOS stays manual regardless, because macOS runner minutes are rationed.
 - Release-configuration test binaries embed the JavaScript bundle and do not
   depend on a Metro process in CI.
 - Production builds must use their platform-specific `appl_` / `goog_` keys;
   the `test_` key must never be submitted to either store.
 - Maestro's exit code is never suppressed; a red flow makes the job red.
 
-For a targeted manual run, select the workflow input `flow_filter` (for
-example `06_search`). Reports, screenshots, videos, and Maestro logs are
-uploaded by the workflow.
+## Running a run
+
+Every run is explicit while the CI is mothballed:
+
+- **From the UI**: Actions > "Mobile E2E Tests (Maestro)" > **Run workflow**,
+  then pick `platform` (`android`, `ios`, `both`) and optionally a `flow_filter`
+  — a single flow name such as `06_search`, or `suites/tasks_168_170` for the
+  three flows known green (`01_login`, `06_search`, `07_paywall`).
+- **From a terminal**:
+  ```bash
+  gh workflow run mobile-e2e-maestro.yml \
+    -f platform=android -f flow_filter=suites/tasks_168_170
+  ```
+- **Locally**, against a booted emulator or simulator with the app installed:
+  ```bash
+  cd mobile && maestro test .maestro/06_search.yaml
+  ```
+
+Reports, hierarchy dumps, and Maestro logs are uploaded by the workflow as
+artifacts. Flows `03_inbox_visibility`, `04_media_detail_progression` and
+`05_artifact_trigger_action` are known red on their first assertion — do not
+include them in a dispatch expecting green.

@@ -3,9 +3,10 @@ id: task-254
 title: >-
   Mothball the Maestro E2E CI while the UI is still moving, and record the
   reactivation plan in V1_LAUNCH_PLAN
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-13 14:16'
+updated_date: '2026-08-13 16:40'
 labels:
   - tooling
   - mobile
@@ -72,11 +73,61 @@ Si `Mobile E2E Tests (Maestro)` figure dans les required status checks de la bra
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Le workflow .github/workflows/mobile-e2e-maestro.yml ne comporte plus de déclencheur push ni pull_request actif, et `workflow_dispatch` reste présent avec ses inputs flow_filter et platform
-- [ ] #2 Le YAML du workflow reste valide et les jobs android-e2e, ios-e2e et e2e-summary sont inchangés ; aucun flow de mobile/.maestro/, aucun script de .github/scripts/ n'a été supprimé ni modifié
-- [ ] #3 Un commentaire en tête du workflow explique la mise en sommeil : sa raison (UI en cours de refonte), sa date (2026-08-13), ce qui a été neutralisé, le recours au workflow_dispatch, et un renvoi vers la section de réactivation du V1_LAUNCH_PLAN
-- [ ] #4 docs/V1_LAUNCH_PLAN.md contient une section de réactivation qui énonce le jalon déclencheur (UI figée), ce qui reste provisionné, l'état des 7 flows au 2026-08-13 (3 verts, 02 neutralisé, 03/04/05 cassés sur le deep link redirigé), le travail de réamorçage sur la fixture Commonplace book, les quatre défauts du flow 05, le renvoi à task-171 et task-172, et la contrainte du budget macOS
-- [ ] #5 Les mentions Maestro devenues fausses dans Phase 5 et Phase 7 du V1_LAUNCH_PLAN renvoient à la nouvelle section au lieu de décrire une validation CI en cours ; l'information n'est pas dupliquée entre les deux endroits
-- [ ] #6 mobile/.maestro/README.md indique que la CI automatique est en sommeil et comment lancer un run manuel
-- [ ] #7 mobile/E2E_TESTING.md ne présente plus le deep link media-summarizer://share comme un mécanisme de simulation de share fonctionnel, ni le flow 02 comme couvrant l'écran de confirmation sur Android, et mentionne la redirection opérée par redirectSystemPath dans mobile/app/+native-intent.tsx
+- [x] #1 Le workflow .github/workflows/mobile-e2e-maestro.yml ne comporte plus de déclencheur push ni pull_request actif, et `workflow_dispatch` reste présent avec ses inputs flow_filter et platform
+- [x] #2 Le YAML du workflow reste valide et les jobs android-e2e, ios-e2e et e2e-summary sont inchangés ; aucun flow de mobile/.maestro/, aucun script de .github/scripts/ n'a été supprimé ni modifié
+- [x] #3 Un commentaire en tête du workflow explique la mise en sommeil : sa raison (UI en cours de refonte), sa date (2026-08-13), ce qui a été neutralisé, le recours au workflow_dispatch, et un renvoi vers la section de réactivation du V1_LAUNCH_PLAN
+- [x] #4 docs/V1_LAUNCH_PLAN.md contient une section de réactivation qui énonce le jalon déclencheur (UI figée), ce qui reste provisionné, l'état des 7 flows au 2026-08-13 (3 verts, 02 neutralisé, 03/04/05 cassés sur le deep link redirigé), le travail de réamorçage sur la fixture Commonplace book, les quatre défauts du flow 05, le renvoi à task-171 et task-172, et la contrainte du budget macOS
+- [x] #5 Les mentions Maestro devenues fausses dans Phase 5 et Phase 7 du V1_LAUNCH_PLAN renvoient à la nouvelle section au lieu de décrire une validation CI en cours ; l'information n'est pas dupliquée entre les deux endroits
+- [x] #6 mobile/.maestro/README.md indique que la CI automatique est en sommeil et comment lancer un run manuel
+- [x] #7 mobile/E2E_TESTING.md ne présente plus le deep link media-summarizer://share comme un mécanisme de simulation de share fonctionnel, ni le flow 02 comme couvrant l'écran de confirmation sur Android, et mentionne la redirection opérée par redirectSystemPath dans mobile/app/+native-intent.tsx
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Quatre fichiers touchés, aucune suppression : `.github/workflows/mobile-e2e-maestro.yml`, `docs/V1_LAUNCH_PLAN.md`, `mobile/.maestro/README.md`, `mobile/E2E_TESTING.md`.
+
+### AC #1 et #2 — neutralisation des déclencheurs
+
+Les blocs `push:` et `pull_request:` sont **commentés en place** plutôt que supprimés : la restauration se fait en retirant les marqueurs `#`, sans avoir à retrouver les filtres de paths. Le bloc `on:` ne contient donc plus que `workflow_dispatch`, avec ses deux inputs inchangés.
+
+Vérifié en parsant le fichier avec PyYAML : les clés de haut niveau sont `name`, `permissions`, `on`, `env`, `jobs` ; `on` ne porte que `workflow_dispatch` avec `flow_filter` et `platform` (choice android/ios/both) ; les trois jobs `android-e2e`, `ios-e2e`, `e2e-summary` sont présents. Le `git diff` du workflow ne contient que le commentaire d'en-tête et la mise en commentaire des deux blocs — les jobs sont intouchés au caractère près, et aucun fichier de `mobile/.maestro/` ni de `.github/scripts/` n'apparaît dans le diff.
+
+Point conservé volontairement : la condition `if:` de `android-e2e` commence par `github.event_name != 'workflow_dispatch'`. Elle devient une branche morte puisque seul `workflow_dispatch` déclenche, mais elle reste correcte (la suite du `||` évalue `platform`) et l'AC #2 demande des jobs inchangés — donc pas touchée. Elle redeviendra utile telle quelle à la réactivation.
+
+### AC #3 — commentaire d'en-tête
+
+Bloc `MOTHBALLED — 2026-08-13` en tête du workflow : la raison (UI en refonte, les flows assertent la copie affichée), ce qui a été neutralisé (les deux déclencheurs automatiques, et *seulement* eux), comment lancer un run entre-temps (UI Actions et équivalent `gh workflow run`, avec `suites/tasks_168_170` comme filtre utile), et le renvoi vers `docs/V1_LAUNCH_PLAN.md` Phase 7.
+
+### AC #4 et #5 — section de réactivation, information déplacée
+
+Section `#### Maestro E2E CI — en sommeil depuis le 2026-08-13` placée **en fin de Phase 7 (CI/CD)** : c'est la phase qui traite déjà de Maestro, et le lecteur qui y arrive est en train de statuer sur les gates CI.
+
+Information déplacée, pas dupliquée — les quatre endroits qui décrivaient un état « CI Maestro réparée et à valider » sont devenus des pointeurs d'une ligne :
+
+- Phase 7 point 7 : ne décrit plus le premier run en attente de commit/push ni le paywall rouge ; dit « en sommeil, plus un gate de release, cf. section ci-dessous ».
+- Phase 5 « À faire » : les cinq points `task-168` à `task-172` sont collapsés en un seul point 5 qui constate que la couverture Maestro n'est plus un prérequis de Phase 5, et renvoie à la section. Le point sur `task-166` est renuméroté 6 et ne conditionne plus la clôture de Phase 5 à `task-171`/`task-172`.
+- Table « Bloquants release immédiats » (section 1) : les lignes `Maestro V1` et `Clôture Phase 5` portaient des constats faux (« Flows 06 search et 07 paywall absents ; workflow CI cassé […] masqués par `|| true` », clôture conditionnée à `task-171/172`) — remplacés par un renvoi. Hors du périmètre littéral de l'AC #5, mais c'était la même affirmation périmée sur les mêmes tâches.
+
+Contenu de la section : jalon déclencheur (UI figée, jalon produit et non date) ; ce qui dort vs ce qui reste provisionné (flows + `utils/` + `suites/`, les trois scripts runner, les jobs, les cinq secrets cités **par nom uniquement**, la fixture « Commonplace book ») ; table de l'état réel des 7 flows au 2026-08-13 avec la preuve pour les 3 verts (run `31612429695`, Android API 33 + iOS 18.5) et la cause exacte pour 03/04/05 ; le travail de réactivation en trois points (réamorçage sur la fixture avec l'effet de bord `mediaReady`, les quatre défauts du flow 05, la reprise de `task-171`/`task-172` avec le geste précis pour déverrouiller 172) ; la contrainte macOS x10 sur plan gratuit.
+
+Ajout connexe : Phase 7 point 8 (déjà consacré à la branch protection) rappelle qu'un `Mobile E2E Tests (Maestro)` resté dans les required checks bloquerait les PR. C'est une consignation pour l'owner, pas une tentative de satisfaire sa note hors-AC — le réglage est sur `settings/branches`, hors de portée d'un agent.
+
+### AC #6 — mobile/.maestro/README.md
+
+Bandeau de sommeil en tête, avec renvoi vers la section V1_LAUNCH_PLAN. La première puce de « Execution model » (« Pull requests and pushes touching `mobile/**` run Android on an emulator ») était devenue fausse : remplacée par le constat de sommeil et le geste de restauration. Nouvelle section « Running a run » (UI Actions, `gh workflow run`, `maestro test` local) qui absorbe le paragraphe final préexistant sur `flow_filter` au lieu de le dupliquer, et qui prévient que 03/04/05 sont rouges à la première assertion.
+
+### AC #7 — mobile/E2E_TESTING.md
+
+- Table des flows : la ligne 02 ne prétend plus couvrir « Deep link share simulation, confirmation screen, Save action / Android (full) » — elle dit « auth smoke test only, tagged `skipped` ». La colonne « Platforms » devient « Status », parce que « Android, iOS » sur 03/04/05 laissait croire à une couverture qui n'a jamais tourné.
+- Section « Share Intent Testing Approach » : la sous-section « Android (Fully Automated) » est remplacée par « Neither platform is automated », qui cite `redirectSystemPath` dans `mobile/app/+native-intent.tsx`, les trois patterns matchés (`dataUrl=`, `://share?`, `://share/`), le retour `/(tabs)/inbox`, et **pourquoi** cette redirection est volontaire (une URL de lancement périmée faisait clignoter l'écran de confirmation). Le deep link reste montré, mais comme contre-exemple.
+- Corrections de cohérence dans la foulée : bandeau de sommeil dans l'Overview ; « CI Environment » précise que les runs sont manuels ; l'exemple « Run a Specific Flow » ne pointe plus vers `02_share_intake` ; le critère d'escalade Appium ne s'appuie plus sur « Maestro's deep-link-based share simulation » qui n'existe pas ; la ligne 02 de l'arbre de triage ; « All 5 Maestro flows » devient 7 flows, explicitement cadré comme cible post-réactivation.
+
+### Hors périmètre, volontairement
+
+Les flows 03/04/05 ne sont pas réparés (la tâche l'interdit : le constat est consigné, la réparation appartient à la réactivation). Aucun test ajouté. `task-171` et `task-172` ne sont pas archivées. Aucune valeur de secret n'est écrite : seuls les noms `E2E_TEST_USER_EMAIL`, `E2E_TEST_USER_PASSWORD`, `E2E_SEARCH_TEST_TERM`, `E2E_REVENUECAT_TEST_KEY`, `E2E_API_BASE_URL` apparaissent — le diff a été grepé avant `git add`.
+
+### Ce qui reste à l'owner
+
+La désactivation ne devient effective qu'au push sur `main` : jusque-là la CI continue de se déclencher avec l'ancienne configuration. Après push, vérifier qu'un commit touchant `mobile/**` ne produit plus de run « Mobile E2E Tests (Maestro) », que le bouton « Run workflow » est toujours là, et retirer ce check des required status checks de la branch protection s'il y figure.
+<!-- SECTION:NOTES:END -->

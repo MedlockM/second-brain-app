@@ -1,23 +1,53 @@
 name: Mobile E2E Tests (Maestro)
 
+# ---------------------------------------------------------------------------
+# MOTHBALLED — 2026-08-13
+#
+# Why: the app UI is being redesigned. Every flow in mobile/.maestro/ asserts
+# on screen copy and testIDs ("Welcome back", "YOUR MEDIA", "AI Artifacts",
+# "Choose Your Plan", paywall-screen, search-result-card...), so each design
+# iteration breaks selectors that would have to be rewritten anyway once the
+# screens settle. Keeping the suite green now buys coverage scheduled to be
+# redone.
+#
+# What was neutralised: the automatic triggers only — `push` (branches main and
+# second-brain-project) and `pull_request`, both filtered on `mobile/**`. They
+# are kept commented out immediately below, so the previous behaviour is
+# restored by deleting the comment markers. Nothing else changed: the
+# android-e2e / ios-e2e / e2e-summary jobs, the runner scripts under
+# .github/scripts/, the seven flows and the GitHub secrets are all untouched.
+#
+# How to run one in the meantime: `workflow_dispatch` is intact. Actions >
+# "Mobile E2E Tests (Maestro)" > Run workflow, with `platform`
+# (android | ios | both) and an optional `flow_filter` (e.g. `06_search`, or
+# `suites/tasks_168_170` for the three flows known green). Equivalent CLI:
+# `gh workflow run mobile-e2e-maestro.yml -f platform=android`.
+#
+# Reactivation plan — trigger (UI frozen), per-flow state as of 2026-08-13 and
+# the work to redo: docs/V1_LAUNCH_PLAN.md, Phase 7, section
+# "Maestro E2E CI — en sommeil depuis le 2026-08-13".
+# ---------------------------------------------------------------------------
+
 permissions:
   contents: read
   checks: write
 
 on:
-  push:
-    branches: [main, second-brain-project]
-    paths:
-      - "mobile/**"
-      - ".maestro/**"
-      - "mobile/.maestro/**"
-      - ".github/workflows/mobile-e2e-maestro.yml"
-  pull_request:
-    branches: [main, second-brain-project]
-    paths:
-      - "mobile/**"
-      - ".maestro/**"
-      - "mobile/.maestro/**"
+  # Mothballed on 2026-08-13 — see the header comment above. Restore the
+  # automatic runs by uncommenting the two blocks below, unchanged.
+  # push:
+  #   branches: [main, second-brain-project]
+  #   paths:
+  #     - "mobile/**"
+  #     - ".maestro/**"
+  #     - "mobile/.maestro/**"
+  #     - ".github/workflows/mobile-e2e-maestro.yml"
+  # pull_request:
+  #   branches: [main, second-brain-project]
+  #   paths:
+  #     - "mobile/**"
+  #     - ".maestro/**"
+  #     - "mobile/.maestro/**"
   workflow_dispatch:
     inputs:
       flow_filter:
