@@ -87,5 +87,5 @@ Si une étape révèle qu'un fix mineur est nécessaire (ex. ajouter `typecheck`
 - [ ] #7 Concurrency group par PR (cancel-in-progress) pour ne pas accumuler les runs
 - [ ] #8 Une PR triviale déclenche bien le workflow pr.yml et passe verte en moins de 5 min sur les 2 jobs
 - [ ] #9 Une régression triviale (import inutilisé backend ou type error mobile) est bien détectée par le workflow
-- [ ] #10 Implementation Notes documente l'action GitHub UI manuelle restante : activer branch protection sur main avec required checks backend + mobile
+- [ ] #10 Implementation Notes documente l'action GitHub UI manuelle restante : activer branch protection sur main avec required checks backend + mobile — **couverte par `task-257` le 2026-08-13** : la branch protection est posée sur `main` (via `gh api`, pas l'UI). Régime volontairement plus léger que ce qu'annonçait cette case : force-push et suppression interdits, **aucun** required status check et **aucune** required review, parce que le flow réel est un merge local puis un push direct sur `main` (des required checks rejetteraient tout push direct, et `Main Branch Checks` ne tourne jamais sur une PR). Raisonnement complet et commande de rollback dans `task-257`
 <!-- AC:END -->

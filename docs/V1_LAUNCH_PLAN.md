@@ -37,8 +37,9 @@
   parce qu'il ne teste que DynamoDB via le rôle IAM — aucune intégration tierce
   ne fonctionne.
 - **Repo passé PUBLIC** : vérifié le 2026-08-13. Conséquences directes — la
-  branch protection n'est plus bloquée par le plan GitHub (elle reste **non
-  configurée** : `branches/main/protection` → 404, `rulesets` → `[]`), et tout
+  branch protection n'est plus bloquée par le plan GitHub et est **désormais
+  configurée** (`task-257`, régime léger : force-push et suppression refusés,
+  aucun required check ni required review, `rulesets` toujours `[]`), et tout
   identifiant écrit dans un fichier suivi est désormais public (d'où `task-255`
   et `de3ac86`).
 - **Mobile inchangé et redevenu le chemin critique** : aucune build EAS Android
@@ -167,7 +168,7 @@ un staging ou une soumission.
 
 | Service | Coût | Pourquoi | Statut |
 |---|---|---|---|
-| **GitHub** (compte + repo **public** depuis le 2026-08-13) | gratuit | Versioning, CI/CD, releases | Bon : source synchronisée, `Main Branch Checks` et `Deploy Lambda Functions` verts sur le HEAD, environnement `production` créé (branche `main` seule autorisée). Six secrets Actions (`AWS_DEPLOY_ROLE_ARN` + les cinq E2E). Manquent `EXPO_TOKEN`, Apple/App Store Connect et le service account Google Play. Le repo étant public, la branch protection est **désormais disponible** mais n'est pas configurée |
+| **GitHub** (compte + repo **public** depuis le 2026-08-13) | gratuit | Versioning, CI/CD, releases | Bon : source synchronisée, `Main Branch Checks` et `Deploy Lambda Functions` verts sur le HEAD, environnement `production` créé (branche `main` seule autorisée). Six secrets Actions (`AWS_DEPLOY_ROLE_ARN` + les cinq E2E). Manquent `EXPO_TOKEN`, Apple/App Store Connect et le service account Google Play. Branch protection **configurée** sur `main` depuis le 2026-08-13 (`task-257`, régime léger : force-push et suppression refusés, aucun required check) |
 | **AWS** (2 comptes, Organizations `o-7sf5u7j5hd`) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | Bon : dev dans `125313707865` (déployé sur le HEAD), prod dans `866874944541` (199 ressources, health `200`, **en veille** et secret vide). Aucune alarme active — par conception dans les deux environnements, pas par défaut de provisioning |
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; les quatre vérifications d'éligibilité du compte restent à confirmer par l'owner (identité, profil de paiement, adresse publique, closed testing 12 testeurs / 14 jours) — runbook `task-260`, détail en Phase 2.2. Aucune preuve plus récente dans le repo |
@@ -367,13 +368,14 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    Apple/App Store Connect et le service account Google Play. Un environnement
    GitHub `production` existe (créé par `task-248`), restreint à `main`, avec son
    propre `AWS_DEPLOY_ROLE_ARN`.
-6. **Branch protection** : la contrainte de plan est **levée** — le repo est
-   public, donc la protection est disponible gratuitement. Elle n'est pour autant
-   **pas configurée** : `branches/main/protection` → `404 Branch not protected`,
-   `rulesets` → `[]`. À faire, en n'y mettant **pas** `Mobile E2E Tests
-   (Maestro)` (cf. Phase 7).
-7. **Reste à faire** : committer les 5 fichiers ci-dessus, puis configurer la
-   branch protection.
+6. **Branch protection** : **configurée** le 2026-08-13 par `task-257`, en régime
+   léger. `branches/main/protection` → `200`, avec `allow_force_pushes: false`,
+   `allow_deletions: false`, `required_linear_history: false`,
+   `enforce_admins: false`, et **ni** required status checks **ni** required
+   pull-request reviews — le flow reste un merge local suivi d'un push direct sur
+   `main`, que des required checks rejetteraient. Aucun ruleset (`rulesets` →
+   `[]`). Rollback : `gh api -X DELETE repos/:owner/:repo/branches/main/protection`.
+7. **Reste à faire** : committer les 5 fichiers ci-dessus.
 
 ### Phase 2 — Comptes externes (jour 1-2)
 
@@ -799,11 +801,15 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    Ce n'est plus un gate de release. État des flows et plan de réactivation dans
    la section ci-dessous. À noter : le dernier run automatique, sur `9cb9da5`, est
    rouge — c'est cohérent avec la mise en sommeil, pas une régression à traiter.
-8. **Branch protection** : le choix est **tranché de fait** — le repo est public,
-   donc la protection est disponible sans upgrade. Elle reste à configurer
-   (`404 Branch not protected`, aucun ruleset). Y mettre `Main Branch Checks`, et
-   surtout **pas** `Mobile E2E Tests (Maestro)` : le workflow ne se déclenche plus
-   tout seul et les PR resteraient bloquées en attente d'un check absent.
+8. ✅ **Branch protection** : **configurée** le 2026-08-13 (`task-257`) en régime
+   léger — force-push et suppression refusés sur `main`, `enforce_admins: false`,
+   `required_linear_history: false`, et **aucun** required status check ni
+   required review. Volontairement pas de `Main Branch Checks` dans les required
+   checks : ce workflow ne se déclenche que sur `push: main` et ne tourne jamais
+   sur une PR, il resterait donc `expected` pour toujours. Même raison pour
+   `Mobile E2E Tests (Maestro)`, en sommeil sur `workflow_dispatch` depuis
+   `task-254`. Et des required checks s'appliqueraient aussi aux pushes directs,
+   qui sont le flow réel (merge local puis push).
 9. Vérifier le rollback Lambda avec deux images API/worker immuables après
    `task-217`, puis documenter l'exercice.
 
@@ -1100,8 +1106,9 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 - [x] Architecture LLM production : **tranché** — `owner_decision: abandoned` sur le
   benchmark `task-212` ; `task-212` et `task-213` sont archivées, le statu quo
   OpenAI direct est assumé pour V1
-- [ ] Branch protection sur `main` : plus aucun obstacle de plan (repo public), mais
-  rien n'est configuré
+- [x] Branch protection sur `main` : **tranché et appliqué** le 2026-08-13
+  (`task-257`) — régime léger, force-push et suppression refusés, aucun required
+  check ni required review pour ne pas casser le flow merge local + push direct
 
 ---
 
@@ -1125,7 +1132,7 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 | CI donnant un faux sentiment de sécurité | Gates verts au 2026-08-13. Rester vigilant sur trois points : ne pas remettre de `|| true`, ne pas mettre le workflow Maestro en sommeil dans les required checks, et pin les outils via `uv.lock` pour que la CI lint avec les mêmes versions que le poste owner. |
 | Build mobile sans secrets runtime | Les trois environnements EAS sont peuplés ; reste `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` (`task-238`) et `EXPO_TOKEN` côté GitHub Actions. `mobile/.env` gitignored ne constitue pas une configuration de build distante. |
 | Domaine/légal indisponible | Textes légaux rédigés (`docs/compliance/`) mais **non hébergés** : `/privacy` et `/terms` répondent 404 derrière une redirection vers `sbl.so`. Trancher le domaine, héberger, puis vérifier les URLs depuis un réseau externe avant soumission. |
-| ~~Branch protection indisponible~~ | **Obstacle levé** : le repo est public, la protection est disponible sans upgrade. Reste à la configurer — elle ne l'est pas au 2026-08-13. |
+| ~~Branch protection indisponible~~ | **Traité** (`task-257`, 2026-08-13) : `main` refuse le force-push et la suppression. Régime léger assumé — pas de required check, parce qu'un required check s'applique aussi aux pushes directs et que `Main Branch Checks` ne tourne jamais sur une PR. Rollback : `gh api -X DELETE repos/:owner/:repo/branches/main/protection`. |
 | Repo public et fuite d'identifiants | Le dépôt est public depuis peu. `task-255` et `de3ac86` ont purgé l'email de login et l'identité de compte des fichiers suivis ; l'email racine du compte AWS prod est volontairement absent du dépôt. Tout ajout de credential dans un fichier suivi est désormais une fuite publique immédiate. |
 
 ---
