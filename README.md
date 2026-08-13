@@ -16,7 +16,7 @@ Plateforme "second cerveau" : enregistrer n'importe quel média en un share, l'o
 | `docs/ERROR_HANDLING_BEST_PRACTICES.md` | Current | Stratégie gestion d'erreurs API→UI |
 | `docs/LOGGING_SYSTEM.md` | Current | Spec logging structuré JSON |
 | `docs/AUTHENTICATION_SETUP.md` | Current | Flows auth (OAuth + local) |
-| `docs/HORIZONTAL_SCALING.md` | Current | Scaling Fargate éphémère |
+| `docs/DEVBOX_SETUP.md` | Current | Reconstruire un poste de dev complet (nouvelle machine) |
 | `docs/API_LAMBDA_RUNTIME.md` | Current | Runtime Lambda API dédié, warm-up, release et seuil provisioned concurrency |
 | `docs/DEEPGRAM_INCIDENT_RUNBOOK.md` | Current | Runbook incidents transcription |
 | `docs/ADR/` | Accepted | Décisions d'architecture (4 ADRs) |
@@ -34,6 +34,9 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 cp .env.example .env
 # Fill in AWS credentials for the dev environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
 ```
+
+Poste entièrement neuf (profils AWS, mobile, Terraform, credentials à récupérer
+depuis Secrets Manager) : `docs/DEVBOX_SETUP.md`.
 
 Utiliser les binaires du venv directement : cela reste reproductible même si
 le shell courant n'a pas activé `.venv` et évite de prendre un outil global par
@@ -58,14 +61,6 @@ sans créer de variante locale `.venv-<tâche>`.
 
 - **API** : http://localhost:8000
 - **Docs API** : http://localhost:8000/docs
-
-## Tests
-
-```bash
-make test-unit          # Tests unitaires
-make test-integration   # Tests d'intégration
-make test-all           # Tous les tests
-```
 
 ## Stack
 
