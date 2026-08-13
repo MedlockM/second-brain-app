@@ -8,11 +8,19 @@ RUN pip install --no-cache-dir uv
 
 WORKDIR ${LAMBDA_TASK_ROOT}
 
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 
-# Project base dependencies are the API/shared runtime set. Worker-only extras
-# (currently trafilatura and its parsing stack) are intentionally not installed.
-RUN uv pip install --system --no-cache-dir -r pyproject.toml
+# Install the locked versions, never the pyproject ranges. Resolving the ranges
+# at build time made every build a different image: `fastapi>=0.104.0` silently
+# resolved to 0.141.1, whose include_router internals broke the startup guard in
+# main.py, while the local venv stayed on the locked 0.116.1 — dev answered 500
+# on every route and nothing reproduced outside the image.
+# --no-emit-project: the project itself is the source tree copied below, not a
+# dependency to resolve here.
+RUN uv export --frozen --no-dev --no-emit-project --format requirements-txt \
+      -o /tmp/requirements.txt \
+    && uv pip install --system --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 COPY media_summarizer/ ./media_summarizer/
 

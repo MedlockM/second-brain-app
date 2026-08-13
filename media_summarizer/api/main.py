@@ -178,16 +178,37 @@ CRITICAL_ROUTES: tuple[tuple[str, str], ...] = (
 )
 
 
+def _mounted_routes(routes: list, prefix: str = "") -> set[tuple[str, str]]:
+    """Collect (method, full path) for every route, descending into sub-routers.
+
+    Two shapes have to be handled. Historically `include_router` copied each
+    APIRoute into `app.routes` with its prefix already baked into `.path`, so a
+    flat scan was enough. Since FastAPI 0.13x it appends one opaque
+    `_IncludedRouter` per `include_router` call instead, which carries neither
+    `.path` nor `.methods` — the real routes hang off its `include_context`,
+    with the prefix stored there rather than applied. A flat scan sees only the
+    4 docs routes plus `/`, so it reports every mounted route as missing (that
+    regression took dev down: the image resolved an unpinned
+    `fastapi>=0.104.0` to 0.141.1 while the lockless local venv stayed on
+    0.116.1, so this guard passed locally and failed in Lambda).
+    """
+    mounted: set[tuple[str, str]] = set()
+    for route in routes:
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", None)
+        if path is not None and methods:
+            mounted |= {(method, prefix + path) for method in methods}
+            continue
+        # FastAPI >= 0.13x: an opaque wrapper holding the router and its prefix.
+        context = getattr(route, "include_context", None)
+        included = getattr(context, "included_router", None)
+        if included is not None:
+            mounted |= _mounted_routes(included.routes, prefix + (getattr(context, "prefix", "") or ""))
+    return mounted
+
+
 def _assert_critical_routes_mounted() -> None:
-    # app.routes is typed as list[BaseRoute]; only APIRoute carries .path and
-    # .methods, hence the getattr rather than an isinstance import.
-    mounted = {
-        (method, path)
-        for route in app.routes
-        for path in (getattr(route, "path", None),)
-        if path is not None
-        for method in getattr(route, "methods", None) or ()
-    }
+    mounted = _mounted_routes(app.routes)
     missing = [f"{m} {p}" for m, p in CRITICAL_ROUTES if (m, p) not in mounted]
     if missing:
         raise RuntimeError(

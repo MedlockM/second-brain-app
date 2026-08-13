@@ -14,13 +14,18 @@ RUN pip install --no-cache-dir uv
 # Set working directory to Lambda task root
 WORKDIR ${LAMBDA_TASK_ROOT}
 
-# Copy dependency manifest
-COPY pyproject.toml ./
+# Copy dependency manifest and its lockfile
+COPY pyproject.toml uv.lock ./
 
-# Install base runtime dependencies plus worker-only extraction dependencies.
-# Reading pyproject.toml as a requirements source avoids trying to build the
-# project before its source tree is copied into the image.
-RUN uv pip install --system --no-cache-dir --extra worker -r pyproject.toml
+# Install base runtime dependencies plus worker-only extraction dependencies,
+# at the versions pinned in uv.lock rather than whatever the pyproject ranges
+# resolve to on build day (see the comment in lambda-api.Dockerfile: an
+# unpinned fastapi took dev down). --no-emit-project keeps the project itself
+# out of the resolution; its source tree is copied below.
+RUN uv export --frozen --no-dev --extra worker --no-emit-project \
+      --format requirements-txt -o /tmp/requirements.txt \
+    && uv pip install --system --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 # Copy application code
 COPY media_summarizer/ ./media_summarizer/
