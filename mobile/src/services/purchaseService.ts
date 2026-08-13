@@ -122,11 +122,29 @@ export async function getCustomerInfo(): Promise<CustomerInfo> {
 }
 
 /**
- * Check if the user has an active "pro" entitlement.
- * The entitlement identifier should match what is configured in RevenueCat dashboard.
+ * RevenueCat entitlement identifiers, one per subscription tier.
+ *
+ * Must stay in sync with the lookup keys of the entitlements in project
+ * `proj879a771a` and with `ENTITLEMENT_TIER_MAP` in
+ * `media_summarizer/api/endpoints/revenucat_webhook.py`.
+ * Layout reference: `docs/REVENUECAT_ENTITLEMENTS.md`.
+ */
+export const TIER_ENTITLEMENT_IDS = [
+  "tier_text_only",
+  "tier_mix",
+  "tier_audio_heavy",
+] as const;
+
+/**
+ * Whether any tier entitlement is active for this customer.
+ *
+ * This is a boolean access gate only — it deliberately does not tell the tiers
+ * apart. The tier itself comes from `GET /api/v1/entitlements/status`, which
+ * reads the subscription row the webhook writes.
  */
 export function hasActiveEntitlement(customerInfo: CustomerInfo): boolean {
-  // RevenueCat entitlement identifier configured in dashboard
-  const entitlement = customerInfo.entitlements.active["pro"];
-  return entitlement !== undefined && entitlement.isActive;
+  return TIER_ENTITLEMENT_IDS.some((id) => {
+    const entitlement = customerInfo.entitlements.active[id];
+    return entitlement !== undefined && entitlement.isActive;
+  });
 }

@@ -152,7 +152,7 @@ un staging ou une soumission.
 |---|---|---|
 | Branding app | `task-186` | Nom marketing final requis avant App Store Connect / Play Console |
 | App icons | `task-180` | Remplacer les placeholders avant soumission |
-| RevenueCat / IAP | Phase 6 : `task-262`, puis `task-261` (iOS) et `task-238` (Android) | `REVENUCAT_WEBHOOK_SECRET` vide en local **et** dans le secret dev → le webhook répond `500`, `revenucat_events-dev` = 0 item. L'entitlement `pro`, l'offering `default` et les 3 packages existent, mais leurs 3 produits sont **Test Store** : l'app iOS RevenueCat porte 0 produit et aucune clé App Store Connect, et aucune app Google Play n'est déclarée. `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` encore un placeholder dans les trois environnements EAS |
+| RevenueCat / IAP | Phase 6 : `task-262` **faite**, restent `task-261` (iOS) et `task-238` (Android) | `REVENUCAT_WEBHOOK_SECRET` vide en local **et** dans le secret dev → le webhook répond `500`, `revenucat_events-dev` = 0 item. Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent, mais leurs 3 produits sont **Test Store** : l'app iOS RevenueCat porte 0 produit et aucune clé App Store Connect, et aucune app Google Play n'est déclarée. `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` encore un placeholder dans les trois environnements EAS |
 | Domaine production | Phase 10 | Au 2026-08-13 : `secondbrainlabs.com` **résout** mais redirige en `301` vers `sbl.so` ; `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont toujours en `NXDOMAIN`. Le profil EAS production pointe encore vers le second |
 | Store/legal | Phase 10 | Les textes existent au dépôt (`docs/compliance/privacy-policy.md`, `terms-of-service.md`, `apple-app-privacy.md`, `google-play-data-safety.md`, `CHECKLIST.md`) mais **ne sont pas hébergés** : `secondbrainlabs.com/privacy` et `/terms` redirigent vers `sbl.so/...` qui répond **404**. Liens in-app absents, listings/screenshots/review accounts à finaliser |
 
@@ -185,7 +185,7 @@ un staging ou une soumission.
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; les quatre vérifications d'éligibilité du compte restent à confirmer par l'owner (identité, profil de paiement, adresse publique, closed testing 12 testeurs / 14 jours) — runbook `task-260`, détail en Phase 2.2. Aucune preuve plus récente dans le repo |
 | **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée, aucune Android. Les trois environnements EAS **sont peuplés** (constaté le 2026-08-13) — `development` porte six variables `EXPO_PUBLIC_*` ; seul `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` reste un placeholder |
-| **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : projet `proj879a771a` avec entitlement, offering courant et 3 packages tiers déjà en place, mais **uniquement sur le Test Store** ; app iOS sans produit ni clé ASC, pas d'app Play, webhook secret vide (`500`). Aucun achat sandbox réel possible en l'état |
+| **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : projet `proj879a771a` avec 3 entitlements de tier, offering courant et 3 packages tiers en place (`task-262`, 2026-08-13), mais **uniquement sur le Test Store** ; app iOS sans produit ni clé ASC, pas d'app Play, webhook secret vide (`500`). Aucun achat sandbox réel possible en l'état. Disposition détaillée : `docs/REVENUECAT_ENTITLEMENTS.md` |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | Partiel : projet + consent screen Test + OAuth Web backend + OAuth iOS OK ; OAuth Android et publication Production restent à faire |
 | **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (compte créé, clé en local dans `.env`) |
 | **Deepgram** | usage-based | Transcription audio | OK (compte créé, clé en local dans `.env`) |
@@ -775,11 +775,23 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
   `/v2/projects/<id>/webhooks` répond `404`, donc cette étape est
   obligatoirement manuelle.
 - **Le projet RevenueCat `proj879a771a` est plus avancé que ce que ce plan
-  disait** : l'entitlement `pro`, l'offering `default` (courant) et les 3 packages
+  disait** : l'offering `default` (courant) et les 3 packages
   `text_only`/`mix`/`audio_heavy` existent, avec 3 produits mensuels rattachés.
   **Mais ces 3 produits appartiennent au Test Store** (`appa51ecf7585`,
   identifiants `*_test`) : toute la chaîne est câblée sur le simulateur
   RevenueCat, jamais sur StoreKit ni Play Billing.
+- **La résolution du tier est entitlement-driven depuis `task-262`**
+  (2026-08-13) : le webhook lit le tier dans les entitlement IDs de l'événement
+  (`entitlement_ids`, ou `entitlement_id` sur les anciens payloads), plus jamais
+  dans un identifiant de produit store. Un entitlement par tier
+  (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), un produit rattaché à
+  exactement un entitlement ; ajouter un produit store devient une opération
+  dashboard, sans changement de code ni deploy Lambda. Un tier non résolvable
+  n'est plus avalé en `warning` : il sort en `ERROR`
+  (`revenucat.tier_unresolved`) avec le product ID et les entitlement IDs, avec
+  metric filter + alarme dans
+  `infrastructure/terraform/modules/platform/revenucat_alerts.tf`. Disposition
+  complète : `docs/REVENUECAT_ENTITLEMENTS.md`.
 - **L'app iOS `app0d4b00c12f`** (bundle `com.secondbrainlabs.core`) est déclarée
   avec une In-App Purchase key, mais porte **0 produit** et
   `app_store_connect_api_key_configured: false`.
@@ -795,7 +807,8 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
   (cf. Phase 7, contrainte de budget CI). La validation iOS passe par TestFlight +
   compte sandbox. Ce n'est pas un reste à faire, c'est un hors-sujet.
 
-**Ordre d'exécution** — `task-262` d'abord, c'est ce qui conditionne les deux autres :
+**Ordre d'exécution** — `task-262` était le préalable des deux autres, elle est
+faite :
 
 1. **`REVENUCAT_WEBHOOK_SECRET`** (owner, ~15 min, ne dépend de rien) : générer
    une valeur aléatoire, la saisir dans RevenueCat → Integrations → Webhooks avec
@@ -807,13 +820,15 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    spontané ; ré-appliquer la même `image_uri` suffit (elle est sous
    `ignore_changes`, donc aucune dérive Terraform). Gate : le webhook passe de
    `500` à `401` sur un token invalide.
-2. **`task-262` — résolution du tier par entitlement** : trois entitlements
-   `tier_text_only`/`tier_mix`/`tier_audio_heavy`, suppression de
-   `PRODUCT_TIER_MAP`, de l'entitlement `pro`, du legacy
-   `Second Brain Labs Pro` et du scaffolding RevenueCat (`monthly`/`yearly`,
-   `$rc_monthly`/`$rc_annual`). À faire **avant** `task-238` et `task-261`, qui
-   rattachent des produits à cette structure. Aucune couche de compatibilité :
-   rien n'est déployé, il n'y a ni client ni abonnement à préserver.
+2. ✅ **`task-262` — résolution du tier par entitlement** (2026-08-13) : trois
+   entitlements `tier_text_only` (`entlc5a41cba3a`) / `tier_mix`
+   (`entlde3fb9eb65`) / `tier_audio_heavy` (`entlfa93d44749`), un produit
+   rattaché à exactement un entitlement ; `PRODUCT_TIER_MAP`, l'entitlement
+   `pro`, le legacy `Second Brain Labs Pro` et le scaffolding RevenueCat
+   (`monthly`/`yearly`, `$rc_monthly`/`$rc_annual`) supprimés. Le code du webhook
+   ne contient plus aucun identifiant de produit store. Reste à vérifier après un
+   push sur `main` : que le webhook déployé traite un événement porteur d'un
+   entitlement de tier (dépend du point 1, le secret).
 3. **`task-261` — iOS** : 3 subscriptions dans App Store Connect
    (`com.secondbrainlabs.core.{text_only,mix,audio_heavy}_monthly`, 3/5/9 €),
    clé API App Store Connect côté RevenueCat, compte sandbox tester, build

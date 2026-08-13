@@ -11,7 +11,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, status
 
@@ -24,22 +24,42 @@ from media_summarizer.core.models.billing import (
 )
 from media_summarizer.utils import database_async, minute_db
 from media_summarizer.utils.env import required_env
+from media_summarizer.utils.logging_config import log_event
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# RevenueCat product ID to tier mapping
-# These product IDs should match what is configured in the RevenueCat dashboard
-PRODUCT_TIER_MAP: Dict[str, SubscriptionTier] = {
-    # iOS product IDs
-    "com.secondbrainlabs.core.text_only_monthly": SubscriptionTier.S,
-    "com.secondbrainlabs.core.mix_monthly": SubscriptionTier.M,
-    "com.secondbrainlabs.core.audio_heavy_monthly": SubscriptionTier.L,
-    # Android product IDs
-    "text_only_monthly": SubscriptionTier.S,
-    "mix_monthly": SubscriptionTier.M,
-    "audio_heavy_monthly": SubscriptionTier.L,
+# RevenueCat entitlement lookup key -> subscription tier.
+#
+# One entitlement per access level, which is RevenueCat's recommended layout for
+# multi-tier apps. The entitlement is stable across stores, platforms and
+# billing durations, so shipping a new store product is a dashboard operation
+# and never a code change here — unlike the store-product-ID map this replaced,
+# which grew one entry per store x platform x duration and dropped purchases
+# whenever a product reached a store before the map was updated.
+#
+# Lookup keys mirror the pricing config tier ids of
+# core/services/pricing_config_service.py (`text_only` / `mix` / `audio_heavy`),
+# which is also what quota_enforcer._SUBSCRIPTION_TIER_TO_CONFIG maps onto.
+# The live layout is documented in docs/REVENUECAT_ENTITLEMENTS.md.
+ENTITLEMENT_TIER_MAP: Dict[str, SubscriptionTier] = {
+    "tier_text_only": SubscriptionTier.S,
+    "tier_mix": SubscriptionTier.M,
+    "tier_audio_heavy": SubscriptionTier.L,
 }
+
+# Ranking used when an event carries several tier entitlements at once (an
+# upgrade whose previous entitlement has not lapsed yet, a grandfathered grant):
+# the highest tier wins, which is the safe direction for the user.
+_TIER_RANK: Dict[SubscriptionTier, int] = {
+    SubscriptionTier.S: 0,
+    SubscriptionTier.M: 1,
+    SubscriptionTier.L: 2,
+}
+
+# Structured log event alarmed by
+# infrastructure/terraform/modules/platform/revenucat_alerts.tf.
+EVENT_TIER_UNRESOLVED = "revenucat.tier_unresolved"
 
 REVENUCAT_EVENTS_TABLE = required_env("REVENUCAT_EVENTS_TABLE")
 
@@ -83,9 +103,71 @@ async def _record_event(event_id: str, event_type: str, user_id: str) -> None:
         )
 
 
-def _resolve_tier(product_id: str) -> Optional[SubscriptionTier]:
-    """Resolve a RevenueCat product ID to a subscription tier."""
-    return PRODUCT_TIER_MAP.get(product_id)
+def _entitlement_ids(event: Dict[str, Any]) -> List[str]:
+    """Collect the entitlement identifiers carried by a RevenueCat event.
+
+    `entitlement_ids` (array) is the current payload field; `entitlement_id`
+    (string) is documented as deprecated but still always sent, and older
+    payload versions carry only that one. Both belong to RevenueCat's input
+    contract, which we do not control, so both are read.
+    """
+    ids: List[str] = []
+
+    raw = event.get("entitlement_ids")
+    if isinstance(raw, list):
+        ids.extend(str(value) for value in raw if value)
+    elif isinstance(raw, str) and raw:
+        ids.append(raw)
+
+    single = event.get("entitlement_id")
+    if isinstance(single, str) and single:
+        ids.append(single)
+
+    deduped: List[str] = []
+    for value in ids:
+        if value not in deduped:
+            deduped.append(value)
+    return deduped
+
+
+def _resolve_tier(event: Dict[str, Any]) -> Optional[SubscriptionTier]:
+    """Resolve the subscription tier from the event's entitlement identifiers.
+
+    Returns `None` when the event carries no known tier entitlement, which means
+    a store product reached a store without being attached to one of the tier
+    entitlements in the RevenueCat dashboard. Callers must report that through
+    `_log_tier_unresolved` rather than swallow it.
+    """
+    tiers = [
+        ENTITLEMENT_TIER_MAP[entitlement_id]
+        for entitlement_id in _entitlement_ids(event)
+        if entitlement_id in ENTITLEMENT_TIER_MAP
+    ]
+    if not tiers:
+        return None
+    return max(tiers, key=lambda tier: _TIER_RANK[tier])
+
+
+def _log_tier_unresolved(event_type: str, event: Dict[str, Any], product_id: str) -> None:
+    """Report an event whose tier no entitlement could resolve.
+
+    ERROR and not WARNING on purpose: this is money the user has already been
+    charged that the backend is about to ignore, so it has to page instead of
+    sitting in a log nobody reads. The product ID and the entitlement IDs are
+    both attached because the fix is always "attach that product to its tier
+    entitlement in RevenueCat", and those two values name the product and show
+    what it resolved to instead.
+    """
+    log_event(
+        logger,
+        logging.ERROR,
+        EVENT_TIER_UNRESOLVED,
+        f"{event_type}: no tier entitlement on the event, subscription tier unresolved",
+        revenucat_event_type=event_type,
+        revenucat_product_id=product_id or "missing",
+        revenucat_entitlement_ids=_entitlement_ids(event) or ["none"],
+        app_user_id=event.get("app_user_id", ""),
+    )
 
 
 def _get_platform(store: str) -> Optional[SubscriptionPlatform]:
@@ -131,9 +213,11 @@ async def _handle_initial_purchase(event: Dict[str, Any]) -> None:
         except (ValueError, TypeError):
             pass
 
-    tier = _resolve_tier(product_id)
+    tier = _resolve_tier(event)
     if not tier:
-        logger.warning(f"Unknown product_id: {product_id}, skipping INITIAL_PURCHASE")
+        # The row we are about to write requires a tier, so there is nothing
+        # sane to persist here. The purchase is dropped, loudly.
+        _log_tier_unresolved("INITIAL_PURCHASE", event, product_id)
         return
 
     platform = _get_platform(store)
@@ -211,10 +295,13 @@ async def _handle_renewal(event: Dict[str, Any]) -> None:
             except (ValueError, TypeError):
                 pass
 
-    tier = _resolve_tier(product_id)
+    # A renewal only extends the period; it never writes the tier. So an
+    # unresolvable tier is reported and the renewal still goes through, because
+    # refusing to extend a period the user has just paid for would cost them
+    # access over a dashboard misconfiguration.
+    tier = _resolve_tier(event)
     if not tier:
-        logger.warning(f"Unknown product_id: {product_id}, skipping RENEWAL")
-        return
+        _log_tier_unresolved("RENEWAL", event, product_id)
 
     now = datetime.now(timezone.utc)
 
@@ -230,7 +317,10 @@ async def _handle_renewal(event: Dict[str, Any]) -> None:
             await minute_db.update_subscription(s)
             break
 
-    logger.info(f"RENEWAL processed: user={app_user_id}, tier={tier.value}")
+    logger.info(
+        f"RENEWAL processed: user={app_user_id}, "
+        f"tier={tier.value if tier else 'unresolved'}"
+    )
 
 
 async def _handle_cancellation(event: Dict[str, Any]) -> None:
@@ -302,9 +392,15 @@ async def _handle_product_change(event: Dict[str, Any]) -> None:
             except (ValueError, TypeError):
                 pass
 
-    new_tier = _resolve_tier(new_product_id)
+    # The entitlement IDs describe the subscription as RevenueCat sees it at the
+    # time of the event. On App Store and deferred Google Play changes the switch
+    # only takes effect at the next renewal, so a downgrade may still report the
+    # outgoing tier here; the RENEWAL event that follows carries the new
+    # entitlement and settles the tier. `new_product_id` is still recorded on the
+    # row for traceability, it is just no longer what the tier is read from.
+    new_tier = _resolve_tier(event)
     if not new_tier:
-        logger.warning(f"Unknown new product_id: {new_product_id}, skipping PRODUCT_CHANGE")
+        _log_tier_unresolved("PRODUCT_CHANGE", event, new_product_id)
         return
 
     now = datetime.now(timezone.utc)
