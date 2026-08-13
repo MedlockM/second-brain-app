@@ -15,7 +15,17 @@ labels:
 dependencies:
   - task-262
 priority: high
+dispatchable: false
 ---
+
+> **Verrou `dispatchable: false` posé le 2026-08-13 par l'owner.** La part
+> agent-atteignable est faite et mergée (`4375527`) : les 3 produits App Store
+> existent dans RevenueCat, rattachés à leur entitlement de tier et à leur
+> package. Tout le reste est owner-only en App Store Connect (voir OWNER GATES),
+> donc la tâche reste `To Do` pour rester visible comme travail restant, sans être
+> re-sélectionnée à vide par le dispatcher. La lever consiste à retirer cette
+> ligne du front-matter ; la clôturer `Done` est la décision de l'owner une fois
+> les OWNER GATES 1-4 franchis.
 
 ## Description
 
@@ -58,7 +68,7 @@ None of the six items below is an acceptance criterion: each one needs an App St
 2. **App Store Connect → Users and Access → Integrations → App Store Connect API**: generate an API key (Admin or App Manager role), then paste the issuer ID, key ID and `.p8` into the RevenueCat iOS app configuration. This is what flips `app_store_connect_api_key_configured` from `false` to `true` and lets RevenueCat read and validate the products. The `.p8` must never be written to a tracked file — the repo is public.
 3. **App Store Connect → Users and Access → Sandbox → Test Accounts**: create at least one sandbox tester with an email address you control, not tied to an existing Apple ID.
 4. **TestFlight build** — depends on an EAS iOS build; the last one expired 2026-06-25 (see `task-161` and Phase 5). Install it, sign in on the device with the sandbox tester, buy one tier and then exercise Restore Purchases.
-5. **LAUNCH PREREQUISITE, after the sandbox purchase**: verify the webhook round trip end to end — `revenucat_events-dev` records the event (it holds 0 items today, the circuit has never run), `subscriptions-dev` carries the right tier for the buying user, and `GET /api/v1/entitlements/status` reports `is_active: true` with the matching `minutes_remaining`. This requires `REVENUCAT_WEBHOOK_SECRET`, which is empty in both `.env` and `media-summarizer-runtime-dev` — the webhook answers HTTP 500 `Webhook secret not configured` until it is filled.
+5. **LAUNCH PREREQUISITE, after the sandbox purchase**: verify the webhook round trip end to end — `revenucat_events-dev` records the event (it holds 0 items today, the circuit has never run), `subscriptions-dev` carries the right tier for the buying user, and `GET /api/v1/entitlements/status` reports `is_active: true` with the matching `minutes_remaining`. `REVENUCAT_WEBHOOK_SECRET` **is set** in both `.env` and `media-summarizer-runtime-dev` (identical values, verified 2026-08-13) and the deployed Lambda loads it: an unsigned `POST` answers `401 Invalid authorization`, not `500`. The one thing left to confirm is that the same value sits in RevenueCat → Integrations → Webhooks, which the v2 API cannot read (`404`).
 6. Keep the Test Store app and its three `*_test` products in place: the Maestro paywall flow depends on them through `E2E_REVENUECAT_TEST_KEY`. `task-262` attaches them to the tier entitlements like any other product.
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -115,7 +125,7 @@ Packages hold one product per store, and the SDK only returns the product matchi
 
 ### Out of reach from the worktree
 
-Everything in OWNER GATES. Also unreachable and not an AC: the webhook round trip, which needs `REVENUCAT_WEBHOOK_SECRET` (empty in `.env` and in `media-summarizer-runtime-dev`, so the endpoint answers 500) plus a real sandbox purchase.
+Everything in OWNER GATES. Also unreachable and not an AC: the webhook round trip, which needs a real sandbox purchase. Correction to what this note first claimed — `REVENUCAT_WEBHOOK_SECRET` is **not** empty: it is set in `.env` and in `media-summarizer-runtime-dev` with identical values, and the deployed Lambda loads it (`401` on an invalid Bearer, never `500`). The webhook is not the blocker; the missing App Store Connect subscriptions are.
 
 No automated tests were written, per the project rule.
 <!-- SECTION:NOTES:END -->

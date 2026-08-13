@@ -177,9 +177,12 @@ errors, none from this change (`purchaseService.ts:89` is the untouched
 ### Out of reach from the worktree
 
 Deploy-dependent verification is not an AC here and stays with the owner: nothing
-exercises the new code path until the branch is merged and pushed, and the
-webhook still answers `500` in dev because `REVENUCAT_WEBHOOK_SECRET` is empty
-(Phase 6 step 1 of `docs/V1_LAUNCH_PLAN.md`, unrelated to this task).
+exercises the new code path until the branch is merged and pushed. Correction to
+what this note first claimed — the dev webhook does **not** answer `500`:
+`REVENUCAT_WEBHOOK_SECRET` is set in `.env` and in `media-summarizer-runtime-dev`
+with identical values, and the deployed Lambda loads it (an invalid Bearer gets
+`401`, verified 2026-08-13). What still gates a real round trip is a sandbox
+purchase, not the secret.
 
 Downstream `task-238` (AC #4) and `task-261` (AC #3) already named the
 `tier_*` entitlements and already depend on `task-262`, so neither needed

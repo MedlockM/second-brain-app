@@ -74,9 +74,15 @@ bloquant au moins bloquant :
 2. **Build Android unique + validations device** — `task-163` ACs #6-#8,
    `task-164`, `task-165`, puis `task-166` clôture la Phase 5.
 3. **Billing réel** — Phase 6, dans l'ordre `task-262` → {`task-261`, `task-238`} :
-   `REVENUCAT_WEBHOOK_SECRET` (vide partout, le webhook répond 500), refonte des
-   entitlements par tier, produits IAP iOS puis Android, achat et restore en
-   sandbox. Le circuit billing n'a jamais tourné : `revenucat_events-dev` = 0 item.
+   refonte des entitlements par tier (**faite**), produits IAP iOS (**faits côté
+   RevenueCat**) puis Android, achat et restore en sandbox.
+   `REVENUCAT_WEBHOOK_SECRET` **est renseigné** en local et dans
+   `media-summarizer-runtime-dev` (valeurs identiques, vérifié le 2026-08-13), et
+   le Lambda déployé le charge : un `POST` non signé sur
+   `/api/webhooks/revenucat` répond `401 Invalid authorization`, pas `500`.
+   `revenucat_events-dev` = 0 item, ce qui est normal — aucun achat sandbox n'a
+   encore eu lieu, donc aucun événement à recevoir. Reste à confirmer par l'owner :
+   que la même valeur est collée dans RevenueCat → Integrations → Webhooks.
 4. **Owner-only, sans substitut possible** — les 37 credentials du secret prod
    (`task-252`), le quota Lambda prod, les vérifications d'éligibilité du compte
    Google Play — dont un éventuel closed testing de 14 jours qui, s'il
@@ -152,7 +158,7 @@ un staging ou une soumission.
 |---|---|---|
 | Branding app | `task-186` | Nom marketing final requis avant App Store Connect / Play Console |
 | App icons | `task-180` | Remplacer les placeholders avant soumission |
-| RevenueCat / IAP | Phase 6 : `task-262` **faite**, `task-261` (iOS) faite côté RevenueCat, reste owner-only côté App Store Connect ; `task-238` (Android) entière | `REVENUCAT_WEBHOOK_SECRET` vide en local **et** dans le secret dev → le webhook répond `500`, `revenucat_events-dev` = 0 item. Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent ; l'app iOS porte désormais ses 3 produits App Store rattachés aux entitlements et aux packages, mais **aucune clé App Store Connect** (`app_store_connect_api_key_configured: false`), donc les abonnements n'existent pas encore côté ASC et StoreKit n'en résout aucun. Aucune app Google Play déclarée, et `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` encore un placeholder dans les trois environnements EAS |
+| RevenueCat / IAP | Phase 6 : `task-262` **faite**, `task-261` (iOS) faite côté RevenueCat, reste owner-only côté App Store Connect ; `task-238` (Android) entière | `REVENUCAT_WEBHOOK_SECRET` **renseigné** en local et dans le secret dev (valeurs identiques), et chargé par le Lambda déployé — sonde `401`, pas `500` (2026-08-13). `revenucat_events-dev` = 0 item, normal sans achat sandbox. Reste à confirmer côté dashboard RevenueCat (non exposé par l'API v2). Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent ; l'app iOS porte désormais ses 3 produits App Store rattachés aux entitlements et aux packages, mais **aucune clé App Store Connect** (`app_store_connect_api_key_configured: false`), donc les abonnements n'existent pas encore côté ASC et StoreKit n'en résout aucun. Aucune app Google Play déclarée, et `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` encore un placeholder dans les trois environnements EAS |
 | Domaine production | Phase 10 | Au 2026-08-13 : `secondbrainlabs.com` **résout** mais redirige en `301` vers `sbl.so` ; `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont toujours en `NXDOMAIN`. Le profil EAS production pointe encore vers le second |
 | Store/legal | Phase 10 | Les textes existent au dépôt (`docs/compliance/privacy-policy.md`, `terms-of-service.md`, `apple-app-privacy.md`, `google-play-data-safety.md`, `CHECKLIST.md`) mais **ne sont pas hébergés** : `secondbrainlabs.com/privacy` et `/terms` redirigent vers `sbl.so/...` qui répond **404**. Liens in-app absents, listings/screenshots/review accounts à finaliser |
 
@@ -345,7 +351,9 @@ partagé que l'owner choisit et colle dans RevenueCat → Integrations → Webho
 (champ Authorization header), puis reporte à l'identique dans `.env` et dans
 `media-summarizer-runtime-<env>`. Il n'est pas exposé par l'API v2
 (`/v2/projects/<id>/webhooks` → `404`), donc c'est une étape nécessairement
-manuelle. Il est **vide partout** au 2026-08-13 : voir Phase 6.
+manuelle. Il **est renseigné** au 2026-08-13, à l'identique dans `.env` et dans
+`media-summarizer-runtime-dev` : voir Phase 6. Le côté dashboard RevenueCat n'est
+vérifiable que par l'owner, l'API ne le lisant pas.
 
 Côté mobile (`mobile/.env` ou EAS secrets) — naming attendu par `mobile/app.config.ts` :
 
@@ -433,11 +441,12 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    2026-06-25 et ne représente plus le code courant. Aucune build Android
    n'existe. Aucun env EAS development/preview/production n'est configuré.
 5. RevenueCat account + projet + clés backend/mobile : **partiellement fait**.
-   `REVENUCAT_WEBHOOK_SECRET` est toujours vide au 2026-08-13, en local comme dans
-   le secret dev. L'entitlement, l'offering courant et les 3 packages de tier
-   existent, mais leurs produits sont ceux du **Test Store** ; l'app iOS
-   RevenueCat n'a ni produit ni clé App Store Connect, et il n'y a pas d'app Play.
-   Restent à prouver : les produits IAP réels, le webhook, les tests sandbox.
+   `REVENUCAT_WEBHOOK_SECRET` **est renseigné** au 2026-08-13, à l'identique en
+   local et dans le secret dev, et le Lambda déployé le charge (sonde `401`).
+   Les 3 entitlements de tier, l'offering courant et les 3 packages existent ;
+   l'app iOS porte ses 3 produits App Store rattachés, mais sans clé App Store
+   Connect, et il n'y a pas d'app Play. Restent à prouver : les abonnements côté
+   ASC, la clé ASC, l'app Play, et les tests sandbox.
    Détail et ordre d'exécution en Phase 6.
 6. Comptes API tiers : les clés locales documentées restent présentes pour
    **OpenAI**, **Deepgram**, **PodcastIndex.org**, **X Developer Platform**,
@@ -766,14 +775,19 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 
 **État vérifié au 2026-08-13** (API RevenueCat v2, AWS dev, `eas env:list`) :
 
-- **`REVENUCAT_WEBHOOK_SECRET` est vide**, en local *et* dans
-  `media-summarizer-runtime-dev` (la clé existe, sa valeur est `""`). Le webhook
-  répond donc `HTTP 500 "Webhook secret not configured"` — sondé en direct.
-  Conséquence : `revenucat_events-dev` contient **0 item**, le circuit n'a jamais
-  tourné une seule fois. Le secret n'est pas généré par RevenueCat, c'est une
-  valeur au choix de l'owner saisie dans le dashboard ; l'endpoint
-  `/v2/projects/<id>/webhooks` répond `404`, donc cette étape est
-  obligatoirement manuelle.
+- **`REVENUCAT_WEBHOOK_SECRET` est renseigné**, en local *et* dans
+  `media-summarizer-runtime-dev` — mêmes valeurs, comparées par empreinte
+  SHA-256 sans jamais les afficher. Le Lambda déployé le charge : `POST /api/webhooks/revenucat` avec un
+  Bearer invalide répond `HTTP 401 "Invalid authorization"` — sondé en direct.
+  Le `500 "Webhook secret not configured"` que ce plan a longtemps annoncé
+  n'existe plus. Le secret n'est pas généré par RevenueCat, c'est une valeur au
+  choix de l'owner saisie dans le dashboard ; l'endpoint
+  `/v2/projects/<id>/webhooks` répond `404`, donc **la seule chose non
+  vérifiable par un agent est que la même valeur soit collée côté RevenueCat**
+  → Integrations → Webhooks. À confirmer par l'owner.
+- **`revenucat_events-dev` contient 0 item.** Ce n'est plus un symptôme
+  d'anomalie : aucun achat sandbox n'a eu lieu, donc RevenueCat n'a jamais eu
+  d'événement à envoyer. La table se remplira au premier achat sandbox.
 - **Le projet RevenueCat `proj879a771a` est plus avancé que ce que ce plan
   disait** : l'offering `default` (courant) et les 3 packages
   `text_only`/`mix`/`audio_heavy` existent, avec des produits mensuels rattachés.
@@ -821,16 +835,19 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 **Ordre d'exécution** — `task-262` était le préalable des deux autres, elle est
 faite :
 
-1. **`REVENUCAT_WEBHOOK_SECRET`** (owner, ~15 min, ne dépend de rien) : générer
-   une valeur aléatoire, la saisir dans RevenueCat → Integrations → Webhooks avec
-   l'URL `…/api/webhooks/revenucat`, la mettre dans `.env`, puis dans le secret
-   dev **en read-modify-write** (`put-secret-value` remplace tout le JSON : passer
-   par `jq` sur la valeur courante et vérifier `jq 'length'` = 37 avant push).
-   Forcer ensuite un cold start de `media-summarizer-api-dev` — le secret n'est lu
-   qu'à l'init du conteneur et le warm-up EventBridge empêche le recyclage
-   spontané ; ré-appliquer la même `image_uri` suffit (elle est sous
-   `ignore_changes`, donc aucune dérive Terraform). Gate : le webhook passe de
-   `500` à `401` sur un token invalide.
+1. ✅ **`REVENUCAT_WEBHOOK_SECRET`** (owner, fait — constaté le 2026-08-13) : la
+   valeur est en place dans `.env` et dans `media-summarizer-runtime-dev` (37 clés
+   intactes), les deux identiques, et le Lambda déployé la charge. Le gate est
+   franchi : le webhook répond `401` sur un token invalide, plus `500`. **Seul
+   reste à confirmer visuellement** que la même valeur figure dans RevenueCat →
+   Integrations → Webhooks avec l'URL `…/api/webhooks/revenucat` — l'API v2 ne
+   lisant pas les webhooks (`404`), aucun agent ne peut le vérifier.
+   Pour mémoire, si cette valeur doit être changée un jour : `put-secret-value`
+   remplace tout le JSON, donc passer par `jq` sur la valeur courante et vérifier
+   `jq 'length'` = 37 avant push, puis forcer un cold start de
+   `media-summarizer-api-dev` (le secret n'est lu qu'à l'init du conteneur et le
+   warm-up EventBridge empêche le recyclage spontané ; ré-appliquer la même
+   `image_uri` suffit, elle est sous `ignore_changes`).
 2. ✅ **`task-262` — résolution du tier par entitlement** (2026-08-13) : trois
    entitlements `tier_text_only` (`entlc5a41cba3a`) / `tier_mix`
    (`entlde3fb9eb65`) / `tier_audio_heavy` (`entlfa93d44749`), un produit
@@ -1210,11 +1227,12 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 - [x] OpenAI API key + budget configuré (en local dans `.env`)
 - [x] Deepgram API key + budget configuré (en local dans `.env`)
 - [x] Algolia App créée + index configuré (App ID + Admin API key + index name en local dans `.env`)
-- [~] RevenueCat — clés backend et mobiles présentes localement, mais
-  `REVENUCAT_WEBHOOK_SECRET` reste **vide en local et dans le secret dev**, donc le
-  webhook répond `500` et `revenucat_events-dev` n'a jamais reçu un seul
-  événement. L'offering `default`, ses 3 packages de tier et les 3 entitlements de
-  tier existent (`task-262`), et les 3 produits App Store leur sont rattachés
+- [~] RevenueCat — clés backend et mobiles présentes localement,
+  `REVENUCAT_WEBHOOK_SECRET` **renseigné** en local et dans le secret dev (mêmes
+  valeurs) et chargé par le Lambda déployé : le webhook répond `401` sur token
+  invalide, plus `500`. `revenucat_events-dev` est vide faute d'achat sandbox, pas
+  faute de configuration. L'offering `default`, ses 3 packages de tier et les 3
+  entitlements de tier existent (`task-262`), et les 3 produits App Store leur sont rattachés
   (`task-261`) — mais aucun n'existe encore côté App Store Connect, donc seuls les
   produits **Test Store** sont réellement achetables. Restent à faire : le webhook
   secret (owner, ~15 min), les 3 abonnements ASC + la clé App Store Connect

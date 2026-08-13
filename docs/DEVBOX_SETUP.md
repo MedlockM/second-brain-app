@@ -192,8 +192,9 @@ print("skipped:", ", ".join(skipped) or "none")
 chmod 600 .env
 ```
 
-Le secret dev contient 37 clés. Deux sont légitimement vides (`COOKIE_DOMAIN`,
-`REVENUCAT_WEBHOOK_SECRET`), et l'injection en saute normalement deux :
+Le secret dev contient 37 clés. Une seule est légitimement vide (`COOKIE_DOMAIN`)
+— `REVENUCAT_WEBHOOK_SECRET` **est renseignée** depuis le 2026-08-13 — et
+l'injection en saute normalement deux :
 
 - `COOKIE_DOMAIN` — commentée dans le template, sans objet sur localhost.
 - `ALGOLIA_INDEX_NAME` — **clé morte**, aucun code ne la lit. Le nom d'index vaut
