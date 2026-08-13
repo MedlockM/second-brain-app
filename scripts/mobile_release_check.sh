@@ -131,9 +131,11 @@ fi
 # ------------------------------------------------------------------
 BUNDLE_ID="com.secondbrainlabs.core"
 
+# mobile/plugins/withShareExtension.js a été supprimé par task-188 : le partage
+# passe désormais par le plugin officiel expo-share-intent, déclaré dans
+# app.config.ts. Ne pas le remettre ici.
 BUNDLE_FILES=(
   "mobile/app.config.ts"
-  "mobile/plugins/withShareExtension.js"
   "mobile/ios-share-extension/Info.plist"
 )
 

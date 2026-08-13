@@ -68,7 +68,33 @@ Le SHA-1 du keystore est requis par Google pour délivrer l'OAuth Client ID Andr
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Un keystore Android est créé côté EAS via eas credentials --platform android, sans qu'aucun build n'ait été lancé
-- [ ] #2 Le SHA-1 du keystore est relevé et noté dans ce ticket au format AB:CD:EF:...
-- [ ] #3 Le SHA-256 du keystore et l'URL de la page credentials du dashboard EAS sont notés dans ce ticket
+- [x] #1 Un keystore Android est créé côté EAS via eas credentials --platform android, sans qu'aucun build n'ait été lancé
+- [x] #2 Le SHA-1 du keystore est relevé et noté dans ce ticket au format AB:CD:EF:...
+- [x] #3 Le SHA-256 du keystore et l'URL de la page credentials du dashboard EAS sont notés dans ce ticket
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Exécuté le 2026-08-13. Keystore généré par EAS, **aucun build lancé** — le compteur de builds Android reste à zéro, ce qui était l'objectif du découpage.
+
+### Résultat
+
+- **Configuration** : `Build Credentials aRG08ty5Ek` (Default), profil `development`
+- **Projet** : `media-summarizer` — Application Identifier `com.secondbrainlabs.core`
+- **Key Alias** : `3d6435c18da4d3d15721839b43347b78`
+- **SHA-1** : `38:D5:13:F4:2F:A9:DA:74:2F:A1:39:E3:17:9A:22:A8:59:58:DD:FD` ← valeur à coller dans Google Cloud Console (task-163)
+- **SHA-256** : `11:1D:A7:DC:72:7B:16:EA:57:BC:54:A0:A3:81:11:BE:13:8E:98:58:F7:E3:6D:87:BF:27:E4:CB:AC:F7:DD:9C`
+- **MD5** : `EF:8E:50:0E:B7:44:D6:3D:5B:FF:D3:C3:9F:C2:24:81`
+- **Dashboard** : https://expo.dev/accounts/second-brain-labs/projects/media-summarizer/credentials
+
+Ces empreintes sont des données publiques du certificat (elles sont extractibles de tout APK signé et destinées à être déclarées chez Google) — les noter ici ne contrevient pas à la règle « pas de secret dans un fichier suivi ». La clé privée, elle, reste côté EAS et n'a pas été téléchargée.
+
+### Comment ça a été fait
+
+`eas credentials` n'expose aucun mode non interactif : pas de flag `--non-interactive`, pas de sous-commande de lecture, et `CI=""` fait échouer le CLI (`GetEnv.NoBoolean`). Le menu a donc été piloté par un pty (script jetable dans `/tmp`, non versionné), avec une première passe en lecture seule pour confirmer l'état avant toute mutation.
+
+L'état de départ était `No credentials set up yet!` : la création était donc purement additive, sans risque d'écraser une clé existante. Séquence retenue dans le menu : profil `development` → `Keystore: Manage everything needed to build your project` → `Set up a new keystore` → nom par défaut → `Generate a new Android Keystore? yes`. Sortie : `✔ Created keystore` / `✔ Created Android build credentials`.
+
+EAS a rattaché le keystore au profil `development`. `preview` et `production` hériteront de la même clé par défaut, ce qui est le comportement EAS attendu et n'invalide pas le SHA-1 (cf. Pièges connus).
+<!-- SECTION:NOTES:END -->

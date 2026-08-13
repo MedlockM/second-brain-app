@@ -42,13 +42,16 @@ Cette tâche porte désormais **aussi le build Android de développement**, dép
 
 ## Scope manuel
 
-1. Va sur https://console.cloud.google.com → sélectionne le projet GCP
-2. **APIs & Services → Credentials → CREATE CREDENTIALS → OAuth client ID**
+> ⚠️ **Chemin de console mis à jour le 2026-08-13 d'après la doc en ligne.** Google a réorganisé cette zone : « APIs & Services → Credentials » est remplacé par **Google Auth Platform → Clients**, à l'URL directe https://console.cloud.google.com/auth/clients. C'est ce chemin que la doc Google utilise désormais partout (`developers.google.com/identity/protocols/oauth2/native-app`, article support `15544987`). L'ancien chemin peut encore rediriger, mais ne pas s'y fier.
+
+1. Va sur https://console.cloud.google.com/auth/clients → sélectionne le projet `media-summarizer`
+2. **Create client** (l'écran Google Auth Platform → Clients)
 3. Application type : **Android**
 4. Renseigne :
    - **Name** : `Second Brain Android (EAS development)`
    - **Package name** : `com.secondbrainlabs.core`
-   - **SHA-1 certificate fingerprint** : la valeur récupérée dans task-162 (format `AB:CD:EF:...`)
+   - **SHA-1 certificate fingerprint** : `38:D5:13:F4:2F:A9:DA:74:2F:A1:39:E3:17:9A:22:A8:59:58:DD:FD`
+     (relevé par task-162 le 2026-08-13 ; à recopier tel quel, deux-points inclus)
 5. Save → copie l'**OAuth Client ID** généré
 6. Dans `mobile/.env` (local, gitignored), renseigne :
    ```
@@ -65,17 +68,39 @@ Ajouté le 2026-08-13 sur décision de l'owner : le build Android a été retir�
 
 **Pourquoi cet ordre est obligatoire.** `mobile/app.config.ts:114-115` écrit `process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || ""` dans `extra.googleClientIdAndroid`, et `extra` est figé **au moment du build**. Côté app, `mobile/src/constants/config.ts:13` lit cette valeur cuite, puis `mobile/src/components/SocialAuthButtons.tsx:49` la passe en `androidClientId`. Un APK construit avant que la variable existe embarque donc `""` de façon définitive : le bouton « Continue with Google » y est mort, et aucune édition de `mobile/.env` après coup ne le réparera. D'où : variable d'abord, build ensuite.
 
-9. **Déclarer la variable pour le build.** Le profil `development` de `mobile/eas.json` ne contient aujourd'hui que `EXPO_PUBLIC_API_BASE_URL` — la variable Android n'y est pas. Deux options, au choix :
-   - `cd mobile && eas secret:create --scope project --name EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID --value <le Client ID>` (recommandé : la valeur n'entre pas dans le dépôt) ;
-   - ou l'ajouter au bloc `env` du profil `development` de `mobile/eas.json`. Un OAuth Client ID Android n'est pas un secret d'authentification — il est de toute façon extractible du binaire, et le préfixe `EXPO_PUBLIC_` le destine au client — donc le versionner est acceptable. Rester cohérent avec `EXPO_PUBLIC_API_BASE_URL`, déjà en clair dans ce fichier.
-10. Vérifier que la variable est bien vue par EAS : `cd mobile && eas env:list` (ou `eas secret:list` selon la version d'`eas-cli`).
-11. **Lancer le build unique** : `cd mobile && eas build --platform android --profile development`. Attendre ~10-20 min, puis récupérer l'URL de l'APK et le Build ID sur le dashboard EAS, et installer sur un device physique (`adb install <chemin>.apk` ou QR code). Noter Build ID, URL dashboard et erreurs/warnings éventuels dans ce ticket.
+9. **Déclarer la variable pour le build.** Commande exacte, vérifiée contre `eas-cli/20.1.0` (`eas secret:create` est déprécié, il redirige vers `env`) :
+   ```
+   cd mobile && npx eas env:create development \
+     --name EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID \
+     --value <le Client ID> \
+     --type string --visibility plaintext --scope project --non-interactive
+   ```
+   L'environnement `development` est le bon : les cinq autres variables `EXPO_PUBLIC_*` y sont déjà (constaté le 2026-08-13). `plaintext` est cohérent avec elles — un Client ID Android n'est pas un secret d'authentification, il est extractible de tout APK et le préfixe `EXPO_PUBLIC_` le destine au client. L'ajouter au bloc `env` de `eas.json` marcherait aussi, mais mieux vaut rester là où vivent déjà ses cinq sœurs.
+10. Vérifier que la variable est bien vue par EAS : `cd mobile && npx eas env:list --environment development` — la ligne `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID=...` doit apparaître, non vide.
+11. **Lancer le build unique** : `cd mobile && npx eas build --platform android --profile development`. Attendre ~10-20 min, puis récupérer l'URL de l'APK et le Build ID sur le dashboard EAS, et installer sur un device physique (`adb install <chemin>.apk` ou QR code). Noter Build ID, URL dashboard et erreurs/warnings éventuels dans ce ticket.
 
 Le keystore existant depuis task-162, EAS ne posera plus de question de signature : le build doit partir sans prompt.
 
+### Vérification à faire au tout début de l'étape 11 — ne pas la sauter
+
+Le profil `development` de `mobile/eas.json` **ne déclare pas de champ `environment`**, et la doc Expo ne spécifie ni la valeur par défaut de ce champ, ni la précédence entre le bloc `env` inline et les variables côté serveur (vérifié le 2026-08-13 sur `/eas/json/`, `/eas/environment-variables/` et sa FAQ — l'ambiguïté est dans la doc, pas dans notre lecture). La FAQ Expo recommande d'ailleurs de **fixer `environment` explicitement** plutôt que de dépendre d'un défaut implicite.
+
+Conséquence concrète : si le build ne se rattache pas à l'environnement `development`, il ne verra **aucune** des six variables serveur — Client ID Android compris — et l'APK repartirait avec `""`. Ce serait le double build qu'on cherche justement à éviter.
+
+Donc, dès les premières lignes de log du build, contrôler qu'EAS annonce bien l'environnement `development` et le chargement des variables. S'il ne l'annonce pas, **interrompre immédiatement** (`Ctrl-C`), ajouter `"environment": "development"` au profil `development` de `mobile/eas.json`, puis relancer. Un build interrompu dans ses premières secondes ne consomme pas de créneau.
+
+### Point annexe constaté, à ne pas traiter ici
+
+`EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` vaut encore le placeholder `your_revenucat_google_api_key_here` dans les trois environnements EAS, et `mobile/app.config.ts:117` la cuit dans `extra` exactement comme le Client ID. Cette valeur étant *truthy*, elle franchit le garde `if (!apiKey)` de `mobile/src/services/purchaseService.ts:33` et atteint `Purchases.configure()` avec une clé invalide.
+
+Ce n'est **pas** bloquant pour ce build : `mobile/src/contexts/PurchasesContext.tsx:75-77` catche l'erreur et la logge. L'app démarre, seul le paywall est inopérant — ce qui est précisément le périmètre de `task-238`. Le build de dev garde donc toute sa valeur pour ce qu'on lui demande : Google Sign-In et le share intent. À savoir simplement pour ne pas s'alarmer du `[PurchasesContext] Failed to initialize RevenueCat` dans les logs.
+
 ## Important
 
-- Quand on passera en **Phase 10** (publication Play Store), Google Play générera un **upload key + app signing key** distincts. Il faudra alors créer un **2ᵉ OAuth Client ID Android** avec le SHA-1 du nouveau keystore Play Console. Ce ticket gère uniquement le SHA-1 EAS (dev/preview build). Note cette suite dans le ticket Phase 10 quand on y arrivera.
+- Quand on passera en **Phase 10** (publication Play Store), Google Play générera un **upload key + app signing key** distincts. Il faudra alors créer un **2ᵉ OAuth Client ID Android** avec le SHA-1 du nouveau keystore Play Console. Ce ticket gère uniquement le SHA-1 EAS (dev/preview build). Note cette suite dans le ticket Phase 10 quand on y arrivera. Règle Google : **un client Android par couple (package name, SHA-1)**.
+- **Le Client ID Android ne sert pas d'`audience`.** Sur Android, le jeton renvoyé par Google porte comme `aud` le **Web** client ID, pas l'Android. C'est cohérent avec notre code : `mobile/src/components/SocialAuthButtons.tsx:47-51` passe les trois (`iosClientId`, `androidClientId`, `webClientId`) à `Google.useAuthRequest`, et le backend vérifie l'`aud` contre `GOOGLE_CLIENT_ID` (le Web). Le client Android existe pour que Google puisse vérifier la signature de l'APK — d'où le SHA-1. Conséquence pratique : ne pas remplacer le Web client ID par l'Android côté backend.
+- **`androidClientId` n'est honoré que dans un build natif**, pas dans Expo Go — la doc `expo-auth-session` le qualifie de « for use in production builds and existing React Native projects ». Notre build `development` (`developmentClient: true`, `distribution: internal`) est un build natif : c'est bien le bon véhicule pour tester ce flow.
+- La doc `expo-auth-session` marque la config Google **deprecated** et pousse vers `@react-native-google-signin/google-signin` (et Google pousse Credential Manager côté Android, l'ancien SDK Sign-In étant déprécié). Ça ne bloque rien pour V1 — notre implémentation actuelle fonctionne — mais c'est une dette à ouvrir en tâche séparée après le lancement, pas ici.
 - Renseigner `mobile/.env` (étape 6) sert au dev local ; c'est l'étape 9 qui fait entrer la valeur dans le binaire EAS. Les deux sont utiles et ne se remplacent pas.
 
 ## Pièges connus (étapes 9 à 11)
