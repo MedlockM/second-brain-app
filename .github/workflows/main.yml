@@ -31,6 +31,33 @@ jobs:
       - name: Run mypy
         run: mypy media_summarizer
 
+      # The same guards as pr.yml, duplicated on purpose: `main` is not a
+      # protected branch, so a direct push never opens a PR and would otherwise
+      # skip every one of them. Keep the two lists in sync — a guard that only
+      # runs on PRs is a guard the shortest path around it disables.
+      - name: Guard — no orphaned completion-event queue name (task-143)
+        run: |
+          if grep -rn --include="*.py" --include="*.tf" -e "episode-completion-events" -e "EPISODE_COMPLETION_EVENTS_QUEUE" media_summarizer infrastructure/terraform; then
+            echo "::error::Dead queue name resurfaced. Producers and consumer must converge on 'episode-completed-events' / EPISODE_COMPLETED_EVENTS_QUEUE (see task-143)."
+            exit 1
+          fi
+
+      - name: Guard — no resurrected per-kind artifact queues (task-195)
+        run: |
+          if grep -rn --include="*.py" --include="*.tf" \
+            -e "flashcards-queue" -e "notes-queue" -e "quiz-queue" \
+            -e "summarization-queue" -e "summary-short-queue" -e "summary-detailed-queue" \
+            media_summarizer infrastructure/terraform; then
+            echo "::error::Dead per-kind artifact queue name resurfaced. All artifact types route to artifact-generator-queue (see task-195)."
+            exit 1
+          fi
+
+      - name: Guard — single writer of the user_media TTL (task-243)
+        run: python scripts/check_purge_at_writers.py
+
+      - name: Guard — every env var used by the app is in .env.example
+        run: python scripts/check_env_example_complete.py
+
   mobile:
     name: Mobile (lint + typecheck)
     runs-on: ubuntu-latest

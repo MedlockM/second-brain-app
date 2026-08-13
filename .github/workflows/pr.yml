@@ -55,6 +55,9 @@ jobs:
       - name: Guard — single writer of the user_media TTL (task-243)
         run: python scripts/check_purge_at_writers.py
 
+      - name: Guard — every env var used by the app is in .env.example
+        run: python scripts/check_env_example_complete.py
+
   mobile:
     name: Mobile (lint + typecheck)
     runs-on: ubuntu-latest
