@@ -93,7 +93,7 @@ Breakdown of the 22 rows at freeze time:
 |---|---|
 | Carrying `expire_at` (i.e. scheduled for deletion) | **16** — all `completed` except one `failed` |
 | Without any `expire_at` (stale June `pending` stubs) | 6 |
-| Belonging to the owner `4cd1abcb-…` (`marc.medlock@live.fr`) | 14 |
+| Belonging to the owner `4cd1abcb-…` | 14 |
 | Distinct users represented | 8 |
 | Rows already expired but not yet swept (recoverable by the freeze) | **0** |
 

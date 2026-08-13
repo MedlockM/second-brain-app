@@ -42,7 +42,7 @@ class TestIsPurgeable:
         assert not purge.is_purgeable(f"  {PERMANENT_ACCOUNT.upper()}  ")
 
     def test_real_account_is_never_purgeable(self):
-        assert not purge.is_purgeable("marc.medlock@live.fr")
+        assert not purge.is_purgeable("a.real.person@example.com")
 
     def test_unknown_prefix_is_never_purgeable(self):
         assert not purge.is_purgeable("someone@test.local")
@@ -67,7 +67,7 @@ class TestSelectAccounts:
             user("e2e-test-1786546452-004c74@test.local", "u2"),
             user("phase4-test-1780952477@test.local", "u3"),
             user(PERMANENT_ACCOUNT, "u4"),
-            user("marc.medlock@live.fr", "u5"),
+            user("a.real.person@example.com", "u5"),
         ]
 
         to_purge, to_keep = purge.select_accounts(users)

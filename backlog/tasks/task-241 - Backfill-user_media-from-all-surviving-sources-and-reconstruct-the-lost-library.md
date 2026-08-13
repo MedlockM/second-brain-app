@@ -35,7 +35,7 @@ Règles impératives du benchmark :
 - **`media_idempotence` est réparé** : les lignes bloquées à `reserved` dont le job n'existe plus passent à `processed` quand un jeu d'artefacts complet existe, sinon sont remises à zéro pour que le média puisse être légitimement réingéré.
 - Le backfill ne supprime ni ne mute jamais `processing_jobs`, `media_artifacts` ou S3.
 
-Cas de régression nommé par le benchmark : après cette tâche, les 5 dossiers du compte `marc.medlock@live.fr` doivent à nouveau contenir les médias récupérés.
+Cas de régression nommé par le benchmark : après cette tâche, les dossiers du compte de l'owner (ID: `4cd1abcb-…`) doivent à nouveau contenir les médias récupérés.
 
 Rollback : supprimer les lignes backfillées, identifiables par `schema_version` + un attribut `backfilled_from`.
 
@@ -53,7 +53,7 @@ Les agents ont tous les droits pour exécuter les commandes AWS CLI sur dev.
 - [x] #7 media_idempotence est réparé: les lignes reserved orphelines sont avancées à processed si un jeu d'artefacts complet existe, sinon remises à zéro
 - [x] #8 Le backfill ne supprime ni ne mute processing_jobs, media_artifacts ou S3
 - [x] #9 Les lignes backfillées portent schema_version et backfilled_from pour permettre le rollback
-- [x] #10 Vérification en AWS dev: après backfill, les 5 dossiers du compte marc.medlock@live.fr contiennent à nouveau les médias récupérés
+- [x] #10 Vérification en AWS dev: après backfill, les dossiers du compte de l'owner contiennent à nouveau les médias récupérés
 - [x] #11 Le rapport final énonce explicitement le nombre de médias récupérés, quarantainés et définitivement perdus
 <!-- AC:END -->
 
@@ -72,7 +72,7 @@ enriched=0 unchanged=20`, every row resolved through `id_origin=existing_row`, w
 proves convergence (AC#1). Final counts: **20 media recovered, 139 quarantined, 4
 definitively lost**, plus 91 non-media index rows reported (AC#11).
 
-- 19 of the 20 rows belong to `marc.medlock@live.fr`, spread over 9 of its 13 folders
+- 19 of the 20 rows belong to the owner's account (ID: `4cd1abcb-…`), spread over 9 of its 13 folders
   (`11 septembre`, `Arabesque`, `Bibou`, `Conversation Papa`, `Les piqûres de Tess` ×3,
   `Surf` ×2, `Test collection` ×2, `Tout pour la lumière`, `Uncategorized` ×7),
   verified through the `folder-index` and `saved-at-index` LSIs (AC#10). The

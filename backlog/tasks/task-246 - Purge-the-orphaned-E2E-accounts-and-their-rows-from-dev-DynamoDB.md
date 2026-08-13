@@ -112,7 +112,7 @@ table, which has none.
 
 31 accounts deleted = 23 `e2e-register-*` + 7 `e2e-test-*` + 1
 `phase4-test-*`, i.e. exactly the delta announced in the description; 87 child
-rows. The two survivors are `marc.medlock@live.fr` and
+rows. The two survivors are the owner's account (ID: `4cd1abcb-…`) and
 `e2e-maestro-20260809200952@test.local` (still present, 58 auth tokens intact).
 
 Unsuffixed legacy tables (no PITR), purged after verifying dev:
@@ -160,7 +160,7 @@ in scope and it is done.
 Re-verified directly against AWS, not from the agent's report:
 
 - `users-dev` and `users` each hold exactly two rows,
-  `e2e-maestro-20260809200952@test.local` and `marc.medlock@live.fr`. The
+  `e2e-maestro-20260809200952@test.local` and the owner's account (ID: `4cd1abcb-…`). The
   permanent E2E account survived on both suffixes.
 - `auth_tokens-dev` still has 12 distinct `user_id`s with no matching `users`
   row (`auth_tokens`: 9), all `e2e-test-<epoch>-<hex>@test.local`. Cross-checked
