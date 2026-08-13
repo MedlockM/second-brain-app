@@ -152,7 +152,7 @@ un staging ou une soumission.
 |---|---|---|
 | Branding app | `task-186` | Nom marketing final requis avant App Store Connect / Play Console |
 | App icons | `task-180` | Remplacer les placeholders avant soumission |
-| RevenueCat / IAP | Phase 6 : `task-262` **faite**, restent `task-261` (iOS) et `task-238` (Android) | `REVENUCAT_WEBHOOK_SECRET` vide en local **et** dans le secret dev → le webhook répond `500`, `revenucat_events-dev` = 0 item. Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent, mais leurs 3 produits sont **Test Store** : l'app iOS RevenueCat porte 0 produit et aucune clé App Store Connect, et aucune app Google Play n'est déclarée. `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` encore un placeholder dans les trois environnements EAS |
+| RevenueCat / IAP | Phase 6 : `task-262` **faite**, `task-261` (iOS) faite côté RevenueCat, reste owner-only côté App Store Connect ; `task-238` (Android) entière | `REVENUCAT_WEBHOOK_SECRET` vide en local **et** dans le secret dev → le webhook répond `500`, `revenucat_events-dev` = 0 item. Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent ; l'app iOS porte désormais ses 3 produits App Store rattachés aux entitlements et aux packages, mais **aucune clé App Store Connect** (`app_store_connect_api_key_configured: false`), donc les abonnements n'existent pas encore côté ASC et StoreKit n'en résout aucun. Aucune app Google Play déclarée, et `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` encore un placeholder dans les trois environnements EAS |
 | Domaine production | Phase 10 | Au 2026-08-13 : `secondbrainlabs.com` **résout** mais redirige en `301` vers `sbl.so` ; `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont toujours en `NXDOMAIN`. Le profil EAS production pointe encore vers le second |
 | Store/legal | Phase 10 | Les textes existent au dépôt (`docs/compliance/privacy-policy.md`, `terms-of-service.md`, `apple-app-privacy.md`, `google-play-data-safety.md`, `CHECKLIST.md`) mais **ne sont pas hébergés** : `secondbrainlabs.com/privacy` et `/terms` redirigent vers `sbl.so/...` qui répond **404**. Liens in-app absents, listings/screenshots/review accounts à finaliser |
 
@@ -185,7 +185,7 @@ un staging ou une soumission.
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; les quatre vérifications d'éligibilité du compte restent à confirmer par l'owner (identité, profil de paiement, adresse publique, closed testing 12 testeurs / 14 jours) — runbook `task-260`, détail en Phase 2.2. Aucune preuve plus récente dans le repo |
 | **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée, aucune Android. Les trois environnements EAS **sont peuplés** (constaté le 2026-08-13) — `development` porte six variables `EXPO_PUBLIC_*` ; seul `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` reste un placeholder |
-| **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : projet `proj879a771a` avec 3 entitlements de tier, offering courant et 3 packages tiers en place (`task-262`, 2026-08-13), mais **uniquement sur le Test Store** ; app iOS sans produit ni clé ASC, pas d'app Play, webhook secret vide (`500`). Aucun achat sandbox réel possible en l'état. Disposition détaillée : `docs/REVENUECAT_ENTITLEMENTS.md` |
+| **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : projet `proj879a771a` avec 3 entitlements de tier, offering courant et 3 packages tiers (`task-262`, 2026-08-13), désormais servis par les produits Test Store **et** les 3 produits App Store de l'app iOS (`task-261`, 2026-08-13). Restent : la clé App Store Connect (`app_store_connect_api_key_configured: false`, donc les 3 abonnements ne sont pas encore créés côté ASC), l'app Play, et le webhook secret vide (`500`). Aucun achat sandbox réel possible en l'état. Disposition détaillée : `docs/REVENUECAT_ENTITLEMENTS.md` |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | Partiel : projet + consent screen Test + OAuth Web backend + OAuth iOS OK ; OAuth Android et publication Production restent à faire |
 | **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (compte créé, clé en local dans `.env`) |
 | **Deepgram** | usage-based | Transcription audio | OK (compte créé, clé en local dans `.env`) |
@@ -776,10 +776,12 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
   obligatoirement manuelle.
 - **Le projet RevenueCat `proj879a771a` est plus avancé que ce que ce plan
   disait** : l'offering `default` (courant) et les 3 packages
-  `text_only`/`mix`/`audio_heavy` existent, avec 3 produits mensuels rattachés.
-  **Mais ces 3 produits appartiennent au Test Store** (`appa51ecf7585`,
-  identifiants `*_test`) : toute la chaîne est câblée sur le simulateur
-  RevenueCat, jamais sur StoreKit ni Play Billing.
+  `text_only`/`mix`/`audio_heavy` existent, avec des produits mensuels rattachés.
+  Jusqu'au 2026-08-13 ces produits appartenaient **tous** au Test Store
+  (`appa51ecf7585`, identifiants `*_test`) : toute la chaîne était câblée sur le
+  simulateur RevenueCat, jamais sur StoreKit ni Play Billing. `task-261` a ajouté
+  les 3 produits App Store à côté (voir ci-dessous) ; le Play Billing reste
+  entièrement à faire (`task-238`).
 - **La résolution du tier est entitlement-driven depuis `task-262`**
   (2026-08-13) : le webhook lit le tier dans les entitlement IDs de l'événement
   (`entitlement_ids`, ou `entitlement_id` sur les anciens payloads), plus jamais
@@ -793,8 +795,17 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
   `infrastructure/terraform/modules/platform/revenucat_alerts.tf`. Disposition
   complète : `docs/REVENUECAT_ENTITLEMENTS.md`.
 - **L'app iOS `app0d4b00c12f`** (bundle `com.secondbrainlabs.core`) est déclarée
-  avec une In-App Purchase key, mais porte **0 produit** et
-  `app_store_connect_api_key_configured: false`.
+  avec une In-App Purchase key et porte depuis le 2026-08-13 les **3 produits**
+  `com.secondbrainlabs.core.{text_only,mix,audio_heavy}_monthly` (`task-261`),
+  chacun rattaché à son entitlement de tier et au package correspondant de
+  l'offering `default`. **Mais `app_store_connect_api_key_configured` vaut
+  toujours `false`** et les 3 produits lisent `subscription.duration: null` :
+  RevenueCat détient l'identifiant sans avoir jamais lu l'abonnement dans App
+  Store Connect. Tant que les 3 subscriptions n'existent pas côté ASC, StoreKit
+  n'en résout aucune et un build iOS avec la vraie clé SDK iOS reçoit un offering
+  dont les packages n'ont aucun produit achetable. Le câblage RevenueCat, lui,
+  n'a plus rien à faire : il ne reste que du travail owner dans ASC (point 3
+  ci-dessous).
 - **Aucune app Google Play** dans le projet RevenueCat, et
   `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` vaut littéralement
   `your_revenucat_google_api_key_here` dans les **trois** environnements EAS —
@@ -829,11 +840,43 @@ faite :
    ne contient plus aucun identifiant de produit store. Reste à vérifier après un
    push sur `main` : que le webhook déployé traite un événement porteur d'un
    entitlement de tier (dépend du point 1, le secret).
-3. **`task-261` — iOS** : 3 subscriptions dans App Store Connect
-   (`com.secondbrainlabs.core.{text_only,mix,audio_heavy}_monthly`, 3/5/9 €),
-   clé API App Store Connect côté RevenueCat, compte sandbox tester, build
-   TestFlight, achat + restore. Les étapes ASC sont owner-only ; le câblage
-   RevenueCat est vérifiable par API.
+3. **`task-261` — iOS** : le **câblage RevenueCat est fait** (2026-08-13) — 3
+   produits App Store créés sur `app0d4b00c12f`, rattachés aux entitlements de
+   tier et aux packages de l'offering `default`, vérifiable par
+   `GET /v2/projects/proj879a771a/entitlements/<id>/products` et
+   `GET /v2/projects/proj879a771a/packages/<id>/products`. Reste **uniquement du
+   travail owner**, dans cet ordre :
+   1. **App Store Connect → Apps → Abonnements** : créer un groupe d'abonnements
+      (un seul groupe pour les trois : c'est ce qui rend upgrade/downgrade
+      possible sans double facturation), puis les trois abonnements mensuels avec
+      les identifiants **exacts** `com.secondbrainlabs.core.text_only_monthly` /
+      `…mix_monthly` / `…audio_heavy_monthly` à 3 / 5 / 9 € TTC. Les valeurs
+      prêtes à coller (reference names, display names ≤ 30 car., descriptions
+      ≤ 45 car., prix) sont dans
+      `docs/store-listing/app-store-connect.md`, section « Subscriptions ».
+      Aucun identifiant à improviser : ils sont figés, et un product ID ASC est
+      définitif.
+   2. **Pas d'offre d'essai côté ASC.** Le mois offert du tier Mix est accordé
+      côté serveur par ancienneté de compte
+      (`quota_enforcer._is_free_trial_active`, `free_trial` dans
+      `pricing_config_service`). Ajouter une Introductory Offer dans ASC le
+      doublerait — un mois gratuit *facturé* Apple en plus du mois gratuit
+      applicatif.
+   3. **Screenshot de review + localisation** par abonnement, sinon il reste en
+      `Missing Metadata` et RevenueCat ne pourra pas le valider.
+   4. **App Store Connect → Users and Access → Integrations → App Store Connect
+      API** : générer une clé (rôle Admin ou App Manager), puis coller issuer ID,
+      key ID et `.p8` dans RevenueCat → app iOS. Gate :
+      `GET /v2/projects/proj879a771a/apps` renvoie
+      `app_store_connect_api_key_configured: true`, et les 3 produits ne lisent
+      plus `subscription.duration: null` mais `P1M`. Le `.p8` ne s'écrit **jamais**
+      dans un fichier suivi (repo public).
+   5. **Users and Access → Sandbox → Test Accounts** : un tester sandbox sur une
+      adresse que tu contrôles, non rattachée à un Apple ID existant.
+   6. **Build EAS iOS + TestFlight** (le dernier artifact a expiré le 2026-06-25,
+      cf. `task-161` et Phase 5), install sur device, achat d'un tier avec le
+      compte sandbox, puis Restore Purchases.
+   7. Puis le point 5 ci-dessous, le tour de webhook.
 4. **`task-238` — Android** : app Google Play, mêmes 3 produits, clé publique
    Google réelle en remplacement du placeholder, license tester, build Internal
    Testing, achat + restore. Dépend aussi du build Android (`task-163`).
@@ -1170,14 +1213,16 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 - [~] RevenueCat — clés backend et mobiles présentes localement, mais
   `REVENUCAT_WEBHOOK_SECRET` reste **vide en local et dans le secret dev**, donc le
   webhook répond `500` et `revenucat_events-dev` n'a jamais reçu un seul
-  événement. L'offering `default`, ses 3 packages de tier et l'entitlement
-  existent — mais rattachés aux produits **Test Store**, jamais aux stores réels.
-  Restent à faire : le webhook secret (owner, ~15 min), la refonte des
-  entitlements par tier (`task-262`, à faire en premier), les 3 produits IAP iOS
-  (`task-261`) puis Android (`task-238`), comptes sandbox/license testers,
-  achat/restore et propagation vers les quotas. Côté app, les entrées UI existent
-  déjà (`task-244` : CTA d'upgrade dans Account + déclenchement sur refus de
-  quota ; `task-245` : l'état d'abonnement est réellement consommé par l'UI) — le
+  événement. L'offering `default`, ses 3 packages de tier et les 3 entitlements de
+  tier existent (`task-262`), et les 3 produits App Store leur sont rattachés
+  (`task-261`) — mais aucun n'existe encore côté App Store Connect, donc seuls les
+  produits **Test Store** sont réellement achetables. Restent à faire : le webhook
+  secret (owner, ~15 min), les 3 abonnements ASC + la clé App Store Connect
+  (owner, `task-261`), l'app Play et ses 3 produits (`task-238`), comptes
+  sandbox/license testers, achat/restore et propagation vers les quotas. Côté app,
+  les entrées UI existent déjà (`task-244` : CTA d'upgrade dans Account +
+  déclenchement sur refus de quota ; `task-245` : l'état d'abonnement est
+  réellement consommé par l'UI) — le
   paywall n'est donc plus un écran orphelin, seul le circuit d'achat réel manque
 - [x] Pricing admin secret généré au 2026-06-08 (`PRICING_ADMIN_SECRET` en local dans `.env`, requis pour `PUT /api/pricing/admin`)
 - [ ] EAS iOS development build **courante** : l'ancienne build du 2026-06-11

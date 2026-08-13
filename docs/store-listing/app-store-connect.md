@@ -11,6 +11,68 @@
 | Primary Category | Productivity |
 | Secondary Category | Education |
 
+## Subscriptions (In-App Purchases)
+
+Values to paste into **App Store Connect → Apps → Subscriptions**. The product
+identifiers are frozen (`docs/research/task-65-pricing-v1-benchmark/README.md`)
+and a product ID cannot be renamed once created — copy them exactly. The
+RevenueCat side is already wired to these identifiers (`task-261`, layout in
+`docs/REVENUECAT_ENTITLEMENTS.md`), so a typo here means a product RevenueCat
+never resolves.
+
+### Subscription group
+
+One group for the three plans — that is what makes upgrade/downgrade a switch
+inside a group instead of two concurrent subscriptions.
+
+| Field | Value |
+|-------|-------|
+| Reference Name (internal) | Media Summarizer Plans |
+| Localized Display Name (en-US, ≤ 30 chars) | Media Summarizer Plans |
+
+The group display name is customer-visible (iOS Settings → Subscriptions), so if
+`task-186` settles on a different marketing name, edit it. Names are editable at
+any time; the product identifiers below are not.
+
+### The three monthly subscriptions
+
+| Level | Reference Name | Product ID | Duration | Price (EUR, VAT incl.) |
+|-------|----------------|------------|----------|------------------------|
+| 3 (lowest) | Reader Monthly | `com.secondbrainlabs.core.text_only_monthly` | 1 month | 3.00 |
+| 2 | Mix Monthly | `com.secondbrainlabs.core.mix_monthly` | 1 month | 5.00 |
+| 1 (highest) | Audio Heavy Monthly | `com.secondbrainlabs.core.audio_heavy_monthly` | 1 month | 9.00 |
+
+Levels matter: with Audio-Heavy at level 1, moving Reader → Mix → Audio-Heavy is
+an immediate upgrade with proration, and the reverse is a downgrade deferred to
+the next renewal. Set the price on the France storefront and let Apple convert
+the other territories.
+
+### Localizations (en-US)
+
+Display Name is capped at 30 characters, Description at 45.
+
+| Product | Display Name | Description |
+|---------|--------------|-------------|
+| `…text_only_monthly` | Reader | Articles, documents and YouTube captions. |
+| `…mix_monthly` | Mix | Reader plus 5 hours of audio per month. |
+| `…audio_heavy_monthly` | Audio-Heavy | Mix plus 15 hours of audio per month. |
+
+### Do NOT add an introductory offer
+
+The 30-day free month on the Mix tier is granted **server-side** by account age
+(`free_trial` in `media_summarizer/core/services/pricing_config_service.py`, read
+by `quota_enforcer._is_free_trial_active`). An App Store introductory offer would
+stack on top of it and hand out a second free month, this one billed as a real
+subscription period.
+
+### Review screenshot
+
+Each subscription needs one, or it stays `Missing Metadata` and RevenueCat cannot
+import it. Minimum 640 × 920 px. A capture of the paywall
+(`mobile/app/paywall.tsx`, reachable from the Account tab) showing the three tier
+cards satisfies it for all three — Apple only needs to see where the purchase is
+offered.
+
 ## Description (max 4000 chars)
 
 ```

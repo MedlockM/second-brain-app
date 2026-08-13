@@ -32,6 +32,9 @@ Every product is attached to exactly one tier entitlement.
 
 | Store product identifier | Product ID | App | Entitlement |
 |---|---|---|---|
+| `com.secondbrainlabs.core.text_only_monthly` | `proda3433ca23d` | App Store `app0d4b00c12f` | `tier_text_only` |
+| `com.secondbrainlabs.core.mix_monthly` | `prodd7204320b0` | App Store `app0d4b00c12f` | `tier_mix` |
+| `com.secondbrainlabs.core.audio_heavy_monthly` | `prod1c519e5d72` | App Store `app0d4b00c12f` | `tier_audio_heavy` |
 | `text_only_monthly_test` | `prod7e3149d970` | Test Store `appa51ecf7585` | `tier_text_only` |
 | `mix_monthly_test` | `prod199b49706d` | Test Store `appa51ecf7585` | `tier_mix` |
 | `audio_heavy_monthly_test` | `prodfa048c9140` | Test Store `appa51ecf7585` | `tier_audio_heavy` |
@@ -39,20 +42,39 @@ Every product is attached to exactly one tier entitlement.
 The three Test Store products stay: `mobile/.maestro/07_paywall.yaml` drives the
 paywall through them via `E2E_REVENUECAT_TEST_KEY`.
 
-The App Store app `app0d4b00c12f` (bundle `com.secondbrainlabs.core`) still
-carries zero products, and no Google Play app is declared. Adding them is
-`task-261` (iOS) and `task-238` (Android); both attach their products to the
-entitlements above.
+The three App Store products were created by `task-261` (2026-08-13) with the
+identifiers frozen by `docs/research/task-65-pricing-v1-benchmark/README.md`
+(3 / 5 / 9 EUR per month). They read back with `subscription.duration: null`,
+because `app_store_connect_api_key_configured` is still `false` on
+`app0d4b00c12f`: RevenueCat holds the identifier but has never read the
+subscription from App Store Connect. Two owner steps close that gap — create the
+three subscriptions in App Store Connect and upload the App Store Connect API
+key to RevenueCat — and neither needs a code change: the identifiers and the
+package lookup keys already match. Checklist:
+`docs/V1_LAUNCH_PLAN.md` Phase 6, item 3.
+
+No Google Play app is declared yet; that is `task-238`, which attaches its
+products to the same entitlements.
 
 ## Offering and packages
 
-Current offering `default` (`ofrng2c876c3f17`), three packages, one per tier:
+Current offering `default` (`ofrng2c876c3f17`), three packages, one per tier.
+Each package holds one product per store, which is how one offering serves the
+App Store and the Test Store from a single set of lookup keys:
 
-| Position | Lookup key | Package ID | Product |
-|---|---|---|---|
-| 0 | `text_only` | `pkgefd39fb892f` | `text_only_monthly_test` |
-| 1 | `mix` | `pkge7df593bf70` | `mix_monthly_test` |
-| 2 | `audio_heavy` | `pkge5843d287fa` | `audio_heavy_monthly_test` |
+| Position | Lookup key | Package ID | App Store product | Test Store product |
+|---|---|---|---|---|
+| 0 | `text_only` | `pkgefd39fb892f` | `com.secondbrainlabs.core.text_only_monthly` | `text_only_monthly_test` |
+| 1 | `mix` | `pkge7df593bf70` | `com.secondbrainlabs.core.mix_monthly` | `mix_monthly_test` |
+| 2 | `audio_heavy` | `pkge5843d287fa` | `com.secondbrainlabs.core.audio_heavy_monthly` | `audio_heavy_monthly_test` |
+
+The SDK only ever returns the product matching the store it was configured for,
+so the Test Store path the Maestro paywall flow drives is untouched by the App
+Store products sitting in the same packages. Symmetrically, until the three
+subscriptions exist in App Store Connect, StoreKit resolves none of them and an
+iOS build configured with the real iOS SDK key gets an offering whose packages
+have no purchasable product — which was already the case when those packages held
+Test Store products only.
 
 `mobile/app/paywall.tsx` matches a package to a tier card by substring on the
 package or product identifier, so a package lookup key must keep containing its
@@ -60,11 +82,21 @@ tier id.
 
 ## Adding a store product
 
-No code change. In the dashboard (or via the v2 API):
+No code change. In the dashboard, or with these three v2 API calls (bearer token
+= `REVENUCAT_API_KEY` from the root `.env`, never written down anywhere):
 
-1. Import or create the product under its store app.
-2. Attach it to the one tier entitlement it grants.
-3. Attach it to the tier's package in the `default` offering.
+1. `POST /v2/projects/proj879a771a/products`
+   — `{"app_id": "<store app>", "store_identifier": "<store product id>", "type": "subscription", "display_name": "…"}`
+2. `POST /v2/projects/proj879a771a/entitlements/<entitlement>/actions/attach_products`
+   — `{"product_ids": ["<product>"]}`, the one tier entitlement it grants.
+3. `POST /v2/projects/proj879a771a/packages/<package>/actions/attach_products`
+   — `{"products": [{"product_id": "<product>", "eligibility_criteria": "all"}]}`,
+   the tier's package in the `default` offering.
+
+Step 1 succeeds even when the product does not exist in the store yet: RevenueCat
+records the identifier and reconciles it with the store later. So the wiring can
+be done before the store metadata is ready, and the store side is what has to
+catch up.
 
 The backend picks the tier up from the entitlement on the next event.
 
