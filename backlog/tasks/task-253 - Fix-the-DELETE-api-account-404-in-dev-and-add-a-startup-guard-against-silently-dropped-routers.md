@@ -37,8 +37,8 @@ Do not widen this into a refactor of every endpoint import. The guard asked for 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 The root cause is established from evidence and written into the task's Implementation Notes: either the deployed dev image predates the commit that added the route, or an import-time failure is shown in the dev Lambda cold-start logs — not both, and not a guess
-- [ ] #2 Importing the FastAPI app in-process and calling DELETE /api/account through it returns 401 unauthenticated and 204 for an authenticated purgeable account — no deploy involved, this is the reachable proof that the route and its wiring are correct
-- [ ] #3 If the cause is the import-time RuntimeError, the module-scope required_env call reached via account.py no longer runs at import time, and importing media_summarizer.api.main with an unset ARTIFACT_IDEMPOTENCE_TABLE no longer raises
+- [ ] #2 The DELETE /api/account route is declared on the account router and that router is mounted in media_summarizer/api/main.py under the /api/account prefix, with the authentication dependency in place — the wiring is readable end to end in the code
+- [ ] #3 If the cause is the import-time RuntimeError, no module reached through the account.py import chain resolves a required environment variable at module scope — ARTIFACT_IDEMPOTENCE_TABLE in particular is resolved lazily at call time
 - [ ] #4 A startup check asserts that the routers main.py intends to mount are present in app.routes and fails loudly at boot when one is missing, covering at minimum the account router
 - [ ] #5 The e2e teardown in tests/e2e/conftest.py no longer silently accepts a 404 from DELETE /api/account: an unexpected status is surfaced rather than only printed
 - [ ] #6 ruff and mypy stay clean on the touched files

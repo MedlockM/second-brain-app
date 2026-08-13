@@ -92,14 +92,15 @@ Two families of ACs break this rule. Both are common and both must stop.
 - the code path exists and is wired: "every library read goes through `user_media`; no remaining call site reads `processing_jobs` as the library source of truth"
 - a check the agent can run locally: `ruff`/`mypy` clean, `terraform validate` and `plan` exit 0, a targeted script exits 0
 - a direct check against real infrastructure, which needs no deploy: DynamoDB/S3/SQS calls against `-dev` resources, an AWS CLI query, a table's TTL/PITR setting, an alarm driven to `ALARM` and back to `OK`
-- the app exercised **in-process**: import the FastAPI app and call the route through it. This validates the route, its wiring and its status codes without any deploy, and is the honest version of "the endpoint answers".
 - documentation and configuration are readable facts: the file says what it must say, the workflow invokes what it must invoke
+
+**Do not fall back on "run the app locally" either.** Only the backend deployed on AWS is functional; importing the FastAPI app in-process to call a route is not a substitute, it is another test written during development. Writing tests while developing slows the whole pipeline down for no gain — the tests that count are the end-to-end runs the owner triggers manually when the time comes. An AC's job is to describe the delivered behaviour and the state of the codebase, not to prescribe a verification harness.
 
 **When a deploy genuinely matters, it belongs in the description, not in an AC.** Write it as a note to the owner: "LAUNCH PREREQUISITE: after this merges and `main` is pushed, verify `DELETE /api/account` answers 204 against the deployed dev image." The owner performs the push and can then check it. An AC that depends on an action only the owner can take is the owner's checklist item, not the agent's gate.
 
 Same rule for **Maestro**: never write "a full E2E run passes on both platforms" or "the Maestro flows are green". Maestro is owner-triggered (`workflow_dispatch`), takes 10-50 minutes and is flaky on the iOS simulator. Carve-out: tasks whose deliverable *is* the Maestro suite legitimately reference it, because the flow's existence and its CI wiring are readable in the YAML — prefer "the flow exists and the job invokes it" over "the run is green". The rule targets a run used as a validation gate on unrelated work.
 
-**This applies to task creation AND to task execution.** An implementer must not add such an AC either, and — the harder half — **must not rewrite an existing AC to match what it managed to achieve.** Editing "returns 0" into "returns 2", truncating a clause, or ticking a criterion your own evidence contradicts is falsification: it converts an honest blocker into a silent lie, and it has happened. When an AC turns out to be unsatisfiable, the correct move is to leave it unticked, state plainly in the Implementation Notes *why* it cannot be reached, and say so in the final summary. An unticked AC with a documented reason is a good outcome. A ticked AC that is not true is the worst possible one.
+**This applies to task creation AND to task execution.** An implementer must not add such an AC either. When an existing AC turns out to be unsatisfiable, leave it unticked, state in the Implementation Notes *why* it cannot be reached, and say so in the final summary. An unticked AC with a documented reason is a good outcome.
 
 ## Benchmark lifecycle
 

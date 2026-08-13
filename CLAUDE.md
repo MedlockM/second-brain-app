@@ -27,13 +27,13 @@ When in doubt, ask the owner before creating the task(s).
 
 The implementer runs in an isolated worktree on its own branch: it never merges, never pushes, and its code is never deployed while it works. Write only ACs it can satisfy from there, during that run. Three forms to never write:
 
-- **"The deployed endpoint answers X" / "Lambda image redeployed".** Unsatisfiable by construction — the deploy happens on push to `main`, long after the agent is gone. Use an in-process call on the FastAPI app instead ("importing the app and calling the route returns 204"), or push the deploy check into the description as an owner note.
-- **ACs shaped like unit tests** ("function X returns Y for input Z"). A test spec is not an AC, and this project forbids automated tests unless explicitly requested.
+- **"The deployed endpoint answers X" / "Lambda image redeployed".** Unsatisfiable by construction — the deploy happens on push to `main`, long after the agent is gone. Push the deploy check into the description as an owner note.
+- **ACs shaped like unit tests** ("function X returns Y for input Z"), and equally an in-process call on the FastAPI app. Only the AWS backend is functional; a local harness is just another test written during development, which this project forbids unless explicitly requested. The runs that count are the owner's manual E2E runs.
 - **"The Maestro suite is green".** Owner-triggered, 10-50 minutes, flaky on the iOS simulator.
 
 Reachable instead: the code path exists and is wired, `ruff`/`mypy`/`terraform validate` clean, a direct check against real `-dev` DynamoDB/S3/SQS or the AWS CLI, an alarm driven to `ALARM` then `OK`, a documented fact readable in a file.
 
-When a deploy or a mobile visual check genuinely matters, put it in the description as a note to the owner — never as an AC. The full rule, including why rewriting an AC to match your result is falsification, is in `AGENTS.md` under the same heading.
+When a deploy or a mobile visual check genuinely matters, put it in the description as a note to the owner — never as an AC. The full rule is in `AGENTS.md` under the same heading.
 
 ### If the task needs a benchmark: create two linked tasks
 
