@@ -160,6 +160,45 @@ app.include_router(feedback.router, prefix="/api/v1", tags=["feedback"])
 app.include_router(revenucat_webhook.router, prefix="/api", tags=["webhooks"])
 app.include_router(bug_reports.router, prefix="/api/bug-reports", tags=["bug-reports"])
 
+# --- Startup guard: the routes above must really be mounted ---------------
+#
+# task-224 shipped DELETE /api/account, and it answered 404 in dev for a day
+# without anything going red: the deployed image simply predated the route
+# (task-253). A missing router is invisible until a client hits the path, and
+# the one place that exercised this one — the e2e teardown — only printed the
+# status code. This guard turns that class of silence into a boot failure.
+#
+# Keep the list to the routes whose absence is a compliance or product
+# incident, not every route in the app; a list nobody maintains is worse than
+# no list. DELETE /api/account is required by App Store guideline 5.1.1(v).
+CRITICAL_ROUTES: tuple[tuple[str, str], ...] = (
+    ("DELETE", "/api/account"),
+    ("POST", "/api/v1/auth/login"),
+    ("GET", "/api/media"),
+)
+
+
+def _assert_critical_routes_mounted() -> None:
+    # app.routes is typed as list[BaseRoute]; only APIRoute carries .path and
+    # .methods, hence the getattr rather than an isinstance import.
+    mounted = {
+        (method, path)
+        for route in app.routes
+        for path in (getattr(route, "path", None),)
+        if path is not None
+        for method in getattr(route, "methods", None) or ()
+    }
+    missing = [f"{m} {p}" for m, p in CRITICAL_ROUTES if (m, p) not in mounted]
+    if missing:
+        raise RuntimeError(
+            "API refusing to start: expected route(s) not mounted: "
+            + ", ".join(missing)
+            + ". An endpoint import or include_router call was dropped — see task-253."
+        )
+
+
+_assert_critical_routes_mounted()
+
 # --- OpenAPI customization: add HTTP Bearer scheme alongside OAuth2PasswordBearer ---
 
 

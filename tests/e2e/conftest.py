@@ -41,6 +41,7 @@ import subprocess
 import sys
 import time
 import uuid
+import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -197,16 +198,29 @@ async def _teardown_user(client: httpx.AsyncClient, user: Dict[str, str]) -> Non
     print(f"\n[e2e] teardown user {user_id} ({email})")
 
     # First exercise the real deletion flow (task-224): DELETE /api/account
-    # derives the account from the session and takes no id. This is best-effort
-    # and deliberately not load-bearing — the script sweep below is the
-    # guaranteed cleanup, and it still runs whatever the API answered.
+    # derives the account from the session and takes no id. The sweep below
+    # remains the cleanup guarantee, so a failure here must not fail the test —
+    # but it must not pass unnoticed either. task-253: this teardown was the
+    # only thing exercising the shipped deletion path, and it printed a 404 for
+    # a day without anything going red. An unexpected status now raises a
+    # warning, which surfaces in the pytest summary.
     delete_headers = await _login_headers(client, user)
     if delete_headers:
         try:
             resp = await client.delete("/api/account", headers=delete_headers)
             print(f"[e2e]   api DELETE /api/account ({user_id}) -> {resp.status_code}")
+            if resp.status_code != 204:
+                warnings.warn(
+                    f"DELETE /api/account answered {resp.status_code}, expected 204. "
+                    "A 404 means the route is not mounted on the deployed image "
+                    "(see task-253); the mobile deletion flow in "
+                    "mobile/src/services/accountService.ts calls this exact "
+                    "endpoint, and App Store guideline 5.1.1(v) requires it.",
+                    stacklevel=2,
+                )
         except Exception as exc:
             print(f"[e2e]   api DELETE failed: {exc!r}")
+            warnings.warn(f"DELETE /api/account raised {exc!r}", stacklevel=2)
 
     # Guaranteed sweep (task-247): handles both -dev and unsuffixed tables and
     # removes the child rows the API purge may not have reached.
