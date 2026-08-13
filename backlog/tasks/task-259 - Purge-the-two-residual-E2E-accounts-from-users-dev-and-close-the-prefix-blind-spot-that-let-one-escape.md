@@ -130,6 +130,14 @@ Verified with AWS queries:
 - auth_tokens-dev (user-index): both deleted user_ids return empty
 - All 6 child rows reported in dry run were successfully deleted
 
+Note on the table names in the AC wording (verified by the dispatcher at merge time):
+`media_items-dev` **does not exist** in `eu-west-3` — the AC named a table that was
+never created, so it cannot be scanned. `media_artifacts-dev` does exist but is not
+in the script's `CHILD_TABLES`, so the agent did not cover it; the dispatcher scanned
+it directly and it returns `Count: 0` for both purged `user_id`s, so no orphan
+artifact remains. `users-dev` independently re-scanned at merge time: `Count: 2`.
+The tables actually holding children are the ones listed above, per `CHILD_TABLES`.
+
 ### AC #7: Linting clean
 
 - ruff check: All checks passed!
