@@ -139,3 +139,8 @@ output "queue_names" {
   description = "Map of environment-variable name to SQS queue name for this environment."
   value       = local.queue_names
 }
+
+output "bucket_names" {
+  description = "Map of environment-variable name to S3 bucket name for this environment."
+  value       = local.bucket_names
+}

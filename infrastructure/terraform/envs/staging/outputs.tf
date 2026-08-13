@@ -29,3 +29,22 @@ output "runtime_secret_name" {
   description = "Secrets Manager secret holding this environment's runtime configuration."
   value       = module.platform.runtime_secret_name
 }
+
+# Resource-name maps. Re-exposed from the module so an operator can read the real
+# names of this environment instead of guessing at the suffix -- the code has no
+# fallback for them (task-237), so a wrong name fails at import. .env.example
+# points here for any environment other than dev.
+output "table_names" {
+  description = "Map of environment-variable name to DynamoDB table name."
+  value       = module.platform.table_names
+}
+
+output "queue_names" {
+  description = "Map of environment-variable name to SQS queue name."
+  value       = module.platform.queue_names
+}
+
+output "bucket_names" {
+  description = "Map of environment-variable name to S3 bucket name."
+  value       = module.platform.bucket_names
+}
