@@ -23,11 +23,17 @@ A benchmark is NOT required for:
 
 When in doubt, ask the owner before creating the task(s).
 
-### Never make a Maestro run an acceptance criterion
+### Every AC must be satisfiable by the agent that will implement the task
 
-Whatever the task type, do not write an AC like "a full E2E run passes on both platforms" or "the Maestro flows are green". Maestro is owner-triggered (`workflow_dispatch`), runs 10-50 minutes, and is flaky on the iOS simulator — no agent can tick such an AC, so the task stays `In Progress` and silently blocks every task that depends on it. Write ACs an agent can actually reach: the code path, the deployed endpoint, a direct AWS/API check, a targeted script. If mobile visual confirmation genuinely matters, put it in the description as a note to the owner, never as an AC.
+The implementer runs in an isolated worktree on its own branch: it never merges, never pushes, and its code is never deployed while it works. Write only ACs it can satisfy from there, during that run. Three forms to never write:
 
-The full rule, including the case of ACs that legitimately require a deployed backend, is in `AGENTS.md` under the same heading.
+- **"The deployed endpoint answers X" / "Lambda image redeployed".** Unsatisfiable by construction — the deploy happens on push to `main`, long after the agent is gone. Use an in-process call on the FastAPI app instead ("importing the app and calling the route returns 204"), or push the deploy check into the description as an owner note.
+- **ACs shaped like unit tests** ("function X returns Y for input Z"). A test spec is not an AC, and this project forbids automated tests unless explicitly requested.
+- **"The Maestro suite is green".** Owner-triggered, 10-50 minutes, flaky on the iOS simulator.
+
+Reachable instead: the code path exists and is wired, `ruff`/`mypy`/`terraform validate` clean, a direct check against real `-dev` DynamoDB/S3/SQS or the AWS CLI, an alarm driven to `ALARM` then `OK`, a documented fact readable in a file.
+
+When a deploy or a mobile visual check genuinely matters, put it in the description as a note to the owner — never as an AC. The full rule, including why rewriting an AC to match your result is falsification, is in `AGENTS.md` under the same heading.
 
 ### If the task needs a benchmark: create two linked tasks
 

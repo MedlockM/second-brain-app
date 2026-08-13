@@ -77,16 +77,29 @@ When creating a new task in the backlog, split it in two when the work requires 
 
 When the task is a bug fix, refactor, or well-understood feature with no open technology/architecture question, create a single task — do NOT create a dummy benchmark task.
 
-### Never make a Maestro run an acceptance criterion
+### An acceptance criterion must be satisfiable by the agent that implements the task
 
-Do NOT write acceptance criteria of the form "a full E2E run passes on both platforms" or "the Maestro flows pass". A Maestro run is owner-triggered (`workflow_dispatch`), takes 10-50 minutes, and is flaky on the iOS simulator — an agent cannot satisfy such an AC, so the task stays `In Progress` forever and blocks everything downstream. This applies to task creation AND to task execution: an implementer must not add one either.
+This is the single rule behind everything below. An implementer runs **inside an isolated git worktree, on its own branch**. It does not merge, it does not push, and nothing it writes is deployed while it works. So an AC is only writable if the agent can satisfy it **from that worktree, during that run**. Anything else parks the task `In Progress` forever and silently blocks every dependent task.
 
-Validate the behaviour through what an agent can actually reach: the code path, the deployed endpoint, a direct AWS/API check, or a targeted script. When a change genuinely needs mobile visual confirmation, say so in the description as a note to the owner — not as an AC.
+Two families of ACs break this rule. Both are common and both must stop.
 
-Two carve-outs:
+**1. ACs that require the code to be deployed.** "The dev API returns 204", "Lambda image rebuilt and redeployed", "the deployed endpoint answers". These are unsatisfiable *by construction*: `deploy-lambda.yml` only fires on push to `main`, and the implementer's code is on a branch that has been neither merged nor pushed. The agent cannot make its own change deployed — the ordering is impossible, not merely inconvenient. Today 34 of the 36 deploy-dependent ACs in the backlog are unticked, which is what this rule exists to stop.
 
-- **Tasks whose deliverable *is* the Maestro suite** (write a flow, wire the CI job) legitimately reference it — the flow's existence and its wiring are readable in the YAML. Even there, prefer "the flow exists and the job invokes it" over "the run is green". The rule targets a Maestro run used as a *validation gate on unrelated work*.
-- **An AC requiring a *deployed* backend endpoint is fine**: the deploy is automatic on merge to `main`, so an agent can verify it once the workflow finishes. Check the deployed image digest against the merge commit before ticking it — `deploy-lambda.yml` is `paths`-filtered, and it never fires at all while `main` is unpushed.
+**2. ACs written as unit tests.** "Function X returns Y for input Z", "the handler raises on an empty payload", "calling the service twice is idempotent". Beyond being a test spec masquerading as an AC, this contradicts the delivery rule above: **no automated tests unless explicitly requested**. An AC is a statement about *observable behaviour or the state of the codebase*, not an assertion an agent is expected to encode as a test it has been forbidden from writing.
+
+**Write instead what the agent can actually reach from its worktree:**
+
+- the code path exists and is wired: "every library read goes through `user_media`; no remaining call site reads `processing_jobs` as the library source of truth"
+- a check the agent can run locally: `ruff`/`mypy` clean, `terraform validate` and `plan` exit 0, a targeted script exits 0
+- a direct check against real infrastructure, which needs no deploy: DynamoDB/S3/SQS calls against `-dev` resources, an AWS CLI query, a table's TTL/PITR setting, an alarm driven to `ALARM` and back to `OK`
+- the app exercised **in-process**: import the FastAPI app and call the route through it. This validates the route, its wiring and its status codes without any deploy, and is the honest version of "the endpoint answers".
+- documentation and configuration are readable facts: the file says what it must say, the workflow invokes what it must invoke
+
+**When a deploy genuinely matters, it belongs in the description, not in an AC.** Write it as a note to the owner: "LAUNCH PREREQUISITE: after this merges and `main` is pushed, verify `DELETE /api/account` answers 204 against the deployed dev image." The owner performs the push and can then check it. An AC that depends on an action only the owner can take is the owner's checklist item, not the agent's gate.
+
+Same rule for **Maestro**: never write "a full E2E run passes on both platforms" or "the Maestro flows are green". Maestro is owner-triggered (`workflow_dispatch`), takes 10-50 minutes and is flaky on the iOS simulator. Carve-out: tasks whose deliverable *is* the Maestro suite legitimately reference it, because the flow's existence and its CI wiring are readable in the YAML — prefer "the flow exists and the job invokes it" over "the run is green". The rule targets a run used as a validation gate on unrelated work.
+
+**This applies to task creation AND to task execution.** An implementer must not add such an AC either, and — the harder half — **must not rewrite an existing AC to match what it managed to achieve.** Editing "returns 0" into "returns 2", truncating a clause, or ticking a criterion your own evidence contradicts is falsification: it converts an honest blocker into a silent lie, and it has happened. When an AC turns out to be unsatisfiable, the correct move is to leave it unticked, state plainly in the Implementation Notes *why* it cannot be reached, and say so in the final summary. An unticked AC with a documented reason is a good outcome. A ticked AC that is not true is the worst possible one.
 
 ## Benchmark lifecycle
 

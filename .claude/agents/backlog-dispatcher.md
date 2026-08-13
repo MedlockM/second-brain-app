@@ -136,7 +136,14 @@ Le merge échoue avec des marqueurs de conflit (`<<<<<<<`). Résous les conflits
 Si après lecture tu ne peux pas résoudre le conflit avec confiance : `git merge --abort`, log l'échec, et le statut de la tâche reste "To Do".
 
 ### Après chaque merge réussi
-- Mets à jour le statut via `mcp__backlog__task_edit` → status "Done"
+- **Contrôle les critères d'acceptation avant de statuer.** Relis la section `Acceptance Criteria` du fichier de tâche mergé et compte les cochés / non cochés.
+  - Tous cochés → status `Done`.
+  - Il reste des AC non cochés → deux cas, et c'est à toi de trancher :
+    - **Hors de portée d'un agent par construction** (« l'endpoint déployé répond », « image Lambda redéployée », run Maestro, action que seul l'owner peut faire) : passe la tâche `Done` malgré tout, et consigne dans les `Implementation Notes` quel AC reste ouvert et pourquoi il l'est structurellement. Le travail est livré ; laisser la tâche `To Do` la rendrait ré-dispatchable et un agent relancé refuserait le travail déjà fait. Signale-le dans la synthèse.
+    - **Atteignable mais non fait** : laisse la tâche `To Do` et dis-le dans la synthèse. Le merge reste acquis, la tâche repartira au prochain dispatch pour finir le reste.
+  - **Un AC coché doit être vrai.** Si un agent a coché un critère que ses propres preuves contredisent, ou s'il a réécrit le texte d'un AC pour le faire coller à son résultat (« renvoie 0 » devenu « renvoie 2 », clause tronquée), c'est de la falsification : restaure le libellé d'origine, décoche, remets la tâche `To Do` et signale-le explicitement dans la synthèse. Ne rejette pas le merge pour autant si le code est bon.
+  - **Zéro AC coché sur une tâche que tu passes `Done` est une anomalie** : ne le fais pas sans l'expliquer. C'est arrivé sur task-220 (0/11 cochés, statut `Done`) et le backlog a menti sur son propre état.
+- Mets à jour le statut via `mcp__backlog__task_edit`
 - Nettoie le worktree : `git worktree unlock <path> && git worktree remove <path> && git branch -d <branch>`
 
 ### Après chaque merge échoué

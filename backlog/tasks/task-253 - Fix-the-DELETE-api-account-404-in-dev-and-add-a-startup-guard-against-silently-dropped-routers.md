@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-13 13:10'
+updated_date: '2026-08-13 13:39'
 labels:
   - bug
   - api
@@ -28,16 +29,17 @@ priority: high
 
 This matters beyond a broken route: in-app account deletion is required by App Store guideline 5.1.1(v), and `mobile/src/services/accountService.ts:22` is wired to this exact endpoint. If it 404s in prod, the mobile deletion flow is broken and the store commitment is not met.
 
+**Note to the owner — the deploy check is yours, not an AC.** The implementer works in an isolated worktree: its code is neither merged nor pushed, so it cannot verify its own fix against a deployed Lambda. That check is therefore deliberately absent from the acceptance criteria. Once this merges and `main` is pushed, and once `deploy-lambda.yml` has run, confirm `DELETE /api/account` answers `401`/`204` rather than `404` against the dev image — and check the deployed digest matches the merge commit, since the workflow is `paths`-filtered.
+
 Do not widen this into a refactor of every endpoint import. The guard asked for is a narrow startup assertion that the expected routers are actually mounted, so a dropped router fails loudly at boot instead of surfacing as a 404 months later.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 The root cause is established from evidence and written into the task's Implementation Notes: either the deployed dev image predates the commit that added the route, or an import-time failure is shown in the dev Lambda cold-start logs — not both, and not a guess
-- [ ] #2 DELETE /api/account on the dev API no longer returns 404: an unauthenticated call returns 401 and an authenticated call on a throwaway account returns 204, verified against a deployed image whose digest is confirmed to contain the route
+- [ ] #2 Importing the FastAPI app in-process and calling DELETE /api/account through it returns 401 unauthenticated and 204 for an authenticated purgeable account — no deploy involved, this is the reachable proof that the route and its wiring are correct
 - [ ] #3 If the cause is the import-time RuntimeError, the module-scope required_env call reached via account.py no longer runs at import time, and importing media_summarizer.api.main with an unset ARTIFACT_IDEMPOTENCE_TABLE no longer raises
 - [ ] #4 A startup check asserts that the routers main.py intends to mount are present in app.routes and fails loudly at boot when one is missing, covering at minimum the account router
 - [ ] #5 The e2e teardown in tests/e2e/conftest.py no longer silently accepts a 404 from DELETE /api/account: an unexpected status is surfaced rather than only printed
-- [ ] #6 A regression test exercises DELETE /api/account through the app (401 unauthenticated, 204 on a purgeable account) so the route's absence would fail the suite
-- [ ] #7 ruff and mypy stay clean on the touched files
+- [ ] #6 ruff and mypy stay clean on the touched files
 <!-- AC:END -->
