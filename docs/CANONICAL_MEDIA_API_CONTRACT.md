@@ -370,6 +370,71 @@ Semantics (task-243, §6.2 of the task-218 benchmark):
 - unknown or foreign id returns `404 MEDIA_NOT_FOUND`
 - this is the only endpoint in the system allowed to schedule a library row for purge; retention rules are in `docs/DATA_RETENTION.md`
 
+## Multipart upload entrypoints (non-canonical, same organization contract)
+
+Two ingestion entrypoints take bytes instead of a URL. They are **not** part of the six canonical
+endpoints above and have their own compact response shape, but since task-264 they accept the same
+organization fields as `POST /api/media/ingest-url` and `POST /api/media/ingest-shared-content`.
+There is one dialect for "where does this save go", implemented once in
+`_resolve_media_organization` (`media_summarizer/api/endpoints/media.py`) and shared by all four.
+
+### POST /api/media/upload
+
+`multipart/form-data`:
+
+| Part | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `file` | file | yes | Extension must be in `DocumentFormat.supported_extensions()`: `pdf`, `docx`, `pptx`, `xlsx`, `jpg`, `jpeg`, `png`, `tiff`, `tif`, `bmp`, `heif`, `heic`. Images go through OCR. |
+| `folder_id` | text | no | Destination collection. Omitted or empty means the user's default Uncategorized folder. |
+| `tag_ids` | text | no | JSON array of strings, e.g. `["tag_01JQ...","tag_01JR..."]`. Multipart has no native array type, so the array travels encoded. |
+
+Response (`UploadDocumentResponse`, `202 Accepted`):
+```json
+{
+  "media_item_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
+  "status": "processing",
+  "source_platform": "document",
+  "file_name": "invoice-2026-03.pdf"
+}
+```
+
+### POST /api/media/upload-audio
+
+`multipart/form-data`:
+
+| Part | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `file` | file | yes | Extension must be one of `.mp3`, `.m4a`, `.aac`, `.ogg`, `.wav`, `.flac`, `.opus`. Transcribed by Deepgram. |
+| `folder_id` | text | no | Same semantics as above. |
+| `tag_ids` | text | no | Same semantics as above. |
+
+Response (`UploadAudioResponse`, `202 Accepted`):
+```json
+{
+  "media_item_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
+  "status": "processing",
+  "source_platform": "audio"
+}
+```
+
+### Shared semantics
+
+- `folder_id` and `tag_ids` are validated against the caller **before** the quota check, so an
+  unusable folder or tag costs nothing to the user's allowance. An id that does not exist or belongs
+  to someone else is `400 Folder not found` / `400 Tag(s) not found`, and more than
+  `MAX_TAGS_PER_MEDIA` distinct tags is `400` — identical wording and status to `ingest-url`.
+- A malformed `tag_ids` (not valid JSON, or valid JSON that is not an array) is `400`; duplicates are
+  collapsed.
+- Both fields land on the durable library row through `save_media_for_user`, never on the processing
+  job — organization belongs to what the user saved, not to the pipeline working for it.
+- Rejections that do not depend on the file's content are stable: unsupported extension `400`, empty
+  file `400`, over `MAX_UPLOAD_SIZE_BYTES` `413`. Clients are expected to enforce the extension list
+  and the size ceiling locally so a refusal costs no upload.
+- A quota refusal carries the `X-Quota-Error-Code` header, exactly like the URL and shared-content
+  entrypoints.
+- The library row stores `media_type` `document` / `audio`, which the list endpoint returns as-is;
+  `GET /api/media/{media_item_id}` normalizes them to the canonical `article` / `audio_file`.
+
 ## Domain enums (locked)
 
 `MediaItem`:

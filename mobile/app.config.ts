@@ -61,6 +61,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       infoPlist: {
         NSPhotoLibraryUsageDescription:
           "Used to attach images to media entries.",
+        // Camera capture as an ingestion entry point (task-264): the photo is
+        // sent to your library right after the shot. Declared here rather than
+        // through the expo-image-picker plugin so the string stays next to the
+        // photo library one and shows up in the resolved config.
+        NSCameraUsageDescription:
+          "Used to take a photo of a document or a page and import it into your library.",
       },
       // App Groups for sharing data between the main app and the share extension
       entitlements: {
@@ -75,6 +81,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         backgroundColor: "#fcf9f6",
       },
       package: "com.secondbrainlabs.core",
+      // Camera capture as an ingestion entry point (task-264). The runtime
+      // request is made by expo-image-picker; the manifest entry is what makes
+      // that request grantable.
+      permissions: ["android.permission.CAMERA"],
       intentFilters: [
         {
           action: "SEND",

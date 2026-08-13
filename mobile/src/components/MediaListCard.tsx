@@ -108,9 +108,12 @@ function getMediaTypeLabel(type: MediaType): string {
     case "short_video":
       return "SHORT";
     case "audio_file":
+    case "audio":
       return "AUDIO";
     case "shared_text":
       return "TEXT";
+    case "document":
+      return "DOC";
     default:
       return "LINK";
   }
@@ -142,9 +145,12 @@ function getMediaTypeIcon(
     case "short_video":
       return "play-circle-outline";
     case "audio_file":
+    case "audio":
       return "musical-notes-outline";
     case "shared_text":
       return "text-outline";
+    case "document":
+      return "document-attach-outline";
     default:
       return "link-outline";
   }

@@ -7,6 +7,7 @@ Supports URL ingestion, file upload (document parsing), status retrieval, and fo
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import List, Optional
@@ -52,6 +53,7 @@ from media_summarizer.api.models.media_contracts import (
 from media_summarizer.api.models.media_contracts import (
     TranscriptStatus as CanonicalTranscriptStatus,
 )
+from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
 from media_summarizer.core.media_ingestion.adapters.classifiers import RuleBasedUrlClassifier
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.auth import AuthUser
@@ -143,6 +145,81 @@ def _detect_quota_platform(url: str) -> str:
         return _URL_CLASSIFIER.classify(normalized_url).source_platform.value
     except Exception:
         return "unknown"
+
+
+def _parse_form_tag_ids(raw: Optional[str]) -> Optional[List[str]]:
+    """Decode the multipart `tag_ids` field, which travels as a JSON array.
+
+    Multipart form fields are strings, so every upload/share endpoint carries the
+    tag list as `["tag_a","tag_b"]`. This is the only place that knows it, so the
+    validation below works on real lists whatever the transport was.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="tag_ids must be a valid JSON array of strings",
+        )
+    if not isinstance(parsed, list):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="tag_ids must be a JSON array",
+        )
+    return [str(tag_id) for tag_id in parsed]
+
+
+async def _resolve_media_organization(
+    *,
+    user_id: str,
+    folder_id: Optional[str],
+    tag_ids: Optional[List[str]],
+) -> tuple[Optional[str], Optional[List[str]]]:
+    """Validate the folder/tags a submission asks for and return them resolved.
+
+    Single dialect of "where does this save go", shared by every ingestion
+    entrypoint (URL, shared content, document upload, audio upload) so a mobile
+    gesture cannot end up with a weaker check than another. Enforces:
+
+    - the folder exists and belongs to the caller
+    - the tags exist and belong to the caller
+    - at most ``MAX_TAGS_PER_MEDIA`` distinct tags
+
+    Returns ``(resolved_folder_id, unique_tag_ids)``, both ``None`` when nothing
+    was asked for — ``save_media_for_user`` then falls back to the user's default
+    folder. Raises ``HTTPException`` 400 on any violation.
+    """
+    resolved_folder_id: Optional[str] = None
+    requested_folder_id = folder_id.strip() if folder_id else None
+    if requested_folder_id:
+        folder = await database_async.get_folder_by_id(requested_folder_id)
+        if folder is None or folder.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Folder not found: {requested_folder_id}",
+            )
+        resolved_folder_id = folder.id
+
+    if not tag_ids:
+        return resolved_folder_id, None
+
+    unique_tag_ids = list(dict.fromkeys(tag_ids))
+    if len(unique_tag_ids) > MAX_TAGS_PER_MEDIA:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot assign more than {MAX_TAGS_PER_MEDIA} tags",
+        )
+    user_tags = await database_async.get_tags_by_user_id(user_id)
+    user_tag_ids = {t.id for t in user_tags}
+    invalid_ids = [tid for tid in unique_tag_ids if tid not in user_tag_ids]
+    if invalid_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
+        )
+    return resolved_folder_id, unique_tag_ids
 
 
 class IngestUrlRequest(BaseModel):
@@ -663,7 +740,6 @@ async def ingest_url(
     request: Request,
     current_user: AuthUser = Depends(get_current_user),
 ):
-    from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
     from media_summarizer.core.media_ingestion.domain import (
         IngestUrlCommand,
         UserContext,
@@ -696,37 +772,12 @@ async def ingest_url(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-        # Validate folder ownership if provided
-        resolved_folder_id: Optional[str] = None
-        requested_folder_id = payload.folder_id.strip() if payload.folder_id else None
-        if requested_folder_id:
-            folder = await database_async.get_folder_by_id(requested_folder_id)
-            if folder is None or folder.user_id != user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Folder not found: {requested_folder_id}",
-                )
-            resolved_folder_id = folder.id
-
-        # Validate tags ownership and count if provided
-        if payload.tag_ids:
-            unique_tag_ids = list(dict.fromkeys(payload.tag_ids))
-            if len(unique_tag_ids) > MAX_TAGS_PER_MEDIA:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot assign more than {MAX_TAGS_PER_MEDIA} tags",
-                )
-            # Validate tags belong to user
-            user_tags = await database_async.get_tags_by_user_id(user.id)
-            user_tag_ids = {t.id for t in user_tags}
-            invalid_ids = [tid for tid in unique_tag_ids if tid not in user_tag_ids]
-            if invalid_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
-                )
-        else:
-            unique_tag_ids = None
+        # Where the save goes: folder and tags must belong to the caller.
+        resolved_folder_id, unique_tag_ids = await _resolve_media_organization(
+            user_id=user.id,
+            folder_id=payload.folder_id,
+            tag_ids=payload.tag_ids,
+        )
 
         # Quota enforcement check before processing
         # Detect source platform for quota checking
@@ -857,6 +908,8 @@ async def ingest_url(
 @router.post("/upload", response_model=UploadDocumentResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_document(
     file: UploadFile = File(...),
+    folder_id: Optional[str] = Form(None),
+    tag_ids: Optional[str] = Form(None),
     current_user: AuthUser = Depends(get_current_user),
 ):
     """
@@ -865,6 +918,9 @@ async def upload_document(
     Supported formats: PDF, DOCX, PPTX, XLSX, JPG, JPEG, PNG, TIFF, BMP, HEIF.
     The document will be parsed using LlamaParse (primary) with fallback to
     Unstructured API, then fed into the downstream LLM pipeline.
+
+    `folder_id` and `tag_ids` (JSON array of strings) are optional and place the
+    resulting library row exactly like every other ingestion entrypoint does.
 
     Returns 202 Accepted with the media_item_id to poll for status.
     """
@@ -898,6 +954,14 @@ async def upload_document(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+        # Where the save goes (task-264). Validated before the quota check so an
+        # unusable folder or tag costs nothing to the user's allowance.
+        resolved_folder_id, resolved_tag_ids = await _resolve_media_organization(
+            user_id=user.id,
+            folder_id=folder_id,
+            tag_ids=_parse_form_tag_ids(tag_ids),
+        )
+
         # Quota enforcement check before processing
         quota_result = await check_submission_allowed(
             user_id=user.id,
@@ -926,6 +990,8 @@ async def upload_document(
             title=file_name,
             source_platform="document",
             media_type="document",
+            folder_id=resolved_folder_id,
+            tag_ids=resolved_tag_ids,
         )
 
         # Create processing job
@@ -1024,6 +1090,7 @@ async def upload_document(
 @router.post("/upload-audio", response_model=UploadAudioResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_audio(
     file: UploadFile = File(...),
+    folder_id: Optional[str] = Form(None),
     tag_ids: Optional[str] = Form(None),
     current_user: AuthUser = Depends(get_current_user),
 ):
@@ -1033,6 +1100,9 @@ async def upload_audio(
     Supported formats: MP3, M4A, AAC, OGG, WAV, FLAC, OPUS.
     The audio file is uploaded to S3, then a pre-signed URL is generated
     and sent to the Deepgram transcription worker.
+
+    `folder_id` and `tag_ids` (JSON array of strings) are optional and place the
+    resulting library row exactly like every other ingestion entrypoint does.
 
     Returns 202 Accepted with the media_item_id to poll for status.
     """
@@ -1065,6 +1135,14 @@ async def upload_audio(
         user = await database_async.get_user_by_id(current_user.id)
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+        # Where the save goes (task-264). Validated before the quota check so an
+        # unusable folder or tag costs nothing to the user's allowance.
+        resolved_folder_id, resolved_tag_ids = await _resolve_media_organization(
+            user_id=user.id,
+            folder_id=folder_id,
+            tag_ids=_parse_form_tag_ids(tag_ids),
+        )
 
         # Quota enforcement (task-250 Layer 0). This endpoint used to enqueue a
         # Deepgram transcription without consulting the quota engine at all: a
@@ -1107,55 +1185,17 @@ async def upload_audio(
             title=file_name,
         )
 
-        # Parse and validate tag_ids if provided. They are organization, so they
-        # land on the durable library row -- never on the job.
-        resolved_tag_ids: List[str] = []
-        parsed_tag_ids: Optional[List[str]] = None
-        if tag_ids:
-            import json as _json
-
-            try:
-                parsed_tag_ids = _json.loads(tag_ids)
-            except (ValueError, TypeError):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="tag_ids must be a valid JSON array of strings",
-                )
-            if not isinstance(parsed_tag_ids, list):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="tag_ids must be a JSON array",
-                )
-
-        if parsed_tag_ids:
-            from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
-
-            unique_tag_ids = list(dict.fromkeys(parsed_tag_ids))
-            if len(unique_tag_ids) > MAX_TAGS_PER_MEDIA:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot assign more than {MAX_TAGS_PER_MEDIA} tags",
-                )
-            # Validate tags belong to user
-            user_tags = await database_async.get_tags_by_user_id(user.id)
-            user_tag_ids = {t.id for t in user_tags}
-            invalid_ids = [tid for tid in unique_tag_ids if tid not in user_tag_ids]
-            if invalid_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
-                )
-            resolved_tag_ids = unique_tag_ids
-
-        # Durable library entry first (task-240, task-218 §4.3). Placed after tag
-        # validation so the library row carries the organization the user asked
-        # for, and before the job so nothing user-owned depends on the pipeline.
+        # Durable library entry first (task-240, task-218 §4.3). The folder and
+        # tags are organization, so they land on the library row -- never on the
+        # job -- and the row is written before the job so nothing user-owned
+        # depends on the pipeline.
         job.media_item_id = await save_media_for_user(
             user_id=user.id,
             media_key=media_key,
             title=file_name,
             source_platform="audio",
             media_type="audio",
+            folder_id=resolved_folder_id,
             tag_ids=resolved_tag_ids,
         )
 
@@ -1322,52 +1362,12 @@ async def ingest_shared_content(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-        # Validate folder ownership if provided
-        from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
-
-        resolved_folder_id: Optional[str] = None
-        requested_folder_id = folder_id.strip() if folder_id else None
-        if requested_folder_id:
-            folder = await database_async.get_folder_by_id(requested_folder_id)
-            if folder is None or folder.user_id != user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Folder not found: {requested_folder_id}",
-                )
-            resolved_folder_id = folder.id
-
-        # Validate tags ownership and count if provided
-        unique_tag_ids: Optional[List[str]] = None
-        if tag_ids:
-            import json as _json
-
-            try:
-                parsed_tag_ids = _json.loads(tag_ids)
-            except (ValueError, TypeError):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="tag_ids must be a valid JSON array of strings",
-                )
-            if not isinstance(parsed_tag_ids, list):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="tag_ids must be a JSON array",
-                )
-            unique_tag_ids = list(dict.fromkeys(parsed_tag_ids))
-            if len(unique_tag_ids) > MAX_TAGS_PER_MEDIA:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Cannot assign more than {MAX_TAGS_PER_MEDIA} tags",
-                )
-            # Validate tags belong to user
-            user_tags = await database_async.get_tags_by_user_id(user.id)
-            user_tag_ids_set = {t.id for t in user_tags}
-            invalid_ids = [tid for tid in unique_tag_ids if tid not in user_tag_ids_set]
-            if invalid_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
-                )
+        # Where the save goes: folder and tags must belong to the caller.
+        resolved_folder_id, unique_tag_ids = await _resolve_media_organization(
+            user_id=user.id,
+            folder_id=folder_id,
+            tag_ids=_parse_form_tag_ids(tag_ids),
+        )
 
         # Branch based on share_type
         staged_audio_s3_key: Optional[str] = None
