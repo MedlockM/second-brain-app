@@ -15,6 +15,7 @@ Each section corresponds to a specific CloudWatch alarm defined in `infrastructu
 - [Lambda Throttles](#lambda-throttles)
 - [Deepgram Error Rate](#deepgram-error-rate)
 - [LlamaParse Fallback](#llamaparse-fallback)
+- [Archiver Failure](#archiver-failure)
 
 ---
 
@@ -453,6 +454,67 @@ Run `./scripts/replay_dlq.sh --help` for the full list of available DLQs.
 
 - If both LlamaParse AND Unstructured are failing: `document_parsing.all_failed` will fire Lambda error rate alarm
 - If cost concern: evaluate upgrading LlamaParse plan vs relying on Unstructured
+
+---
+
+## Archiver Failure
+
+**Alarms:** `media-summarizer-job-archiver-silent-failure` (composite), `media-summarizer-job-archiver-archive-gap`
+**Severity:** Critical
+**Threshold:** silent-failure = archiver Lambda invoked while zero objects archived in the same 5-minute period; archive-gap = `remove_records - archived > 0`
+
+Both alarms answer the same question in two different ways, because the failure
+they exist for (task-218 §1.5) was an archiver invoked 144 times that never wrote
+an object while `processing_jobs` rows were expiring:
+
+- `archive-gap` sees the handler run and drop deletions. Derived from the
+  `job_archiver.batch_completed` JSON summary line emitted once per invocation.
+- `silent-failure` is the composite of `job-archiver-invoked` (`AWS/Lambda`
+  `Invocations`, emitted by the platform, not by the function) AND
+  `job-archiver-nothing-archived` (`treat_missing_data = breaching`, so a handler
+  that logs nothing at all still breaches). This is the one that survives a
+  regression to a no-op deployment package.
+
+### Symptoms
+
+- The archives bucket stops growing while jobs keep disappearing from `processing_jobs`
+- `job_archiver.batch_completed` shows `archived` below `remove_records`, or is absent entirely
+
+### Investigation Steps
+
+1. **Read the invocation summaries:**
+   ```
+   CloudWatch Insights on /aws/lambda/media-summarizer-job-archiver-<env>:
+   fields @timestamp, remove_records, archived, failed
+   | filter event = "job_archiver.batch_completed"
+   | sort @timestamp desc
+   ```
+   No rows at all + non-zero `Invocations` = the deployed package is not the real
+   archiver. Check `CodeSize` on the function against a local build of
+   `media_summarizer/workers/cleanup/job_archiver.py`.
+
+2. **Check what actually landed:**
+   ```
+   aws s3 ls s3://media-summarizer-archives-<account>-<env>/$(date -u +%Y/%m/%d)/
+   ```
+
+3. **Common causes:**
+   - `ARCHIVE_BUCKET` unset on the function (the handler reports the whole batch as `failed`)
+   - `s3:PutObject` denied on the archives bucket
+   - Records without `OldImage` (stream view type changed away from `OLD_IMAGE`/`NEW_AND_OLD_IMAGES`)
+
+### First Response
+
+- The deletions already lost cannot be recovered from the stream (24h retention at best).
+  If the TTL is the source of the deletions, consider raising
+  `processing_jobs_ttl_days` while the archiver is broken to slow the bleeding.
+- Fix the archiver, then confirm recovery: a successful invocation writes
+  `archived >= 1`, which returns both alarms to OK.
+
+### Escalation
+
+- If rows are expiring unarchived for more than one TTL window, treat as data loss
+  and reopen the task-218 durable-persistence thread.
 
 ---
 
