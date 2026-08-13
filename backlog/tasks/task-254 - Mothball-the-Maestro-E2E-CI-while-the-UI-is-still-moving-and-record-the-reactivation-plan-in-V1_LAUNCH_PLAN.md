@@ -1,0 +1,82 @@
+---
+id: task-254
+title: >-
+  Mothball the Maestro E2E CI while the UI is still moving, and record the
+  reactivation plan in V1_LAUNCH_PLAN
+status: To Do
+assignee: []
+created_date: '2026-08-13 14:16'
+labels:
+  - tooling
+  - mobile
+  - e2e
+  - ci
+dependencies: []
+priority: high
+---
+
+## Description
+
+<!-- SECTION:DESCRIPTION:BEGIN -->
+## Contexte
+
+Les flows Maestro assèrent des libellés et des `testID` d'écrans (`Welcome back`, `Good .*`, `YOUR MEDIA`, `AI Artifacts`, `Choose Your Plan`, `Reader`/`Mix`/`Audio-Heavy`, `paywall-screen`, `search-result-card`…). L'UI de l'app est encore en cours de développement et va changer prochainement : chaque itération de design casse ces selectors et impose de recoder les flows. Maintenir la suite verte maintenant, c'est payer un coût de réécriture à chaque changement d'écran, pour une couverture qui sera de toute façon à refaire.
+
+Décision de l'owner (2026-08-13) : **mettre la CI Maestro en sommeil**, sans supprimer quoi que ce soit. Le workflow, les 7 flows, les scripts runner, les secrets et la fixture de test restent en place et réutilisables tels quels une fois l'UI figée.
+
+## Ce qu'on veut
+
+Que plus aucun run Maestro ne se déclenche tout seul. Aujourd'hui `.github/workflows/mobile-e2e-maestro.yml` se déclenche sur `push` (branches `main` et `second-brain-project`) et sur `pull_request`, tous deux filtrés sur `mobile/**` — donc tout commit touchant le mobile lance un émulateur Android 45 min max, et un push sur `main` en enchaîne un de plus. C'est ce déclenchement automatique qu'il faut neutraliser.
+
+Le `workflow_dispatch` doit rester fonctionnel : c'est le seul moyen de relancer la suite à la main quand on voudra vérifier quelque chose ponctuellement, et c'est aussi ce qui servira à la réactivation.
+
+## Scope
+
+1. **Neutraliser les déclencheurs automatiques** de `.github/workflows/mobile-e2e-maestro.yml` : retirer (ou commenter, au choix de l'implémenteur — l'important est que le YAML reste valide et la logique restaurable en une édition) les blocs `push:` et `pull_request:`. Garder `workflow_dispatch` intact avec ses deux inputs `flow_filter` et `platform`.
+2. **Ne rien supprimer d'autre.** Les jobs `android-e2e` / `ios-e2e` / `e2e-summary`, `.github/scripts/run-android-maestro.sh`, `run-ios-maestro.sh`, `.github/scripts/lib/maestro-flows.sh`, les 7 flows de `mobile/.maestro/`, les utils et la suite `suites/tasks_168_170.yaml` restent en place à l'identique.
+3. **Écrire en tête du workflow un commentaire de mise en sommeil** qui dit : pourquoi (UI mouvante), depuis quand (2026-08-13), ce qui a été retiré, comment relancer un run entre-temps (`workflow_dispatch`), et où lire le plan de réactivation (la section du V1_LAUNCH_PLAN créée au point 5).
+4. **Signaler l'état de sommeil dans `mobile/.maestro/README.md`** et corriger au passage les deux affirmations périmées de `mobile/E2E_TESTING.md` : sa table (ligne ~98) présente le flow 02 comme « Deep link share simulation, confirmation screen, Save action / Android (full) », et sa ligne ~109 présente `media-summarizer://share?url=…` comme le mécanisme de simulation de share sur Android. Les deux sont faux depuis le 2026-06-11 : `mobile/app/+native-intent.tsx` (fonction `redirectSystemPath`) teste `path.includes("://share?")` et redirige vers `/(tabs)/inbox`, donc l'écran de share-confirmation n'apparaît plus par deep link.
+5. **Créer dans `docs/V1_LAUNCH_PLAN.md` une section de réactivation** (voir le détail ci-dessous).
+
+## Contenu attendu de la section V1_LAUNCH_PLAN
+
+La placer là où elle sera lue au bon moment — Phase 7 (CI/CD) traite déjà de Maestro à son point 7, et Phase 5 liste task-168 à task-172. L'implémenteur choisit l'emplacement le plus cohérent et **déplace** l'information existante plutôt que de la dupliquer : le point 7 de Phase 7 et les points 6 à 10 de Phase 5 décrivent un état « CI Maestro réparée et à valider » qui n'est plus la trajectoire retenue, et doivent renvoyer vers la nouvelle section au lieu de la contredire.
+
+La section doit couvrir :
+
+- **Le déclencheur de réactivation** : l'UI est figée (plus de refonte d'écran prévue). C'est un jalon produit, pas une date.
+- **Ce qui est en sommeil et ce qui ne l'est pas** : les déclencheurs automatiques dorment ; les flows, scripts, secrets GitHub (`E2E_TEST_USER_*`, `E2E_SEARCH_TEST_TERM`, clé RevenueCat Test Store) et la fixture Algolia « Commonplace book » restent provisionnés.
+- **L'état réel des 7 flows au moment de la mise en sommeil**, parce que c'est l'information qui coûtera le plus cher à reconstituer plus tard :
+  - `01_login`, `06_search`, `07_paywall` — verts sur émulateur Android API 33 et simulateur iOS 18.5 au run 31612429695 (2026-08-12). Ce sont les seuls validés.
+  - `02_share_intake` — volontairement neutralisé, réduit à un smoke test auth, tag `skipped`. Le vrai share natif n'est pas pilotable par Maestro (share sheet hors process) ; `E2E_TESTING.md` prévoit un fallback Appium ciblé à n'activer que si une release est bloquée par cette incertitude.
+  - `03_inbox_visibility`, `04_media_detail_progression`, `05_artifact_trigger_action` — **cassés, jamais exécutés en CI**. Tous trois amorcent leur scénario par `openLink: "media-summarizer://share?url=…"` puis attendent `assertVisible: "Save Link"` : ce deep link est redirigé vers l'inbox depuis le 2026-06-11, donc « Save Link » n'apparaît jamais et le flow échoue à sa première assertion non optionnelle. Le run vert du 2026-08-12 les a évités via `flow_filter: suites/tasks_168_170`.
+- **Le travail à prévoir à la réactivation**, en distinguant ce qui relève du réamorçage et ce qui relève de bugs de flow déjà identifiés :
+  - Réamorcer 03/04/05 sur la fixture persistante déjà provisionnée (article « Commonplace book », `ready_for_artifacts`, indexé Algolia) au lieu de simuler un share. Effet de bord bénéfique sur 05 : `mediaReady` est vrai d'emblée, ce qui supprime l'attente de l'apparition du bouton `Generate`.
+  - Corriger quatre défauts du flow 05, indépendants de l'UI : (a) `tapOn: text: "Generate", index: 0` est ambigu — les cinq tuiles rendent un bouton dont le texte est exactement `Generate` (`mobile/app/media/[id].tsx:1032`) et l'index se décale dès qu'une tuile est `ready` ; cibler l'`accessibilityLabel` `Generate Summary`, déjà exposé ; (b) `assertVisible: text: "Summary"` est ambigu avec la tuile `Detailed summary` ; (c) aucun `assertNotVisible: "Failed"` après le tap, alors que l'UI rend `Failed` + `Retry` en cas d'échec — le flow brûle donc 180 s avant de tomber sur un diagnostic inutile ; (d) l'`extendedWaitUntil` sur la regex `Queued|Generating|Ready` peut être satisfait d'emblée par une autre tuile déjà `ready`, et le `tapOn: "View"` sans index ouvrirait alors le mauvais artifact.
+  - Reprendre task-171 (run complet des 7 flows, vert sur les deux plateformes) et task-172 (rendre Android bloquant sur PR, iOS en nightly/manuel sous le budget de ~200 min macOS gratuites par mois) qui restent la cible finale.
+- **La contrainte de budget CI** qui n'a pas changé : runner macOS = x10 sur les minutes Actions, plan gratuit, donc iOS ne redevient jamais un required check par PR.
+
+## Note à l'owner — hors AC
+
+La désactivation ne devient effective qu'au push sur `main` : tant que les commits ne sont pas poussés, la CI continue de se déclencher avec l'ancienne configuration. À vérifier après push : un commit touchant `mobile/**` ne doit plus faire apparaître de run « Mobile E2E Tests (Maestro) » dans l'onglet Actions, et le bouton « Run workflow » doit toujours être présent sur ce workflow.
+
+Si `Mobile E2E Tests (Maestro)` figure dans les required status checks de la branch protection de `main`, il faut l'en retirer — sinon les PR resteront bloquées en attente d'un check qui ne se déclenchera plus. C'est une action sur `github.com/MedlockM/second-brain-app/settings/branches`, hors de portée d'un agent.
+
+## Ce qu'il ne faut pas faire
+
+- Ne pas supprimer le workflow, les flows, les scripts runner, les secrets ni la fixture.
+- Ne pas toucher aux autres workflows (`pr.yml`, `main.yml`, `deploy-lambda.yml`, `mobile-build-distribute.yml`, `mobile-store-promote.yml`).
+- Ne pas réécrire les flows 03/04/05 dans cette tâche : le constat est consigné, la réparation appartient à la réactivation.
+- Ne pas archiver task-171 ni task-172 — elles restent la cible et sont référencées par la nouvelle section.
+<!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 Le workflow .github/workflows/mobile-e2e-maestro.yml ne comporte plus de déclencheur push ni pull_request actif, et `workflow_dispatch` reste présent avec ses inputs flow_filter et platform
+- [ ] #2 Le YAML du workflow reste valide et les jobs android-e2e, ios-e2e et e2e-summary sont inchangés ; aucun flow de mobile/.maestro/, aucun script de .github/scripts/ n'a été supprimé ni modifié
+- [ ] #3 Un commentaire en tête du workflow explique la mise en sommeil : sa raison (UI en cours de refonte), sa date (2026-08-13), ce qui a été neutralisé, le recours au workflow_dispatch, et un renvoi vers la section de réactivation du V1_LAUNCH_PLAN
+- [ ] #4 docs/V1_LAUNCH_PLAN.md contient une section de réactivation qui énonce le jalon déclencheur (UI figée), ce qui reste provisionné, l'état des 7 flows au 2026-08-13 (3 verts, 02 neutralisé, 03/04/05 cassés sur le deep link redirigé), le travail de réamorçage sur la fixture Commonplace book, les quatre défauts du flow 05, le renvoi à task-171 et task-172, et la contrainte du budget macOS
+- [ ] #5 Les mentions Maestro devenues fausses dans Phase 5 et Phase 7 du V1_LAUNCH_PLAN renvoient à la nouvelle section au lieu de décrire une validation CI en cours ; l'information n'est pas dupliquée entre les deux endroits
+- [ ] #6 mobile/.maestro/README.md indique que la CI automatique est en sommeil et comment lancer un run manuel
+- [ ] #7 mobile/E2E_TESTING.md ne présente plus le deep link media-summarizer://share comme un mécanisme de simulation de share fonctionnel, ni le flow 02 comme couvrant l'écran de confirmation sur Android, et mentionne la redirection opérée par redirectSystemPath dans mobile/app/+native-intent.tsx
+<!-- AC:END -->
