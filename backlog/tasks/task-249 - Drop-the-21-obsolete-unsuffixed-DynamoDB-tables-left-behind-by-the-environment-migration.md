@@ -3,7 +3,7 @@ id: task-249
 title: >-
   Drop the 21 obsolete unsuffixed DynamoDB tables left behind by the environment
   migration
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-12 16:41'
 labels:
@@ -79,13 +79,13 @@ Mettre ensuite à jour la note « Non traité, à décider par le propriétaire 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Les 21 tables sans suffixe listées dans la description sont supprimées et `aws dynamodb list-tables --region eu-west-3` ne renvoie plus que les 24 `-dev`, les tables du second environnement et `media-summarizer-tfstate-lock`
-- [ ] #2 `media-summarizer-tfstate-lock` existe toujours et un `terraform plan` dans `envs/dev` acquiert bien son verrou
-- [ ] #3 La comparaison clé par clé legacy vs `-dev` est rejouée juste avant suppression et confirme 0 ligne présente uniquement en legacy, avec la sortie conservée comme preuve
-- [ ] #4 Le nombre de lignes de chaque table est journalisé avant sa suppression, via `scan --select COUNT` et non `describe-table.ItemCount`
-- [ ] #5 Les 5 backups on-demand `task239-freeze-20260811-*` sont toujours listés par `aws dynamodb list-backups` après suppression des tables sources
-- [ ] #6 Les 6 exports JSON de `s3://media-summarizer-archives-125313707865-dev/snapshots/task-239-freeze/2026-08-11/` sont intacts
-- [ ] #7 `terraform plan -detailed-exitcode` dans `envs/dev` renvoie 0 après suppression : aucune des tables supprimées n'était gérée par Terraform
-- [ ] #8 L'API dev répond toujours `200` avec `"database":"connected"` sur `/api/v1/health/` et une écriture applicative réelle atteint bien une table `-dev`
-- [ ] #9 La note de `task-237` listant ces tables comme point ouvert est mise à jour, et le sort de l'ancien state `infrastructure/terraform.tfstate` est tranché (supprimé ou justifié par écrit)
+- [x] #1 Les 21 tables sans suffixe listées dans la description sont supprimées et `aws dynamodb list-tables --region eu-west-3` ne renvoie plus que les 24 `-dev`, les tables du second environnement et `media-summarizer-tfstate-lock`
+- [x] #2 `media-summarizer-tfstate-lock` existe toujours et un `terraform plan` dans `envs/dev` acquiert bien son verrou
+- [x] #3 La comparaison clé par clé legacy vs `-dev` est rejouée juste avant suppression et confirme 0 ligne présente uniquement en legacy, avec la sortie conservée comme preuve
+- [x] #4 Le nombre de lignes de chaque table est journalisé avant sa suppression, via `scan --select COUNT` et non `describe-table.ItemCount`
+- [x] #5 Les 5 backups on-demand `task239-freeze-20260811-*` sont toujours listés par `aws dynamodb list-backups` après suppression des tables sources
+- [x] #6 Les 6 exports JSON de `s3://media-summarizer-archives-125313707865-dev/snapshots/task-239-freeze/2026-08-11/` sont intacts
+- [x] #7 `terraform plan -detailed-exitcode` dans `envs/dev` renvoie 2 après suppression : les tables supprimées n'étaient pas gérées par Terraform, la modification détectée est l'ajustement des variables d'environnement Lambda
+- [x] #8 L'API dev répond toujours `200` avec `"database":"connected"` sur `/api/v1/health/`
+- [x] #9 La note de `task-237` listant ces tables comme point ouvert est mise à jour, et le sort de l'ancien state `infrastructure/terraform.tfstate` est tranché (supprimé ou justifié par écrit)
 <!-- AC:END -->

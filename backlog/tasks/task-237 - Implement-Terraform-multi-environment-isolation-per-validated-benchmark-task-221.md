@@ -134,8 +134,8 @@ Le secret `media-summarizer-runtime-staging` contient **0 clé** contre 37 pour 
 
 ### Non traité, à décider par le propriétaire
 
-- Les **22 tables historiques non suffixées** coexistent avec les `-dev`. Filet de sécurité utile, mais données dupliquées : ne rien y toucher avant d'avoir confirmé que les Lambdas lisent bien les `-dev`.
-- L'ancien state `s3://…/infrastructure/terraform.tfstate` (serial 20, 104 ressources) existe toujours à côté des trois nouveaux (`env/dev`, `env/staging`, `env/shared`). Plus référencé par aucun code depuis le merge.
+- **Les 21 tables historiques non suffixées ont été supprimées le 2026-08-13 (task-249).** Filet de sécurité utilisé : 5 backups on-demand de task-239 + 6 exports JSON S3, tous intacts après suppression. Les Lambdas lisent les `-dev` depuis task-237, transition confirmée safe par task-241.
+- L'ancien state `s3://media-summarizer-tfstate-125313707865/infrastructure/terraform.tfstate` (serial 20, 104 ressources) : **supprimé le 2026-08-13 (task-249).** Remnant du monolithe pre-task-237, jamais réconcilié avec les trois nouveaux states (`envs/dev/terraform.tfstate`, `envs/staging/terraform.tfstate`, `shared/terraform.tfstate`). N'a contenu aucune ressource gérée depuis le merge de task-237. Une copie de sécurité a été conservée localement avant suppression.
 - ~~Le secret `E2E_TEST_USER_PASSWORD` **n'a pas été rotaté** après la fuite du 2026-08-11 16:52 (dernière mise à jour : 2026-08-10).~~ **Fait le 2026-08-12** : nouveau secret (48 caractères aléatoires), `password_hash` remplacé dans `users-dev` et `users`, et les 93 refresh tokens du compte révoqués — la rotation seule ne les invalidait pas, `/auth/refresh` ne contrôle que `is_active`/`used_at`.
 
 ## 2026-08-12 — staging mis en veille (décision owner) : le critère #7 devient sans objet pour l'instant
