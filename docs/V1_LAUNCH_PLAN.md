@@ -60,7 +60,7 @@
 |---|---|---|
 | Email + password | OK (backend + mobile) | — |
 | **Sign in with Apple** | Code OK — backend + mobile câblés. Obligatoire App Store car Google login présent | OK (chaîne Apple Developer complète provisionnée 2026-06-08 : Service ID, Sign in with Apple Key `.p8`, Team ID, Key ID, Return URL prod renseignés dans `.env`) |
-| **Continue with Google** | Code OK — backend + mobile câblés. Backend Web client ID + secret OK dans `.env`. OAuth Web + iOS provisionnés côté Google Cloud | OAuth Client ID Android à créer après le keystore EAS Android (`task-162`, sans build), puis build Android unique une fois la variable déclarée + écran de consentement Google à publier en Production en Phase 10 |
+| **Continue with Google** | Code OK — backend + mobile câblés. Backend Web client ID + secret OK dans `.env`. OAuth Web + iOS provisionnés côté Google Cloud | OAuth Client ID Android créé le 2026-08-13 sur le SHA-1 du keystore EAS (`task-162`, sans build) et variable déclarée côté EAS ; restent le build Android unique et l'écran de consentement Google à publier en Production en Phase 10 |
 
 ---
 
@@ -86,8 +86,8 @@ un staging ou une soumission.
 | Zone | Tâches | Statut |
 |---|---|---|
 | Déploiement/test backend courant | Phase 4 | Pousser/déployer le HEAD, puis re-run E2E AWS dev complet ; le runtime AWS date du 2026-06-15 |
-| Mobile dev builds | `task-161`, `task-162`, `task-163` | iOS : ancienne build réussie mais expirée, **rebuild courant requis** ; Android : `task-162` crée le keystore sans build, `task-163` lance l'unique build |
-| Google OAuth Android | `task-163` | À faire après `task-162`, car le SHA-1 du keystore EAS est requis. `task-163` porte aussi la déclaration de `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` côté EAS **puis** le build Android — dans cet ordre, sinon l'APK embarque `""` |
+| Mobile dev builds | `task-161`, `task-162`, `task-163` | iOS : ancienne build réussie mais expirée, **rebuild courant requis** ; Android : keystore créé et Client ID en place au 2026-08-13, il ne reste que le build unique à lancer (`task-163` étapes 11+) |
+| Google OAuth Android | `task-163` | **Fait le 2026-08-13** : Client ID Android créé sur le SHA-1 du keystore `task-162`, et `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` déclarée dans l'environnement EAS `development` — donc en place **avant** le build, l'APK ne pourra pas embarquer `""`. Reste le build Android unique et sa validation sur device |
 | Validation device non automatisable | `task-164`, `task-165` | À faire sur devices physiques : Apple Sign-In, Google sheet, Safari/Chrome share |
 | Maestro V1 | `task-168`, `task-169`, `task-170`, `task-171`, `task-172` | Flows 06 search et 07 paywall absents ; workflow CI cassé avant exécution et résultats masqués par `|| true` |
 | Clôture Phase 5 | `task-166` | Mettre ce plan à jour une fois `task-164/165/171/172` terminées |
@@ -332,19 +332,29 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 6. Comptes API tiers : les clés locales documentées restent présentes pour
    **OpenAI**, **Deepgram**, **PodcastIndex.org**, **X Developer Platform**,
    **Apify**, **LlamaParse**, **Unstructured.io** et **Algolia**. Google OAuth
-   backend/iOS et Apple OAuth sont renseignés localement. Restent à
-   provisionner/valider : **Android OAuth Client ID**, publication du consent
-   screen Google en Production, variables EAS, RevenueCat webhook + IAP et
-   secrets runtime staging/prod.
+   backend/iOS et Apple OAuth sont renseignés localement. Le **3ᵉ Client ID
+   Google (Android)** est provisionné depuis le 2026-08-13 (`task-163`).
+   Restent à provisionner/valider : publication du consent screen Google en
+   Production, `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` (encore un placeholder),
+   RevenueCat webhook + IAP et secrets runtime staging/prod.
 7. **Google Cloud Console** (console.cloud.google.com) :
    - ~~Créer un projet~~ **Fait** : projet `media-summarizer` créé. Le nom du projet est un identifiant interne, peu visible aux users.
    - ~~**APIs & Services → OAuth consent screen (Audience)**~~ **Fait** : Type **External**, scopes `openid`, `email`, `profile` uniquement.
    - ~~**OAuth consent screen → Branding**~~ **Fait** : Branding `Second Brain`, support email, developer contact email.
    - ~~**Audience Test + utilisateur test**~~ **Fait** : mode Test configuré avec utilisateur test. La publication en `Production` est faite plus tard, en Phase 10.
-   - **APIs & Services → Credentials → 3 OAuth Client IDs** :
+   - **Google Auth Platform → Clients → 3 OAuth Client IDs** (l'ancien chemin
+     « APIs & Services → Credentials » a été remplacé par cette section ; URL
+     directe `console.cloud.google.com/auth/clients`) :
      - ~~**Web**~~ **Fait** : utilisé par le backend pour vérifier l'`aud` du id_token, et réutilisé côté mobile via `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`.
      - ~~**iOS**~~ **Fait** : avec bundle id du `mobile/app.config.ts` → `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`.
-     - **Android** (avec package name + SHA-1 du keystore EAS) → `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`. **À faire en Phase 5** après le premier build Android EAS, quand le SHA-1 keystore est connu.
+     - ~~**Android**~~ **Fait le 2026-08-13** (`task-163`) : créé avec
+       `package=com.secondbrainlabs.core` et le SHA-1 du keystore EAS produit
+       par `task-162`, sans qu'aucun build Android n'ait été nécessaire.
+       Renseigné dans `mobile/.env` et déclaré dans l'environnement EAS
+       `development` → `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`.
+       À noter : ce client sert uniquement à ce que Google vérifie la signature
+       de l'APK. L'`aud` du id_token reste le client **Web** — c'est bien lui
+       que le backend vérifie.
 8. **Apple Developer Portal** (developer.apple.com → Certificates, Identifiers & Profiles) :
    - **Bundle ID figé : `com.secondbrainlabs.core`** (décidé 2026-06-07,
      propagé dans `mobile/app.config.ts`, `mobile/ios-share-extension/`, les
@@ -536,24 +546,26 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 1. Variables EAS : contrairement à l'état noté au 2026-07-31, les trois
    environnements `development`/`preview`/`production` contiennent bien cinq
    variables `EXPO_PUBLIC_*` (constaté le 2026-08-13 via `eas env:list`).
-   Restent deux trous : `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`, absente
-   (→ `task-163`), et `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY`, qui vaut encore le
-   placeholder `your_revenucat_google_api_key_here` dans les trois
-   environnements (→ `task-238`). À noter aussi : `EXPO_PUBLIC_API_BASE_URL`
-   n'existe **que** dans le bloc `env` inline de `mobile/eas.json`, pas côté
-   serveur — les deux mécanismes coexistent.
-2. `task-163` — **seul point de blocage restant de la chaîne Android.** Créer
-   l'OAuth Client ID Android dans Google Cloud Console avec
-   `package=com.secondbrainlabs.core` et le SHA-1 ci-dessus, déclarer
-   `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` dans l'environnement EAS
-   `development`, **puis seulement** lancer
-   `eas build --platform android --profile development` — une seule fois.
-   La création du Client ID passe obligatoirement par l'UI web de la Cloud
-   Console (ni `gcloud` ni aucune API publique n'expose la création d'un OAuth
-   client de type Android), d'où le caractère manuel de cette étape.
+   `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` a été ajoutée à l'environnement
+   `development` le 2026-08-13, qui porte donc six variables. Reste un trou :
+   `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` vaut encore le placeholder
+   `your_revenucat_google_api_key_here` dans les trois environnements
+   (→ `task-238`). À noter aussi : `EXPO_PUBLIC_API_BASE_URL` n'existe **que**
+   dans le bloc `env` inline de `mobile/eas.json`, pas côté serveur — les deux
+   mécanismes coexistent.
+2. `task-163` — **le prérequis OAuth est levé ; reste le build.** Faits le
+   2026-08-13 : l'OAuth Client ID Android est créé dans Google Cloud Console
+   avec `package=com.secondbrainlabs.core` et le SHA-1 ci-dessus, et
+   `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` est déclarée dans l'environnement EAS
+   `development` (six variables `EXPO_PUBLIC_*` désormais). La création du Client
+   ID a dû se faire à la main dans l'UI web de la Cloud Console — ni `gcloud` ni
+   aucune API publique n'expose la création d'un OAuth client de type Android.
+   Reste à lancer `eas build --platform android --profile development`, **une
+   seule fois**, puis à valider l'APK sur device (ACs #6 à #8).
    Avertissement détaillé dans le ticket : le profil `development` ne fixe pas
    `environment`, et la doc Expo ne garantit pas le rattachement — contrôler
-   l'environnement annoncé dans les premières lignes de log du build.
+   l'environnement annoncé dans les premières lignes de log du build, et
+   interrompre tout de suite s'il n'est pas `development`.
 3. `task-164` — validation iOS sur device physique :
    - Sign in with Apple → user créé/lié → inbox.
    - Continue with Google → `ASWebAuthenticationSession` → user créé/lié → inbox.
@@ -735,13 +747,13 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 - [ ] Google Play Console payé ($25) au 2026-06-01 — **statut KYC à
   revalider par l'owner**, l'information « en cours » n'a pas été actualisée
   depuis juin
-- [x] Google Cloud Console : projet `media-summarizer` créé, OAuth consent screen configuré (Branding `Second Brain`, External, scopes openid+email+profile), mode Test avec utilisateur test ajouté, **2 OAuth Client IDs créés (Web backend + iOS)** — `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` dans `.env` racine ; `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB` + `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS` dans `mobile/.env` (naming aligné avec `mobile/app.config.ts`, corrigé 2026-06-08)
-- [ ] Google Cloud Console **Android OAuth Client ID** (`task-163`) : le SHA-1
-  EAS existe depuis le 2026-08-13
-  (`38:D5:13:F4:2F:A9:DA:74:2F:A1:39:E3:17:9A:22:A8:59:58:DD:FD`), il ne reste
-  qu'à créer le client dans la Cloud Console avec
-  `package=com.secondbrainlabs.core`, puis à renseigner
-  `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` **avant** le build Android unique
+- [x] Google Cloud Console : projet `media-summarizer` créé, OAuth consent screen configuré (Branding `Second Brain`, External, scopes openid+email+profile), mode Test avec utilisateur test ajouté, **3 OAuth Client IDs créés (Web backend + iOS + Android au 2026-08-13)** — `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` dans `.env` racine ; `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB` + `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS` dans `mobile/.env` (naming aligné avec `mobile/app.config.ts`, corrigé 2026-06-08)
+- [x] Google Cloud Console **Android OAuth Client ID** — **fait le 2026-08-13**
+  (`task-163`), avec `package=com.secondbrainlabs.core` et le SHA-1 du keystore
+  EAS `38:D5:13:F4:2F:A9:DA:74:2F:A1:39:E3:17:9A:22:A8:59:58:DD:FD`.
+  `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` est renseignée dans `mobile/.env` et
+  déclarée dans l'environnement EAS `development` — donc **en place avant** le
+  build Android unique, qui reste à lancer
 - [ ] Google Cloud Console **publication OAuth (Test → Production)** à faire en Phase 10 juste avant le lancement
 - [x] X Developer App approuvée + bearer token (en local dans `.env`)
 - [x] Apify API tokens + actor IDs obtenus — en local dans `.env` (Instagram Reel/Post, YouTube, TikTok selon fallback chain)
@@ -764,10 +776,10 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 - [ ] EAS Android development build : toujours aucune build Android ; à lancer
   une seule fois en fin de `task-163`, après déclaration du Client ID
 - [~] Variables EAS development/preview/production : contrairement à l'état noté
-  au 2026-07-31, les trois environnements portent bien cinq variables
-  `EXPO_PUBLIC_*` (vérifié le 2026-08-13). Restent
-  `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` (absente, `task-163`) et
-  `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` (encore le placeholder, `task-238`)
+  au 2026-07-31, les trois environnements sont peuplés (vérifié le 2026-08-13).
+  `development` porte six variables depuis l'ajout du Client ID Android.
+  Reste `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY`, encore un placeholder dans les trois
+  environnements (`task-238`)
 - [ ] Nom marketing final : requis avant `task-186`, App Store Connect, Play Console et Google OAuth Branding
 - [ ] Icônes finales : `task-180`, requis avant soumission stores
 - [ ] Domaines : rendre `api.secondbrainlabs.com`, `/privacy`, `/terms` et

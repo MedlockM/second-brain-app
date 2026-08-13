@@ -121,11 +121,11 @@ Ce n'est **pas** bloquant pour ce build : `mobile/src/contexts/PurchasesContext.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 OAuth Client ID Android créé dans Google Cloud Console avec package com.secondbrainlabs.core et SHA-1 EAS
-- [ ] #2 EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID rempli dans mobile/.env (dev local)
-- [ ] #3 docs/V1_LAUNCH_PLAN.md section 5 et Phase 2/5 mis à jour
-- [ ] #4 bash scripts/mobile_release_check.sh passe sans warning sur EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID
-- [ ] #5 EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID est déclarée côté EAS (secret projet ou bloc env du profil development de mobile/eas.json) AVANT tout build, et eas env:list / eas secret:list la montre
+- [x] #1 OAuth Client ID Android créé dans Google Cloud Console avec package com.secondbrainlabs.core et SHA-1 EAS
+- [x] #2 EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID rempli dans mobile/.env (dev local)
+- [x] #3 docs/V1_LAUNCH_PLAN.md section 5 et Phase 2/5 mis à jour
+- [x] #4 bash scripts/mobile_release_check.sh passe sans warning sur EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID
+- [x] #5 EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID est déclarée côté EAS (secret projet ou bloc env du profil development de mobile/eas.json) AVANT tout build, et eas env:list / eas secret:list la montre
 - [ ] #6 Un seul build Android est lancé, après l'étape 5, via eas build --platform android --profile development, et il termine avec succès
 - [ ] #7 Build ID et URL du build EAS notés dans ce ticket ; l'APK est installé sur un device Android physique et l'app démarre
 - [ ] #8 Le bouton Continue with Google est vérifié à la main sur ce build : il ouvre le consentement Google et ne renvoie pas DEVELOPER_ERROR
