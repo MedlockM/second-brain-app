@@ -1,11 +1,11 @@
 ---
 id: task-169
 title: Add Maestro 06_search.yaml to cover Algolia lexical search flow
-status: In Progress
+status: Done
 assignee:
   - Codex
 created_date: '2026-06-10 05:58'
-updated_date: '2026-08-09 20:13'
+updated_date: '2026-08-13 14:05'
 labels:
   - phase-5
   - mobile
@@ -61,7 +61,7 @@ Documente le choix dans le commentaire du flow.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 mobile/.maestro/06_search.yaml existe et s'exécute sur les jobs iOS et Android CI
+- [x] #1 mobile/.maestro/06_search.yaml existe et s'exécute sur les jobs iOS et Android CI
 - [x] #2 Le flow couvre l'ouverture de Search, la saisie, l'affichage d'au moins un résultat et l'ouverture du détail média
 - [x] #3 Le jeu de données préchargé et la variable SEARCH_TEST_TERM sont documentés dans le flow et le workflow CI
 - [x] #4 Le terme de recherche n'est pas hardcodé dans le flow
@@ -79,4 +79,6 @@ Documente le choix dans le commentaire du flow.
 Ajout de mobile/.maestro/06_search.yaml et des testID search-input/search-result-card. Le flow réutilise le login, injecte SEARCH_TEST_TERM, attend un résultat puis ouvre le détail média.
 
 2026-08-09 — Fixture persistante provisionnée sur AWS dev : article Commonplace book arrivé ready_for_artifacts et recherche Algolia 'commonplace' vérifiée avec 1 résultat. Identifiants et terme stockés dans les secrets GitHub Actions. L'AC #1 attend les runs CI de la version commitée.
+
+2026-08-13 — AC #1 validé par le run GitHub Actions 31612429695 (workflow_dispatch sur 1d337e4, flow_filter `suites/tasks_168_170`). `06_search` est passé sur les deux plateformes : Android émulateur API 33 en 46,8 s et iOS simulateur iPhone 16 / iOS 18.5 en 50,9 s, tous deux `status="SUCCESS"` dans les rapports JUnit des artifacts. Tâche passée Done.
 <!-- SECTION:NOTES:END -->

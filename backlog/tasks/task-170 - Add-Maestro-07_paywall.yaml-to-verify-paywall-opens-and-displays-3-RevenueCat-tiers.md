@@ -3,11 +3,11 @@ id: task-170
 title: >-
   Add Maestro 07_paywall.yaml to verify paywall opens and displays 3 RevenueCat
   tiers
-status: In Progress
+status: Done
 assignee:
   - Codex
 created_date: '2026-06-10 05:59'
-updated_date: '2026-08-09 21:24'
+updated_date: '2026-08-13 14:05'
 labels:
   - phase-5
   - mobile
@@ -63,9 +63,9 @@ Crée `mobile/.maestro/07_paywall.yaml` qui :
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 mobile/.maestro/07_paywall.yaml existe et s'exécute sur les jobs iOS et Android CI
+- [x] #1 mobile/.maestro/07_paywall.yaml existe et s'exécute sur les jobs iOS et Android CI
 - [x] #2 Le flow vérifie l'ouverture du paywall sans crash
-- [ ] #3 Le flow vérifie Reader, Mix et Audio-Heavy ainsi que la disponibilité des trois packages RevenueCat
+- [x] #3 Le flow vérifie Reader, Mix et Audio-Heavy ainsi que la disponibilité des trois packages RevenueCat
 - [x] #4 Le flow ne déclenche aucun achat sandbox
 - [x] #5 Le flow ferme le paywall et vérifie le retour à l'écran précédent
 <!-- AC:END -->
@@ -84,4 +84,8 @@ Ajout de `mobile/.maestro/07_paywall.yaml` et de testID stables. Le flow ouvre `
 2026-08-09 — Configuration Test Store finalisée : `text_only_monthly_test` (3 USD), `mix_monthly_test` (5 USD) et `audio_heavy_monthly_test` (9 USD), tous mensuels et sans free trial Store, sont associés respectivement aux packages `text_only`, `mix`, `audio_heavy` de l’offering courant `default`, ainsi qu’à l’entitlement actif `pro`. Vérification API réussie.
 
 2026-08-09 — `react-native-purchases` fixé à 9.5.4. Le workflow CI utilise désormais l’unique secret `E2E_REVENUECAT_TEST_KEY` sur iOS et Android; le placeholder Android a été retiré. TypeScript, ESLint et `npm ci` passent. Les prebuilds Android/iOS réussissent; la compilation Android locale ne peut pas aller plus loin sans Android SDK et sera validée en CI avec la compilation iOS. Les AC #1 et #3 attendent les runs CI.
+
+2026-08-13 — AC #1 validé par le run GitHub Actions 31612429695 (workflow_dispatch sur 1d337e4, flow_filter `suites/tasks_168_170`). `07_paywall` est passé sur les deux plateformes : Android émulateur API 33 en 48,5 s et iOS simulateur iPhone 16 / iOS 18.5 en 64,9 s, tous deux `status="SUCCESS"` dans les rapports JUnit des artifacts.
+
+AC #3 coché sur décision de l'owner, avec la portée réelle consignée ici. Le flow assure les trois tiers par leur libellé (`Reader`, puis `Mix` et `Audio-Heavy` atteints par `scrollUntilVisible`) et vérifie leur disponibilité par un `assertNotVisible: "Unavailable"` après chacun. C'est une preuve indirecte : si RevenueCat ne renvoyait pas les trois packages, l'écran afficherait `Unavailable`. Le flow n'interroge pas l'offering RevenueCat directement et ne compte pas les packages retournés. La vérification directe des packages côté Google Play relève de task-238.
 <!-- SECTION:NOTES:END -->

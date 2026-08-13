@@ -1,11 +1,11 @@
 ---
 id: task-168
 title: Extend Maestro 01_login.yaml to cover register + email/password login flows
-status: In Progress
+status: Done
 assignee:
   - Codex
 created_date: '2026-06-10 05:58'
-updated_date: '2026-08-09 20:13'
+updated_date: '2026-08-13 14:05'
 labels:
   - phase-5
   - mobile
@@ -57,7 +57,7 @@ Sans ces deux assertions, on ne peut pas régresser sur la chaîne `register →
 <!-- AC:BEGIN -->
 - [x] #1 mobile/.maestro/01_login.yaml couvre l'inscription d'un nouvel utilisateur avec un email unique par run
 - [x] #2 Le flow couvre ensuite la connexion email/password d'un utilisateur existant et vérifie l'arrivée sur Inbox
-- [ ] #3 Le flow est validé sur le simulateur iOS CI et l'émulateur Android CI, sans appareil Android physique requis
+- [x] #3 Le flow est validé sur le simulateur iOS CI et l'émulateur Android CI, sans appareil Android physique requis
 - [x] #4 Aucun email ni mot de passe sensible n'est hardcodé : les valeurs viennent des variables Maestro/CI
 - [x] #5 Les flows Apple et Google restent hors scope
 <!-- AC:END -->
@@ -74,4 +74,6 @@ Sans ces deux assertions, on ne peut pas régresser sur la chaîne `register →
 Implémenté dans mobile/.maestro/01_login.yaml : inscription avec email unique basé sur MAESTRO_RUN_ID, logout, puis login explicite via le compte E2E. Les champs/boutons utilisent des testID stables. AuthService.register consomme la réponse user-only de register puis ouvre la session via login, sans modifier le backend.
 
 2026-08-09 — Validation statique OK : TypeScript, ESLint (0 erreur), parsing YAML. Les secrets E2E et un compte AWS dev indexé sont configurés. L'AC #3 reste ouverte jusqu'aux runs iOS/Android de la version commitée.
+
+2026-08-13 — AC #3 validé par le run GitHub Actions 31612429695 (workflow_dispatch sur 1d337e4, flow_filter `suites/tasks_168_170`). `01_login` est passé sur les deux plateformes avec des durées réelles : Android émulateur API 33 en 112,1 s et iOS simulateur iPhone 16 / iOS 18.5 en 121,2 s, tous deux `status="SUCCESS"` dans les rapports JUnit des artifacts `maestro-android-results-api33` / `maestro-ios-results`. Les 7 fichiers de flow sont identiques entre `1d337e4` et le HEAD local, donc le run est représentatif du code des flows. Tâche passée Done.
 <!-- SECTION:NOTES:END -->
