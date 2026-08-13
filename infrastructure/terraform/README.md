@@ -249,10 +249,15 @@ rm runtime-secrets.json      # do not leave it on disk
 Then redeploy the consumers so a cold start picks up the new values.
 
 Each environment **must** get its **own** third-party credentials — RevenueCat
-sandbox vs live, a distinct `JWT_SECRET_KEY`, separate Apify / Deepgram /
-OpenAI keys (at minimum for cost attribution) and a distinct
-`ALGOLIA_INDEX_NAME`. Do **not** copy dev's payload into prod: it would point
-prod at dev's Algolia index and bill both environments to the same keys.
+sandbox vs live, a distinct `JWT_SECRET_KEY`, and separate Apify / Deepgram /
+OpenAI keys (at minimum for cost attribution). Do **not** copy dev's payload into
+prod: it would bill both environments to the same keys and hand prod a JWT signing
+key that dev also holds.
+
+Algolia is not among the values to differentiate: the index name is not
+configurable at all. The code derives it as `media_items_{ENVIRONMENT}`
+(`utils/algolia_client.py`), so the environments are separated structurally — no
+secret value can point prod at dev's index.
 `media-summarizer-runtime-prod` currently exists as an **empty shell**; filling
 its 37 keys is owner-only work (task-252).
 

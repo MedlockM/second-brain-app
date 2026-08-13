@@ -186,7 +186,7 @@ aws secretsmanager put-secret-value --region eu-west-3 \
 rm -f /tmp/runtime-dev.json
 ```
 
-The Lambda picks the new value up on its next cold start (secrets are loaded once per cold start). `infrastructure/terraform/terraform.tfvars.example` documents the same value for new environments. If an environment is left on `scrape-creators`, the worker emits a `transcription.language_request_unsupported` WARNING per affected job and records `extraction_metadata.language_supported=false`, so the gap is visible in logs rather than silent.
+The Lambda picks the new value up on its next cold start (secrets are loaded once per cold start). `.env.example` documents the same value, and the supported actors, for a new environment — Terraform carries no secret values (task-221 §7.3). If an environment is left on `scrape-creators`, the worker emits a `transcription.language_request_unsupported` WARNING per affected job and records `extraction_metadata.language_supported=false`, so the gap is visible in logs rather than silent.
 
 #### Failure details
 

@@ -18,8 +18,13 @@
 #     --secret-string file://runtime-secrets.json   # then delete the local file
 #
 # Each environment MUST get its own third-party credentials: RevenueCat sandbox
-# vs live, a distinct JWT_SECRET_KEY, separate Apify / Deepgram / OpenAI keys
-# (at minimum for cost attribution) and a distinct ALGOLIA_INDEX_NAME.
+# vs live, a distinct JWT_SECRET_KEY, and separate Apify / Deepgram / OpenAI keys
+# (at minimum for cost attribution).
+#
+# Algolia needs no such variable: the index name is not configurable. The code
+# derives it as media_items_{ENVIRONMENT} (utils/algolia_client.py), so the
+# environments are separated structurally and cannot be pointed at each other's
+# index by a secret value.
 
 resource "aws_secretsmanager_secret" "runtime" {
   name        = "${var.project_name}-runtime${local.suffix}"

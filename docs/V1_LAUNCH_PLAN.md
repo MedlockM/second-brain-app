@@ -231,8 +231,12 @@ DEEPGRAM_MODEL=nova-3
 ```bash
 ALGOLIA_APP_ID=...
 ALGOLIA_API_KEY=...                  # admin key (côté backend)
-ALGOLIA_INDEX_NAME=media_v1
+ALGOLIA_SEARCH_API_KEY=...           # search-only key
 ```
+
+Le nom de l'index n'est pas configurable : il vaut `media_items_{ENVIRONMENT}`,
+calculé par `utils/algolia_client.py`. La séparation entre environnements est donc
+structurelle, pas une variable à renseigner.
 
 ### 3.5 Sources d'ingestion
 
@@ -804,8 +808,8 @@ docker buildx build --platform linux/arm64 --provenance=false --sbom=false -f in
 - `CLAUDE.md` — convention de création de tâches
 - `.env.example` — gabarit complet des variables (20 sections numérotées)
 - `infrastructure/terraform/README.md` — runbook Secrets Manager + Lambda deployment
-- `infrastructure/terraform/secrets.tf` — secret consolidé `media-summarizer-runtime-<env>`
-- `infrastructure/terraform/terraform.tfvars.example` — modèle `secret_payload` à recopier
+- `infrastructure/terraform/modules/platform/secrets.tf` — coquille du secret consolidé `media-summarizer-runtime-<env>` (valeurs poussées hors-bande)
+- `docs/DEVBOX_SETUP.md` — reconstruire un poste de dev complet
 - `docs/MOBILE_APP_IMPLEMENTATION_PLAN.md` — détails techniques mobile
 - `docs/PRODUCTION_RELEASE_RUNBOOK.md` — procédure de release
 - `docs/MEDIA_INGESTION_CORE_ARCHITECTURE.md` — pipeline d'ingestion

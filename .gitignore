@@ -139,8 +139,10 @@ docker-compose.override.yml
 tfplan
 tfplan-*
 *.tfplan
+# No .tfvars file is used anywhere since task-237 (one root module per
+# environment, values as literals in envs/<env>/main.tf). The pattern stays as a
+# guard: a .tfvars reappearing would be someone's local credentials, not config.
 *.tfvars
-!*.tfvars.example
 .terraformrc
 terraform.rc
 
