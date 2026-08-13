@@ -462,7 +462,7 @@ Rules:
 
 Switch the seven read paths in §4.4, then remove the obsolete code outright (pre-prod policy): `ProcessingJob.folder_id` / `tag_ids` (`processing_job.py:70-71`), `get_processing_jobs_by_folder_id` (`database_async.py:736`), the `user_media_submissions` table and module, and the job-based ownership gate in `artifacts.py:55`. Replace the full-row `put_item` in `update_processing_job` (`database_async.py:360`) with attribute-level updates. Rollback within the phase = flip `DURABLE_MEDIA_ENABLED` off; jobs are still present because TTL is off until Phase 4.
 
-Exit gate (task-219 AC #10, task-220 AC #10-11): in AWS dev, delete a processing job by hand and prove list, Search, folder count, folder open, folder move, tag filter, media detail and artifact access all still work. The owner's account (`4cd1abcb-…`) is the named regression case: after Phase 2 its folders must again contain the recovered media, and after the manual job deletion they must stay populated.
+Exit gate (task-219 AC #10, task-220 AC #10-11): in AWS dev, delete a processing job by hand and prove list, Search, folder count, folder open, folder move, tag filter, media detail and artifact access all still work. The owner's account (`4cd1abcb-…`) is the named regression case: after Phase 2 its 5 folders must again contain the recovered media, and after the manual job deletion they must stay populated.
 
 ### 5.5 Phase 4 — restore job hygiene
 
