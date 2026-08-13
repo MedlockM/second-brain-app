@@ -1,40 +1,76 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : **2026-07-31**
-> (réconciliation avec le worktree, AWS, GitHub Actions et EAS). Le cœur produit
-> V1 est largement implémenté, mais l'application n'est pas encore déployable en
-> production : seule l'infrastructure AWS dev existe, le code local n'est pas
-> synchronisé/déployé, la CI est rouge, les validations E2E/device ne sont pas
-> closes et les prérequis stores/billing/compliance restent incomplets.
+> Date de rédaction : 2026-05-19. Dernière mise à jour : **2026-08-13**
+> (réconciliation avec le worktree, le backlog, AWS, GitHub Actions, les
+> domaines et EAS). Les gates techniques backend qui bloquaient le plan au
+> 2026-07-31 sont **fermés** : source synchronisée, CI verte, HEAD déployé,
+> runtime API isolé, dev et prod dans deux comptes AWS séparés. Ce qui reste est
+> désormais concentré sur **le mobile, le billing, les stores et le légal** —
+> plus sur l'infrastructure.
 
-### État de vérité au 2026-07-31
+### État de vérité au 2026-08-13
 
-- **Phase 3 dev uniquement** : l'API AWS dev répond `HTTP 200` à chaud, mais les
-  Lambdas n'ont pas été redéployées depuis le 2026-06-15 et `task-217` documente
-  deux réponses API Gateway 500 après une longue période d'inactivité, suivies
-  d'une première invocation à 25,7 s.
-- **Pas de staging/prod isolés** : le Terraform utilise un state unique et des
-  noms globaux non suffixés pour les Lambdas, tables et queues. La simple copie
-  de `terraform.tfvars` avec un autre `environment` ne permet pas de faire
-  coexister proprement dev/staging/prod.
-- **Source non synchronisée** : `main` local est 11 commits devant
-  `origin/main`, avec un changement Terraform non committé et deux fichiers de
-  tâches non suivis. Les derniers checks GitHub portent donc sur un état ancien.
-- **CI non verte** : le dernier `Main Branch Checks` échoue sur Ruff et ESLint.
-  Localement, `ruff check .` remonte 812 erreurs ; `npm run typecheck` passe mais
-  `npm run lint` échoue faute de configuration ESLint.
-- **Mobile** : une build iOS development a réussi le 2026-06-11 sur le commit
-  `8c63765`, mais son artifact a expiré le 2026-06-25 et elle précède les
-  changements récents. Aucune build EAS Android n'existe.
+- **Source synchronisée et CI verte** : `main` local et `origin/main` sont au
+  même commit (`6b22542`). `Main Branch Checks` **passe** sur ce SHA
+  (`task-223` : config ESLint ajoutée + gates Ruff/Mypy résolus ; `task-227` :
+  20 violations react-hooks corrigées ; `task-228` : venv local réparé).
+  `ruff check .` local → `All checks passed!`.
+- **HEAD réellement déployé** : `Deploy Lambda Functions` est vert sur `6b22542`
+  et les 16 fonctions dev portent `LastModified = 2026-08-13T18:02`. Le runtime
+  AWS n'est plus celui du 2026-06-15.
+- **Runtime API isolé (`task-217`, Done le 2026-08-06)** : image API dédiée,
+  reserved concurrency configurable, warm-up EventBridge, health gate de release,
+  logs API Gateway enrichis, documenté dans `docs/API_LAMBDA_RUNTIME.md`. Mesure
+  du 2026-08-13 sur dev : **cold 5,2 s / warm 1,0 s**, contre 25,7 s au
+  déclenchement de la tâche.
+- **Isolation par comptes AWS séparés (`task-221` + `task-237` + `task-248`)** :
+  Terraform éclaté en `envs/{dev,staging,prod}` sur `modules/platform`, 100 % des
+  noms physiques suffixés, un state par environnement. **`staging` a été détruit**
+  (145 ressources, il était vide) et **`prod` vit dans un compte AWS dédié**
+  `866874944541` sous l'organisation `o-7sf5u7j5hd`. 199 ressources créées, health
+  prod `HTTP 200`. Les 21 tables legacy non suffixées sont supprimées
+  (`task-249`) : dev ne porte plus que 26 tables, toutes `-dev`.
+- **Prod est une coquille en veille, volontairement** : `enable_alarms`,
+  `enable_dashboard` et `enable_worker_polling` à `false`, et son secret runtime
+  contient **0 clé** sur 37 (`task-252`, owner-only). Le health check répond `200`
+  parce qu'il ne teste que DynamoDB via le rôle IAM — aucune intégration tierce
+  ne fonctionne.
+- **Repo passé PUBLIC** : vérifié le 2026-08-13. Conséquences directes — la
+  branch protection n'est plus bloquée par le plan GitHub (elle reste **non
+  configurée** : `branches/main/protection` → 404, `rulesets` → `[]`), et tout
+  identifiant écrit dans un fichier suivi est désormais public (d'où `task-255`
+  et `de3ac86`).
+- **Mobile inchangé et redevenu le chemin critique** : aucune build EAS Android
+  n'existe, la build iOS du 2026-06-11 a expiré, `Mobile Build & Distribute` est
+  rouge faute d'`EXPO_TOKEN`. `task-163` ACs #6-#8, `task-164` et `task-165`
+  restent ouverts.
 - **Production release** : `docs/RELEASE_LOG.md` reste la source de vérité :
-  v1.0.0 `Pre-release`, aucun tag, aucun build production, aucune soumission.
-- **Backlog à réconcilier** : certaines tâches `Done` décrivent seulement la
-  préparation documentaire (`task-43` à `task-45`) alors que leurs critères
-  opérationnels ne sont pas réalisés ; inversement, `task-161` est `To Do`
-  malgré une ancienne build iOS réussie. L'index MCP ne voit pas les tâches
-  récentes. Les statuts Backlog ne doivent pas servir seuls de preuve de release
-  tant que cette incohérence n'est pas corrigée.
+  v1.0.0 `Pre-release`, aucun tag (`git tag -l` vide), aucun build production,
+  aucune soumission.
+- **Backlog quasi vidé** : 237 tâches, dont **13 non-`Done`** (62, 118, 145, 163,
+  164, 165, 166, 172, 180, 186, 229, 238, 252). `task-212`/`task-213`
+  (architecture LLM) sont **archivées** sur `owner_decision: abandoned`.
+  `task-162` a été passée à `Done` le 2026-08-13 : ses 3 ACs étaient cochés et son
+  SHA-1 consigné, seul le statut était resté en retard.
+
+### Chemin critique restant, dans l'ordre
+
+Le plan a basculé : l'infrastructure n'est plus le goulot. Ce qui reste, du plus
+bloquant au moins bloquant :
+
+1. **Re-run `pytest -m e2e` contre dev** — dernier gate backend ouvert (Phase 4).
+2. **Build Android unique + validations device** — `task-163` ACs #6-#8,
+   `task-164`, `task-165`, puis `task-166` clôture la Phase 5.
+3. **Billing réel** — Phase 6 et `task-238` : `REVENUCAT_WEBHOOK_SECRET`, produits
+   IAP, offerings/entitlements, achat et restore en sandbox.
+4. **Owner-only, sans substitut possible** — les 37 credentials du secret prod
+   (`task-252`), le quota Lambda prod, le KYC Google Play.
+5. **Stores et légal** — nom marketing (`task-186`), icônes (`task-180`), domaine
+   tranché puis API/privacy/terms réellement hébergés, listings et review accounts.
+6. **Hygiène, rapide** — committer les 5 fichiers du worktree, configurer la branch
+   protection, renseigner `EXPO_TOKEN`, purger les 3 comptes E2E résiduels de
+   `users-dev`.
 
 ---
 
@@ -71,22 +107,24 @@ code. Les tâches restantes ne sont cependant pas seulement des formalités
 stores : plusieurs gates techniques et de sécurité doivent être fermées avant
 un staging ou une soumission.
 
-### Bloquants P0 avant staging/prod
+### Bloquants P0 avant prod — **tous fermés au 2026-08-13**
 
-| Zone | Tâches / preuve | Statut au 2026-07-31 |
+| Zone | Tâches / preuve | Statut au 2026-08-13 |
 |---|---|---|
-| Isolation API Lambda | `task-217` | **À faire** — séparer l'image API minimale de l'image workers, protéger la concurrence interactive, ajouter warm-up et release health check |
-| Isolation dev/staging/prod | `infrastructure/terraform/main.tf`, noms de ressources Terraform | **À faire** — state/workspace et noms de ressources ne permettent pas aujourd'hui trois environnements coexistants |
-| Sécurité users legacy | `task-222`, `task-224` | **Corrigé en code** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email` et `update_user` supprimés ; `POST /api/v1/auth/verify-email` (même classe de faille, non authentifié, mutait `email_verified_at` d'un email arbitraire) supprimé également. 2026-08-12 (`task-224`) : le module `endpoints/users.py` et sa dernière route `DELETE /api/v1/users/{user_id}` sont supprimés, remplacés par `DELETE /api/account` qui déduit le compte du token (plus aucun id en path, donc plus rien à autoriser). **Reste à vérifier après déploiement AWS dev** : rejet effectif des anciennes routes publiques + run E2E complet |
+| Isolation API Lambda | `task-217` | **Fait (2026-08-06)** — image API ARM64 dédiée (`infrastructure/docker/lambda-api.Dockerfile`), image workers séparée, reserved concurrency configurable, warm-up EventBridge, health gate de release, logs API Gateway enrichis, `docs/API_LAMBDA_RUNTIME.md`. Mesuré le 2026-08-13 : cold 5,2 s / warm 1,0 s |
+| Isolation dev/prod | `task-221` (benchmark, `owner_decision: ok`, option B) → `task-237` → `task-248` | **Fait (2026-08-13)** — `envs/{dev,staging,prod}` sur `modules/platform`, un state par env, 100 % des noms suffixés, `scripts/tf_plan_guard.sh`. Dev reste dans `125313707865`, **prod dans le compte dédié `866874944541`** (organisation `o-7sf5u7j5hd`). `staging` détruit, son répertoire conservé comme référentiel jetable |
+| Nettoyage legacy AWS | `task-249` | **Fait** — 21 tables DynamoDB non suffixées supprimées ; il ne reste que 26 tables `-dev` + la table de lock du state |
+| Sécurité users legacy | `task-222`, `task-224`, `task-253` | **Corrigé et déployé** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email`, `update_user` et `POST /api/v1/auth/verify-email` supprimés. 2026-08-12 (`task-224`) : `endpoints/users.py` et `DELETE /api/v1/users/{user_id}` supprimés au profit de `DELETE /api/account`, qui déduit le compte du token. 2026-08-13 (`task-253`) : le 404 de `DELETE /api/account` en dev est corrigé et un **startup guard** échoue au boot si une route critique n'est pas montée. Le code est déployé depuis le 2026-08-13T18:02. **Reste** : le run E2E complet (Phase 4) |
+| Dérive de dépendances Lambda | `6b22542` | **Corrigé le 2026-08-13, après incident** — l'API dev a répondu 500 sur toutes les routes pendant ~2 h 20 : le startup guard de `task-253` lisait mal `app.routes` sur FastAPI 0.13x, et les Dockerfiles résolvaient `fastapi>=0.104.0` au build (0.141.1 dans l'image contre 0.116.1 dans `uv.lock` et le venv local) — donc irreproductible localement. Les images installent désormais depuis `uv export --frozen`. **Non commité au 2026-08-13** : la même bascule sur `uv.lock` pour `api.Dockerfile`, `worker.Dockerfile`, `test-orchestrator.Dockerfile`, `pr.yml` et `main.yml` (5 fichiers modifiés dans le worktree) |
 | Suppression/export de compte | `mobile/app/settings/delete-account.tsx`, `media_summarizer/core/services/account_deletion_service.py`, `task-224` | **Fait en code (2026-08-12)** — suppression de compte in-app (Account > Delete Account) branchée sur `DELETE /api/account`, qui purge DynamoDB + S3 + Algolia. Le bouton `Export Data` mort est retiré : l'accès et la portabilité passent par `privacy@mediasummarizer.com` sous un mois, documenté dans la privacy policy. Le bouton `Settings` mort reste à traiter hors `task-224` |
-| Source + CI | Git local/GitHub Actions | **À faire** — nettoyer, committer/pousser, corriger Ruff/ESLint/Mypy et obtenir des checks verts sur le SHA réellement déployé |
+| Source + CI | `task-223`, `task-227`, `task-228` | **Fait** — `main` = `origin/main` = `6b22542` ; `Main Branch Checks` **vert** sur ce SHA ; `Deploy Lambda Functions` vert sur ce même SHA. Reste hors P0 : `Mobile Build & Distribute` (cf. Phase 7) |
 
 ### Bloquants release immédiats
 
 | Zone | Tâches | Statut |
 |---|---|---|
-| Déploiement/test backend courant | Phase 4 | Pousser/déployer le HEAD, puis re-run E2E AWS dev complet ; le runtime AWS date du 2026-06-15 |
-| Mobile dev builds | `task-161`, `task-162`, `task-163` | iOS : ancienne build réussie mais expirée, **rebuild courant requis** ; Android : keystore créé et Client ID en place au 2026-08-13, il ne reste que le build unique à lancer (`task-163` étapes 11+) |
+| Re-run E2E AWS dev | Phase 4 | **Seul gate backend encore ouvert.** Le HEAD est déployé depuis le 2026-08-13T18:02 ; aucune preuve de `pytest -m e2e` complet contre ce runtime. À lancer, d'autant que l'incident du jour a montré qu'une image peut différer du lock |
+| Mobile dev builds | `task-161`, `task-162`, `task-163` | iOS : `task-161` est `Done`, mais sur une build du 2026-06-11 expirée le 2026-06-25 — le development client reste installé sur l'iPhone owner. Android : keystore (`task-162`) et Client ID en place, **le build unique reste à lancer** (`task-163` ACs #6-#8) |
 | Google OAuth Android | `task-163` | **Fait le 2026-08-13** : Client ID Android créé sur le SHA-1 du keystore `task-162`, et `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` déclarée dans l'environnement EAS `development` — donc en place **avant** le build, l'APK ne pourra pas embarquer `""`. Reste le build Android unique et sa validation sur device |
 | Validation device non automatisable | `task-164`, `task-165` | À faire sur devices physiques : Apple Sign-In, Google sheet, Safari/Chrome share |
 | Maestro V1 | `task-168`, `task-169`, `task-170`, `task-171`, `task-172` | **Plus un bloquant release** — CI en sommeil depuis le 2026-08-13 (`task-254`) le temps que l'UI soit figée ; 168/169/170/171 closes, 172 verrouillée. Cf. Phase 7, section « Maestro E2E CI — en sommeil depuis le 2026-08-13 » |
@@ -98,18 +136,27 @@ un staging ou une soumission.
 |---|---|---|
 | Branding app | `task-186` | Nom marketing final requis avant App Store Connect / Play Console |
 | App icons | `task-180` | Remplacer les placeholders avant soumission |
-| RevenueCat / IAP | Phase 6 | `REVENUCAT_WEBHOOK_SECRET` absent ; produits, offerings/entitlements et tests sandbox réels non prouvés |
-| Domaine production | Phase 10 | `api.secondbrainlabs.com` et `api.mediasummarizer.com` ne résolvent pas ; le profil EAS production pointe encore vers le second |
-| Store/legal | Phase 10 | Privacy/terms non hébergés (`secondbrainlabs.com/privacy` et `/terms` répondent 404), liens in-app absents, listings/screenshots/review accounts à finaliser |
+| RevenueCat / IAP | Phase 6, `task-238` | `REVENUCAT_WEBHOOK_SECRET` absent ; produits, offerings/entitlements et tests sandbox réels non prouvés ; `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` encore un placeholder dans les trois environnements EAS |
+| Domaine production | Phase 10 | Au 2026-08-13 : `secondbrainlabs.com` **résout** mais redirige en `301` vers `sbl.so` ; `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont toujours en `NXDOMAIN`. Le profil EAS production pointe encore vers le second |
+| Store/legal | Phase 10 | Les textes existent au dépôt (`docs/compliance/privacy-policy.md`, `terms-of-service.md`, `apple-app-privacy.md`, `google-play-data-safety.md`, `CHECKLIST.md`) mais **ne sont pas hébergés** : `secondbrainlabs.com/privacy` et `/terms` redirigent vers `sbl.so/...` qui répond **404**. Liens in-app absents, listings/screenshots/review accounts à finaliser |
+
+### Prérequis de lancement propres au compte prod (issus de `task-248`)
+
+| Zone | Preuve | Statut |
+|---|---|---|
+| Credentials runtime prod | `task-252` (`dispatchable: false`, owner-only) | **Bloquant dur.** Le secret `media-summarizer-runtime-prod` contient 0 clé sur 37 : sans lui, aucune transcription, résumé, résolution, recherche, achat, ni même session utilisateur valide (`JWT_SECRET_KEY`) |
+| Quota Lambda concurrence prod | demande `L-B99A9384`, 10 → 1000 | **PENDING** côté AWS. Un compte neuf plafonne à 10 exécutions concurrentes. Tant que c'est le cas, `envs/prod/main.tf` porte `api_reserved_concurrency = -1` ; **retirer cette ligne** puis plan + apply dès que le quota passe, sinon l'API se dispute 10 exécutions avec 14 workers |
+| Réveil de prod | `envs/prod/main.tf` | Trois booléens à passer à `true` (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) — ~7,20 $/mois. Une prod qui sert de vrais utilisateurs sans alarmes est une faute ; la veille n'est valide qu'avant lancement |
 
 ### Décisions à prendre sans bloquer inutilement le premier build interne
 
 | Zone | Tâches | Décision requise |
 |---|---|---|
-| Architecture LLM production | `task-212`, `task-213` | Benchmark refait avec workload chatbot, `owner_decision: pending`. Trancher avant montée en charge ; un soft launch limité peut explicitement différer la migration si le chatbot reste hors scope V1 |
-| Langue YouTube Apify | `task-216` | Follow-up d'optimisation ; la traduction finale task-192 existe déjà, donc non bloquant pour le premier lancement |
+| ~~Architecture LLM production~~ | ~~`task-212`, `task-213`~~ | **Tranché** : `owner_decision: abandoned` sur le benchmark ; les deux tâches sont archivées. La recommandation (Azure OpenAI multi-région) n'est pas retenue pour V1 — le statu quo OpenAI direct est assumé. À rouvrir seulement si le chatbot entre au scope et que le TPM devient contraignant |
+| ~~Langue YouTube Apify~~ | ~~`task-216`~~ | **Fait** (`Done`) — la langue du transcript Apify suit la préférence `reading_language` de l'utilisateur |
 | Discord community/support | `task-118` | Utile pour soft launch, non bloquant code. |
 | TikTok proxy résidentiel | `task-145` | V2, explicitement non bloquant V1. |
+| Fenêtre TTL `processing_jobs` | `task-242` AC #3 | Implémenté en variable `processing_jobs_ttl_days`, défaut **90 j** (recommandation du benchmark). L'AC reste décochée jusqu'à ce que l'owner tranche entre 30/60/90 |
 
 ---
 
@@ -117,11 +164,11 @@ un staging ou une soumission.
 
 | Service | Coût | Pourquoi | Statut |
 |---|---|---|---|
-| **GitHub** (compte + repo privé) | gratuit | Versioning, CI/CD, releases | Partiel : repo OK, mais source locale `ahead 11`, checks rouges, branch protection indisponible sur le plan actuel et seul `AWS_DEPLOY_ROLE_ARN` est configuré dans les Actions secrets |
-| **AWS** (compte) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | Partiel : compte + infra dev OK ; aucun staging/prod isolé, aucune alarme active, déploiement runtime ancien |
+| **GitHub** (compte + repo **public** depuis le 2026-08-13) | gratuit | Versioning, CI/CD, releases | Bon : source synchronisée, `Main Branch Checks` et `Deploy Lambda Functions` verts sur le HEAD, environnement `production` créé (branche `main` seule autorisée). Six secrets Actions (`AWS_DEPLOY_ROLE_ARN` + les cinq E2E). Manquent `EXPO_TOKEN`, Apple/App Store Connect et le service account Google Play. Le repo étant public, la branch protection est **désormais disponible** mais n'est pas configurée |
+| **AWS** (2 comptes, Organizations `o-7sf5u7j5hd`) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | Bon : dev dans `125313707865` (déployé sur le HEAD), prod dans `866874944541` (199 ressources, health `200`, **en veille** et secret vide). Aucune alarme active — par conception dans les deux environnements, pas par défaut de provisioning |
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; statut KYC à revalider par l'owner (aucune preuve plus récente dans le repo) |
-| **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée, aucune Android, aucune variable configurée dans les environnements EAS development/preview/production |
+| **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée, aucune Android. Les trois environnements EAS **sont peuplés** (constaté le 2026-08-13) — `development` porte six variables `EXPO_PUBLIC_*` ; seul `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` reste un placeholder |
 | **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : clés backend et mobiles présentes localement ; webhook secret absent, produits/offering/entitlements et validation sandbox non prouvés |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | Partiel : projet + consent screen Test + OAuth Web backend + OAuth iOS OK ; OAuth Android et publication Production restent à faire |
 | **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (compte créé, clé en local dans `.env`) |
@@ -144,11 +191,14 @@ Architecture cible : tous les secrets sont consolidés dans une entrée
 au cold start et injectent chaque clé du JSON comme variable d'environnement —
 le code lit toujours via `os.getenv(...)` sans changement.
 
-**État réel au 2026-07-31** : seul `media-summarizer-runtime-dev` existe dans
-AWS. Aucun secret runtime staging/prod n'est provisionné. Avant d'en créer, il
-faut d'abord corriger l'isolation Terraform (state + noms de ressources par
-environnement), sinon un `terraform apply` avec `environment = "prod"` ne crée
-pas une stack indépendante sûre.
+**État réel au 2026-08-13** : l'isolation Terraform est faite (`task-237`) et le
+secret prod **existe** en tant que coquille dans le compte `866874944541`, mais
+il contient **0 clé sur 37** — c'est l'objet de `task-252` (owner uniquement,
+`dispatchable: false`). Dans le compte dev, `aws secretsmanager list-secrets` ne
+renvoie que `media-summarizer-runtime-dev` (37 clés) et
+`media-summarizer-devbox-mobile-env`. `media-summarizer-runtime-staging` a été
+supprimé sans fenêtre de récupération par `task-248`, donc son nom est libre si un
+staging jetable doit être remonté un jour.
 
 Bootstrap : `terraform -chdir=infrastructure/terraform/envs/<env> apply`. Il n'y a
 plus de `terraform.tfvars` à copier (task-237 : un root module par environnement,
@@ -211,11 +261,12 @@ EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS=...
 EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID=...
 ```
 
-`mobile/.env` est gitignored et les environnements EAS
-`development`, `preview` et `production` ne contiennent actuellement aucune
-variable. Les valeurs nécessaires doivent être créées côté EAS avant toute
-nouvelle build distribuée ; le seul `env` versionné dans `mobile/eas.json` est
-l'URL API.
+`mobile/.env` est gitignored. Contrairement à l'état noté au 2026-07-31, les trois
+environnements EAS `development`, `preview` et `production` **contiennent bien**
+des variables `EXPO_PUBLIC_*` (vérifié le 2026-08-13 via `eas env:list`) :
+`development` en porte six depuis l'ajout du Client ID Android. Les deux
+mécanismes coexistent — `EXPO_PUBLIC_API_BASE_URL` n'existe **que** dans le bloc
+`env` inline de `mobile/eas.json`, pas côté serveur.
 
 ### 3.3 LLM / Transcription
 
@@ -292,29 +343,34 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 
 ### Phase 1 — Code & repo (jour 1)
 
-1. ~~Créer un repo GitHub privé.~~ **Fait** : `MedlockM/second-brain-app` (privé), branche par défaut `main`. Historique purgé des secrets, `.venv-311/` et scratchpads ; `.gitignore` durci. Premier push : 2026-05-27 (HEAD `eb22f0e`, 174 commits, 553 fichiers).
-2. **GitHub Actions versionnés** : `.github/workflows/pr.yml`, `main.yml`, `deploy-lambda.yml`, `mobile-build-distribute.yml`, `mobile-store-promote.yml`, `mobile-e2e-maestro.yml`.
-3. **État source au 2026-07-31** : `main` local est `ahead 11` de
-   `origin/main`. Le worktree contient aussi `infrastructure/terraform/ecr.tf`
-   modifié et les fichiers `task-216`/`task-217` non suivis. Le dernier runtime
-   AWS/GitHub correspond au commit distant `d1497a1`, pas au HEAD local
-   `ef172bc`.
-4. **CI actuelle rouge** :
-   - dernier `Main Branch Checks` (2026-06-15) : Ruff backend et lint mobile KO ;
-   - vérification locale 2026-07-31 : `ruff check .` → 812 erreurs ;
-     `npm run typecheck` → OK ; `npm run lint` → KO car aucune config ESLint ;
-   - Mypy n'a pas pu être revalidé localement car le binaire du venv local a un
-     interpréteur invalide ; la CI doit rester la preuve après réinstallation.
-5. **GitHub Actions secrets** : seul `AWS_DEPLOY_ROLE_ARN` est configuré.
-   `EXPO_TOKEN`, Apple/App Store Connect, Google Play et les credentials E2E
-   manquent.
-6. **Branch protection** : toujours indisponible sur le repo privé avec le plan
-   GitHub actuel (`HTTP 403 Upgrade to GitHub Pro or make this repository
-   public`). Tant que ce choix n'est pas fait, documenter un gate manuel
-   obligatoire et ne pas présenter les checks comme protégés.
-7. **À faire** : nettoyer le worktree, réconcilier le backlog, committer/pousser,
-   réparer les checks et obtenir plusieurs runs verts sur le SHA destiné au
-   déploiement.
+1. ~~Créer un repo GitHub.~~ **Fait** : `MedlockM/second-brain-app`, branche par défaut `main`. Historique purgé des secrets, `.venv-311/` et scratchpads ; `.gitignore` durci. Premier push : 2026-05-27 (HEAD `eb22f0e`, 174 commits, 553 fichiers). **Le repo est passé public** : vérifié le 2026-08-13 (`visibility: PUBLIC`). C'est ce qui motive `task-255` et `de3ac86` (purge de l'email de login et de l'identité de compte des fichiers suivis) — désormais, tout identifiant écrit dans un fichier suivi est public.
+2. **GitHub Actions versionnés** : `.github/workflows/pr.yml`, `main.yml`, `deploy-lambda.yml`, `deploy-lambda-env.yml`, `mobile-build-distribute.yml`, `mobile-store-promote.yml`, `mobile-e2e-maestro.yml`.
+3. ✅ **Source synchronisée au 2026-08-13** : `main` local et `origin/main` sont
+   tous deux sur `6b22542`. Le worktree porte encore **5 fichiers modifiés non
+   commités** (`pr.yml`, `main.yml`, `api.Dockerfile`, `worker.Dockerfile`,
+   `test-orchestrator.Dockerfile`) : c'est l'extension du fix `uv.lock` de
+   `6b22542` aux images et à la CI restantes — à committer.
+4. ✅ **CI verte** (`task-223`, `task-227`, `task-228`) :
+   - `Main Branch Checks` **success** sur `6b22542` (2026-08-13T18:00) ;
+   - `ruff check .` en local → `All checks passed!` ;
+   - la config ESLint manquante a été ajoutée et les 20 violations react-hooks
+     corrigées, `rules` remises en `error` ;
+   - l'interpréteur du venv local est réparé, donc Mypy est rejouable en local
+     autant qu'en CI.
+5. **GitHub Actions secrets** : six configurés — `AWS_DEPLOY_ROLE_ARN`,
+   `E2E_TEST_USER_EMAIL`, `E2E_TEST_USER_PASSWORD`, `E2E_SEARCH_TEST_TERM`,
+   `E2E_REVENUECAT_TEST_KEY`, `E2E_REVENUECAT_APPLE_KEY`. Manquent toujours
+   `EXPO_TOKEN` (c'est ce qui fait échouer `Mobile Build & Distribute`),
+   Apple/App Store Connect et le service account Google Play. Un environnement
+   GitHub `production` existe (créé par `task-248`), restreint à `main`, avec son
+   propre `AWS_DEPLOY_ROLE_ARN`.
+6. **Branch protection** : la contrainte de plan est **levée** — le repo est
+   public, donc la protection est disponible gratuitement. Elle n'est pour autant
+   **pas configurée** : `branches/main/protection` → `404 Branch not protected`,
+   `rulesets` → `[]`. À faire, en n'y mettant **pas** `Mobile E2E Tests
+   (Maestro)` (cf. Phase 7).
+7. **Reste à faire** : committer les 5 fichiers ci-dessus, puis configurer la
+   branch protection.
 
 ### Phase 2 — Comptes externes (jour 1-2)
 
@@ -386,28 +442,60 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 - Runtime secret ARN : `arn:aws:secretsmanager:eu-west-3:125313707865:secret:media-summarizer-runtime-dev-OyXaYL`
 - Coût mensuel attendu (dev sans trafic) : ~$0.50-1/mois (Secrets Manager $0.40 fixe + reste négligeable).
 
-**État vérifié au 2026-07-31** :
+**État vérifié au 2026-08-13** :
 
-- le health check dev répond `HTTP 200` à chaud ;
-- les Lambdas ont été modifiées pour la dernière fois le 2026-06-15 ;
-- seul le secret `media-summarizer-runtime-dev` existe ;
-- le dashboard `media-summarizer-pipeline-observability` existe ;
-- **0 alarme CloudWatch media-summarizer est active** ;
-- `task-217` est ouverte après deux 500 au réveil et une première invocation à
-  25,7 s.
+- le health check dev répond `HTTP 200` — **cold 5,2 s, warm 1,0 s** (contre
+  25,7 s au déclenchement de `task-217`, désormais `Done`) ;
+- les 16 fonctions dev portent `LastModified = 2026-08-13T18:02` : le HEAD est
+  bien déployé ;
+- dev ne porte plus que **26 tables DynamoDB**, toutes suffixées `-dev`, plus la
+  table de lock du state — les 21 tables legacy sont supprimées (`task-249`) ;
+- secrets dev : `media-summarizer-runtime-dev` (37 clés) et
+  `media-summarizer-devbox-mobile-env` ;
+- **0 alarme CloudWatch active**, mais c'est désormais **voulu** :
+  `enable_alarms = false` dans `envs/dev/main.tf` (économie assumée en dev) et les
+  trois interrupteurs de coût sont à `false` en prod tant qu'elle est en veille.
+  Ce n'est plus un défaut de provisioning mais un item de réveil (Phase 8).
 
-**Blocage staging/prod découvert lors de la réconciliation** : ne pas appliquer
-la consigne historique « recopier `terraform.tfvars` avec un autre
-`environment` » en l'état. Le backend Terraform utilise une seule clé de state
-S3 (`infrastructure/terraform.tfstate`) et la majorité des ressources ont des
-noms globaux (`users`, `processing_jobs`, `media-summarizer-api`, queues sans
-suffixe). Il faut d'abord :
+**Blocage staging/prod : résolu (`task-221` → `task-237` → `task-248`)**. La
+consigne historique « recopier `terraform.tfvars` avec un autre `environment` »
+est morte et remplacée par une racine Terraform par environnement. Ce qui a été
+livré :
 
-1. définir la stratégie de state/workspaces par environnement ;
-2. suffixer ou paramétrer tous les noms qui doivent coexister ;
-3. rendre le workflow de déploiement explicitement environnement-aware ;
-4. vérifier qu'un plan staging ne modifie/détruit aucune ressource dev ;
-5. seulement ensuite créer staging puis prod avec `enable_alarms = true`.
+1. `infrastructure/terraform/envs/{dev,staging,prod}` au-dessus de
+   `modules/platform`, chaque racine déclarant une clé de backend et un
+   `environment` **littéraux** — `terraform -chdir=envs/prod apply` est
+   structurellement incapable d'écrire le state de dev ;
+2. 100 % des noms physiques suffixés `-<env>`, migration du state dev par blocs
+   `moved` (`scripts/gen_moved_blocks.py`) sans jamais laisser Terraform
+   remplacer une table ;
+3. `deploy-lambda-env.yml` : déploiement environment-aware, images taguées par
+   SHA ;
+4. `scripts/tf_plan_guard.sh` : garde-fou de plan. Sa **couche 4** (collision de
+   noms avec les autres environnements vivants) devient structurellement
+   redondante entre dev et prod, puisqu'une frontière de compte les sépare —
+   lancer `tf_plan_guard.sh prod tfplan` **sans** troisième argument ;
+5. **décision owner du 2026-08-12 : plus de staging.** Pour un développeur solo,
+   maintenir trois environnements n'a pas de valeur. `staging` (vide : 0 ligne sur
+   24 tables, 0 objet sur 11 buckets, 0 message sur 26 queues) a été détruit —
+   145 ressources — et `prod` a été créé **dans un compte AWS dédié**
+   `866874944541` sous l'organisation `o-7sf5u7j5hd`. `envs/staging/` reste au
+   dépôt comme référentiel permettant de remonter un staging jetable avant une
+   migration risquée.
+
+**Résultats prod (compte `866874944541`, créé le 2026-08-13)** :
+
+- 199 ressources créées ; API `GET /api/v1/health/` → `HTTP 200`
+  `{"status":"healthy",…}` en 5,4 s à froid ; worker `search_indexing-prod`
+  invoqué à vide → `StatusCode 200`, pas de `FunctionError`.
+- Les images Lambda sont tirées de l'ECR de **dev** (`125313707865`) : il a fallu
+  trois statements pour l'autoriser (principal de service Lambda de prod, root du
+  compte consommateur, et l'autorisation côté IAM prod).
+- `database: connected` alors que le secret runtime est **vide** — la route de
+  santé ne teste que DynamoDB via les noms de tables injectés par Terraform, pas
+  les credentials tiers. Ne jamais lire ce `200` comme « prod fonctionne ».
+- Deux prérequis de lancement en découlent : `task-252` (37 credentials) et la
+  demande de quota Lambda `L-B99A9384` (10 → 1000), toujours `PENDING`.
 
 ### Phase 4 — Tests d'intégration contre AWS dev (jour 3-4) — **NON VALIDÉE, RE-RUN COMPLET REQUIS**
 
@@ -498,22 +586,38 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 
 #### Reste à faire
 
-1. **Synchroniser et déployer le code courant** : au 2026-07-31, le runtime AWS
-   date du 2026-06-15 tandis que le HEAD local est 11 commits devant
-   `origin/main`. Un E2E contre le runtime actuel ne validerait donc pas la
-   codebase courante.
-2. **Fermer `task-217` et revalider le cold start API** avant d'utiliser le
-   health check comme gate de release.
-3. **Re-run complet AWS dev** : `pytest -m e2e` contre
-   `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com` après
-   push/déploiement. Ne pas marquer Phase 4 DONE tant que ce run n'est pas vert.
+1. ✅ **Synchroniser et déployer le code courant** — fait le 2026-08-13 : `main` =
+   `origin/main` = `6b22542`, `Deploy Lambda Functions` vert, 16 fonctions dev
+   redéployées à 18:02.
+2. ✅ **Fermer `task-217` et revalider le cold start API** — `Done` le
+   2026-08-06 ; cold 5,2 s / warm 1,0 s mesurés le 2026-08-13. Le health check
+   est utilisable comme gate de release (`task-217` AC #7).
+3. **Re-run complet AWS dev — SEUL GATE BACKEND ENCORE OUVERT** : `pytest -m e2e`
+   contre `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com`. Aucune preuve
+   d'un run complet contre le runtime du 2026-08-13. Ne pas marquer Phase 4 DONE
+   tant que ce run n'est pas vert. L'incident du jour (dérive `fastapi` entre
+   l'image et `uv.lock`, invisible en local) est l'argument le plus fort en faveur
+   d'un run contre le runtime déployé plutôt que d'une validation locale.
 4. **Tester le digest journalier** (EventBridge rule). Pas couvert par l'E2E actuelle.
-5. **Mettre en place une purge automatique** des artifacts E2E orphelins en cas de crash pytest non-recoverable (Ctrl-C). Aujourd'hui le teardown manque ce cas — script de cleanup à ajouter dans `scripts/`.
-6. **Réconcilier le backlog** : l'index MCP Backlog ne voit pas les tâches
-   récentes et retourne d'anciens intitulés pour certains IDs. Ne pas utiliser
-   les statuts `Done` comme preuve de release avant correction de l'index.
+5. ✅ **Purge des comptes/artifacts E2E orphelins** — `task-246` (purge
+   rétrospective) et `task-247` (teardown réellement effectif) sont `Done` :
+   `scripts/purge_e2e_accounts.py` et `scripts/delete_e2e_account.py` existent, le
+   teardown pytest exporte désormais les variables de tables avant tout import
+   `media_summarizer` (sans quoi il échouait en silence), et les jobs Maestro
+   appellent la suppression en `if: always()` / `continue-on-error`.
+   **Résidu constaté le 2026-08-13** : `users-dev` contient encore 3 comptes E2E
+   (`e2e-register-31712425508-1-android`, `e2e-task249-1786605697`,
+   `e2e-maestro-20260809200952`) à côté du compte owner — antérieurs au fix, à
+   passer à la purge.
+6. ✅ **Backlog réconcilié** : 237 tâches, 14 non-`Done`. Reste une incohérence
+   ponctuelle — `task-162` a ses 3 ACs cochés et son travail consigné mais son
+   statut est encore `To Do`.
 
-### Phase 5 — Mobile dev build (jour 4-5) — **EN COURS, NON VALIDÉE AU 2026-07-31**
+### Phase 5 — Mobile dev build (jour 4-5) — **EN COURS, NON VALIDÉE AU 2026-08-13 — CHEMIN CRITIQUE**
+
+> Les gates backend étant fermés, cette phase est désormais **ce qui bloque le
+> plan**. Elle tient à trois choses : un build Android unique, et deux validations
+> manuelles sur device physique.
 
 #### Fait
 
@@ -584,6 +688,14 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    en sommeil depuis le 2026-08-13 ».
 6. `task-166` — marquer Phase 5 DONE dans ce plan une fois `task-163`,
    `task-164` et `task-165` closes.
+7. ✅ **Hygiène backlog** : `task-162` est passée à `Done` le 2026-08-13 — ses
+   3 critères étaient cochés et son SHA-1 consigné, seul le statut était en retard.
+   Phase 5 ne dépend donc plus que de `task-163` (ACs #6-#8), `task-164` et
+   `task-165`.
+8. **Rebuild iOS courant** : `task-161` est `Done` sur la preuve du 2026-06-11,
+   mais l'artifact a expiré le 2026-06-25 et le HEAD a beaucoup bougé depuis. Un
+   rebuild iOS `development` sera de toute façon nécessaire pour `task-164`, ne
+   serait-ce que pour tester le code courant.
 
 ### Phase 6 — Tests IAP sandbox (jour 5-6)
 
@@ -619,33 +731,40 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    - `.github/workflows/mobile-build-distribute.yml` — EAS build/submit.
    - `.github/workflows/mobile-store-promote.yml` — promotion stores.
    - `.github/workflows/mobile-e2e-maestro.yml` — Maestro Android/iOS.
-2. **État source** : `main` local est `ahead 11` et dirty ; les runs GitHub ne
-   prouvent pas l'état courant.
-3. **Main checks rouges** :
-   - backend : `ruff check .` échoue massivement ; revoir le scope/exclusions et
-     corriger les erreurs applicatives ;
-   - mobile : typecheck OK, lint KO faute de config ESLint ;
-   - Mypy doit être rejoué en CI après réparation du gate Ruff.
-4. **Mobile build workflow rouge et trop agressif** :
-   `.github/workflows/mobile-build-distribute.yml` lance une build production
-   et tente une soumission pour chaque push `main` touchant `mobile/**`.
-   Réserver les builds/submissions production à un tag ou un dispatch explicite
-   et utiliser preview/internal pour la validation courante.
-5. **Secrets GitHub** : les quatre secrets Maestro requis sont configurés
-   (`E2E_TEST_USER_*`, `E2E_SEARCH_TEST_TERM`, clé publique RevenueCat Test
-   Store). Ajouter encore `EXPO_TOKEN`, Apple/App Store Connect et le
-   service account Google Play pour les workflows de distribution.
-6. **Variables EAS** : aucune variable n'existe dans
-   development/preview/production ; les créer avant rebuild.
+2. ✅ **État source** : `main` = `origin/main` = `6b22542` ; les runs GitHub
+   portent donc bien sur l'état courant. Reste 5 fichiers non commités (fix
+   `uv.lock` des images et de la CI, cf. Phase 1).
+3. ✅ **Main checks verts** (`task-223`, `task-227`, `task-228`) : `Main Branch
+   Checks` est `success` sur `6b22542`. Le pin sur `uv.lock` en cours de commit
+   ferme la dernière faille de ce gate — jusqu'à présent la CI installait depuis
+   les intervalles de `pyproject.toml` et pouvait donc linter avec un `ruff`/`mypy`
+   différent de celui du lock et du poste owner.
+4. **Mobile build workflow rouge, et toujours trop agressif** — inchangé :
+   `.github/workflows/mobile-build-distribute.yml` lance une build production et
+   tente une soumission à chaque push `main` touchant `mobile/**`. Il échoue en
+   ~2 s sur `An Expo user account is required to proceed` (`EXPO_TOKEN` vide), pour
+   iOS **et** Android, puis échoue une seconde fois en tentant d'ouvrir une issue
+   avec un label `ci/cd` inexistant. Trois corrections distinctes : renseigner
+   `EXPO_TOKEN`, réserver production à un tag/dispatch explicite (preview/internal
+   pour la validation courante), créer le label ou le retirer du workflow.
+5. **Secrets GitHub** : six configurés, dont les cinq requis par Maestro
+   (`E2E_TEST_USER_EMAIL`/`_PASSWORD`, `E2E_SEARCH_TEST_TERM`,
+   `E2E_REVENUECAT_TEST_KEY`, `E2E_REVENUECAT_APPLE_KEY`). Ajouter encore
+   `EXPO_TOKEN`, Apple/App Store Connect et le service account Google Play pour
+   les workflows de distribution.
+6. ✅ **Variables EAS** : les trois environnements sont peuplés (constaté le
+   2026-08-13). Seul `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` reste un placeholder
+   (`task-238`).
 7. **Maestro CI** : **en sommeil depuis le 2026-08-13** (`task-254`). Plus aucun
    déclenchement automatique ; `workflow_dispatch` est le seul point d'entrée.
    Ce n'est plus un gate de release. État des flows et plan de réactivation dans
-   la section ci-dessous.
-8. **Branch protection** : choisir GitHub Pro/repo public ou formaliser un gate
-   manuel ; la protection n'est pas disponible avec le plan privé actuel. Si
-   `Mobile E2E Tests (Maestro)` figure dans les required status checks de `main`,
-   l'en retirer — le workflow ne se déclenche plus tout seul et les PR
-   resteraient bloquées en attente d'un check absent.
+   la section ci-dessous. À noter : le dernier run automatique, sur `9cb9da5`, est
+   rouge — c'est cohérent avec la mise en sommeil, pas une régression à traiter.
+8. **Branch protection** : le choix est **tranché de fait** — le repo est public,
+   donc la protection est disponible sans upgrade. Elle reste à configurer
+   (`404 Branch not protected`, aucun ruleset). Y mettre `Main Branch Checks`, et
+   surtout **pas** `Mobile E2E Tests (Maestro)` : le workflow ne se déclenche plus
+   tout seul et les PR resteraient bloquées en attente d'un check absent.
 9. Vérifier le rollback Lambda avec deux images API/worker immuables après
    `task-217`, puis documenter l'exercice.
 
@@ -735,12 +854,28 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
 
 ### Phase 8 — Monitoring & observabilité (jour 7-8)
 
-> Le provisioning Terraform de dashboard/alarms a été ajouté (`task-114`, `task-46`), puis adapté à la migration Lambda. La validation restante est opérationnelle : activer les alarmes en staging/prod et vérifier les signaux CloudWatch réels.
+> Le provisioning Terraform de dashboard/alarms a été ajouté (`task-114`, `task-46`), puis adapté à la migration Lambda, puis complété par `task-242` et `task-243`. La validation restante est opérationnelle : réveiller les alarmes en prod et vérifier les signaux CloudWatch réels.
 >
-> **État 2026-07-31** : le dashboard
-> `media-summarizer-pipeline-observability` existe, mais AWS retourne
-> **0 alarme `media-summarizer*` active**. Le monitoring n'est donc pas un gate
-> opérationnel aujourd'hui.
+> **État 2026-08-13** : AWS retourne toujours **0 alarme active**, mais c'est
+> désormais **une conséquence des interrupteurs de coût, pas un trou de
+> provisioning** : `enable_alarms = false` en dev (économie assumée) et les trois
+> interrupteurs à `false` en prod tant qu'elle est en veille. Le réveil est un
+> `apply` de trois booléens, ~7,20 $/mois (1 topic SNS + 43 alarmes ≈ 3,30 $,
+> 1 dashboard ≈ 3,00 $, 14 mappings SQS ≈ 0,90 $). Le tableau par environnement est
+> dans `infrastructure/terraform/README.md`, section « Cost switches ».
+>
+> Deux ajouts récents à valider au réveil :
+> - `task-242` — l'archiveur de jobs est **réellement déployé** (code réel à la
+>   place du placeholder, 4 jobs archivés dans
+>   `s3://media-summarizer-archives-…-dev/2026/08/13/`), le TTL de
+>   `processing_jobs-dev` est **ENABLED** (variable `processing_jobs_ttl_days`,
+>   défaut 90 j) et l'alarme `job_archiver_silent_failure` est câblée et
+>   *fireable*. La fenêtre TTL définitive reste à trancher par l'owner (AC #3).
+> - `task-243` — `user_media` est branché sur la rétention, la suppression, le
+>   backup et l'observabilité ; `docs/DATA_RETENTION.md` est le document de
+>   référence des deux horloges (la bibliothèque d'un utilisateur n'a **pas**
+>   d'horloge de rétention), et `scripts/check_purge_at_writers.py` fait échouer la
+>   CI si un second écrivain de `purge_at` apparaît.
 
 1. CloudWatch Dashboard à vérifier avec :
    - Latence API (`API_SLOW_REQUEST_THRESHOLD_MS` → alarmes)
@@ -751,27 +886,55 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
 2. CloudWatch Alarms → SNS → e-mail (`enable_alarms = true` en staging/prod).
 3. Vérifier que les logs structurés tombent bien dans CloudWatch Logs Insights.
 
-### Phase 9 — Staging end-to-end (jour 8-9)
+### Phase 9 — ~~Staging end-to-end~~ → **Validation prod avant ouverture** (jour 8-9)
 
-0. **Débloquer l'isolation Terraform** : state et noms de ressources séparés
-   par environnement, avec preuve qu'un plan staging ne touche pas dev.
-1. Déployer l'environnement `staging` séparé de `dev` et `prod`, son secret
-   runtime et ses alarmes.
-2. Créer un vrai endpoint/domaine staging et l'injecter dans EAS + Maestro.
-3. Tester depuis un device physique avec une URL réelle de chaque source.
-4. Vérifier qu'aucun secret prod ne fuit en staging.
-5. Charger 50-100 URLs en parallèle pour vérifier le scaling SQS / Lambda.
-6. Vérifier RevenueCat sandbox → backend webhook en staging.
-7. Mesurer cold/warm API, profondeur SQS, DLQ et coût avant passage prod.
+> **Cette phase a changé de nature le 2026-08-12** (décision owner, cf. `task-248`).
+> Il n'y a **plus d'environnement staging** : pour un développeur solo, en
+> maintenir un troisième n'apportait rien, et il était de toute façon vide. Le
+> couple retenu est **dev + prod dans deux comptes AWS séparés**. `envs/staging/`
+> reste au dépôt uniquement comme référentiel permettant de remonter un staging
+> **jetable** avant une migration risquée (c'est aussi le seul cas où la couche 4
+> de `tf_plan_guard.sh` retrouve son utilité).
+>
+> Les étapes de validation ci-dessous ne disparaissent pas — elles se font
+> désormais **contre prod, avant de l'ouvrir aux utilisateurs**, puisque prod
+> existe déjà et n'a jamais servi de trafic.
+
+0. ✅ **Isolation débloquée** : `task-237` + `task-248`, cf. Phase 3.
+1. ✅ **L'environnement cible existe** : 199 ressources dans le compte
+   `866874944541`, health `HTTP 200`. Il est en veille et son secret est vide.
+2. **Peupler le secret runtime prod** (`task-252`, owner) puis réveiller les trois
+   interrupteurs de coût. Sans ça, aucune des étapes suivantes n'a de sens.
+3. **Lever le plafond de concurrence** : quota `L-B99A9384` (10 → 1000) en
+   attente ; retirer ensuite `api_reserved_concurrency = -1` de
+   `envs/prod/main.tf` et rappliquer.
+4. Créer le vrai endpoint/domaine prod (`api.secondbrainlabs.com`, cf. Phase 10
+   §0bis) et l'injecter dans EAS + Maestro.
+5. Tester depuis un device physique avec une URL réelle de chaque source.
+6. Vérifier qu'aucun credential de dev n'a été recopié dans prod (`task-252`
+   l'interdit explicitement).
+7. Charger 50-100 URLs en parallèle pour vérifier le scaling SQS / Lambda —
+   **après** la levée du quota, sinon la mesure ne mesure que le throttling.
+8. Vérifier RevenueCat sandbox → backend webhook contre prod.
+9. Mesurer cold/warm API, profondeur SQS, DLQ et coût avant ouverture.
 
 ### Phase 10 — Pré-lancement (jour 10+)
 
 0. **Rebrand mobile placeholder name** (cf. task-186) — l'app utilise actuellement le nom legacy `Media Summarizer` partout (display name, slug Expo, scheme deep link, share extension iOS). À exécuter **avant** la sous-étape 1 ci-dessous : tous les textes Apple App Store Connect (App Information, screenshots) et Google Play Console + Google OAuth Branding consomment le nom marketing définitif. Coût ~30 min en pré-distribution, beaucoup plus élevé une fois publié. Ne touche pas le bundle id `com.secondbrainlabs.core` (figé). Voir `task-186` pour la checklist exacte des 8-9 endroits à mettre à jour.
 
 0bis. **Couper l'API du custom domain `api.secondbrainlabs.com`** — pendant le dev (Phase 5), l'app mobile + Apple Sign-In Service ID + `APPLE_REDIRECT_URI` côté backend tapent tous l'URL brute API Gateway `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com`. En Phase 10, on bascule sur le custom domain. Étapes :
-   - **État 2026-07-31** : `api.secondbrainlabs.com` ne résout pas et
-     `api.mediasummarizer.com` ne résout pas non plus. Le profil EAS production
-     pointe toujours vers `https://api.mediasummarizer.com`.
+   - **État 2026-08-13** : `secondbrainlabs.com` **résout** désormais, mais renvoie
+     un `301` vers `sbl.so` (site tiers), et `sbl.so/privacy` comme `sbl.so/terms`
+     répondent **404**. `api.secondbrainlabs.com` et `api.mediasummarizer.com`
+     sont toujours en `NXDOMAIN`. Le profil EAS production pointe toujours vers
+     `https://api.mediasummarizer.com`. Décider d'abord **quel domaine porte le
+     produit** — la redirection vers `sbl.so` suggère que `secondbrainlabs.com`
+     n'est pas (ou plus) dédié à cette app —, puis appliquer les étapes ci-dessous
+     sur le domaine retenu.
+   - Le sous-domaine API doit être créé **et** les pages `/privacy` et `/terms`
+     réellement servies sur ce même domaine : Apple et Google exigent une URL de
+     politique de confidentialité publiquement atteignable, un `404` derrière une
+     redirection est un motif de rejet.
    - Le support Terraform existe déjà dans `infrastructure/terraform/modules/platform/lambda_api.tf` (`api_custom_domain`, `api_zone_id`, `aws_acm_certificate`, API Gateway domain mapping, Route53 record conditionnel) : les ressources sont conditionnées par `count` sur ces deux variables, donc vides tant qu'elles ne sont pas renseignées.
    - Passer `api_custom_domain = "api.secondbrainlabs.com"` et `api_zone_id` au bloc `module "platform"` de `infrastructure/terraform/envs/prod/main.tf`, puis `terraform -chdir=infrastructure/terraform/envs/prod apply`.
    - Créer/valider le DNS Cloudflare ou Route53 selon la zone réellement utilisée. Si Cloudflare reste le DNS autoritaire, créer le CNAME vers le `target_domain_name` exposé par Terraform.
@@ -801,10 +964,16 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
    - Confirmer que les **scopes** demandés sont uniquement `openid`, `email`, `profile` (non-sensitive). Si d'autres scopes sont ajoutés (Drive, Gmail, etc.), prévoir 4-6 semaines de **vérification Google** + politique de confidentialité publique + vidéo de démo.
    - Section **État de la publication** : cliquer **« Publier l'application »** pour passer de `Test` (limité aux 100 utilisateurs whitelistés) à `Production` (n'importe qui peut se connecter avec Google).
    - Pour les scopes basiques (notre cas), la publication est immédiate sans validation Google supplémentaire — un avertissement "App non vérifiée" peut apparaître initialement chez certains users, à monitorer.
-4. **Légal** :
-   - Politique de confidentialité hébergée publiquement.
-   - CGU avec mention RevenueCat / abonnements.
-   - Conformité RGPD : droit à l'oubli, accès et portabilité.
+4. **Légal** — les textes sont **rédigés au dépôt**, ce qui reste est l'hébergement
+   et le câblage in-app. Présents depuis le 2026-08-12 :
+   `docs/compliance/privacy-policy.md`, `terms-of-service.md`,
+   `apple-app-privacy.md` (réponses au questionnaire App Privacy),
+   `google-play-data-safety.md` et `CHECKLIST.md`.
+   - Politique de confidentialité hébergée publiquement — **pas fait** : le
+     chemin `/privacy` répond 404 derrière une redirection (cf. §0bis).
+   - CGU avec mention RevenueCat / abonnements — texte prêt, hébergement à faire.
+   - Conformité RGPD : droit à l'oubli **implémenté** (cf. ci-dessous) ; accès et
+     portabilité traités manuellement par mail sous un mois.
    - Ajouter les liens Privacy/Terms sur login/register et Account.
    - **Fait (`task-224`, 2026-08-12)** : suppression de compte in-app
      (Account > Delete Account → `DELETE /api/account`) qui purge DynamoDB, S3 et
@@ -814,9 +983,12 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
      manuellement par mail sous un mois, documenté en privacy policy §8.
    - **Prérequis déploiement** : appliquer Terraform (`s3:DeleteObject` sur le
      bucket bug-reports) **avant** de déployer l'API, sinon tout user ayant joint
-     une capture d'écran reçoit un 500 au lieu d'une suppression.
-   - **État 2026-07-31** : `secondbrainlabs.com/privacy` et `/terms` répondent
-     404 ; les anciens domaines `mediasummarizer.com` ne résolvent pas.
+     une capture d'écran reçoit un 500 au lieu d'une suppression. En dev, le code
+     est déployé depuis le 2026-08-13 et `task-253` a corrigé le 404 de la route ;
+     à revérifier lors du réveil de prod.
+   - **État 2026-08-13** : `secondbrainlabs.com/privacy` et `/terms` renvoient un
+     `301` vers `sbl.so/...`, qui répond **404**. `mediasummarizer.com` ne résout
+     toujours pas.
 5. **Site landing minimal** (optionnel) : `<your-domain>` avec CTA App Store / Play Store.
 6. **Soft launch** : un seul pays, 100 users, observer 1 semaine avant rollout global.
 
@@ -827,6 +999,17 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
 Les comptes principaux sont largement provisionnés. Les blocages restants sont surtout liés aux stores, aux builds EAS interactifs et aux dashboards tiers.
 
 - [x] AWS account + IAM admin user `second-brain-app-admin` (AdministratorAccess) + alarme billing $50/mois (us-east-1) configurée
+- [x] Organisation AWS `o-7sf5u7j5hd` + compte membre prod `866874944541` créés au
+  2026-08-13 (`task-248`), profil `[profile prod]` ajouté hors dépôt dans
+  `~/.aws/config`. **Irréversibles** : une organisation ne se supprime qu'après
+  sortie de tous ses comptes membres, et un compte AWS ne se supprime pas avant
+  90 jours de fermeture
+- [ ] **Les 37 credentials runtime du secret prod** (`task-252`, owner uniquement,
+  `dispatchable: false`) — prod est une coquille vide sans eux : ni transcription,
+  ni résumé, ni résolution, ni recherche, ni achat, ni session utilisateur valide
+- [ ] **Quota Lambda concurrence du compte prod** : demande `L-B99A9384` (10 → 1000)
+  `PENDING` côté AWS. Retirer ensuite `api_reserved_concurrency = -1` de
+  `envs/prod/main.tf` et rappliquer
 - [x] Apple Developer Program payé ($99) au 2026-06-01, validé par Apple
 - [x] **Apple Sign in with Apple Service ID + Key (.p8) + App ID + Team ID + Key ID** provisionnés au 2026-06-08 (cf. Phase 2.8) — toutes les vars Apple dans `.env` renseignées : `APPLE_CLIENT_ID` (Service ID), `APPLE_PRIVATE_KEY` (PEM single-line), `APPLE_REDIRECT_URI` prod, `APPLE_TEAM_ID`, `APPLE_KEY_ID`.
 - [ ] Google Play Console payé ($25) au 2026-06-01 — **statut KYC à
@@ -848,11 +1031,14 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 - [x] OpenAI API key + budget configuré (en local dans `.env`)
 - [x] Deepgram API key + budget configuré (en local dans `.env`)
 - [x] Algolia App créée + index configuré (App ID + Admin API key + index name en local dans `.env`)
-- [~] RevenueCat — clés backend et mobiles présentes localement au 2026-07-31,
-  mais `REVENUCAT_WEBHOOK_SECRET` reste vide. Restent à faire : webhook sur le
-  futur endpoint staging/prod, 3 produits IAP iOS/Android, import dans RC,
-  Entitlements + Offerings, comptes sandbox/license testers, achat/restore et
-  propagation vers quotas
+- [~] RevenueCat — clés backend et mobiles présentes localement, mais
+  `REVENUCAT_WEBHOOK_SECRET` reste vide. Restent à faire : webhook sur le futur
+  endpoint prod, 3 produits IAP iOS/Android, import dans RC, Entitlements +
+  Offerings, comptes sandbox/license testers, achat/restore et propagation vers
+  quotas. Côté app, les entrées UI existent désormais (`task-244` : CTA d'upgrade
+  dans Account + déclenchement sur refus de quota ; `task-245` : l'état
+  d'abonnement est réellement consommé par l'UI) — le paywall n'est donc plus un
+  écran orphelin, seul le circuit d'achat réel manque
 - [x] Pricing admin secret généré au 2026-06-08 (`PRICING_ADMIN_SECRET` en local dans `.env`, requis pour `PUT /api/pricing/admin`)
 - [ ] EAS iOS development build **courante** : l'ancienne build du 2026-06-11
   a expiré et précède le HEAD actuel (`task-161`)
@@ -867,10 +1053,14 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   environnements (`task-238`)
 - [ ] Nom marketing final : requis avant `task-186`, App Store Connect, Play Console et Google OAuth Branding
 - [ ] Icônes finales : `task-180`, requis avant soumission stores
-- [ ] Domaines : rendre `api.secondbrainlabs.com`, `/privacy`, `/terms` et
-  l'URL support publics avant la build production
-- [ ] Architecture LLM production : valider ou différer explicitement
-  `task-212` selon le scope chatbot du soft launch
+- [ ] Domaines : décider quel domaine porte le produit (`secondbrainlabs.com`
+  redirige aujourd'hui vers `sbl.so`), puis rendre le sous-domaine API, `/privacy`,
+  `/terms` et l'URL support réellement publics avant la build production
+- [x] Architecture LLM production : **tranché** — `owner_decision: abandoned` sur le
+  benchmark `task-212` ; `task-212` et `task-213` sont archivées, le statu quo
+  OpenAI direct est assumé pour V1
+- [ ] Branch protection sur `main` : plus aucun obstacle de plan (repo public), mais
+  rien n'est configuré
 
 ---
 
@@ -884,14 +1074,18 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 | Quota LlamaParse free tier (1000 pages/jour) dépassé | Fallback Unstructured automatique dans le worker `document_parsing`. Si Unstructured aussi épuisé : job `failed` avec message clair, surveiller en CloudWatch. |
 | RevenueCat webhook drop | Réconciliation possible via `GET /api/entitlements/status` qui requête RevenueCat directement. |
 | URL X privée / supprimée | Worker X retourne `failed` proprement, message d'erreur à l'utilisateur. |
-| API interactive indisponible après longue inactivité | Fermer `task-217` : image API minimale, reserved concurrency configurable, warm-up et health gate public mesuré. |
-| Collision/destruction entre dev/staging/prod | Séparer state/workspaces et suffixer les ressources avant tout plan/apply hors dev. |
-| CRUD users legacy non authentifié | Retirer/isoler la surface publique legacy et implémenter une suppression de compte authentifiée + purge complète avant production. |
-| État local non poussé sur GitHub | `main` local est `ahead 11` et dirty ; avant de valider CI/CD ou préparer stores, committer/pousser puis relancer les workflows GitHub. |
-| CI donnant un faux sentiment de sécurité | Corriger Ruff/ESLint/Mypy ; retirer les `|| true` de Maestro ; ne déployer que le SHA ayant passé les gates. |
-| Build mobile sans secrets runtime | Créer les variables EAS par environnement ; `mobile/.env` gitignored ne constitue pas une configuration de build distante. |
-| Domaine/légal indisponible | Rendre l'API production, privacy, terms et support publics avant soumission ; vérifier les URLs depuis un réseau externe. |
-| Branch protection indisponible sur repo privé avec le plan GitHub actuel | Upgrade GitHub Pro ou rendre le repo public, sinon documenter explicitement que le required-check gate est manuel avant launch. |
+| ~~API interactive indisponible après longue inactivité~~ | **Traité** (`task-217`, 2026-08-06) : image API minimale, reserved concurrency configurable, warm-up EventBridge, health gate de release. Cold 5,2 s / warm 1,0 s au 2026-08-13. |
+| ~~Collision/destruction entre dev/staging/prod~~ | **Traité** (`task-237`, `task-248`) : une racine Terraform par environnement, 100 % des noms suffixés, et surtout **une frontière de compte AWS** entre dev et prod — un plan lancé avec les identifiants de prod ne peut rien toucher dans dev. |
+| ~~CRUD users legacy non authentifié~~ | **Traité** (`task-222`, `task-224`, `task-253`) : surface legacy supprimée, `DELETE /api/account` déduit le compte du token et purge DynamoDB + S3 + Algolia, startup guard contre les routes silencieusement absentes. |
+| ~~État local non poussé sur GitHub~~ | **Traité** : `main` = `origin/main` = `6b22542`, et le SHA déployé est celui qui a passé les gates. |
+| Dérive silencieuse entre l'image Lambda et le lockfile | **Cause de l'incident du 2026-08-13** (API dev 500 sur toutes les routes, ~2 h 20) : les Dockerfiles résolvaient les intervalles de `pyproject.toml` au build, donc chaque build produisait une image différente et aucune exécution locale ne pouvait reproduire le bug. Mitigation : installer depuis `uv export --frozen` — fait pour les deux images Lambda, **à committer pour les trois images et les deux workflows restants**. |
+| Un health check vert lu comme « l'environnement fonctionne » | `GET /api/v1/health/` ne teste que DynamoDB via le rôle IAM. Prod répond `200` avec un secret runtime **vide**. Ne jamais s'en servir comme preuve qu'un environnement est opérationnel — seul un E2E complet l'établit. |
+| Prod ouverte alors qu'elle est en veille | Trois booléens (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) à repasser à `true`, plus le quota de concurrence et le secret runtime. Une prod servant de vrais utilisateurs sans alarmes est une faute ; la veille n'est acceptable qu'avant lancement. |
+| CI donnant un faux sentiment de sécurité | Gates verts au 2026-08-13. Rester vigilant sur trois points : ne pas remettre de `|| true`, ne pas mettre le workflow Maestro en sommeil dans les required checks, et pin les outils via `uv.lock` pour que la CI lint avec les mêmes versions que le poste owner. |
+| Build mobile sans secrets runtime | Les trois environnements EAS sont peuplés ; reste `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` (`task-238`) et `EXPO_TOKEN` côté GitHub Actions. `mobile/.env` gitignored ne constitue pas une configuration de build distante. |
+| Domaine/légal indisponible | Textes légaux rédigés (`docs/compliance/`) mais **non hébergés** : `/privacy` et `/terms` répondent 404 derrière une redirection vers `sbl.so`. Trancher le domaine, héberger, puis vérifier les URLs depuis un réseau externe avant soumission. |
+| ~~Branch protection indisponible~~ | **Obstacle levé** : le repo est public, la protection est disponible sans upgrade. Reste à la configurer — elle ne l'est pas au 2026-08-13. |
+| Repo public et fuite d'identifiants | Le dépôt est public depuis peu. `task-255` et `de3ac86` ont purgé l'email de login et l'identité de compte des fichiers suivis ; l'email racine du compte AWS prod est volontairement absent du dépôt. Tout ajout de credential dans un fichier suivi est désormais une fuite publique immédiate. |
 
 ---
 
@@ -920,8 +1114,19 @@ cd mobile && npm run typecheck && npm run lint
 terraform -chdir=infrastructure/terraform/envs/dev plan
 terraform -chdir=infrastructure/terraform/envs/dev apply
 
-# Deploy Lambda container (GitHub Actions target; local equivalent uses the same Dockerfile/ECR)
+# Prod vit dans un autre compte AWS (task-248) : le profil est obligatoire.
+AWS_PROFILE=prod terraform -chdir=infrastructure/terraform/envs/prod plan -out=tfplan
+# Garde-fou de plan. Sans 3e argument pour prod : la couche 4 (collision de noms)
+# est structurellement redondante entre deux comptes séparés.
+scripts/tf_plan_guard.sh prod tfplan
+
+# Deploy Lambda containers — deux images distinctes depuis task-217
+docker buildx build --platform linux/arm64 --provenance=false --sbom=false -f infrastructure/docker/lambda-api.Dockerfile .
 docker buildx build --platform linux/arm64 --provenance=false --sbom=false -f infrastructure/docker/lambda.Dockerfile .
+
+# Purge des comptes E2E orphelins (task-246 / task-247)
+python scripts/purge_e2e_accounts.py
+python scripts/delete_e2e_account.py <email>
 ```
 
 ## Appendice B — Liens internes
@@ -931,6 +1136,10 @@ docker buildx build --platform linux/arm64 --provenance=false --sbom=false -f in
 - `.env.example` — gabarit complet des variables (20 sections numérotées)
 - `infrastructure/terraform/README.md` — runbook Secrets Manager + Lambda deployment
 - `infrastructure/terraform/modules/platform/secrets.tf` — coquille du secret consolidé `media-summarizer-runtime-<env>` (valeurs poussées hors-bande)
+- `docs/API_LAMBDA_RUNTIME.md` — runtime API isolé, warm-up, seuil et procédure d'activation de la provisioned concurrency (`task-217`)
+- `docs/DATA_RETENTION.md` — les deux horloges de rétention (`task-243`)
+- `docs/compliance/` — privacy policy, terms of service, réponses App Privacy (Apple) et Data Safety (Google Play), checklist
+- `docs/research/task-221-terraform-multi-env-isolation/README.md` — architecture d'isolation validée (option B)
 - `docs/DEVBOX_SETUP.md` — reconstruire un poste de dev complet
 - `docs/MOBILE_APP_IMPLEMENTATION_PLAN.md` — détails techniques mobile
 - `docs/PRODUCTION_RELEASE_RUNBOOK.md` — procédure de release

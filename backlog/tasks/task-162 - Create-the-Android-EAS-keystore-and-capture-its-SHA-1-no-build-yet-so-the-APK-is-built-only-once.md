@@ -3,9 +3,10 @@ id: task-162
 title: >-
   Create the Android EAS keystore and capture its SHA-1 (no build yet, so the
   APK is built only once)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 05:38'
+updated_date: '2026-08-13 18:33'
 labels:
   - phase-5
   - mobile
@@ -14,7 +15,6 @@ labels:
 dependencies:
   - task-160
 priority: high
-dispatchable: false
 ---
 
 ## Description
@@ -97,4 +97,6 @@ Ces empreintes sont des données publiques du certificat (elles sont extractible
 L'état de départ était `No credentials set up yet!` : la création était donc purement additive, sans risque d'écraser une clé existante. Séquence retenue dans le menu : profil `development` → `Keystore: Manage everything needed to build your project` → `Set up a new keystore` → nom par défaut → `Generate a new Android Keystore? yes`. Sortie : `✔ Created keystore` / `✔ Created Android build credentials`.
 
 EAS a rattaché le keystore au profil `development`. `preview` et `production` hériteront de la même clé par défaut, ce qui est le comportement EAS attendu et n'invalide pas le SHA-1 (cf. Pièges connus).
+
+2026-08-13 — statut passé à `Done`. Les 3 critères étaient cochés et le travail consigné (keystore créé via `eas credentials` sans build, SHA-1 et SHA-256 relevés, page credentials EAS notée) depuis le 2026-08-13 ; seul le statut était resté `To Do`. Correction faite lors de la réconciliation de `docs/V1_LAUNCH_PLAN.md`, qui référençait cette tâche comme un reste-à-faire de Phase 5 alors qu'elle n'en était plus un.
 <!-- SECTION:NOTES:END -->
