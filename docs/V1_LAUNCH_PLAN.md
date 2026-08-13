@@ -65,12 +65,15 @@ bloquant au moins bloquant :
 3. **Billing réel** — Phase 6 et `task-238` : `REVENUCAT_WEBHOOK_SECRET`, produits
    IAP, offerings/entitlements, achat et restore en sandbox.
 4. **Owner-only, sans substitut possible** — les 37 credentials du secret prod
-   (`task-252`), le quota Lambda prod, le KYC Google Play.
+   (`task-252`), le quota Lambda prod, les vérifications d'éligibilité du compte
+   Google Play — dont un éventuel closed testing de 14 jours qui, s'il
+   s'applique, borne par le bas la date de publication Android.
 5. **Stores et légal** — nom marketing (`task-186`), icônes (`task-180`), domaine
    tranché puis API/privacy/terms réellement hébergés, listings et review accounts.
 6. **Hygiène, rapide** — committer les 5 fichiers du worktree, configurer la branch
-   protection, renseigner `EXPO_TOKEN`, purger les 3 comptes E2E résiduels de
-   `users-dev`.
+   protection (`task-257`), désarmer le workflow de build mobile et renseigner
+   `EXPO_TOKEN` (`task-258`), purger les 2 comptes E2E résiduels de `users-dev`
+   (`task-259`).
 
 ---
 
@@ -167,7 +170,7 @@ un staging ou une soumission.
 | **GitHub** (compte + repo **public** depuis le 2026-08-13) | gratuit | Versioning, CI/CD, releases | Bon : source synchronisée, `Main Branch Checks` et `Deploy Lambda Functions` verts sur le HEAD, environnement `production` créé (branche `main` seule autorisée). Six secrets Actions (`AWS_DEPLOY_ROLE_ARN` + les cinq E2E). Manquent `EXPO_TOKEN`, Apple/App Store Connect et le service account Google Play. Le repo étant public, la branch protection est **désormais disponible** mais n'est pas configurée |
 | **AWS** (2 comptes, Organizations `o-7sf5u7j5hd`) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | Bon : dev dans `125313707865` (déployé sur le HEAD), prod dans `866874944541` (199 ressources, health `200`, **en veille** et secret vide). Aucune alarme active — par conception dans les deux environnements, pas par défaut de provisioning |
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
-| **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; statut KYC à revalider par l'owner (aucune preuve plus récente dans le repo) |
+| **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; les quatre vérifications d'éligibilité du compte restent à confirmer par l'owner (identité, profil de paiement, adresse publique, closed testing 12 testeurs / 14 jours) — runbook `task-260`, détail en Phase 2.2. Aucune preuve plus récente dans le repo |
 | **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée, aucune Android. Les trois environnements EAS **sont peuplés** (constaté le 2026-08-13) — `development` porte six variables `EXPO_PUBLIC_*` ; seul `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` reste un placeholder |
 | **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : clés backend et mobiles présentes localement ; webhook secret absent, produits/offering/entitlements et validation sandbox non prouvés |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | Partiel : projet + consent screen Test + OAuth Web backend + OAuth iOS OK ; OAuth Android et publication Production restent à faire |
@@ -375,8 +378,34 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 ### Phase 2 — Comptes externes (jour 1-2)
 
 1. ~~Apple Developer Program.~~ **Fait** : payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés.
-2. Google Play Console : payé 2026-06-01 ; **statut KYC à revalider par
-   l'owner**, aucune preuve plus récente n'étant disponible dans le repo.
+2. Google Play Console : payé 2026-06-01. **Quatre vérifications d'éligibilité à
+   faire par l'owner dans la Play Console** — runbook pas-à-pas dans `task-260`,
+   qui est aussi l'endroit où consigner les résultats. Aucune preuve plus récente
+   n'est disponible dans le repo. Les $25 ne donnent qu'un compte : ils ne rendent
+   pas le compte apte à publier.
+   1. **Vérification d'identité du compte développeur** (Settings → Developer
+      account → Account details) : nom légal, adresse, téléphone, pièce
+      d'identité. Google la réclame de tous les comptes depuis 2023 et suspend
+      ceux qui ne la fournissent pas dans le délai imparti.
+   2. **Profil de paiement Google Payments** : obligatoire dès qu'il y a des
+      achats intégrés — donc bloquant pour les abonnements de `task-238` et pour
+      RevenueCat. Il porte la vérification d'identité du bénéficiaire, les
+      informations fiscales et les coordonnées bancaires. Sans lui, les
+      abonnements ne sont pas vendables même si l'app est publiée.
+   3. **Adresse développeur publique** : depuis 2023, l'email et l'adresse
+      physique du développeur s'affichent sur la fiche Play. Pour un compte
+      personnel, cela signifie publier une adresse personnelle. Un compte
+      organisation l'évite mais exige un numéro D-U-N-S — décision à prendre
+      avant de remplir la fiche, pas après.
+   4. **Closed testing préalable — à vérifier en priorité, c'est du délai
+      calendaire.** Google impose aux comptes développeur *personnels* créés
+      après novembre 2023 un test fermé d'environ 12 testeurs pendant 14 jours
+      continus avant de pouvoir demander l'accès à la production. Le compte
+      datant du 2026-06-01, l'exigence s'applique très probablement s'il est
+      personnel. Elle ne s'achète pas et ne se parallélise pas : elle doit
+      démarrer 14 jours avant la date de publication visée. **À confirmer dans
+      la Play Console** (les seuils et le périmètre de cette règle ont changé
+      plusieurs fois, et cette note n'est pas une source de vérité).
 3. ~~AWS account + IAM admin user + facturation alarms.~~ **Fait** : compte AWS, IAM admin `second-brain-app-admin` et billing alarm $50/mois configurés.
 4. Expo / EAS account + lien vers le repo : **compte/projet faits**. Une build
    iOS development a terminé le 2026-06-11 sur `8c63765`, mais elle a expiré le
@@ -605,10 +634,14 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    teardown pytest exporte désormais les variables de tables avant tout import
    `media_summarizer` (sans quoi il échouait en silence), et les jobs Maestro
    appellent la suppression en `if: always()` / `continue-on-error`.
-   **Résidu constaté le 2026-08-13** : `users-dev` contient encore 3 comptes E2E
-   (`e2e-register-31712425508-1-android`, `e2e-task249-1786605697`,
-   `e2e-maestro-20260809200952`) à côté du compte owner — antérieurs au fix, à
-   passer à la purge.
+   **Résidu constaté le 2026-08-13** (`task-259`) : `users-dev` contient 4 lignes,
+   dont 2 à purger — `e2e-task249-1786605697` (créé à 07:21) et
+   `e2e-register-31712425508-1-android` (créé à 15:04). Les deux autres restent :
+   le compte owner et `e2e-maestro-20260809200952`, **compte permanent du secret
+   `E2E_TEST_USER_EMAIL`, protégé par design** via `PROTECTED_EMAILS`. Les deux
+   résidus n'ont pas la même cause : le premier échappe structurellement à
+   `E2E_EMAIL_PREFIXES` (préfixe ad hoc jamais énuméré), le second est simplement
+   postérieur à la purge du 2026-08-12.
 6. ✅ **Backlog réconcilié** : 237 tâches, 14 non-`Done`. Reste une incohérence
    ponctuelle — `task-162` a ses 3 ACs cochés et son travail consigné mais son
    statut est encore `To Do`.
@@ -1012,9 +1045,11 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   `envs/prod/main.tf` et rappliquer
 - [x] Apple Developer Program payé ($99) au 2026-06-01, validé par Apple
 - [x] **Apple Sign in with Apple Service ID + Key (.p8) + App ID + Team ID + Key ID** provisionnés au 2026-06-08 (cf. Phase 2.8) — toutes les vars Apple dans `.env` renseignées : `APPLE_CLIENT_ID` (Service ID), `APPLE_PRIVATE_KEY` (PEM single-line), `APPLE_REDIRECT_URI` prod, `APPLE_TEAM_ID`, `APPLE_KEY_ID`.
-- [ ] Google Play Console payé ($25) au 2026-06-01 — **statut KYC à
-  revalider par l'owner**, l'information « en cours » n'a pas été actualisée
-  depuis juin
+- [ ] Google Play Console payé ($25) au 2026-06-01 — **quatre vérifications
+  d'éligibilité du compte à confirmer par l'owner** (identité développeur, profil
+  de paiement Google Payments, adresse développeur publique, closed testing
+  ~12 testeurs / 14 jours), cf. Phase 2.2. L'information « en cours » n'a pas été
+  actualisée depuis juin
 - [x] Google Cloud Console : projet `media-summarizer` créé, OAuth consent screen configuré (Branding `Second Brain`, External, scopes openid+email+profile), mode Test avec utilisateur test ajouté, **3 OAuth Client IDs créés (Web backend + iOS + Android au 2026-08-13)** — `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` dans `.env` racine ; `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB` + `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS` dans `mobile/.env` (naming aligné avec `mobile/app.config.ts`, corrigé 2026-06-08)
 - [x] Google Cloud Console **Android OAuth Client ID** — **fait le 2026-08-13**
   (`task-163`), avec `package=com.secondbrainlabs.core` et le SHA-1 du keystore
