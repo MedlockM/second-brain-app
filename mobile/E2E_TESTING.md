@@ -6,6 +6,12 @@ This document describes the automated end-to-end testing strategy for the Media 
 
 Reference ADR: `docs/ADR/mobile-e2e-test-strategy-maestro-first.md`
 
+> **CI mothballed since 2026-08-13.** The Maestro workflow no longer triggers on
+> `push` or `pull_request` while the app UI is being redesigned; `workflow_dispatch`
+> remains the entry point. Nothing was deleted. The flow-by-flow state at the time
+> of the freeze and the reactivation plan live in `docs/V1_LAUNCH_PLAN.md`,
+> Phase 7, section « Maestro E2E CI — en sommeil depuis le 2026-08-13 ».
+
 ## Architecture
 
 ```
@@ -53,6 +59,10 @@ CI uses GitHub Actions with:
 - **Android**: `reactivecircus/android-emulator-runner` on `ubuntu-latest`
 - **iOS**: macOS 14 runner with Xcode and iOS Simulator
 
+Runs are **manual only** since 2026-08-13: the `push` and `pull_request` triggers
+are commented out in `.github/workflows/mobile-e2e-maestro.yml`. Use
+`workflow_dispatch` (see [Run in CI (Manual Dispatch)](#run-in-ci-manual-dispatch)).
+
 Required GitHub secrets:
 - `E2E_TEST_USER_EMAIL` - Test account with an indexed media item
 - `E2E_TEST_USER_PASSWORD` - Test account password, also used by the registration flow
@@ -72,7 +82,7 @@ maestro test .maestro/
 ### Run a Specific Flow
 
 ```bash
-maestro test .maestro/02_share_intake.yaml
+maestro test .maestro/06_search.yaml
 ```
 
 ### Run with Custom Environment Variables
@@ -92,38 +102,52 @@ Trigger via GitHub Actions > "Mobile E2E Tests (Maestro)" > Run workflow:
 
 ## Critical Flows Covered
 
-| # | Flow | What It Tests | Platforms |
-|---|------|---------------|-----------|
-| 01 | Login | Authentication, navigation to inbox | Android, iOS |
-| 02 | Share Intake | Deep link share simulation, confirmation screen, Save action | Android (full), iOS (partial) |
-| 03 | Inbox Visibility | Items display after share, processing states, pull-to-refresh | Android, iOS |
-| 04 | Media Detail Progression | Detail screen load, transcript status, AI Artifacts section | Android, iOS |
-| 05 | Artifact Trigger | Generate button, queued/generating states, completion | Android, iOS |
-| 06 | Search | Seeded Algolia result opens its media detail | Android, iOS |
-| 07 | Paywall | Three RevenueCat tiers load; no purchase is triggered | Android, iOS |
+Status column reflects reality as of 2026-08-13, when the CI was mothballed.
+
+| # | Flow | What It Tests | Status |
+|---|------|---------------|--------|
+| 01 | Login | Authentication, navigation to inbox | Green on Android emulator + iOS simulator |
+| 02 | Share Intake | Auth smoke test only — tagged `skipped` | Intentionally neutralised; native share is not drivable by Maestro |
+| 03 | Inbox Visibility | Items display, processing states, pull-to-refresh | Red — never ran in CI; primed by a share deep link that is now redirected |
+| 04 | Media Detail Progression | Detail screen load, transcript status, AI Artifacts section | Red — same cause as 03 |
+| 05 | Artifact Trigger | Generate button, queued/generating states, completion | Red — same cause as 03, plus four selector/timeout defects |
+| 06 | Search | Seeded Algolia result opens its media detail | Green on Android emulator + iOS simulator |
+| 07 | Paywall | Three RevenueCat tiers load; no purchase is triggered | Green on Android emulator + iOS simulator |
+
+Flows 03 to 05 have to be re-anchored on the persistent AWS dev fixture instead
+of simulating a share. That work belongs to the reactivation (see
+`docs/V1_LAUNCH_PLAN.md`, Phase 7).
 
 ## Share Intent Testing Approach
 
-### Android (Fully Automated)
+### Neither platform is automated
 
-On Android, share intents are simulated via deep links using the app's custom URL scheme:
+The share deep link is **not** a working share simulation, on either platform.
+Since 2026-06-11, `redirectSystemPath` in `mobile/app/+native-intent.tsx` matches
+`dataUrl=`, `://share?` and `://share/` and returns `/(tabs)/inbox`, so:
+
 ```
 media-summarizer://share?url=<encoded-url>&sourceApp=android-share-intent
 ```
 
-This triggers the same code path as a real Android Share Intent because the `useShareIntent` hook processes URLs received via `Linking.getInitialURL()` and the `url` event listener.
+lands on the inbox and never surfaces the share-confirmation screen. That
+redirect is deliberate: it stops a stale launch URL from flashing the
+confirmation screen open and shut, and the screen is now opened only by
+`ShareIntentContext` once the `expo-share-intent` native module has resolved a
+real intent (App Group payload on iOS, native intent on Android).
 
-### iOS (Partial Automation + Fallback)
+Consequence: no Maestro flow can reach the confirmation screen. Flow 02 is
+reduced to an auth smoke test and tagged `skipped`.
 
-The iOS share extension (`ShareMedia`) is a separate native extension process. Maestro can:
-- Test the in-app share confirmation screen via deep links
-- Test the full inbox/detail/artifact flows after a share
+### iOS share extension
 
+The iOS share extension (`ShareMedia`) is a separate native extension process.
 Maestro **cannot** reliably:
 - Trigger the native iOS share sheet from a third-party app
 - Interact with the share extension UI rendered in a separate process
 
-This gap is addressed by the Appium fallback strategy below.
+Combined with the redirect above, share intake is covered by the manual E2E
+matrix (task-41) today. The Appium fallback below stays the escalation path.
 
 ## Appium Fallback Strategy (iOS Share Extension)
 
@@ -174,7 +198,8 @@ If the iOS share extension gap becomes a release blocker, implement targeted App
 Escalate to Appium if **all** of the following are true:
 - A release is blocked specifically by uncertainty about iOS share extension behavior
 - The manual E2E matrix (task-41) has identified a regression in share extension
-- The regression cannot be caught by Maestro's deep-link-based share simulation
+- No Maestro flow can reach it, which is the case today: the share deep link is
+  redirected to the inbox (see above), so Maestro never sees the confirmation screen
 
 ## Failure Triage Guidance
 
@@ -219,7 +244,7 @@ Test failed
         +-- Which flow failed?
               |
               +-- 01_login: Auth service or login screen broken
-              +-- 02_share_intake: Share intent handling or confirmation screen
+              +-- 02_share_intake: Auth smoke test only — same causes as 01_login
               +-- 03_inbox_visibility: Inbox rendering or polling logic
               +-- 04_media_detail: Detail screen or transcript display
               +-- 05_artifact_trigger: Artifact API or generation UI
@@ -235,12 +260,14 @@ Known sources of flakiness in mobile E2E:
 
 ### Release-Readiness Criteria
 
-A release is considered E2E-ready when:
+These criteria describe the target state, which the mothballed CI does not meet
+today (3 of 7 flows green). Until the suite is reactivated, release readiness
+rests on the manual E2E matrix.
 
 | Criterion | Required |
 |-----------|----------|
-| All 5 Maestro flows pass on Android | Yes |
-| All 5 Maestro flows pass on iOS (where applicable) | Yes |
+| All 7 Maestro flows pass on Android | Yes — after reactivation |
+| All 7 Maestro flows pass on iOS (where applicable) | Yes — after reactivation |
 | No new flakes introduced in the last 3 runs | Yes |
 | iOS share extension manual validation (task-41 matrix) passes | Yes |
 | Appium share extension test passes (if implemented) | Only if activated |

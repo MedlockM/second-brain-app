@@ -89,8 +89,8 @@ un staging ou une soumission.
 | Mobile dev builds | `task-161`, `task-162`, `task-163` | iOS : ancienne build réussie mais expirée, **rebuild courant requis** ; Android : keystore créé et Client ID en place au 2026-08-13, il ne reste que le build unique à lancer (`task-163` étapes 11+) |
 | Google OAuth Android | `task-163` | **Fait le 2026-08-13** : Client ID Android créé sur le SHA-1 du keystore `task-162`, et `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` déclarée dans l'environnement EAS `development` — donc en place **avant** le build, l'APK ne pourra pas embarquer `""`. Reste le build Android unique et sa validation sur device |
 | Validation device non automatisable | `task-164`, `task-165` | À faire sur devices physiques : Apple Sign-In, Google sheet, Safari/Chrome share |
-| Maestro V1 | `task-168`, `task-169`, `task-170`, `task-171`, `task-172` | Flows 06 search et 07 paywall absents ; workflow CI cassé avant exécution et résultats masqués par `|| true` |
-| Clôture Phase 5 | `task-166` | Mettre ce plan à jour une fois `task-164/165/171/172` terminées |
+| Maestro V1 | `task-168`, `task-169`, `task-170`, `task-171`, `task-172` | **Plus un bloquant release** — CI en sommeil depuis le 2026-08-13 (`task-254`) le temps que l'UI soit figée ; 168/169/170/171 closes, 172 verrouillée. Cf. Phase 7, section « Maestro E2E CI — en sommeil depuis le 2026-08-13 » |
+| Clôture Phase 5 | `task-166` | Mettre ce plan à jour une fois `task-163/164/165` terminées ; la couverture Maestro n'en est plus un prérequis |
 
 ### Bloquants pré-soumission stores
 
@@ -575,16 +575,15 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    - Apple button absent ou no-op clean.
    - Share intent Chrome URL.
    - Share intent texte/audio.
-5. `task-168` — valider en CI le flow login/register email/password étendu.
-6. `task-169` — valider en CI le nouveau flow search Algolia (`06_search.yaml`).
-7. `task-170` — configurer les produits RevenueCat puis valider en CI le
-   nouveau flow paywall (`07_paywall.yaml`).
-8. `task-171` — run complet Maestro sur émulateur Android CI et simulateur iOS
-   CI, itérer jusqu'au vert. Aucun appareil Android physique n'est requis pour
-   cette couverture logique.
-9. `task-172` — rendre Maestro Android réellement obligatoire sur `mobile/**`,
-    documenter le lancement local.
-10. `task-166` — marquer Phase 5 DONE dans ce plan une fois les tâches ci-dessus closes.
+5. **Couverture Maestro (`task-168` à `task-172`) : plus un prérequis de
+   Phase 5.** La CI Maestro est en sommeil depuis le 2026-08-13 (`task-254`) le
+   temps que l'UI soit figée. `task-168`, `task-169`, `task-170` et `task-171`
+   sont closes sur les 3 flows validés ; `task-172` est verrouillée
+   (`dispatchable: false`) jusqu'à ce jalon. État des 7 flows, ce qui reste
+   provisionné et travail de réactivation : Phase 7, section « Maestro E2E CI —
+   en sommeil depuis le 2026-08-13 ».
+6. `task-166` — marquer Phase 5 DONE dans ce plan une fois `task-163`,
+   `task-164` et `task-165` closes.
 
 ### Phase 6 — Tests IAP sandbox (jour 5-6)
 
@@ -638,15 +637,101 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    service account Google Play pour les workflows de distribution.
 6. **Variables EAS** : aucune variable n'existe dans
    development/preview/production ; les créer avant rebuild.
-7. **Maestro CI** : source réparée avec Maestro 2.8, binaires Release autonomes,
-   émulateur Android, simulateur iOS manuel, rapports JUnit et vrais codes de
-   sortie. Le compte AWS dev est préchargé pour Search. Le premier run de cette
-   version attend encore son commit/push ; le paywall restera rouge tant que
-   les trois produits ne sont pas exposés par l'offering RevenueCat.
+7. **Maestro CI** : **en sommeil depuis le 2026-08-13** (`task-254`). Plus aucun
+   déclenchement automatique ; `workflow_dispatch` est le seul point d'entrée.
+   Ce n'est plus un gate de release. État des flows et plan de réactivation dans
+   la section ci-dessous.
 8. **Branch protection** : choisir GitHub Pro/repo public ou formaliser un gate
-   manuel ; la protection n'est pas disponible avec le plan privé actuel.
+   manuel ; la protection n'est pas disponible avec le plan privé actuel. Si
+   `Mobile E2E Tests (Maestro)` figure dans les required status checks de `main`,
+   l'en retirer — le workflow ne se déclenche plus tout seul et les PR
+   resteraient bloquées en attente d'un check absent.
 9. Vérifier le rollback Lambda avec deux images API/worker immuables après
    `task-217`, puis documenter l'exercice.
+
+#### Maestro E2E CI — en sommeil depuis le 2026-08-13
+
+**Déclencheur de réactivation** : l'UI est figée, c'est-à-dire qu'aucune refonte
+d'écran n'est plus prévue. C'est un jalon produit, pas une date. Les flows
+vérifient la copie affichée et des `testID` (`Welcome back`, `Good .*`,
+`YOUR MEDIA`, `AI Artifacts`, `Choose Your Plan`, `Reader`/`Mix`/`Audio-Heavy`,
+`paywall-screen`, `search-result-card`…) : tant qu'un écran peut bouger, chaque
+itération de design casse des selectors et la remise au vert est à refaire.
+
+**Ce qui dort** : uniquement les déclencheurs automatiques `push` (branches
+`main`, `second-brain-project`) et `pull_request` de
+`.github/workflows/mobile-e2e-maestro.yml`, tous deux filtrés sur `mobile/**`.
+Ils sont commentés en place ; les restaurer consiste à retirer les marqueurs de
+commentaire. `workflow_dispatch` reste intact avec ses deux inputs `platform`
+(`android`/`ios`/`both`) et `flow_filter`.
+
+**Ce qui reste provisionné** — rien n'est à recréer à la réactivation :
+
+- les 7 flows de `mobile/.maestro/`, leurs sous-flows `utils/` et la suite
+  `suites/tasks_168_170.yaml` ;
+- les runners `.github/scripts/run-android-maestro.sh`,
+  `run-ios-maestro.sh` et `.github/scripts/lib/maestro-flows.sh`, ainsi que les
+  jobs `android-e2e`, `ios-e2e` et `e2e-summary` ;
+- les secrets GitHub Actions `E2E_TEST_USER_EMAIL`, `E2E_TEST_USER_PASSWORD`,
+  `E2E_SEARCH_TEST_TERM`, la clé publique RevenueCat Test Store
+  `E2E_REVENUECAT_TEST_KEY` et l'override optionnel `E2E_API_BASE_URL` ;
+- la fixture persistante sur AWS dev : l'article « Commonplace book », arrivé
+  `ready_for_artifacts` et indexé Algolia, rattaché au compte de test.
+
+**État réel des 7 flows au 2026-08-13** — c'est l'information qui coûterait le
+plus cher à reconstituer plus tard :
+
+| Flow | État | Détail |
+|---|---|---|
+| `01_login` | ✅ Vert | Émulateur Android API 33 **et** simulateur iOS 18.5, run `31612429695` (`workflow_dispatch` du 2026-08-12) |
+| `06_search` | ✅ Vert | Idem — s'appuie sur la fixture « Commonplace book » indexée Algolia |
+| `07_paywall` | ✅ Vert | Idem — vérifie l'affichage des trois tiers, aucun achat déclenché |
+| `02_share_intake` | ⏸️ Neutralisé volontairement | Réduit à un smoke test auth, tag `skipped`. Le share natif n'est pas pilotable par Maestro (share sheet hors process). Un fallback Appium ciblé est décrit dans `mobile/E2E_TESTING.md`, à n'activer que si une release est bloquée par cette incertitude |
+| `03_inbox_visibility` | ❌ Cassé, jamais exécuté en CI | Amorce par `openLink: "media-summarizer://share?url=…"` puis attend `assertVisible: "Save Link"`. Depuis le 2026-06-11, `redirectSystemPath` dans `mobile/app/+native-intent.tsx` teste `path.includes("://share?")` et redirige vers `/(tabs)/inbox` : « Save Link » n'apparaît jamais, le flow échoue à sa première assertion non optionnelle |
+| `04_media_detail_progression` | ❌ Cassé, jamais exécuté en CI | Même amorce, même cause |
+| `05_artifact_trigger_action` | ❌ Cassé, jamais exécuté en CI | Même amorce, même cause, plus quatre défauts propres listés ci-dessous |
+
+Le run vert du 2026-08-12 a évité 03/04/05 en passant
+`flow_filter: suites/tasks_168_170` : les trois flows verts sont donc les seuls
+validés, et « suite verte » n'a jamais voulu dire « 7 flows verts ».
+
+**Travail à prévoir à la réactivation**, en distinguant le réamorçage des bugs
+de flow déjà identifiés :
+
+1. **Réamorcer 03/04/05 sur la fixture persistante** (« Commonplace book »,
+   `ready_for_artifacts`, indexée Algolia) au lieu de simuler un share par deep
+   link : se loguer, atteindre l'item depuis l'inbox ou la recherche, et
+   dérouler le scénario à partir de là. Effet de bord bénéfique sur 05 :
+   `mediaReady` est vrai d'emblée, ce qui supprime l'attente de 120 s sur
+   l'apparition du bouton `Generate`.
+2. **Corriger quatre défauts du flow 05**, indépendants de l'UI et donc à
+   traiter même après refonte :
+   - `tapOn: text: "Generate", index: 0` est ambigu : les cinq tuiles rendent un
+     bouton dont le texte est exactement `Generate`
+     (`mobile/app/media/[id].tsx:1032`) et l'index se décale dès qu'une tuile
+     est `ready`. Cibler l'`accessibilityLabel` `Generate Summary`, déjà exposé
+     par le composant.
+   - `assertVisible: text: "Summary"` est ambigu avec la tuile
+     `Detailed summary`.
+   - Aucun `assertNotVisible: "Failed"` après le tap, alors que l'UI rend
+     `Failed` + `Retry` en cas d'échec : le flow brûle 180 s d'attente avant de
+     tomber sur un diagnostic inutile.
+   - L'`extendedWaitUntil` sur la regex `Queued|Generating|Ready` peut être
+     satisfait d'emblée par une autre tuile déjà `ready`, et le `tapOn: "View"`
+     sans index ouvrirait alors le mauvais artifact.
+3. **Reprendre la cible finale**, portée par deux tâches déjà au backlog :
+   - `task-171` a été clôturée `Done` le 2026-08-13 sur les 3 flows validés ;
+     ses notes consignent ce qui manque (run complet des 7 flows, vert sur les
+     deux plateformes).
+   - `task-172` (Android bloquant sur PR, iOS en nightly/manuel) est verrouillée
+     `dispatchable: false` jusqu'à ce jalon — la déverrouiller consiste à
+     retirer cette ligne de son front-matter.
+
+**Contrainte de budget CI, inchangée** : l'owner n'a pas de Mac, donc toute
+exécution iOS passe par un runner macOS GitHub Actions, facturé x10 sur les
+minutes Actions, sur le plan gratuit (2000 min/mois → ~200 min réelles de
+macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
+`ubuntu-latest` couvre les régressions logiques, iOS reste manuel ou nightly.
 
 ### Phase 8 — Monitoring & observabilité (jour 7-8)
 
