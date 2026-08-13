@@ -26,16 +26,24 @@ import {
   getQuotaErrorMessage,
   type QuotaErrorCode,
 } from "../lib/quotaError";
+import { UploadService } from "../services/uploadService";
 import type { IngestUrlResponse } from "../types/media";
 import type { SharedFileAttachment } from "../types/sharedContent";
+import type { LocalUploadFile } from "../types/upload";
 
 /**
- * The type of content being shared.
+ * The type of content being confirmed before ingestion.
  * - "url": Text containing a URL (existing flow)
  * - "text": Plain text with no URL (WhatsApp text message)
  * - "audio": Audio file attachment (WhatsApp voice message)
+ * - "file": File imported from the device (task-264)
+ * - "photo": Photo just taken with the camera (task-264)
+ *
+ * The last two are not share intents: they start from a gesture inside the app
+ * and reuse this screen so every source picks its collection and tags the same
+ * way. They differ only in wording — both submit through the upload endpoints.
  */
-export type ShareContentType = "url" | "text" | "audio";
+export type ShareContentType = "url" | "text" | "audio" | "file" | "photo";
 
 export type ShareIntakeStatus =
   | "idle"
@@ -60,6 +68,12 @@ export interface ShareIntakeState {
   contentType: ShareContentType;
   /** Audio file attachment (for audio shares) */
   audioFile: SharedFileAttachment | null;
+  /**
+   * Device file being imported (for "file" and "photo" intakes). Optional so the
+   * share-intent branches, which cannot produce one, stay unchanged: omitting it
+   * clears any previous import.
+   */
+  uploadFile?: LocalUploadFile | null;
   /**
    * Set when the backend refused the submission through the quota enforcer.
    * Drives the quota-specific error card, including whether the paywall is
@@ -87,6 +101,16 @@ interface ShareIntentContextValue {
   clearOrganization: () => void;
   submitUrl: () => Promise<void>;
   submitSharedContent: () => Promise<void>;
+  /**
+   * Open the confirmation screen on a file picked or captured on the device.
+   * Used by the inbox "add" gesture (task-264).
+   */
+  startLocalUpload: (
+    file: LocalUploadFile,
+    contentType: Extract<ShareContentType, "file" | "photo">,
+  ) => void;
+  /** Send the pending device file to the matching upload endpoint. */
+  submitUpload: () => Promise<void>;
   dismiss: () => void;
   retry: () => void;
 }
@@ -99,6 +123,7 @@ const INITIAL_STATE: ShareIntakeState = {
   response: null,
   contentType: "url",
   audioFile: null,
+  uploadFile: null,
   quotaErrorCode: null,
 };
 
@@ -538,6 +563,83 @@ export function ShareIntentProvider({
   }, [intake, token, selectedFolder, selectedTags]);
 
   /**
+   * Start an import from a file picked or captured on the device (task-264).
+   *
+   * The confirmation screen is opened right away: a photo goes from the shutter
+   * to the collection/tags step with nothing in between, and the actual upload
+   * only happens when the user hits Save.
+   */
+  const startLocalUpload = useCallback(
+    (
+      file: LocalUploadFile,
+      contentType: Extract<ShareContentType, "file" | "photo">,
+    ) => {
+      setSelectedFolder(null);
+      setSelectedTags([]);
+      setIntake({
+        status: "ready",
+        url: null,
+        rawText: null,
+        message: null,
+        response: null,
+        contentType,
+        audioFile: null,
+        uploadFile: file,
+        quotaErrorCode: null,
+      });
+      if (pathnameRef.current !== "/share-confirmation") {
+        router.push("/share-confirmation");
+      }
+    },
+    [router],
+  );
+
+  /**
+   * Upload the pending device file. The extension decided which endpoint it
+   * belongs to when it was picked, so this only has to carry the organization.
+   */
+  const submitUpload = useCallback(async () => {
+    if (intake.status !== "ready") return;
+    const file = intake.uploadFile;
+    if (!file) return;
+    if (!token) {
+      setIntake((prev) => ({
+        ...prev,
+        status: "error",
+        message: "You must be signed in to import files.",
+      }));
+      return;
+    }
+
+    setIntake((prev) => ({ ...prev, status: "submitting" }));
+
+    try {
+      await UploadService.upload(token, file, {
+        folderId: selectedFolder?.id ?? null,
+        tagIds: selectedTags.map((tag) => tag.id),
+      });
+
+      setIntake((prev) => ({
+        ...prev,
+        status: "success",
+        message: null,
+        quotaErrorCode: null,
+      }));
+    } catch (error) {
+      const { message, quotaErrorCode } = toSubmissionError(
+        error,
+        "Failed to import this file. Please try again.",
+      );
+      setIntake((prev) => ({
+        ...prev,
+        status: "error",
+        message,
+        quotaErrorCode,
+      }));
+    }
+  }, [intake, token, selectedFolder, selectedTags]);
+
+  /**
    * Dismiss the share intent and reset state.
    * Also clears the native module's stored intent to prevent re-processing.
    */
@@ -577,6 +679,8 @@ export function ShareIntentProvider({
     clearOrganization,
     submitUrl,
     submitSharedContent,
+    startLocalUpload,
+    submitUpload,
     dismiss,
     retry,
   };

@@ -11,6 +11,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   useShareIntake,
+  type ShareContentType,
   type ShareSelectedFolder,
   type ShareSelectedTag,
   type ShareIntakeState,
@@ -19,6 +20,7 @@ import {
   getQuotaErrorTitle,
   quotaErrorOffersUpgrade,
 } from "../src/lib/quotaError";
+import { formatUploadSize, type LocalUploadFile } from "../src/types/upload";
 import {
   Colors,
   Typography,
@@ -28,15 +30,28 @@ import {
   TouchTarget,
 } from "../src/constants/theme";
 
+const TOP_BAR_TITLES: Record<ShareContentType, string> = {
+  url: "Save Link",
+  text: "Save Text",
+  audio: "Save Audio",
+  file: "Import File",
+  photo: "Save Photo",
+};
+
 /**
- * Share confirmation screen.
- * Displayed when content is shared into the app via Android share intent
- * or iOS share extension.
+ * Confirmation screen for every incoming save: the collection and tags are
+ * chosen here, and Save is what actually sends the content.
  *
- * Supports three content types:
- * - URL: existing flow via ingest-url
+ * Reached from the system share sheet (Android share intent / iOS share
+ * extension) and, since task-264, from the inbox "add" gesture.
+ *
+ * Supports five content types:
+ * - URL: via ingest-url
  * - Text: WhatsApp text messages via ingest-shared-content
  * - Audio: WhatsApp voice messages via ingest-shared-content
+ * - File: document, image or audio imported from the device via the upload
+ *   endpoints
+ * - Photo: a shot just taken with the camera, same upload path
  *
  * Layout follows the design reference (confirmation_de_partage_version_finale):
  * - Top bar: close button (left), title (center), save button (right)
@@ -51,6 +66,7 @@ export default function ShareConfirmationScreen() {
     selectedTags,
     submitUrl,
     submitSharedContent,
+    submitUpload,
     dismiss,
     retry,
   } = useShareIntake();
@@ -77,6 +93,11 @@ export default function ShareConfirmationScreen() {
   const handleSave = () => {
     if (intake.contentType === "url") {
       submitUrl();
+    } else if (
+      intake.contentType === "file" ||
+      intake.contentType === "photo"
+    ) {
+      submitUpload();
     } else {
       submitSharedContent();
     }
@@ -102,12 +123,7 @@ export default function ShareConfirmationScreen() {
 
   const canSave = intake.status === "ready" || intake.status === "error";
 
-  const topBarTitle =
-    intake.contentType === "audio"
-      ? "Save Audio"
-      : intake.contentType === "text"
-        ? "Save Text"
-        : "Save Link";
+  const topBarTitle = TOP_BAR_TITLES[intake.contentType];
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -197,6 +213,25 @@ function ShareContent({
       );
 
     case "ready":
+      if (
+        (intake.contentType === "file" || intake.contentType === "photo") &&
+        intake.uploadFile
+      ) {
+        return (
+          <>
+            <FilePreviewCard
+              file={intake.uploadFile}
+              isPhoto={intake.contentType === "photo"}
+            />
+            <OrganizationControls
+              selectedFolder={selectedFolder}
+              selectedTags={selectedTags}
+              onOpenCollection={onOpenCollection}
+              onOpenTags={onOpenTags}
+            />
+          </>
+        );
+      }
       if (intake.contentType === "audio" && intake.audioFile) {
         return (
           <>
@@ -240,6 +275,27 @@ function ShareContent({
       );
 
     case "submitting":
+      if (
+        (intake.contentType === "file" || intake.contentType === "photo") &&
+        intake.uploadFile
+      ) {
+        return (
+          <>
+            <FilePreviewCard
+              file={intake.uploadFile}
+              isPhoto={intake.contentType === "photo"}
+              isSubmitting
+            />
+            <OrganizationControls
+              selectedFolder={selectedFolder}
+              selectedTags={selectedTags}
+              onOpenCollection={onOpenCollection}
+              onOpenTags={onOpenTags}
+              disabled
+            />
+          </>
+        );
+      }
       if (intake.contentType === "audio" && intake.audioFile) {
         return (
           <>
@@ -293,15 +349,7 @@ function ShareContent({
             <Ionicons name="checkmark-circle" size={48} color={Colors.primary} />
           </View>
           <Text style={styles.successTitle}>Saved!</Text>
-          <Text style={styles.successMessage}>
-            {intake.response?.deduplicated
-              ? "This content was already in your inbox."
-              : intake.contentType === "audio"
-                ? "Audio saved. Transcription will begin shortly."
-                : intake.contentType === "text"
-                  ? "Text saved to your inbox."
-                  : "Link added to your inbox. Processing will begin shortly."}
-          </Text>
+          <Text style={styles.successMessage}>{getSuccessMessage(intake)}</Text>
         </View>
       );
 
@@ -359,6 +407,92 @@ function ShareContent({
     default:
       return null;
   }
+}
+
+/**
+ * What the user reads once the save went through. Every content type says what
+ * happens next, because the processing that follows is asynchronous.
+ */
+function getSuccessMessage(intake: ShareIntakeState): string {
+  if (intake.response?.deduplicated) {
+    return "This content was already in your inbox.";
+  }
+  switch (intake.contentType) {
+    case "audio":
+      return "Audio saved. Transcription will begin shortly.";
+    case "text":
+      return "Text saved to your inbox.";
+    case "photo":
+      return "Photo imported. Text extraction will begin shortly.";
+    case "file":
+      return intake.uploadFile?.kind === "audio"
+        ? "Audio file imported. Transcription will begin shortly."
+        : "File imported. Processing will begin shortly.";
+    case "url":
+      return "Link added to your inbox. Processing will begin shortly.";
+  }
+}
+
+/**
+ * Preview card for a file picked from the device or a photo just taken.
+ * Shows what is about to be sent — name, size and where it is headed — so the
+ * user confirms the right thing before Save.
+ */
+function FilePreviewCard({
+  file,
+  isPhoto,
+  isSubmitting = false,
+}: {
+  file: LocalUploadFile;
+  isPhoto: boolean;
+  isSubmitting?: boolean;
+}) {
+  const isImage = file.mimeType.startsWith("image/");
+  const iconName = isPhoto
+    ? "camera-outline"
+    : file.kind === "audio"
+      ? "musical-notes-outline"
+      : isImage
+        ? "image-outline"
+        : "document-text-outline";
+
+  const subtitleParts: string[] = [];
+  if (isPhoto) {
+    subtitleParts.push("Camera capture");
+  }
+  const extension = file.name.split(".").pop();
+  if (!isPhoto && extension) {
+    subtitleParts.push(`.${extension.toLowerCase()}`);
+  }
+  if (file.size !== null) {
+    subtitleParts.push(formatUploadSize(file.size));
+  }
+
+  return (
+    <View style={[styles.previewCard, isSubmitting && styles.previewCardMuted]}>
+      <View style={styles.previewCardContent}>
+        <View style={styles.previewTextSection}>
+          <Text style={styles.previewUrl} numberOfLines={2}>
+            {file.name}
+          </Text>
+          <Text style={styles.previewDomain}>
+            {subtitleParts.join(" · ") || file.mimeType}
+          </Text>
+        </View>
+        <View style={styles.previewIconContainer}>
+          <Ionicons name={iconName} size={24} color={Colors.textMuted} />
+        </View>
+      </View>
+      {isSubmitting && (
+        <View style={styles.previewSubmitting}>
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <Text style={styles.previewSubmittingText}>
+            {file.kind === "audio" ? "Uploading audio..." : "Uploading file..."}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
 }
 
 /**

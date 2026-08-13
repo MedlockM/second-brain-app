@@ -4,6 +4,12 @@
  * Used by both Android share intent and iOS share extension flows.
  */
 
+/**
+ * `document` and `audio` are what the two upload endpoints store on the library
+ * row (task-264), and the list endpoint returns that value as-is. They are not
+ * part of the canonical MediaType enum, so they only ever show up in a list
+ * payload — the detail endpoint normalizes them to `article` / `audio_file`.
+ */
 export type MediaType =
   | "podcast_episode"
   | "article"
@@ -11,6 +17,8 @@ export type MediaType =
   | "short_video"
   | "audio_file"
   | "shared_text"
+  | "document"
+  | "audio"
   | "unknown";
 
 export type SourcePlatform =

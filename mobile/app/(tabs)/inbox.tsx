@@ -1,10 +1,11 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
 } from "react-native";
@@ -13,8 +14,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
+import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { useMediaPolling } from "../../src/hooks/useMediaPolling";
 import { InboxItem } from "../../src/contexts/InboxContext";
+import { AddSourceSheet } from "../../src/components/AddSourceSheet";
+import {
+  capturePhotoToImport,
+  pickFileToImport,
+  type LocalImportResult,
+} from "../../src/lib/localImport";
 import {
   Colors,
   Typography,
@@ -37,10 +45,16 @@ import type {
  * - No processing status badges or spinners per item
  * - Optimistic insertion: pending local items appear instantly as placeholders
  * - Tapping an item navigates to detail (which handles its own "Generating text..." state)
+ *
+ * Also hosts the "add" gesture (task-264): a floating button opening the choice
+ * between importing a file and taking a photo. Both hand the result to the share
+ * confirmation screen, where the collection and tags are picked before sending.
  */
 export default function InboxScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const { startLocalUpload } = useShareIntake();
+  const [isSourceSheetVisible, setSourceSheetVisible] = useState(false);
   const {
     items,
     pendingLocalItems,
@@ -73,6 +87,36 @@ export default function InboxScreen() {
     },
     [router],
   );
+
+  /**
+   * Route a picking outcome: a refusal (unsupported format, oversized file,
+   * camera permission denied) is stated plainly and the screen stays as it was;
+   * an accepted file opens the confirmation screen.
+   */
+  const handleImportResult = useCallback(
+    (result: LocalImportResult, contentType: "file" | "photo") => {
+      if (result.status === "cancelled") return;
+      if (result.status === "error") {
+        Alert.alert(result.title, result.message);
+        return;
+      }
+      startLocalUpload(result.file, contentType);
+    },
+    [startLocalUpload],
+  );
+
+  // The sheet is dismissed before the system picker opens: on iOS the camera and
+  // the document browser present their own view controller, which must not land
+  // on top of a modal that is still up.
+  const handleImportFile = useCallback(async () => {
+    setSourceSheetVisible(false);
+    handleImportResult(await pickFileToImport(), "file");
+  }, [handleImportResult]);
+
+  const handleTakePhoto = useCallback(async () => {
+    setSourceSheetVisible(false);
+    handleImportResult(await capturePhotoToImport(), "photo");
+  }, [handleImportResult]);
 
   // Build a unified list: pending local items first, then backend items
   const unifiedItems: UnifiedItem[] = [
@@ -165,6 +209,23 @@ export default function InboxScreen() {
         }
         ListEmptyComponent={!hasItems ? <EmptyState /> : null}
       />
+
+      <Pressable
+        testID="inbox-add-button"
+        style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
+        onPress={() => setSourceSheetVisible(true)}
+        accessibilityLabel="Add to your inbox"
+        accessibilityRole="button"
+      >
+        <Ionicons name="add" size={28} color={Colors.onPrimary} />
+      </Pressable>
+
+      <AddSourceSheet
+        visible={isSourceSheetVisible}
+        onClose={() => setSourceSheetVisible(false)}
+        onImportFile={handleImportFile}
+        onTakePhoto={handleTakePhoto}
+      />
     </SafeAreaView>
   );
 }
@@ -234,7 +295,7 @@ function EmptyState() {
       />
       <Text style={styles.emptyTitle}>Your shared media will appear here.</Text>
       <Text style={styles.emptyHint}>
-        Share a link from any app to get started.
+        Share a link from any app, or tap + to import a file or take a photo.
       </Text>
     </View>
   );
@@ -416,9 +477,12 @@ function getMediaTypeLabel(type: MediaType): string {
     case "short_video":
       return "SHORT";
     case "audio_file":
+    case "audio":
       return "AUDIO";
     case "shared_text":
       return "TEXT";
+    case "document":
+      return "DOC";
     default:
       return "LINK";
   }
@@ -450,9 +514,12 @@ function getMediaTypeIcon(
     case "short_video":
       return "play-circle-outline";
     case "audio_file":
+    case "audio":
       return "musical-notes-outline";
     case "shared_text":
       return "text-outline";
+    case "document":
+      return "document-attach-outline";
     default:
       return "link-outline";
   }
@@ -498,7 +565,8 @@ const styles = StyleSheet.create({
     color: Colors.textMain,
   },
   listContent: {
-    paddingBottom: Spacing.xl,
+    // Room for the floating add button so it never covers the last card.
+    paddingBottom: TouchTarget.large + Spacing.xl,
   },
   centeredContainer: {
     flex: 1,
@@ -663,6 +731,24 @@ const styles = StyleSheet.create({
     fontSize: Typography.small.fontSize,
     color: Colors.error,
     marginTop: Spacing.xs,
+  },
+
+  // Add button (floating): the entry point for a file import or a photo.
+  addButton: {
+    position: "absolute",
+    right: Spacing.lg,
+    bottom: Spacing.lg,
+    width: TouchTarget.large,
+    height: TouchTarget.large,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    ...Shadows.soft,
+  },
+  addButtonPressed: {
+    transform: [{ scale: 0.96 }],
+    opacity: 0.9,
   },
 
   // Empty state
