@@ -50,6 +50,19 @@ variable "project_name" {
   default     = "media-summarizer"
 }
 
+data "aws_caller_identity" "current" {}
+
+variable "consumer_account_ids" {
+  description = "AWS accounts OUTSIDE this one whose Lambdas pull from the shared repository. Since task-248 prod lives in Organizations member account 866874944541 while the registry stays here; without this the prod Lambdas fail their cold start on an image-pull denial."
+  type        = list(string)
+  default     = ["866874944541"]
+
+  validation {
+    condition     = alltrue([for account in var.consumer_account_ids : can(regex("^[0-9]{12}$", account))])
+    error_message = "consumer_account_ids must be 12-digit AWS account ids."
+  }
+}
+
 variable "image_retention_count" {
   description = "Number of images kept per tag prefix (api-, worker-). Must cover the rollback target of every environment at once."
   type        = number
