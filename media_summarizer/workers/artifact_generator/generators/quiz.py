@@ -6,8 +6,10 @@ Uses OpenAI Structured Outputs (response_format) for reliable JSON generation.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import random
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ValidationError, field_validator
@@ -15,6 +17,7 @@ from pydantic import BaseModel, ValidationError, field_validator
 MIN_QUESTIONS = 5
 MAX_QUESTIONS = 10
 OPTIONS_PER_QUESTION = 4
+LABELS = ("A", "B", "C", "D")
 
 
 class QuizValidationError(Exception):
@@ -101,6 +104,8 @@ Rules:
 - Generate between {MIN_QUESTIONS} and {MAX_QUESTIONS} questions depending on content density.
 - Each question must have exactly {OPTIONS_PER_QUESTION} options labeled A, B, C, D.
 - Exactly one option is correct per question.
+- "correct_answer" must be the label of the correct option. Vary which label holds it
+  across questions — do not systematically put the correct option first.
 - Questions should test comprehension of key concepts, not trivial details.
 - Do NOT generate questions about ads/sponsors unless central to the content.
 - Include a brief explanation for why the correct answer is right.
@@ -116,7 +121,7 @@ Return JSON with this exact schema:
       {{"label": "C", "text": "..."}},
       {{"label": "D", "text": "..."}}
     ],
-    "correct_answer": "A",
+    "correct_answer": "C",
     "explanation": "..."
   }}
 ]
@@ -145,14 +150,20 @@ Transcript:
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "label": {"type": "string"},
+                                                "label": {
+                                                    "type": "string",
+                                                    "enum": list(LABELS),
+                                                },
                                                 "text": {"type": "string"},
                                             },
                                             "required": ["label", "text"],
                                             "additionalProperties": False,
                                         },
                                     },
-                                    "correct_answer": {"type": "string"},
+                                    "correct_answer": {
+                                        "type": "string",
+                                        "enum": list(LABELS),
+                                    },
                                     "explanation": {"type": "string"},
                                 },
                                 "required": ["question", "options", "correct_answer", "explanation"],
@@ -215,6 +226,13 @@ Transcript:
                     f"got {len(question.options)}"
                 )
 
+            labels = [option.label for option in question.options]
+            if set(labels) != set(LABELS):
+                raise QuizValidationError(
+                    f"quiz item at index {idx} must label its options {', '.join(LABELS)} exactly "
+                    f"once each, got {labels}"
+                )
+
             validated.append(question.model_dump())
 
         return validated
@@ -225,7 +243,55 @@ Transcript:
         *,
         body: Dict[str, Any],
     ) -> Dict[str, Any]:
+        questions = _shuffle_options(validated, artifact_id=body.get("artifact_id"))
         return {
-            "questions": validated,
-            "question_count": len(validated),
+            "questions": questions,
+            "question_count": len(questions),
         }
+
+
+def _question_rng(artifact_id: Optional[str], index: int, question: str) -> random.Random:
+    """Seed a RNG deterministically so re-running a generation reshuffles identically.
+
+    ``artifact_id`` is the primary seed source; the question text is folded in so
+    that two questions of the same artifact do not share a permutation, and acts
+    as the sole source when no artifact id is present in the message.
+    """
+    seed_material = f"{artifact_id or ''}:{index}:{question}".encode("utf-8")
+    seed = int.from_bytes(hashlib.sha256(seed_material).digest()[:8], "big")
+    return random.Random(seed)
+
+
+def _shuffle_options(
+    questions: List[Dict[str, Any]],
+    *,
+    artifact_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Redistribute the correct answer across labels A-D.
+
+    The model overwhelmingly emits the correct option first: it writes ``options``
+    before ``correct_answer``, so the answer it just had in mind lands on label A
+    and the distractors are backfilled after it. Prompt-level instructions only
+    soften that bias, so the position is reassigned here instead.
+    """
+    shuffled: List[Dict[str, Any]] = []
+    for index, question in enumerate(questions):
+        options = question["options"]
+        correct_source = next(
+            i for i, option in enumerate(options) if option["label"] == question["correct_answer"]
+        )
+
+        order = list(range(len(options)))
+        _question_rng(artifact_id, index, question["question"]).shuffle(order)
+
+        shuffled.append(
+            {
+                **question,
+                "options": [
+                    {"label": LABELS[position], "text": options[source]["text"]}
+                    for position, source in enumerate(order)
+                ],
+                "correct_answer": LABELS[order.index(correct_source)],
+            }
+        )
+    return shuffled
