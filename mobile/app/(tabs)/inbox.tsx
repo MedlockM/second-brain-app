@@ -21,6 +21,7 @@ import { AddSourceSheet } from "../../src/components/AddSourceSheet";
 import {
   capturePhotoToImport,
   pickFileToImport,
+  pickPhotoFromLibrary,
   type LocalImportResult,
 } from "../../src/lib/localImport";
 import {
@@ -46,9 +47,10 @@ import type {
  * - Optimistic insertion: pending local items appear instantly as placeholders
  * - Tapping an item navigates to detail (which handles its own "Generating text..." state)
  *
- * Also hosts the "add" gesture (task-264): a floating button opening the choice
- * between importing a file and taking a photo. Both hand the result to the share
- * confirmation screen, where the collection and tags are picked before sending.
+ * Also hosts the ingestion gestures (task-264): a camera button that shoots
+ * straight away, and an "add" button opening the choice between a file and a
+ * gallery photo. All three hand the result to the share confirmation screen,
+ * where the collection and tags are picked before sending.
  */
 export default function InboxScreen() {
   const { user } = useAuth();
@@ -105,16 +107,17 @@ export default function InboxScreen() {
     [startLocalUpload],
   );
 
-  // The sheet is dismissed before the system picker opens: on iOS the camera and
-  // the document browser present their own view controller, which must not land
-  // on top of a modal that is still up.
+  // Both are fired by the sheet once it has finished closing, so the system
+  // picker never has to present itself over a modal on its way out.
   const handleImportFile = useCallback(async () => {
-    setSourceSheetVisible(false);
     handleImportResult(await pickFileToImport(), "file");
   }, [handleImportResult]);
 
+  const handleImportPhoto = useCallback(async () => {
+    handleImportResult(await pickPhotoFromLibrary(), "photo");
+  }, [handleImportResult]);
+
   const handleTakePhoto = useCallback(async () => {
-    setSourceSheetVisible(false);
     handleImportResult(await capturePhotoToImport(), "photo");
   }, [handleImportResult]);
 
@@ -210,21 +213,38 @@ export default function InboxScreen() {
         ListEmptyComponent={!hasItems ? <EmptyState /> : null}
       />
 
-      <Pressable
-        testID="inbox-add-button"
-        style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
-        onPress={() => setSourceSheetVisible(true)}
-        accessibilityLabel="Add to your inbox"
-        accessibilityRole="button"
-      >
-        <Ionicons name="add" size={28} color={Colors.onPrimary} />
-      </Pressable>
+      {/* box-none: the row now spans the full width, so without this it would
+          swallow taps on the list items sitting behind it. */}
+      <View style={styles.fabStack} pointerEvents="box-none">
+        <Pressable
+          testID="inbox-camera-button"
+          style={({ pressed }) => [
+            styles.cameraButton,
+            pressed && styles.addButtonPressed,
+          ]}
+          onPress={handleTakePhoto}
+          accessibilityLabel="Take a photo"
+          accessibilityRole="button"
+        >
+          <Ionicons name="camera" size={24} color={Colors.surface} />
+        </Pressable>
+
+        <Pressable
+          testID="inbox-add-button"
+          style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
+          onPress={() => setSourceSheetVisible(true)}
+          accessibilityLabel="Add to your inbox"
+          accessibilityRole="button"
+        >
+          <Ionicons name="add" size={28} color={Colors.onPrimary} />
+        </Pressable>
+      </View>
 
       <AddSourceSheet
         visible={isSourceSheetVisible}
         onClose={() => setSourceSheetVisible(false)}
         onImportFile={handleImportFile}
-        onTakePhoto={handleTakePhoto}
+        onImportPhoto={handleImportPhoto}
       />
     </SafeAreaView>
   );
@@ -734,14 +754,34 @@ const styles = StyleSheet.create({
   },
 
   // Add button (floating): the entry point for a file import or a photo.
-  addButton: {
+  // The two ingestion controls sit side by side, centred over the list, with the
+  // primary one on the right. Both are opaque and carry a filled colour rather
+  // than an outline: the background is a pale cream, so a white or near-white
+  // button would read as a shadow rather than a control.
+  fabStack: {
     position: "absolute",
-    right: Spacing.lg,
+    left: 0,
+    right: 0,
     bottom: Spacing.lg,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  addButton: {
     width: TouchTarget.large,
     height: TouchTarget.large,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    ...Shadows.soft,
+  },
+  cameraButton: {
+    width: TouchTarget.large,
+    height: TouchTarget.large,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.textMain,
     alignItems: "center",
     justifyContent: "center",
     ...Shadows.soft,

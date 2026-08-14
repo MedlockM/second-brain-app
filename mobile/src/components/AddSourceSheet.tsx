@@ -1,14 +1,15 @@
 /**
- * Bottom sheet offering the two device-side ways into the inbox (task-264):
- * importing a file, or taking a photo.
+ * Bottom sheet offering the two browse-and-choose ways into the inbox
+ * (task-264): importing a file, or picking a photo from the gallery. Taking a
+ * photo is a button of its own on the inbox — it needs no choice beforehand.
  *
  * Kept as a plain RN Modal rather than a router screen: it is a two-line choice,
- * and the gesture it triggers (file browser, camera) already presents its own
- * full-screen surface right after. The sheet closes before that happens so the
- * system picker is never stacked on top of a modal.
+ * and the gesture it triggers already presents its own full-screen surface right
+ * after.
  */
 
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { useRef } from "react";
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -24,16 +25,41 @@ interface AddSourceSheetProps {
   visible: boolean;
   onClose: () => void;
   onImportFile: () => void;
-  onTakePhoto: () => void;
+  onImportPhoto: () => void;
 }
 
 export function AddSourceSheet({
   visible,
   onClose,
   onImportFile,
-  onTakePhoto,
+  onImportPhoto,
 }: AddSourceSheetProps) {
   const insets = useSafeAreaInsets();
+  const pendingAction = useRef<(() => void) | null>(null);
+
+  /**
+   * iOS presents a system picker on the topmost view controller. Asking for one
+   * while this modal is still sliding out attaches it to a controller that is
+   * about to disappear: the picker never shows and its promise never settles,
+   * so the next attempt is refused as "picking already in progress". Deferring
+   * to `onDismiss` guarantees the modal is gone first. Android has no such
+   * conflict — the pickers are activities, and `onDismiss` never fires there.
+   */
+  const runAfterClose = (action: () => void) => {
+    if (Platform.OS === "ios") {
+      pendingAction.current = action;
+      onClose();
+      return;
+    }
+    onClose();
+    action();
+  };
+
+  const handleDismissed = () => {
+    const action = pendingAction.current;
+    pendingAction.current = null;
+    action?.();
+  };
 
   return (
     <Modal
@@ -41,6 +67,7 @@ export function AddSourceSheet({
       transparent
       animationType="slide"
       onRequestClose={onClose}
+      onDismiss={handleDismissed}
       statusBarTranslucent
     >
       <View style={styles.root}>
@@ -66,13 +93,13 @@ export function AddSourceSheet({
             icon="document-attach-outline"
             label="Import a file"
             description="A PDF, an Office document, an image or an audio file from your phone."
-            onPress={onImportFile}
+            onPress={() => runAfterClose(onImportFile)}
           />
           <SourceRow
-            icon="camera-outline"
-            label="Take a photo"
-            description="Capture a page or a whiteboard and send it in straight away."
-            onPress={onTakePhoto}
+            icon="images-outline"
+            label="Import a photo"
+            description="Pick a shot you already have in your gallery."
+            onPress={() => runAfterClose(onImportPhoto)}
           />
         </View>
       </View>

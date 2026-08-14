@@ -1,10 +1,10 @@
 /**
- * The two device-side gestures that start an import (task-264): browsing for a
- * file, and taking a photo. Both end on a `LocalUploadFile` that the share
- * confirmation screen can display and submit.
+ * The device-side gestures that start an import (task-264): browsing for a file,
+ * taking a photo, and picking one from the gallery. All end on a
+ * `LocalUploadFile` that the share confirmation screen can display and submit.
  *
- * Kept out of the screens so the inbox stays presentational and the same two
- * entry points can be reused from any other surface.
+ * Kept out of the screens so the inbox stays presentational and the same entry
+ * points can be reused from any other surface.
  */
 
 import * as DocumentPicker from "expo-document-picker";
@@ -121,6 +121,37 @@ export async function capturePhotoToImport(): Promise<LocalImportResult> {
     };
   }
 
+  return toImportResult(result);
+}
+
+/**
+ * Pick an existing photo from the gallery.
+ *
+ * No permission is requested: both the iOS PHPicker and the Android photo
+ * picker run outside the app and hand back only what the user selected, so
+ * asking would add a prompt that grants nothing.
+ */
+export async function pickPhotoFromLibrary(): Promise<LocalImportResult> {
+  let result: ImagePicker.ImagePickerResult;
+  try {
+    result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+      allowsEditing: false,
+    });
+  } catch {
+    return {
+      status: "error",
+      title: "Gallery unavailable",
+      message: "Your photo gallery could not be opened. Please try again.",
+    };
+  }
+
+  return toImportResult(result);
+}
+
+/** Validate the single asset an image picker returned, whatever opened it. */
+function toImportResult(result: ImagePicker.ImagePickerResult): LocalImportResult {
   if (result.canceled || !result.assets || result.assets.length === 0) {
     return { status: "cancelled" };
   }
