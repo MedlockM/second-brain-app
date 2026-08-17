@@ -24,6 +24,7 @@ import {
   buildCollectionTree,
   type CollectionNode,
 } from "../../src/lib/collectionTree";
+import { parseHighlightSnippet } from "../../src/lib/highlightSnippet";
 import {
   Colors,
   Typography,
@@ -492,9 +493,11 @@ function ResultCard({ hit, onPress }: { hit: SearchHit; onPress: () => void }) {
   const sourceIcon = getSourceIcon(hit.source_platform);
   const dateLabel = formatTimestamp(hit.created_at);
 
-  // Extract the first highlight snippet for preview text
-  const highlightSnippet =
-    hit.highlights.length > 0 ? hit.highlights[0].snippet : null;
+  // Extract the first highlight snippet for preview text, split into plain
+  // and matched segments (Algolia returns it as `<mark>`-tagged HTML).
+  const snippetSegments = parseHighlightSnippet(
+    hit.highlights.length > 0 ? hit.highlights[0].snippet : "",
+  );
 
   return (
     <Pressable
@@ -519,9 +522,16 @@ function ResultCard({ hit, onPress }: { hit: SearchHit; onPress: () => void }) {
       </Text>
 
       {/* Highlight snippet (transcript match preview) */}
-      {highlightSnippet ? (
+      {snippetSegments.length > 0 ? (
         <Text style={styles.cardSnippet} numberOfLines={3}>
-          {highlightSnippet}
+          {snippetSegments.map((segment, index) => (
+            <Text
+              key={index}
+              style={segment.highlighted ? styles.cardSnippetMatch : undefined}
+            >
+              {segment.text}
+            </Text>
+          ))}
         </Text>
       ) : null}
     </Pressable>
@@ -728,5 +738,10 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     lineHeight: 18,
     marginTop: Spacing.xs,
+  },
+  cardSnippetMatch: {
+    backgroundColor: Colors.highlight,
+    color: Colors.onHighlight,
+    fontWeight: "600",
   },
 });

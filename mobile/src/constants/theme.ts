@@ -18,6 +18,10 @@ export const Colors = {
   outline: "#78776f",
   outlineVariant: "#c8c7bd",
 
+  /** Background of a search match inside a snippet */
+  highlight: "#fff0b3",
+  onHighlight: "#1c1b1a",
+
   error: "#ba1a1a",
   onError: "#ffffff",
   errorContainer: "#ffdad6",
