@@ -3,10 +3,10 @@ id: task-267
 title: >-
   Surface the stored title on the media detail screen instead of deriving it
   from the URL
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-14 02:09'
-updated_date: '2026-08-17 15:28'
+updated_date: '2026-08-17 15:40'
 labels:
   - mobile
   - api
