@@ -37,6 +37,8 @@ import type {
   MediaType,
   SourcePlatform,
 } from "../../src/types/media";
+import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
+import { getRelativeTime } from "../../src/lib/relativeTime";
 
 /**
  * Inbox screen - displays shared media items as uniform vignettes.
@@ -469,24 +471,6 @@ function getGreeting(name?: string | null): string {
   return `Good ${timeOfDay}`;
 }
 
-function getRelativeTime(isoDate: string): string {
-  const now = Date.now();
-  const date = new Date(isoDate).getTime();
-  const diffMs = now - date;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return new Date(isoDate).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
 
 function getMediaTypeLabel(type: MediaType): string {
   switch (type) {
@@ -524,28 +508,6 @@ function getMediaTypeBgColor(type: MediaType): string {
   }
 }
 
-function getMediaTypeIcon(
-  type: MediaType,
-): React.ComponentProps<typeof Ionicons>["name"] {
-  switch (type) {
-    case "podcast_episode":
-      return "headset-outline";
-    case "article":
-      return "document-text-outline";
-    case "youtube_video":
-    case "short_video":
-      return "play-circle-outline";
-    case "audio_file":
-    case "audio":
-      return "musical-notes-outline";
-    case "shared_text":
-      return "text-outline";
-    case "document":
-      return "document-attach-outline";
-    default:
-      return "link-outline";
-  }
-}
 
 function getSourcePlatformIcon(
   platform?: SourcePlatform,

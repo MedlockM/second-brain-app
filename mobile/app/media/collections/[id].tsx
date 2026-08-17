@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   ActivityIndicator,
   Pressable,
 } from "react-native";
@@ -12,8 +13,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useAuth } from "../../../src/contexts/AuthContext";
 import { OrganizationService } from "../../../src/services/organizationService";
-import { MediaListCard } from "../../../src/components/MediaListCard";
+import {
+  ArtifactService,
+  type ArtifactSummary,
+} from "../../../src/services/artifactService";
+import {
+  ARTIFACT_TILES,
+  ArtifactTile,
+  type ArtifactTileState,
+} from "../../../src/components/ArtifactTile";
+import { ArtifactHistoryRow } from "../../../src/components/ArtifactHistoryRow";
+import { ScreenTabs, type ScreenTab } from "../../../src/components/ScreenTabs";
 import { getFriendlyErrorMessage } from "../../../src/lib/getFriendlyErrorMessage";
+import { getMediaTypeIcon } from "../../../src/lib/mediaTypeDisplay";
+import type { HttpError } from "../../../src/lib/httpError";
 import {
   buildCollectionTree,
   type CollectionNode,
@@ -26,17 +39,34 @@ import {
   Shadows,
   TouchTarget,
 } from "../../../src/constants/theme";
-import type { MediaListItem } from "../../../src/types/media";
+import type { ArtifactType, MediaListItem, MediaType } from "../../../src/types/media";
 
 /**
- * Collections explorer — single collection view.
+ * Collections explorer — single collection view, split in two intra-screen tabs
+ * along the NotebookLM reference of task-263.
  *
- * Renders the sub-collections (folders) of the opened collection, followed by
- * the media stored directly inside it. Sub-folders drill deeper into the same
- * screen; media rows open the shared media detail (AC#3, AC#4).
+ * **Sources** is a bare list: one line per entry, an icon and a truncated title,
+ * sub-collections before media. The rich `MediaListCard` is deliberately not
+ * used here — it belongs to the inbox and to search, where a vignette carries
+ * metadata the user is scanning for; inside a collection the user is picking a
+ * source out of a list they already know.
  *
- * Handles loading / error / empty states (AC#5).
+ * **AI** generates artifacts over the **whole collection** (sub-collections
+ * included, as the backend resolves the folder and all its descendants), then
+ * lists what has already been produced. That list is an append-only history:
+ * several entries of the same type coexist, each keeping the source count it was
+ * generated over even after the collection has changed. Nothing here expires,
+ * and nothing is regenerated automatically.
  */
+
+const ARTIFACT_POLL_INTERVAL_MS = 3000;
+
+type CollectionTabKey = "sources" | "ai";
+
+const COLLECTION_TABS: readonly ScreenTab<CollectionTabKey>[] = [
+  { key: "sources", label: "Sources", icon: "documents-outline" },
+  { key: "ai", label: "AI", icon: "sparkles-outline" },
+];
 
 interface FolderListRow {
   kind: "folder";
@@ -50,12 +80,23 @@ interface MediaListRow {
 
 type Row = FolderListRow | MediaListRow;
 
+function buildInitialArtifactStates(): Record<ArtifactType, ArtifactTileState> {
+  return ARTIFACT_TILES.reduce(
+    (acc, tile) => {
+      acc[tile.type] = { status: "idle" };
+      return acc;
+    },
+    {} as Record<ArtifactType, ArtifactTileState>,
+  );
+}
+
 export default function CollectionDetailScreen() {
   const router = useRouter();
   const { token } = useAuth();
   const params = useLocalSearchParams<{ id: string; name?: string }>();
   const collectionId = params.id;
 
+  const [activeTab, setActiveTab] = useState<CollectionTabKey>("sources");
   const [childFolders, setChildFolders] = useState<CollectionNode[]>([]);
   const [media, setMedia] = useState<MediaListItem[]>([]);
   const [title, setTitle] = useState<string>(params.name ?? "Collection");
@@ -160,6 +201,15 @@ export default function CollectionDetailScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
+      <View style={styles.tabsContainer}>
+        <ScreenTabs
+          tabs={COLLECTION_TABS}
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          accessibilityLabel="Collection sections"
+        />
+      </View>
+
       {isLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={Colors.primary} />
@@ -184,7 +234,7 @@ export default function CollectionDetailScreen() {
             <Text style={styles.retryButtonText}>Retry</Text>
           </Pressable>
         </View>
-      ) : (
+      ) : activeTab === "sources" ? (
         <FlatList
           data={rows}
           keyExtractor={(row) =>
@@ -194,16 +244,277 @@ export default function CollectionDetailScreen() {
             item.kind === "folder" ? (
               <FolderRow node={item.node} onPress={handleOpenFolder} />
             ) : (
-              <MediaListCard item={item.media} onPress={handleOpenMedia} />
+              <SourceRow media={item.media} onPress={handleOpenMedia} />
             )
+          }
+          ListHeaderComponent={
+            rows.length > 0 ? <Text style={styles.sectionTitle}>Sources</Text> : null
           }
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={<EmptyState />}
+          testID="collection-sources-list"
         />
+      ) : (
+        <AiTab collectionId={collectionId} />
       )}
     </SafeAreaView>
   );
+}
+
+// --- AI tab ---
+
+interface AiTabProps {
+  collectionId: string;
+}
+
+/**
+ * The generation pile on top, the history underneath.
+ *
+ * One request per scope serves both: `GET /api/artifacts?scope=folder` returns
+ * the history *and* the entries still queued or generating, so the poll is a
+ * single call whatever the number of artifact types in flight.
+ */
+function AiTab({ collectionId }: AiTabProps) {
+  const router = useRouter();
+  const { token } = useAuth();
+
+  const [history, setHistory] = useState<ArtifactSummary[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const fetchHistory = useCallback(async (): Promise<ArtifactSummary[]> => {
+    if (!token) return [];
+    const response = await ArtifactService.listArtifacts(
+      token,
+      "folder",
+      collectionId,
+    );
+    return response.artifacts;
+  }, [token, collectionId]);
+
+  const refresh = useCallback(async () => {
+    try {
+      const artifacts = await fetchHistory();
+      if (!mountedRef.current) return;
+      setHistory(artifacts);
+      setListError(null);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setListError(
+        getFriendlyErrorMessage(err, {
+          fallback: "Unable to load generated content. Please try again.",
+        }),
+      );
+    }
+  }, [fetchHistory]);
+
+  // `isLoading` starts true and is only ever cleared, from inside the async
+  // body: the spinner belongs to the first fetch of a given scope, and `refresh`
+  // is stable for as long as the scope is.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await refresh();
+      if (!cancelled) setIsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refresh]);
+
+  // The list itself says whether anything is in flight, so the poll starts and
+  // stops from its own content instead of from a separate flag.
+  const hasInFlight = useMemo(
+    () =>
+      history.some(
+        (artifact) =>
+          artifact.status === "queued" || artifact.status === "generating",
+      ),
+    [history],
+  );
+
+  useEffect(() => {
+    if (!hasInFlight) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+    if (pollRef.current) return;
+    pollRef.current = setInterval(() => {
+      void refresh();
+    }, ARTIFACT_POLL_INTERVAL_MS);
+  }, [hasInFlight, refresh]);
+
+  // The tiles show the newest entry per type. The list comes back newest-first,
+  // so the first entry seen for a type wins.
+  const tileStates = useMemo(() => {
+    const states = buildInitialArtifactStates();
+    const seen = new Set<ArtifactType>();
+    for (const artifact of history) {
+      const type = artifact.artifact_type;
+      if (seen.has(type) || !(type in states)) continue;
+      seen.add(type);
+      states[type] = {
+        status: artifact.status,
+        artifactId: artifact.artifact_id,
+        error: artifact.error_code ?? undefined,
+      };
+    }
+    return states;
+  }, [history]);
+
+  const handleGenerate = useCallback(
+    async (artifactType: ArtifactType) => {
+      if (!token) return;
+      setRefusal(null);
+      try {
+        await ArtifactService.generateArtifact(
+          token,
+          "folder",
+          collectionId,
+          artifactType,
+        );
+        await refresh();
+      } catch (err) {
+        if (!mountedRef.current) return;
+        setRefusal(describeRefusal(err));
+      }
+    },
+    [token, collectionId, refresh],
+  );
+
+  const handleOpenArtifact = useCallback(
+    (artifact: ArtifactSummary) => {
+      router.push(`/artifacts/${artifact.artifact_id}`);
+    },
+    [router],
+  );
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.aiContent}
+      showsVerticalScrollIndicator={false}
+      testID="collection-ai-tab"
+    >
+      <Text style={styles.sectionTitle}>Generate</Text>
+      <View style={styles.tilePile}>
+        {ARTIFACT_TILES.map((tile) => (
+          <ArtifactTile
+            key={tile.type}
+            label={tile.label}
+            icon={tile.icon}
+            state={tileStates[tile.type]}
+            sourceReady
+            onGenerate={() => void handleGenerate(tile.type)}
+            onView={(artifactId) => router.push(`/artifacts/${artifactId}`)}
+          />
+        ))}
+      </View>
+
+      {refusal ? (
+        <View style={styles.refusalBanner} testID="collection-ai-refusal">
+          <Ionicons
+            name="information-circle-outline"
+            size={18}
+            color={Colors.error}
+          />
+          <Text style={styles.refusalText}>{refusal}</Text>
+        </View>
+      ) : null}
+
+      <Text style={styles.sectionTitle}>Generated</Text>
+      {isLoading ? (
+        <View style={styles.aiInlineState}>
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <Text style={styles.aiInlineStateText}>Loading...</Text>
+        </View>
+      ) : listError ? (
+        <View style={styles.aiInlineState}>
+          <Text style={styles.aiInlineStateText}>{listError}</Text>
+          <Pressable
+            style={styles.retryButton}
+            onPress={() => void refresh()}
+            accessibilityLabel="Retry loading generated content"
+            accessibilityRole="button"
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : history.length === 0 ? (
+        <View style={styles.aiInlineState} testID="collection-ai-history-empty">
+          <Text style={styles.aiInlineStateText}>
+            Nothing generated yet. Pick a format above to create one from every
+            source in this collection.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.historyList}>
+          {history.map((artifact) => (
+            <ArtifactHistoryRow
+              key={artifact.artifact_id}
+              artifact={artifact}
+              onPress={handleOpenArtifact}
+            />
+          ))}
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+/**
+ * Turn a backend refusal into something the user can act on.
+ *
+ * Every refused generation is typed (`scope_empty`, `scope_too_large`,
+ * `sources_not_ready`, quota), and the payload carries the numbers, so this
+ * never has to fall back on a spinner or a silent failure.
+ */
+function describeRefusal(err: unknown): string {
+  const httpError = err as HttpError | undefined;
+  const details = httpError?.details ?? {};
+  const code = httpError?.code ?? httpError?.quotaErrorCode;
+
+  switch (code) {
+    case "scope_empty":
+      return "This collection has no source with a transcript yet. Add media, or wait for the ones you saved to finish processing.";
+    case "scope_too_large": {
+      const sourceCount = Number(details.source_count ?? 0);
+      const maxSources = Number(details.max_sources ?? 0);
+      if (sourceCount > 0 && maxSources > 0 && sourceCount > maxSources) {
+        return `This collection has ${sourceCount} sources, over the ${maxSources} a single generation can read. Generate on a smaller sub-collection instead.`;
+      }
+      return "This collection holds too much text for one generation. Generate on a smaller sub-collection instead.";
+    }
+    case "sources_not_ready": {
+      const pending = Number(details.pending_count ?? 0);
+      if (pending > 0) {
+        return `${pending} ${pending === 1 ? "source is" : "sources are"} still being prepared. Try again in a moment.`;
+      }
+      return "Some sources are still being prepared. Try again in a moment.";
+    }
+    case "daily_rate_limit":
+      return "You have reached today's limit for AI generations. Try again tomorrow.";
+    case "tier_quota_exceeded":
+      return "You have reached this month's AI quota for collections.";
+    default:
+      return getFriendlyErrorMessage(err, {
+        fallback: "Unable to start this generation. Please try again.",
+      });
+  }
 }
 
 // --- Sub-components ---
@@ -214,29 +525,50 @@ interface FolderRowProps {
 }
 
 function FolderRow({ node, onPress }: FolderRowProps) {
-  const childCount = node.children.length;
-  const subtitle =
-    childCount > 0
-      ? `${childCount} ${childCount === 1 ? "collection" : "collections"}`
-      : "Collection";
-
   return (
     <Pressable
-      style={({ pressed }) => [styles.folderCard, pressed && styles.folderCardPressed]}
+      style={({ pressed }) => [styles.sourceRow, pressed && styles.sourceRowPressed]}
       onPress={() => onPress(node)}
+      testID={`collection-source-folder-${node.id}`}
       accessibilityLabel={`Open collection ${node.name}`}
       accessibilityRole="button"
     >
-      <View style={styles.folderIconContainer}>
-        <Ionicons name="folder" size={24} color={Colors.primary} />
+      <View style={styles.sourceIconContainer}>
+        <Ionicons name="folder" size={20} color={Colors.primary} />
       </View>
-      <View style={styles.folderTextSection}>
-        <Text style={styles.folderName} numberOfLines={1}>
-          {node.name}
-        </Text>
-        <Text style={styles.folderSubtitle}>{subtitle}</Text>
+      <Text style={styles.sourceTitle} numberOfLines={1}>
+        {node.name}
+      </Text>
+      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+    </Pressable>
+  );
+}
+
+interface SourceRowProps {
+  media: MediaListItem;
+  onPress: (mediaItemId: string) => void;
+}
+
+function SourceRow({ media, onPress }: SourceRowProps) {
+  const mediaType = (media.media_type ?? "unknown") as MediaType;
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.sourceRow, pressed && styles.sourceRowPressed]}
+      onPress={() => onPress(media.media_item_id)}
+      testID={`collection-source-media-${media.media_item_id}`}
+      accessibilityLabel={`Open ${media.title ?? "source"}`}
+      accessibilityRole="button"
+    >
+      <View style={styles.sourceIconContainer}>
+        <Ionicons
+          name={getMediaTypeIcon(mediaType)}
+          size={20}
+          color={Colors.primary}
+        />
       </View>
-      <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+      <Text style={styles.sourceTitle} numberOfLines={1}>
+        {media.title ?? media.source_url ?? "Source"}
+      </Text>
     </Pressable>
   );
 }
@@ -291,48 +623,98 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
   },
+  tabsContainer: {
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.md,
+  },
   listContent: {
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.xxl,
   },
+  sectionTitle: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: "700",
+    color: Colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
 
-  // Folder row
-  folderCard: {
+  // Source row: one icon, one truncated title, nothing else.
+  sourceRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.xl,
-    padding: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
     marginHorizontal: Spacing.md,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
     minHeight: TouchTarget.comfortable,
     ...Shadows.soft,
   },
-  folderCardPressed: {
+  sourceRowPressed: {
     transform: [{ scale: 0.98 }],
     opacity: 0.9,
   },
-  folderIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: BorderRadius.lg,
+  sourceIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.md,
     backgroundColor: Colors.surfaceContainerLow,
     alignItems: "center",
     justifyContent: "center",
   },
-  folderTextSection: {
+  sourceTitle: {
     flex: 1,
-    gap: 2,
-  },
-  folderName: {
     fontSize: Typography.body.fontSize,
-    fontWeight: "700",
+    fontWeight: "600",
     color: Colors.textMain,
   },
-  folderSubtitle: {
-    fontSize: Typography.small.fontSize,
+
+  // AI tab
+  aiContent: {
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xxl,
+  },
+  tilePile: {
+    gap: Spacing.sm,
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  historyList: {
+    gap: Spacing.sm,
+    marginHorizontal: Spacing.md,
+  },
+  aiInlineState: {
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginHorizontal: Spacing.md,
+    paddingVertical: Spacing.lg,
+  },
+  aiInlineStateText: {
+    fontSize: Typography.body.fontSize,
     color: Colors.textMuted,
+    textAlign: "center",
+    lineHeight: Typography.body.lineHeight,
+  },
+  refusalBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    backgroundColor: Colors.errorContainer,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  refusalText: {
+    flex: 1,
+    fontSize: Typography.small.fontSize,
+    color: Colors.error,
+    lineHeight: Typography.body.lineHeight,
   },
 
   // Centered states

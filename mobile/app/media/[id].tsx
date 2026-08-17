@@ -40,6 +40,7 @@ import type {
   MediaStatusResponse,
   ArtifactType,
 } from "../../src/types/media";
+import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
 
 /**
  * The two intra-screen tabs of a media item: what it says, and what the models
@@ -980,23 +981,6 @@ function SourceChip({
 
 // --- Helpers ---
 
-function getMediaTypeIcon(
-  mediaType: string,
-): React.ComponentProps<typeof Ionicons>["name"] {
-  switch (mediaType) {
-    case "podcast_episode":
-      return "mic-outline";
-    case "youtube_video":
-    case "short_video":
-      return "videocam-outline";
-    case "article":
-      return "document-text-outline";
-    case "audio_file":
-      return "musical-notes-outline";
-    default:
-      return "link-outline";
-  }
-}
 
 // --- Styles ---
 

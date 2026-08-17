@@ -27,11 +27,15 @@ import {
  * Artifact detail screen.
  *
  * The backend writes each artifact as a JSON envelope:
- *   { artifact_id, media_item_id, artifact_type, generated_at, source, content }
- * where `content` is the actual structured payload, shaped per artifact_type:
+ *   { artifact_id, scope, scope_id, artifact_type, generated_at, sources,
+ *     source_count, generator_version, llm_usage, content }
+ * where `content` is the actual structured payload, shaped per artifact_type.
+ * Every shape carries a model-written `title` (task-270), and a quote carries the
+ * corpus tag it came from:
  *
- * - summary_short:    { headline, key_points: string[], takeaway }
- * - summary_detailed: { context, main_topics, key_points, notable_quotes, conclusion }
+ * - summary_short:    { title, key_points: string[], takeaway }
+ * - summary_detailed: { title, context, main_topics, key_points,
+ *                       notable_quotes: [{text, source_ref}], conclusion }
  * - notes:            { objectives, concepts: [{term, explanation, importance}],
  *                       key_points, action_items, glossary: [{term, definition}] }
  * - flashcards:       { cards: [{question, answer}], card_count }
@@ -352,7 +356,7 @@ function ArtifactBody({
 // --- Summary (short) ---
 
 function SummaryShortBody({ content }: { content: Record<string, unknown> }) {
-  const headline = pickString(content, ["headline"]);
+  const headline = pickString(content, ["title"]);
   const keyPoints = pickStringArray(content, ["key_points"]);
   const takeaway = pickString(content, ["takeaway"]);
 
@@ -393,7 +397,10 @@ function SummaryDetailedBody({
   const context = pickString(content, ["context"]);
   const mainTopics = pickStringArray(content, ["main_topics"]);
   const keyPoints = pickStringArray(content, ["key_points"]);
-  const quotes = pickStringArray(content, ["notable_quotes"]);
+  // `notable_quotes` is a list of `{text, source_ref}` since task-270: the
+  // reference is mandatory there because a quote is verbatim, so its origin is
+  // checkable. Rendered next to the quote rather than dropped.
+  const quotes = pickQuotes(content, ["notable_quotes"]);
   const conclusion = pickString(content, ["conclusion"]);
 
   return (
@@ -424,7 +431,10 @@ function SummaryDetailedBody({
           {quotes.map((q, i) => (
             <View key={`quote-${i}`} style={styles.quoteCard}>
               <Text style={styles.quoteMark}>“</Text>
-              <Text style={styles.quoteText}>{q}</Text>
+              <Text style={styles.quoteText}>{q.text}</Text>
+              {q.sourceRef ? (
+                <Text style={styles.quoteSourceRef}>{q.sourceRef}</Text>
+              ) : null}
             </View>
           ))}
         </Section>
@@ -798,6 +808,36 @@ function pickStringArray(
   return null;
 }
 
+interface ArtifactQuote {
+  text: string;
+  sourceRef?: string;
+}
+
+function pickQuotes(
+  obj: Record<string, unknown>,
+  keys: string[],
+): ArtifactQuote[] | null {
+  for (const key of keys) {
+    const value = obj[key];
+    if (!Array.isArray(value)) continue;
+    const quotes: ArtifactQuote[] = [];
+    for (const item of value) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const record = item as Record<string, unknown>;
+        const text = typeof record.text === "string" ? record.text.trim() : "";
+        if (!text) continue;
+        const sourceRef =
+          typeof record.source_ref === "string"
+            ? record.source_ref.trim() || undefined
+            : undefined;
+        quotes.push({ text, sourceRef });
+      }
+    }
+    if (quotes.length > 0) return quotes;
+  }
+  return null;
+}
+
 interface Concept {
   term: string;
   explanation: string;
@@ -1082,6 +1122,12 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontWeight: "800",
     marginBottom: Spacing.xs,
+  },
+  quoteSourceRef: {
+    marginTop: Spacing.xs,
+    fontSize: Typography.small.fontSize,
+    fontWeight: Typography.label.fontWeight,
+    color: Colors.textMuted,
   },
   quoteText: {
     fontSize: Typography.body.fontSize,

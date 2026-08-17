@@ -8,6 +8,12 @@
  *
  * The label sits in its own column so a secondary metadata line (generation
  * date, number of sources) can be added later without reshaping the tile.
+ *
+ * Generating is always offered when the source is ready, whatever already
+ * exists: artifacts are an append-only history, so a second tap is a legitimate
+ * regeneration that adds an entry rather than a request the API would refuse.
+ * The tile shows the state of the newest entry of its type; the full history
+ * lives in the list below it.
  */
 
 import React from "react";
@@ -74,7 +80,8 @@ export function ArtifactTile({
     state.status === "queued" || state.status === "generating";
   const isReady = state.status === "ready";
   const isFailed = state.status === "failed";
-  const canGenerate = state.status === "idle" && sourceReady;
+  const canGenerate = !isInProgress && sourceReady;
+  const generateLabel = state.status === "idle" ? "Generate" : "Regenerate";
 
   return (
     <View style={styles.tile}>
@@ -95,55 +102,41 @@ export function ArtifactTile({
           </View>
         )}
 
-        {isReady && (
-          <View style={styles.readyContainer}>
-            <View style={styles.readyBadge}>
-              <Ionicons
-                name="checkmark-circle"
-                size={16}
-                color={Colors.primary}
-              />
-              <Text style={styles.readyText}>Ready</Text>
-            </View>
-            <Pressable
-              style={styles.viewButton}
-              onPress={() => state.artifactId && onView(state.artifactId)}
-              disabled={!state.artifactId}
-              accessibilityLabel={`View ${label}`}
-              accessibilityRole="button"
-            >
-              <Text style={styles.viewButtonText}>View</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {isFailed && (
-          <View style={styles.failedContainer}>
-            <Text style={styles.failedText}>Failed</Text>
-            <Pressable
-              style={styles.retryButton}
-              onPress={onGenerate}
-              accessibilityLabel={`Retry generating ${label}`}
-              accessibilityHint={state.error}
-              accessibilityRole="button"
-            >
-              <Text style={styles.retryText}>Retry</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {canGenerate && (
+        {isReady && state.artifactId && (
           <Pressable
-            style={styles.generateButton}
-            onPress={onGenerate}
-            accessibilityLabel={`Generate ${label}`}
+            style={styles.viewButton}
+            onPress={() => state.artifactId && onView(state.artifactId)}
+            testID={`artifact-tile-view-${label}`}
+            accessibilityLabel={`View ${label}`}
             accessibilityRole="button"
           >
-            <Text style={styles.generateButtonText}>Generate</Text>
+            <Text style={styles.viewButtonText}>View</Text>
           </Pressable>
         )}
 
-        {state.status === "idle" && !sourceReady && (
+        {isFailed && <Text style={styles.failedText}>Failed</Text>}
+
+        {canGenerate && (
+          <Pressable
+            style={[styles.generateButton, isFailed && styles.retryButton]}
+            onPress={onGenerate}
+            testID={`artifact-tile-generate-${label}`}
+            accessibilityLabel={`${generateLabel} ${label}`}
+            accessibilityHint={state.error}
+            accessibilityRole="button"
+          >
+            <Text
+              style={[
+                styles.generateButtonText,
+                isFailed && styles.retryText,
+              ]}
+            >
+              {isFailed ? "Retry" : generateLabel}
+            </Text>
+          </Pressable>
+        )}
+
+        {!sourceReady && !isInProgress && (
           <Text style={styles.waitingText}>Processing...</Text>
         )}
       </View>
@@ -183,6 +176,7 @@ const styles = StyleSheet.create({
   action: {
     flexDirection: "row",
     alignItems: "center",
+    gap: Spacing.sm,
   },
 
   // States
@@ -194,21 +188,6 @@ const styles = StyleSheet.create({
   progressText: {
     fontSize: Typography.small.fontSize,
     color: Colors.textMuted,
-  },
-  readyContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  readyBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  readyText: {
-    fontSize: Typography.small.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.primary,
   },
   viewButton: {
     paddingHorizontal: Spacing.md,
@@ -222,11 +201,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.label.fontSize,
     fontWeight: "600",
     color: Colors.textMain,
-  },
-  failedContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
   },
   failedText: {
     fontSize: Typography.small.fontSize,
