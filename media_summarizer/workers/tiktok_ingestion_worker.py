@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 import httpx
 import yt_dlp
 
+from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
@@ -1033,6 +1034,16 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             message_body=message_body,
         )
 
+    # On TikTok, yt-dlp's `title` IS the clip caption (the extractor derives it
+    # from the description), which is the only human-written text the platform
+    # exposes -- so it is the title, and the creator handle never is (task-266).
+    ytdlp_title = select_title(
+        [info.get("title"), info.get("description")],
+        authors=[info.get("uploader"), info.get("creator"), info.get("uploader_id")],
+    )
+    if ytdlp_title:
+        job.title = ytdlp_title
+
     # yt-dlp succeeded -- try native subtitles first
     try:
         native_result = await _fetch_native_subtitles(info)
@@ -1079,7 +1090,7 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             user_id=message_body.get("user_id"),
             user_email=message_body.get("user_email"),
             normalized_url=normalized_url,
-            episode_title=message_body.get("episode_title") or job.title,
+            episode_title=job.title or message_body.get("episode_title"),
             podcast_title=message_body.get("podcast_title") or job.source_platform,
             audio_duration_seconds=gate.duration_seconds,
             quota_debited_minutes=gate.debited_minutes,

@@ -664,11 +664,11 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     setArtifactsExpanded((prev) => !prev);
   };
 
-  // Extract display info. The title is whatever the library row holds, exactly
-  // like the inbox vignette: same fallback to the source URL, then a neutral
-  // label for rows without one (shared text and uploads have no URL either).
-  const displayTitle =
-    media_item.title?.trim() || media_item.original_url.trim() || "Untitled";
+  // The title is whatever the library row holds, exactly like the inbox
+  // vignette -- and nothing more: since task-266 the backend always stores a
+  // readable, non-empty title, so the URL-then-"Untitled" chain that used to be
+  // here is gone from every screen.
+  const displayTitle = media_item.title;
 
   const displayDomain = (() => {
     try {

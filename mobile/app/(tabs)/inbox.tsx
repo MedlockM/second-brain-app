@@ -361,8 +361,10 @@ function BackendItemCard({ item, onPress }: BackendItemCardProps) {
   const timeAgo = getRelativeTime(item.created_at);
   const icon = getMediaTypeIcon(mediaType);
 
-  // Prefer the backend-provided title; fall back to the source URL.
-  const displayTitle = item.title?.trim() ? item.title : sourceUrl;
+  // The stored title, as-is: it is derived server-side and never empty
+  // (task-266). The URL fallback that used to live here duplicated the domain
+  // line rendered right below the title.
+  const displayTitle = item.title;
 
   return (
     <Pressable

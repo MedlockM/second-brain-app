@@ -17,6 +17,7 @@ import json
 import logging
 import os
 
+from media_summarizer.core.media_ingestion.title_derivation import derive_media_title
 from media_summarizer.core.services import audio_quota_gate, quota_enforcer
 from media_summarizer.core.services.rss_feed_service import poll_feed
 from media_summarizer.utils import database_async, sqs
@@ -66,6 +67,14 @@ async def _route_item_to_pipeline(
         user_email=user.email,
         source_url=feed_url,
         media_key=guid,
+        # The feed's own `<title>` for this item: the cheapest and most reliable
+        # title of every source, and it used to be parsed, passed to the queue
+        # message and then dropped from the job (task-266).
+        title=derive_media_title(
+            [title],
+            media_type="podcast_episode" if item_type == "audio" else "article",
+            source_platform="rss",
+        ),
     )
     job = await database_async.create_processing_job(job)
 
