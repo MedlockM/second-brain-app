@@ -3,7 +3,7 @@ id: task-271
 title: >-
   Split the media detail screen into Reader / AI tabs and remove the AI
   artifacts dropdown
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-17 19:42'
 labels:
