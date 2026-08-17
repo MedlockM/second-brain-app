@@ -79,3 +79,28 @@ Also settle these product questions, which shape the implementation:
 - [ ] #5 The four product questions are answered explicitly: timing of the final title, fallback when everything fails, Algolia re-indexing of a title that changes, and the language the title follows
 - [ ] #6 A single final recommendation is argued with its trade-offs stated, and the README front-matter carries owner_decision: pending
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Research delivered — **mode: initial** (no `docs/research/task-265-*` directory existed, so there was no owner-rejected README and no complement request to integrate).
+
+Deliverable: `docs/research/task-265-media-title-derivation/README.md`, front-matter `owner_decision: pending`.
+
+What it contains:
+- **§1** the four title consumers, plus the finding that `title` is the *first* entry of Algolia's `searchableAttributes` (`utils/algolia_client.py:106-109`), so a wrong title pollutes ranking and not just the label.
+- **§2** the current per-source behaviour traced from the code with file:line, including the three observed defects: the Instagram author-as-title (`instagram_apify_resolver.py:441-447, 555`, root-caused against the installed yt-dlp extractor and the Apify Instagram schema, which has **no** `title` field at all), the `youtube:youtube_video` sentinel (`orchestrators.py:163` + `info["title"]` never read at `youtube_ingestion_worker.py:1060`), and the raw filename (`localImport.ts:186-197` with no `decodeURIComponent` → `media.py:927/990/1004` → `document_parsing/worker.py:260`). A **fourth latent defect** was surfaced: RSS titles are read (`rss_feed_poll_worker.py:51`) then dropped, and every Deepgram path sends an `episode_title` that nobody reads.
+- **§3** the plumbing that already exists (the `mirror_job` hook, and the fact that Algolia is fed from `canonical_job.title` at `episode_completion_status` time).
+- **§4-§5** six approaches compared across coverage, quality, cost, latency, failure modes and implementation complexity.
+- **§6** the arbitration signals split explicitly into "cheap AND reliable" (8 deterministic rejection rules) and "guesswork" (truncation detection, semantic mismatch, length thresholds, clickbait scoring — all rejected as signals, with reasons).
+- **§7** the per-source coverage table for all eleven sources.
+- **§8** cost and latency projected per item and per month against task-65's three tier baskets, priced from OpenAI's official pricing page. Notable conclusion: **cost does not discriminate** the options (worst case 2,5 cents/user/month), the argument is quality + latency. No latency figure was invented — the only published measurement for `gpt-5-nano` is at *high* reasoning effort and is documented as non-transferable.
+- **§9** the four product questions answered explicitly (provisional title + no-polling Inbox and no processing badge; platform label + date as the stored fallback, with the source URL and "Untitled" both rejected and reasons given; no Algolia re-index needed if the title is written before the completion event; the title follows the source text's language, never `reading_language`).
+- **§10-§14** failure modes per approach (LLM headline hallucination cited from arXiv 2407.15975 and 2302.05852), an informative implementation outline, rejected alternatives, out-of-scope observations, and sources with URLs.
+
+Recommendation: approach **C** — metadata-first with a closed list of deterministic distrust rules, `gpt-5-nano` only where metadata is structurally absent, title written to `job.title` before `episode_completion_status`. Approach B (LLM on every item) is documented as the second choice if the owner prefers a smaller code surface.
+
+Out of scope as instructed: the podcast detail-screen defect (task-267) is not re-diagnosed; the detail screen is counted among the title consumers.
+
+**The recommendation awaits owner validation** — the task stays `To Do` and the README front-matter stays `owner_decision: pending`.
+<!-- SECTION:NOTES:END -->
