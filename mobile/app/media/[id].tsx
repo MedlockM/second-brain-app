@@ -6,9 +6,6 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  LayoutAnimation,
-  Platform,
-  UIManager,
   Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -20,52 +17,40 @@ import { MediaService } from "../../src/services/mediaService";
 import { ArtifactService } from "../../src/services/artifactService";
 import { OrganizationService } from "../../src/services/organizationService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
+import { formatDuration } from "../../src/lib/formatDuration";
 import { useMediaDetailPolling } from "../../src/hooks/useMediaDetailPolling";
+import {
+  ARTIFACT_TILES,
+  ArtifactTile,
+  type ArtifactTileState,
+} from "../../src/components/ArtifactTile";
+import { ScreenTabs, type ScreenTab } from "../../src/components/ScreenTabs";
+import {
+  TranscriptReader,
+  type TranscriptContentState,
+} from "../../src/components/TranscriptReader";
 import {
   Colors,
   Typography,
   Spacing,
   BorderRadius,
-  Shadows,
   TouchTarget,
 } from "../../src/constants/theme";
 import type {
   MediaStatusResponse,
   ArtifactType,
-  ArtifactStatus,
-  ProcessingJobLifecycleStatus,
 } from "../../src/types/media";
 
-// Enable LayoutAnimation on Android
-if (
-  Platform.OS === "android" &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
 /**
- * Tiles surfaced in the "AI Artifacts" dropdown. Each row maps to a single
- * backend artifact type produced by a dedicated worker.
+ * The two intra-screen tabs of a media item: what it says, and what the models
+ * can make of it. Reader is the default — the content comes first, generating
+ * something out of it is a deliberate second step.
  */
-const ARTIFACT_TYPES: {
-  type: ArtifactType;
-  label: string;
-  icon: React.ComponentProps<typeof Ionicons>["name"];
-}[] = [
-  {
-    type: "summary_short",
-    label: "Summary",
-    icon: "document-text-outline",
-  },
-  {
-    type: "summary_detailed",
-    label: "Detailed summary",
-    icon: "reader-outline",
-  },
-  { type: "notes", label: "Learning notes", icon: "book-outline" },
-  { type: "flashcards", label: "Flashcards", icon: "card-outline" },
-  { type: "quiz", label: "Quiz", icon: "help-circle-outline" },
+type MediaDetailTabKey = "reader" | "ai";
+
+const MEDIA_DETAIL_TABS: readonly ScreenTab<MediaDetailTabKey>[] = [
+  { key: "reader", label: "Reader", icon: "book-outline" },
+  { key: "ai", label: "AI", icon: "sparkles-outline" },
 ];
 
 /**
@@ -78,7 +63,7 @@ function bucketArtifactType(raw: ArtifactType): ArtifactType {
   return raw;
 }
 
-function buildInitialArtifactStates(): Record<ArtifactType, ArtifactLocalState> {
+function buildInitialArtifactStates(): Record<ArtifactType, ArtifactTileState> {
   return {
     summary: { status: "idle" },
     summary_short: { status: "idle" },
@@ -92,61 +77,10 @@ function buildInitialArtifactStates(): Record<ArtifactType, ArtifactLocalState> 
 const ARTIFACT_POLL_INTERVAL_MS = 3000;
 const ARTIFACT_TRANSLATION_RETRY_MAX_ATTEMPTS = 100;
 
-type ArtifactLocalState = {
-  status: ArtifactStatus | "idle";
-  artifactId?: string;
-  error?: string;
-};
-
-type RawContentState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "ready"; content: string }
-  | { status: "translation_pending"; content: string }
-  | { status: "translation_failed"; content: string }
-  | { status: "not_available" }
-  | { status: "error"; message: string };
-
 /** Delay between polls when translation is pending (ms). */
 const TRANSLATION_POLL_DELAY_MS = 3000;
 /** Maximum number of translation polls before giving up. */
 const TRANSLATION_POLL_MAX_ATTEMPTS = 20;
-
-/** Blank-line separator between transcript paragraphs, tolerating trailing spaces. */
-const PARAGRAPH_SEPARATOR = /\n[ \t]*\n+/;
-/** Optional in-band speaker label emitted when Deepgram diarization is enabled. */
-const SPEAKER_PREFIX = /^(Speaker\s+\d+)\s*:\s*/i;
-
-type TranscriptParagraph = {
-  /** Speaker label without its trailing colon, when the paragraph carries one. */
-  speaker: string | null;
-  text: string;
-};
-
-/**
- * Splits the API's plain-text transcript into renderable paragraphs.
- *
- * The backend guarantees paragraphs are separated by a blank line and that no
- * paragraph exceeds ~900 characters (task-232, benchmark task-231 option B), so
- * there is deliberately no re-chunking heuristic on the client: legacy
- * single-block transcripts are already re-structured server-side at read time.
- */
-function splitTranscriptParagraphs(content: string): TranscriptParagraph[] {
-  return content
-    .split(PARAGRAPH_SEPARATOR)
-    .map((block) => block.trim())
-    .filter((block) => block.length > 0)
-    .map((block) => {
-      const match = block.match(SPEAKER_PREFIX);
-      if (!match) {
-        return { speaker: null, text: block };
-      }
-      return {
-        speaker: match[1],
-        text: block.slice(match[0].length),
-      };
-    });
-}
 
 /** An `original_url` that is actually a destination the OS can open. */
 type SourceLink = {
@@ -194,13 +128,14 @@ function resolveSourceLink(rawUrl: string): SourceLink | null {
  * 1. On mount, uses `useMediaDetailPolling` hook to fetch media status.
  * 2. If the processing job is non-terminal, shows a "Generating text..." placeholder
  *    with a spinner. Polls every 3s until status becomes terminal.
- * 3. On "completed": transitions to the full detail view with artifacts.
+ * 3. On "completed": transitions to the full detail view, split into a "Reader"
+ *    tab (the transcript) and an "AI" tab (artifact generation).
  * 4. On "failed": shows a failure banner with the error message.
  * 5. On 5-minute timeout: stops polling and shows a "taking longer" message.
  *
  * Features:
  * - Contextual processing message based on source_platform
- * - Artifacts section with generation actions
+ * - Intra-screen Reader / AI tabs, Reader selected by default
  * - Retry/refresh for failed states
  * - All interactive elements meet 48px minimum touch target
  */
@@ -464,9 +399,9 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     router.push(`/media/collection?${params.toString()}`);
   }, [router, media_item.media_item_id, currentFolderId]);
 
-  const [artifactsExpanded, setArtifactsExpanded] = useState(true);
+  const [activeTab, setActiveTab] = useState<MediaDetailTabKey>("reader");
   const [artifactStates, setArtifactStates] = useState<
-    Record<ArtifactType, ArtifactLocalState>
+    Record<ArtifactType, ArtifactTileState>
   >(() => {
     const initial = buildInitialArtifactStates();
 
@@ -505,7 +440,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   const handleGenerateRef = useRef<
     (artifactType: ArtifactType) => Promise<void>
   >(async () => undefined);
-  const [rawContent, setRawContent] = useState<RawContentState>({
+  const [rawContent, setRawContent] = useState<TranscriptContentState>({
     status: "idle",
   });
 
@@ -658,11 +593,6 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     [token, media_item.media_item_id, startArtifactPolling],
   );
   handleGenerateRef.current = handleGenerate;
-
-  const toggleArtifactsExpanded = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setArtifactsExpanded((prev) => !prev);
-  };
 
   // The title is whatever the library row holds, exactly like the inbox
   // vignette -- and nothing more: since task-266 the backend always stores a
@@ -872,6 +802,9 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        // The tab bar is child index 1: it stays pinned while a long transcript
+        // scrolls under it, so switching to AI never requires scrolling back up.
+        stickyHeaderIndices={[1]}
       >
         {/* Hero Title & Metadata */}
         <View style={styles.heroSection}>
@@ -898,57 +831,47 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
           </View>
         </View>
 
-        {/* AI Artifacts Section */}
-        <View style={styles.artifactsSection}>
-          <Pressable
-            style={styles.artifactsToggle}
-            onPress={toggleArtifactsExpanded}
-            accessibilityLabel={`AI Artifacts, ${artifactsExpanded ? "collapse" : "expand"}`}
-            accessibilityRole="button"
-          >
-            <View style={styles.artifactsToggleLeft}>
-              <Ionicons
-                name={artifactsExpanded ? "chevron-up" : "chevron-down"}
-                size={20}
-                color={Colors.textMain}
-              />
-              <Text style={styles.artifactsToggleText}>AI Artifacts</Text>
-            </View>
-            <Ionicons
-              name={artifactsExpanded ? "chevron-up" : "chevron-down"}
-              size={20}
-              color={Colors.textMain}
-            />
-          </Pressable>
-
-          {artifactsExpanded && (
-            <View style={styles.artifactsList}>
-              {ARTIFACT_TYPES.map((artifact) => (
-                <ArtifactRow
-                  key={artifact.type}
-                  type={artifact.type}
-                  label={artifact.label}
-                  icon={artifact.icon}
-                  state={artifactStates[artifact.type]}
-                  onGenerate={() => handleGenerate(artifact.type)}
-                  onView={(artifactId) =>
-                    router.push(`/artifacts/${artifactId}`)
-                  }
-                  mediaReady={mediaReady}
-                />
-              ))}
-            </View>
-          )}
+        {/* Intra-screen tabs. Pinned by `stickyHeaderIndices` above, hence the
+            opaque background: the content scrolls underneath it. */}
+        <View style={styles.tabsBar}>
+          <ScreenTabs
+            tabs={MEDIA_DETAIL_TABS}
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            accessibilityLabel="Media sections"
+          />
         </View>
 
-        {/* Transcript / Content Section */}
-        <View style={styles.contentSection}>
-          <TranscriptSection
-            transcript={media_item.transcript}
-            processingStatus={processing_job.status}
-            rawContent={rawContent}
-            onRetryRawContent={fetchRawContent}
-          />
+        {/* Tab content. Artifact polling and the transcript fetch both live in
+            this component, so neither stops when its tab is hidden. */}
+        <View style={styles.tabContent}>
+          {activeTab === "reader" ? (
+            <TranscriptReader
+              transcript={media_item.transcript}
+              processingStatus={processing_job.status}
+              content={rawContent}
+              onRetry={fetchRawContent}
+            />
+          ) : (
+            <View>
+              <Text style={styles.sectionTitle}>Generate</Text>
+              <View style={styles.artifactsList}>
+                {ARTIFACT_TILES.map((artifact) => (
+                  <ArtifactTile
+                    key={artifact.type}
+                    label={artifact.label}
+                    icon={artifact.icon}
+                    state={artifactStates[artifact.type]}
+                    onGenerate={() => handleGenerate(artifact.type)}
+                    onView={(artifactId) =>
+                      router.push(`/artifacts/${artifactId}`)
+                    }
+                    sourceReady={mediaReady}
+                  />
+                ))}
+              </View>
+            </View>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -1061,379 +984,7 @@ function SourceChip({
   );
 }
 
-function ArtifactRow({
-  type,
-  label,
-  icon,
-  state,
-  onGenerate,
-  onView,
-  mediaReady,
-}: {
-  type: ArtifactType;
-  label: string;
-  icon: React.ComponentProps<typeof Ionicons>["name"];
-  state: ArtifactLocalState;
-  onGenerate: () => void;
-  onView: (artifactId: string) => void;
-  mediaReady: boolean;
-}) {
-  const isInProgress =
-    state.status === "queued" || state.status === "generating";
-  const isReady = state.status === "ready";
-  const isFailed = state.status === "failed";
-  const canGenerate = state.status === "idle" && mediaReady;
-
-  return (
-    <View style={styles.artifactRow}>
-      <View style={styles.artifactRowLeft}>
-        <Ionicons name={icon} size={20} color={Colors.primary} />
-        <Text style={styles.artifactRowLabel}>{label}</Text>
-      </View>
-
-      <View style={styles.artifactRowRight}>
-        {isInProgress && (
-          <View style={styles.artifactProgressContainer}>
-            <ActivityIndicator size="small" color={Colors.primary} />
-            <Text style={styles.artifactProgressText}>
-              {state.status === "queued" ? "Queued" : "Generating..."}
-            </Text>
-          </View>
-        )}
-
-        {isReady && (
-          <View style={styles.artifactReadyContainer}>
-            <View style={styles.artifactReadyBadge}>
-              <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
-              <Text style={styles.artifactReadyText}>Ready</Text>
-            </View>
-            <Pressable
-              style={styles.artifactViewButton}
-              onPress={() =>
-                state.artifactId && onView(state.artifactId)
-              }
-              disabled={!state.artifactId}
-              accessibilityLabel={`View ${label}`}
-              accessibilityRole="button"
-            >
-              <Text style={styles.artifactViewButtonText}>View</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {isFailed && (
-          <View style={styles.artifactFailedContainer}>
-            <Text style={styles.artifactFailedText}>Failed</Text>
-            <Pressable
-              style={styles.artifactRetryButton}
-              onPress={onGenerate}
-              accessibilityLabel={`Retry generating ${label}`}
-              accessibilityRole="button"
-            >
-              <Text style={styles.artifactRetryText}>Retry</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {canGenerate && (
-          <Pressable
-            style={styles.generateButton}
-            onPress={onGenerate}
-            accessibilityLabel={`Generate ${label}`}
-            accessibilityRole="button"
-          >
-            <Text style={styles.generateButtonText}>Generate</Text>
-          </Pressable>
-        )}
-
-        {state.status === "idle" && !mediaReady && (
-          <Text style={styles.artifactWaitingText}>Processing...</Text>
-        )}
-      </View>
-    </View>
-  );
-}
-
-/**
- * Transcript section with status display.
- */
-function TranscriptSection({
-  transcript,
-  processingStatus,
-  rawContent,
-  onRetryRawContent,
-}: {
-  transcript: MediaStatusResponse["media_item"]["transcript"];
-  processingStatus: ProcessingJobLifecycleStatus;
-  rawContent: RawContentState;
-  onRetryRawContent: () => void;
-}) {
-  if (!transcript) {
-    return (
-      <View style={styles.transcriptEmpty}>
-        <Ionicons
-          name="document-text-outline"
-          size={32}
-          color={Colors.textMuted}
-        />
-        <Text style={styles.transcriptEmptyText}>
-          No transcript available yet.
-        </Text>
-        {processingStatus !== "completed" &&
-          processingStatus !== "failed" &&
-          processingStatus !== "cancelled" && (
-            <Text style={styles.transcriptEmptyHint}>
-              Transcript will appear once processing completes.
-            </Text>
-          )}
-      </View>
-    );
-  }
-
-  const statusMessages: Record<string, string> = {
-    pending: "Transcript processing will start soon.",
-    extracting: "Extracting audio content...",
-    transcribing: "Transcribing audio to text...",
-    ready: "Transcript is ready.",
-    failed: "Transcript processing failed.",
-  };
-
-  const isReady = transcript.status === "ready";
-  const isFailed = transcript.status === "failed";
-  const isProcessing = !isReady && !isFailed;
-
-  return (
-    <View style={styles.transcriptContainer}>
-      <Text style={styles.sectionTitle}>Transcript</Text>
-
-      {/* Transcript metadata */}
-      <View style={styles.transcriptMeta}>
-        {transcript.language && (
-          <View style={styles.transcriptMetaItem}>
-            <Ionicons
-              name="language-outline"
-              size={14}
-              color={Colors.textMuted}
-            />
-            <Text style={styles.transcriptMetaText}>
-              {transcript.language.toUpperCase()}
-            </Text>
-          </View>
-        )}
-        {transcript.duration_seconds && (
-          <View style={styles.transcriptMetaItem}>
-            <Ionicons name="time-outline" size={14} color={Colors.textMuted} />
-            <Text style={styles.transcriptMetaText}>
-              {formatDuration(transcript.duration_seconds)}
-            </Text>
-          </View>
-        )}
-        {transcript.segments_count && (
-          <View style={styles.transcriptMetaItem}>
-            <Ionicons name="list-outline" size={14} color={Colors.textMuted} />
-            <Text style={styles.transcriptMetaText}>
-              {transcript.segments_count === 1
-                ? "1 paragraph"
-                : `${transcript.segments_count} paragraphs`}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* When the transcript is ready, surface the actual content inline.
-          Until it's ready (or if fetching the body fails), keep the status row
-          so the user knows where things stand. */}
-      {isReady ? (
-        <TranscriptContent state={rawContent} onRetry={onRetryRawContent} />
-      ) : (
-        <View style={styles.transcriptStatusRow}>
-          {isProcessing && (
-            <ActivityIndicator
-              size="small"
-              color={Colors.primary}
-              style={{ marginRight: Spacing.sm }}
-            />
-          )}
-          {isFailed && (
-            <Ionicons
-              name="close-circle"
-              size={16}
-              color={Colors.error}
-              style={{ marginRight: Spacing.sm }}
-            />
-          )}
-          <Text
-            style={[
-              styles.transcriptStatusText,
-              isFailed && { color: Colors.error },
-            ]}
-          >
-            {statusMessages[transcript.status] || "Processing..."}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-}
-
-/**
- * Renders the transcript body as discrete paragraphs.
- *
- * The backend stores and serves transcripts as plain text whose paragraphs are
- * separated by a blank line (task-232, benchmark task-231 option B), so the
- * client only has to split on blank lines — no heuristic here.
- *
- * A leading "Speaker N:" prefix is optional per paragraph (it only appears when
- * Deepgram diarization is enabled) and is rendered as a nested Text so the label
- * reflows with the body copy instead of becoming its own block.
- */
-function TranscriptBody({ content }: { content: string }) {
-  const paragraphs = useMemo(() => splitTranscriptParagraphs(content), [content]);
-
-  if (paragraphs.length === 0) {
-    return null;
-  }
-
-  return (
-    <View style={styles.transcriptBody}>
-      {paragraphs.map((paragraph, index) => (
-        <Text
-          key={index}
-          selectable
-          style={[
-            styles.transcriptParagraph,
-            index === paragraphs.length - 1 && styles.transcriptParagraphLast,
-          ]}
-        >
-          {paragraph.speaker ? (
-            <Text style={styles.transcriptSpeaker}>{paragraph.speaker}: </Text>
-          ) : null}
-          {paragraph.text}
-        </Text>
-      ))}
-    </View>
-  );
-}
-
-function TranscriptContent({
-  state,
-  onRetry,
-}: {
-  state: RawContentState;
-  onRetry: () => void;
-}) {
-  if (state.status === "ready") {
-    return (
-      <View>
-        <TranscriptBody content={state.content} />
-      </View>
-    );
-  }
-
-  if (state.status === "translation_pending") {
-    return (
-      <View>
-        <View style={styles.translationPendingBanner}>
-          <ActivityIndicator
-            size="small"
-            color={Colors.primary}
-            style={{ marginRight: Spacing.sm }}
-          />
-          <Text style={styles.translationPendingText}>
-            Translating transcript...
-          </Text>
-        </View>
-        <TranscriptBody content={state.content} />
-      </View>
-    );
-  }
-
-  if (state.status === "translation_failed") {
-    return (
-      <View>
-        <View style={styles.translationFailedBanner}>
-          <Ionicons
-            name="alert-circle"
-            size={16}
-            color={Colors.error}
-            style={{ marginRight: Spacing.sm }}
-          />
-          <Text style={styles.translationFailedText}>
-            Translation failed. Showing original transcript.
-          </Text>
-        </View>
-        <TranscriptBody content={state.content} />
-      </View>
-    );
-  }
-
-  if (state.status === "loading" || state.status === "idle") {
-    return (
-      <View style={styles.transcriptStatusRow}>
-        <ActivityIndicator
-          size="small"
-          color={Colors.primary}
-          style={{ marginRight: Spacing.sm }}
-        />
-        <Text style={styles.transcriptStatusText}>Loading transcript…</Text>
-      </View>
-    );
-  }
-
-  if (state.status === "not_available") {
-    return (
-      <View style={styles.transcriptStatusRow}>
-        <Ionicons
-          name="information-circle-outline"
-          size={16}
-          color={Colors.textMuted}
-          style={{ marginRight: Spacing.sm }}
-        />
-        <Text style={styles.transcriptStatusText}>
-          Transcript content is not available for this item.
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <View>
-      <View style={styles.transcriptStatusRow}>
-        <Ionicons
-          name="alert-circle"
-          size={16}
-          color={Colors.error}
-          style={{ marginRight: Spacing.sm }}
-        />
-        <Text style={[styles.transcriptStatusText, { color: Colors.error }]}>
-          {state.message}
-        </Text>
-      </View>
-      <Pressable
-        style={styles.refreshButton}
-        onPress={onRetry}
-        accessibilityLabel="Retry loading transcript"
-        accessibilityRole="button"
-      >
-        <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-        <Text style={styles.refreshButtonText}>Retry</Text>
-      </Pressable>
-    </View>
-  );
-}
-
 // --- Helpers ---
-
-function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  if (mins >= 60) {
-    const hrs = Math.floor(mins / 60);
-    const remainMins = mins % 60;
-    return `${hrs}h ${remainMins}m`;
-  }
-  return `${mins}m ${secs}s`;
-}
 
 function getMediaTypeIcon(
   mediaType: string,
@@ -1630,147 +1181,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  // Artifacts section
-  artifactsSection: {
-    marginBottom: Spacing.lg,
+  // Intra-screen tabs. The bar carries the page background because it is a
+  // sticky header: content scrolls underneath it.
+  tabsBar: {
+    backgroundColor: Colors.background,
+    paddingBottom: Spacing.md,
   },
-  artifactsToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.xl,
-    minHeight: TouchTarget.minimum,
-    ...Shadows.soft,
-  },
-  artifactsToggleLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  artifactsToggleText: {
-    fontSize: Typography.body.fontSize,
-    fontWeight: "600",
-    color: Colors.textMain,
-  },
-  artifactsList: {
-    marginTop: Spacing.sm,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.outlineVariant,
-    overflow: "hidden",
-    ...Shadows.soft,
-  },
-  artifactRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: 14,
-    minHeight: TouchTarget.minimum,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.outlineVariant,
-  },
-  artifactRowLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm + 4,
-  },
-  artifactRowLabel: {
-    fontSize: Typography.body.fontSize,
-    fontWeight: "600",
-    color: Colors.textMain,
-  },
-  artifactRowRight: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  // Artifact states
-  artifactProgressContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  artifactProgressText: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-  },
-  artifactReadyContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  artifactReadyBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  artifactReadyText: {
-    fontSize: Typography.small.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.primary,
-  },
-  artifactViewButton: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.surfaceContainerHigh,
-    minHeight: 36,
-    justifyContent: "center",
-  },
-  artifactViewButtonText: {
-    fontSize: Typography.label.fontSize,
-    fontWeight: "600",
-    color: Colors.textMain,
-  },
-  artifactFailedContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  artifactFailedText: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.error,
-  },
-  artifactRetryButton: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.errorContainer,
-    minHeight: 36,
-    justifyContent: "center",
-  },
-  artifactRetryText: {
-    fontSize: Typography.small.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.error,
-  },
-  artifactWaitingText: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-    fontStyle: "italic",
-  },
-  generateButton: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.primary,
-    minHeight: TouchTarget.minimum,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  generateButtonText: {
-    fontSize: Typography.label.fontSize,
-    fontWeight: "600",
-    color: Colors.textMain,
-  },
-
-  // Content / Transcript section
-  contentSection: {
+  tabContent: {
     marginTop: Spacing.sm,
   },
   sectionTitle: {
@@ -1779,92 +1196,10 @@ const styles = StyleSheet.create({
     color: Colors.textMain,
     marginBottom: Spacing.md,
   },
-  transcriptContainer: {
+  // A stack of self-contained tiles: the gap between them does the sectioning,
+  // so there is no rule and no container frame ("No-Line rule").
+  artifactsList: {
     gap: Spacing.sm,
-  },
-  transcriptMeta: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.md,
-    marginBottom: Spacing.sm,
-  },
-  transcriptMetaItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  transcriptMetaText: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-  },
-  transcriptStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: Spacing.sm,
-  },
-  transcriptStatusText: {
-    fontSize: Typography.body.fontSize,
-    color: Colors.textMain,
-    lineHeight: Typography.body.lineHeight,
-  },
-  translationPendingBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    backgroundColor: Colors.surfaceContainerLow,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.sm,
-  },
-  translationPendingText: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-    fontStyle: "italic",
-  },
-  translationFailedBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    backgroundColor: Colors.errorContainer,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.sm,
-  },
-  translationFailedText: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.error,
-    flex: 1,
-  },
-  transcriptBody: {
-    paddingVertical: Spacing.sm,
-  },
-  transcriptParagraph: {
-    fontSize: Typography.body.fontSize,
-    lineHeight: Typography.body.lineHeight,
-    color: Colors.textMain,
-    marginBottom: Spacing.md,
-  },
-  transcriptParagraphLast: {
-    marginBottom: 0,
-  },
-  transcriptSpeaker: {
-    color: Colors.textMuted,
-    fontWeight: "600",
-  },
-  transcriptEmpty: {
-    alignItems: "center",
-    gap: Spacing.sm,
-    paddingVertical: Spacing.xl,
-  },
-  transcriptEmptyText: {
-    fontSize: Typography.body.fontSize,
-    color: Colors.textMuted,
-  },
-  transcriptEmptyHint: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-    fontStyle: "italic",
-    textAlign: "center",
   },
 
   // Error state
