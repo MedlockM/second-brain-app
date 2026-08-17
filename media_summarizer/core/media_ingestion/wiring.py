@@ -7,6 +7,7 @@ from typing import Iterable, Optional
 from media_summarizer.core.media_ingestion.adapters import (
     ArticleResolver,
     AudioResolver,
+    InstagramResolver,
     PodcastResolver,
     ProcessingJobSubmissionOrchestrator,
     RuleBasedUrlClassifier,
@@ -32,13 +33,6 @@ def build_default_resolver_registry(
     *,
     extra_resolvers: Optional[Iterable[ContentResolverPort]] = None,
 ) -> ResolverRegistry:
-    # Lazy import to break circular dependency:
-    # instagram_apify_resolver -> core.media_ingestion.domain
-    #   -> core.media_ingestion.__init__ -> .wiring -> instagram_apify_resolver
-    from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
-        InstagramApifyResolver,
-    )
-
     registry = ResolverRegistry()
     registry.register_many(
         [
@@ -46,7 +40,7 @@ def build_default_resolver_registry(
             XPostResolver(),
             ArticleResolver(),
             YouTubeResolver(),
-            InstagramApifyResolver(),
+            InstagramResolver(),
             TikTokResolver(),
             SocialVideoResolver(),
             AudioResolver(),

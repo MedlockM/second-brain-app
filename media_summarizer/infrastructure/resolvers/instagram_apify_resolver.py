@@ -20,7 +20,13 @@ Environment variables:
         (default: apify~instagram-post-scraper)
     APIFY_TIMEOUT_SECONDS: Request timeout (default 60)
     APIFY_POLL_INTERVAL_SECONDS: Poll interval for actor run status (default 3)
-    APIFY_MAX_POLLS: Maximum number of poll attempts (default 40)
+    APIFY_MAX_POLLS: Maximum number of poll attempts (default 40). Only the cap
+        of last resort: when the caller has published an invocation deadline
+        (see ``utils.invocation_budget``), the poll loop stops on the deadline
+        instead, so it can never outlive the worker that runs it.
+    APIFY_POLL_RESERVE_SECONDS: Time kept for the worker's own finalisation --
+        the job's terminal write and the next queue send -- after resolution
+        returns (default 15)
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from enum import Enum
 from typing import Any, Optional
 from urllib.parse import urlsplit
@@ -51,6 +58,7 @@ from media_summarizer.core.media_ingestion.title_derivation import (
     derive_media_title,
     first_sentence,
 )
+from media_summarizer.utils import invocation_budget
 from media_summarizer.utils.ingestion_sentinels import (
     strip_e2e_force_ip_block_sentinel,
 )
@@ -75,6 +83,9 @@ APIFY_POLL_INTERVAL_SECONDS = float(
     os.environ.get("APIFY_POLL_INTERVAL_SECONDS", "3")
 )
 APIFY_MAX_POLLS = int(os.environ.get("APIFY_MAX_POLLS", "40"))
+APIFY_POLL_RESERVE_SECONDS = float(
+    os.environ.get("APIFY_POLL_RESERVE_SECONDS", "15")
+)
 
 # yt-dlp Instagram primary path: tries to extract a direct audio URL gratis
 # before falling back to Apify. Lambda IPs are sometimes blocked; on block
@@ -112,6 +123,27 @@ class ApifyErrorCode(str, Enum):
     NETWORK_ERROR = "apify_network_error"
     INVALID_CONTENT_TYPE = "apify_invalid_content_type"
     RATE_LIMITED = "apify_rate_limited"
+
+
+def _resolution_deadline() -> Optional[float]:
+    """Monotonic instant past which this resolution must not still be running.
+
+    ``None`` when the caller published no invocation deadline (local polling
+    loop, script): the poll loop then falls back to ``APIFY_MAX_POLLS``.
+    """
+    budget = invocation_budget.remaining_seconds_after_reserve(
+        APIFY_POLL_RESERVE_SECONDS
+    )
+    if budget is None:
+        return None
+    return time.monotonic() + budget
+
+
+def _request_timeout(deadline: Optional[float], default_timeout: float) -> float:
+    """HTTP timeout for one Apify call, never past the invocation deadline."""
+    if deadline is None:
+        return default_timeout
+    return max(1.0, min(default_timeout, deadline - time.monotonic()))
 
 
 def _detect_instagram_content_type(normalized_url: str) -> InstagramContentType:
@@ -703,7 +735,15 @@ class InstagramApifyResolver(ContentResolverPort):
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        # The whole actor run -- start, poll, dataset fetch -- lives inside what
+        # the invocation has left. An Apify run measured at 63-100 s used to be
+        # polled for a fixed 120 s inside a 120 s worker, so the Lambda died
+        # mid-poll and the job never reached a terminal state (task-274).
+        deadline = _resolution_deadline()
+
+        async with httpx.AsyncClient(
+            timeout=_request_timeout(deadline, self._timeout)
+        ) as client:
             # Step 1: Start the actor run
             run_url = f"{APIFY_API_BASE_URL}/acts/{actor_id}/runs"
             response = await client.post(
@@ -741,10 +781,32 @@ class InstagramApifyResolver(ContentResolverPort):
             dataset_id: Optional[str] = None
 
             for _ in range(APIFY_MAX_POLLS):
+                if deadline is not None and (
+                    time.monotonic() + APIFY_POLL_INTERVAL_SECONDS >= deadline
+                ):
+                    # Out of invocation time, not out of patience: the run is
+                    # still going and the message is worth redelivering.
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        "instagram.apify.poll_budget_exhausted",
+                        "Apify run still pending when the invocation budget ran out",
+                        provider="apify",
+                        provider_actor=actor_id,
+                        resolver_key=self.key,
+                        source_platform=SourcePlatform.INSTAGRAM.value,
+                        apify_run_id=run_id,
+                    )
+                    raise RetryableProviderResolutionError(
+                        "Instagram media resolution is temporarily unavailable."
+                    )
+
                 await asyncio.sleep(APIFY_POLL_INTERVAL_SECONDS)
 
                 status_response = await client.get(
-                    run_status_url, headers=headers
+                    run_status_url,
+                    headers=headers,
+                    timeout=_request_timeout(deadline, self._timeout),
                 )
                 if status_response.status_code != 200:
                     continue
@@ -774,7 +836,11 @@ class InstagramApifyResolver(ContentResolverPort):
                 f"{APIFY_API_BASE_URL}/datasets/{dataset_id}/items"
                 "?format=json&limit=100"
             )
-            dataset_response = await client.get(dataset_url, headers=headers)
+            dataset_response = await client.get(
+                dataset_url,
+                headers=headers,
+                timeout=_request_timeout(deadline, self._timeout),
+            )
             if dataset_response.status_code != 200:
                 raise RetryableProviderResolutionError(
                     "Instagram media resolution is temporarily unavailable."

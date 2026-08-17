@@ -44,6 +44,11 @@ async def enqueue_deepgram_transcription(
     quota_debited_minutes: int = 0,
     content_mime_type: Optional[str] = None,
     original_name: Optional[str] = None,
+    quota_source_platform: Optional[str] = None,
+    resolver_key: Optional[str] = None,
+    caption: Optional[str] = None,
+    comments: Optional[list[Any]] = None,
+    comments_count: Optional[int] = None,
     queue_name: str = DEEPGRAM_TRANSCRIPTION_QUEUE,
 ) -> None:
     """Send a Deepgram transcription job to SQS with the canonical schema.
@@ -56,6 +61,12 @@ async def enqueue_deepgram_transcription(
     debited at its quota gate. The worker settles the difference with Deepgram's
     own duration, so a producer that omits it makes the user pay the whole real
     duration a second time.
+
+    ``quota_source_platform`` names the platform whose quota category applies.
+    The worker settles audio minutes for every message that leaves it unset, so
+    a producer whose media is metered in another category (Instagram, per the
+    validated task-250 decision) must pass it or its minutes get billed as
+    audio on top of the category the API already debited.
     """
     body: dict[str, Any] = {
         "job_id": job_id,
@@ -67,6 +78,11 @@ async def enqueue_deepgram_transcription(
     }
     optional_fields = {
         "media_key": media_key,
+        "quota_source_platform": quota_source_platform,
+        "resolver_key": resolver_key,
+        "caption": caption,
+        "comments": comments,
+        "comments_count": comments_count,
         "user_id": user_id,
         "user_email": user_email,
         "normalized_url": normalized_url,

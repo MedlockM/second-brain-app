@@ -290,24 +290,48 @@ class YouTubeResolver(ContentResolverPort):
 
 
 class InstagramResolver(ContentResolverPort):
-    """Instagram resolver backed by Apify actors (Reel + Post + Comment Scrapers).
+    """Deferred Instagram resolver: classifies, never calls a provider.
 
-    Delegates to InstagramApifyResolver from the infrastructure layer.
+    Instagram resolution needs yt-dlp and, when the Lambda egress IP is blocked,
+    an Apify actor run that takes 63-100 s (measured 2026-08-17). The API has a
+    hard 30 s ceiling it cannot raise -- API Gateway's HTTP API integration
+    timeout is not configurable -- so resolving here could only ever time the
+    request out, discard a billed actor run, and leave nothing persisted
+    (task-274). The provider call belongs to ``instagram_ingestion_worker``,
+    which the orchestrator reaches through the queue.
     """
-
-    def __init__(self) -> None:
-        from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
-            InstagramApifyResolver,
-        )
-
-        self._delegate = InstagramApifyResolver()
 
     @property
     def key(self) -> str:
         return "instagram.default"
 
     async def resolve(self, context: ResolveContext) -> ResolvedMedia:
-        return await self._delegate.resolve(context)
+        resolved = ResolvedMedia(
+            media_key=context.media_key,
+            normalized_url=context.normalized_url,
+            media_family=MediaFamily.SOCIAL_VIDEO,
+            media_type=MediaType.SHORT_VIDEO,
+            source_platform=SourcePlatform.INSTAGRAM,
+            resolver_key=self.key,
+            metadata={
+                "resolver_version": "v5",
+                "provider": "yt-dlp",
+                "extraction_mode": "deferred_connector",
+                "resolution_mode": "queued_worker",
+                "source_url": context.normalized_url,
+            },
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "resolver.completed",
+            "Instagram resolver completed",
+            source_platform=SourcePlatform.INSTAGRAM.value,
+            resolver_key=self.key,
+            media_type=MediaType.SHORT_VIDEO.value,
+            fallback_strategy="queued_worker",
+        )
+        return resolved
 
 
 class TikTokResolver(ContentResolverPort):

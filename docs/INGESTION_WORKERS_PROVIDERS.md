@@ -248,11 +248,15 @@ Ref: `youtube_ingestion_worker.py::YouTubeIngestionError`, `youtube_ingestion_wo
 |---|---|---|---|
 | yt-dlp | `yt_dlp.YoutubeDL.extract_info(url, download=False)` | Direct audio URL (best audio-only DASH/HTTPS stream) | `INSTAGRAM_INGESTION_QUEUE`, `YTDLP_TIMEOUT_SECONDS` |
 
+Since task-274 the API never resolves Instagram inline: `POST /api/media/ingest-url` persists the job, enqueues `instagram-ingestion-queue` and returns. yt-dlp plus an Apify run measured at 63-100 s could not fit the 30 s ceiling API Gateway imposes on the request, so every save timed out with nothing persisted while the actor run was billed and thrown away. The API-side resolver (`adapters/resolvers.py::InstagramResolver`) only classifies.
+
 Workflow:
 1. `instagram_ingestion_worker` consumes `instagram-ingestion-queue` and marks the job `EXTRACTING`
 2. `InstagramApifyResolver.resolve()` strips any sentinel from the URL, classifies the content type, then for Reels/IGTV invokes `_resolve_reel_via_ytdlp(...)` first
 3. yt-dlp runs without cookies; on success the resolver picks the best audio stream via `resolve_direct_media_url(info)` and returns a `ResolvedMedia` with `audio_url` populated
-4. The worker hands the URL to the Deepgram queue with `deepgram_mode="pull_with_push_fallback"` (Instagram CDN sometimes blocks Deepgram pull, so the worker falls back to push automatically)
+4. The worker hands the URL to the Deepgram queue with `deepgram_mode="push"` (Instagram CDNs block Deepgram's own fetch, so the Deepgram worker downloads the bytes and posts them), carrying the caption, the comments, the derived title (task-266) and `quota_source_platform="instagram"` so the minutes are not billed a second time as audio
+
+The Apify poll loop is bounded by the invocation's remaining time (`utils/invocation_budget.py`, published by `lambda_handlers.py` from `context.get_remaining_time_in_millis()`), never by `APIFY_MAX_POLLS` alone: a fixed 120 s of polling inside a 120 s worker is what killed the Lambda mid-resolution before task-274. `APIFY_POLL_RESERVE_SECONDS` (default 15) is what stays for the job's terminal write and the Deepgram send. The worker's Lambda timeout is 300 s and the queue's visibility timeout 1800 s (6x).
 
 Ref: `instagram_apify_resolver.py::InstagramApifyResolver.resolve`, `instagram_apify_resolver.py::_resolve_reel_via_ytdlp`, `utils/ytdlp_helpers.py::resolve_direct_media_url`, `instagram_ingestion_worker.py::process_instagram_message`
 
@@ -260,10 +264,11 @@ Ref: `instagram_apify_resolver.py::InstagramApifyResolver.resolve`, `instagram_a
 
 | Step | Trigger condition | Action |
 |---|---|---|
-| 1 (primary) | yt-dlp extracts a usable audio stream | Hand off to Deepgram via the `enqueue_deepgram_transcription` helper with `deepgram_mode="pull_with_push_fallback"` |
+| 1 (primary) | yt-dlp extracts a usable audio stream | Hand off to Deepgram via the `enqueue_deepgram_transcription` helper with `deepgram_mode="push"` |
 | 2 | yt-dlp raises with an Instagram login-wall / rate-limit / restricted-content error (`_looks_like_ig_ip_blocked_error`), or any other yt-dlp failure | Catch as internal `_InstagramYtdlpBlocked`, fall back to the Apify Reel Scraper path |
 | 3 (Apify fallback) | yt-dlp blocked OR sentinel forces it | `apify~instagram-reel-scraper` (configurable via `APIFY_INSTAGRAM_REEL_ACTOR_ID`) with input `{"username": [<url>], "resultsLimit": 1}` returns reel metadata. Resolver picks `audioUrl` (preferred) or `videoUrl` (fallback) and emits a `ResolvedMedia` with `audio_url` populated |
-| 4 (Deepgram handoff) | Either primary or Apify produced an `audio_url` | `enqueue_deepgram_transcription(..., deepgram_mode="pull_with_push_fallback", source_platform="instagram")` |
+| 4 (Deepgram handoff) | Either primary or Apify produced an `audio_url` | `enqueue_deepgram_transcription(..., deepgram_mode="push", source_platform="instagram", quota_source_platform="instagram")` |
+| 5 (budget exhausted) | The Apify run is still `RUNNING` when the invocation budget runs out | `instagram.apify.poll_budget_exhausted` then a retryable failure, so SQS redelivers rather than the Lambda being killed mid-poll |
 
 The yt-dlp "blocked" detector is intentionally permissive — any `DownloadError` or unexpected exception is treated as a soft block so the Apify branch always gets a chance. This mirrors the deliberate simplification: Instagram from Lambda is hostile enough that paying for Apify on uncertain failures is cheaper than triaging dozens of error phrasings.
 
@@ -283,7 +288,7 @@ Ref: `instagram_ingestion_worker.py::InstagramIngestionError`, `instagram_ingest
 
 ### Downstream dependencies
 
-- yt-dlp or Apify produced an `audio_url`: `deepgram-transcription-queue` (`pull_with_push_fallback`, then Deepgram publishes the completion event)
+- yt-dlp or Apify produced an `audio_url`: `deepgram-transcription-queue` (`push`, then Deepgram publishes the completion event)
 - All terminal errors: `EPISODE_COMPLETED_EVENTS_QUEUE` env var, default queue `episode-completed-events` (failure event)
 
 ---
@@ -302,14 +307,14 @@ Ref: `instagram_ingestion_worker.py::InstagramIngestionError`, `instagram_ingest
 URL classification scans every path segment for a known indicator (`reel`, `p`, `tv`) so both `/p/<id>/` and `/<username>/p/<id>/` shapes resolve to the same content type.
 
 Workflow split inside the resolver:
-- **URL path `/p/...` (image post or carousel)** → returns `MediaType.IMAGE_POST` payload (image URLs + caption). The orchestrator's `IMAGE_POST` branch enqueues to `instagram-image-queue` for OCR/vision processing (out of scope of the V1 transcription pipeline).
+- **URL path `/p/...` (image post or carousel)** → returns `MediaType.IMAGE_POST` payload (image URLs + caption). The worker fails the job with `unsupported_content` and the user-facing reason "Instagram image posts are not supported yet.": no OCR/vision pipeline exists, and the `instagram-image-queue` this used to name was never provisioned.
 - **URL path `/p/...` containing video** → currently treated as `IMAGE_POST` by the post scraper (the V1 pipeline does not split video posts from image posts; video posts surface only via `/reel/...` URLs).
 
-Ref: `instagram_apify_resolver.py::_detect_instagram_content_type`, `instagram_apify_resolver.py::_resolve_post`, `orchestrators.py` (`MediaType.IMAGE_POST` branch)
+Ref: `instagram_apify_resolver.py::_detect_instagram_content_type`, `instagram_apify_resolver.py::_resolve_post`, `instagram_ingestion_worker.py` (`MediaType.IMAGE_POST` branch)
 
 ### Fallback chain
 
-No fallback — failure is terminal. Image posts dispatched to `instagram-image-queue` are processed by the image worker pipeline (not covered here).
+No fallback — failure is terminal. There is no image pipeline to hand a post to.
 
 ### Terminal failure mode
 
@@ -317,7 +322,7 @@ Image-post failures surface from the post-scraper actor (auth, quota, content-ty
 
 ### Downstream dependencies
 
-- Image posts → `instagram-image-queue` (OCR/vision pipeline, not covered here)
+- Image posts → none: the job is failed in place with `unsupported_content`
 - Errors → `EPISODE_COMPLETED_EVENTS_QUEUE` env var, default queue `episode-completed-events` (failure event)
 
 ---
@@ -767,9 +772,8 @@ The `media_summarizer/utils/deepgram_dispatch.py` helper centralises the SQS pay
 |---|---|---|
 | YouTube ingestion worker (yt-dlp succeeded, no subtitles found) | `push` | `youtube_ingestion_worker.py` |
 | TikTok ingestion worker (yt-dlp succeeded, no native captions) | `pull_with_push_fallback` | `tiktok_ingestion_worker.py` (via `enqueue_deepgram_transcription`) |
-| Instagram ingestion worker (yt-dlp or Apify produced an `audio_url`) | `pull_with_push_fallback` | `instagram_ingestion_worker.py` (via `enqueue_deepgram_transcription`) |
+| Instagram ingestion worker (yt-dlp or Apify produced an `audio_url`) | `push` | `instagram_ingestion_worker.py` (via `enqueue_deepgram_transcription`) |
 | Orchestrator: `audio_s3_key` present (staged audio) | `pull` | `orchestrators.py` (`audio_s3_key` branch) |
-| Orchestrator: `SOCIAL_VIDEO` with `audio_url` (legacy direct path) | `push` | `orchestrators.py` (`SOCIAL_VIDEO` branch) |
 | Orchestrator: generic `audio_url` fallback | `pull_with_push_fallback` | `orchestrators.py` (generic audio_url branch) |
 | PodcastIndex resolution worker | `pull` | `podcastindex_resolution_worker.py` |
 | RSS feed poll worker (audio item) | `pull` | `rss_feed_poll_worker.py` |
@@ -802,7 +806,7 @@ The `RuleBasedUrlClassifier` in `media_summarizer/core/media_ingestion/adapters/
 | `*.deezer.com` | `/show/*` or `/episode/*` | PODCAST | DEEZER | `podcast.default` | `podcastindex-resolution-queue` |
 | `*.rss`, `*.xml`, `feeds.*`, `rss.*`, path with `feed` segment | feed-like | PODCAST | RSS | `podcast.default` | `podcastindex-resolution-queue` |
 | `youtube.com`, `youtu.be`, `m.*`, `music.*` | `/watch?v=`, `/shorts/`, `/live/`, `/embed/` | YOUTUBE | YOUTUBE | `youtube.default` | `youtube-ingestion-queue` |
-| `instagram.com` | `/reel/*`, `/p/*`, `/tv/*` | SOCIAL_VIDEO | INSTAGRAM | `instagram.default` | `instagram-ingestion-queue` (Reel/video) or `instagram-image-queue` (image post, via orchestrator) |
+| `instagram.com` | `/reel/*`, `/p/*`, `/tv/*` | SOCIAL_VIDEO | INSTAGRAM | `instagram.default` | `instagram-ingestion-queue` (every shape; the worker fails image posts in place) |
 | `x.com`, `twitter.com` | `/{user}/status/{id}`, `/i/status/{id}`, `/i/web/status/{id}` | ARTICLE | X | `x.default` | `x-ingestion-queue` |
 | `tiktok.com`, `vm.tiktok.com` | `/@user/video/*` or `/t/*` | SOCIAL_VIDEO | TIKTOK | `tiktok.default` | `tiktok-ingestion-queue` |
 | any | path ends with `.mp3/.m4a/.aac/.ogg/.wav/.flac/.opus` | AUDIO | DIRECT_URL | `audio.default` | `deepgram-transcription-queue` |

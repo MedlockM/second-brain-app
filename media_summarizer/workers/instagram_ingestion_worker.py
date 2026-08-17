@@ -1,16 +1,24 @@
 """
 Queue-first Instagram ingestion worker.
 
+This is the only place Instagram resolution runs (task-274). The API used to
+resolve inline, which could not work: yt-dlp plus, on an IP block, an Apify run
+measured at 63-100 s never fit the 30 s ceiling API Gateway imposes on the
+request, so every save timed out with nothing persisted while the actor run was
+billed and discarded.
+
 Pipeline:
 - Consumes messages from INSTAGRAM_INGESTION_QUEUE
-- Resolves content via InstagramApifyResolver (Apify Reel/Post Scrapers)
+- Resolves content via InstagramApifyResolver (yt-dlp first, Apify Reel/Post
+  Scrapers on an IP block)
 - For reels: enqueues a Deepgram transcription job pointing at the resolved
-  audio URL (or video URL fallback) with deepgram_mode="pull_with_push_fallback".
-  The Deepgram worker tries pull first and falls back to push when the IG CDN
-  blocks Deepgram.
-- If the resolver populates raw_text (kept for forward compatibility with a
-  potential native transcript path), uploads the transcript and completes inline.
-- Fails terminally when neither raw_text nor an audio URL is available.
+  audio URL (or video URL fallback) with deepgram_mode="push" -- Instagram CDNs
+  block Deepgram's pull, so the Deepgram worker downloads the bytes and posts
+  them itself. Carries the caption, the comments, the derived title (task-266)
+  and the Instagram quota category.
+- Image posts (single and carousel) fail with unsupported_content: no OCR/vision
+  pipeline exists.
+- Fails terminally when no audio URL is available.
 - Marks the processing job as extracting/transcribing along the way.
 """
 
@@ -28,6 +36,7 @@ from media_summarizer.core.media_ingestion.domain import (
     IngestUrlCommand,
     IngestUrlRequest,
     MediaFamily,
+    MediaType,
     ResolveContext,
     SourcePlatform,
     UserContext,
@@ -64,12 +73,10 @@ INSTAGRAM_WORKER_MAX_RETRIES = max(
 _DEFAULT_TEMPORARY_MESSAGE = (
     "Instagram media extraction is temporarily unavailable. Please retry."
 )
-_DEFAULT_UNAVAILABLE_MESSAGE = (
-    "This Instagram post is unavailable or cannot be processed."
-)
 _DEFAULT_UNSUPPORTED_MESSAGE = (
     "Unable to extract transcribable media from this Instagram URL."
 )
+_IMAGE_POST_MESSAGE = "Instagram image posts are not supported yet."
 
 
 class InstagramIngestionError(Exception):
@@ -250,8 +257,31 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
     content_type = resolver_metadata.get("instagram_content_type")
     transcript_source = resolver_metadata.get("transcript_source")
 
-    # The resolver returns audio_url for reels -> hand off to Deepgram with
-    # pull-with-push-fallback (the IG CDN sometimes blocks Deepgram pull).
+    if resolved.media_type == MediaType.IMAGE_POST:
+        # Single images and carousels resolve fine; there is simply nothing to
+        # transcribe and no OCR/vision pipeline to send them to. Failing here
+        # with a reason the user can read is the whole handling.
+        log_event(
+            logger,
+            logging.WARNING,
+            "media.ingest.unsupported",
+            "Instagram image post rejected: no OCR/vision pipeline exists",
+            job_id=job_id,
+            media_item_id=job_id,
+            instagram_content_type=content_type,
+            post_type=resolver_metadata.get("post_type"),
+            image_count=resolver_metadata.get("image_count", 0),
+        )
+        raise InstagramIngestionError(
+            "unsupported_content",
+            details="instagram_image_post",
+            retryable=False,
+            user_message=_IMAGE_POST_MESSAGE,
+        )
+
+    # The resolver returns audio_url for reels -> hand off to Deepgram in push
+    # mode: Instagram CDNs block Deepgram's own fetch, so the Deepgram worker
+    # downloads the bytes and posts them itself.
     if resolved.audio_url:
         duration_value = resolver_metadata.get("duration_seconds") or 0
         try:
@@ -280,21 +310,31 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
         await enqueue_deepgram_transcription(
             job_id=job_id,
             audio_url=resolved.audio_url,
-            deepgram_mode="pull_with_push_fallback",
+            deepgram_mode="push",
             source_platform="instagram",
             media_key=media_key,
             user_id=user_id,
             user_email=message_body.get("user_email"),
             normalized_url=normalized_url,
-            episode_title=resolved.title,
+            # The title the resolver derived from the caption, falling back to
+            # what the API stored at submission (task-266).
+            episode_title=job.title or message_body.get("episode_title"),
+            podcast_title=job.title or message_body.get("podcast_title"),
             audio_duration_seconds=audio_duration_seconds,
+            # Instagram is metered in its own quota category, not in audio
+            # minutes (validated task-250 decision).
+            quota_source_platform="instagram",
+            resolver_key=resolved.resolver_key,
+            caption=resolver_metadata.get("caption"),
+            comments=resolver_metadata.get("comments", []),
+            comments_count=resolver_metadata.get("comments_count", 0),
         )
 
         log_event(
             logger,
             logging.INFO,
             "transcription.enqueued",
-            "Instagram reel queued for Deepgram (pull-with-push-fallback)",
+            "Instagram reel queued for Deepgram (push mode)",
             job_id=job_id,
             media_item_id=job_id,
             instagram_content_type=content_type,
@@ -310,8 +350,8 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             "routed_to": "deepgram_queue",
         }
 
-    # If we reach here, the resolver returned neither raw_text nor an
-    # audio URL. This is unsupported — fail hard.
+    # If we reach here, the resolver returned no audio URL for a video post.
+    # There is nothing to transcribe — fail hard.
     raise InstagramIngestionError(
         "unsupported_content",
         details="no_transcript_or_audio_url",

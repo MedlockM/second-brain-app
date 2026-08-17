@@ -12,7 +12,6 @@ from media_summarizer.core.media_ingestion.domain import (
     IngestSharedContentCommand,
     IngestUrlCommand,
     MediaFamily,
-    MediaType,
     ProcessingLifecycleStatus,
     ResolvedMedia,
 )
@@ -40,6 +39,7 @@ DEFAULT_ARTICLE_EXTRACTION_QUEUE = required_env("ARTICLE_EXTRACTION_QUEUE")
 DEFAULT_X_INGESTION_QUEUE = required_env("X_INGESTION_QUEUE")
 DEFAULT_YOUTUBE_INGESTION_QUEUE = required_env("YOUTUBE_INGESTION_QUEUE")
 DEFAULT_TIKTOK_INGESTION_QUEUE = required_env("TIKTOK_INGESTION_QUEUE")
+DEFAULT_INSTAGRAM_INGESTION_QUEUE = required_env("INSTAGRAM_INGESTION_QUEUE")
 DEFAULT_EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 DEFAULT_TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
 
@@ -125,6 +125,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         x_ingestion_queue: Optional[str] = None,
         youtube_ingestion_queue: Optional[str] = None,
         tiktok_ingestion_queue: Optional[str] = None,
+        instagram_ingestion_queue: Optional[str] = None,
     ) -> None:
         self._deepgram_transcription_queue = (
             deepgram_transcription_queue
@@ -142,6 +143,9 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         )
         self._tiktok_ingestion_queue = (
             tiktok_ingestion_queue or DEFAULT_TIKTOK_INGESTION_QUEUE
+        )
+        self._instagram_ingestion_queue = (
+            instagram_ingestion_queue or DEFAULT_INSTAGRAM_INGESTION_QUEUE
         )
 
     async def submit(
@@ -267,7 +271,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             x_ingestion_enqueued = False
             youtube_ingestion_enqueued = False
             tiktok_ingestion_enqueued = False
-            social_video_transcription_enqueued = False
+            instagram_ingestion_enqueued = False
             outcome_status = ProcessingLifecycleStatus.PENDING
             if resolved.raw_text is not None and resolved.media_family == MediaFamily.SOCIAL_VIDEO:
                 # Apify transcript bypass: store transcript directly, skip Deepgram.
@@ -442,78 +446,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                         job_id=job.id,
                     )
                     outcome_status = ProcessingLifecycleStatus.FAILED
-            elif resolved.media_type == MediaType.IMAGE_POST:
-                # Instagram image posts (single + carousel). The OCR/vision
-                # pipeline they need does not exist: this branch enqueued to
-                # "instagram-image-queue", a queue Terraform has never created
-                # and no worker has ever consumed, so every image post silently
-                # stalled in EXTRACTING forever. Fail the job with a user-facing
-                # reason instead of pretending it was queued.
-                job.mark_failed(
-                    error_message="unsupported_content: Instagram image posts are not supported yet.",
-                    error_step="ingestion_core",
-                )
-                await database_async.update_processing_job(job)
-                await episode_idempotence.mark_failed(
-                    media_key=resolved.media_key,
-                    job_id=job.id,
-                )
-                outcome_status = ProcessingLifecycleStatus.FAILED
-                log_event(
-                    logger,
-                    logging.WARNING,
-                    "media.ingest.unsupported",
-                    "Instagram image post rejected: no OCR/vision pipeline exists",
-                    job_id=job.id,
-                    media_item_id=canonical_media_item_id,
-                    resolver_key=resolved.resolver_key,
-                    source_platform=resolved.source_platform.value,
-                    post_type=resolved.metadata.get("post_type"),
-                    image_count=resolved.metadata.get("image_count", 0),
-                )
-            elif resolved.media_family == MediaFamily.SOCIAL_VIDEO and resolved.audio_url:
-                # Instagram reels/video posts and other social video with a remote audio URL.
-                # Social video CDNs (Instagram, TikTok, X) block Deepgram IPs -> push mode.
-                # `quota_source_platform` keeps this path metered as its own
-                # category (article for instagram/x) instead of audio minutes:
-                # the validated task-250 decision leaves social video where it is.
-                job.mark_transcribing()
-                await database_async.update_processing_job(job)
-                await sqs.send_message(
-                    queue_name=self._deepgram_transcription_queue,
-                    message_body={
-                        "job_id": job.id,
-                        "user_id": command.user.user_id,
-                        "user_email": command.user.user_email,
-                        "audio_url": resolved.audio_url,
-                        "media_key": resolved.media_key,
-                        "normalized_url": resolved.normalized_url,
-                        "source_platform": resolved.source_platform.value,
-                        "resolver_key": resolved.resolver_key,
-                        "episode_title": title,
-                        "podcast_title": title,
-                        "caption": resolved.metadata.get("caption"),
-                        "comments": resolved.metadata.get("comments", []),
-                        "comments_count": resolved.metadata.get("comments_count", 0),
-                        "quota_source_platform": resolved.source_platform.value,
-                        "deepgram_mode": "push",
-                    },
-                )
-                pipeline_enqueued = True
-                social_video_transcription_enqueued = True
-                outcome_status = ProcessingLifecycleStatus.TRANSCRIBING
-                log_event(
-                    logger,
-                    logging.INFO,
-                    "transcription.enqueued",
-                    "Social video transcription enqueued",
-                    job_id=job.id,
-                    media_item_id=canonical_media_item_id,
-                    queue=self._deepgram_transcription_queue,
-                    resolver_key=resolved.resolver_key,
-                    source_platform=resolved.source_platform.value,
-                    transcript_source="deepgram",
-                )
             elif resolved.audio_url:
                 # Direct audio URL: nobody told us how long it is, so the gate
                 # runs an HTTP Range probe on the container before committing to
@@ -648,6 +580,39 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
                 )
+            elif resolved.resolver_key == "instagram.default":
+                # Queue-first Instagram resolution (task-274). The resolver needs
+                # yt-dlp and, on an IP block, an Apify run measured at 63-100 s --
+                # neither fits the API's non-negotiable 30 s ceiling, so the
+                # request only persists the job and hands the URL to the worker.
+                job.mark_extracting()
+                await database_async.update_processing_job(job)
+                await sqs.send_message(
+                    queue_name=self._instagram_ingestion_queue,
+                    message_body={
+                        "job_id": job.id,
+                        "user_id": command.user.user_id,
+                        "user_email": command.user.user_email,
+                        "media_key": resolved.media_key,
+                        "normalized_url": resolved.normalized_url,
+                        "resolver_key": resolved.resolver_key,
+                        "episode_title": title,
+                        "podcast_title": title,
+                    },
+                )
+                pipeline_enqueued = True
+                instagram_ingestion_enqueued = True
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "worker.enqueued",
+                    "Instagram ingestion enqueued",
+                    job_id=job.id,
+                    media_item_id=canonical_media_item_id,
+                    queue=self._instagram_ingestion_queue,
+                    resolver_key=resolved.resolver_key,
+                    source_platform=resolved.source_platform.value,
+                )
             elif resolved.media_family == MediaFamily.YOUTUBE:
                 job.mark_extracting()
                 await database_async.update_processing_job(job)
@@ -733,7 +698,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     outcome_status
                     if outcome_status != ProcessingLifecycleStatus.PENDING
                     else ProcessingLifecycleStatus.EXTRACTING
-                    if tiktok_ingestion_enqueued
+                    if tiktok_ingestion_enqueued or instagram_ingestion_enqueued
                     else ProcessingLifecycleStatus.PENDING
                 ),
                 media_key=resolved.media_key,
@@ -747,7 +712,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "x_ingestion_enqueued": x_ingestion_enqueued,
                     "youtube_ingestion_enqueued": youtube_ingestion_enqueued,
                     "tiktok_ingestion_enqueued": tiktok_ingestion_enqueued,
-                    "social_video_transcription_enqueued": social_video_transcription_enqueued,
+                    "instagram_ingestion_enqueued": instagram_ingestion_enqueued,
                     "media_family": resolved.media_family.value,
                     "media_type": resolved.media_type.value,
                     "source_platform": resolved.source_platform.value,

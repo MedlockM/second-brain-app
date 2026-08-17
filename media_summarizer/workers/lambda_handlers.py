@@ -17,6 +17,7 @@ from typing import Any
 
 import boto3
 
+from media_summarizer.utils import invocation_budget
 from media_summarizer.utils.logging_config import setup_logging
 
 # ---------------------------------------------------------------------------
@@ -69,6 +70,16 @@ def _build_handler(worker_module_path: str, process_func_name: str = "process_me
                 "Attributes": record.get("attributes", {}),
             }
 
+            # Publish this invocation's deadline so provider poll loops bound
+            # themselves by the time the Lambda actually has left instead of by a
+            # static poll count that can outlive the function (task-274).
+            try:
+                invocation_budget.set_remaining_seconds(
+                    context.get_remaining_time_in_millis() / 1000.0
+                )
+            except Exception:  # noqa: BLE001 - a missing context must not fail the record
+                invocation_budget.clear()
+
             try:
                 # Workers use async processing
                 asyncio.run(process_fn(message))
@@ -80,6 +91,8 @@ def _build_handler(worker_module_path: str, process_func_name: str = "process_me
                     exc_info=True,
                 )
                 failures.append({"itemIdentifier": message_id})
+            finally:
+                invocation_budget.clear()
 
         return {"batchItemFailures": failures}
 

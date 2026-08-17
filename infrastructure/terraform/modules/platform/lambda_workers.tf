@@ -34,9 +34,16 @@ locals {
       queue_arn   = aws_sqs_queue.youtube_ingestion.arn
       handler     = "media_summarizer.workers.lambda_handlers.youtube_ingestion_handler"
     }
+    # 300 s, not the 120 s the other ingestion workers use: yt-dlp takes up to
+    # 30 s before the Apify fallback, and an Apify Instagram run was measured at
+    # 63-100 s on 2026-08-17 (task-274). 120 s left under 18 s of headroom in the
+    # worst measured case, so the Lambda was killed before its terminal writes.
+    # The resolver's poll loop bounds itself by whatever this leaves it
+    # (utils/invocation_budget.py), so raising it widens the budget rather than
+    # letting anything run unbounded.
     instagram_ingestion = {
       memory_size = 512
-      timeout     = 120
+      timeout     = 300
       queue_arn   = aws_sqs_queue.instagram_ingestion.arn
       handler     = "media_summarizer.workers.lambda_handlers.instagram_ingestion_handler"
     }

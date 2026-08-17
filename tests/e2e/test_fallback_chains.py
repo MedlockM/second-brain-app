@@ -151,11 +151,16 @@ async def test_instagram_apify_fallback(
 
     The submitted URL carries the `__e2e_force_ip_block__=1` sentinel that
     the Instagram resolver strips in-flight and treats as an immediate
-    IP-block signal (see `_strip_e2e_force_ip_block_sentinel` in
+    IP-block signal (see `strip_e2e_force_ip_block_sentinel` in
     `media_summarizer/infrastructure/resolvers/instagram_apify_resolver.py`).
     This bypasses yt-dlp entirely and routes the job to the Apify Reel
     Scraper, which exposes `audioUrl` for downstream Deepgram transcription
-    in `pull_with_push_fallback` mode.
+    in `push` mode.
+
+    Since task-274 the sentinel travels through `instagram-ingestion-queue` to
+    the worker instead of being resolved inside the HTTP request, so the wait
+    covers the queue hop plus an Apify run measured at 63-100 s -- hence the
+    budget well above the other chains'.
 
     Asserts:
     - Job completes successfully (status == completed)
@@ -165,7 +170,7 @@ async def test_instagram_apify_fallback(
         http_client,
         auth_headers,
         "https://www.instagram.com/natgeo/reel/DZaHxtTglqb/?__e2e_force_ip_block__=1",
-        timeout_s=120,
+        timeout_s=300,
     )
 
     detail = await _get_media_item(http_client, auth_headers, media_item_id)

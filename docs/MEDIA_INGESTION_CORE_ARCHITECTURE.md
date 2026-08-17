@@ -218,17 +218,34 @@ Only steps 1-5 should be needed; `use_cases.py` and `registry.py` should remain 
 5. When no native transcript is available, the worker resolves a remote audio stream URL with `yt-dlp` and reuses `deepgram-transcription-queue` without downloading media locally.
 6. Worker metadata keeps the chosen strategy explicit through `transcription_metadata.provider` (`native_transcript` or `deepgram`) and `extraction_metadata.selected_strategy` (`native_transcript` or `audio_fallback`).
 
-## Instagram connector runtime path (task-31, task-108)
+## Instagram connector runtime path (task-31, task-108, task-274)
 
-`instagram.default` uses Apify actors (Reel Scraper, Post Scraper, Comment Scraper) to cover all Instagram content types:
+`instagram.default` follows the same queue-first shape as TikTok. Provider work
+happens in the worker, never in the HTTP request:
 
-1. URL is classified as `social_video` and routed to `InstagramResolver` (backed by `InstagramApifyResolver`).
-2. Resolver detects content type from URL path (`/reel/` -> reel, `/p/` -> post, `/tv/` -> igtv).
-3. For **Reels/IGTV**: Apify Reel Scraper returns `downloadedVideo` (hosted MP4, 3-day TTL) or `videoUrl` (CDN). Resolver returns it as `audio_url`. Orchestrator dispatches to Deepgram transcription queue.
-4. For **Video posts** (`/p/` with video): Apify Post Scraper returns `videoUrl`. Same Deepgram dispatch path as Reels.
-5. For **Image posts** (single or carousel): Apify Post Scraper returns `displayUrl`, `images`, `childPosts`. Resolver returns `MediaType.IMAGE_POST` with image URLs in metadata. Orchestrator dispatches to `instagram-image-queue` for OCR/vision processing.
-6. **Caption**: extracted from `caption` field in all scraper responses. Persisted in resolved metadata and forwarded to downstream workers.
-7. **Comments**: fetched via Apify Comment Scraper (best-effort, non-blocking). Persisted in resolved metadata with pagination (up to 50 per post).
+1. URL is classified as `social_video` and routed to `InstagramResolver`, which
+   only classifies — it calls no provider. Resolving inline could not work: the
+   API request has a hard 30 s ceiling (API Gateway's HTTP API integration
+   timeout, not configurable) while yt-dlp plus an Apify run measured at 63-100 s
+   needs far more, so every Instagram save timed out with nothing persisted.
+2. `ProcessingJobSubmissionOrchestrator` marks the job `extracting` and enqueues
+   `instagram-ingestion-queue`.
+3. `instagram_ingestion_worker` runs `InstagramApifyResolver`, which detects the
+   content type from the URL path (`/reel/` -> reel, `/p/` -> post, `/tv/` -> igtv).
+4. For **Reels/IGTV**: yt-dlp first (free); on an Instagram IP block, the Apify
+   Reel Scraper returns `audioUrl` (preferred) or `videoUrl`. The worker hands
+   the URL to `deepgram-transcription-queue` in `push` mode with
+   `quota_source_platform="instagram"`.
+5. For **Image posts** (single or carousel): the Apify Post Scraper returns
+   `displayUrl`, `images`, `childPosts` and the resolver a `MediaType.IMAGE_POST`
+   payload. The worker fails the job with `unsupported_content` — no OCR/vision
+   pipeline exists.
+6. **Caption**: extracted from the `caption` field of every scraper response,
+   persisted in resolved metadata and forwarded to Deepgram. It is also what the
+   title is derived from (task-266), which is why the title reaches the library
+   row only once the worker has run.
+7. The Apify poll loop bounds itself by the invocation's remaining time
+   (`utils/invocation_budget.py`), so resolution cannot outlive the Lambda.
 
 ## TikTok connector runtime path (task-54)
 

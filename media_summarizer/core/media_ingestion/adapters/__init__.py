@@ -20,6 +20,7 @@ from .podcast_resolver_foundation import (
 from .resolvers import (
     ArticleResolver,
     AudioResolver,
+    InstagramResolver,
     PodcastResolver,
     SocialVideoResolver,
     TikTokResolver,
@@ -33,6 +34,7 @@ __all__ = [
     "DEFAULT_PODCAST_RESOLUTION_FAILED_MESSAGE",
     "DEFAULT_PODCAST_RESOLUTION_PENDING_MESSAGE",
     "DeferredPodcastPlatformResolver",
+    "InstagramResolver",
     "PodcastResolver",
     "PodcastPlatformResolver",
     "PodcastPlatformResolverRegistry",

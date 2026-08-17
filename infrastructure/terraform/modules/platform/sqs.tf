@@ -127,8 +127,14 @@ resource "aws_sqs_queue" "instagram_ingestion_dlq" {
 }
 
 resource "aws_sqs_queue" "instagram_ingestion" {
-  name                       = "instagram-ingestion-queue${local.suffix}"
-  visibility_timeout_seconds = 720
+  name = "instagram-ingestion-queue${local.suffix}"
+
+  # 6x the worker's 300 s timeout (task-274), the ratio AWS documents for an SQS
+  # event source mapping: below it, a message can be redelivered while the first
+  # invocation is still resolving, which for this queue means paying a second
+  # Apify actor run for the same reel. maxReceiveCount stays 3, so a reel that
+  # keeps failing lands in the DLQ after three attempts.
+  visibility_timeout_seconds = 1800
   message_retention_seconds  = 1209600
 
   redrive_policy = jsonencode({
