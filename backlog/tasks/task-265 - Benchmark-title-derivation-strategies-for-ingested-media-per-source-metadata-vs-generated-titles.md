@@ -3,9 +3,10 @@ id: task-265
 title: >-
   Benchmark title derivation strategies for ingested media (per-source metadata
   vs generated titles)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-14 02:02'
+updated_date: '2026-08-17 19:02'
 labels:
   - benchmark
   - ingestion

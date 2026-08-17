@@ -3,10 +3,10 @@ id: task-268
 title: >-
   Make the media detail screen open the original source (Instagram reel, YouTube
   video, article) from its stored URL
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-17 18:55'
-updated_date: '2026-08-17 21:15'
+updated_date: '2026-08-17 19:10'
 labels:
   - mobile
   - ux
