@@ -1,10 +1,10 @@
 ---
 id: task-266
 title: Implement media title derivation per validated benchmark (task-265)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-14 02:02'
-updated_date: '2026-08-17 16:12'
+updated_date: '2026-08-17 19:29'
 labels:
   - ingestion
 dependencies:
