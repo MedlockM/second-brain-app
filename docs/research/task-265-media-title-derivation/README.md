@@ -1,13 +1,13 @@
 ---
-owner_decision: pending   # pending | ok | abandoned | redo | more
+owner_decision: ok   # pending | ok | abandoned | redo | more
 ---
 
 # Benchmark: title derivation strategies for ingested media
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — texte libre décrivant la décision finale : accept recommandation X, reject parce que Y, accept with modifications Z, OU, si redo, les consignes précises de correction à intégrer au prochain passage)_
-**Validated at**: _(date ISO à remplir par l'owner)_
+**Decision**: option A pour la simplicité de la V1. pour instagram on prendra le début de la description comme titre. Pour les photos prises avec l'appareil photo ou depuis la librairie on tire les métadonnées s'il en existe pour le titre et s'il en existe pas on mais le type de media suivi de la date à laquelle ça a été uploadé. Pour les fichiers importés on récupère le tirre dans les métadonnées.
+**Validated at**: 2026-08-17
 
 ---
 
