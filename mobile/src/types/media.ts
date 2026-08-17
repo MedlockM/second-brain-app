@@ -134,6 +134,12 @@ export interface ArtifactStatusSnapshot {
 export interface MediaItemContract {
   media_item_id: string;
   media_key: string;
+  /**
+   * Display title of the durable library row — the same field `MediaListItem`
+   * carries, so the detail header and the inbox vignette render one value. Null
+   * while the item's metadata has not resolved yet.
+   */
+  title?: string | null;
   original_url: string;
   normalized_url: string;
   media_type: MediaType;

@@ -148,6 +148,7 @@ Response (`MediaStatusResponse`):
   "media_item": {
     "media_item_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
     "media_key": "mkey_v1_4f3b7f1c...",
+    "title": "LE MEILLEUR DE BOUVARD - La blague de Carlos",
     "original_url": "https://open.spotify.com/episode/6rqhFgbbKwnb9MLmUQDhG6",
     "normalized_url": "https://open.spotify.com/episode/6rqhFgbbKwnb9MLmUQDhG6",
     "media_type": "podcast_episode",
@@ -186,6 +187,12 @@ Response (`MediaStatusResponse`):
   "artifacts": []
 }
 ```
+
+`media_item.title` is the `title` attribute of the durable `user_media` row, i.e. the exact value
+`GET /api/media` returns for the same item — the detail header and the list vignette read one field,
+not two. It is nullable (a row whose metadata has not resolved yet has none); clients degrade to the
+source URL, never to a URL path segment, which used to surface raw provider ids such as a Spotify
+episode id as a title.
 
 ### 3) POST /api/media/{media_item_id}/artifacts
 

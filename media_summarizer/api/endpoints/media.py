@@ -571,11 +571,14 @@ def _build_media_item_contract(
     is only an enrichment, and every field it used to provide has a durable
     counterpart. ``media_item_id`` is the durable id, which for rows reconstructed
     by the task-241 backfill is the very id the artifacts and Algolia objects are
-    already keyed by.
+    already keyed by. ``title`` is the row's own display title -- the same field
+    the list endpoint projects, so the detail header and the inbox vignette cannot
+    disagree.
     """
     return CanonicalMediaItemContract(
         media_item_id=record.media_item_id,
         media_key=record.media_key or record.media_item_id,
+        title=record.title,
         original_url=record.source_url or "",
         normalized_url=record.source_url or "",
         media_type=_canonical_media_type(record.media_type, record.source_platform),

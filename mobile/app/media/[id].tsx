@@ -619,14 +619,11 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     setArtifactsExpanded((prev) => !prev);
   };
 
-  // Extract display info
-  let displayTitle: string;
-  try {
-    const parsed = new URL(media_item.original_url);
-    displayTitle = parsed.pathname.split("/").pop() || parsed.hostname;
-  } catch {
-    displayTitle = media_item.original_url;
-  }
+  // Extract display info. The title is whatever the library row holds, exactly
+  // like the inbox vignette: same fallback to the source URL, then a neutral
+  // label for rows without one (shared text and uploads have no URL either).
+  const displayTitle =
+    media_item.title?.trim() || media_item.original_url.trim() || "Untitled";
 
   const displayDomain = (() => {
     try {

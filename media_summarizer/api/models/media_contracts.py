@@ -179,6 +179,11 @@ class TranscriptInfo(BaseModel):
 class MediaItemContract(BaseModel):
     media_item_id: str
     media_key: str
+    # Display title as stored on the durable library row -- the very value the
+    # list endpoint returns, so the detail screen and the inbox show the same
+    # thing instead of each inventing a label. Nullable: a row whose metadata has
+    # not resolved yet carries no title, and clients degrade to the source URL.
+    title: Optional[str] = None
     original_url: str
     normalized_url: str
     media_type: MediaType
