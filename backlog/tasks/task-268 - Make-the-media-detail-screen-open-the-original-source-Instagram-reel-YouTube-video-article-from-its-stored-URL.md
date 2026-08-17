@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-17 18:55'
+updated_date: '2026-08-17 21:15'
 labels:
   - mobile
   - ux
@@ -57,12 +58,96 @@ After this merges and `main` deploys to `-dev`: open a saved Instagram reel from
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The media detail screen (mobile/app/media/[id].tsx) exposes a tap affordance in the hero section that calls Linking.openURL on media_item.original_url, wired and reachable in the rendered tree
-- [ ] #2 The affordance carries a visible external-link indication (icon) and an accessibility label naming the destination, and is placed either on the existing domain metaChip or as a minimal hero icon button
-- [ ] #3 When original_url is empty or not openable, no press behaviour and no link icon are rendered — no disabled control and no no-op tap
-- [ ] #4 A rejected Linking.openURL is caught and surfaced through the screen's existing toast mechanism instead of throwing
-- [ ] #5 displayTitle and its fallback chain are unchanged (verified by diff), and no change is made to the inbox or search surfaces
-- [ ] #6 No backend, contract or model change: media_summarizer/ and mobile/src/types/media.ts are untouched by the diff, since source_url is already persisted and exposed as original_url
-- [ ] #7 The task notes record a check against the real user_media-dev table showing that a row for an Instagram-sourced item holds a non-empty source_url, so the affordance has something to open
-- [ ] #8 npx tsc --noEmit and the project's lint command pass in mobile/
+- [x] #1 The media detail screen (mobile/app/media/[id].tsx) exposes a tap affordance in the hero section that calls Linking.openURL on media_item.original_url, wired and reachable in the rendered tree
+- [x] #2 The affordance carries a visible external-link indication (icon) and an accessibility label naming the destination, and is placed either on the existing domain metaChip or as a minimal hero icon button
+- [x] #3 When original_url is empty or not openable, no press behaviour and no link icon are rendered — no disabled control and no no-op tap
+- [x] #4 A rejected Linking.openURL is caught and surfaced through the screen's existing toast mechanism instead of throwing
+- [x] #5 displayTitle and its fallback chain are unchanged (verified by diff), and no change is made to the inbox or search surfaces
+- [x] #6 No backend, contract or model change: media_summarizer/ and mobile/src/types/media.ts are untouched by the diff, since source_url is already persisted and exposed as original_url
+- [x] #7 The task notes record a check against the real user_media-dev table showing that a row for an Instagram-sourced item holds a non-empty source_url, so the affordance has something to open
+- [x] #8 npx tsc --noEmit and the project's lint command pass in mobile/
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The whole change lives in `mobile/app/media/[id].tsx`. No backend, no contract, no
+`mobile/src/types/media.ts` — `source_url` was already persisted and already exposed
+as `original_url`, exactly as the description stated (AC #6).
+
+### The chip is the tap target
+
+The preferred design held up: the hero `metaChip` became a `SourceChip`
+sub-component. With an openable link it renders as a `Pressable` carrying the
+media-type glyph, the uppercased domain, and a trailing `open-outline` glyph, with
+`accessibilityRole="link"` and `accessibilityLabel={`Open on ${host}`}`. With
+nothing to open it renders as a plain `View` with no glyph and no press handler —
+not a disabled control (AC #1, #2, #3).
+
+Touch target: the pill is ~25px tall by design (13px label + `paddingVertical: 4`),
+and inflating it to 48px would have wrecked its alignment with the date and duration
+in the same meta row. Instead the press area is extended with
+`hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}`, which is the same trick the
+44px header buttons in this file already use to clear the 48px floor.
+
+Pressed feedback is a tonal shift to `Colors.surfaceContainerHigh` (no new token, no
+border), per the No-Line rule.
+
+### What counts as "openable"
+
+`resolveSourceLink()` trims the value, parses it with the WHATWG `URL` (Expo SDK 52
+installs `whatwg-url-minimum` as a global via its winter runtime, so `protocol` and
+`hostname` are reliable — the bare React Native polyfill is not), and accepts
+**only** `http:`/`https:`. Anything else, including a parse failure, yields `null`
+and therefore no affordance.
+
+**Finding that diverges from the description.** The description assumed uploads and
+shared text reach the client with `original_url === ""`. Against the real
+`user_media-dev` table that is only half true:
+
+| `source_platform` / `media_type` | stored `source_url` |
+| --- | --- |
+| `instagram` / `short_video` (5 rows) | `https://instagram.com/reel/<shortcode>/` (38 chars, all non-empty) |
+| `youtube` / `youtube_video` (4 rows) | https URL |
+| `document` / `document` (3 rows) | **attribute absent** — `original_url` becomes `""` via `record.source_url or ""` in `media_summarizer/api/endpoints/media.py:582` |
+| `whatsapp` / `audio_file`, `shared_text` (5 rows) | **`share://whatsapp/...`** — a synthetic marker, non-empty and not openable |
+
+So an emptiness test alone would have shipped a chip that opens `share://whatsapp/…`
+on WhatsApp-shared audio, i.e. exactly the silent no-op tap AC #3 forbids. The
+scheme allowlist is what makes AC #3 hold for all four row shapes. No schema change
+was made, per the description's instruction to report such a finding rather than
+smuggle in a fix.
+
+### AC #7 — check against the real table
+
+`aws dynamodb scan --region eu-west-3 --table-name user_media-dev` (projection
+`source_platform,media_type,source_url`, filtered on `source_platform = instagram`)
+returned 5 rows, every one of them holding a non-empty `source_url` of the form
+`https://instagram.com/reel/<shortcode>/`. The affordance has something to open.
+Shortcodes are deliberately not transcribed here — the repo is public.
+
+### Failure path
+
+`handleOpenSource` awaits `Linking.openURL` inside a `try/catch` and, on rejection,
+calls the screen's existing `showToast`. The toast state gained a `tone`
+(`"success" | "error"`) so the failure reuses that one surface with an `alert-circle`
+glyph in `Colors.error` instead of introducing a second banner; the three existing
+call sites are unchanged and still default to the success tone (AC #4).
+
+`canOpenURL` is deliberately not called: http/https are always handled on both
+platforms, so it would only add an async gate before every render decision without
+changing the outcome.
+
+### Out of scope, verified
+
+`displayTitle` and `displayDomain` are byte-identical in the diff, and no inbox or
+search file is touched (AC #5).
+
+### Checks
+
+`npx tsc --noEmit` clean. `npm run lint` → 0 errors, 10 warnings, all pre-existing
+(the only one in this file is the unused `type` prop of `ArtifactRow`, untouched
+here) (AC #8).
+
+Per project policy, no automated test was added.
+<!-- SECTION:NOTES:END -->

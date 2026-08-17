@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as Linking from "expo-linking";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { MediaService } from "../../src/services/mediaService";
 import { ArtifactService } from "../../src/services/artifactService";
@@ -145,6 +146,45 @@ function splitTranscriptParagraphs(content: string): TranscriptParagraph[] {
         text: block.slice(match[0].length),
       };
     });
+}
+
+/** An `original_url` that is actually a destination the OS can open. */
+type SourceLink = {
+  /** The http(s) URL handed to `Linking.openURL`, verbatim. */
+  url: string;
+  /** Host without the `www.` prefix, used to name the destination out loud. */
+  host: string;
+};
+
+/**
+ * Decides whether the stored source URL is something we can offer to reopen.
+ *
+ * Only http(s) qualifies, and that is deliberate: on iOS and Android an
+ * `instagram.com` / `youtube.com` https URL is claimed by the installed app and
+ * opens it natively, so a universal link needs no per-source custom scheme (and
+ * no `LSApplicationQueriesSchemes` entry per platform).
+ *
+ * Everything else stored in `source_url` is not a destination. Checked against
+ * `user_media-dev` on 2026-08-17: uploads carry no `source_url` attribute at all
+ * (the API defaults it to `""`), and WhatsApp-shared audio and text carry a
+ * synthetic `share://whatsapp/...` marker. Both return `null` here, which is what
+ * keeps the chip inert rather than offering a tap that goes nowhere.
+ */
+function resolveSourceLink(rawUrl: string): SourceLink | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return null;
+    }
+    const host = parsed.hostname.replace(/^www\./, "");
+    if (!host) return null;
+    return { url: trimmed, host };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -333,14 +373,19 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   );
   const previousFolderIdRef = useRef<string | null>(currentFolderId);
 
-  // Toast feedback state
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Toast feedback state. The tone only swaps the glyph and its colour: one
+  // surface carries both the collection confirmations and a failed source open,
+  // instead of a second banner for errors.
+  const [toast, setToast] = useState<{
+    message: string;
+    tone: "success" | "error";
+  } | null>(null);
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback(
-    (message: string) => {
-      setToastMessage(message);
+    (message: string, tone: "success" | "error" = "success") => {
+      setToast({ message, tone });
       Animated.timing(toastOpacity, {
         toValue: 1,
         duration: 200,
@@ -352,7 +397,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
           toValue: 0,
           duration: 300,
           useNativeDriver: true,
-        }).start(() => setToastMessage(null));
+        }).start(() => setToast(null));
       }, 2500);
     },
     [toastOpacity],
@@ -633,6 +678,24 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     }
   })();
 
+  // The way back to the thing itself. `null` for anything we cannot open, in
+  // which case the chip below renders with no press behaviour and no glyph.
+  const sourceLink = useMemo(
+    () => resolveSourceLink(media_item.original_url),
+    [media_item.original_url],
+  );
+
+  const handleOpenSource = useCallback(async () => {
+    if (!sourceLink) return;
+    try {
+      await Linking.openURL(sourceLink.url);
+    } catch {
+      // No handler, or the OS refused: say so instead of letting the rejection
+      // bubble out of the press handler.
+      showToast(`Couldn't open ${sourceLink.host}`, "error");
+    }
+  }, [sourceLink, showToast]);
+
   const formattedDate = (() => {
     try {
       return new Date(media_item.created_at).toLocaleDateString("en-US", {
@@ -794,10 +857,14 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       />
 
       {/* Toast feedback */}
-      {toastMessage && (
+      {toast && (
         <Animated.View style={[styles.toast, { opacity: toastOpacity }]}>
-          <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
-          <Text style={styles.toastText}>{toastMessage}</Text>
+          <Ionicons
+            name={toast.tone === "error" ? "alert-circle" : "checkmark-circle"}
+            size={16}
+            color={toast.tone === "error" ? Colors.error : Colors.primary}
+          />
+          <Text style={styles.toastText}>{toast.message}</Text>
         </Animated.View>
       )}
 
@@ -810,16 +877,12 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         <View style={styles.heroSection}>
           <Text style={styles.heroTitle}>{displayTitle}</Text>
           <View style={styles.metaRow}>
-            <View style={styles.metaChip}>
-              <Ionicons
-                name={getMediaTypeIcon(media_item.media_type)}
-                size={14}
-                color={Colors.textMain}
-              />
-              <Text style={styles.metaChipText}>
-                {displayDomain.toUpperCase()}
-              </Text>
-            </View>
+            <SourceChip
+              icon={getMediaTypeIcon(media_item.media_type)}
+              label={displayDomain.toUpperCase()}
+              link={sourceLink}
+              onPress={handleOpenSource}
+            />
             {formattedDate ? (
               <>
                 <Text style={styles.metaDot}>{"•"}</Text>
@@ -942,6 +1005,59 @@ function Header({
         </Pressable>
       </View>
     </View>
+  );
+}
+
+/**
+ * The domain chip under the hero title, and the way back to the original source.
+ *
+ * When the item has an openable https URL the chip *is* the tap target: it
+ * already names the platform and sits under the title, so it only needs the
+ * external-link glyph to read as openable — cheaper than a second control
+ * competing with the artifacts card. When there is nothing to open it stays a
+ * plain label: no glyph, no press, no disabled state.
+ */
+function SourceChip({
+  icon,
+  label,
+  link,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  link: SourceLink | null;
+  onPress: () => void;
+}) {
+  const body = (
+    <>
+      <Ionicons name={icon} size={14} color={Colors.textMain} />
+      <Text style={styles.metaChipText}>{label}</Text>
+      {link ? (
+        <Ionicons name="open-outline" size={14} color={Colors.textMain} />
+      ) : null}
+    </>
+  );
+
+  if (!link) {
+    return <View style={styles.metaChip}>{body}</View>;
+  }
+
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.metaChip,
+        pressed && styles.metaChipPressed,
+      ]}
+      onPress={onPress}
+      accessibilityRole="link"
+      accessibilityLabel={`Open on ${link.host}`}
+      // The chip is ~25px tall by design; the slop takes the actual touch area
+      // past the 48px floor without inflating the pill, same trick as the
+      // header buttons.
+      hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
+    >
+      {body}
+    </Pressable>
   );
 }
 
@@ -1492,6 +1608,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.outlineVariant,
+  },
+  metaChipPressed: {
+    backgroundColor: Colors.surfaceContainerHigh,
   },
   metaChipText: {
     fontSize: Typography.small.fontSize,
