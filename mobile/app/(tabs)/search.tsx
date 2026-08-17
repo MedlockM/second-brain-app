@@ -488,7 +488,10 @@ function ErrorState({ message }: { message: string }) {
 }
 
 function ResultCard({ hit, onPress }: { hit: SearchHit; onPress: () => void }) {
-  const displayTitle = hit.title || "Untitled";
+  // Indexed titles are derived server-side and are never empty (task-266), so
+  // the client no longer invents "Untitled" -- a word that told the user nothing
+  // and, being the same for every such hit, made results indistinguishable.
+  const displayTitle = hit.title ?? "";
   const sourceLabel = getSourceLabel(hit.source_platform);
   const sourceIcon = getSourceIcon(hit.source_platform);
   const dateLabel = formatTimestamp(hit.created_at);

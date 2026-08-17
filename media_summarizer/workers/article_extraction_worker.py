@@ -23,6 +23,7 @@ from typing import Any, Dict, Optional
 import httpx
 import trafilatura
 
+from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     normalize_transcript_text,
@@ -245,6 +246,37 @@ def _extract_clean_text(html: str) -> str:
     return text
 
 
+def _extract_article_title(html: str, *, requested_url: str) -> Optional[str]:
+    """Headline of the page, or ``None`` when the page offers no usable one.
+
+    trafilatura parses the very HTML we just extracted the body from, so this
+    costs no extra request and no extra euro: `extract_metadata` merges JSON-LD,
+    OpenGraph and the `<title>` tag, which is where a publisher puts its
+    headline. The site name is passed to the rejection rules because a fair
+    number of templates render ``<title>Le Monde</title>`` on article pages, and
+    a library full of publication names is exactly the defect task-266 fixes.
+
+    Any parsing failure is swallowed: a missing headline means a fallback title,
+    never a failed extraction.
+    """
+    try:
+        document = trafilatura.extract_metadata(html, default_url=requested_url)
+    except Exception:
+        return None
+    if document is None:
+        return None
+
+    return select_title(
+        [getattr(document, "title", None)],
+        authors=[getattr(document, "author", None)],
+        site_names=[
+            getattr(document, "sitename", None),
+            getattr(document, "hostname", None),
+            requested_url,
+        ],
+    )
+
+
 async def _upload_transcript(job_id: str, text: str) -> str:
     """Upload the already-normalized extracted text as plain text."""
     transcript_s3_key = f"{job_id}.txt"
@@ -365,6 +397,10 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
 
     fetch_result = await _fetch_article_html(normalized_url)
     clean_text = _extract_clean_text(fetch_result["html"])
+    article_title = _extract_article_title(
+        fetch_result["html"],
+        requested_url=fetch_result.get("final_url") or normalized_url,
+    )
     transcript_s3_key = await _upload_transcript(job_id, clean_text)
 
     extraction_metadata = _build_extraction_metadata(
@@ -376,7 +412,7 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
         word_count=_word_count(clean_text),
         paragraph_count=count_paragraphs(clean_text),
         language=None,
-        title=None,
+        title=article_title,
         last_error_code=None,
     )
     transcription_metadata = {
@@ -396,6 +432,10 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
     job.set_transcription_location(transcript_s3_key)
     job.set_transcription_metadata(transcription_metadata)
     job.extraction_metadata = extraction_metadata
+    # Before `mark_completed`, so the completion event carries the headline and
+    # the Algolia record is right on the first indexing pass (task-266).
+    if article_title:
+        job.title = article_title
     job.mark_completed()
     await database_async.update_processing_job(job)
 

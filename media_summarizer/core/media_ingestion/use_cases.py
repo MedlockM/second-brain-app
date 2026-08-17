@@ -23,6 +23,7 @@ from media_summarizer.core.media_ingestion.errors import (
 )
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.media_ingestion.router import ResolverRouter
+from media_summarizer.core.media_ingestion.title_derivation import first_sentence
 from media_summarizer.core.services.media_identity import (
     derive_media_identity,
     generate_media_key,
@@ -137,7 +138,10 @@ class IngestSharedContentUseCase:
                 source_platform=source_platform,
                 resolver_key="shared.text",
                 raw_text=normalized_text,
-                title=f"{source_platform.value}:shared_text",
+                # Shared text carries no metadata at all, so its own first
+                # sentence is the title (task-266): the same rule X already
+                # applies to a post body.
+                title=first_sentence(normalized_text),
                 metadata={
                     "share_type": share_type.value,
                     "resolver_key": "shared.text",
@@ -169,7 +173,10 @@ class IngestSharedContentUseCase:
                 media_type=MediaType.AUDIO_FILE,
                 source_platform=source_platform,
                 resolver_key="shared.audio",
-                title=f"{source_platform.value}:audio_file",
+                # No title here on purpose: the orchestrator derives it from
+                # `metadata["original_name"]` below, and a WhatsApp voice note
+                # whose name is `PTT-20260817-WA0003.opus` legitimately falls
+                # through to the "Voice note — <date>" label (task-266).
                 audio_s3_key=staged_audio_s3_key,
                 metadata={
                     "share_type": share_type.value,

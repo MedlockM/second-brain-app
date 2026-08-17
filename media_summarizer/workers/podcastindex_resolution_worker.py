@@ -20,6 +20,7 @@ from media_summarizer.core.media_ingestion.adapters.podcast_resolver_foundation 
     normalize_podcast_source_url,
 )
 from media_summarizer.core.media_ingestion.domain import SourcePlatform
+from media_summarizer.core.media_ingestion.title_derivation import derive_media_title
 from media_summarizer.core.services import audio_quota_gate, quota_enforcer
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
@@ -295,7 +296,16 @@ async def process_message(message: dict) -> None:
         if not audio_url:
             raise RuntimeError("PodcastIndex resolution returned no audio URL.")
 
-        episode_title = resolution.get("episode_title") or job.title or "Podcast episode"
+        # The episode title the index returned, else whatever the job already
+        # holds, else the deterministic label -- never the bare word "Podcast
+        # episode", which was the same string for every unresolved episode
+        # (task-266).
+        episode_title = derive_media_title(
+            [resolution.get("episode_title"), job.title],
+            media_type="podcast_episode",
+            source_platform=job.source_platform,
+            site_names=[resolution.get("podcast_title")],
+        )
         podcast_title = resolution.get("podcast_title") or "Podcast"
         episode_image = resolution.get("episode_image") or job.media_image or ""
 

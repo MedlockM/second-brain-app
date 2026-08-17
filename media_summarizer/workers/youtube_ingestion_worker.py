@@ -61,6 +61,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import yt_dlp
 
+from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
@@ -141,6 +142,11 @@ _APIFY_ACTOR_DIALECTS: Dict[str, Dict[str, Any]] = {
         "extra_input": {},
     },
 }
+
+# Field names under which a transcript actor may expose the video title. Neither
+# actor guarantees it in its output schema, so all known spellings are tried and
+# a missing title simply leaves the submission-time value in place (task-266).
+_APIFY_TITLE_FIELDS = ("title", "video_title", "videoTitle", "name")
 
 _YTDLP_EXTRACTOR_VERSION = "v1"
 
@@ -673,6 +679,15 @@ def _apify_item_transcript_text(item: Dict[str, Any], dialect: Dict[str, Any]) -
     return ""
 
 
+def _apify_item_title(item: Dict[str, Any]) -> Optional[str]:
+    """Video title carried by the actor dataset item, when it carries one."""
+    for field in _APIFY_TITLE_FIELDS:
+        value = item.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 def _is_language_not_available(item: Dict[str, Any]) -> bool:
     """Whether the actor refused the run only because the language is missing."""
     return (
@@ -774,6 +789,7 @@ async def _fetch_apify_transcript(
 
     return {
         "text": transcript_text,
+        "title": _apify_item_title(item),
         # Language actually delivered by the actor; may differ from the request
         # when we fell back to the video default or the actor cannot select a
         # language at all (task-192 translates downstream). Resolved through
@@ -1083,6 +1099,13 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
             source_url=normalized_url,
             apify_result=apify_result,
         )
+        # Title from the actor payload when it carries one (task-266). Written
+        # before `mark_completed`, so the completion event -- and therefore the
+        # Algolia record built from it -- already sees the real title and no
+        # re-index pass is needed.
+        apify_title = select_title([apify_result.get("title")])
+        if apify_title:
+            job.title = apify_title
         job.mark_completed()
         await database_async.update_processing_job(job)
 
@@ -1110,6 +1133,16 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
     # YT-DLP SUCCEEDED: try native subtitles
     # -----------------------------------------------------------------------
     assert info is not None
+
+    # yt-dlp already returned the real video title in the same call that resolved
+    # the streams: no extra request, no extra cost (task-266). Assigned here so
+    # both branches below (Deepgram fallback and native subtitles) persist it.
+    ytdlp_title = select_title(
+        [info.get("title"), info.get("fulltitle")],
+        authors=[info.get("uploader"), info.get("channel"), info.get("uploader_id")],
+    )
+    if ytdlp_title:
+        job.title = ytdlp_title
 
     try:
         native_result = await _fetch_native_subtitles(
@@ -1171,7 +1204,10 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
                 "audio_url": audio_result["audio_url"],
                 "media_key": message_body.get("media_key"),
                 "normalized_url": normalized_url,
-                "episode_title": message_body.get("episode_title") or job.title,
+                # `job.title` first: it now holds the title yt-dlp just returned,
+                # while the message field still carries the value computed at
+                # submission time, before the video metadata was known.
+                "episode_title": job.title or message_body.get("episode_title"),
                 "podcast_title": message_body.get("podcast_title")
                 or job.source_platform,
                 "audio_duration_seconds": gate.duration_seconds,

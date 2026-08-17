@@ -323,7 +323,7 @@ function InsightCard({
         {/* Content area */}
         <View style={styles.cardContent}>
           <Text style={styles.cardSource}>
-            {item.title || item.source_platform}
+            {item.title}
           </Text>
           <View style={styles.quoteContainer}>
             <Text style={styles.quoteDecoration}>{"“"}</Text>

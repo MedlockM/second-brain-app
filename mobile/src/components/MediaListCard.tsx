@@ -37,7 +37,10 @@ export function MediaListCard({ item, onPress }: MediaListCardProps): React.JSX.
   const timeAgo = getRelativeTime(item.created_at);
   const icon = getMediaTypeIcon(mediaType);
 
-  const displayTitle = item.title?.trim() ? item.title : sourceUrl;
+  // The backend always stores a non-empty, human-readable title (task-266), so
+  // there is nothing left to invent here. The previous fallback rendered the
+  // raw source URL, which duplicated the domain line right below it.
+  const displayTitle = item.title;
 
   return (
     <Pressable

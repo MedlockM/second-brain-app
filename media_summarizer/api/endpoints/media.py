@@ -55,6 +55,10 @@ from media_summarizer.api.models.media_contracts import (
 )
 from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
 from media_summarizer.core.media_ingestion.adapters.classifiers import RuleBasedUrlClassifier
+from media_summarizer.core.media_ingestion.title_derivation import (
+    derive_media_title,
+    label_for_file_name,
+)
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models.media_artifact import MediaArtifactRecord
@@ -982,6 +986,17 @@ async def upload_document(
         # job so it can seed the durable library id.
         media_key = f"doc:{user.id}:{file_name}:{len(content)}"
 
+        # Title stored right away (task-266): the cleaned filename when it says
+        # something -- "Grant Deed_Security.pdf" reads "Grant Deed Security" --
+        # otherwise the media type plus the upload date, which is the owner's
+        # rule for a camera capture or a library pick whose name is `IMG_4821`.
+        # The parsing worker upgrades it later if the document carries a title.
+        media_title = derive_media_title(
+            [],
+            label=label_for_file_name(file_name),
+            file_name_candidates=[file_name],
+        )
+
         # Durable library entry first (task-240, task-218 §4.3): the job, the S3
         # object and the queue message are operational and may be retried; what
         # the user saved must not depend on any of them surviving. Since task-220
@@ -990,7 +1005,7 @@ async def upload_document(
         durable_media_item_id = await save_media_for_user(
             user_id=user.id,
             media_key=media_key,
-            title=file_name,
+            title=media_title,
             source_platform="document",
             media_type="document",
             folder_id=resolved_folder_id,
@@ -1004,7 +1019,7 @@ async def upload_document(
             source_url="",
             source_platform="document",
             media_type="document",
-            title=file_name,
+            title=media_title,
             # Pointer to the durable library row this job is working for. The job
             # deliberately stays free of `media_key`: the completion events and the
             # watcher fan-out key off it, and this upload path has no entry in the
@@ -1034,7 +1049,6 @@ async def upload_document(
                 "document_s3_key": document_s3_key,
                 "file_name": file_name,
                 "media_key": media_key,
-                "media_title": file_name,
             },
         )
 
@@ -1178,6 +1192,17 @@ async def upload_audio(
         # client-visible media_key of the canonical contract.
         media_key = f"audio:{user.id}:{file_name}:{len(content)}"
 
+        # Cleaned filename when it carries a name of its own, otherwise
+        # "Audio note — <date>" (task-266). A voice memo exported as
+        # `AUD-20260817-WA0002.opus` has no title to read, and the raw filename
+        # was never one.
+        media_title = derive_media_title(
+            [],
+            media_type="audio",
+            source_platform="audio",
+            file_name_candidates=[file_name],
+        )
+
         # Create processing job
         job = ProcessingJob(
             user_id=user.id,
@@ -1185,7 +1210,7 @@ async def upload_audio(
             source_url="",
             source_platform="audio",
             media_type="audio",
-            title=file_name,
+            title=media_title,
         )
 
         # Durable library entry first (task-240, task-218 §4.3). The folder and
@@ -1195,7 +1220,7 @@ async def upload_audio(
         job.media_item_id = await save_media_for_user(
             user_id=user.id,
             media_key=media_key,
-            title=file_name,
+            title=media_title,
             source_platform="audio",
             media_type="audio",
             folder_id=resolved_folder_id,

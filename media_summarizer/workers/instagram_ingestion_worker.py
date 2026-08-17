@@ -268,6 +268,12 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
         )
         job.extraction_metadata = extraction_metadata
         job.media_url = resolved.audio_url
+        # The caption only exists once the resolver has run, and the resolver
+        # runs here rather than at submission time -- so this is where the title
+        # reaches the job, and through the mirror the library row (task-266).
+        # Before this, the caption was resolved, logged, and dropped.
+        if resolved.title:
+            job.title = resolved.title
         job.mark_transcribing()
         await database_async.update_processing_job(job)
 

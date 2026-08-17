@@ -21,6 +21,10 @@ from urllib.parse import unquote
 
 import httpx
 
+from media_summarizer.core.media_ingestion.title_derivation import (
+    derive_media_title,
+    first_sentence,
+)
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     normalize_transcript_text,
@@ -81,21 +85,6 @@ class XIngestionError(Exception):
 
 def _now_iso_utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _first_line(text: str) -> str:
-    for line in text.splitlines():
-        value = " ".join(line.split()).strip()
-        if value:
-            return value
-    return ""
-
-
-def _truncate(text: str, limit: int) -> str:
-    value = (text or "").strip()
-    if len(value) <= limit:
-        return value
-    return value[: max(0, limit - 3)].rstrip() + "..."
 
 
 def _lookup_headers() -> Dict[str, str]:
@@ -280,12 +269,22 @@ async def _upload_transcript(job_id: str, text: str) -> str:
 
 
 def _build_titles(lookup_result: Dict[str, Any]) -> tuple[str, str]:
+    """Return ``(podcast_title, episode_title)`` for one X post.
+
+    The post body is the only human-written text X exposes, so its first
+    sentence is the title and the handle never is. Now routed through the shared
+    derivation (task-266): the local first-line/truncate pair predated it, and a
+    body that normalises to nothing lands on the "X post — <date>" label instead
+    of the raw tweet id.
+    """
     username = str(lookup_result.get("author_username") or "").strip()
     podcast_title = f"X - @{username}" if username else "X post"
-    first_line = _first_line(str(lookup_result.get("text") or ""))
-    episode_title = _truncate(first_line, 120) if first_line else ""
-    if not episode_title:
-        episode_title = f"X post {lookup_result.get('tweet_id')}"
+    episode_title = derive_media_title(
+        [first_sentence(str(lookup_result.get("text") or ""))],
+        media_type="article",
+        source_platform="x",
+        authors=[username, lookup_result.get("author_name")],
+    )
     return podcast_title, episode_title
 
 

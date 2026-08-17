@@ -47,6 +47,10 @@ from media_summarizer.core.media_ingestion.errors import (
     RetryableProviderResolutionError,
 )
 from media_summarizer.core.media_ingestion.ports import ContentResolverPort
+from media_summarizer.core.media_ingestion.title_derivation import (
+    derive_media_title,
+    first_sentence,
+)
 from media_summarizer.utils.ingestion_sentinels import (
     strip_e2e_force_ip_block_sentinel,
 )
@@ -444,11 +448,16 @@ class InstagramApifyResolver(ContentResolverPort):
             if isinstance(caption_value, str) and caption_value.strip()
             else None
         )
-        title_value = info.get("uploader") or info.get("channel")
-        title = (
-            title_value.strip()
-            if isinstance(title_value, str) and title_value.strip()
-            else None
+        # Instagram exposes no title of its own: yt-dlp's `title` is the
+        # placeholder "Video by <user>". The owner's rule for this platform is
+        # the beginning of the description, and the account name is never a
+        # title -- it is the same value on every reel of that account and made
+        # the whole library read as a list of usernames (task-266).
+        title = derive_media_title(
+            [first_sentence(caption)],
+            media_type=MediaType.SHORT_VIDEO.value,
+            source_platform=SourcePlatform.INSTAGRAM.value,
+            authors=[info.get("uploader"), info.get("channel"), info.get("uploader_id")],
         )
 
         metadata: dict[str, Any] = {
@@ -486,7 +495,7 @@ class InstagramApifyResolver(ContentResolverPort):
             source_platform=SourcePlatform.INSTAGRAM,
             resolver_key=self.key,
             audio_url=audio_result["audio_url"],
-            title=title or (caption[:100] if caption else None),
+            title=title,
             metadata=metadata,
         )
 
@@ -552,11 +561,12 @@ class InstagramApifyResolver(ContentResolverPort):
                 duration_seconds = None
 
         caption = _extract_caption(item)
-        title_value = item.get("ownerFullName") or item.get("ownerUsername")
-        title = (
-            title_value.strip()
-            if isinstance(title_value, str) and title_value.strip()
-            else None
+        # Caption first, account name never (task-266).
+        title = derive_media_title(
+            [first_sentence(caption)],
+            media_type=MediaType.SHORT_VIDEO.value,
+            source_platform=SourcePlatform.INSTAGRAM.value,
+            authors=[item.get("ownerFullName"), item.get("ownerUsername")],
         )
 
         metadata: dict[str, Any] = {
@@ -581,7 +591,7 @@ class InstagramApifyResolver(ContentResolverPort):
             source_platform=SourcePlatform.INSTAGRAM,
             resolver_key=self.key,
             audio_url=chosen_url,
-            title=title or (caption[:100] if caption else None),
+            title=title,
             metadata=metadata,
         )
 
@@ -649,7 +659,12 @@ class InstagramApifyResolver(ContentResolverPort):
             media_type=MediaType.IMAGE_POST,
             source_platform=SourcePlatform.INSTAGRAM,
             resolver_key=self.key,
-            title=caption[:100] if caption else None,
+            title=derive_media_title(
+                [first_sentence(caption)],
+                media_type=MediaType.IMAGE_POST.value,
+                source_platform=SourcePlatform.INSTAGRAM.value,
+                authors=[item.get("ownerFullName"), item.get("ownerUsername")],
+            ),
             metadata=metadata,
         )
 

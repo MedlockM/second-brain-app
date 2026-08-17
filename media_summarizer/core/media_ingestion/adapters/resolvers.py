@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Final
+from typing import Final, Optional
 from urllib.parse import urlsplit
 
 from media_summarizer.core.media_ingestion.adapters.podcast_resolver_foundation import (
@@ -27,6 +27,7 @@ from media_summarizer.core.media_ingestion.errors import (
     UnsupportedUrlError,
 )
 from media_summarizer.core.media_ingestion.ports import ContentResolverPort
+from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.utils.language_codes import normalize_language_code
 from media_summarizer.utils.logging_config import log_event
 
@@ -38,6 +39,13 @@ _SUPPORTED_PODCAST_PLATFORMS: Final[set[SourcePlatform]] = {
     SourcePlatform.DEEZER,
     SourcePlatform.RSS,
 }
+
+
+def _url_file_name(normalized_url: str) -> Optional[str]:
+    """Last path segment of a URL, when there is one."""
+    path = urlsplit((normalized_url or "").strip()).path or ""
+    segments = [segment for segment in path.split("/") if segment]
+    return segments[-1] if segments else None
 
 
 def _extract_x_post_id(normalized_url: str) -> str:
@@ -382,6 +390,14 @@ class AudioResolver(ContentResolverPort):
             source_platform=SourcePlatform.DIRECT_URL,
             resolver_key=self.key,
             audio_url=context.normalized_url,
+            # A direct audio link exposes exactly one piece of metadata: the file
+            # name in its path. Cleaned and rejected like any other filename
+            # (task-266) -- `/podcasts/the-daily-2026-08-17.mp3` is a title,
+            # `/media/a3f9c1d4e8b27f60.mp3` is not and falls to the label.
+            title=select_title(
+                [],
+                file_name_candidates=[_url_file_name(context.normalized_url)],
+            ),
             metadata={
                 "resolver_version": "v1",
                 "audio_url_available": True,

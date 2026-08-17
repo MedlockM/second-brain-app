@@ -18,6 +18,7 @@ from media_summarizer.core.media_ingestion.domain import (
 )
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
+from media_summarizer.core.media_ingestion.title_derivation import derive_media_title
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.core.services.durable_media_service import save_media_for_user
@@ -160,7 +161,20 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         - Handles direct transcription for shared text and Apify social video transcripts.
         - Manages idempotence via media_key deduplication.
         """
-        title = resolved.title or f"{resolved.source_platform.value}:{resolved.media_type.value}"
+        # Single derivation point for the title stored at submission (task-266).
+        # Resolvers put whatever their provider already knows in `resolved.title`;
+        # here it is validated against the deterministic distrust rules and, when
+        # nothing survives, replaced by a readable "<label> — <date>" fallback.
+        # A worker that later learns the real title (YouTube, TikTok, article,
+        # document) overwrites this value through the durable mirror.
+        title = derive_media_title(
+            [resolved.title],
+            media_type=resolved.media_type.value,
+            source_platform=resolved.source_platform.value,
+            file_name_candidates=[
+                resolved.metadata.get("original_name") if resolved.metadata else None
+            ],
+        )
 
         # The durable library entry is created FIRST (task-218 §4.3): everything
         # below it -- the idempotence reservation, the processing job, the queue

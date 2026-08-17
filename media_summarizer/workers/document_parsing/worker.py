@@ -21,6 +21,10 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict
 
+from media_summarizer.core.media_ingestion.title_derivation import (
+    first_markdown_heading,
+    select_title,
+)
 from media_summarizer.core.ports.document_parser import (
     DocumentFormat,
     DocumentParserPort,
@@ -59,6 +63,19 @@ DOCUMENT_PARSING_VISIBILITY_TIMEOUT = int(
 # Resolvers (instantiated at module level for reuse across messages)
 _llamaparse: DocumentParserPort = LlamaParseResolver()
 _unstructured: DocumentParserPort = UnstructuredResolver()
+
+# Formats whose parsed output is OCR of a picture rather than a structured
+# document: their leading heading is body text, not a title (task-266).
+_IMAGE_FORMATS = frozenset(
+    {
+        DocumentFormat.IMAGE_JPG,
+        DocumentFormat.IMAGE_JPEG,
+        DocumentFormat.IMAGE_PNG,
+        DocumentFormat.IMAGE_TIFF,
+        DocumentFormat.IMAGE_BMP,
+        DocumentFormat.IMAGE_HEIF,
+    }
+)
 
 
 def _detect_format(file_name: str) -> DocumentFormat | None:
@@ -159,14 +176,12 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
         "document_s3_key": str,
         "file_name": str,
         "media_key": str,
-        "media_title": str (optional),
     }
     """
     job_id = message_body.get("job_id")
     document_s3_key = message_body.get("document_s3_key")
     file_name = message_body.get("file_name", "")
     media_key = message_body.get("media_key")
-    media_title = message_body.get("media_title", file_name)
 
     if not all([job_id, document_s3_key, file_name]):
         raise ValueError(
@@ -257,7 +272,24 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
                 "page_count": result.page_count,
                 "parse_duration_seconds": int(parse_duration),
             })
-            job.title = media_title
+            # Imported files take their title from the document metadata
+            # (task-266): what the parser surfaces of it is the leading heading
+            # of the markdown -- LlamaParse renders the document title as `#`,
+            # Unstructured maps its `Title` elements to `##`. Nothing survives
+            # -> the title derived at upload time from the filename, or the
+            # "Document — <date>" / "Photo — <date>" label, stays in place.
+            #
+            # Images are excluded on purpose: their first heading is OCR'd body
+            # text, not a title the file carries, and there is no EXIF/XMP
+            # reader in the runtime to read a real one. A camera photo therefore
+            # keeps the "Photo — <date>" label, which is precisely the owner's
+            # rule for that source.
+            if document_format not in _IMAGE_FORMATS:
+                parsed_title = select_title(
+                    [first_markdown_heading(result.markdown_content)]
+                )
+                if parsed_title:
+                    job.title = parsed_title
             job.source_platform = "document"
             job.media_type = "document"
             job.mark_completed()
