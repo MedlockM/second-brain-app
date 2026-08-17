@@ -1,12 +1,12 @@
 ---
-owner_decision: pending   # pending | ok | abandoned | redo | more
+owner_decision: ok   # pending | ok | abandoned | redo | more
 ---
 
 # Benchmark : génération d'artefacts IA au niveau collection (agrégation de N transcripts)
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — texte libre décrivant la décision finale : accept recommandation X, reject parce que Y, accept with modifications Z, OU, si redo, les consignes précises de correction à intégrer au prochain passage)_
+**Decision**: statégie s1
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---
