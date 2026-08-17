@@ -29,14 +29,25 @@ Matériel existant :
 
 Pas de tâche benchmark ici : il n'y a pas de choix technologique ouvert, la cible visuelle est tranchée par l'owner via ses screenshots.
 
+## Ce qui a déjà été détaché de ce chantier (2026-08-17)
+
+L'owner a livré ses deux premières références et la structure de navigation qu'elles impliquent. Le travail correspondant est **sorti de cette tâche** et vit dans des tâches dispatchables, indépendantes du verrou ci-dessous :
+
+- `mobile-design-mockups/notebooklm-reference/collection-sources-tab.png` et `collection-studio-tab.png` sont déposés, et leur mapping écran par écran est consigné dans `mobile-design-mockups/notebooklm-reference/README.md`.
+- **task-271** — media detail : la liste déroulante « AI Artifacts » disparaît au profit de deux onglets intra-écran **« Reader »** (transcript) et **« AI »** (génération). Cette tâche crée les deux composants partagés (onglets, tuile d'artefact) que les suivantes réutilisent.
+- **task-269** (benchmark) puis **task-270** (implémentation) — le backend qui manque : générer un artefact sur **tous les médias d'une collection agrégés**, ce qui n'existe nulle part aujourd'hui (toute la chaîne est scopée à un `media_item_id`).
+- **task-272** — collection detail : onglets **« Sources »** (liste dépouillée icône + titre) et **« AI »** (les 5 types au scope collection). Dépend de task-270 et task-271.
+
+Ce qui reste dans cette tâche : la refonte visuelle des autres écrans du périmètre, le portage des tokens, et le rôle de jalon « l'UI est figée » qui rouvre la CI Maestro. Les tâches ci-dessus sont volontairement **antérieures** : elles fixent la structure de navigation des deux écrans les plus chargés, et la refonte visuelle globale s'y adosse plutôt que de les refaire.
+
 ## Pourquoi cette tâche est verrouillée (`dispatchable: false`)
 
 Un agent ne peut pas deviner la cible visuelle. Sans les screenshots de référence dans le repo, un dispatch produirait une refonte au hasard, coûteuse à défaire, et casserait au passage les libellés que les flows Maestro asserteront à la réactivation. Le verrou est donc dans le front-matter, indépendant du statut et de la priorité.
 
 ## Ce que l'owner doit fournir avant de déverrouiller
 
-1. **Les screenshots NotebookLM**, déposés dans `mobile-design-mockups/notebooklm-reference/` (png ou jpg), un fichier par écran, nommés lisiblement.
-2. **Pour chaque screenshot** : quel écran de l'app il cible, et ce qui doit être repris (structure de navigation, hiérarchie typographique, densité, composants, palette) vs ce qui ne doit surtout pas l'être.
+1. **Les screenshots NotebookLM**, déposés dans `mobile-design-mockups/notebooklm-reference/` (png ou jpg), un fichier par écran, nommés lisiblement. *Deux sont déposés (collection : Sources et Studio) — il manque les écrans du reste du périmètre.*
+2. **Pour chaque screenshot** : quel écran de l'app il cible, et ce qui doit être repris (structure de navigation, hiérarchie typographique, densité, composants, palette) vs ce qui ne doit surtout pas l'être. *Fait pour les deux screenshots déposés, dans le README de référence — à compléter au fil des suivants.*
 3. **Le périmètre d'écrans**, en cochant la liste ci-dessous.
 4. **Le sort d'Amber Clarity** : palette conservée avec la structure NotebookLM, ou palette également alignée sur la référence.
 5. Retirer la ligne `dispatchable: false` du front-matter de cette tâche.
