@@ -8,24 +8,49 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from pydantic import BaseModel, ValidationError, field_validator
+
+from media_summarizer.workers.artifact_generator.generators import corpus
 
 
 class SummaryDetailedValidationError(Exception):
     """Raised when the model output does not match the summary_detailed schema."""
 
 
+class SummaryDetailedQuote(BaseModel):
+    """A verbatim quote and the source it came from.
+
+    ``source_ref`` is mandatory here and optional everywhere else: a quote is
+    literal text, so its origin is objectively defined and checkable. A synthesis
+    bullet legitimately draws on several sources, and demanding a reference there
+    would only make the model invent one.
+    """
+
+    text: str
+    source_ref: str
+
+    @field_validator("text", "source_ref")
+    @classmethod
+    def _non_empty_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must be non-empty")
+        return normalized
+
+
 class SummaryDetailedContent(BaseModel):
     """Schema for detailed summary content (structured learning format)."""
+
+    title: str
     context: str
     main_topics: List[str]
     key_points: List[str]
-    notable_quotes: List[str]
+    notable_quotes: List[SummaryDetailedQuote]
     conclusion: str
 
-    @field_validator("context", "conclusion")
+    @field_validator("title", "context", "conclusion")
     @classmethod
     def _non_empty_text(cls, value: str) -> str:
         normalized = value.strip()
@@ -39,12 +64,6 @@ class SummaryDetailedContent(BaseModel):
         if not value:
             raise ValueError("list must not be empty")
         return [p.strip() for p in value if p.strip()]
-
-    @field_validator("notable_quotes")
-    @classmethod
-    def _clean_quotes(cls, value: List[str]) -> List[str]:
-        # Quotes may be empty if no notable quotes found
-        return [q.strip() for q in value if q.strip()]
 
 
 class SummaryDetailedGenerator:
@@ -63,45 +82,38 @@ class SummaryDetailedGenerator:
 
     def build_prompt(
         self,
-        transcript: str,
+        sources: Sequence[Dict[str, Any]],
         *,
         language: Optional[str] = None,
-        podcast_title: Optional[str] = None,
-        episode_title: Optional[str] = None,
     ) -> str:
-        language_instruction = (
-            f"Use {language} for the output."
-            if language
-            else "Use the same language as the transcript."
-        )
-        context = ""
-        if podcast_title or episode_title:
-            context = f"\nPodcast: {podcast_title or 'Unknown'}\nEpisode: {episode_title or 'Unknown'}\n"
-
-        return f"""You produce a comprehensive, structured summary suitable for deep learning and reference.
+        instructions = f"""You produce a comprehensive, structured summary of everything above.
+It is meant for deep learning and reference.
 
 Rules:
-- {language_instruction}
+- {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
 - Be EXHAUSTIVE and THOROUGH - this summary is for learning, not quick reading.
+- Treat the sources as one body of material: synthesise across them rather than
+  describing each one in turn.
 - Context should set the stage (who, what, why) in 2-3 sentences.
 - Main topics should list 3-7 major themes discussed.
 - Key points should be 7-15 detailed bullet points covering important information.
-- Notable quotes should include 2-5 memorable or important quotes (if any).
+- Notable quotes should include 2-5 memorable or important quotes, each copied verbatim.
+{corpus.source_ref_instruction(required=True)}
 - Conclusion should synthesize the main message in 2-3 sentences.
+{corpus.title_instruction("summary")}
 
 Return JSON with this exact schema:
 {{
+  "title": "A short specific title",
   "context": "2-3 sentences setting the stage",
   "main_topics": ["Topic 1", "Topic 2", "Topic 3"],
-  "key_points": ["Detailed point 1", "Detailed point 2", ...],
-  "notable_quotes": ["Quote 1", "Quote 2"],
+  "key_points": ["Detailed point 1", "Detailed point 2"],
+  "notable_quotes": [{{"text": "Quote copied verbatim", "source_ref": "[S1]"}}],
   "conclusion": "2-3 sentences synthesizing the main message"
 }}
-{context}
-Transcript:
-{transcript}
 """
+        return corpus.build_prompt(sources, instructions)
 
     def response_format_schema(self) -> Optional[Dict[str, Any]]:
         return None

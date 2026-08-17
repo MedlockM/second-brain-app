@@ -12,7 +12,7 @@ runtime endpoints are fully implemented.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -151,12 +151,6 @@ class ProcessingJobContract(BaseModel):
     error_message: Optional[str] = None
 
 
-class ArtifactStatusSnapshot(BaseModel):
-    status: ArtifactStatus
-    updated_at: str
-    artifact_id: Optional[str] = None
-
-
 class TranscriptInfo(BaseModel):
     status: TranscriptStatus
     transcription_s3_key: Optional[str] = None
@@ -190,25 +184,12 @@ class MediaItemContract(BaseModel):
     source_platform: SourcePlatform
     status: MediaItemStatus
     transcript: TranscriptInfo
-    artifact_statuses: Dict[ArtifactType, ArtifactStatusSnapshot] = Field(
-        default_factory=dict
-    )
+    # No artifact projection here on purpose (task-270): a scope now holds a
+    # timestamped *history*, so "the artifact of this type" no longer exists.
+    # The AI tab reads GET /api/artifacts?scope=media&scope_id=... which returns
+    # the history and the in-flight entries in one call.
     created_at: str
     updated_at: str
-
-
-class MediaArtifactContract(BaseModel):
-    artifact_id: str
-    media_item_id: str
-    artifact_type: ArtifactType
-    status: ArtifactStatus
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-    content: Optional[Dict[str, Any]] = None
-    error_code: Optional[CanonicalErrorCode] = None
-    error_message: Optional[str] = None
-    created_at: str
-    updated_at: str
-    completed_at: Optional[str] = None
 
 
 class IngestUrlRequest(BaseModel):
@@ -249,37 +230,10 @@ class IngestUrlResponse(BaseModel):
 class MediaStatusResponse(BaseModel):
     media_item: MediaItemContract
     processing_job: ProcessingJobContract
-    artifacts: List[MediaArtifactContract] = Field(default_factory=list)
-
-
-class ArtifactCreateRequest(BaseModel):
-    artifact_type: ArtifactType
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-    idempotency_key: Optional[str] = None
-
-
-class ArtifactCreateResponse(BaseModel):
-    artifact: MediaArtifactContract
-    reused_existing: bool = False
-
-
-class ArtifactListResponse(BaseModel):
-    media_item_id: str
-    items: List[MediaArtifactContract] = Field(default_factory=list)
-    count: int = Field(default=0, ge=0)
-
-
-class ArtifactDetailResponse(BaseModel):
-    artifact: MediaArtifactContract
 
 
 __all__ = [
-    "ArtifactCreateRequest",
-    "ArtifactCreateResponse",
-    "ArtifactDetailResponse",
-    "ArtifactListResponse",
     "ArtifactStatus",
-    "ArtifactStatusSnapshot",
     "ArtifactType",
     "CanonicalErrorCode",
     "CanonicalErrorPayload",
@@ -288,7 +242,6 @@ __all__ = [
     "IngestUrlRequest",
     "IngestUrlResponse",
     "LEGACY_PROCESSING_JOB_STATUS_MAP",
-    "MediaArtifactContract",
     "MediaItemContract",
     "MediaItemStatus",
     "MediaStatusResponse",

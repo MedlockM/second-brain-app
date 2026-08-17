@@ -70,7 +70,8 @@ def create_scheduler() -> fsrs.Scheduler:
 
 async def initialize_cards_for_flashcards(
     user_id: str,
-    media_item_id: str,
+    scope: str,
+    scope_id: str,
     artifact_id: str,
     flashcards: List[dict],
 ) -> List[ReviewScheduleRecord]:
@@ -79,7 +80,8 @@ async def initialize_cards_for_flashcards(
 
     Args:
         user_id: The user who owns these cards
-        media_item_id: The media item the flashcards belong to
+        scope: "media" or "folder" — what the flashcards were generated over
+        scope_id: The media item id, or the folder (collection) id
         artifact_id: The artifact ID that generated these flashcards
         flashcards: List of dicts with 'question' and 'answer' keys
 
@@ -91,7 +93,8 @@ async def initialize_cards_for_flashcards(
     for card_data in flashcards:
         record = ReviewScheduleRecord(
             user_id=user_id,
-            media_item_id=media_item_id,
+            scope=scope,
+            scope_id=scope_id,
             artifact_id=artifact_id,
             question=card_data["question"],
             answer=card_data["answer"],
@@ -118,7 +121,8 @@ async def initialize_cards_for_flashcards(
             "fsrs.cards_initialized",
             "FSRS cards created for flashcards",
             user_id=user_id,
-            media_item_id=media_item_id,
+            scope=scope,
+            scope_id=scope_id,
             artifact_id=artifact_id,
             card_count=len(records),
         )
@@ -231,18 +235,19 @@ async def get_due_cards_for_user(
     return cards
 
 
-async def toggle_spaced_rep_for_media(
+async def toggle_spaced_rep_for_scope(
     user_id: str,
-    media_item_id: str,
+    scope: str,
+    scope_id: str,
     enabled: bool,
 ) -> int:
     """
-    Enable or disable spaced repetition for all cards of a specific media item.
+    Enable or disable spaced repetition for all cards of one scope.
 
     Returns:
         Number of cards updated
     """
-    cards = await review_db.get_cards_by_media_item(user_id, media_item_id)
+    cards = await review_db.get_cards_by_scope(user_id, scope, scope_id)
     count = 0
     for card in cards:
         if card.spaced_repetition_enabled != enabled:
@@ -254,10 +259,11 @@ async def toggle_spaced_rep_for_media(
     log_event(
         logger,
         logging.INFO,
-        "fsrs.media_toggle",
-        f"Spaced repetition {'enabled' if enabled else 'disabled'} for media",
+        "fsrs.scope_toggle",
+        f"Spaced repetition {'enabled' if enabled else 'disabled'} for scope",
         user_id=user_id,
-        media_item_id=media_item_id,
+        scope=scope,
+        scope_id=scope_id,
         cards_updated=count,
     )
     return count

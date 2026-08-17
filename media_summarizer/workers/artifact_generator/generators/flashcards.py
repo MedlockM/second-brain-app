@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from pydantic import BaseModel, ValidationError, field_validator
+
+from media_summarizer.workers.artifact_generator.generators import corpus
 
 MIN_FLASHCARDS = 5
 MAX_FLASHCARDS = 15
@@ -23,6 +25,9 @@ class FlashcardsValidationError(Exception):
 class FlashcardItem(BaseModel):
     question: str
     answer: str
+    # Optional: a card may legitimately cross several sources, and forcing a
+    # reference there would only make the model pick one arbitrarily.
+    source_ref: Optional[str] = None
 
     @field_validator("question", "answer")
     @classmethod
@@ -32,9 +37,17 @@ class FlashcardItem(BaseModel):
             raise ValueError("value must be non-empty")
         return normalized
 
+    @field_validator("source_ref")
+    @classmethod
+    def _clean_source_ref(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
 
 class FlashcardsGenerator:
-    """Generator for Q/A flashcards from a transcript."""
+    """Generator for Q/A flashcards over the corpus."""
 
     @property
     def artifact_type_value(self) -> str:
@@ -49,43 +62,39 @@ class FlashcardsGenerator:
 
     def build_prompt(
         self,
-        transcript: str,
+        sources: Sequence[Dict[str, Any]],
         *,
         language: Optional[str] = None,
-        podcast_title: Optional[str] = None,
-        episode_title: Optional[str] = None,
     ) -> str:
-        language_instruction = (
-            f"Use {language} for the output."
-            if language
-            else "Use the same language as the transcript."
-        )
-        return f"""You produce a set of Q&A flashcards from a transcript for spaced repetition learning.
+        instructions = f"""You produce a set of Q&A flashcards from everything above, for spaced repetition learning.
 
 Rules:
-- {language_instruction}
+- {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
-- Return a JSON array of objects, each with exactly two keys: "question" and "answer".
 - Generate between {MIN_FLASHCARDS} and {MAX_FLASHCARDS} flashcards depending on content density.
+- Spread the cards across the sources rather than covering only the first one.
 - Follow the minimum information principle: one concept per card.
 - Do NOT generate trivial cards (e.g. "What is the title of this episode?").
 - Do NOT generate ambiguous cards: each question must have a single, verifiable answer.
 - Keep questions clear and concise.
 - Keep answers factual and brief (1-3 sentences max).
 - Avoid sponsor/ad content unless it is central to the source material.
-- Cover the most important concepts, facts, and takeaways from the transcript.
+{corpus.source_ref_instruction(required=False)}
+{corpus.title_instruction("card deck")}
 
 Return JSON with this exact schema:
-[
-  {{
-    "question": "...",
-    "answer": "..."
-  }}
-]
-
-Transcript:
-{transcript}
+{{
+  "title": "A short specific title",
+  "cards": [
+    {{
+      "question": "...",
+      "answer": "...",
+      "source_ref": "[S1]"
+    }}
+  ]
+}}
 """
+        return corpus.build_prompt(sources, instructions)
 
     def response_format_schema(self) -> Optional[Dict[str, Any]]:
         return {
@@ -96,6 +105,7 @@ Transcript:
                 "schema": {
                     "type": "object",
                     "properties": {
+                        "title": {"type": "string"},
                         "cards": {
                             "type": "array",
                             "items": {
@@ -103,28 +113,25 @@ Transcript:
                                 "properties": {
                                     "question": {"type": "string"},
                                     "answer": {"type": "string"},
+                                    "source_ref": {"type": ["string", "null"]},
                                 },
-                                "required": ["question", "answer"],
+                                "required": ["question", "answer", "source_ref"],
                                 "additionalProperties": False,
                             },
-                        }
+                        },
                     },
-                    "required": ["cards"],
+                    "required": ["title", "cards"],
                     "additionalProperties": False,
                 },
             },
         }
 
     def unwrap_structured_response(self, content: str) -> str:
-        try:
-            parsed = json.loads(content)
-            if isinstance(parsed, dict) and "cards" in parsed:
-                return json.dumps(parsed["cards"])
-        except json.JSONDecodeError:
-            pass
+        # The structured wrapper is already the shape `validate` expects now that
+        # the title lives beside the cards, so there is nothing to unwrap.
         return content
 
-    def validate(self, content: str) -> List[Dict[str, Any]]:
+    def validate(self, content: str) -> Dict[str, Any]:
         from media_summarizer.workers.artifact_generator.worker import _strip_code_fences
 
         try:
@@ -134,19 +141,27 @@ Transcript:
                 f"flashcards output is not valid JSON: {exc}"
             ) from exc
 
-        if not isinstance(parsed, list):
-            raise FlashcardsValidationError("flashcards output must be a JSON array")
+        if not isinstance(parsed, dict):
+            raise FlashcardsValidationError("flashcards output must be a JSON object")
 
-        if len(parsed) < MIN_FLASHCARDS:
+        title = str(parsed.get("title") or "").strip()
+        if not title:
+            raise FlashcardsValidationError("flashcards output must carry a non-empty title")
+
+        raw_cards = parsed.get("cards")
+        if not isinstance(raw_cards, list):
+            raise FlashcardsValidationError("flashcards output must carry a 'cards' array")
+
+        if len(raw_cards) < MIN_FLASHCARDS:
             raise FlashcardsValidationError(
-                f"flashcards output must contain at least {MIN_FLASHCARDS} items, got {len(parsed)}"
+                f"flashcards output must contain at least {MIN_FLASHCARDS} items, got {len(raw_cards)}"
             )
 
-        if len(parsed) > MAX_FLASHCARDS:
-            parsed = parsed[:MAX_FLASHCARDS]
+        if len(raw_cards) > MAX_FLASHCARDS:
+            raw_cards = raw_cards[:MAX_FLASHCARDS]
 
-        validated: List[Dict[str, Any]] = []
-        for idx, item in enumerate(parsed):
+        cards: List[Dict[str, Any]] = []
+        for idx, item in enumerate(raw_cards):
             if not isinstance(item, dict):
                 raise FlashcardsValidationError(
                     f"flashcards item at index {idx} must be a JSON object"
@@ -157,9 +172,9 @@ Transcript:
                 raise FlashcardsValidationError(
                     f"flashcards item at index {idx} schema validation failed: {exc}"
                 ) from exc
-            validated.append(card.model_dump())
+            cards.append(card.model_dump())
 
-        return validated
+        return {"title": title, "cards": cards}
 
     def build_artifact_content(
         self,
@@ -167,7 +182,9 @@ Transcript:
         *,
         body: Dict[str, Any],
     ) -> Dict[str, Any]:
+        cards = validated["cards"]
         return {
-            "cards": validated,
-            "card_count": len(validated),
+            "title": validated["title"],
+            "cards": cards,
+            "card_count": len(cards),
         }

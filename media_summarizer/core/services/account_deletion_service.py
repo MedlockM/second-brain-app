@@ -27,7 +27,7 @@ partial failure is a no-op on whatever already went (AC#6).
 
 Content shared between accounts
 -------------------------------
-The per-media cascade — artifact rows, their S3 objects, the generation locks and
+The per-media cascade — artifact rows, their S3 objects and
 the objects a processing job wrote — lives in
 ``core/services/media_purge_service.py`` and is shared with the ``user_media`` TTL
 purge (task-243). Both paths must remove exactly the same things: because
@@ -41,7 +41,7 @@ Deliberately out of scope
 ``media_idempotence`` (PK ``media_key``) and ``feed_forecasts`` (PK ``feed_id``)
 describe content, not people: they carry no user id, are shared by every account
 that submitted the same media, and cannot be queried per user in the first place.
-``artifact_idempotence`` is only touched through the sibling rule above.
+Artifact rows are reached through the scope index, keyed on ``user_id``.
 ``pricing_config`` is global configuration.
 
 The archive bucket is not swept either: its keys are partitioned by archive date,
@@ -136,7 +136,7 @@ async def purge_account(user_id: str) -> PurgeReport:
     await _purge_search_index(user_id, report)
 
     inventory = await _collect_inventory(user_id)
-    await _purge_artifacts(inventory, report)
+    await _purge_artifacts(user_id, inventory, report)
     await _purge_media_objects(user_id, inventory, report)
     await _purge_media_watchers(user_id, inventory, report)
     await _purge_processing_jobs(inventory, report)
@@ -266,10 +266,20 @@ async def _purge_search_index(user_id: str, report: PurgeReport) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _purge_artifacts(inventory: _Inventory, report: PurgeReport) -> None:
+async def _purge_artifacts(
+    user_id: str, inventory: _Inventory, report: PurgeReport
+) -> None:
+    from media_summarizer.utils import database_async
+
+    # Collection artifacts hang off the folder, not off any media item, so the
+    # folders have to be walked explicitly or every one of them survives the
+    # erasure (task-270).
+    folders = await database_async.get_folders_by_user_id(user_id)
     report.merge(
-        await media_purge_service.purge_artifacts_for_media_items(
-            inventory.media_item_ids
+        await media_purge_service.purge_artifacts_for_scopes(
+            user_id=user_id,
+            media_item_ids=inventory.media_item_ids,
+            folder_ids=[folder.id for folder in folders],
         )
     )
 

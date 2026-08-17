@@ -22,8 +22,10 @@ from media_summarizer.core.models.digest import (
     UserDigestSettings,
 )
 from media_summarizer.core.models.media_artifact import (
+    ArtifactScope,
     MediaArtifactStatus,
     MediaArtifactType,
+    build_scope_key,
 )
 from media_summarizer.core.services.durable_media_service import resolve_job_for_record
 from media_summarizer.utils import database_async, digest_db, media_artifacts
@@ -99,12 +101,25 @@ async def _get_media_items_for_period(
     return media_items
 
 
-async def _check_summary_short_status(media_item_id: str) -> Tuple[str, Optional[str]]:
+async def _check_summary_short_status(
+    user_id: str, media_item_id: str
+) -> Tuple[str, Optional[str]]:
     """
-    Check if a summary_short artifact already exists for this media item.
+    Check whether the digest's summary_short for this media item is available.
     Returns (status, artifact_id) where status is 'ready', 'pending', or 'none'.
+
+    Reads the scope history newest-first and takes the first summary_short it
+    finds, which is the latest one. The digest is a snapshot of a day, so "the
+    most recent short summary" is the right answer even though several may exist
+    now that the model is append-only (task-270).
     """
-    records = await media_artifacts.safe_list_media_artifacts_by_media_item(media_item_id)
+    records, _ = await media_artifacts.list_artifacts_by_scope(
+        scope_key=build_scope_key(
+            user_id=user_id,
+            scope=ArtifactScope.MEDIA,
+            scope_id=media_item_id,
+        )
+    )
     for record in records:
         if record.artifact_type == MediaArtifactType.SUMMARY_SHORT:
             if record.status == MediaArtifactStatus.READY:
@@ -141,7 +156,9 @@ async def get_or_assemble_daily_digest(
 
     # Check summary_short status for each item
     for item in media_items:
-        status, artifact_id = await _check_summary_short_status(item.media_item_id)
+        status, artifact_id = await _check_summary_short_status(
+            user_id, item.media_item_id
+        )
         item.summary_short_status = status
         item.summary_short_artifact_id = artifact_id
 
@@ -184,7 +201,9 @@ async def get_or_assemble_weekly_digest(
 
     # Check summary_short status for each item
     for item in media_items:
-        status, artifact_id = await _check_summary_short_status(item.media_item_id)
+        status, artifact_id = await _check_summary_short_status(
+            user_id, item.media_item_id
+        )
         item.summary_short_status = status
         item.summary_short_artifact_id = artifact_id
 
@@ -207,7 +226,9 @@ async def _refresh_digest_statuses(record: DigestRecord) -> DigestRecord:
     """Refresh summary_short statuses for all media items in a digest."""
     changed = False
     for item in record.media_items:
-        status, artifact_id = await _check_summary_short_status(item.media_item_id)
+        status, artifact_id = await _check_summary_short_status(
+            record.user_id, item.media_item_id
+        )
         if status != item.summary_short_status or artifact_id != item.summary_short_artifact_id:
             item.summary_short_status = status
             item.summary_short_artifact_id = artifact_id
@@ -236,8 +257,13 @@ async def trigger_summary_short_generation(
     Returns the artifact_id if generation was triggered or already exists, None on error.
     """
     from media_summarizer.core.services.artifact_service import (
+        ArtifactScopeEmptyError,
         ArtifactServiceError,
-        request_artifact_generation,
+        ArtifactTranscriptNotReadyError,
+        commit_artifact_generation,
+        enforce_scope_ceilings,
+        plan_artifact_generation,
+        resolve_scope_sources,
     )
 
     media = await user_media_store.get_user_media(user_id, media_item_id)
@@ -265,15 +291,27 @@ async def trigger_summary_short_generation(
         reading_language = None
 
     try:
-        record, reused = await request_artifact_generation(
-            media_item_id=media_item_id,
+        resolution = await resolve_scope_sources(
             user_id=user_id,
-            job=job,
-            artifact_type=MediaArtifactType.SUMMARY_SHORT,
+            scope=ArtifactScope.MEDIA,
+            scope_id=media_item_id,
             reading_language=reading_language,
         )
+        enforce_scope_ceilings(resolution)
+        plan = await plan_artifact_generation(
+            user_id=user_id,
+            scope=ArtifactScope.MEDIA,
+            scope_id=media_item_id,
+            artifact_type=MediaArtifactType.SUMMARY_SHORT,
+            resolution=resolution,
+        )
+        record, _deduplicated = await commit_artifact_generation(plan)
         return record.artifact_id
-    except ArtifactServiceError as exc:
+    except (
+        ArtifactScopeEmptyError,
+        ArtifactTranscriptNotReadyError,
+        ArtifactServiceError,
+    ) as exc:
         logger.warning(
             "Failed to trigger summary_short for %s: %s", media_item_id, exc
         )

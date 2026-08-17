@@ -1,16 +1,18 @@
 """Summary (short) artifact generator.
 
 Model choice validated by owner (task-72 benchmark): gpt-5-nano-2025-08-07.
-Concise format for digest/newsletter (headline + key points + takeaway).
+Concise format for digest/newsletter (title + key points + takeaway).
 """
 
 from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from pydantic import BaseModel, ValidationError, field_validator
+
+from media_summarizer.workers.artifact_generator.generators import corpus
 
 
 class SummaryShortValidationError(Exception):
@@ -18,12 +20,17 @@ class SummaryShortValidationError(Exception):
 
 
 class SummaryShortContent(BaseModel):
-    """Schema for short summary content (concise digest format)."""
-    headline: str
+    """Schema for short summary content (concise digest format).
+
+    ``title`` is what used to be ``headline``: renamed rather than duplicated, so
+    the five types expose the same field and the history listing reads one name.
+    """
+
+    title: str
     key_points: List[str]
     takeaway: str
 
-    @field_validator("headline", "takeaway")
+    @field_validator("title", "takeaway")
     @classmethod
     def _non_empty_text(cls, value: str) -> str:
         normalized = value.strip()
@@ -52,41 +59,29 @@ class SummaryShortGenerator:
 
     def build_prompt(
         self,
-        transcript: str,
+        sources: Sequence[Dict[str, Any]],
         *,
         language: Optional[str] = None,
-        podcast_title: Optional[str] = None,
-        episode_title: Optional[str] = None,
     ) -> str:
-        language_instruction = (
-            f"Use {language} for the output."
-            if language
-            else "Use the same language as the transcript."
-        )
-        context = ""
-        if podcast_title or episode_title:
-            context = f"\nPodcast: {podcast_title or 'Unknown'}\nEpisode: {episode_title or 'Unknown'}\n"
-
-        return f"""You produce a concise summary suitable for a daily/weekly digest newsletter.
+        instructions = f"""You produce a concise summary of everything above, suitable for a daily/weekly digest newsletter.
 
 Rules:
-- {language_instruction}
+- {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
 - Keep the summary SHORT and DIGESTIBLE (suitable for quick reading).
-- The headline should capture the essence in one sentence (max 15 words).
+- Cover the sources as a whole; do not summarise them one by one.
 - Key points should be 3-5 bullet points, each one sentence.
 - The takeaway should be one actionable insight or memorable conclusion.
+{corpus.title_instruction("summary")}
 
 Return JSON with this exact schema:
 {{
-  "headline": "A catchy one-sentence summary",
+  "title": "A short specific title",
   "key_points": ["Point 1", "Point 2", "Point 3"],
   "takeaway": "One actionable insight or memorable conclusion"
 }}
-{context}
-Transcript:
-{transcript}
 """
+        return corpus.build_prompt(sources, instructions)
 
     def response_format_schema(self) -> Optional[Dict[str, Any]]:
         return None

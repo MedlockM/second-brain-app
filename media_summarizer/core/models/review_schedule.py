@@ -35,7 +35,10 @@ class ReviewScheduleRecord(BaseModel):
 
     user_id: str
     card_id: str = Field(default_factory=_new_card_id)
-    media_item_id: str
+    # Scope, not media: a collection's flashcards must enter the review queue
+    # like any other deck, and a collection has no media item (task-270).
+    scope: str
+    scope_id: str
     artifact_id: str
     question: str
     answer: str
@@ -60,7 +63,8 @@ class ReviewScheduleRecord(BaseModel):
         item: Dict[str, Any] = {
             "user_id": self.user_id,
             "card_id": self.card_id,
-            "media_item_id": self.media_item_id,
+            "scope": self.scope,
+            "scope_id": self.scope_id,
             "artifact_id": self.artifact_id,
             "question": self.question,
             "answer": self.answer,
@@ -84,7 +88,8 @@ class ReviewScheduleRecord(BaseModel):
         return cls(
             user_id=item["user_id"],
             card_id=item["card_id"],
-            media_item_id=item["media_item_id"],
+            scope=item["scope"],
+            scope_id=item["scope_id"],
             artifact_id=item["artifact_id"],
             question=item["question"],
             answer=item["answer"],

@@ -203,7 +203,21 @@ removed {
   }
 }
 
-# Media artifacts table (canonical artifact records + request pointers)
+# AI artifacts table — an append-only history, one entry per generation
+# (task-269/270). One index replaced three: the old GSIs were hash-only, so they
+# could not sort, and a history has to come back newest-first. `scope-index`
+# carries `created_at` as its range key, which gives that ordering from DynamoDB
+# with ScanIndexForward=false — no application sort, no broken pagination.
+#
+# The projection is INCLUDE, not ALL, on purpose: the listing renders exactly
+# these attributes, so a page costs one query with no read of the base table and
+# no S3 access. `sources` (the snapshot, up to ~5 kB at the 25-source ceiling) is
+# deliberately left out — it is only needed when one entry is opened, and
+# projecting it would double the write cost of the largest attribute.
+#
+# The index is sparse: rows written before this change carry no `scope_key`, so
+# they never enter it and become invisible to every read path without a purge
+# script.
 resource "aws_dynamodb_table" "media_artifacts_v1" {
   name         = "media_artifacts${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"
@@ -214,34 +228,27 @@ resource "aws_dynamodb_table" "media_artifacts_v1" {
     type = "S"
   }
   attribute {
-    name = "media_item_id"
+    name = "scope_key"
     type = "S"
   }
   attribute {
-    name = "request_fingerprint"
-    type = "S"
-  }
-  attribute {
-    name = "generation_fingerprint"
+    name = "created_at"
     type = "S"
   }
 
   global_secondary_index {
-    name            = "media-item-index"
-    hash_key        = "media_item_id"
-    projection_type = "ALL"
-  }
-
-  global_secondary_index {
-    name            = "request-fingerprint-index"
-    hash_key        = "request_fingerprint"
-    projection_type = "ALL"
-  }
-
-  global_secondary_index {
-    name            = "generation-fingerprint-index"
-    hash_key        = "generation_fingerprint"
-    projection_type = "ALL"
+    name            = "scope-index"
+    hash_key        = "scope_key"
+    range_key       = "created_at"
+    projection_type = "INCLUDE"
+    non_key_attributes = [
+      "artifact_type",
+      "status",
+      "title",
+      "source_count",
+      "completed_at",
+      "error_code",
+    ]
   }
 
   tags = {
@@ -259,31 +266,10 @@ resource "aws_dynamodb_table" "media_artifacts_v1" {
   }
 }
 
-# Artifact idempotence table (generation locks for deduplication)
-resource "aws_dynamodb_table" "artifact_idempotence_v1" {
-  name         = "artifact_idempotence${local.suffix}"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "generation_fingerprint"
-
-  attribute {
-    name = "generation_fingerprint"
-    type = "S"
-  }
-
-  tags = {
-    Name = "artifact_idempotence${local.suffix}"
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
-
-  deletion_protection_enabled = true
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
+# The artifact_idempotence table is gone (task-270). Its only job was to stop a
+# second identical generation — the exact opposite of what an append-only history
+# needs. Short-window deduplication is now the deterministic `artifact_id` plus a
+# conditional write, so no auxiliary table is involved.
 
 # Translation idempotence table (state machine for transcript translations)
 # Prevents thundering herd: only the first caller reserves the translation slot,
@@ -322,11 +308,6 @@ output "users_table_name" {
 output "media_artifacts_table_name" {
   value       = aws_dynamodb_table.media_artifacts_v1.name
   description = "Media artifacts table name"
-}
-
-output "artifact_idempotence_table_name" {
-  value       = aws_dynamodb_table.artifact_idempotence_v1.name
-  description = "Artifact idempotence table name"
 }
 
 output "translation_idempotence_table_name" {

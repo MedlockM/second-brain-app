@@ -125,12 +125,6 @@ export interface ProcessingJobContract {
   error_message?: string;
 }
 
-export interface ArtifactStatusSnapshot {
-  status: ArtifactStatus;
-  updated_at: string;
-  artifact_id?: string;
-}
-
 export interface MediaItemContract {
   media_item_id: string;
   media_key: string;
@@ -146,7 +140,6 @@ export interface MediaItemContract {
   source_platform: SourcePlatform;
   status: MediaItemStatus;
   transcript: TranscriptInfo;
-  artifact_statuses: Partial<Record<ArtifactType, ArtifactStatusSnapshot>>;
   folder_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -168,17 +161,16 @@ export interface IngestUrlResponse {
   duplicate_of_media_item_id?: string;
 }
 
+/**
+ * Per-item detail shape. It carries no artifact projection: artifacts are an
+ * append-only history per scope, so "the artifact of this type" no longer
+ * exists. Read `GET /api/artifacts?scope=media&scope_id=...` through
+ * `ArtifactService.listArtifacts`, which returns the history and the in-flight
+ * entries in one call.
+ */
 export interface MediaStatusResponse {
   media_item: MediaItemContract;
   processing_job: ProcessingJobContract;
-  artifacts: {
-    artifact_id: string;
-    media_item_id: string;
-    artifact_type: ArtifactType;
-    status: ArtifactStatus;
-    created_at: string;
-    updated_at: string;
-  }[];
 }
 
 /**

@@ -21,9 +21,6 @@ from media_summarizer.api.models.media_contracts import (
     LEGACY_PROCESSING_JOB_STATUS_MAP,
 )
 from media_summarizer.api.models.media_contracts import (
-    MediaArtifactContract as CanonicalMediaArtifactContract,
-)
-from media_summarizer.api.models.media_contracts import (
     MediaItemContract as CanonicalMediaItemContract,
 )
 from media_summarizer.api.models.media_contracts import (
@@ -61,7 +58,6 @@ from media_summarizer.core.media_ingestion.title_derivation import (
 )
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.core.models.media_artifact import MediaArtifactRecord
 from media_summarizer.core.models.user_media import UserMediaRecord, UserMediaStatus
 from media_summarizer.core.ports.document_parser import DocumentFormat
 from media_summarizer.core.services import (
@@ -93,7 +89,6 @@ from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.language_codes import normalize_language_code
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
-from media_summarizer.utils.media_artifacts import safe_list_media_artifacts_by_media_item
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -589,7 +584,6 @@ def _build_media_item_contract(
         source_platform=_canonical_source_platform(record.source_platform),
         status=_canonical_media_item_status(job_status),
         transcript=_canonical_transcript(job_status, record, job),
-        artifact_statuses={},
         created_at=record.saved_at.isoformat(),
         updated_at=record.updated_at.isoformat(),
     )
@@ -652,27 +646,6 @@ _PUBLIC_ARTIFACT_TYPES = {
     "notes",
     "flashcards",
 }
-
-
-def _build_artifact_contract(
-    record: MediaArtifactRecord,
-) -> Optional[CanonicalMediaArtifactContract]:
-    raw_type = record.artifact_type.value
-    if raw_type not in _PUBLIC_ARTIFACT_TYPES:
-        return None
-    return CanonicalMediaArtifactContract(
-        artifact_id=record.artifact_id,
-        media_item_id=record.media_item_id,
-        artifact_type=raw_type,
-        status=record.status.value,
-        parameters=record.parameters or {},
-        content=None,
-        error_code=None,
-        error_message=record.error_message,
-        created_at=record.created_at.isoformat(),
-        updated_at=record.updated_at.isoformat(),
-        completed_at=record.completed_at.isoformat() if record.completed_at else None,
-    )
 
 
 # ---------- Endpoints ----------
@@ -1637,17 +1610,14 @@ async def get_media_item(
             has_job=job is not None,
         )
 
-        artifact_records = await safe_list_media_artifacts_by_media_item(media_item_id)
-        artifacts: List[CanonicalMediaArtifactContract] = []
-        for artifact_record in artifact_records:
-            mapped = _build_artifact_contract(artifact_record)
-            if mapped is not None:
-                artifacts.append(mapped)
-
+        # No artifact list here any more (task-270): a scope holds a timestamped
+        # history, several entries per type, and the AI tab reads it from
+        # GET /api/artifacts?scope=media&scope_id=... in one call. Embedding a
+        # "current artifact per type" projection here is the assumption the
+        # append-only model removes.
         return CanonicalMediaStatusResponse(
             media_item=_build_media_item_contract(record, job, job_status),
             processing_job=_build_processing_job_contract(record, job, job_status),
-            artifacts=artifacts,
         )
 
     except HTTPException:

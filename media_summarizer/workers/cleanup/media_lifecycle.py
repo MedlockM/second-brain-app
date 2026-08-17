@@ -85,8 +85,6 @@ PURGE_OVERDUE_GRACE_HOURS = 48
 # issuing one GetItem per library row forever.
 DANGLING_POINTER_SAMPLE = 500
 
-_REQUEST_POINTER_PREFIX = "request#"
-
 
 # ---------------------------------------------------------------------------
 # Stream: the purge cascade
@@ -116,7 +114,9 @@ async def purge_media_item(
     """
     counts: Dict[str, int] = {}
     counts.update(
-        await media_purge_service.purge_artifacts_for_media_items([media_item_id])
+        await media_purge_service.purge_artifacts_for_scopes(
+            user_id=user_id, media_item_ids=[media_item_id]
+        )
     )
 
     if last_job_id:
@@ -242,7 +242,10 @@ async def handle_stream_records(records: Iterable[Dict[str, Any]]) -> Dict[str, 
 
 
 async def _scan_table(
-    table_name: str, projection: str
+    table_name: str,
+    projection: str,
+    *,
+    expression_attribute_names: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     session = database_async.get_session()
     items: List[Dict[str, Any]] = []
@@ -252,6 +255,10 @@ async def _scan_table(
     ) as dynamodb:
         table = await dynamodb.Table(table_name)
         kwargs: Dict[str, Any] = {"ProjectionExpression": projection}
+        if expression_attribute_names:
+            # `scope` is a DynamoDB reserved word, so it can only be projected
+            # through a name placeholder.
+            kwargs["ExpressionAttributeNames"] = expression_attribute_names
         while True:
             resp = await table.scan(**kwargs)
             items.extend(resp.get("Items", []))
@@ -324,20 +331,22 @@ async def run_reconciliation() -> Dict[str, Any]:
 
     artifacts = await _scan_table(
         required_env("MEDIA_ARTIFACTS_TABLE"),
-        "artifact_id, media_item_id, created_at",
+        "artifact_id, #sc, scope_id, created_at",
+        expression_attribute_names={"#sc": "scope"},
     )
 
     artifact_rows = 0
     orphaned = 0
     orphaned_recent = 0
     for row in artifacts:
-        artifact_id = str(row.get("artifact_id") or "")
-        if artifact_id.startswith(_REQUEST_POINTER_PREFIX):
-            # Index rows, not artifacts: they carry no media_item_id of their own.
-            continue
         artifact_rows += 1
-        media_item_id = str(row.get("media_item_id") or "")
-        if media_item_id and media_item_id in library_ids:
+        # Only media-scoped entries can be orphaned by a library row leaving;
+        # a collection artifact hangs off a folder, which this gauge does not
+        # inventory (task-270).
+        if str(row.get("scope") or "") != "media":
+            continue
+        scope_id = str(row.get("scope_id") or "")
+        if scope_id and scope_id in library_ids:
             continue
         orphaned += 1
         created_at = _parse_iso(row.get("created_at"))

@@ -46,19 +46,16 @@ Operational behavior now implemented in runtime:
 - status response is built from current `ProcessingJob` state with canonical lifecycle mapping
 - terminal state details are surfaced through `processing_job.completed_at`, `error_code`, and `error_message`
 - stable not-found and unauthorized errors are returned as `MEDIA_NOT_FOUND` (404) and `NOT_AUTHORIZED` (403)
-- media status responses include canonical artifact metadata from `media_artifacts` when available
+- the media status response carries **no** artifact projection (task-270): artifacts are a per-scope, append-only history, so "the artifact of this type" no longer exists as a concept
 - transcript metadata (`language`, `segments_count`, `duration_seconds`) is surfaced when the runtime has persisted it from transcription or article extraction
-- the response remains sufficient for transcript-first clients to poll a media item and render per-artifact progress snapshots
 
-`task-11` implements canonical on-demand artifact requests on top of transcript-ready media:
-- `POST /api/media/{media_item_id}/artifacts` in `media_summarizer/api/endpoints/media.py`
-- authenticated with ownership checks against the current user
-
-Operational behavior now implemented in runtime:
-- artifact requests are available for `summary`, `quiz`, and `notes`
-- equivalent requests are idempotent through canonical request fingerprints and shared generation cache
-- each artifact type follows its own `queued | generating | ready | failed` lifecycle without blocking other artifact types
-- `task-33` implements dedicated authenticated artifact reads through `GET /api/media/{media_item_id}/artifacts` and `GET /api/artifacts/{artifact_id}`, with detail content loaded from canonical artifact storage
+`task-270` makes artifact generation **scope-addressed** and its storage **append-only**:
+- one set of routes under `/api/artifacts` serves a single media (`scope="media"`) and a collection (`scope="folder"`); the per-media routes are gone, with no alias
+- a collection covers the folder **and all its descendants**, exactly like `GET /api/media?folder_id=`
+- every generation writes a **new immutable entry** carrying a snapshot of the sources it read; nothing is overwritten, nothing is invalidated, and adding or removing a media from a collection changes no existing entry
+- deduplication is short-window only: the `artifact_id` is a hash of (user, scope, type, parameters, generator version, source ids, current 120 s window), so a double tap or an SQS redelivery collapses into one generation while a later identical request legitimately regenerates
+- ownership is checked by comparing the entry's `user_id`, not by resolving a media item — a collection artifact has none
+- ceilings are 25 sources and 120 000 estimated tokens; beyond them the API refuses and never truncates
 
 `task-23` purges legacy ingestion/completion compatibility from active canonical paths:
 - canonical runtime idempotence/watchers use `media_key` only (no legacy episode-guid fallback reads/writes)
@@ -69,10 +66,11 @@ Operational behavior now implemented in runtime:
 
 1. `POST /api/media/ingest-url`
 2. `GET /api/media/{media_item_id}`
-3. `POST /api/media/{media_item_id}/artifacts`
-4. `GET /api/media/{media_item_id}/artifacts`
+3. `POST /api/artifacts`
+4. `GET /api/artifacts?scope=&scope_id=`
 5. `GET /api/artifacts/{artifact_id}`
-6. `DELETE /api/media/{media_item_id}`
+6. `GET /api/artifacts/{artifact_id}/content`
+7. `DELETE /api/media/{media_item_id}`
 
 Authentication:
 - all endpoints require authenticated user context
@@ -122,7 +120,6 @@ Response (`IngestUrlResponse`):
     "transcript": {
       "status": "pending"
     },
-    "artifact_statuses": {},
     "created_at": "2026-02-24T20:20:00Z",
     "updated_at": "2026-02-24T20:20:00Z"
   },
@@ -162,13 +159,6 @@ Response (`MediaStatusResponse`):
       "segments_count": 583,
       "duration_seconds": 3540.1
     },
-    "artifact_statuses": {
-      "summary": {
-        "status": "ready",
-        "updated_at": "2026-02-24T20:37:10Z",
-        "artifact_id": "art_01JQ8Y7BBEGWQ9VJ24M4S0C9H4"
-      }
-    },
     "created_at": "2026-02-24T20:20:00Z",
     "updated_at": "2026-02-24T20:37:10Z"
   },
@@ -183,8 +173,7 @@ Response (`MediaStatusResponse`):
     "updated_at": "2026-02-24T20:35:30Z",
     "started_at": "2026-02-24T20:20:04Z",
     "completed_at": "2026-02-24T20:35:30Z"
-  },
-  "artifacts": []
+  }
 }
 ```
 
@@ -194,118 +183,183 @@ not two. It is nullable (a row whose metadata has not resolved yet has none); cl
 source URL, never to a URL path segment, which used to surface raw provider ids such as a Spotify
 episode id as a title.
 
-### 3) POST /api/media/{media_item_id}/artifacts
+### 3) POST /api/artifacts
 
-Request (`ArtifactCreateRequest`):
+Request:
 ```json
 {
-  "artifact_type": "summary",
+  "scope": "folder",
+  "scope_id": "c4ef2e55-8449-4a71-be46-bcf1a6eeca3e",
+  "artifact_type": "summary_detailed",
   "parameters": {
-    "language": "fr",
-    "style": "structured"
-  },
-  "idempotency_key": "summary-med_01JQ8X8J5S3H3CXX8V70M9M3K7-v1"
-}
-```
-
-Response (`ArtifactCreateResponse`):
-```json
-{
-  "artifact": {
-    "artifact_id": "art_01JQ8Y7BBEGWQ9VJ24M4S0C9H4",
-    "media_item_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
-    "artifact_type": "summary",
-    "status": "queued",
-    "parameters": {
-      "language": "fr",
-      "style": "structured"
-    },
-    "created_at": "2026-02-24T20:36:04Z",
-    "updated_at": "2026-02-24T20:36:04Z"
-  },
-  "reused_existing": false
-}
-```
-
-### 4) GET /api/media/{media_item_id}/artifacts
-
-Response (`ArtifactListResponse`):
-```json
-{
-  "media_item_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
-  "items": [
-    {
-      "artifact_id": "art_01JQ8Y7BBEGWQ9VJ24M4S0C9H4",
-      "media_item_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
-      "artifact_type": "summary",
-      "status": "ready",
-      "parameters": {
-        "language": "fr",
-        "style": "structured"
-      },
-      "created_at": "2026-02-24T20:36:04Z",
-      "updated_at": "2026-02-24T20:37:10Z",
-      "completed_at": "2026-02-24T20:37:10Z"
-    }
-  ],
-  "count": 1
-}
-```
-
-### 5) GET /api/artifacts/{artifact_id}
-
-Response (`ArtifactDetailResponse`):
-```json
-{
-  "artifact": {
-    "artifact_id": "art_01JQ8ZNOTESGWQ9VJ24M4S0C9H4",
-    "media_item_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
-    "artifact_type": "notes",
-    "status": "ready",
-    "parameters": {
-      "language": "fr",
-      "audience": "study"
-    },
-    "content": {
-      "artifact_id": "art_01JQ8ZNOTESGWQ9VJ24M4S0C9H4",
-      "media_item_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
-      "artifact_type": "notes",
-      "generated_at": "2026-02-24T20:37:10Z",
-      "source": {
-        "transcript_s3_key": "job_01JQ8X8J5T9Q5V7Q4TW4N1HY03.txt",
-        "generator_version": "notes:gpt-4o-mini-2024-07-18:prompt-v1"
-      },
-      "content": {
-        "objectives": [
-          "..."
-        ],
-        "concepts": [
-          {
-            "term": "...",
-            "explanation": "...",
-            "importance": "core"
-          }
-        ],
-        "key_points": [
-          "..."
-        ],
-        "action_items": [
-          "..."
-        ],
-        "glossary": [
-          {
-            "term": "...",
-            "definition": "..."
-          }
-        ]
-      }
-    },
-    "created_at": "2026-02-24T20:36:04Z",
-    "updated_at": "2026-02-24T20:37:10Z",
-    "completed_at": "2026-02-24T20:37:10Z"
+    "language": "fr"
   }
 }
 ```
+
+`202` when the entry was created and queued, `200` when the request was
+deduplicated as the same tap (the body is the entry already queued, and no quota
+counter moves). Response is the same shape as `GET /api/artifacts/{artifact_id}`.
+
+Typed refusals:
+
+| Situation | Status | `error_code` | Retryable |
+|---|---|---|---|
+| No source with a usable transcript | `422` | `scope_empty` | no |
+| More than 25 sources, or more than 120 000 estimated tokens | `422` | `scope_too_large` | no |
+| A source is still being transcribed or translated | `409` | `sources_not_ready` | **yes, as-is** |
+| Monthly AI quota reached | `403` | `tier_quota_exceeded` | next period |
+| Daily generation limit reached | `429` | `daily_rate_limit` | next day |
+| Artifact type disabled | `400` | — | no |
+| Generation disabled globally | `503` | — | no |
+
+`scope_too_large` carries the four numbers the client displays, so it computes
+nothing: `source_count`, `max_sources`, `estimated_tokens`, `max_tokens`.
+`sources_not_ready` carries `pending_count` and `pending_titles`; the call that
+returned it has already kicked off the missing translations, so retrying it
+unchanged is the remedy.
+
+### 4) GET /api/artifacts?scope=&scope_id=
+
+A scope's whole history, **newest first, all types mixed**, several entries of the
+same type included. This is also the progress endpoint: in-flight entries appear
+with `queued` or `generating`, so a client polls once per scope and never once per
+artifact type.
+
+```json
+{
+  "scope": "folder",
+  "scope_id": "c4ef2e55-8449-4a71-be46-bcf1a6eeca3e",
+  "artifacts": [
+    {
+      "artifact_id": "art_9f3c...",
+      "artifact_type": "summary_detailed",
+      "status": "ready",
+      "title": "Les limites du scaling",
+      "source_count": 7,
+      "created_at": "2026-08-17T09:12:44Z",
+      "completed_at": "2026-08-17T09:13:31Z",
+      "error_code": null
+    },
+    {
+      "artifact_id": "art_1b70...",
+      "artifact_type": "quiz",
+      "status": "generating",
+      "title": null,
+      "source_count": 7,
+      "created_at": "2026-08-17T09:12:44Z",
+      "completed_at": null,
+      "error_code": null
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+These are exactly the attributes the `scope-index` GSI projects: a page costs one
+DynamoDB query, with no read of the base table and no S3 access. `title` is
+emitted by the model, which is what tells two entries of the same type apart.
+`sources` is **not** in this response — it is only returned when one entry is
+opened.
+
+### 5) GET /api/artifacts/{artifact_id}
+
+The same fields plus the scope and the immutable source snapshot:
+
+```json
+{
+  "artifact_id": "art_9f3c...",
+  "artifact_type": "summary_detailed",
+  "status": "ready",
+  "title": "Les limites du scaling",
+  "source_count": 7,
+  "created_at": "2026-08-17T09:12:44Z",
+  "completed_at": "2026-08-17T09:13:31Z",
+  "error_code": null,
+  "scope": "folder",
+  "scope_id": "c4ef2e55-8449-4a71-be46-bcf1a6eeca3e",
+  "sources": [
+    {
+      "media_item_id": "med_01JQ8X8J...",
+      "title": "Scaling laws revisited",
+      "language": "fr",
+      "excluded": false,
+      "excluded_reason": null
+    }
+  ],
+  "s3_key": "summary_detailed/art_9f3c....json"
+}
+```
+
+A source with `excluded: true` was in the scope but carried no usable transcript:
+it is recorded rather than dropped, so the entry stays honest about what it could
+not read. The snapshot describes the scope **at generation time** — it is expected
+to diverge from the collection's current contents, and that divergence is the
+history rather than a defect.
+
+### 6) GET /api/artifacts/{artifact_id}/content
+
+The stored JSON payload, inlined. `409` while the entry is not `ready`.
+
+```json
+{
+  "artifact_id": "art_01JQ8ZNOTES...",
+  "artifact_type": "notes",
+  "scope": "media",
+  "scope_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
+  "status": "ready",
+  "content": {
+    "artifact_id": "art_01JQ8ZNOTES...",
+    "artifact_type": "notes",
+    "scope": "media",
+    "scope_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
+    "generated_at": "2026-02-24T20:37:10Z",
+    "source_count": 1,
+    "sources": [
+      {
+        "media_item_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
+        "title": "LE MEILLEUR DE BOUVARD",
+        "language": "fr",
+        "transcript_s3_key": "job_01JQ8X8J5T9Q5V7Q4TW4N1HY03.txt"
+      }
+    ],
+    "generator_version": "notes:gpt-5.4-nano-2026-03-17:prompt-v2",
+    "llm_usage": {
+      "prompt_tokens": 4622,
+      "cached_tokens": 0,
+      "completion_tokens": 1200,
+      "cost_eur": 0.0016
+    },
+    "content": {
+      "title": "...",
+      "objectives": ["..."],
+      "concepts": [
+        {
+          "term": "...",
+          "explanation": "...",
+          "importance": "core"
+        }
+      ],
+      "key_points": ["..."],
+      "action_items": ["..."],
+      "glossary": [
+        {
+          "term": "...",
+          "definition": "..."
+        }
+      ]
+    }
+  }
+}
+```
+
+Every content schema carries a `title` (3-80 characters) emitted by the model.
+`summary_detailed.notable_quotes` is a list of `{text, source_ref}` where
+`source_ref` is **required** — a quote is verbatim, so its origin is checkable.
+Flashcards and quiz questions carry an **optional** `source_ref`, null when the
+entry draws on several sources. `source_ref` is the corpus tag (`"[S2]"`), which
+the client resolves through the index in `sources`; the model is never asked to
+write a media id.
 
 Canonical `notes` content shape for client rendering:
 ```json
@@ -449,7 +503,8 @@ Response (`UploadAudioResponse`, `202 Accepted`):
 - `transcript.status`: `pending | extracting | transcribing | ready | failed`
 
 `MediaArtifact`:
-- `artifact_type`: `summary | quiz | notes`
+- `scope`: `media | folder` (a folder is what the UI calls a collection)
+- `artifact_type`: `summary_short | summary_detailed | notes | quiz | flashcards`
 - `status`: `queued | generating | ready | failed`
 
 `ProcessingJob` lifecycle usage:
@@ -514,7 +569,7 @@ HTTP mapping rules:
 
 - `media_key` must be deterministic from canonical URL normalization.
 - Ingestion is idempotent for equivalent normalized URLs.
-- Artifact creation is idempotent for equivalent `(media_item_id, artifact_type, parameters, idempotency_key)` requests.
+- Artifact creation collapses **only** requests identical in `(user, scope, scope_id, artifact_type, parameters, generator version, source ids)` **and** less than 120 s apart. Past that window the same request is a regeneration and creates a new entry: the storage is an append-only history, so nothing is ever overwritten and no request is ever refused for already existing.
 - Timestamps use ISO-8601 UTC strings.
 - `request_id` must be returned in error payload and response header.
 

@@ -400,34 +400,12 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   }, [router, media_item.media_item_id, currentFolderId]);
 
   const [activeTab, setActiveTab] = useState<MediaDetailTabKey>("reader");
+  // Artifacts are a per-scope history now, so the media detail response carries
+  // no artifact projection: this screen reads the history and keeps the newest
+  // entry per type for its tiles. Rendering the history itself is task-273.
   const [artifactStates, setArtifactStates] = useState<
     Record<ArtifactType, ArtifactTileState>
-  >(() => {
-    const initial = buildInitialArtifactStates();
-
-    for (const artifact of mediaData.artifacts) {
-      const bucket = bucketArtifactType(artifact.artifact_type);
-      initial[bucket] = {
-        status: artifact.status,
-        artifactId: artifact.artifact_id,
-      };
-    }
-
-    const artifactStatuses = media_item.artifact_statuses;
-    if (artifactStatuses) {
-      for (const [type, snapshot] of Object.entries(artifactStatuses)) {
-        if (snapshot) {
-          const bucket = bucketArtifactType(type as ArtifactType);
-          initial[bucket] = {
-            status: snapshot.status,
-            artifactId: snapshot.artifact_id,
-          };
-        }
-      }
-    }
-
-    return initial;
-  });
+  >(buildInitialArtifactStates);
 
   const mountedRef = useRef(true);
   const artifactPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -457,6 +435,48 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     };
   }, []);
 
+  // One request per scope serves both the history and the in-flight progress, so
+  // there is never a request per artifact type. The list comes back newest-first,
+  // hence the first entry seen for a type is the one the tile shows.
+  const refreshArtifactStates = useCallback(async (): Promise<
+    Record<ArtifactType, ArtifactTileState>
+  > => {
+    const next = buildInitialArtifactStates();
+    if (!token) return next;
+
+    const response = await ArtifactService.listArtifacts(
+      token,
+      "media",
+      media_item.media_item_id,
+    );
+    const seen = new Set<ArtifactType>();
+    for (const artifact of response.artifacts) {
+      const bucket = bucketArtifactType(artifact.artifact_type);
+      if (seen.has(bucket)) continue;
+      seen.add(bucket);
+      next[bucket] = {
+        status: artifact.status,
+        artifactId: artifact.artifact_id,
+      };
+    }
+    return next;
+  }, [token, media_item.media_item_id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const states = await refreshArtifactStates();
+        if (!cancelled && mountedRef.current) setArtifactStates(states);
+      } catch {
+        // Non-fatal: the tiles stay in their idle state and a generation still works.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshArtifactStates]);
+
   const startArtifactPolling = useCallback(() => {
     if (artifactPollRef.current) return;
 
@@ -464,35 +484,8 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       if (!token || !mountedRef.current) return;
 
       try {
-        const response = await MediaService.getMediaStatus(
-          token,
-          media_item.media_item_id,
-        );
+        const newStates = await refreshArtifactStates();
         if (!mountedRef.current) return;
-
-        const newStates = buildInitialArtifactStates();
-
-        for (const artifact of response.artifacts) {
-          const bucket = bucketArtifactType(artifact.artifact_type);
-          newStates[bucket] = {
-            status: artifact.status,
-            artifactId: artifact.artifact_id,
-          };
-        }
-
-        const artifactStatuses = response.media_item.artifact_statuses;
-        if (artifactStatuses) {
-          for (const [type, snapshot] of Object.entries(artifactStatuses)) {
-            if (snapshot) {
-              const bucket = bucketArtifactType(type as ArtifactType);
-              newStates[bucket] = {
-                status: snapshot.status,
-                artifactId: snapshot.artifact_id,
-              };
-            }
-          }
-        }
-
         setArtifactStates(newStates);
 
         // Stop if no artifacts are in progress
@@ -507,7 +500,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         // Silent fail during polling
       }
     }, ARTIFACT_POLL_INTERVAL_MS);
-  }, [token, media_item.media_item_id]);
+  }, [token, refreshArtifactStates]);
 
   const handleGenerate = useCallback(
     async (artifactType: ArtifactType) => {
@@ -527,6 +520,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       try {
         const result = await ArtifactService.generateArtifact(
           token,
+          "media",
           media_item.media_item_id,
           artifactType,
         );

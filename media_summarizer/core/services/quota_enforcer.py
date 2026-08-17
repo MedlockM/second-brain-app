@@ -445,6 +445,150 @@ async def _evaluate_submission_allowed(
     return QuotaCheckResult.ok()
 
 
+async def check_artifact_generation_allowed(
+    user_id: str,
+    *,
+    scope: str,
+    source_count: int,
+) -> QuotaCheckResult:
+    """Gate an AI generation, which the import quotas do not cover.
+
+    Two dependencies escape `check_submission_allowed` and they are exactly the
+    ones the collection scope introduces (task-269 §10.1): a collection
+    generation can cost up to 25x a per-media one while consuming no import
+    quota, and the append-only model makes regeneration not merely possible but
+    expected — nothing in the code says "you already have this artifact".
+
+    So two counters:
+    - ``ai_generations_per_day`` bounds the "keep tapping regenerate" loop, on
+      **both** scopes.
+    - ``collection_source_units`` (1 unit = one source in one generation) caps the
+      monthly volume of the **collection** scope only. The per-media cost is
+      already inside the per-media unit cost of task-65; counting it here would
+      bill the same spend twice and break nominal usage.
+
+    Fails open like `check_submission_allowed`: an unreadable counter must not
+    lock a subscriber out of the product.
+    """
+    try:
+        return await _evaluate_artifact_generation_allowed(
+            user_id=user_id, scope=scope, source_count=source_count
+        )
+    except Exception as exc:
+        logger.error(
+            "quota.artifact_check_failed_open",
+            extra={
+                "user_id": user_id,
+                "scope": scope,
+                "source_count": source_count,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=exc,
+        )
+        return QuotaCheckResult.ok()
+
+
+async def _evaluate_artifact_generation_allowed(
+    *,
+    user_id: str,
+    scope: str,
+    source_count: int,
+) -> QuotaCheckResult:
+    tier = await _get_user_tier(user_id)
+    if tier is None:
+        if await _is_free_trial_active(user_id):
+            tier = "mix"
+        else:
+            return QuotaCheckResult.denied(
+                error_code="tier_quota_exceeded",
+                message="No active subscription. Please subscribe to continue.",
+                http_status=403,
+            )
+
+    config = await pricing_config_service.get_pricing_config()
+
+    daily_limit = int(
+        (config.get("rate_limits", {}).get(tier, {}) or {}).get(
+            "ai_generations_per_day", 0
+        )
+        or 0
+    )
+    if daily_limit > 0:
+        daily_usage = await quota_usage_db.get_daily_usage(user_id)
+        current_daily = int(daily_usage.get("ai_generations", 0) or 0)
+        if current_daily >= daily_limit:
+            return QuotaCheckResult.denied(
+                error_code="daily_rate_limit",
+                message=(
+                    f"Daily AI generation limit reached ({current_daily}/{daily_limit})."
+                ),
+                http_status=429,
+            )
+
+    if scope == "folder":
+        monthly_cap = int(
+            (await _get_effective_caps(tier, user_id)).get(
+                "collection_source_units", 0
+            )
+            or 0
+        )
+        if monthly_cap > 0:
+            monthly_usage = await quota_usage_db.get_monthly_usage(user_id)
+            current_units = int(
+                monthly_usage.get("collection_source_units", 0) or 0
+            )
+            if current_units + max(1, source_count) > monthly_cap:
+                return QuotaCheckResult.denied(
+                    error_code="tier_quota_exceeded",
+                    message=(
+                        "Monthly collection AI quota reached "
+                        f"({current_units}/{monthly_cap} source units used)."
+                    ),
+                    http_status=403,
+                )
+
+    return QuotaCheckResult.ok()
+
+
+async def record_artifact_generation(
+    user_id: str,
+    *,
+    scope: str,
+    source_count: int,
+    idempotency_token: str,
+) -> None:
+    """Debit the AI counters for one generation that was actually queued.
+
+    ``idempotency_token`` is the artifact id, so a retry of the request cannot
+    debit twice. Best-effort: the generation is already queued, and a counter
+    write failing must not turn into a user-facing error.
+    """
+    try:
+        await quota_usage_db.increment_daily_usage(
+            user_id,
+            ai_generations=1,
+            idempotency_token=idempotency_token,
+        )
+        if scope == "folder" and source_count > 0:
+            await quota_usage_db.increment_monthly_usage(
+                user_id,
+                collection_source_units=source_count,
+                idempotency_token=f"artifact_units:{idempotency_token}",
+            )
+    except Exception as exc:
+        logger.warning(
+            "quota.artifact_record_failed",
+            extra={
+                "user_id": user_id,
+                "scope": scope,
+                "source_count": source_count,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+        )
+
+
 async def record_submission(
     user_id: str,
     source_platform: str,

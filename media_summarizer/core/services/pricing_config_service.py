@@ -88,6 +88,12 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "documents": 100,
             "youtube": 100,
             "max_audio_duration_minutes": 0,
+            # 1 unit = one source inside one collection generation (task-269
+            # §10.2b). Collection-scope only: the per-media LLM cost is already
+            # inside the per-media unit cost of task-65, so counting it here would
+            # bill the same spend twice. 400 units is ~57 generations of 7 sources
+            # a month, worst case 0.38 EUR of LLM against 2.125 EUR of net revenue.
+            "collection_source_units": 400,
         },
         "mix": {
             "audio_minutes": 300,
@@ -95,6 +101,7 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "documents": 100,
             "youtube": 100,
             "max_audio_duration_minutes": 180,
+            "collection_source_units": 800,
         },
         "audio_heavy": {
             "audio_minutes": 900,
@@ -102,6 +109,7 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "documents": 300,
             "youtube": 200,
             "max_audio_duration_minutes": 180,
+            "collection_source_units": 1200,
         },
     },
     # --- Rate limits (daily, per tier) ---
@@ -112,6 +120,11 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "document_imports_per_day": 10,
             "text_imports_per_minute": 5,
             "api_calls_per_minute": 15,
+            # What bounds "keep tapping regenerate": the append-only model no
+            # longer refuses a second artifact of the same type, so nothing else
+            # does. 30/day is six times the five types — far above normal use,
+            # far below an abusive loop.
+            "ai_generations_per_day": 30,
         },
         "mix": {
             "audio_imports_per_day": 10,
@@ -120,6 +133,7 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "document_imports_per_day": 10,
             "text_imports_per_minute": 5,
             "api_calls_per_minute": 30,
+            "ai_generations_per_day": 50,
         },
         "audio_heavy": {
             "audio_imports_per_day": 20,
@@ -128,6 +142,7 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "document_imports_per_day": 30,
             "text_imports_per_minute": 10,
             "api_calls_per_minute": 60,
+            "ai_generations_per_day": 80,
         },
     },
     # --- Cost monitoring thresholds (per user, per tier) ---
@@ -196,6 +211,28 @@ def _is_cache_valid() -> bool:
     return (time.time() - _cache_loaded_at) < _CACHE_TTL_SECONDS
 
 
+def _merge_defaults(defaults: Any, stored: Any) -> Any:
+    """Overlay the stored config on the defaults, leaf by leaf.
+
+    Seeding only happens when the table is *empty*, so a key added to the
+    defaults after the first seed would otherwise never reach an environment
+    whose table is already populated — and a quota whose key is missing reads as
+    0, i.e. no limit at all. That is how `ai_generations_per_day` and
+    `collection_source_units` (task-270) would have been silently inert on dev.
+
+    A stored value always wins, including a stored 0: the point is to fill gaps,
+    never to override what the owner has set in DynamoDB.
+    """
+    if isinstance(defaults, dict) and isinstance(stored, dict):
+        merged = dict(defaults)
+        for key, value in stored.items():
+            merged[key] = (
+                _merge_defaults(defaults[key], value) if key in defaults else value
+            )
+        return merged
+    return stored
+
+
 async def _load_from_db() -> Dict[str, Any]:
     """Load config from DynamoDB. Seed defaults if table is empty."""
     from media_summarizer.utils import pricing_config_db
@@ -217,7 +254,7 @@ async def _load_from_db() -> Dict[str, Any]:
             logger.error("Failed to seed pricing config defaults: %s", e)
         return dict(DEFAULT_PRICING_CONFIG)
 
-    return config
+    return _merge_defaults(DEFAULT_PRICING_CONFIG, config)
 
 
 async def get_pricing_config() -> Dict[str, Any]:

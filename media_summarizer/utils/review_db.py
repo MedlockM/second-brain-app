@@ -146,27 +146,28 @@ async def get_due_cards(
         raise
 
 
-async def get_cards_by_media_item(
-    user_id: str, media_item_id: str
+async def get_cards_by_scope(
+    user_id: str, scope: str, scope_id: str
 ) -> List[ReviewScheduleRecord]:
-    """Get all review cards for a specific media item."""
+    """Get all review cards of one scope (a media item, or a collection)."""
     try:
         session = get_session()
         async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(REVIEW_SCHEDULE_TABLE)
             response = await table.query(
                 KeyConditionExpression=Key("user_id").eq(user_id),
-                FilterExpression=Attr("media_item_id").eq(media_item_id),
+                FilterExpression=Attr("scope").eq(scope) & Attr("scope_id").eq(scope_id),
             )
             items = response.get("Items", [])
             return [ReviewScheduleRecord.from_dynamodb_item(item) for item in items]
     except ClientError as e:
         _log_dynamodb_error(
-            "get_cards_by_media_item",
+            "get_cards_by_scope",
             e,
             table=REVIEW_SCHEDULE_TABLE,
             user_id=user_id,
-            media_item_id=media_item_id,
+            scope=scope,
+            scope_id=scope_id,
         )
         raise
 

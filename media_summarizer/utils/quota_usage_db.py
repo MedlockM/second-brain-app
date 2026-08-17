@@ -80,6 +80,7 @@ async def get_monthly_usage(user_id: str, period: Optional[str] = None) -> Dict[
                 "articles_count": 0,
                 "documents_count": 0,
                 "youtube_count": 0,
+                "collection_source_units": 0,
                 "cost_eur_estimated": 0.0,
             }
         return {
@@ -87,6 +88,7 @@ async def get_monthly_usage(user_id: str, period: Optional[str] = None) -> Dict[
             "articles_count": int(item.get("articles_count", 0)),
             "documents_count": int(item.get("documents_count", 0)),
             "youtube_count": int(item.get("youtube_count", 0)),
+            "collection_source_units": int(item.get("collection_source_units", 0)),
             "cost_eur_estimated": float(item.get("cost_eur_estimated", 0)),
         }
 
@@ -98,6 +100,7 @@ async def increment_monthly_usage(
     articles: int = 0,
     documents: int = 0,
     youtube: int = 0,
+    collection_source_units: int = 0,
     cost_eur: float = 0.0,
     period: Optional[str] = None,
     idempotency_token: Optional[str] = None,
@@ -144,6 +147,11 @@ async def increment_monthly_usage(
             update_parts.append("#yc :yc")
             expr_names["#yc"] = "youtube_count"
             expr_values[":yc"] = youtube
+        if collection_source_units:
+            # 1 unit = one source inside one collection generation (task-269 §10.2b).
+            update_parts.append("#su :su")
+            expr_names["#su"] = "collection_source_units"
+            expr_values[":su"] = collection_source_units
         if cost_eur:
             update_parts.append("#ce :ce")
             expr_names["#ce"] = "cost_eur_estimated"
@@ -219,6 +227,7 @@ async def get_daily_usage(user_id: str, date: Optional[str] = None) -> Dict[str,
                 "audio_imports": 0,
                 "text_imports": 0,
                 "document_imports": 0,
+                "ai_generations": 0,
                 "last_text_import_ts": [],
                 "last_api_call_ts": [],
             }
@@ -226,6 +235,7 @@ async def get_daily_usage(user_id: str, date: Optional[str] = None) -> Dict[str,
             "audio_imports": int(item.get("audio_imports", 0)),
             "text_imports": int(item.get("text_imports", 0)),
             "document_imports": int(item.get("document_imports", 0)),
+            "ai_generations": int(item.get("ai_generations", 0)),
             "last_text_import_ts": item.get("last_text_import_ts", []),
             "last_api_call_ts": item.get("last_api_call_ts", []),
         }
@@ -237,6 +247,7 @@ async def increment_daily_usage(
     audio_imports: int = 0,
     text_imports: int = 0,
     document_imports: int = 0,
+    ai_generations: int = 0,
     date: Optional[str] = None,
     idempotency_token: Optional[str] = None,
 ) -> bool:
@@ -276,6 +287,10 @@ async def increment_daily_usage(
             update_parts.append("#di :di")
             expr_names["#di"] = "document_imports"
             expr_values[":di"] = document_imports
+        if ai_generations:
+            update_parts.append("#ag :ag")
+            expr_names["#ag"] = "ai_generations"
+            expr_values[":ag"] = ai_generations
 
         if not update_parts:
             return False

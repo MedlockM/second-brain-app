@@ -5,7 +5,7 @@ Provides:
 - GET /api/review/due - get flashcards due for review
 - POST /api/review/{card_id}/result - submit review result
 - PATCH /api/user/settings - update spaced repetition settings
-- POST /api/review/media/{media_item_id}/toggle - toggle spaced rep per media
+- POST /api/review/scopes/{scope}/{scope_id}/toggle - toggle spaced rep per scope
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
+from media_summarizer.core.models.media_artifact import ArtifactScope
 from media_summarizer.core.models.review_schedule import UserReviewSettings
 from media_summarizer.core.services import fsrs_service
 from media_summarizer.utils import review_db
@@ -33,7 +34,8 @@ logger = logging.getLogger(__name__)
 
 class DueCardResponse(BaseModel):
     card_id: str
-    media_item_id: str
+    scope: str
+    scope_id: str
     artifact_id: str
     question: str
     answer: str
@@ -86,12 +88,13 @@ class UserSettingsResponse(BaseModel):
     max_items_per_session: int
 
 
-class MediaToggleRequest(BaseModel):
-    enabled: bool = Field(..., description="Whether spaced repetition is enabled for this media")
+class ScopeToggleRequest(BaseModel):
+    enabled: bool = Field(..., description="Whether spaced repetition is enabled for this scope")
 
 
-class MediaToggleResponse(BaseModel):
-    media_item_id: str
+class ScopeToggleResponse(BaseModel):
+    scope: str
+    scope_id: str
     enabled: bool
     cards_updated: int
 
@@ -111,7 +114,8 @@ async def get_due_cards(
         response_cards = [
             DueCardResponse(
                 card_id=card.card_id,
-                media_item_id=card.media_item_id,
+                scope=card.scope,
+                scope_id=card.scope_id,
                 artifact_id=card.artifact_id,
                 question=card.question,
                 answer=card.answer,
@@ -319,37 +323,48 @@ async def get_user_settings(
 
 
 @router.post(
-    "/review/media/{media_item_id}/toggle",
-    response_model=MediaToggleResponse,
+    "/review/scopes/{scope}/{scope_id}/toggle",
+    response_model=ScopeToggleResponse,
 )
-async def toggle_media_spaced_rep(
-    media_item_id: str,
-    payload: MediaToggleRequest,
+async def toggle_scope_spaced_rep(
+    scope: str,
+    scope_id: str,
+    payload: ScopeToggleRequest,
     current_user: AuthUser = Depends(get_current_user),
 ):
-    """Enable or disable spaced repetition for a specific media item."""
-    token = bind_log_context(user_id=current_user.id, media_item_id=media_item_id)
+    """Enable or disable spaced repetition for one scope (a media, or a collection)."""
+    token = bind_log_context(user_id=current_user.id, scope=scope, scope_id=scope_id)
     try:
-        cards_updated = await fsrs_service.toggle_spaced_rep_for_media(
+        if scope not in {ArtifactScope.MEDIA.value, ArtifactScope.FOLDER.value}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="scope must be 'media' or 'folder'",
+            )
+        cards_updated = await fsrs_service.toggle_spaced_rep_for_scope(
             user_id=current_user.id,
-            media_item_id=media_item_id,
+            scope=scope,
+            scope_id=scope_id,
             enabled=payload.enabled,
         )
 
-        return MediaToggleResponse(
-            media_item_id=media_item_id,
+        return ScopeToggleResponse(
+            scope=scope,
+            scope_id=scope_id,
             enabled=payload.enabled,
             cards_updated=cards_updated,
         )
 
+    except HTTPException:
+        raise
     except Exception as exc:
         log_event(
             logger,
             logging.ERROR,
-            "review.media_toggle.failed",
-            "Failed to toggle spaced rep for media",
+            "review.scope_toggle.failed",
+            "Failed to toggle spaced rep for scope",
             user_id=current_user.id,
-            media_item_id=media_item_id,
+            scope=scope,
+            scope_id=scope_id,
             error_type=type(exc).__name__,
             exc_info=exc,
         )

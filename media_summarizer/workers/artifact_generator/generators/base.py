@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, Optional, Protocol, Sequence
 
 
 class ArtifactGenerator(Protocol):
@@ -20,13 +20,16 @@ class ArtifactGenerator(Protocol):
 
     def build_prompt(
         self,
-        transcript: str,
+        sources: Sequence[Dict[str, Any]],
         *,
         language: Optional[str] = None,
-        podcast_title: Optional[str] = None,
-        episode_title: Optional[str] = None,
     ) -> str:
-        """Build the LLM prompt for this artifact kind."""
+        """Build the LLM prompt over the ordered corpus.
+
+        ``sources`` is the snapshot order: one dict per source with ``title``,
+        ``language`` and ``text``. A single-media scope is a one-element sequence
+        — there is no separate per-media code path.
+        """
         ...
 
     def response_format_schema(self) -> Optional[Dict[str, Any]]:
@@ -37,8 +40,8 @@ class ArtifactGenerator(Protocol):
         """Unwrap structured output wrapper if needed (e.g. {cards: [...]})."""
         ...
 
-    def validate(self, content: str) -> Any:
-        """Validate and parse the LLM output. Returns the validated payload."""
+    def validate(self, content: str) -> Dict[str, Any]:
+        """Validate and parse the LLM output. Always returns a dict carrying ``title``."""
         ...
 
     def build_artifact_content(

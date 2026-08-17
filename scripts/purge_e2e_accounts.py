@@ -117,10 +117,11 @@ CHILD_TABLES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("user_usage_monthly", "pk", ("user_id", "period")),
 )
 
-#: media_artifacts carries no user_id: rows are reached through the
-#: `media-item-index` GSI, keyed by the processing job id of the media item.
+#: media_artifacts rows are reached through the `scope-index` GSI, whose hash key
+#: is `user_id#scope#scope_id` — so both a media's artifacts and a collection's
+#: are collected for one user without touching the processing jobs (task-270).
 ARTIFACTS_TABLE = "media_artifacts"
-ARTIFACTS_INDEX = "media-item-index"
+ARTIFACTS_INDEX = "scope-index"
 ARTIFACTS_KEY = ("artifact_id",)
 
 
@@ -177,19 +178,25 @@ def collect_children(
         if rows:
             children[table] = rows
 
-    # Artifacts hang off the media items, i.e. off the processing jobs.
-    jobs = children.get(f"processing_jobs{suffix}", [])
+    # Artifacts hang off a scope: every media item of the user, plus every folder
+    # of the user (a collection artifact belongs to no media item at all).
+    scope_keys = [
+        f"{user_id}#media#{job.get('id', {}).get('S')}"
+        for job in children.get(f"processing_jobs{suffix}", [])
+        if job.get("id", {}).get("S")
+    ] + [
+        f"{user_id}#folder#{folder.get('id', {}).get('S')}"
+        for folder in children.get(f"user_folders{suffix}", [])
+        if folder.get("id", {}).get("S")
+    ]
     artifacts: list[dict[str, Any]] = []
-    for job in jobs:
-        media_item_id = job.get("id", {}).get("S")
-        if not media_item_id:
-            continue
+    for scope_key in scope_keys:
         artifacts.extend(
             query_items(
                 client,
                 f"{ARTIFACTS_TABLE}{suffix}",
-                "media_item_id",
-                media_item_id,
+                "scope_key",
+                scope_key,
                 index=ARTIFACTS_INDEX,
             )
         )

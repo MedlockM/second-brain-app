@@ -8,6 +8,13 @@ once instead of being duplicated across 5 separate workers.
 
 Consolidates the former flashcards, notes, quiz, summarization, and summary
 workers (task-195).
+
+One invocation = one artifact type = one LLM call over the whole corpus
+(task-269, strategy S1). N transcripts are downloaded in parallel and
+concatenated, tagged, into a single prompt: no condensation stage, so the detail
+that flashcards and quizzes live on is still in front of the model. The 300 s
+timeout and the 180 s LLM timeout are unchanged because the number of sequential
+calls per invocation is still one.
 """
 
 from __future__ import annotations
@@ -22,13 +29,19 @@ from typing import Any, Dict
 
 import aiohttp
 
-from media_summarizer.core.models.media_artifact import MediaArtifactType
+from media_summarizer.core.models.media_artifact import (
+    ArtifactLlmUsage,
+    MediaArtifactType,
+)
 from media_summarizer.core.services import fsrs_service
 from media_summarizer.core.services.artifact_service import (
+    MAX_COLLECTION_CORPUS_TOKENS,
+    claim_artifact_generation,
     complete_artifact_generation,
+    estimate_tokens,
     fail_artifact_generation,
-    mark_artifact_generating,
 )
+from media_summarizer.core.services.llm_pricing import estimate_llm_cost_eur
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
@@ -61,10 +74,28 @@ def _strip_code_fences(content: str) -> str:
     return cleaned.strip()
 
 
-async def _download_transcript(key: str, bucket: str = TRANSCRIPT_BUCKET) -> str:
-    """Download transcript text from S3."""
-    content = await s3.download_file_to_memory(bucket=bucket, key=key)
-    return content.decode("utf-8")
+async def _download_transcripts(
+    sources: list[Dict[str, Any]],
+) -> list[Dict[str, Any]]:
+    """Fetch the N transcripts in parallel, keeping the snapshot order.
+
+    25 sources at the measured median are ~400 kB, comfortably inside the
+    worker's 512 MB. Sequential downloads would spend most of the invocation
+    waiting on S3 round-trips instead of on the model.
+    """
+
+    async def fetch(source: Dict[str, Any]) -> Dict[str, Any]:
+        key = source.get("transcript_s3_key")
+        bucket = source.get("transcript_bucket") or TRANSCRIPT_BUCKET
+        content = await s3.download_file_to_memory(bucket=bucket, key=key)
+        return {
+            "media_item_id": source.get("media_item_id"),
+            "title": source.get("title"),
+            "language": source.get("language"),
+            "text": content.decode("utf-8", errors="ignore"),
+        }
+
+    return list(await asyncio.gather(*(fetch(source) for source in sources)))
 
 
 async def _call_llm(
@@ -72,8 +103,14 @@ async def _call_llm(
     model: str,
     artifact_type: str,
     response_format: Dict[str, Any] | None = None,
-) -> str:
-    """Call the LLM API and return the raw content string."""
+    prompt_cache_key: str | None = None,
+) -> tuple[str, Dict[str, Any]]:
+    """Call the LLM API and return the raw content plus the provider usage block.
+
+    ``prompt_cache_key`` routes the five requests of one generation to the same
+    machine so they hit the same cached corpus prefix. The usage block is what
+    makes the real cost measurable instead of estimated (`llm_usage`).
+    """
     if not OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY environment variable is required")
 
@@ -87,6 +124,8 @@ async def _call_llm(
 
     if response_format is not None:
         payload["response_format"] = response_format
+    if prompt_cache_key:
+        payload["prompt_cache_key"] = prompt_cache_key
 
     # gpt-5 family does not support temperature parameter
     model_lower = (model or "").lower()
@@ -119,7 +158,27 @@ async def _call_llm(
                 )
             response.raise_for_status()
             result = await response.json()
-            return result["choices"][0]["message"]["content"]
+            usage = result.get("usage") or {}
+            return result["choices"][0]["message"]["content"], usage
+
+
+def _read_llm_usage(usage: Dict[str, Any], model: str) -> ArtifactLlmUsage:
+    prompt_tokens = int(usage.get("prompt_tokens") or 0)
+    cached_tokens = int(
+        (usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+    )
+    completion_tokens = int(usage.get("completion_tokens") or 0)
+    return ArtifactLlmUsage(
+        prompt_tokens=prompt_tokens,
+        cached_tokens=cached_tokens,
+        completion_tokens=completion_tokens,
+        cost_eur=estimate_llm_cost_eur(
+            model=model,
+            prompt_tokens=prompt_tokens,
+            cached_tokens=cached_tokens,
+            completion_tokens=completion_tokens,
+        ),
+    )
 
 
 def _supports_structured_outputs(model: str) -> bool:
@@ -138,12 +197,10 @@ async def process_message(message: Dict[str, Any]) -> None:
     body = json.loads(message.get("Body", "{}"))
     artifact_id = body.get("artifact_id")
     artifact_type_str = body.get("artifact_type")
-    transcript_s3_key = body.get("transcript_s3_key")
-    transcript_bucket = body.get("transcript_bucket") or TRANSCRIPT_BUCKET
+    sources = body.get("sources") or []
     parameters = body.get("parameters") or {}
     language = parameters.get("language")
-    podcast_title = body.get("podcast_title")
-    episode_title = body.get("episode_title")
+    prompt_cache_key = body.get("prompt_cache_key")
     # Translation provenance set by the common detect+translate step (task-192).
     translation = body.get("translation") if isinstance(body.get("translation"), dict) else None
 
@@ -173,12 +230,13 @@ async def process_message(message: Dict[str, Any]) -> None:
 
     context_token = bind_log_context(
         artifact_id=artifact_id,
-        media_item_id=body.get("media_item_id"),
         artifact_type=artifact_type.value,
+        scope=body.get("scope"),
+        scope_id=body.get("scope_id"),
     )
 
     try:
-        if not all([artifact_id, transcript_s3_key]):
+        if not artifact_id or not sources:
             log_event(
                 logger,
                 logging.ERROR,
@@ -188,20 +246,37 @@ async def process_message(message: Dict[str, Any]) -> None:
             )
             raise ValueError(f"Missing fields for {artifact_type.value} generation")
 
-        await mark_artifact_generating(artifact_id)
+        # The lease is what absorbs at-least-once delivery: an entry already
+        # terminal, or held by a live worker, is not generated a second time.
+        # Standing down here costs one DynamoDB write and saves one LLM call.
+        claimed = await claim_artifact_generation(artifact_id)
+        if claimed is None:
+            log_event(
+                logger,
+                logging.INFO,
+                "artifact.claim_declined",
+                "Artifact already terminal or leased by another worker; standing down",
+                artifact_id=artifact_id,
+                artifact_type=artifact_type.value,
+            )
+            return
 
-        transcript = await _download_transcript(
-            transcript_s3_key,
-            bucket=transcript_bucket,
-        )
+        corpus_sources = await _download_transcripts(sources)
 
-        # Build prompt
-        prompt = generator.build_prompt(
-            transcript,
-            language=language,
-            podcast_title=podcast_title,
-            episode_title=episode_title,
+        # Second ceiling check, after translation: a translated corpus can be
+        # longer than the original. Failing here costs nothing; sending a request
+        # the provider will reject costs the whole invocation.
+        corpus_bytes = sum(
+            len(source["text"].encode("utf-8")) for source in corpus_sources
         )
+        estimated_tokens = estimate_tokens(corpus_bytes)
+        if estimated_tokens > MAX_COLLECTION_CORPUS_TOKENS:
+            raise ValueError(
+                f"corpus_too_large: {estimated_tokens} estimated tokens exceeds "
+                f"{MAX_COLLECTION_CORPUS_TOKENS}"
+            )
+
+        prompt = generator.build_prompt(corpus_sources, language=language)
 
         # Determine model and structured output support
         model = generator.default_model
@@ -212,12 +287,14 @@ async def process_message(message: Dict[str, Any]) -> None:
             response_format = schema
 
         # Call LLM
-        raw_content = await _call_llm(
+        raw_content, usage = await _call_llm(
             prompt=prompt,
             model=model,
             artifact_type=artifact_type.value,
             response_format=response_format,
+            prompt_cache_key=prompt_cache_key,
         )
+        llm_usage = _read_llm_usage(usage, model)
 
         # Unwrap structured response wrapper if applicable
         if uses_structured_outputs and schema is not None:
@@ -228,31 +305,45 @@ async def process_message(message: Dict[str, Any]) -> None:
 
         # Build artifact content
         artifact_content = generator.build_artifact_content(validated, body=body)
+        # The title is the model's, not a derived label: it is what tells two
+        # entries of the same type apart in the history (task-269 §5.4).
+        artifact_title = validated.get("title") if isinstance(validated, dict) else None
 
         envelope: Dict[str, Any] = {
             "artifact_id": artifact_id,
-            "media_item_id": body.get("media_item_id"),
             "artifact_type": artifact_type.value,
+            "scope": body.get("scope"),
+            "scope_id": body.get("scope_id"),
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "source": {
-                "transcript_s3_key": transcript_s3_key,
-                "generator_version": body.get("generator_version"),
-                "podcast_title": podcast_title,
-                "episode_title": episode_title,
-            },
+            "source_count": len(sources),
+            "sources": [
+                {
+                    "media_item_id": source.get("media_item_id"),
+                    "title": source.get("title"),
+                    "language": source.get("language"),
+                    "transcript_s3_key": source.get("transcript_s3_key"),
+                }
+                for source in sources
+            ],
+            "generator_version": body.get("generator_version"),
+            "llm_usage": llm_usage.model_dump(),
             "content": artifact_content,
         }
-        if translation is not None:
+        if translation:
             envelope["translation"] = translation
 
         await complete_artifact_generation(
             artifact_id=artifact_id,
             content=envelope,
+            title=artifact_title,
+            llm_usage=llm_usage,
         )
+
+        await _record_generation_cost(body, artifact_id, llm_usage)
 
         # Post-generation hooks (per-kind)
         if artifact_type == MediaArtifactType.FLASHCARDS:
-            await _init_fsrs_cards(body, artifact_id, validated)
+            await _init_fsrs_cards(body, artifact_id, validated["cards"])
 
     except Exception as exc:
         # Determine error code for validation errors
@@ -285,6 +376,40 @@ async def process_message(message: Dict[str, Any]) -> None:
         reset_log_context(context_token)
 
 
+async def _record_generation_cost(
+    body: Dict[str, Any],
+    artifact_id: str,
+    llm_usage: ArtifactLlmUsage,
+) -> None:
+    """Charge the measured cost to the monthly counter behind the hard block.
+
+    Keyed on ``artifact_id`` so a redelivery cannot debit twice. Best-effort: the
+    provider has already billed the call, so a counter failure must not fail an
+    artifact that succeeded.
+    """
+    user_id = body.get("user_id")
+    if not user_id or llm_usage.cost_eur <= 0:
+        return
+    try:
+        from media_summarizer.utils import quota_usage_db
+
+        await quota_usage_db.increment_monthly_usage(
+            user_id,
+            cost_eur=llm_usage.cost_eur,
+            idempotency_token=f"artifact_cost:{artifact_id}",
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "artifact.cost_record_failed",
+            "Failed to record artifact LLM cost (non-fatal)",
+            artifact_id=artifact_id,
+            error_type=type(exc).__name__,
+            detail=str(exc)[:200],
+        )
+
+
 async def _init_fsrs_cards(
     body: Dict[str, Any],
     artifact_id: str,
@@ -292,18 +417,21 @@ async def _init_fsrs_cards(
 ) -> None:
     """Initialize FSRS review schedule cards for spaced repetition (flashcards only).
 
-    The owner comes from the message, not from a processing-job lookup: since
-    task-220 ``media_item_id`` is a durable library id, and resolving it against
-    ``processing_jobs`` would return nothing and silently skip FSRS init.
+    Cards are keyed by ``scope``/``scope_id`` rather than by media, which is what
+    lets a collection's flashcards enter the review queue like any other deck —
+    otherwise they would be the one artifact type that generates and then sits
+    inert. The owner comes from the message, not from a processing-job lookup.
     """
-    media_item_id = body.get("media_item_id")
+    scope = body.get("scope")
+    scope_id = body.get("scope_id")
     user_id = body.get("user_id")
-    if not media_item_id or not user_id:
+    if not scope or not scope_id or not user_id:
         return
     try:
         await fsrs_service.initialize_cards_for_flashcards(
             user_id=user_id,
-            media_item_id=media_item_id,
+            scope=scope,
+            scope_id=scope_id,
             artifact_id=artifact_id,
             flashcards=flashcards,
         )
@@ -315,7 +443,8 @@ async def _init_fsrs_cards(
             "worker.fsrs_init_failed",
             "Failed to initialize FSRS cards (non-fatal)",
             artifact_id=artifact_id,
-            media_item_id=media_item_id,
+            scope=scope,
+            scope_id=scope_id,
             error_type=type(fsrs_exc).__name__,
             detail=str(fsrs_exc)[:200],
         )

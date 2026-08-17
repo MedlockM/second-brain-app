@@ -19,7 +19,6 @@ locals {
     MEDIA_IDEMPOTENCE_TABLE       = aws_dynamodb_table.media_idempotence_v1.name
     USER_MEDIA_TABLE              = aws_dynamodb_table.user_media_v1.name
     MEDIA_ARTIFACTS_TABLE         = aws_dynamodb_table.media_artifacts_v1.name
-    ARTIFACT_IDEMPOTENCE_TABLE    = aws_dynamodb_table.artifact_idempotence_v1.name
     TRANSLATION_IDEMPOTENCE_TABLE = aws_dynamodb_table.translation_idempotence_v1.name
     MEDIA_WATCHERS_TABLE          = aws_dynamodb_table.media_watchers_v1.name
     USER_TAGS_TABLE               = aws_dynamodb_table.user_tags_v1.name

@@ -10,9 +10,11 @@ import hashlib
 import json
 import os
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from pydantic import BaseModel, ValidationError, field_validator
+
+from media_summarizer.workers.artifact_generator.generators import corpus
 
 MIN_QUESTIONS = 5
 MAX_QUESTIONS = 10
@@ -50,6 +52,16 @@ class QuizQuestion(BaseModel):
     options: List[QuizOption]
     correct_answer: str
     explanation: str
+    # Optional: a question may draw on several sources.
+    source_ref: Optional[str] = None
+
+    @field_validator("source_ref")
+    @classmethod
+    def _clean_source_ref(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
     @field_validator("question", "explanation")
     @classmethod
@@ -84,24 +96,17 @@ class QuizGenerator:
 
     def build_prompt(
         self,
-        transcript: str,
+        sources: Sequence[Dict[str, Any]],
         *,
         language: Optional[str] = None,
-        podcast_title: Optional[str] = None,
-        episode_title: Optional[str] = None,
     ) -> str:
-        language_instruction = (
-            f"Use {language} for the output."
-            if language
-            else "Use the same language as the transcript."
-        )
-        return f"""You produce a multiple-choice quiz from a transcript for knowledge testing.
+        instructions = f"""You produce a multiple-choice quiz from everything above, for knowledge testing.
 
 Rules:
-- {language_instruction}
+- {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
-- Return a JSON array of question objects.
 - Generate between {MIN_QUESTIONS} and {MAX_QUESTIONS} questions depending on content density.
+- Spread the questions across the sources rather than covering only the first one.
 - Each question must have exactly {OPTIONS_PER_QUESTION} options labeled A, B, C, D.
 - Exactly one option is correct per question.
 - "correct_answer" must be the label of the correct option. Vary which label holds it
@@ -110,25 +115,29 @@ Rules:
 - Do NOT generate questions about ads/sponsors unless central to the content.
 - Include a brief explanation for why the correct answer is right.
 - Make incorrect options plausible but clearly wrong to someone who understood the content.
+{corpus.source_ref_instruction(required=False)}
+{corpus.title_instruction("quiz")}
 
 Return JSON with this exact schema:
-[
-  {{
-    "question": "...",
-    "options": [
-      {{"label": "A", "text": "..."}},
-      {{"label": "B", "text": "..."}},
-      {{"label": "C", "text": "..."}},
-      {{"label": "D", "text": "..."}}
-    ],
-    "correct_answer": "C",
-    "explanation": "..."
-  }}
-]
-
-Transcript:
-{transcript}
+{{
+  "title": "A short specific title",
+  "questions": [
+    {{
+      "question": "...",
+      "options": [
+        {{"label": "A", "text": "..."}},
+        {{"label": "B", "text": "..."}},
+        {{"label": "C", "text": "..."}},
+        {{"label": "D", "text": "..."}}
+      ],
+      "correct_answer": "C",
+      "explanation": "...",
+      "source_ref": "[S1]"
+    }}
+  ]
+}}
 """
+        return corpus.build_prompt(sources, instructions)
 
     def response_format_schema(self) -> Optional[Dict[str, Any]]:
         return {
@@ -139,6 +148,7 @@ Transcript:
                 "schema": {
                     "type": "object",
                     "properties": {
+                        "title": {"type": "string"},
                         "questions": {
                             "type": "array",
                             "items": {
@@ -165,28 +175,31 @@ Transcript:
                                         "enum": list(LABELS),
                                     },
                                     "explanation": {"type": "string"},
+                                    "source_ref": {"type": ["string", "null"]},
                                 },
-                                "required": ["question", "options", "correct_answer", "explanation"],
+                                "required": [
+                                    "question",
+                                    "options",
+                                    "correct_answer",
+                                    "explanation",
+                                    "source_ref",
+                                ],
                                 "additionalProperties": False,
                             },
                         }
                     },
-                    "required": ["questions"],
+                    "required": ["title", "questions"],
                     "additionalProperties": False,
                 },
             },
         }
 
     def unwrap_structured_response(self, content: str) -> str:
-        try:
-            parsed = json.loads(content)
-            if isinstance(parsed, dict) and "questions" in parsed:
-                return json.dumps(parsed["questions"])
-        except json.JSONDecodeError:
-            pass
+        # The structured wrapper is already the shape `validate` expects now that
+        # the title lives beside the questions, so there is nothing to unwrap.
         return content
 
-    def validate(self, content: str) -> List[Dict[str, Any]]:
+    def validate(self, content: str) -> Dict[str, Any]:
         from media_summarizer.workers.artifact_generator.worker import _strip_code_fences
 
         try:
@@ -196,19 +209,27 @@ Transcript:
                 f"quiz output is not valid JSON: {exc}"
             ) from exc
 
-        if not isinstance(parsed, list):
-            raise QuizValidationError("quiz output must be a JSON array")
+        if not isinstance(parsed, dict):
+            raise QuizValidationError("quiz output must be a JSON object")
 
-        if len(parsed) < MIN_QUESTIONS:
+        title = str(parsed.get("title") or "").strip()
+        if not title:
+            raise QuizValidationError("quiz output must carry a non-empty title")
+
+        raw_questions = parsed.get("questions")
+        if not isinstance(raw_questions, list):
+            raise QuizValidationError("quiz output must carry a 'questions' array")
+
+        if len(raw_questions) < MIN_QUESTIONS:
             raise QuizValidationError(
-                f"quiz output must contain at least {MIN_QUESTIONS} questions, got {len(parsed)}"
+                f"quiz output must contain at least {MIN_QUESTIONS} questions, got {len(raw_questions)}"
             )
 
-        if len(parsed) > MAX_QUESTIONS:
-            parsed = parsed[:MAX_QUESTIONS]
+        if len(raw_questions) > MAX_QUESTIONS:
+            raw_questions = raw_questions[:MAX_QUESTIONS]
 
-        validated: List[Dict[str, Any]] = []
-        for idx, item in enumerate(parsed):
+        questions: List[Dict[str, Any]] = []
+        for idx, item in enumerate(raw_questions):
             if not isinstance(item, dict):
                 raise QuizValidationError(
                     f"quiz item at index {idx} must be a JSON object"
@@ -233,9 +254,9 @@ Transcript:
                     f"once each, got {labels}"
                 )
 
-            validated.append(question.model_dump())
+            questions.append(question.model_dump())
 
-        return validated
+        return {"title": title, "questions": questions}
 
     def build_artifact_content(
         self,
@@ -243,8 +264,11 @@ Transcript:
         *,
         body: Dict[str, Any],
     ) -> Dict[str, Any]:
-        questions = _shuffle_options(validated, artifact_id=body.get("artifact_id"))
+        questions = _shuffle_options(
+            validated["questions"], artifact_id=body.get("artifact_id")
+        )
         return {
+            "title": validated["title"],
             "questions": questions,
             "question_count": len(questions),
         }

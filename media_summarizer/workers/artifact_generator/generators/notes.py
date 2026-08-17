@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from pydantic import BaseModel, ValidationError, field_validator
+
+from media_summarizer.workers.artifact_generator.generators import corpus
 
 
 class NotesValidationError(Exception):
@@ -52,11 +54,20 @@ class NotesGlossaryItem(BaseModel):
 
 
 class NotesContent(BaseModel):
+    title: str
     objectives: List[str]
     concepts: List[NotesConcept]
     key_points: List[str]
     action_items: List[str]
     glossary: List[NotesGlossaryItem]
+
+    @field_validator("title")
+    @classmethod
+    def _non_empty_title(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("title must be non-empty")
+        return normalized
 
     @field_validator("objectives", "key_points", "action_items")
     @classmethod
@@ -88,31 +99,26 @@ class NotesGenerator:
 
     def build_prompt(
         self,
-        transcript: str,
+        sources: Sequence[Dict[str, Any]],
         *,
         language: Optional[str] = None,
-        podcast_title: Optional[str] = None,
-        episode_title: Optional[str] = None,
     ) -> str:
-        language_instruction = (
-            f"Use {language} for the output."
-            if language
-            else "Use the same language as the transcript."
-        )
-        return f"""
-You produce a structured study/review notes artifact from a transcript.
+        instructions = f"""You produce a structured study/review notes artifact from everything above.
 
 Rules:
-- {language_instruction}
+- {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
 - Keep the structure stable for client rendering.
 - Focus on learning/review value, not a generic summary.
+- Build one set of notes across all the sources, not one section per source.
 - Avoid sponsor/ad content unless it is central to the source material.
 - Every string must be concise and useful.
 - `importance` must be either `core` or `supporting`.
+{corpus.title_instruction("set of notes")}
 
 Return JSON with this exact schema:
 {{
+  "title": "A short specific title",
   "objectives": ["..."],
   "concepts": [
     {{
@@ -130,10 +136,8 @@ Return JSON with this exact schema:
     }}
   ]
 }}
-
-Transcript:
-{transcript}
 """
+        return corpus.build_prompt(sources, instructions)
 
     def response_format_schema(self) -> Optional[Dict[str, Any]]:
         return None

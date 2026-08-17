@@ -16,19 +16,18 @@ re-saving the same URL after a purge lands on the same id and would inherit the
 stale artifacts of its previous life. That is why this module exists instead of a
 second copy of the same logic in the worker.
 
-Content shared between accounts
--------------------------------
-Artifacts are content-addressed: ``complete_artifact_generation`` writes one
-``ArtifactStorageRef`` onto every artifact row sharing a
-``generation_fingerprint`` and stores the same ref in the generation lock, so two
-users who imported the same episode read the same S3 object. Deleting it because
-one of them left would break the other. :func:`purge_artifacts_for_media_items`
-therefore deletes an artifact object and its generation lock only when *no*
-sibling artifact survives outside the set being purged.
+Nothing is shared between accounts any more
+-------------------------------------------
+Artifacts used to be content-addressed: several rows sharing a
+``generation_fingerprint`` pointed at one S3 object, so purging one user's row
+could break another's. The append-only model removed that entirely (task-270) —
+each entry owns an object keyed on its own ``artifact_id``, and the id is a hash
+that includes ``user_id``. So the sibling rule this module used to carry is gone:
+delete the row, delete its object.
 
-Transcripts, audio and documents need no such guard: their keys are derived from
-a job id (or, for share-extension uploads, from ``shared-audio/<user_id>/``), and
-both are per user.
+Transcripts, audio and documents need no such guard either: their keys are
+derived from a job id (or, for share-extension uploads, from
+``shared-audio/<user_id>/``), and both are per user.
 """
 
 from __future__ import annotations
@@ -36,9 +35,12 @@ from __future__ import annotations
 import logging
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from media_summarizer.core.models.media_artifact import MediaArtifactRecord
+from media_summarizer.core.models.media_artifact import (
+    ArtifactScope,
+    MediaArtifactRecord,
+    build_scope_key,
+)
 from media_summarizer.utils import (
-    artifact_idempotence,
     media_artifacts,
     s3,
     translation_idempotence,
@@ -57,52 +59,34 @@ def _bump(counts: Dict[str, int], step: str, count: int = 1) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def purge_artifacts_for_media_items(
-    media_item_ids: Iterable[str],
+async def purge_artifacts_for_scopes(
+    *,
+    user_id: str,
+    media_item_ids: Iterable[str] = (),
+    folder_ids: Iterable[str] = (),
 ) -> Dict[str, int]:
-    """Delete every artifact of the given media items, plus their S3 objects.
+    """Delete every artifact of the given scopes, plus their S3 objects.
 
-    The set passed in defines what "doomed" means for the sibling rule below, so
-    calling this once with N ids is not the same as calling it N times: two media
-    items of the same account that share a generated object have their object
-    deleted only in the first form. Both callers pass the largest set they own —
-    the whole account for an erasure, one item for a TTL purge — which is the
-    correct scope in each case.
+    Folder scopes are passed explicitly because a collection's artifacts hang off
+    the folder, not off any media item: an account erasure that only walked media
+    items would leave every collection artifact behind.
     """
     counts: Dict[str, int] = {}
-    doomed: Dict[str, MediaArtifactRecord] = {}
-    for media_item_id in sorted(set(media_item_ids)):
-        for record in await media_artifacts.list_media_artifacts_by_media_item(
-            media_item_id
-        ):
-            doomed[record.artifact_id] = record
+    scopes = [
+        (ArtifactScope.MEDIA, media_item_id)
+        for media_item_id in sorted(set(media_item_ids))
+    ] + [(ArtifactScope.FOLDER, folder_id) for folder_id in sorted(set(folder_ids))]
 
-    by_generation: Dict[str, List[MediaArtifactRecord]] = {}
-    for record in doomed.values():
-        if record.generation_fingerprint:
-            by_generation.setdefault(record.generation_fingerprint, []).append(record)
-
-    for fingerprint, records in by_generation.items():
-        siblings = await media_artifacts.list_media_artifacts_by_generation_fingerprint(
-            fingerprint
+    for scope, scope_id in scopes:
+        records, _ = await media_artifacts.list_artifacts_by_scope(
+            scope_key=build_scope_key(user_id=user_id, scope=scope, scope_id=scope_id)
         )
-        if any(sibling.artifact_id not in doomed for sibling in siblings):
-            # Another media item still reads this object. Its row and its request
-            # pointer are this item's and still go; the bytes stay.
-            _bump(counts, "artifact_objects_kept_shared", len(records))
-            continue
-        for bucket, key in _storage_refs(siblings or records):
-            await s3.delete_object(bucket, key)
-            _bump(counts, "artifact_objects_deleted")
-        await artifact_idempotence.delete_generation_lock(fingerprint)
-        _bump(counts, "artifact_generation_locks_deleted")
-
-    for record in doomed.values():
-        if record.request_fingerprint:
-            await media_artifacts.delete_request_pointer(record.request_fingerprint)
-            _bump(counts, "artifact_request_pointers_deleted")
-        await media_artifacts.delete_media_artifact(record.artifact_id)
-        _bump(counts, "artifact_rows_deleted")
+        for record in records:
+            for bucket, key in _storage_refs([record]):
+                await s3.delete_object(bucket, key)
+                _bump(counts, "artifact_objects_deleted")
+            await media_artifacts.delete_media_artifact(record.artifact_id)
+            _bump(counts, "artifact_rows_deleted")
 
     return counts
 
