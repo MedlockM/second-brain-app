@@ -4,16 +4,20 @@
  * Shared because the same five tiles are offered from two places: the "AI" tab
  * of a media item (`app/media/[id].tsx`) and the AI tab of a collection. The
  * component is deliberately free of any media/collection notion — it takes a
- * label, a glyph, the state of that artifact and two callbacks.
+ * label, a glyph, the state of that artifact and one callback.
  *
  * The label sits in its own column so a secondary metadata line (generation
  * date, number of sources) can be added later without reshaping the tile.
  *
  * Generating is always offered when the source is ready, whatever already
- * exists: artifacts are an append-only history, so a second tap is a legitimate
- * regeneration that adds an entry rather than a request the API would refuse.
- * The tile shows the state of the newest entry of its type; the full history
- * lives in the list below it.
+ * exists: artifacts are an append-only history, so a second tap adds an entry
+ * rather than a request the API would refuse. The button therefore keeps saying
+ * "Generate" once something exists, instead of switching to a second wording,
+ * and the tile carries no "View" action either: opening a generated artifact is
+ * the job of the history list below it, which routes to `/artifacts/<id>`.
+ * Keeping the action column to a single button is what lets the label breathe;
+ * two buttons side by side squeezed long labels like "Detailed summary" into a
+ * mid-word wrap.
  */
 
 import React from "react";
@@ -34,7 +38,6 @@ import type { ArtifactStatus, ArtifactType } from "../types/media";
  */
 export type ArtifactTileState = {
   status: ArtifactStatus | "idle";
-  artifactId?: string;
   error?: string;
 };
 
@@ -65,7 +68,6 @@ interface ArtifactTileProps {
    */
   sourceReady: boolean;
   onGenerate: () => void;
-  onView: (artifactId: string) => void;
 }
 
 export function ArtifactTile({
@@ -74,14 +76,11 @@ export function ArtifactTile({
   state,
   sourceReady,
   onGenerate,
-  onView,
 }: ArtifactTileProps): React.JSX.Element {
   const isInProgress =
     state.status === "queued" || state.status === "generating";
-  const isReady = state.status === "ready";
   const isFailed = state.status === "failed";
   const canGenerate = !isInProgress && sourceReady;
-  const generateLabel = state.status === "idle" ? "Generate" : "Regenerate";
 
   return (
     <View style={styles.tile}>
@@ -102,18 +101,6 @@ export function ArtifactTile({
           </View>
         )}
 
-        {isReady && state.artifactId && (
-          <Pressable
-            style={styles.viewButton}
-            onPress={() => state.artifactId && onView(state.artifactId)}
-            testID={`artifact-tile-view-${label}`}
-            accessibilityLabel={`View ${label}`}
-            accessibilityRole="button"
-          >
-            <Text style={styles.viewButtonText}>View</Text>
-          </Pressable>
-        )}
-
         {isFailed && <Text style={styles.failedText}>Failed</Text>}
 
         {canGenerate && (
@@ -121,7 +108,7 @@ export function ArtifactTile({
             style={[styles.generateButton, isFailed && styles.retryButton]}
             onPress={onGenerate}
             testID={`artifact-tile-generate-${label}`}
-            accessibilityLabel={`${generateLabel} ${label}`}
+            accessibilityLabel={`Generate ${label}`}
             accessibilityHint={state.error}
             accessibilityRole="button"
           >
@@ -131,7 +118,7 @@ export function ArtifactTile({
                 isFailed && styles.retryText,
               ]}
             >
-              {isFailed ? "Retry" : generateLabel}
+              {isFailed ? "Retry" : "Generate"}
             </Text>
           </Pressable>
         )}
@@ -188,19 +175,6 @@ const styles = StyleSheet.create({
   progressText: {
     fontSize: Typography.small.fontSize,
     color: Colors.textMuted,
-  },
-  viewButton: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.surfaceContainerHigh,
-    minHeight: TouchTarget.minimum,
-    justifyContent: "center",
-  },
-  viewButtonText: {
-    fontSize: Typography.label.fontSize,
-    fontWeight: "600",
-    color: Colors.textMain,
   },
   failedText: {
     fontSize: Typography.small.fontSize,

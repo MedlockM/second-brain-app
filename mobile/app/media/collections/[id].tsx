@@ -370,7 +370,6 @@ function AiTab({ collectionId }: AiTabProps) {
       seen.add(type);
       states[type] = {
         status: artifact.status,
-        artifactId: artifact.artifact_id,
         error: artifact.error_code ?? undefined,
       };
     }
@@ -420,7 +419,6 @@ function AiTab({ collectionId }: AiTabProps) {
             state={tileStates[tile.type]}
             sourceReady
             onGenerate={() => void handleGenerate(tile.type)}
-            onView={(artifactId) => router.push(`/artifacts/${artifactId}`)}
           />
         ))}
       </View>
@@ -436,7 +434,7 @@ function AiTab({ collectionId }: AiTabProps) {
         </View>
       ) : null}
 
-      <Text style={styles.sectionTitle}>Generated</Text>
+      <Text style={[styles.sectionTitle, styles.aiHistoryTitle]}>Generated</Text>
       {isLoading ? (
         <View style={styles.aiInlineState}>
           <ActivityIndicator size="small" color={Colors.primary} />
@@ -638,10 +636,16 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.xxl,
   },
+  // Every block of the AI tab owns the space above itself, so the separation
+  // between the tiles and what follows lives on the follower, never here.
   tilePile: {
     gap: Spacing.sm,
     marginHorizontal: Spacing.md,
-    marginBottom: Spacing.lg,
+  },
+  // Air above the second heading only: the first one opens the tab and needs
+  // none, which is why this is not folded into the shared `sectionTitle`.
+  aiHistoryTitle: {
+    marginTop: Spacing.lg,
   },
   historyList: {
     gap: Spacing.sm,
@@ -667,7 +671,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     marginHorizontal: Spacing.md,
-    marginBottom: Spacing.lg,
+    marginTop: Spacing.lg,
   },
   refusalText: {
     flex: 1,

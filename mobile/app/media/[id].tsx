@@ -477,7 +477,6 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       seen.add(type);
       states[type] = {
         status: artifact.status,
-        artifactId: artifact.artifact_id,
         error: artifact.error_code ?? undefined,
       };
     }
@@ -827,9 +826,6 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
                     icon={artifact.icon}
                     state={artifactStates[artifact.type]}
                     onGenerate={() => handleGenerate(artifact.type)}
-                    onView={(artifactId) =>
-                      router.push(`/artifacts/${artifactId}`)
-                    }
                     sourceReady={mediaReady}
                   />
                 ))}
@@ -850,7 +846,9 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
                   regeneration adds one instead of replacing the previous, and
                   nothing here is deduplicated or marked stale. No "N sources"
                   line — a media item is a single source. */}
-              <Text style={styles.sectionTitle}>Generated</Text>
+              <Text style={[styles.sectionTitle, styles.historyTitle]}>
+                Generated
+              </Text>
               {!historyLoaded ? (
                 <View style={styles.historyState}>
                   <ActivityIndicator size="small" color={Colors.primary} />
@@ -1183,6 +1181,13 @@ const styles = StyleSheet.create({
     fontWeight: Typography.headline.fontWeight,
     color: Colors.textMain,
     marginBottom: Spacing.md,
+  },
+  // Only the second heading of the tab needs air above it: it follows the tile
+  // stack, and without this the two sections read as one block. The first
+  // heading keeps no top margin, hence a separate style rather than a change to
+  // the shared one.
+  historyTitle: {
+    marginTop: Spacing.lg,
   },
   // A stack of self-contained tiles: the gap between them does the sectioning,
   // so there is no rule and no container frame ("No-Line rule").
