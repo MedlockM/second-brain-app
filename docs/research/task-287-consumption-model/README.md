@@ -1,13 +1,13 @@
 ---
-owner_decision: pending
+owner_decision: ok
 ---
 
 # Benchmark: a consumption model for an ingestion bill that is part per-minute and part per-item
 
 ## Owner Validation
 
-**Decision**: _(a remplir par l'owner apres relecture - texte libre decrivant la decision finale : accept recommandation X, reject parce que Y, accept with modifications Z, OU, si redo, les consignes precises de correction a integrer au prochain passage)_
-**Validated at**: _(date ISO a remplir par l'owner)_
+**Decision**: Ce qui est recommandé
+**Validated at**: 2026-08-18
 
 ---
 
