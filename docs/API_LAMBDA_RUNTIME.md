@@ -33,7 +33,7 @@ Terraform.
 - `api_warmup_enabled` vaut `true`. EventBridge invoque l'API toutes les
   15 minutes par défaut (`api_warmup_schedule_expression`).
 - L'événement planifié passe par le même adaptateur Mangum que le trafic public
-  et appelle `/api/v1/health/`. La Lambda lève une erreur si le statut HTTP
+  et appelle `/api/health/`. La Lambda lève une erreur si le statut HTTP
   n'est pas 200 ou si le corps n'annonce pas `healthy`.
 - La validation de release attend `Active:Successful`, puis interroge le health
   endpoint public. Elle échoue sur erreur HTTP ou statut applicatif non sain.

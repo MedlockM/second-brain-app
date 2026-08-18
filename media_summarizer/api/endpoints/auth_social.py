@@ -54,7 +54,7 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI") or os.environ.get(
-    "GOOGLE_REDIRECT_URI", "http://localhost:8000/api/v1/auth/google/callback"
+    "GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback"
 )
 
 # Apple OAuth config
@@ -63,7 +63,7 @@ APPLE_KEY_ID = os.environ.get("APPLE_KEY_ID")
 APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID")
 APPLE_PRIVATE_KEY = os.environ.get("APPLE_PRIVATE_KEY")
 APPLE_REDIRECT_URI = os.environ.get("APPLE_REDIRECT_URI") or os.environ.get(
-    "APPLE_REDIRECT_URI", "http://localhost:8000/api/v1/auth/apple/callback"
+    "APPLE_REDIRECT_URI", "http://localhost:8000/api/auth/apple/callback"
 )
 # Apple native (iOS app) audience — equals the iOS app bundle id, distinct
 # from APPLE_CLIENT_ID (Services ID) used for the web callback flow.

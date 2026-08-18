@@ -69,7 +69,7 @@ Exemple JSON (non visible directement par l'utilisateur final):
   "user_id": "user_789",
   "error_code": "DB_TIMEOUT",
   "message": "Database timeout after 30s",
-  "path": "/api/v1/summaries",
+  "path": "/api/summaries",
   "status": 500
 }
 ```

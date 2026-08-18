@@ -55,7 +55,7 @@ async def french_reader_headers(
     password = "E2eTestPassword123!"
 
     resp = await http_client.post(
-        "/api/v1/auth/register",
+        "/api/auth/register",
         json={"email": email, "password": password},
     )
     resp.raise_for_status()
@@ -63,7 +63,7 @@ async def french_reader_headers(
     print(f"\n[e2e] created french_reader user {email} (id={user_id})")
 
     resp = await http_client.post(
-        "/api/v1/auth/login",
+        "/api/auth/login",
         json={"email": email, "password": password},
     )
     resp.raise_for_status()
@@ -71,7 +71,7 @@ async def french_reader_headers(
     headers = {"Authorization": f"Bearer {token}"}
 
     resp = await http_client.patch(
-        "/api/v1/auth/me",
+        "/api/auth/me",
         json={"reading_language": "fr"},
         headers=headers,
     )

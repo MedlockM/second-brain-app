@@ -2,7 +2,7 @@ import { apiRequest } from "./apiClient";
 import { Config } from "../constants/config";
 
 /**
- * Response shape from GET /api/v1/feedback/token.
+ * Response shape from GET /api/feedback/token.
  */
 interface FeedbackTokenResponse {
   url: string;
@@ -31,7 +31,7 @@ export class FeedbackService {
    */
   static async getFeedbackUrl(token: string): Promise<string> {
     const response = await apiRequest<FeedbackTokenResponse>(
-      "/api/v1/feedback/token",
+      "/api/feedback/token",
       { token },
     );
     return response.url;

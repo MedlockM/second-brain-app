@@ -27,13 +27,13 @@ export type ReadingLanguageCode = (typeof V1_READING_LANGUAGES)[number]["code"];
 export class UserPreferencesService {
   /**
    * Update the user's reading language preference.
-   * Calls PATCH /api/v1/auth/me with the new reading_language value.
+   * Calls PATCH /api/auth/me with the new reading_language value.
    */
   static async updateReadingLanguage(
     token: string,
     language: ReadingLanguageCode,
   ): Promise<AuthUser> {
-    return apiRequest<AuthUser>("/api/v1/auth/me", {
+    return apiRequest<AuthUser>("/api/auth/me", {
       method: "PATCH",
       token,
       body: { reading_language: language },

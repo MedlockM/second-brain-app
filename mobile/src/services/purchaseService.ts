@@ -139,7 +139,7 @@ export const TIER_ENTITLEMENT_IDS = [
  * Whether any tier entitlement is active for this customer.
  *
  * This is a boolean access gate only — it deliberately does not tell the tiers
- * apart. The tier itself comes from `GET /api/v1/entitlements/status`, which
+ * apart. The tier itself comes from `GET /api/entitlements/status`, which
  * reads the subscription row the webhook writes.
  */
 export function hasActiveEntitlement(customerInfo: CustomerInfo): boolean {

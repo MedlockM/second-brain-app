@@ -72,7 +72,7 @@ async def test_user(http_client: httpx.AsyncClient):
     password = "E2eTestPassword123!"
 
     resp = await http_client.post(
-        "/api/v1/auth/register",
+        "/api/auth/register",
         json={"email": email, "password": password},
     )
     resp.raise_for_status()
@@ -90,7 +90,7 @@ async def test_user(http_client: httpx.AsyncClient):
 @pytest_asyncio.fixture(scope="session")
 async def auth_token(http_client: httpx.AsyncClient, test_user: Dict[str, str]) -> str:
     resp = await http_client.post(
-        "/api/v1/auth/login",
+        "/api/auth/login",
         json={"email": test_user["email"], "password": test_user["password"]},
     )
     resp.raise_for_status()
@@ -259,7 +259,7 @@ async def _login_headers(
     """
     try:
         resp = await client.post(
-            "/api/v1/auth/login",
+            "/api/auth/login",
             json={"email": user["email"], "password": user["password"]},
         )
         resp.raise_for_status()

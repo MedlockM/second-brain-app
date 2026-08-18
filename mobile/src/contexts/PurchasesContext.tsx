@@ -23,7 +23,7 @@ import { useAuth } from "./AuthContext";
 import { apiRequest } from "../services/apiClient";
 
 /**
- * What `GET /api/v1/entitlements/status` returns.
+ * What `GET /api/entitlements/status` returns.
  *
  * Minutes are the only metered unit: everything the user reads is unlimited on
  * every tier, and a minute is only ever spent on something we transcribe. So the
@@ -138,7 +138,7 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       const status = await apiRequest<EntitlementStatus>(
-        "/api/v1/entitlements/status",
+        "/api/entitlements/status",
         { token },
       );
       setEntitlementStatus(status);

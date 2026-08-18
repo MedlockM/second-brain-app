@@ -497,7 +497,7 @@ Ref: `document_parsing/worker.py::process_document_parsing_message` (lines 230�
 **Worker files**:
 - `POST /api/media/ingest-url` with `.mp3`/`.m4a`/etc. → `media_summarizer/api/endpoints/media.py:355` enqueues to `deepgram-transcription-queue` directly
 - `POST /api/media/upload-audio` (file upload) → S3 staging then enqueue to Deepgram with a pre-signed URL
-- `POST /api/v1/podcasts/submit` (user-pasted audio URL) → `media_summarizer/api/endpoints/podcasts.py:255` enqueues to Deepgram
+- `POST /api/podcasts/submit` (user-pasted audio URL) → `media_summarizer/api/endpoints/podcasts.py:255` enqueues to Deepgram
 - All consume `media_summarizer/workers/transcription/deepgram_worker.py`
 
 ### Primary path
@@ -795,7 +795,7 @@ The `media_summarizer/utils/deepgram_dispatch.py` helper centralises the SQS pay
 | Orchestrator: generic `audio_url` fallback | `pull_with_push_fallback` | `orchestrators.py` (generic audio_url branch) |
 | PodcastIndex resolution worker | `pull` | `podcastindex_resolution_worker.py` |
 | RSS feed poll worker (audio item) | `pull` | `rss_feed_poll_worker.py` |
-| `POST /api/v1/podcasts/submit` (user-pasted audio URL) | `pull_with_push_fallback` | `api/endpoints/podcasts.py` |
+| `POST /api/podcasts/submit` (user-pasted audio URL) | `pull_with_push_fallback` | `api/endpoints/podcasts.py` |
 | `POST /api/media/ingest-url` (audio source platform) | `pull_with_push_fallback` | `api/endpoints/media.py` |
 | `POST /api/media/upload-audio` (S3 pre-signed URL) | `pull` | `api/endpoints/media.py` |
 

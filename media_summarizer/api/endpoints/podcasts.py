@@ -1,7 +1,7 @@
 """
 Podcasts submission endpoints (backward-compatible alias for tests).
 
-Provides /api/v1/podcasts/submit to create a processing job directly from a podcast URL
+Provides /api/podcasts/submit to create a processing job directly from a podcast URL
 (RSS feed) and enqueue a message for downstream processing.
 """
 

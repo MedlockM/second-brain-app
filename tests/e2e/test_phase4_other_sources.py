@@ -66,14 +66,14 @@ async def _submit_podcast_and_wait(
     podcast_url: str,
     timeout_s: float = 60,
 ) -> str:
-    """Submit a podcast URL via /api/v1/podcasts/submit, then poll /api/media/{id}.
+    """Submit a podcast URL via /api/podcasts/submit, then poll /api/media/{id}.
 
     The podcasts/submit endpoint exercises the full pipeline:
     URL → PodcastIndex resolver → audio_url enclosure → Deepgram → artifacts.
     Returns job_id (== media_item_id).
     """
     resp = await http_client.post(
-        "/api/v1/podcasts/submit",
+        "/api/podcasts/submit",
         json={"podcast_url": podcast_url},
         headers=auth_headers,
     )
@@ -122,7 +122,7 @@ async def test_podcast_via_podcastindex(
 ) -> None:
     """End-to-end podcast pipeline:
 
-      Apple Podcasts EPISODE URL → /api/v1/podcasts/submit → PodcastIndex
+      Apple Podcasts EPISODE URL → /api/podcasts/submit → PodcastIndex
       resolver → audio enclosure URL → Deepgram → completed.
 
     Fixture is an episode-level URL (with `?i=<episode_id>`). Show-level

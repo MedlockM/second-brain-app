@@ -31,7 +31,7 @@ export class AuthService {
 
   static async register(data: RegisterRequest): Promise<TokenVerificationResponse> {
     const response = await fetch(
-      `${Config.API_BASE_URL}/api/v1/auth/register`,
+      `${Config.API_BASE_URL}/api/auth/register`,
       {
         method: "POST",
         headers: this.getAuthHeaders(),
@@ -56,7 +56,7 @@ export class AuthService {
 
   static async login(data: LoginRequest): Promise<TokenVerificationResponse> {
     const response = await fetch(
-      `${Config.API_BASE_URL}/api/v1/auth/login`,
+      `${Config.API_BASE_URL}/api/auth/login`,
       {
         method: "POST",
         headers: this.getAuthHeaders(),
@@ -78,7 +78,7 @@ export class AuthService {
   }
 
   static async getCurrentUser(token: string): Promise<AuthUser> {
-    const response = await fetch(`${Config.API_BASE_URL}/api/v1/auth/me`, {
+    const response = await fetch(`${Config.API_BASE_URL}/api/auth/me`, {
       method: "GET",
       headers: this.getAuthHeaders(token),
     });
@@ -96,7 +96,7 @@ export class AuthService {
 
   static async logout(token: string): Promise<void> {
     try {
-      await fetch(`${Config.API_BASE_URL}/api/v1/auth/logout`, {
+      await fetch(`${Config.API_BASE_URL}/api/auth/logout`, {
         method: "POST",
         headers: this.getAuthHeaders(token),
       });
@@ -124,7 +124,7 @@ export class AuthService {
     }
 
     const response = await fetch(
-      `${Config.API_BASE_URL}/api/v1/auth/refresh`,
+      `${Config.API_BASE_URL}/api/auth/refresh`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -179,7 +179,7 @@ export class AuthService {
    */
   static async loginWithGoogleNative(idToken: string): Promise<NativeAuthResponse> {
     const response = await fetch(
-      `${Config.API_BASE_URL}/api/v1/auth/google/native`,
+      `${Config.API_BASE_URL}/api/auth/google/native`,
       {
         method: "POST",
         headers: this.getAuthHeaders(),
@@ -209,7 +209,7 @@ export class AuthService {
     user?: { email?: string; fullName?: { givenName?: string; familyName?: string } },
   ): Promise<NativeAuthResponse> {
     const response = await fetch(
-      `${Config.API_BASE_URL}/api/v1/auth/apple/native`,
+      `${Config.API_BASE_URL}/api/auth/apple/native`,
       {
         method: "POST",
         headers: this.getAuthHeaders(),

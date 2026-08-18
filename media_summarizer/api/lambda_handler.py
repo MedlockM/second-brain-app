@@ -29,7 +29,7 @@ from media_summarizer.api.main import app  # noqa: E402
 
 _asgi_handler = Mangum(app, lifespan="off")
 _WARMUP_SOURCE = "media-summarizer.api-warmup"
-_HEALTH_PATH = "/api/v1/health/"
+_HEALTH_PATH = "/api/health/"
 
 
 def _health_check_event() -> dict:
