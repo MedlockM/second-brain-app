@@ -107,13 +107,11 @@ export class BugReportService {
    * POST /api/bug-reports/upload-url
    */
   static async requestUploadUrl(
-    token: string,
     payload: RequestUploadUrlPayload,
   ): Promise<RequestUploadUrlResponse> {
     return apiRequest<RequestUploadUrlResponse>("/api/bug-reports/upload-url", {
       method: "POST",
       body: payload,
-      token,
     });
   }
 
@@ -149,13 +147,11 @@ export class BugReportService {
    * POST /api/bug-reports
    */
   static async createBugReport(
-    token: string,
     payload: CreateBugReportPayload,
   ): Promise<CreateBugReportResponse> {
     return apiRequest<CreateBugReportResponse>("/api/bug-reports", {
       method: "POST",
       body: payload,
-      token,
     });
   }
 }

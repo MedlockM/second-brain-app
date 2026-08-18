@@ -18,7 +18,7 @@ export class AccountService {
    * Note this does not cancel an App Store / Play Store subscription. Only the
    * store can do that, so the caller must tell the user before confirming.
    */
-  static async deleteAccount(token: string): Promise<void> {
-    await apiRequest<void>("/api/account", { method: "DELETE", token });
+  static async deleteAccount(): Promise<void> {
+    await apiRequest<void>("/api/account", { method: "DELETE" });
   }
 }

@@ -30,12 +30,10 @@ export class UserPreferencesService {
    * Calls PATCH /api/auth/me with the new reading_language value.
    */
   static async updateReadingLanguage(
-    token: string,
     language: ReadingLanguageCode,
   ): Promise<AuthUser> {
     return apiRequest<AuthUser>("/api/auth/me", {
       method: "PATCH",
-      token,
       body: { reading_language: language },
     });
   }

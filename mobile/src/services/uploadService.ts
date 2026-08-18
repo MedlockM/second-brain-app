@@ -9,13 +9,13 @@
  * `ingest-url` and `ingest-shared-content`, so an import lands in the collection
  * and tags the user picked on the confirmation screen.
  *
- * `fetch` is used directly rather than `apiRequest` because the body is
+ * They go through `apiUpload` rather than `apiRequest` because the body is
  * multipart/form-data: the boundary must be set by the runtime, which means the
- * Content-Type header cannot be provided by us.
+ * Content-Type header cannot be provided by us. The session handling — bearer
+ * resolution and the one-shot replay on a 401 — is the same as everywhere else.
  */
 
-import { Config } from "../constants/config";
-import { createHttpError, parseErrorResponse } from "../lib/httpError";
+import { apiUpload } from "./apiClient";
 import type {
   LocalUploadFile,
   UploadAudioResponse,
@@ -50,42 +50,14 @@ function buildUploadFormData(
   return formData;
 }
 
-async function postUpload<T>(
-  path: string,
-  token: string,
-  formData: FormData,
-  fallbackMessage: string,
-): Promise<T> {
-  const response = await fetch(`${Config.API_BASE_URL}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      // No Content-Type: the runtime sets it with the multipart boundary.
-    },
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const { message, code, quotaErrorCode } = await parseErrorResponse(
-      response,
-      fallbackMessage,
-    );
-    throw createHttpError(message, response.status, code, quotaErrorCode);
-  }
-
-  return (await response.json()) as T;
-}
-
 export class UploadService {
   /** Documents and images (pdf, docx, pptx, xlsx, jpg, png, heic, …). */
   static async uploadDocument(
-    token: string,
     file: LocalUploadFile,
     options: UploadOrganizationOptions = {},
   ): Promise<UploadDocumentResponse> {
-    return postUpload<UploadDocumentResponse>(
+    return apiUpload<UploadDocumentResponse>(
       "/api/media/upload",
-      token,
       buildUploadFormData(file, options),
       "Failed to import this file. Please try again.",
     );
@@ -93,13 +65,11 @@ export class UploadService {
 
   /** Audio files (mp3, m4a, aac, ogg, wav, flac, opus). */
   static async uploadAudio(
-    token: string,
     file: LocalUploadFile,
     options: UploadOrganizationOptions = {},
   ): Promise<UploadAudioResponse> {
-    return postUpload<UploadAudioResponse>(
+    return apiUpload<UploadAudioResponse>(
       "/api/media/upload-audio",
-      token,
       buildUploadFormData(file, options),
       "Failed to import this audio file. Please try again.",
     );
@@ -107,12 +77,11 @@ export class UploadService {
 
   /** Route a prepared file to the endpoint its extension belongs to. */
   static async upload(
-    token: string,
     file: LocalUploadFile,
     options: UploadOrganizationOptions = {},
   ): Promise<UploadDocumentResponse | UploadAudioResponse> {
     return file.kind === "audio"
-      ? UploadService.uploadAudio(token, file, options)
-      : UploadService.uploadDocument(token, file, options);
+      ? UploadService.uploadAudio(file, options)
+      : UploadService.uploadDocument(file, options);
   }
 }

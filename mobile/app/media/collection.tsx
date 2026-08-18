@@ -84,7 +84,7 @@ export default function CollectionScreen() {
     currentCollectionId?: string;
   }>();
 
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const { selectedFolder, setSelectedFolder } = useShareIntake();
   const isShareMode = params.mode === "share";
 
@@ -104,12 +104,12 @@ export default function CollectionScreen() {
 
   // Fetch collections
   useEffect(() => {
-    if (!token) return;
+    if (!isAuthenticated) return;
 
     const fetchCollections = async () => {
       try {
         setIsLoading(true);
-        const data = await OrganizationService.getUserCollections(token);
+        const data = await OrganizationService.getUserCollections();
         setCollections(data);
         // Auto-expand collections that have children
         const expanded = new Set<string>();
@@ -131,7 +131,7 @@ export default function CollectionScreen() {
     };
 
     fetchCollections();
-  }, [token]);
+  }, [isAuthenticated]);
 
   const { treeCollections, pathById } = useMemo(
     () => buildCollectionTree(collections),
@@ -167,7 +167,7 @@ export default function CollectionScreen() {
   );
 
   const handleSave = useCallback(async () => {
-    if (!token || !params.mediaItemId) {
+    if (!isAuthenticated || !params.mediaItemId) {
       handleBack();
       return;
     }
@@ -175,7 +175,6 @@ export default function CollectionScreen() {
     try {
       setIsSaving(true);
       await OrganizationService.setMediaCollection(
-        token,
         params.mediaItemId,
         selectedId,
       );
@@ -184,7 +183,7 @@ export default function CollectionScreen() {
       setError("Failed to save collection");
       setIsSaving(false);
     }
-  }, [token, params.mediaItemId, selectedId, handleBack]);
+  }, [isAuthenticated, params.mediaItemId, selectedId, handleBack]);
 
   const handleToggleExpand = useCallback((collectionId: string) => {
     setExpandedIds((prev) => {
@@ -207,17 +206,14 @@ export default function CollectionScreen() {
 
   const handleConfirmCreate = useCallback(async () => {
     const name = newCollectionName.trim();
-    if (!name || !token) {
+    if (!name || !isAuthenticated) {
       setIsCreating(false);
       setNewCollectionName("");
       return;
     }
 
     try {
-      const newCollection = await OrganizationService.createCollection(
-        token,
-        name,
-      );
+      const newCollection = await OrganizationService.createCollection(name);
       setCollections((prev) => [...prev, newCollection]);
       setSelectedId(newCollection.id);
       if (isShareMode) {
@@ -234,7 +230,7 @@ export default function CollectionScreen() {
       setNewCollectionName("");
       Keyboard.dismiss();
     }
-  }, [token, newCollectionName, isShareMode, router, setSelectedFolder]);
+  }, [isAuthenticated, newCollectionName, isShareMode, router, setSelectedFolder]);
 
   const handleCancelCreate = useCallback(() => {
     setIsCreating(false);

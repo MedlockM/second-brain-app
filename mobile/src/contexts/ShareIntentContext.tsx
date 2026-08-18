@@ -200,7 +200,7 @@ export function ShareIntentProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { token, isAuthenticated, isLoading, revalidateSession } = useAuth();
+  const { isAuthenticated, isLoading, revalidateSession } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
@@ -479,7 +479,7 @@ export function ShareIntentProvider({
    */
   const submitUrl = useCallback(async () => {
     if (intake.status !== "ready" || !intake.url) return;
-    if (!token) {
+    if (!isAuthenticated) {
       setIntake((prev) => ({
         ...prev,
         status: "error",
@@ -492,7 +492,7 @@ export function ShareIntentProvider({
     setIntake((prev) => ({ ...prev, status: "submitting" }));
 
     try {
-      const response = await MediaService.ingestUrl(token, {
+      const response = await MediaService.ingestUrl({
         url,
         source_app:
           Platform.OS === "ios"
@@ -524,14 +524,14 @@ export function ShareIntentProvider({
         quotaErrorCode,
       }));
     }
-  }, [intake, token, selectedFolder, selectedTags]);
+  }, [intake, isAuthenticated, selectedFolder, selectedTags]);
 
   /**
    * Submit shared content (text or audio) to the backend via ingest-shared-content.
    */
   const submitSharedContent = useCallback(async () => {
     if (intake.status !== "ready") return;
-    if (!token) {
+    if (!isAuthenticated) {
       setIntake((prev) => ({
         ...prev,
         status: "error",
@@ -545,7 +545,6 @@ export function ShareIntentProvider({
     try {
       if (intake.contentType === "text" && intake.rawText) {
         const response = await SharedContentService.ingestSharedText(
-          token,
           intake.rawText,
           {
             sourceApp:
@@ -590,7 +589,6 @@ export function ShareIntentProvider({
         });
       } else if (intake.contentType === "audio" && intake.audioFile) {
         const response = await SharedContentService.ingestSharedAudio(
-          token,
           intake.audioFile,
           {
             sourceApp:
@@ -646,7 +644,7 @@ export function ShareIntentProvider({
         quotaErrorCode,
       }));
     }
-  }, [intake, token, selectedFolder, selectedTags]);
+  }, [intake, isAuthenticated, selectedFolder, selectedTags]);
 
   /**
    * Start an import from a file picked or captured on the device (task-264).
@@ -680,7 +678,7 @@ export function ShareIntentProvider({
     if (intake.status !== "ready") return;
     const file = intake.uploadFile;
     if (!file) return;
-    if (!token) {
+    if (!isAuthenticated) {
       setIntake((prev) => ({
         ...prev,
         status: "error",
@@ -692,7 +690,7 @@ export function ShareIntentProvider({
     setIntake((prev) => ({ ...prev, status: "submitting" }));
 
     try {
-      await UploadService.upload(token, file, {
+      await UploadService.upload(file, {
         folderId: selectedFolder?.id ?? null,
         tagIds: selectedTags.map((tag) => tag.id),
       });
@@ -715,7 +713,7 @@ export function ShareIntentProvider({
         quotaErrorCode,
       }));
     }
-  }, [intake, token, selectedFolder, selectedTags]);
+  }, [intake, isAuthenticated, selectedFolder, selectedTags]);
 
   /**
    * Dismiss the share intent and reset state.

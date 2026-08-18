@@ -70,7 +70,7 @@ export interface UseMediaDetailPollingResult {
 export function useMediaDetailPolling(
   mediaId: string | undefined,
 ): UseMediaDetailPollingResult {
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   const [mediaData, setMediaData] = useState<MediaStatusResponse | null>(null);
   const [state, setState] = useState<MediaDetailPollingState>("loading");
@@ -125,10 +125,10 @@ export function useMediaDetailPolling(
   );
 
   const fetchMediaStatus = useCallback(async () => {
-    if (!token || !mediaId) return;
+    if (!isAuthenticated || !mediaId) return;
 
     try {
-      const response = await MediaService.getMediaStatus(token, mediaId);
+      const response = await MediaService.getMediaStatus(mediaId);
       if (!mountedRef.current) return;
       setFetchError(null);
       handleResponse(response);
@@ -138,7 +138,7 @@ export function useMediaDetailPolling(
       setState("error");
       stopPolling();
     }
-  }, [token, mediaId, handleResponse, stopPolling]);
+  }, [isAuthenticated, mediaId, handleResponse, stopPolling]);
 
   const startPolling = useCallback(() => {
     if (pollTimerRef.current) return; // Already polling
@@ -147,7 +147,7 @@ export function useMediaDetailPolling(
     }
 
     pollTimerRef.current = setInterval(async () => {
-      if (!token || !mediaId || !mountedRef.current) return;
+      if (!isAuthenticated || !mediaId || !mountedRef.current) return;
 
       // Check timeout before making the request
       const startedAt = startTimeRef.current ?? Date.now();
@@ -160,7 +160,7 @@ export function useMediaDetailPolling(
       }
 
       try {
-        const response = await MediaService.getMediaStatus(token, mediaId);
+        const response = await MediaService.getMediaStatus(mediaId);
         if (!mountedRef.current) return;
         handleResponse(response);
       } catch {
@@ -179,7 +179,7 @@ export function useMediaDetailPolling(
         stopPolling();
       }, Math.max(0, remainingMs));
     }
-  }, [token, mediaId, handleResponse, stopPolling]);
+  }, [isAuthenticated, mediaId, handleResponse, stopPolling]);
 
   // Initial fetch and polling setup
   useEffect(() => {
@@ -187,7 +187,7 @@ export function useMediaDetailPolling(
     startTimeRef.current = Date.now();
 
     let initialFetchTimer: ReturnType<typeof setTimeout> | null = null;
-    if (token && mediaId) {
+    if (isAuthenticated && mediaId) {
       initialFetchTimer = setTimeout(() => void fetchMediaStatus(), 0);
     }
 
@@ -196,7 +196,7 @@ export function useMediaDetailPolling(
       mountedRef.current = false;
       stopPolling();
     };
-  }, [token, mediaId, fetchMediaStatus, stopPolling]);
+  }, [isAuthenticated, mediaId, fetchMediaStatus, stopPolling]);
 
   // Start or stop polling when state changes
   useEffect(() => {

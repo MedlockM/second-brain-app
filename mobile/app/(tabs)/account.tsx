@@ -35,7 +35,7 @@ import {
  * to later tasks.
  */
 export default function AccountScreen() {
-  const { user, token, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const { readingLanguage } = useUserPreferences();
   const {
     isSubscribed,
@@ -109,8 +109,8 @@ export default function AccountScreen() {
   const handleFeedback = async () => {
     setIsFeedbackLoading(true);
     try {
-      if (token) {
-        const url = await FeedbackService.getFeedbackUrl(token);
+      if (isAuthenticated) {
+        const url = await FeedbackService.getFeedbackUrl();
         await WebBrowser.openBrowserAsync(url);
       } else {
         await openFeedbackFallback();
