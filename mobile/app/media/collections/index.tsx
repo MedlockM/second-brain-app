@@ -16,6 +16,7 @@ import { MediaService } from "../../../src/services/mediaService";
 import { getFriendlyErrorMessage } from "../../../src/lib/getFriendlyErrorMessage";
 import {
   buildCollectionTree,
+  DEFAULT_COLLECTION_LABEL,
   type CollectionNode,
 } from "../../../src/lib/collectionTree";
 import {
@@ -33,8 +34,8 @@ import type { MediaListItem } from "../../../src/types/media";
  *
  * Lists the user's collections as folders (file-explorer style). Nested
  * collections are reachable by drilling into a folder via the dedicated
- * `[id]` screen. The default ("Uncategorized") folder is surfaced as a
- * dedicated entry so unsorted media stay reachable.
+ * `[id]` screen. The default folder is surfaced as a dedicated "Unsorted"
+ * entry so unsorted media stay reachable.
  *
  * Handles loading / error / empty states (AC#5).
  */
@@ -110,10 +111,10 @@ export default function CollectionsExplorerScreen() {
     load().finally(() => setIsLoading(false));
   }, [load]);
 
-  // Default folder ("Uncategorized") gets pinned to the top of the list.
+  // Default folder gets pinned to the top of the list, under its display label.
   const listData = useMemo(() => {
     if (!defaultCollection) return roots;
-    return [{ ...defaultCollection, name: "Uncategorized" }, ...roots];
+    return [{ ...defaultCollection, name: DEFAULT_COLLECTION_LABEL }, ...roots];
   }, [defaultCollection, roots]);
 
   return (

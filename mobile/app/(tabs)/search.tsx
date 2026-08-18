@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import {
   View,
   Text,
@@ -6,9 +6,16 @@ import {
   TextInput,
   FlatList,
   ActivityIndicator,
+  Platform,
   Pressable,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
+import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
@@ -22,6 +29,7 @@ import { MediaService } from "../../src/services/mediaService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
 import {
   buildCollectionTree,
+  DEFAULT_COLLECTION_LABEL,
   type CollectionNode,
 } from "../../src/lib/collectionTree";
 import { parseHighlightSnippet } from "../../src/lib/highlightSnippet";
@@ -34,6 +42,16 @@ import {
   TouchTarget,
 } from "../../src/constants/theme";
 import type { MediaListItem } from "../../src/types/media";
+
+// --- Layout constants ---
+
+/**
+ * The search bar floats above the content instead of sitting in the flow, so
+ * the space it occupies has to be given back to the lists as top padding.
+ */
+const SEARCH_BAR_HEIGHT = TouchTarget.minimum;
+const SEARCH_BAR_TOP = Spacing.sm;
+const CONTENT_TOP_INSET = SEARCH_BAR_TOP + SEARCH_BAR_HEIGHT + Spacing.md;
 
 // --- Helper functions ---
 
@@ -113,6 +131,7 @@ function formatTimestamp(unixTimestamp: number): string {
 export default function SearchScreen() {
   const { token } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // Search state
   const [query, setQuery] = useState("");
@@ -122,6 +141,8 @@ export default function SearchScreen() {
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collections, setCollections] = useState<CollectionNode[]>([]);
+  const [defaultCollection, setDefaultCollection] =
+    useState<CollectionNode | null>(null);
   const [collectionsLoading, setCollectionsLoading] = useState(true);
   const [collectionsError, setCollectionsError] = useState<string | null>(null);
 
@@ -187,6 +208,7 @@ export default function SearchScreen() {
 
       const tree = buildCollectionTree(folders, directCountById);
       setCollections(tree.roots);
+      setDefaultCollection(tree.defaultCollection);
     } catch (err) {
       setCollectionsError(
         getFriendlyErrorMessage(err, {
@@ -237,10 +259,19 @@ export default function SearchScreen() {
     [router],
   );
 
-  const sortedCollections = useMemo(
-    () => [...collections].sort((a, b) => a.name.localeCompare(b.name)),
-    [collections],
-  );
+  // The default folder holds every media saved without an explicit collection.
+  // It is excluded from `roots` by `buildCollectionTree`, so pin it in front
+  // under its display label -- same pattern as the collections explorer.
+  const sortedCollections = useMemo(() => {
+    const sorted = [...collections].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    if (!defaultCollection) return sorted;
+    return [
+      { ...defaultCollection, name: DEFAULT_COLLECTION_LABEL },
+      ...sorted,
+    ];
+  }, [collections, defaultCollection]);
 
   const handleRetryCollections = useCallback(() => {
     setCollectionsLoading(true);
@@ -248,46 +279,9 @@ export default function SearchScreen() {
   }, [loadCollections]);
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
-      {/* Header with search input */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Search</Text>
-
-        {/* Search Input */}
-        <View style={styles.searchBarContainer}>
-          <Ionicons
-            name="search"
-            size={20}
-            color={Colors.textMuted}
-            style={styles.searchIcon}
-          />
-          <TextInput
-            testID="search-input"
-            style={styles.searchInput}
-            placeholder="Search your library..."
-            placeholderTextColor={Colors.textMuted}
-            value={query}
-            onChangeText={handleQueryChange}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <Pressable
-              onPress={handleClearQuery}
-              style={styles.clearButton}
-              hitSlop={8}
-              accessibilityLabel="Clear search query"
-              accessibilityRole="button"
-            >
-              <Ionicons name="close" size={18} color={Colors.textMuted} />
-            </Pressable>
-          )}
-        </View>
-      </View>
-
-      {/* Results Area */}
-      <View style={styles.resultsArea}>
+    <View style={styles.container}>
+      {/* Results Area -- scrolls underneath the floating search bar */}
+      <SafeAreaView style={styles.resultsArea} edges={["top"]}>
         {isLoading ? (
           <LoadingState />
         ) : error ? (
@@ -327,12 +321,80 @@ export default function SearchScreen() {
             }
           />
         )}
+      </SafeAreaView>
+
+      {/* Floating glassy search bar, overlaid on top of the content.
+          It sits outside the SafeAreaView on purpose: Yoga does not offset an
+          absolutely positioned child by its parent's padding, so anchoring it
+          there would have pinned the pill over the status bar. */}
+      <View
+        style={[styles.searchBarOverlay, { top: insets.top + SEARCH_BAR_TOP }]}
+        pointerEvents="box-none"
+      >
+        <GlassSurface style={styles.searchBar}>
+          <Ionicons
+            name="search"
+            size={20}
+            color={Colors.textMuted}
+            style={styles.searchIcon}
+          />
+          <TextInput
+            testID="search-input"
+            style={styles.searchInput}
+            placeholder="Search your library..."
+            placeholderTextColor={Colors.textMuted}
+            value={query}
+            onChangeText={handleQueryChange}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <Pressable
+              onPress={handleClearQuery}
+              style={styles.clearButton}
+              hitSlop={8}
+              accessibilityLabel="Clear search query"
+              accessibilityRole="button"
+            >
+              <Ionicons name="close" size={18} color={Colors.textMuted} />
+            </Pressable>
+          )}
+        </GlassSurface>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 // --- Sub-components ---
+
+/**
+ * Translucent backdrop of the search pill.
+ *
+ * iOS renders the real native blur. Android's blur support is uneven across
+ * devices and vendors -- and silently degrades when the system disables
+ * animations -- so it falls back to a semi-opaque tint, which keeps the pill
+ * readable over any scrolling content instead of risking a broken surface.
+ */
+function GlassSurface({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style: StyleProp<ViewStyle>;
+}) {
+  if (Platform.OS === "ios") {
+    return (
+      <BlurView intensity={60} tint="light" style={style}>
+        {children}
+      </BlurView>
+    );
+  }
+
+  return (
+    <View style={[style, styles.searchBarAndroidFallback]}>{children}</View>
+  );
+}
 
 function CollectionsState({
   collections,
@@ -549,31 +611,29 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
 
-  // Header
-  header: {
-    backgroundColor: Colors.surface,
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.md,
+  // Floating search bar - minimum height meets touch target
+  searchBarOverlay: {
+    position: "absolute",
+    left: Spacing.md,
+    right: Spacing.md,
+    zIndex: 10,
+    // Shadow lives on the wrapper: the pill itself clips its children.
+    ...Shadows.soft,
   },
-  title: {
-    fontSize: Typography.display.fontSize,
-    fontWeight: Typography.display.fontWeight,
-    color: Colors.textMain,
-    letterSpacing: Typography.display.letterSpacing,
-    marginBottom: Spacing.md,
-  },
-
-  // Search bar - minimum height meets touch target
-  searchBarContainer: {
+  searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: Colors.background,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
+    borderRadius: BorderRadius.full,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.outlineVariant,
-    height: TouchTarget.minimum,
+    height: SEARCH_BAR_HEIGHT,
     paddingHorizontal: Spacing.md,
+    // Required for the blur to be clipped by the pill radius on iOS.
+    overflow: "hidden",
+  },
+  searchBarAndroidFallback: {
+    // Android fallback: a tint opaque enough to stay legible without blur.
+    backgroundColor: "rgba(252, 249, 246, 0.92)",
   },
   searchIcon: {
     marginRight: Spacing.sm,
@@ -597,7 +657,7 @@ const styles = StyleSheet.create({
   },
   resultsList: {
     paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.md,
+    paddingTop: CONTENT_TOP_INSET,
     paddingBottom: Spacing.xxl,
     gap: Spacing.md,
   },
@@ -619,7 +679,7 @@ const styles = StyleSheet.create({
   // Collections grid
   collectionsGridContent: {
     paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.lg,
+    paddingTop: CONTENT_TOP_INSET,
     paddingBottom: Spacing.xxl,
   },
   collectionsTitle: {
@@ -680,6 +740,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: Spacing.xl,
+    paddingTop: CONTENT_TOP_INSET,
   },
   emptyIcon: {
     marginBottom: Spacing.md,

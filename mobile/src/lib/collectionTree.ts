@@ -1,5 +1,11 @@
 import type { Collection } from "../types/organization";
 
+/**
+ * Label shown for the backend default folder, whose stored name is
+ * `Uncategorized`. Only the display differs; the backend name is untouched.
+ */
+export const DEFAULT_COLLECTION_LABEL = "Unsorted";
+
 export interface CollectionNode extends Collection {
   children: CollectionNode[];
   /** Number of media stored directly in this collection. */
@@ -10,8 +16,8 @@ export interface CollectionNode extends Collection {
  * Build a navigable tree of user collections from the flat folder list returned
  * by the backend.
  *
- * - The default ("Uncategorized") folder is kept so unsorted media stay
- *   reachable from the explorer; callers decide how to surface it.
+ * - The default folder (stored as `Uncategorized`, shown as "Unsorted") is kept
+ *   so unsorted media stay reachable; callers decide how to surface it.
  * - `directCountById` lets the caller seed the per-collection media counts that
  *   were computed client-side (the folder list endpoint does not return them).
  */
