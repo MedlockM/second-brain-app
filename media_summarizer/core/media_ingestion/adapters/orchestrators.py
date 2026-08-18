@@ -18,9 +18,12 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.media_ingestion.title_derivation import derive_media_title
-from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.models import ProcessingJob, UserMediaStatus
 from media_summarizer.core.services import audio_quota_gate
-from media_summarizer.core.services.durable_media_service import save_media_for_user
+from media_summarizer.core.services.durable_media_service import (
+    finalize_deduplicated_save,
+    save_media_for_user,
+)
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     normalize_transcript_text,
@@ -65,11 +68,34 @@ def _status_from_idempotence(status: Optional[str]) -> ProcessingLifecycleStatus
         return ProcessingLifecycleStatus.READY_FOR_ARTIFACTS
     if value == "failed":
         return ProcessingLifecycleStatus.FAILED
-    return ProcessingLifecycleStatus.PENDING
+    if value == "reserved":
+        return ProcessingLifecycleStatus.PENDING
+    # The ledger has no other in-flight state. An absent/unknown value must not
+    # leave a freshly saved row polling forever for work no code has scheduled.
+    return ProcessingLifecycleStatus.COMPLETED
 
 
-def _build_duplicate_outcome(
+def _library_status_from_duplicate(
+    status: ProcessingLifecycleStatus,
+) -> UserMediaStatus:
+    if status in (
+        ProcessingLifecycleStatus.READY_FOR_ARTIFACTS,
+        ProcessingLifecycleStatus.COMPLETED,
+    ):
+        return UserMediaStatus.READY
+    if status in (
+        ProcessingLifecycleStatus.FAILED,
+        ProcessingLifecycleStatus.CANCELLED,
+    ):
+        return UserMediaStatus.FAILED
+    if status == ProcessingLifecycleStatus.PENDING:
+        return UserMediaStatus.PENDING
+    return UserMediaStatus.PROCESSING
+
+
+async def _build_duplicate_outcome(
     *,
+    user_id: str,
     resolved: ResolvedMedia,
     existing: Dict[str, Any],
     durable_media_item_id: Optional[str],
@@ -89,10 +115,19 @@ def _build_duplicate_outcome(
             "Duplicate media_key detected but idempotence row has no job_id."
         )
     mapped_status = _status_from_idempotence(existing.get("status"))
-    caller_media_item_id = durable_media_item_id or existing_job_id
+    owned_job_id = await finalize_deduplicated_save(
+        user_id=user_id,
+        media_item_id=durable_media_item_id,
+        processing_status=_library_status_from_duplicate(mapped_status),
+        existing_job_id=existing_job_id,
+    )
+    # The durable id is the caller's public correlation id. The media key is a
+    # safe flag-off fallback: unlike ``existing_job_id`` it cannot expose the
+    # operational id of another user's globally deduplicated job.
+    caller_media_item_id = durable_media_item_id or owned_job_id or resolved.media_key
     return IngestionOutcome(
         media_item_id=caller_media_item_id,
-        job_id=existing_job_id,
+        job_id=owned_job_id or caller_media_item_id,
         status=mapped_status,
         media_key=resolved.media_key,
         normalized_url=resolved.normalized_url,
@@ -211,7 +246,8 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 media_type=resolved.media_type.value,
                 source_platform=resolved.source_platform.value,
             )
-            return _build_duplicate_outcome(
+            return await _build_duplicate_outcome(
+                user_id=command.user.user_id,
                 resolved=resolved,
                 existing=existing,
                 durable_media_item_id=durable_media_item_id,
@@ -248,7 +284,8 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     media_key=resolved.media_key
                 )
                 if duplicate:
-                    return _build_duplicate_outcome(
+                    return await _build_duplicate_outcome(
+                        user_id=command.user.user_id,
                         resolved=resolved,
                         existing=duplicate,
                         durable_media_item_id=durable_media_item_id,

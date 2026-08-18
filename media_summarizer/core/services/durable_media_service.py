@@ -228,6 +228,87 @@ async def save_media_for_user(
     return stored.media_item_id
 
 
+async def finalize_deduplicated_save(
+    *,
+    user_id: str,
+    media_item_id: Optional[str],
+    processing_status: UserMediaStatus,
+    existing_job_id: str,
+) -> Optional[str]:
+    """Persist the outcome of a save for content already in the global ledger.
+
+    A duplicate does not run a job for the newly created library row, so the
+    normal worker mirror will never update it. This write is therefore part of
+    the save path and is strict, unlike :func:`mirror_attributes`: returning a
+    successful response while the row still says ``pending`` would leave the
+    client polling work that will never happen.
+
+    The global idempotence job can belong to another user. Its id is returned
+    only when ownership can be proved from the operational row; a foreign or
+    expired job still lets the terminal status be persisted, but never becomes
+    a pointer on the caller's library row.
+    """
+    from media_summarizer.utils import database_async
+
+    owned_job_id: Optional[str] = None
+    try:
+        existing_job = await database_async.get_processing_job_by_id(existing_job_id)
+    except Exception as exc:  # noqa: BLE001 - expiry must not break deduplication
+        logger.warning(
+            "Could not resolve duplicate job %s while finalizing %s: %s",
+            existing_job_id,
+            media_item_id,
+            exc,
+        )
+    else:
+        if existing_job is not None and existing_job.user_id == user_id:
+            owned_job_id = existing_job.id
+
+    if not user_media_store.durable_media_enabled() or not media_item_id:
+        return owned_job_id
+
+    attributes: Dict[str, Any] = {"processing_status": processing_status}
+    if owned_job_id:
+        attributes["last_job_id"] = owned_job_id
+
+    try:
+        updated = await user_media_store.update_attributes(
+            user_id=user_id,
+            media_item_id=media_item_id,
+            attributes=attributes,
+        )
+    except Exception as exc:  # noqa: BLE001 - save-path failures are alarmed
+        log_event(
+            logger,
+            logging.ERROR,
+            EVENT_WRITE_FAILED,
+            f"Durable duplicate finalization failed: {exc}",
+            user_id=user_id,
+            media_item_id=media_item_id,
+            error_type=type(exc).__name__,
+            exc_info=True,
+        )
+        raise DurableMediaWriteError(
+            f"Durable duplicate finalization failed for {media_item_id}"
+        ) from exc
+
+    if not updated:
+        log_event(
+            logger,
+            logging.ERROR,
+            EVENT_WRITE_FAILED,
+            "Durable row disappeared before duplicate finalization",
+            user_id=user_id,
+            media_item_id=media_item_id,
+            reason="missing_row",
+        )
+        raise DurableMediaWriteError(
+            f"Durable row missing during duplicate finalization for {media_item_id}"
+        )
+
+    return owned_job_id
+
+
 async def resolve_job_for_record(
     record: UserMediaRecord,
 ) -> Optional[ProcessingJob]:

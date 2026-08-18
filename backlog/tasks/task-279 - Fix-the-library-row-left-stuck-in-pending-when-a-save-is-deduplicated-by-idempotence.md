@@ -3,9 +3,11 @@ id: task-279
 title: >-
   Fix the library row left stuck in pending when a save is deduplicated by
   idempotence
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@Codex'
 created_date: '2026-08-17 22:19'
+updated_date: '2026-08-18 01:06'
 labels:
   - bug
   - ingestion
@@ -53,10 +55,39 @@ This fix stays valid after that follow-up: a deduplicated save will still be the
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On the idempotence short-circuit, the library row created by that same request is persisted with the status already derived for the outcome, instead of being left at the default pending
-- [ ] #2 When the reused job belongs to the requesting user, the row carries a pointer to it so the detail read resolves the existing transcript
-- [ ] #3 When the reused job belongs to another user, the row still reaches a terminal status and no foreign job id is written onto it or returned to the caller
-- [ ] #4 No code path can leave a library row in pending or processing when no processing job exists for it and none is going to run
-- [ ] #5 The stuck row mi_f848dd7a44d4bdaf423a47d9bc9568d1 in user_media-dev is repaired or removed, verified by reading the row back with the AWS CLI
-- [ ] #6 ruff and mypy are clean
+- [x] #1 On the idempotence short-circuit, the library row created by that same request is persisted with the status already derived for the outcome, instead of being left at the default pending
+- [x] #2 When the reused job belongs to the requesting user, the row carries a pointer to it so the detail read resolves the existing transcript
+- [x] #3 When the reused job belongs to another user, the row still reaches a terminal status and no foreign job id is written onto it or returned to the caller
+- [x] #4 No code path can leave a library row in pending or processing when no processing job exists for it and none is going to run
+- [x] #5 The stuck row mi_f848dd7a44d4bdaf423a47d9bc9568d1 in user_media-dev is repaired or removed, verified by reading the row back with the AWS CLI
+- [x] #6 ruff and mypy are clean
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Centraliser la finalisation d'une sauvegarde dédupliquée dans le service durable : projeter le statut déjà calculé vers user_media et rendre l'écriture obligatoire.
+2. Résoudre le job réutilisé avec contrôle d'appartenance ; écrire et retourner son identifiant uniquement s'il appartient au demandeur, sinon conserver exclusivement l'identifiant de la ligne du demandeur.
+3. Appliquer cette finalisation aux deux courts-circuits d'idempotence de l'orchestrateur et couvrir le cas sans pipeline actif par un statut terminal cohérent.
+4. Réparer ou supprimer la ligne dev mi_f848dd7a44d4bdaf423a47d9bc9568d1 et relire sa projection DynamoDB.
+5. Exécuter ruff et mypy, vérifier le diff et les secrets, documenter les résultats, cocher les critères, passer la tâche Done et commiter uniquement ce périmètre.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Dispatch automatique autorisé par le /goal actif après relecture du workflow, du README, du contrat canonique et de la fiche. La tâche est To Do, sans dépendance et sans verrou dispatchable:false.
+
+## Delivered
+- The two idempotence short-circuits now finalize the caller's durable library row before returning. Processed content maps to ready, failed content to failed, and only an actual reserved ledger entry remains pending.
+- Duplicate finalization is a strict save-path write: a missing row or DynamoDB write failure fails the request instead of returning success with stale pending state.
+- The reused operational job is resolved and ownership-checked. A same-owner job becomes last_job_id and the outcome correlation id; a foreign or expired job id is neither persisted nor returned.
+- Unknown/noncanonical ledger states resolve terminally instead of advertising work no code scheduled.
+- The targeted dev row was conditionally repaired after confirming that the existing completed-content job belongs to the same user. A strongly consistent DynamoDB read returned processing_status=ready and the expected same-owner last_job_id.
+
+## Verification
+- .venv/bin/ruff check media_summarizer: passed.
+- .venv/bin/mypy media_summarizer: passed (169 source files).
+- git diff --check: passed.
+- No automated tests were added or run, per repository delivery rules.
+<!-- SECTION:NOTES:END -->
