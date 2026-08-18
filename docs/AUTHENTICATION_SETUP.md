@@ -80,22 +80,22 @@ Exemples — Flux côté client
 - Login local (curl)
   ```bash path=null start=null
   curl -X POST http://localhost:8000/api/auth/login \
-    -H ‘Content-Type: application/json’ \
-    -d ‘{"email": "user@example.com", "password": "your-pass"}’ -i
+    -H 'Content-Type: application/json' \
+    -d '{"email": "user@example.com", "password": "your-pass"}' -i
   # → Set-Cookie: refresh_token=...; HttpOnly; Path=/; Max-Age=... 
   ```
 
 - Refresh (curl)
   ```bash path=null start=null
   curl -X POST http://localhost:8000/api/auth/refresh \
-    -H ‘Content-Type: application/json’ \
-    -H ‘Cookie: refresh_token=<value>’
+    -H 'Content-Type: application/json' \
+    -H 'Cookie: refresh_token=<value>'
   ```
 
 - Appel d’une route protégée
   ```bash path=null start=null
   curl -X GET http://localhost:8000/api/auth/me \
-    -H ‘Authorization: Bearer <access_token>’
+    -H 'Authorization: Bearer <access_token>'
   ```
 
 Gestion des Erreurs Courantes
