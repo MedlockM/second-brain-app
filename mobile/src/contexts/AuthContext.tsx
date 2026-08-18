@@ -9,7 +9,6 @@ import React, {
 import { AuthService } from "../services/authService";
 import { TokenStorage } from "../services/tokenStorage";
 import { AuthUser, LoginRequest, RegisterRequest } from "../types/auth";
-import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 
 interface AuthState {
   user: AuthUser | null;
@@ -26,6 +25,8 @@ interface AuthContextValue extends AuthState {
   loginWithGoogle: (idToken: string) => Promise<void>;
   loginWithApple: (identityToken: string, user?: { email?: string; fullName?: { givenName?: string; familyName?: string } }) => Promise<void>;
   logout: () => Promise<void>;
+  /** Re-read SecureStore and refresh the access token when needed. */
+  revalidateSession: () => Promise<boolean>;
   clearSessionError: () => void;
 }
 
@@ -81,12 +82,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revalidationRef = useRef<Promise<boolean> | null>(null);
   const initStartedRef = useRef(false);
 
   // Schedule proactive token refresh before expiry
   const scheduleRefresh = useCallback(async () => {
     await scheduleTokenRefresh(refreshTimerRef, setState);
   }, []);
+
+  const revalidateSession = useCallback((): Promise<boolean> => {
+    if (revalidationRef.current) {
+      return revalidationRef.current;
+    }
+
+    const operation = (async () => {
+      try {
+        const validToken = await AuthService.getValidToken();
+        if (!validToken) {
+          if (refreshTimerRef.current) {
+            clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = null;
+          }
+          await TokenStorage.clearAll();
+          setState({
+            user: null,
+            token: null,
+            isLoading: false,
+            isAuthenticated: false,
+            sessionError: "Your session has expired. Please sign in again.",
+          });
+          return false;
+        }
+
+        setState((previous) => ({
+          ...previous,
+          token: validToken,
+          isLoading: false,
+          isAuthenticated: true,
+          sessionError: null,
+        }));
+        await scheduleRefresh();
+        return true;
+      } catch {
+        if (refreshTimerRef.current) {
+          clearTimeout(refreshTimerRef.current);
+          refreshTimerRef.current = null;
+        }
+        await TokenStorage.clearAll();
+        setState({
+          user: null,
+          token: null,
+          isLoading: false,
+          isAuthenticated: false,
+          sessionError: "Your session has expired. Please sign in again.",
+        });
+        return false;
+      }
+    })();
+
+    revalidationRef.current = operation;
+    void operation.finally(() => {
+      if (revalidationRef.current === operation) {
+        revalidationRef.current = null;
+      }
+    });
+    return operation;
+  }, [scheduleRefresh]);
 
   // Initialize auth state on app start
   useEffect(() => {
@@ -217,6 +278,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loginWithGoogle,
     loginWithApple,
     logout,
+    revalidateSession,
     clearSessionError,
   };
 

@@ -109,11 +109,22 @@ interface ShareIntentContextValue {
     file: LocalUploadFile,
     contentType: Extract<ShareContentType, "file" | "photo">,
   ) => void;
+  /** Preserve the open confirmation state while authentication is restored. */
+  parkCurrentIntakeForAuth: () => void;
   /** Send the pending device file to the matching upload endpoint. */
   submitUpload: () => Promise<void>;
   dismiss: () => void;
   retry: () => void;
 }
+
+type PendingIntake =
+  | { kind: "share"; intent: ShareIntent }
+  | {
+      kind: "local";
+      file: LocalUploadFile;
+      contentType: Extract<ShareContentType, "file" | "photo">;
+    }
+  | { kind: "current" };
 
 const INITIAL_STATE: ShareIntakeState = {
   status: "idle",
@@ -128,6 +139,15 @@ const INITIAL_STATE: ShareIntakeState = {
 };
 
 const ShareIntentContext = createContext<ShareIntentContextValue | null>(null);
+
+function shareIntentKey(intent: ShareIntent): string {
+  return JSON.stringify({
+    type: intent.type,
+    text: intent.text,
+    webUrl: intent.webUrl,
+    files: intent.files?.map((file) => file.path),
+  });
+}
 
 /**
  * Build the error half of the intake state from a failed submission.
@@ -179,7 +199,7 @@ export function ShareIntentProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { token, isAuthenticated, isLoading } = useAuth();
+  const { token, isAuthenticated, isLoading, revalidateSession } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
@@ -189,7 +209,9 @@ export function ShareIntentProvider({
   const [selectedTags, setSelectedTags] = useState<ShareSelectedTag[]>([]);
   const hasNavigatedRef = useRef(false);
   const lastProcessedKeyRef = useRef<string | null>(null);
-  const pendingIntentRef = useRef<ShareIntent | null>(null);
+  const lastGuardedIntentKeyRef = useRef<string | null>(null);
+  const pendingIntakeRef = useRef<PendingIntake | null>(null);
+  const replayInFlightRef = useRef<Promise<void> | null>(null);
 
   // Consume the official expo-share-intent package context
   const { hasShareIntent, shareIntent, resetShareIntent } =
@@ -199,6 +221,45 @@ export function ShareIntentProvider({
     pathnameRef.current = pathname;
   }, [pathname]);
 
+  const navigateToConfirmation = useCallback(() => {
+    if (
+      hasNavigatedRef.current ||
+      pathnameRef.current === "/share-confirmation"
+    ) {
+      return;
+    }
+    hasNavigatedRef.current = true;
+    setTimeout(() => {
+      if (pathnameRef.current !== "/share-confirmation") {
+        router.push("/share-confirmation");
+      }
+      hasNavigatedRef.current = false;
+    }, 0);
+  }, [router]);
+
+  const applyLocalUpload = useCallback(
+    (
+      file: LocalUploadFile,
+      contentType: Extract<ShareContentType, "file" | "photo">,
+    ) => {
+      setSelectedFolder(null);
+      setSelectedTags([]);
+      setIntake({
+        status: "ready",
+        url: null,
+        rawText: null,
+        message: null,
+        response: null,
+        contentType,
+        audioFile: null,
+        uploadFile: file,
+        quotaErrorCode: null,
+      });
+      navigateToConfirmation();
+    },
+    [navigateToConfirmation],
+  );
+
   /**
    * Map an expo-share-intent ShareIntent object to our ShareIntakeState
    * and navigate to the confirmation screen.
@@ -206,12 +267,7 @@ export function ShareIntentProvider({
   const processShareIntent = useCallback(
     (intent: ShareIntent) => {
       // Deduplication: build a key from the intent content
-      const intentKey = JSON.stringify({
-        type: intent.type,
-        text: intent.text,
-        webUrl: intent.webUrl,
-        files: intent.files?.map((f) => f.path),
-      });
+      const intentKey = shareIntentKey(intent);
       if (lastProcessedKeyRef.current === intentKey) return;
       lastProcessedKeyRef.current = intentKey;
 
@@ -340,51 +396,82 @@ export function ShareIntentProvider({
       // Navigate to share confirmation screen — but skip the push when we're
       // already on it (e.g. cold start where +native-intent.tsx redirected
       // there before the provider mounted), otherwise the screen stacks twice.
-      if (
-        !hasNavigatedRef.current &&
-        pathnameRef.current !== "/share-confirmation"
-      ) {
-        hasNavigatedRef.current = true;
-        setTimeout(() => {
-          if (pathnameRef.current !== "/share-confirmation") {
-            router.push("/share-confirmation");
-          }
-          hasNavigatedRef.current = false;
-        }, 0);
-      }
+      navigateToConfirmation();
     },
-    [router, resetShareIntent],
+    [navigateToConfirmation, resetShareIntent],
   );
+
+  const resumePendingIntake = useCallback((): Promise<void> => {
+    if (replayInFlightRef.current) {
+      return replayInFlightRef.current;
+    }
+
+    const operation = (async () => {
+      const valid = await revalidateSession();
+      if (!valid) {
+        router.replace("/(auth)/login");
+        return;
+      }
+
+      const pending = pendingIntakeRef.current;
+      pendingIntakeRef.current = null;
+      if (!pending) return;
+
+      if (pending.kind === "share") {
+        processShareIntent(pending.intent);
+      } else if (pending.kind === "local") {
+        applyLocalUpload(pending.file, pending.contentType);
+      } else {
+        navigateToConfirmation();
+      }
+    })();
+
+    replayInFlightRef.current = operation;
+    void operation.finally(() => {
+      if (replayInFlightRef.current === operation) {
+        replayInFlightRef.current = null;
+      }
+    });
+    return operation;
+  }, [applyLocalUpload, navigateToConfirmation, processShareIntent, revalidateSession, router]);
 
   /**
    * React to share intent changes from the package.
-   * If authenticated, process immediately. Otherwise, queue for later.
+   * Always revalidate SecureStore before navigation. A dead warm session is
+   * indistinguishable from a healthy one in the in-memory boolean alone.
    */
   useEffect(() => {
-    if (!hasShareIntent) return;
-    if (isLoading) return;
-
-    if (!isAuthenticated) {
-      // Store pending intent for processing after auth
-      pendingIntentRef.current = { ...shareIntent };
+    if (!hasShareIntent) {
+      lastGuardedIntentKeyRef.current = null;
       return;
     }
+    if (isLoading) return;
 
-    const timer = setTimeout(() => processShareIntent(shareIntent), 0);
+    const intentKey = shareIntentKey(shareIntent);
+    if (lastGuardedIntentKeyRef.current === intentKey) return;
+    lastGuardedIntentKeyRef.current = intentKey;
+
+    pendingIntakeRef.current = {
+      kind: "share",
+      intent: { ...shareIntent },
+    };
+    const timer = setTimeout(() => {
+      void resumePendingIntake();
+    }, 0);
     return () => clearTimeout(timer);
-  }, [hasShareIntent, shareIntent, isAuthenticated, isLoading, processShareIntent]);
+  }, [hasShareIntent, shareIntent, isLoading, resumePendingIntake]);
 
   /**
    * Process pending intent after authentication completes.
    */
   useEffect(() => {
-    if (isAuthenticated && !isLoading && pendingIntentRef.current) {
-      const pending = pendingIntentRef.current;
-      pendingIntentRef.current = null;
-      const timer = setTimeout(() => processShareIntent(pending), 0);
+    if (isAuthenticated && !isLoading && pendingIntakeRef.current) {
+      const timer = setTimeout(() => {
+        void resumePendingIntake();
+      }, 0);
       return () => clearTimeout(timer);
     }
-  }, [isAuthenticated, isLoading, processShareIntent]);
+  }, [isAuthenticated, isLoading, resumePendingIntake]);
 
   /**
    * Submit the validated URL to the backend.
@@ -572,25 +659,17 @@ export function ShareIntentProvider({
       file: LocalUploadFile,
       contentType: Extract<ShareContentType, "file" | "photo">,
     ) => {
-      setSelectedFolder(null);
-      setSelectedTags([]);
-      setIntake({
-        status: "ready",
-        url: null,
-        rawText: null,
-        message: null,
-        response: null,
-        contentType,
-        audioFile: null,
-        uploadFile: file,
-        quotaErrorCode: null,
-      });
-      if (pathnameRef.current !== "/share-confirmation") {
-        router.push("/share-confirmation");
-      }
+      pendingIntakeRef.current = { kind: "local", file, contentType };
+      void resumePendingIntake();
     },
-    [router],
+    [resumePendingIntake],
   );
+
+  const parkCurrentIntakeForAuth = useCallback(() => {
+    if (intake.status !== "idle") {
+      pendingIntakeRef.current = { kind: "current" };
+    }
+  }, [intake.status]);
 
   /**
    * Upload the pending device file. The extension decided which endpoint it
@@ -678,6 +757,7 @@ export function ShareIntentProvider({
     submitUrl,
     submitSharedContent,
     startLocalUpload,
+    parkCurrentIntakeForAuth,
     submitUpload,
     dismiss,
     retry,

@@ -1,14 +1,16 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
   ActivityIndicator,
+  AppState,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "../src/contexts/AuthContext";
 import {
   useShareIntake,
   type ShareContentType,
@@ -61,15 +63,75 @@ const TOP_BAR_TITLES: Record<ShareContentType, string> = {
 export default function ShareConfirmationScreen() {
   const router = useRouter();
   const {
+    isAuthenticated,
+    isLoading,
+    revalidateSession,
+  } = useAuth();
+  const {
     intake,
     selectedFolder,
     selectedTags,
     submitUrl,
     submitSharedContent,
     submitUpload,
+    parkCurrentIntakeForAuth,
     dismiss,
     retry,
   } = useShareIntake();
+  const [isSessionReady, setIsSessionReady] = useState(false);
+  const guardInFlightRef = useRef<Promise<void> | null>(null);
+  const redirectingRef = useRef(false);
+
+  const redirectToLogin = useCallback(() => {
+    setIsSessionReady(false);
+    parkCurrentIntakeForAuth();
+    if (redirectingRef.current) return;
+    redirectingRef.current = true;
+    router.replace("/(auth)/login");
+  }, [parkCurrentIntakeForAuth, router]);
+
+  const guardSession = useCallback((): Promise<void> => {
+    if (isLoading) return Promise.resolve();
+    if (guardInFlightRef.current) return guardInFlightRef.current;
+    if (!isAuthenticated) {
+      redirectToLogin();
+      return Promise.resolve();
+    }
+
+    const operation = (async () => {
+      const valid = await revalidateSession();
+      if (valid) {
+        redirectingRef.current = false;
+        setIsSessionReady(true);
+      } else {
+        redirectToLogin();
+      }
+    })();
+
+    guardInFlightRef.current = operation;
+    void operation.finally(() => {
+      if (guardInFlightRef.current === operation) {
+        guardInFlightRef.current = null;
+      }
+    });
+    return operation;
+  }, [isAuthenticated, isLoading, redirectToLogin, revalidateSession]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void guardSession();
+    }, [guardSession]),
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        setIsSessionReady(false);
+        void guardSession();
+      }
+    });
+    return () => subscription.remove();
+  }, [guardSession]);
 
   const handleClose = useCallback(() => {
     dismiss();
@@ -124,6 +186,16 @@ export default function ShareConfirmationScreen() {
   const canSave = intake.status === "ready" || intake.status === "error";
 
   const topBarTitle = TOP_BAR_TITLES[intake.contentType];
+
+  if (!isSessionReady || isLoading || !isAuthenticated) {
+    return (
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
