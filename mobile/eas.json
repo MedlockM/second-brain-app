@@ -8,7 +8,10 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://jji077bi8e.execute-api.eu-west-3.amazonaws.com"
+        "EXPO_PUBLIC_API_BASE_URL": "https://jji077bi8e.execute-api.eu-west-3.amazonaws.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS": "285796240127-ljujk2ubnq4bgav0s97vgcg19plaldgd.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID": "285796240127-hk6j6351rcc0oqljcfm4ttfs2idcg8c7.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB": "285796240127-pbq954l1010v0fce5o0smklvvju6o7de.apps.googleusercontent.com"
       }
     },
     "development-simulator": {
@@ -26,7 +29,10 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://jji077bi8e.execute-api.eu-west-3.amazonaws.com"
+        "EXPO_PUBLIC_API_BASE_URL": "https://jji077bi8e.execute-api.eu-west-3.amazonaws.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS": "285796240127-ljujk2ubnq4bgav0s97vgcg19plaldgd.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID": "285796240127-hk6j6351rcc0oqljcfm4ttfs2idcg8c7.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB": "285796240127-pbq954l1010v0fce5o0smklvvju6o7de.apps.googleusercontent.com"
       }
     },
     "production": {
@@ -39,7 +45,10 @@
         "autoIncrement": true
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://api.mediasummarizer.com"
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.mediasummarizer.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS": "285796240127-ljujk2ubnq4bgav0s97vgcg19plaldgd.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID": "285796240127-hk6j6351rcc0oqljcfm4ttfs2idcg8c7.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB": "285796240127-pbq954l1010v0fce5o0smklvvju6o7de.apps.googleusercontent.com"
       }
     }
   },
