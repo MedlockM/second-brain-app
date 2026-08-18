@@ -48,11 +48,68 @@ Vérifications E2E manuelles après merge (ne peuvent pas être des ACs) :
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Une erreur réseau, un timeout, un 5xx ou un 429 pendant un refresh ne vide plus le stockage sécurisé et ne fait plus basculer l'app sur l'écran de connexion
-- [ ] #2 Seul un rejet d'authentification du refresh token (401 avec le code SESSION_EXPIRED) purge la session et redirige vers le login
-- [ ] #3 apiClient tente un refresh puis rejoue une fois la requête ayant reçu un 401, et ne propage l'erreur qu'après l'échec de ce rejeu
-- [ ] #4 Tous les chemins de refresh (timer, intercepteur, revalidation) passent par une promesse de refresh partagée unique : aucun appelant n'appelle plus AuthService.refresh() directement
-- [ ] #5 AuthProvider revalide la session à chaque retour au premier plan via un listener AppState, indépendamment du timer
-- [ ] #6 Le parking d'intent de task-278 et son rejeu après connexion sont préservés, ainsi que la revalidation au focus de /share-confirmation
-- [ ] #7 npx tsc --noEmit et npm run lint sont clean dans mobile/
+- [x] #1 Une erreur réseau, un timeout, un 5xx ou un 429 pendant un refresh ne vide plus le stockage sécurisé et ne fait plus basculer l'app sur l'écran de connexion
+- [x] #2 Seul un rejet d'authentification du refresh token (401 avec le code SESSION_EXPIRED) purge la session et redirige vers le login
+- [x] #3 apiClient tente un refresh puis rejoue une fois la requête ayant reçu un 401, et ne propage l'erreur qu'après l'échec de ce rejeu
+- [x] #4 Tous les chemins de refresh (timer, intercepteur, revalidation) passent par une promesse de refresh partagée unique : aucun appelant n'appelle plus AuthService.refresh() directement
+- [x] #5 AuthProvider revalide la session à chaque retour au premier plan via un listener AppState, indépendamment du timer
+- [x] #6 Le parking d'intent de task-278 et son rejeu après connexion sont préservés, ainsi que la revalidation au focus de /share-confirmation
+- [x] #7 npx tsc --noEmit et npm run lint sont clean dans mobile/
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### Where the session now lives
+
+`mobile/src/services/sessionManager.ts` (new) is the only owner of the session.
+It holds the refresh HTTP call, the shared promise, the backoff, the purge policy
+and an event bus. It sits below `apiClient` in the module graph, which is why the
+refresh call moved out of `authService` (`authService` imports `apiClient`, so a
+refresh living there would have closed a cycle).
+
+- **Purge policy (AC #1, #2).** `clearSession()` runs on exactly one condition:
+  a 401 from `/api/auth/refresh`, or no refresh token at all. The endpoint
+  authenticates nothing but the refresh token, so `postRefresh` stamps every 401
+  it returns with the canonical `SESSION_EXPIRED` code (the backend sends a plain
+  string detail) — one condition to test everywhere else. No response, a timeout,
+  a 408/429/5xx: tokens kept, `unreachable` emitted, backoff
+  `[1s, 3s, 8s]` inside the manager, then a 60 s retry lane armed by
+  `AuthContext`. The user stays in the app with `isOffline: true`.
+- **Shared promise (AC #4).** `refreshAccessToken()` returns the in-flight
+  promise when one exists. `AuthService.refresh()` and
+  `AuthService.getValidToken()` are deleted, so no caller can start a rotation of
+  its own — the constraint is structural, not a convention. The rejection handler
+  is attached at creation so the fire-and-forget timer path cannot raise an
+  unhandled rejection.
+- **401 interceptor (AC #3).** `sendAuthenticated()` in `apiClient.ts` resolves
+  the bearer from the keychain at send time, and on a 401 refreshes once and
+  replays the same request once. `RequestOptions.token` is gone: every service
+  and screen lost its `token` parameter, so a screen can no longer hand in a copy
+  captured when it rendered. Multipart uploads go through the new `apiUpload`,
+  which shares the same interceptor (the runtime must set the boundary, hence the
+  separate entry point).
+- **Foreground revalidation (AC #5).** `AuthProvider` subscribes to
+  `AppState "change"` and revalidates on every return to `active`, independently
+  of the `setTimeout`, which now only covers a session left in the foreground
+  long enough for the access token to expire.
+- **`revalidateSession()` semantics.** Returns `false` only when the session is
+  definitively gone. An unreachable API resolves `true` and flips `isOffline`, so
+  the task-278 share guard (`mobile/app/share-confirmation.tsx`, untouched) no
+  longer routes a valid session to the login screen on a network blip (AC #6).
+- **Profile cached in the keychain.** `TokenStorage` gained `saveUser/getUser`
+  (`auth_user`), written on every rotation and login. A cold start with no
+  network restores the identity without `/api/auth/me`, which is what keeps an
+  offline start out of the login screen and out of the language onboarding.
+  `TokenStorage.isTokenExpired()` is deleted — expiry is read with the refresh
+  buffer inside `SessionManager`.
+
+### Not done
+
+No automated tests were added (project rule). The three E2E checks in the
+description stay owner-run: airplane mode across an access-token expiry, a night
+in the background, and a Safari share after a long background.
+
+`isOffline` is exposed on the auth context and drives the retry lane, but no
+screen renders an offline banner yet — that is a UI task of its own.
+<!-- SECTION:NOTES:END -->

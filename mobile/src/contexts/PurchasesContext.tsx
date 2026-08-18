@@ -79,7 +79,7 @@ interface PurchasesContextValue {
 const PurchasesContext = createContext<PurchasesContextValue | null>(null);
 
 export function PurchasesProvider({ children }: { children: React.ReactNode }) {
-  const { user, token, isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [isInitialized, setIsInitialized] = useState(false);
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo | null>(null);
   const [entitlementStatus, setEntitlementStatus] =
@@ -132,14 +132,13 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
 
   // Fetch backend entitlement status
   const refreshEntitlements = useCallback(async () => {
-    if (!token) return;
+    if (!isAuthenticated) return;
 
     await Promise.resolve();
     setIsLoading(true);
     try {
       const status = await apiRequest<EntitlementStatus>(
         "/api/entitlements/status",
-        { token },
       );
       setEntitlementStatus(status);
     } catch (error) {
@@ -147,15 +146,15 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [token]);
+  }, [isAuthenticated]);
 
   // Refresh entitlements when auth changes
   useEffect(() => {
-    if (isAuthenticated && token) {
+    if (isAuthenticated) {
       const timer = setTimeout(() => void refreshEntitlements(), 0);
       return () => clearTimeout(timer);
     }
-  }, [isAuthenticated, token, refreshEntitlements]);
+  }, [isAuthenticated, refreshEntitlements]);
 
   // Also refresh RevenueCat customer info periodically
   useEffect(() => {

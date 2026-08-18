@@ -54,7 +54,7 @@ interface SelectedFile {
  */
 export default function BugReportScreen() {
   const router = useRouter();
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   // Form state
   const [subject, setSubject] = useState("");
@@ -191,7 +191,7 @@ export default function BugReportScreen() {
   }, [handlePickImage, handlePickDocument]);
 
   const handleSubmit = useCallback(async () => {
-    if (!isFormValid || !token) return;
+    if (!isFormValid || !isAuthenticated) return;
 
     setSubmitState("uploading");
     setErrorMessage(null);
@@ -204,7 +204,7 @@ export default function BugReportScreen() {
         setSubmitState("uploading");
 
         // Request presigned URL
-        const uploadUrlResponse = await BugReportService.requestUploadUrl(token, {
+        const uploadUrlResponse = await BugReportService.requestUploadUrl({
           filename: selectedFile.name,
           content_type: selectedFile.mimeType,
           file_size: selectedFile.size,
@@ -226,7 +226,7 @@ export default function BugReportScreen() {
       const appVersion = Constants.expoConfig?.version || "unknown";
       const platform = Platform.OS;
 
-      const response = await BugReportService.createBugReport(token, {
+      const response = await BugReportService.createBugReport({
         subject: subject.trim(),
         description: description.trim(),
         attachment_key: attachmentKey,
@@ -260,7 +260,7 @@ export default function BugReportScreen() {
     }
   }, [
     isFormValid,
-    token,
+    isAuthenticated,
     selectedFile,
     subject,
     description,

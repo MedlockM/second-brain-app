@@ -54,7 +54,7 @@ export default function TagsScreen() {
     currentTags?: string;
   }>();
 
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const { selectedTags: shareSelectedTags, setSelectedTags } = useShareIntake();
   const isShareMode = params.mode === "share";
   const inputRef = useRef<TextInput>(null);
@@ -72,12 +72,12 @@ export default function TagsScreen() {
 
   // Fetch user's tags
   useEffect(() => {
-    if (!token) return;
+    if (!isAuthenticated) return;
 
     const fetchTags = async () => {
       try {
         setIsLoading(true);
-        const tags = await OrganizationService.getUserTags(token);
+        const tags = await OrganizationService.getUserTags();
         setAllTags(tags);
       } catch {
         setError("Failed to load tags");
@@ -87,7 +87,7 @@ export default function TagsScreen() {
     };
 
     fetchTags();
-  }, [token]);
+  }, [isAuthenticated]);
 
   // Filter tags based on search text
   const filteredTags = allTags.filter((tag) =>
@@ -133,7 +133,7 @@ export default function TagsScreen() {
 
   const handleCreateAndAddTag = useCallback(async () => {
     const trimmed = searchText.trim();
-    if (!trimmed || !token) return;
+    if (!trimmed || !isAuthenticated) return;
 
     const existing = allTags.find(
       (tag) => tag.name.toLowerCase() === trimmed.toLowerCase(),
@@ -150,7 +150,7 @@ export default function TagsScreen() {
     }
 
     try {
-      const created = await OrganizationService.createTag(token, trimmed);
+      const created = await OrganizationService.createTag(trimmed);
       setAllTags((prev) => {
         const nextTags = [...prev, created];
         setSelectedTagIds((selected) => {
@@ -167,7 +167,7 @@ export default function TagsScreen() {
     } catch {
       setError("Failed to create tag");
     }
-  }, [allTags, searchText, syncShareTags, token]);
+  }, [allTags, isAuthenticated, searchText, syncShareTags]);
 
   const selectedTagChips = selectedTagIds.map((id) => {
     const tag = allTags.find((item) => item.id === id);
@@ -204,7 +204,7 @@ export default function TagsScreen() {
       return;
     }
 
-    if (!token || !params.mediaItemId) {
+    if (!isAuthenticated || !params.mediaItemId) {
       handleBack();
       return;
     }
@@ -212,7 +212,6 @@ export default function TagsScreen() {
     try {
       setIsSaving(true);
       await OrganizationService.updateMediaTags(
-        token,
         params.mediaItemId,
         selectedTagIds,
       );
@@ -221,7 +220,13 @@ export default function TagsScreen() {
       setError("Failed to save tags");
       setIsSaving(false);
     }
-  }, [handleBack, isShareMode, params.mediaItemId, selectedTagIds, token]);
+  }, [
+    handleBack,
+    isAuthenticated,
+    isShareMode,
+    params.mediaItemId,
+    selectedTagIds,
+  ]);
 
   const renderTagItem = useCallback(
     ({ item }: { item: Tag }) => {

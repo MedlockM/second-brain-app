@@ -33,7 +33,7 @@ export interface UseMediaPollingResult {
  * - Merges with InboxContext for optimistic UI from share intent
  */
 export function useMediaPolling(): UseMediaPollingResult {
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const { items: localInboxItems } = useInbox();
 
   const [backendItems, setBackendItems] = useState<MediaListItem[]>([]);
@@ -47,10 +47,10 @@ export function useMediaPolling(): UseMediaPollingResult {
    * Fetch media list from the backend (one-shot).
    */
   const fetchMedia = useCallback(async () => {
-    if (!token) return;
+    if (!isAuthenticated) return;
 
     try {
-      const response = await MediaService.listMedia(token);
+      const response = await MediaService.listMedia();
       if (isMountedRef.current) {
         setBackendItems(response.items);
         setError(null);
@@ -63,7 +63,7 @@ export function useMediaPolling(): UseMediaPollingResult {
         setError(message);
       }
     }
-  }, [token]);
+  }, [isAuthenticated]);
 
   /**
    * Public refresh function (pull-to-refresh / focus refetch).
@@ -94,7 +94,7 @@ export function useMediaPolling(): UseMediaPollingResult {
     isMountedRef.current = true;
 
     let initialFetchTimer: ReturnType<typeof setTimeout> | null = null;
-    if (token) {
+    if (isAuthenticated) {
       initialFetchTimer = setTimeout(() => {
         void fetchMedia().finally(() => {
           if (isMountedRef.current) {
@@ -108,7 +108,7 @@ export function useMediaPolling(): UseMediaPollingResult {
       if (initialFetchTimer) clearTimeout(initialFetchTimer);
       isMountedRef.current = false;
     };
-  }, [token, fetchMedia]);
+  }, [isAuthenticated, fetchMedia]);
 
   /**
    * Compute pending local items that are not yet in the backend response.

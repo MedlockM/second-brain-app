@@ -1,13 +1,19 @@
 import * as SecureStore from "expo-secure-store";
+import type { AuthUser } from "../types/auth";
 
 const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_KEY = "refresh_token";
 const TOKEN_EXPIRY_KEY = "token_expiry";
+const USER_KEY = "auth_user";
 
 /**
- * Secure token storage using expo-secure-store.
+ * Secure session storage using expo-secure-store.
  * Replaces localStorage/sessionStorage from the web frontend.
- * Tokens are stored in the device keychain (iOS) or Keystore (Android).
+ * Everything here lives in the device keychain (iOS) or Keystore (Android).
+ *
+ * The signed-in profile is stored next to the tokens: a cold start with no
+ * network can then restore the session from the keychain alone, without a /me
+ * round trip it would have no way of completing.
  */
 export const TokenStorage = {
   async saveAccessToken(token: string, expiresIn: number): Promise<void> {
@@ -20,12 +26,26 @@ export const TokenStorage = {
     await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, token);
   },
 
+  async saveUser(user: AuthUser): Promise<void> {
+    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
+  },
+
   async getAccessToken(): Promise<string | null> {
     return SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
   },
 
   async getRefreshToken(): Promise<string | null> {
     return SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+  },
+
+  async getUser(): Promise<AuthUser | null> {
+    const raw = await SecureStore.getItemAsync(USER_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as AuthUser;
+    } catch {
+      return null;
+    }
   },
 
   async getTokenExpiry(): Promise<number | null> {
@@ -35,15 +55,10 @@ export const TokenStorage = {
     return Number.isNaN(parsed) ? null : parsed;
   },
 
-  async isTokenExpired(): Promise<boolean> {
-    const expiry = await this.getTokenExpiry();
-    if (expiry === null) return true;
-    return Date.now() > expiry;
-  },
-
   async clearAll(): Promise<void> {
     await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
     await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
     await SecureStore.deleteItemAsync(TOKEN_EXPIRY_KEY);
+    await SecureStore.deleteItemAsync(USER_KEY);
   },
 } as const;

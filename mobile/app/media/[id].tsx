@@ -292,7 +292,7 @@ interface CompletedDetailViewProps {
 }
 
 function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const router = useRouter();
   const { media_item, processing_job } = mediaData;
 
@@ -337,12 +337,11 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   // Refresh collection state when returning from the collection picker
   useFocusEffect(
     useCallback(() => {
-      if (!token) return;
+      if (!isAuthenticated) return;
 
       const refreshCollection = async () => {
         try {
           const response = await MediaService.getMediaStatus(
-            token,
             media_item.media_item_id,
           );
           const newFolderId = response.media_item.folder_id ?? null;
@@ -354,7 +353,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
               // Fetch collection name for the toast
               try {
                 const collections =
-                  await OrganizationService.getUserCollections(token);
+                  await OrganizationService.getUserCollections();
                 const found = collections.find((c) => c.id === newFolderId);
                 showToast(
                   found
@@ -375,7 +374,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       };
 
       void refreshCollection();
-    }, [token, media_item.media_item_id, showToast]),
+    }, [isAuthenticated, media_item.media_item_id, showToast]),
   );
 
   // Cleanup toast timeout on unmount
@@ -425,10 +424,9 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   // than swallowed: the panel then offers a Retry instead of claiming the scope
   // has nothing generated.
   const refreshArtifacts = useCallback(async () => {
-    if (!token) return;
+    if (!isAuthenticated) return;
     try {
       const response = await ArtifactService.listArtifacts(
-        token,
         "media",
         media_item.media_item_id,
       );
@@ -443,7 +441,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         }),
       );
     }
-  }, [token, media_item.media_item_id]);
+  }, [isAuthenticated, media_item.media_item_id]);
 
   // `historyLoading` starts true and is only ever cleared: the spinner belongs
   // to the first fetch of a given scope, and `refreshArtifacts` is stable for as
@@ -508,12 +506,11 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
 
   const handleGenerate = useCallback(
     async (artifactType: ArtifactType) => {
-      if (!token || !mountedRef.current) return;
+      if (!isAuthenticated || !mountedRef.current) return;
       setGenerationRefusal(null);
 
       try {
         await ArtifactService.generateArtifact(
-          token,
           "media",
           media_item.media_item_id,
           artifactType,
@@ -531,7 +528,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         setGenerationRefusal(describeArtifactRefusal(err, { scope: "media" }));
       }
     },
-    [token, media_item.media_item_id, refreshArtifacts],
+    [isAuthenticated, media_item.media_item_id, refreshArtifacts],
   );
   // The title is whatever the library row holds, exactly like the inbox
   // vignette -- and nothing more: since task-266 the backend always stores a
@@ -606,12 +603,11 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   const pollForTranslationRef = useRef<() => Promise<void>>(async () => undefined);
 
   const pollForTranslation = useCallback(async () => {
-    if (!token || !mountedRef.current) return;
+    if (!isAuthenticated || !mountedRef.current) return;
     translationPollCountRef.current += 1;
 
     try {
       const response = await MediaService.getRawContent(
-        token,
         media_item.media_item_id,
       );
       if (!mountedRef.current) return;
@@ -649,20 +645,19 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         }, TRANSLATION_POLL_DELAY_MS);
       }
     }
-  }, [token, media_item.media_item_id]);
+  }, [isAuthenticated, media_item.media_item_id]);
 
   useEffect(() => {
     pollForTranslationRef.current = pollForTranslation;
   }, [pollForTranslation]);
 
   const fetchRawContent = useCallback(async () => {
-    if (!token) return;
+    if (!isAuthenticated) return;
     setRawContent({ status: "loading" });
     translationPollCountRef.current = 0;
 
     try {
       const response = await MediaService.getRawContent(
-        token,
         media_item.media_item_id,
       );
       if (!mountedRef.current) return;
@@ -704,7 +699,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         }),
       });
     }
-  }, [token, media_item.media_item_id]);
+  }, [isAuthenticated, media_item.media_item_id]);
 
   // Whether the transcript fetch has already been kicked off for the media as it
   // currently stands. A flag rather than a read of `rawContent`: deciding from

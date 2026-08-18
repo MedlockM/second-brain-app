@@ -91,7 +91,7 @@ function buildInitialArtifactStates(): Record<ArtifactType, ArtifactTileState> {
 
 export default function CollectionDetailScreen() {
   const router = useRouter();
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const params = useLocalSearchParams<{ id: string; name?: string }>();
   const collectionId = params.id;
 
@@ -103,12 +103,12 @@ export default function CollectionDetailScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!token || !collectionId) return;
+    if (!isAuthenticated || !collectionId) return;
     setError(null);
     try {
       const [collections, folderMedia] = await Promise.all([
-        OrganizationService.getUserCollections(token),
-        OrganizationService.getCollectionMedia(token, collectionId),
+        OrganizationService.getUserCollections(),
+        OrganizationService.getCollectionMedia(collectionId),
       ]);
 
       // Direct children = collections whose parent is this collection.
@@ -135,7 +135,7 @@ export default function CollectionDetailScreen() {
         }),
       );
     }
-  }, [token, collectionId]);
+  }, [isAuthenticated, collectionId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -279,7 +279,7 @@ interface AiTabProps {
  */
 function AiTab({ collectionId }: AiTabProps) {
   const router = useRouter();
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   const [history, setHistory] = useState<ArtifactSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -297,14 +297,10 @@ function AiTab({ collectionId }: AiTabProps) {
   }, []);
 
   const fetchHistory = useCallback(async (): Promise<ArtifactSummary[]> => {
-    if (!token) return [];
-    const response = await ArtifactService.listArtifacts(
-      token,
-      "folder",
-      collectionId,
-    );
+    if (!isAuthenticated) return [];
+    const response = await ArtifactService.listArtifacts("folder", collectionId);
     return response.artifacts;
-  }, [token, collectionId]);
+  }, [isAuthenticated, collectionId]);
 
   const refresh = useCallback(async () => {
     try {
@@ -380,11 +376,10 @@ function AiTab({ collectionId }: AiTabProps) {
 
   const handleGenerate = useCallback(
     async (artifactType: ArtifactType) => {
-      if (!token) return;
+      if (!isAuthenticated) return;
       setRefusal(null);
       try {
         await ArtifactService.generateArtifact(
-          token,
           "folder",
           collectionId,
           artifactType,
@@ -395,7 +390,7 @@ function AiTab({ collectionId }: AiTabProps) {
         setRefusal(describeArtifactRefusal(err, { scope: "folder" }));
       }
     },
-    [token, collectionId, refresh],
+    [isAuthenticated, collectionId, refresh],
   );
 
   const handleOpenArtifact = useCallback(

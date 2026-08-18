@@ -41,7 +41,7 @@ type DigestTab = "daily" | "weekly";
  * Matches the "Your Day in Review" / "Your Week in Review" mockup designs.
  */
 export default function DigestScreen() {
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<DigestTab>("daily");
@@ -56,14 +56,14 @@ export default function DigestScreen() {
 
   const fetchDigest = useCallback(
     async (tab: DigestTab) => {
-      if (!token) return;
+      if (!isAuthenticated) return;
 
       try {
         if (tab === "daily") {
-          const data = await DigestService.getDailyDigest(token);
+          const data = await DigestService.getDailyDigest();
           setDailyDigest(data);
         } else {
-          const data = await DigestService.getWeeklyDigest(token);
+          const data = await DigestService.getWeeklyDigest();
           setWeeklyDigest(data);
         }
       } catch (err: unknown) {
@@ -75,7 +75,7 @@ export default function DigestScreen() {
         setIsRefreshing(false);
       }
     },
-    [token],
+    [isAuthenticated],
   );
 
   useEffect(() => {

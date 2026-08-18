@@ -125,7 +125,7 @@ const KIND_ICON: Record<
 export default function ArtifactDetailScreen() {
   const { artifactId } = useLocalSearchParams<{ artifactId: string }>();
   const router = useRouter();
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const mountedRef = useRef(true);
   const scrollViewRef = useRef<ScrollView>(null);
   const artifactBodyTopRef = useRef(0);
@@ -139,12 +139,9 @@ export default function ArtifactDetailScreen() {
   }, []);
 
   const fetchContent = useCallback(async () => {
-    if (!token || !artifactId) return;
+    if (!isAuthenticated || !artifactId) return;
     try {
-      const response = await ArtifactService.getArtifactContent(
-        token,
-        artifactId,
-      );
+      const response = await ArtifactService.getArtifactContent(artifactId);
       if (!mountedRef.current) return;
       const kind = normalizeArtifactKind(response.artifact_type);
       const payload = response.content as ArtifactPayload;
@@ -175,7 +172,7 @@ export default function ArtifactDetailScreen() {
         }),
       });
     }
-  }, [token, artifactId]);
+  }, [isAuthenticated, artifactId]);
 
   useEffect(() => {
     const timer = setTimeout(() => void fetchContent(), 0);

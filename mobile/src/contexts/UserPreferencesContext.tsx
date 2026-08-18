@@ -25,7 +25,7 @@ export function UserPreferencesProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const [isUpdating, setIsUpdating] = useState(false);
   const [localReadingLanguage, setLocalReadingLanguage] = useState<
     string | null
@@ -38,19 +38,16 @@ export function UserPreferencesProvider({
 
   const updateReadingLanguage = useCallback(
     async (language: ReadingLanguageCode) => {
-      if (!token) {
-        throw new Error("Not authenticated");
-      }
       setIsUpdating(true);
       try {
         const updatedUser =
-          await UserPreferencesService.updateReadingLanguage(token, language);
+          await UserPreferencesService.updateReadingLanguage(language);
         setLocalReadingLanguage(updatedUser.reading_language ?? language);
       } finally {
         setIsUpdating(false);
       }
     },
-    [token],
+    [],
   );
 
   const value: UserPreferencesContextValue = {

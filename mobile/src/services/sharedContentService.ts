@@ -7,11 +7,8 @@
  */
 
 import { Platform } from "react-native";
-import { Config } from "../constants/config";
-import { createHttpError, parseErrorResponse } from "../lib/httpError";
+import { apiUpload } from "./apiClient";
 import type {
-  IngestSharedTextRequest,
-  IngestSharedAudioRequest,
   IngestSharedContentResponse,
   SharedFileAttachment,
 } from "../types/sharedContent";
@@ -52,7 +49,6 @@ export class SharedContentService {
    * Used when WhatsApp text is shared and no URL is found in it.
    */
   static async ingestSharedText(
-    token: string,
     text: string,
     options: {
       sourceApp?: string;
@@ -96,7 +92,7 @@ export class SharedContentService {
       formData.append("tag_ids", JSON.stringify(options.tagIds));
     }
 
-    return SharedContentService.submitFormData(token, formData);
+    return SharedContentService.submitFormData(formData);
   }
 
   /**
@@ -104,7 +100,6 @@ export class SharedContentService {
    * Used when WhatsApp audio (voice message or file) is shared.
    */
   static async ingestSharedAudio(
-    token: string,
     file: SharedFileAttachment,
     options: {
       sourceApp?: string;
@@ -169,44 +164,32 @@ export class SharedContentService {
       name: fileName,
     } as unknown as Blob);
 
-    return SharedContentService.submitFormData(token, formData);
+    return SharedContentService.submitFormData(formData);
   }
 
   /**
    * Submit the prepared FormData to the ingest-shared-content endpoint.
+   * Multipart, so it goes through `apiUpload`: same bearer resolution and same
+   * one-shot replay on a 401 as every other authenticated call.
    */
   private static async submitFormData(
-    token: string,
     formData: FormData,
   ): Promise<IngestSharedContentResponse> {
-    const url = `${Config.API_BASE_URL}/api/media/ingest-shared-content`;
+    const response = await apiUpload<IngestSharedContentResponse | undefined>(
+      "/api/media/ingest-shared-content",
+      formData,
+      "Failed to submit shared content.",
+    );
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        // Do NOT set Content-Type; fetch will set it with boundary for multipart
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const { message, code, quotaErrorCode } = await parseErrorResponse(
-        response,
-        "Failed to submit shared content.",
-      );
-      throw createHttpError(message, response.status, code, quotaErrorCode);
-    }
-
-    if (response.status === 204) {
-      return {
+    // A 204 carries no body: the submission was accepted and nothing is known
+    // about the item yet.
+    return (
+      response ?? {
         media_item_id: "",
         status: "pending",
         source_platform: "whatsapp",
-      };
-    }
-
-    return response.json();
+      }
+    );
   }
 }
 

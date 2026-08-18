@@ -41,7 +41,7 @@ import type { MediaListItem } from "../../../src/types/media";
  */
 export default function CollectionsExplorerScreen() {
   const router = useRouter();
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   const [roots, setRoots] = useState<CollectionNode[]>([]);
   const [defaultCollection, setDefaultCollection] =
@@ -50,12 +50,12 @@ export default function CollectionsExplorerScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!token) return;
+    if (!isAuthenticated) return;
     setError(null);
     try {
       const [collections, mediaResponse] = await Promise.all([
-        OrganizationService.getUserCollections(token),
-        MediaService.listMedia(token),
+        OrganizationService.getUserCollections(),
+        MediaService.listMedia(),
       ]);
 
       const directCountById = new Map<string, number>();
@@ -77,7 +77,7 @@ export default function CollectionsExplorerScreen() {
         }),
       );
     }
-  }, [token]);
+  }, [isAuthenticated]);
 
   useFocusEffect(
     useCallback(() => {

@@ -56,21 +56,21 @@ const ERASED_ITEMS: readonly string[] = [
 
 export default function DeleteAccountScreen() {
   const router = useRouter();
-  const { token, logout } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const { isSubscribed } = usePurchases();
   const [hasAcknowledged, setHasAcknowledged] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const runDeletion = async (): Promise<void> => {
-    if (!token) {
+    if (!isAuthenticated) {
       setError("Your session has expired. Please sign in again.");
       return;
     }
     setError(null);
     setIsDeleting(true);
     try {
-      await AccountService.deleteAccount(token);
+      await AccountService.deleteAccount();
       // The backend has already revoked every session; this clears the local
       // copy and the RevenueCat login, and the replace leaves no screen behind
       // that would try to read a deleted account.

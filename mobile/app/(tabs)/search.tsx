@@ -129,7 +129,7 @@ function formatTimestamp(unixTimestamp: number): string {
 // --- Main Screen Component ---
 
 export default function SearchScreen() {
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -151,7 +151,7 @@ export default function SearchScreen() {
 
   // Execute search when debounced query or filter changes
   useEffect(() => {
-    if (!token) return;
+    if (!isAuthenticated) return;
 
     // Algolia requires a non-empty query (min_length=1).
     // Do not search with only a filter and no text query.
@@ -164,10 +164,7 @@ export default function SearchScreen() {
       setError(null);
 
       try {
-        const response = await SearchService.searchTranscripts(
-          token,
-          debouncedQuery,
-        );
+        const response = await SearchService.searchTranscripts(debouncedQuery);
 
         setResults(response.hits);
         setTotalResults(response.found);
@@ -185,16 +182,16 @@ export default function SearchScreen() {
     };
 
     performSearch();
-  }, [debouncedQuery, token]);
+  }, [debouncedQuery, isAuthenticated]);
 
   const loadCollections = useCallback(async () => {
-    if (!token) return;
+    if (!isAuthenticated) return;
     setCollectionsError(null);
 
     try {
       const [folders, mediaResponse] = await Promise.all([
-        OrganizationService.getUserCollections(token),
-        MediaService.listMedia(token),
+        OrganizationService.getUserCollections(),
+        MediaService.listMedia(),
       ]);
 
       const directCountById = new Map<string, number>();
@@ -216,7 +213,7 @@ export default function SearchScreen() {
         }),
       );
     }
-  }, [token]);
+  }, [isAuthenticated]);
 
   useFocusEffect(
     useCallback(() => {

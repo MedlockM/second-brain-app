@@ -58,12 +58,9 @@ export class SearchService {
    *
    * GET /api/search/credentials
    */
-  static async getSearchCredentials(
-    token: string,
-  ): Promise<SearchCredentials> {
+  static async getSearchCredentials(): Promise<SearchCredentials> {
     return apiRequest<SearchCredentials>("/api/search/credentials", {
       method: "GET",
-      token,
     });
   }
 
@@ -74,7 +71,6 @@ export class SearchService {
    * Requires a non-empty query string (min 1 char).
    */
   static async searchTranscripts(
-    token: string,
     query: string,
     options?: {
       page?: number;
@@ -94,9 +90,6 @@ export class SearchService {
 
     const path = `/api/search/transcripts?${params.toString()}`;
 
-    return apiRequest<SearchTranscriptsResponse>(path, {
-      method: "GET",
-      token,
-    });
+    return apiRequest<SearchTranscriptsResponse>(path, { method: "GET" });
   }
 }

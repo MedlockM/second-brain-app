@@ -71,11 +71,8 @@ export class MediaService {
    * Fetch the list of all media items for the current user.
    * GET /api/media
    */
-  static async listMedia(token: string): Promise<ListMediaResponse> {
-    return apiRequest<ListMediaResponse>("/api/media", {
-      method: "GET",
-      token,
-    });
+  static async listMedia(): Promise<ListMediaResponse> {
+    return apiRequest<ListMediaResponse>("/api/media", { method: "GET" });
   }
 
   /**
@@ -83,13 +80,11 @@ export class MediaService {
    * POST /api/media/ingest-url
    */
   static async ingestUrl(
-    token: string,
     payload: IngestUrlRequest,
   ): Promise<IngestUrlResponse> {
     return apiRequest<IngestUrlResponse>("/api/media/ingest-url", {
       method: "POST",
       body: payload,
-      token,
     });
   }
 
@@ -98,15 +93,11 @@ export class MediaService {
    * GET /api/media/:mediaItemId
    */
   static async getMediaStatus(
-    token: string,
     mediaItemId: string,
   ): Promise<MediaStatusResponse> {
     return apiRequest<MediaStatusResponse>(
       `/api/media/${encodeURIComponent(mediaItemId)}`,
-      {
-        method: "GET",
-        token,
-      },
+      { method: "GET" },
     );
   }
 
@@ -117,15 +108,11 @@ export class MediaService {
    * GET /api/media/:mediaItemId/raw-content
    */
   static async getRawContent(
-    token: string,
     mediaItemId: string,
   ): Promise<RawContentResponse> {
     return apiRequest<RawContentResponse>(
       `/api/media/${encodeURIComponent(mediaItemId)}/raw-content`,
-      {
-        method: "GET",
-        token,
-      },
+      { method: "GET" },
     );
   }
 }

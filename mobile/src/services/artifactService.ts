@@ -33,7 +33,6 @@ export class ArtifactService {
    * POST /api/artifacts
    */
   static async generateArtifact(
-    token: string,
     scope: ArtifactScope,
     scopeId: string,
     artifactType: ArtifactType,
@@ -45,7 +44,6 @@ export class ArtifactService {
         scope_id: scopeId,
         artifact_type: artifactType,
       } satisfies GenerateArtifactRequest,
-      token,
     });
   }
 
@@ -54,7 +52,6 @@ export class ArtifactService {
    * GET /api/artifacts?scope=...&scope_id=...
    */
   static async listArtifacts(
-    token: string,
     scope: ArtifactScope,
     scopeId: string,
     options?: { limit?: number; cursor?: string },
@@ -64,10 +61,7 @@ export class ArtifactService {
     if (options?.cursor) params.set("cursor", options.cursor);
     return apiRequest<ArtifactListResponse>(
       `/api/artifacts?${params.toString()}`,
-      {
-        method: "GET",
-        token,
-      },
+      { method: "GET" },
     );
   }
 
@@ -75,16 +69,10 @@ export class ArtifactService {
    * One entry with its full source snapshot.
    * GET /api/artifacts/:artifactId
    */
-  static async getArtifact(
-    token: string,
-    artifactId: string,
-  ): Promise<ArtifactDetail> {
+  static async getArtifact(artifactId: string): Promise<ArtifactDetail> {
     return apiRequest<ArtifactDetail>(
       `/api/artifacts/${encodeURIComponent(artifactId)}`,
-      {
-        method: "GET",
-        token,
-      },
+      { method: "GET" },
     );
   }
 
@@ -93,15 +81,11 @@ export class ArtifactService {
    * GET /api/artifacts/:artifactId/content
    */
   static async getArtifactContent(
-    token: string,
     artifactId: string,
   ): Promise<ArtifactContentResponse> {
     return apiRequest<ArtifactContentResponse>(
       `/api/artifacts/${encodeURIComponent(artifactId)}/content`,
-      {
-        method: "GET",
-        token,
-      },
+      { method: "GET" },
     );
   }
 }
