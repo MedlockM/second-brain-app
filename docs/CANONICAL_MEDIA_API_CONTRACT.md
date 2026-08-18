@@ -592,6 +592,7 @@ HTTP mapping rules:
 Current runtime still exposes legacy paths under `/api/v1/*`:
 - `/api/v1/podcast-search/*`
 - `/api/v1/jobs/*`
-- `/api/v1/episodes/my-episodes`
 
-These legacy paths are not the canonical target contract and must not drive new mobile share-first implementation once canonical endpoints are implemented.
+These legacy paths are not the canonical target contract and must not drive new mobile share-first implementation once canonical endpoints are implemented. As of 2026-08-18 neither has a single caller left in `mobile/` — the constraint has held, and what remains is backend surface nothing consumes. `/api/v1/episodes/my-episodes` was listed here too and no longer exists; its router is not mounted.
+
+`/api/v1/*` is not a legacy marker by itself. The prefix also carries live, non-legacy routers — `auth`, `auth_social`, `health`, `jobs`, `podcasts`, `podcast-search`, `entitlements`, `feedback` — some added well after this section was written (`entitlements` came with the RevenueCat migration on 2026-05-19). Legacy is the paths named above, not the prefix.
