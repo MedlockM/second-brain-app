@@ -2,45 +2,45 @@
 
 Objectif
 - Décrire les flux d’authentification supportés par l’API (OAuth Google/Apple + fallback email/mot de passe)
-- Documenter la configuration (variables d’environnement, cookies, CORS) et les bonnes pratiques de sécurité
-- Fournir des exemples d’enchaînement côté client (front) et des tests rapides (curl)
+- Documenter la configuration (variables d’environnement, transport des tokens, CORS) et les bonnes pratiques de sécurité
+- Fournir des exemples d’enchaînement côté client et des tests rapides (curl)
 
 Composants & Endpoints
-- Auth sociale (OIDC)
-  - Google
-    - GET /api/auth/google/login → redirige vers Google avec state
-    - GET /api/auth/google/callback?code=...&state=... → échange code→tokens, vérifie id_token, relie/crée l’utilisateur, émet un refresh cookie httpOnly 30j, redirige FRONTEND_URL
-  - Apple
-    - GET /api/auth/apple/login → redirige vers Apple
-    - GET /api/auth/apple/callback?code=...&state=... → génère client_secret (ES256), échange code, vérifie id_token, relie/crée l’utilisateur, émet refresh cookie 30j, redirige FRONTEND_URL
-- Fallback local (email/mot de passe)
-  - POST /api/auth/register → crée un utilisateur local + envoie un email de vérification
-  - POST /api/auth/login → émet refresh cookie 30j + access token court (JWT) en réponse JSON
-  - POST /api/auth/refresh → rotation du refresh (cookie remplacé, expiration absolue conservée) + access token court
-  - POST /api/auth/logout → révoque les refresh tokens + supprime le cookie
+- Auth sociale native (le seul chemin qui ouvre une session sociale)
+  - POST /api/auth/google/native {"id_token": "..."} → vérifie l’id_token du SDK Google, relie/crée l’utilisateur, renvoie access_token + refresh_token en JSON
+  - POST /api/auth/apple/native {"identity_token": "...", "user": {...}} → idem via la JWKS Apple
+- Auth sociale web (flux navigateur, conservé pour les redirect URIs enregistrées chez Google/Apple)
+  - GET /api/auth/google/login → redirige vers Google avec un state lié au navigateur par un cookie oauth_state_google
+  - GET /api/auth/google/callback?code=...&state=... → échange code→tokens, vérifie id_token, relie/crée l’utilisateur, redirige FRONTEND_URL. **N’émet aucun token de session** : il n’y a plus de client web pour en recevoir
+  - GET /api/auth/apple/login et GET /api/auth/apple/callback → même contrat (client_secret ES256 généré à la volée)
+- Local (email/mot de passe)
+  - POST /api/auth/register → crée un utilisateur local auto-vérifié et ouvre directement la session (201 + access_token + refresh_token)
+  - POST /api/auth/login → access_token court (JWT) + refresh_token 30j en JSON
+  - POST /api/auth/refresh {"refresh_token": "..."} → rotation du refresh (expiration absolue conservée) + nouvel access token
+  - POST /api/auth/logout → révoque tous les refresh tokens de l’utilisateur en base
   - GET  /api/auth/me → retourne l’utilisateur courant
 - Exigences d’accès API
   - La plupart des routes sensibles nécessitent un access token (Authorization: Bearer <JWT>)
   - Exemple strict: POST /api/podcast-search/submit-episode → require_verified_email
 
-Cookies & Sessions
-- Refresh cookie (httpOnly)
-  - Nom: COOKIE_NAME_REFRESH (par défaut refresh_token)
-  - Durée: 30 jours (absolus), rotation à chaque /refresh
-  - Attributs en production: Secure=true, SameSite=lax (ou none si cross-site) et domain=COOKIE_DOMAIN
+Transport des tokens (aucun cookie de session)
+- Refresh token
+  - Transporté dans le **corps JSON** : champ `refresh_token` des réponses de register/login/refresh, champ `refresh_token` du corps de la requête /refresh
+  - Valeur opaque stockée en base (table auth_tokens), durée 30 jours **absolus**, rotation à chaque /refresh : l’ancien est marqué used_at + is_active=false et ne peut plus servir
+  - Le client mobile le garde dans expo-secure-store (Keychain / Keystore). C’est le seul client, et il ne peut pas lire un cookie httpOnly : le transport par cookie a donc été supprimé (task-293), sans repli
 - Access token (header Authorization: Bearer)
-  - Durée courte configurable (JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-  - Généré à /login et /refresh
+  - Durée courte configurable (JWT_ACCESS_TOKEN_EXPIRE_MINUTES, ou JWT_ACCESS_TOKEN_EXPIRE_SECONDS pour un dev flow)
+  - Généré à /register, /login, /refresh et sur les deux endpoints natifs
+- Le seul cookie encore posé par l’API est `oauth_state_<provider>` : garde CSRF du flux web, host-only, Secure, httpOnly, SameSite=lax, 10 minutes, lu par le callback du même hôte
 
 CORS & Redirections
 - CORS_ORIGINS doit contenir le(s) domaine(s) front autorisés
-- FRONTEND_URL utilisé pour construire les URLs de redirection après succès/erreur d’OAuth
+- FRONTEND_URL utilisé pour construire les URLs de redirection après succès/erreur d’OAuth web
 
 Sécurité & Bonnes Pratiques
-- Toujours activer:
-  - COOKIE_SECURE=true en production (HTTPS obligatoire)
-  - COOKIE_SAMESITE=lax (ou none si besoin cross-site sur HTTPS)
-  - COOKIE_DOMAIN configuré au domaine de l’app (ex: app.yourdomain.com)
+- Sessions
+  - Ne jamais logguer un refresh token : c’est un porteur de session de 30 jours
+  - Un refresh token consommé est mort (rotation), donc un rejeu répond 401 « Expired or used refresh token »
 - OAuth
   - Valider id_token (aud/iss/sub/email_verified) côté serveur
   - Lier les comptes par email vérifié
@@ -53,10 +53,7 @@ Variables d’Environnement (extrait)
   - JWT_ALGORITHM=HS256
   - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
   - REFRESH_TOKEN_EXPIRE_DAYS=30
-  - COOKIE_NAME_REFRESH=refresh_token
-  - COOKIE_SECURE=true (prod)
-  - COOKIE_SAMESITE=lax (ou none)
-  - COOKIE_DOMAIN=app.yourdomain.com
+  - (aucune variable COOKIE_* : le refresh token ne passe plus par un cookie)
 - CORS / Frontend
   - CORS_ORIGINS=https://app.yourdomain.com
   - FRONTEND_URL=https://app.yourdomain.com
@@ -72,24 +69,26 @@ Variables d’Environnement (extrait)
   - APPLE_REDIRECT_URI=https://api.yourdomain.com/api/auth/apple/callback
 
 Exemples — Flux côté client
-- Login Google (navigateur)
-  - 1) Ouvrir /api/auth/google/login → redirection Google
-  - 2) Consentement utilisateur → redirection /auth/google/callback → refresh cookie posé → redirection FRONTEND_URL
-  - 3) Sur le front, appeler /api/auth/me et afficher l’état connecté
+- Login Google / Apple (mobile)
+  - 1) Le SDK natif rend un id_token (Google) ou un identity_token (Apple)
+  - 2) POST /api/auth/google/native ou /api/auth/apple/native avec ce token
+  - 3) Stocker access_token + refresh_token du corps de la réponse dans le secure store
+  - 4) À l’expiration de l’access token, POST /api/auth/refresh avec le refresh token stocké
 
 - Login local (curl)
   ```bash path=null start=null
   curl -X POST http://localhost:8000/api/auth/login \
     -H 'Content-Type: application/json' \
-    -d '{"email": "user@example.com", "password": "your-pass"}' -i
-  # → Set-Cookie: refresh_token=...; HttpOnly; Path=/; Max-Age=... 
+    -d '{"email": "user@example.com", "password": "your-pass"}'
+  # → {"access_token":"...","refresh_token":"...","token_type":"bearer","expires_in":1800,"user":{...}}
   ```
 
 - Refresh (curl)
   ```bash path=null start=null
   curl -X POST http://localhost:8000/api/auth/refresh \
     -H 'Content-Type: application/json' \
-    -H 'Cookie: refresh_token=<value>'
+    -d '{"refresh_token": "<value>"}'
+  # → même contrat, avec un refresh_token neuf : l’ancien est consommé
   ```
 
 - Appel d’une route protégée
@@ -99,7 +98,9 @@ Exemples — Flux côté client
   ```
 
 Gestion des Erreurs Courantes
-- 401 Invalid token / Missing refresh token → vérifier header Authorization ou cookie
+- 401 Invalid authentication token → vérifier le header Authorization
+- 401 Invalid refresh token / Expired or used refresh token → le refresh stocké est inconnu, expiré ou déjà rotaté : il faut se reconnecter
+- 422 sur /api/auth/refresh → le corps ne contient pas de champ refresh_token
 - 400 OAuth non configuré → vérifier GOOGLE_* ou APPLE_* dans l’environnement
 
 La vérification d’email par lien a été retirée : les comptes sont auto-vérifiés

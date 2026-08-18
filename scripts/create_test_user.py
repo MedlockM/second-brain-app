@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
 
 from media_summarizer.core.models.user import User
-from media_summarizer.core.security import hash_password
 from media_summarizer.utils import database_async
+from media_summarizer.utils.auth_utils import hash_password
 
 
 async def create_test_user():

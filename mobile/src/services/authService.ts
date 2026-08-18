@@ -15,7 +15,8 @@ import { TokenStorage } from "./tokenStorage";
  *
  * Key differences from web:
  * - Uses expo-secure-store instead of localStorage/sessionStorage
- * - Stores refresh token explicitly (mobile cannot rely on httpOnly cookies)
+ * - Stores the refresh token explicitly: the API returns it in the JSON body of
+ *   register/login/refresh, since a mobile client cannot read an httpOnly cookie
  * - All storage operations are async
  */
 export class AuthService {
@@ -47,11 +48,11 @@ export class AuthService {
       throw createHttpError(message, response.status, code);
     }
 
-    // Registration creates the account but deliberately returns only the user.
-    // Mobile clients cannot use the refresh-token cookie set by that endpoint,
-    // so establish the actual mobile session through the login contract.
-    await response.json();
-    return this.login(data);
+    // Registration opens the session itself: same body as login, refresh token
+    // included, so there is nothing left to establish with a second call.
+    const result: TokenVerificationResponse = await response.json();
+    await this.persistTokens(result);
+    return result;
   }
 
   static async login(data: LoginRequest): Promise<TokenVerificationResponse> {
@@ -108,8 +109,7 @@ export class AuthService {
 
   /**
    * Refresh the access token using the stored refresh token.
-   * On mobile we send the refresh token in the request body
-   * (no httpOnly cookie available).
+   * The token goes in the request body, and the response carries a rotated one.
    */
   static async refresh(): Promise<TokenVerificationResponse> {
     const refreshToken = await TokenStorage.getRefreshToken();
@@ -250,15 +250,12 @@ export class AuthService {
    * Persist tokens after login/register/refresh.
    */
   private static async persistTokens(
-    response: TokenVerificationResponse & { refresh_token?: string },
+    response: TokenVerificationResponse,
   ): Promise<void> {
     await TokenStorage.saveAccessToken(
       response.access_token,
       response.expires_in,
     );
-    // If the backend returns a refresh_token in the body, store it
-    if (response.refresh_token) {
-      await TokenStorage.saveRefreshToken(response.refresh_token);
-    }
+    await TokenStorage.saveRefreshToken(response.refresh_token);
   }
 }

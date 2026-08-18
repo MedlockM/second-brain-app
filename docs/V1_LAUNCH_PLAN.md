@@ -256,9 +256,9 @@ JWT_SECRET_KEY=...                     # 32+ bytes random, généré pour la pro
 JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=30
-COOKIE_SECURE=true
-COOKIE_DOMAIN=app.<your-domain>
-COOKIE_SAMESITE=Lax
+# Aucune variable COOKIE_* : le refresh token voyage dans le corps JSON de
+# register/login/refresh (task-293). Les quatre clés COOKIE_* qui subsistent dans
+# le secret runtime sont mortes, aucun code ne les lit.
 
 # Google OAuth (Sign in with Google)
 GOOGLE_CLIENT_ID=...                   # Web client ID — vérifie l'`aud` des id_tokens mobiles iOS/Android
