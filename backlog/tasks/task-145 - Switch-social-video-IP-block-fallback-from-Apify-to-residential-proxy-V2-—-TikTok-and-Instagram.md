@@ -15,6 +15,7 @@ labels:
 dependencies:
   - task-144
 priority: medium
+dispatchable: false
 ---
 
 ## Description
