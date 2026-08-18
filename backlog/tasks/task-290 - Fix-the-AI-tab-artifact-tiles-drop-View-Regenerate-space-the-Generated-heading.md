@@ -3,9 +3,10 @@ id: task-290
 title: >-
   Fix the AI tab artifact tiles: drop View/Regenerate, space the Generated
   heading
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-18 16:25'
+updated_date: '2026-08-18 16:40'
 labels:
   - mobile
   - ui
