@@ -3,9 +3,10 @@ id: task-296
 title: >-
   Fix the mobile Google sign-in redirect_uri, the missing URL scheme and the EAS
   client-ID injection gap
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-18 17:38'
+updated_date: '2026-08-18 17:55'
 labels:
   - mobile
   - bug
