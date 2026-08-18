@@ -19,10 +19,9 @@ import {
 } from "../../../src/services/artifactService";
 import {
   ARTIFACT_TILES,
-  ArtifactTile,
   type ArtifactTileState,
 } from "../../../src/components/ArtifactTile";
-import { ArtifactHistoryRow } from "../../../src/components/ArtifactHistoryRow";
+import { ArtifactsPanel } from "../../../src/components/ArtifactsPanel";
 import { ScreenTabs, type ScreenTab } from "../../../src/components/ScreenTabs";
 import { describeArtifactRefusal } from "../../../src/lib/artifactRefusal";
 import { getFriendlyErrorMessage } from "../../../src/lib/getFriendlyErrorMessage";
@@ -269,11 +268,14 @@ interface AiTabProps {
 }
 
 /**
- * The generation pile on top, the history underneath.
+ * The collection's half of the AI tab: the data only. Everything visible is
+ * `ArtifactsPanel`, shared verbatim with the AI tab of a media item so the two
+ * cannot drift apart again.
  *
- * One request per scope serves both: `GET /api/artifacts?scope=folder` returns
- * the history *and* the entries still queued or generating, so the poll is a
- * single call whatever the number of artifact types in flight.
+ * One request per scope serves both the tiles and the history:
+ * `GET /api/artifacts?scope=folder` returns the history *and* the entries still
+ * queued or generating, so the poll is a single call whatever the number of
+ * artifact types in flight.
  */
 function AiTab({ collectionId }: AiTabProps) {
   const router = useRouter();
@@ -404,72 +406,23 @@ function AiTab({ collectionId }: AiTabProps) {
   );
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.aiContent}
-      showsVerticalScrollIndicator={false}
-      testID="collection-ai-tab"
-    >
-      <Text style={styles.sectionTitle}>Generate</Text>
-      <View style={styles.tilePile}>
-        {ARTIFACT_TILES.map((tile) => (
-          <ArtifactTile
-            key={tile.type}
-            label={tile.label}
-            icon={tile.icon}
-            state={tileStates[tile.type]}
-            sourceReady
-            onGenerate={() => void handleGenerate(tile.type)}
-          />
-        ))}
-      </View>
-
-      {refusal ? (
-        <View style={styles.refusalBanner} testID="collection-ai-refusal">
-          <Ionicons
-            name="information-circle-outline"
-            size={18}
-            color={Colors.error}
-          />
-          <Text style={styles.refusalText}>{refusal}</Text>
-        </View>
-      ) : null}
-
-      <Text style={[styles.sectionTitle, styles.aiHistoryTitle]}>Generated</Text>
-      {isLoading ? (
-        <View style={styles.aiInlineState}>
-          <ActivityIndicator size="small" color={Colors.primary} />
-          <Text style={styles.aiInlineStateText}>Loading...</Text>
-        </View>
-      ) : listError ? (
-        <View style={styles.aiInlineState}>
-          <Text style={styles.aiInlineStateText}>{listError}</Text>
-          <Pressable
-            style={styles.retryButton}
-            onPress={() => void refresh()}
-            accessibilityLabel="Retry loading generated content"
-            accessibilityRole="button"
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </Pressable>
-        </View>
-      ) : history.length === 0 ? (
-        <View style={styles.aiInlineState} testID="collection-ai-history-empty">
-          <Text style={styles.aiInlineStateText}>
-            Nothing generated yet. Pick a format above to create one from every
-            source in this collection.
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.historyList}>
-          {history.map((artifact) => (
-            <ArtifactHistoryRow
-              key={artifact.artifact_id}
-              artifact={artifact}
-              onPress={handleOpenArtifact}
-            />
-          ))}
-        </View>
-      )}
+    <ScrollView showsVerticalScrollIndicator={false} testID="collection-ai-tab">
+      {/* Every source of the collection is already processed, so generation is
+          always offered here — unlike a media item still being transcribed. */}
+      <ArtifactsPanel
+        tileStates={tileStates}
+        sourceReady
+        onGenerate={(artifactType) => void handleGenerate(artifactType)}
+        refusal={refusal}
+        refusalTestID="collection-ai-refusal"
+        history={history}
+        historyLoading={isLoading}
+        historyError={listError}
+        onRetryHistory={() => void refresh()}
+        historyEmptyTestID="collection-ai-history-empty"
+        onOpenArtifact={handleOpenArtifact}
+        showSourceCount
+      />
     </ScrollView>
   );
 }
@@ -580,21 +533,26 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
   },
+  // One page gutter for the whole screen, `Spacing.lg`, the same the header
+  // already used and the same `ArtifactsPanel` brings to the AI tab: the tab bar
+  // and the source rows line up with the tiles under them.
   tabsContainer: {
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
   },
   listContent: {
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.xxl,
   },
+  // The Sources list header. The uppercase muted caption stays confined to it —
+  // the AI tab's headings are section openers and use `Typography.headline`.
   sectionTitle: {
     fontSize: Typography.label.fontSize,
     fontWeight: "700",
     color: Colors.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.5,
-    marginHorizontal: Spacing.md,
+    marginHorizontal: Spacing.lg,
     marginBottom: Spacing.sm,
   },
 
@@ -607,7 +565,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    marginHorizontal: Spacing.md,
+    marginHorizontal: Spacing.lg,
     marginBottom: Spacing.sm,
     minHeight: TouchTarget.comfortable,
     ...Shadows.soft,
@@ -629,55 +587,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.body.fontSize,
     fontWeight: "600",
     color: Colors.textMain,
-  },
-
-  // AI tab
-  aiContent: {
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.xxl,
-  },
-  // Every block of the AI tab owns the space above itself, so the separation
-  // between the tiles and what follows lives on the follower, never here.
-  tilePile: {
-    gap: Spacing.sm,
-    marginHorizontal: Spacing.md,
-  },
-  // Air above the second heading only: the first one opens the tab and needs
-  // none, which is why this is not folded into the shared `sectionTitle`.
-  aiHistoryTitle: {
-    marginTop: Spacing.lg,
-  },
-  historyList: {
-    gap: Spacing.sm,
-    marginHorizontal: Spacing.md,
-  },
-  aiInlineState: {
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginHorizontal: Spacing.md,
-    paddingVertical: Spacing.lg,
-  },
-  aiInlineStateText: {
-    fontSize: Typography.body.fontSize,
-    color: Colors.textMuted,
-    textAlign: "center",
-    lineHeight: Typography.body.lineHeight,
-  },
-  refusalBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: Spacing.sm,
-    backgroundColor: Colors.errorContainer,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginHorizontal: Spacing.md,
-    marginTop: Spacing.lg,
-  },
-  refusalText: {
-    flex: 1,
-    fontSize: Typography.small.fontSize,
-    color: Colors.error,
-    lineHeight: Typography.body.lineHeight,
   },
 
   // Centered states

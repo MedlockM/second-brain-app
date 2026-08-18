@@ -57,13 +57,61 @@ Nothing is deployed: delete the now-dead styles from both screens (`sectionTitle
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A shared component (e.g. `mobile/src/components/ArtifactsPanel.tsx`) renders the complete AI tab: the `Generate` heading, the `ARTIFACT_TILES` stack, the refusal banner, the `Generated` heading and the history in its loading / error / empty / populated states.
-- [ ] #2 `mobile/app/media/[id].tsx` and `mobile/app/media/collections/[id].tsx` both render that component and no longer contain any of their own JSX for those blocks.
-- [ ] #3 Neither screen declares layout or typography styles for the AI tab any more: the styles listed in the description are deleted from both `StyleSheet.create` blocks, except the `sectionTitle` still used by the collection's Sources list header.
-- [ ] #4 The `Generate` and `Generated` headings use `Typography.headline` with `Colors.textMain` and no `textTransform`, and render identically on both screens.
-- [ ] #5 The history error state (message + `Retry`) and the labelled loading spinner exist on both screens, including the media screen, which has no error branch today.
-- [ ] #6 The empty-history copy is one single string shared by both scopes.
-- [ ] #7 The only scope-dependent difference in the rendered tab is `showSourceCount`, passed to `ArtifactHistoryRow` as `false` from the media screen and `true` from the collection screen.
-- [ ] #8 The existing testIDs `collection-ai-tab`, `media-ai-refusal`, `collection-ai-refusal`, `media-ai-history-empty` and `collection-ai-history-empty` are still emitted with the same values; grep confirms each appears in the rendered tree.
-- [ ] #9 `npx tsc --noEmit` and the lint command declared in `mobile/package.json` both pass from `mobile/`.
+- [x] #1 A shared component (e.g. `mobile/src/components/ArtifactsPanel.tsx`) renders the complete AI tab: the `Generate` heading, the `ARTIFACT_TILES` stack, the refusal banner, the `Generated` heading and the history in its loading / error / empty / populated states.
+- [x] #2 `mobile/app/media/[id].tsx` and `mobile/app/media/collections/[id].tsx` both render that component and no longer contain any of their own JSX for those blocks.
+- [x] #3 Neither screen declares layout or typography styles for the AI tab any more: the styles listed in the description are deleted from both `StyleSheet.create` blocks, except the `sectionTitle` still used by the collection's Sources list header.
+- [x] #4 The `Generate` and `Generated` headings use `Typography.headline` with `Colors.textMain` and no `textTransform`, and render identically on both screens.
+- [x] #5 The history error state (message + `Retry`) and the labelled loading spinner exist on both screens, including the media screen, which has no error branch today.
+- [x] #6 The empty-history copy is one single string shared by both scopes.
+- [x] #7 The only scope-dependent difference in the rendered tab is `showSourceCount`, passed to `ArtifactHistoryRow` as `false` from the media screen and `true` from the collection screen.
+- [x] #8 The existing testIDs `collection-ai-tab`, `media-ai-refusal`, `collection-ai-refusal`, `media-ai-history-empty` and `collection-ai-history-empty` are still emitted with the same values; grep confirms each appears in the rendered tree.
+- [x] #9 `npx tsc --noEmit` and the lint command declared in `mobile/package.json` both pass from `mobile/`.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`mobile/src/components/ArtifactsPanel.tsx` now owns the whole AI tab. Both screens
+pass data only: `tileStates`, `sourceReady`, `onGenerate`, `refusal`, `history`,
+`historyLoading`, `historyError`, `onRetryHistory`, `onOpenArtifact`, plus the two
+scope `testID`s and `showSourceCount`. No prop parameterises a visual difference.
+
+Resolutions applied to the divergences:
+
+- headings: `Typography.headline` / `Colors.textMain` / mixed case, `marginBottom`
+  `Spacing.md`, and `Spacing.lg` of air above the second one only;
+- gutter: `Spacing.lg`, applied once by the panel. On the media screen it was
+  removed from `scrollContent` and pushed onto `heroSection`, `tabsBar` and the new
+  `readerContent` so it is not applied twice; `tabContent` is gone. On the
+  collection screen `tabsContainer`, `sectionTitle` and `sourceRow` moved from
+  `Spacing.md` to `Spacing.lg` — the screen's header was already at `lg`, and
+  leaving the tab bar at `md` would have stepped 8px against the tiles below it;
+- refusal banner: one `marginTop: Spacing.md`;
+- loading: labelled spinner ("Loading...") on both;
+- error: message + `Retry` (amber button, `Colors.onPrimary` label) on both. The
+  media screen had no error branch: its artifact fetch used to swallow the failure
+  in an empty `catch`, so a network error read as "nothing generated yet". It now
+  mirrors the collection — `refreshArtifacts` sets `historyError` via
+  `getFriendlyErrorMessage` and clears it on success, `historyLoaded` became
+  `historyLoading`, and the polling loop and `handleGenerate` reuse the same call;
+- empty copy: `EMPTY_HISTORY_COPY` in the panel, "Nothing generated yet. Pick a
+  format above to create one." for both scopes.
+
+Dead styles deleted: media `sectionTitle`, `historyTitle`, `artifactsList`,
+`historyList`, `historyState`, `historyStateText`, `refusalBanner`, `refusalText`,
+`tabContent`; collection `aiContent`, `tilePile`, `aiHistoryTitle`, `historyList`,
+`aiInlineState`, `aiInlineStateText`, `refusalBanner`, `refusalText`. The
+collection keeps `sectionTitle` for its Sources list header (the uppercase muted
+caption now lives only there) and `retryButton` / `retryButtonText` for the
+collection-load error state.
+
+`sourceReady` stays a per-screen input rather than a style knob: a media item still
+being transcribed cannot be generated from, a collection's sources always can.
+
+Checks: `npm run typecheck` clean, `npm run lint` 0 errors (8 pre-existing warnings,
+none in the touched files). No automated tests added, per the project rule.
+
+Not verifiable from the worktree: the visual side-by-side parity of the two tabs
+(empty history, in-flight generation, `ready` artifact) — that is the owner note in
+the description and needs a simulator/device.
+<!-- SECTION:NOTES:END -->

@@ -20,11 +20,8 @@ import { OrganizationService } from "../../src/services/organizationService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
 import { formatDuration } from "../../src/lib/formatDuration";
 import { useMediaDetailPolling } from "../../src/hooks/useMediaDetailPolling";
-import {
-  ARTIFACT_TILES,
-  ArtifactTile,
-  type ArtifactTileState,
-} from "../../src/components/ArtifactTile";
+import type { ArtifactTileState } from "../../src/components/ArtifactTile";
+import { ArtifactsPanel } from "../../src/components/ArtifactsPanel";
 import { ScreenTabs, type ScreenTab } from "../../src/components/ScreenTabs";
 import {
   TranscriptReader,
@@ -43,7 +40,6 @@ import type {
 } from "../../src/types/media";
 import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
 import { describeArtifactRefusal } from "../../src/lib/artifactRefusal";
-import { ArtifactHistoryRow } from "../../src/components/ArtifactHistoryRow";
 
 /**
  * The two intra-screen tabs of a media item: what it says, and what the models
@@ -405,7 +401,8 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   // derives its tiles from it — the newest entry per type — so there is one
   // source of truth behind both the tiles and the list under them.
   const [artifactHistory, setArtifactHistory] = useState<ArtifactSummary[]>([]);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [generationRefusal, setGenerationRefusal] = useState<string | null>(null);
 
   const mountedRef = useRef(true);
@@ -424,31 +421,38 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   }, []);
 
   // One request per scope serves both the history and the in-flight progress, so
-  // there is never a request per artifact type.
-  const refreshArtifacts = useCallback(async (): Promise<
-    ArtifactSummary[] | null
-  > => {
-    if (!token) return null;
-    const response = await ArtifactService.listArtifacts(
-      token,
-      "media",
-      media_item.media_item_id,
-    );
-    return response.artifacts;
+  // there is never a request per artifact type. A failure is surfaced rather
+  // than swallowed: the panel then offers a Retry instead of claiming the scope
+  // has nothing generated.
+  const refreshArtifacts = useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await ArtifactService.listArtifacts(
+        token,
+        "media",
+        media_item.media_item_id,
+      );
+      if (!mountedRef.current) return;
+      setArtifactHistory(response.artifacts);
+      setHistoryError(null);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setHistoryError(
+        getFriendlyErrorMessage(err, {
+          fallback: "Unable to load generated content. Please try again.",
+        }),
+      );
+    }
   }, [token, media_item.media_item_id]);
 
+  // `historyLoading` starts true and is only ever cleared: the spinner belongs
+  // to the first fetch of a given scope, and `refreshArtifacts` is stable for as
+  // long as the scope is.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        const artifacts = await refreshArtifacts();
-        if (cancelled || !mountedRef.current || artifacts === null) return;
-        setArtifactHistory(artifacts);
-      } catch {
-        // Non-fatal: the tiles stay idle and a generation still works.
-      } finally {
-        if (!cancelled && mountedRef.current) setHistoryLoaded(true);
-      }
+      await refreshArtifacts();
+      if (!cancelled) setHistoryLoading(false);
     })();
     return () => {
       cancelled = true;
@@ -486,18 +490,10 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   const startArtifactPolling = useCallback(() => {
     if (artifactPollRef.current) return;
 
-    artifactPollRef.current = setInterval(async () => {
-      if (!token || !mountedRef.current) return;
-
-      try {
-        const artifacts = await refreshArtifacts();
-        if (!mountedRef.current || artifacts === null) return;
-        setArtifactHistory(artifacts);
-      } catch {
-        // Silent fail during polling
-      }
+    artifactPollRef.current = setInterval(() => {
+      void refreshArtifacts();
     }, ARTIFACT_POLL_INTERVAL_MS);
-  }, [token, refreshArtifacts]);
+  }, [refreshArtifacts]);
 
   useEffect(() => {
     if (hasArtifactInFlight) {
@@ -526,9 +522,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         // The POST answers with the entry already queued, so a single refresh
         // puts it in the history and flips the tile: no optimistic state to
         // reconcile, and the new entry shows with its real id.
-        const artifacts = await refreshArtifacts();
-        if (!mountedRef.current || artifacts === null) return;
-        setArtifactHistory(artifacts);
+        await refreshArtifacts();
       } catch (err) {
         if (!mountedRef.current) return;
         // A refusal is typed and carries its reason (a transcript still being
@@ -806,76 +800,37 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         </View>
 
         {/* Tab content. Artifact polling and the transcript fetch both live in
-            this component, so neither stops when its tab is hidden. */}
-        <View style={styles.tabContent}>
-          {activeTab === "reader" ? (
+            this component, so neither stops when its tab is hidden. Each branch
+            carries the page gutter itself — `ArtifactsPanel` owns the one it
+            shares with the collection screen. */}
+        {activeTab === "reader" ? (
+          <View style={styles.readerContent}>
             <TranscriptReader
               transcript={media_item.transcript}
               processingStatus={processing_job.status}
               content={rawContent}
               onRetry={fetchRawContent}
             />
-          ) : (
-            <View>
-              <Text style={styles.sectionTitle}>Generate</Text>
-              <View style={styles.artifactsList}>
-                {ARTIFACT_TILES.map((artifact) => (
-                  <ArtifactTile
-                    key={artifact.type}
-                    label={artifact.label}
-                    icon={artifact.icon}
-                    state={artifactStates[artifact.type]}
-                    onGenerate={() => handleGenerate(artifact.type)}
-                    sourceReady={mediaReady}
-                  />
-                ))}
-              </View>
-
-              {generationRefusal ? (
-                <View style={styles.refusalBanner} testID="media-ai-refusal">
-                  <Ionicons
-                    name="information-circle-outline"
-                    size={18}
-                    color={Colors.error}
-                  />
-                  <Text style={styles.refusalText}>{generationRefusal}</Text>
-                </View>
-              ) : null}
-
-              {/* The history. Several entries of the same type coexist: a
-                  regeneration adds one instead of replacing the previous, and
-                  nothing here is deduplicated or marked stale. No "N sources"
-                  line — a media item is a single source. */}
-              <Text style={[styles.sectionTitle, styles.historyTitle]}>
-                Generated
-              </Text>
-              {!historyLoaded ? (
-                <View style={styles.historyState}>
-                  <ActivityIndicator size="small" color={Colors.primary} />
-                </View>
-              ) : artifactHistory.length === 0 ? (
-                <View style={styles.historyState} testID="media-ai-history-empty">
-                  <Text style={styles.historyStateText}>
-                    Nothing generated yet. Pick a format above to create one.
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.historyList}>
-                  {artifactHistory.map((artifact) => (
-                    <ArtifactHistoryRow
-                      key={artifact.artifact_id}
-                      artifact={artifact}
-                      showSourceCount={false}
-                      onPress={(entry) =>
-                        router.push(`/artifacts/${entry.artifact_id}`)
-                      }
-                    />
-                  ))}
-                </View>
-              )}
-            </View>
-          )}
-        </View>
+          </View>
+        ) : (
+          // No "N sources" line: a media item is a single source.
+          <ArtifactsPanel
+            tileStates={artifactStates}
+            sourceReady={mediaReady}
+            onGenerate={(artifactType) => void handleGenerate(artifactType)}
+            refusal={generationRefusal}
+            refusalTestID="media-ai-refusal"
+            history={artifactHistory}
+            historyLoading={historyLoading}
+            historyError={historyError}
+            onRetryHistory={() => void refreshArtifacts()}
+            historyEmptyTestID="media-ai-history-empty"
+            onOpenArtifact={(artifact) =>
+              router.push(`/artifacts/${artifact.artifact_id}`)
+            }
+            showSourceCount={false}
+          />
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -1007,10 +962,10 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  // No gutter and no bottom inset here: each block below owns the page gutter,
+  // because the AI tab is a shared component that carries its own.
   scrollContent: {
-    paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
-    paddingBottom: Spacing.xxl,
   },
 
   // Header - buttons meet 48px with hitSlop
@@ -1119,6 +1074,7 @@ const styles = StyleSheet.create({
 
   // Hero
   heroSection: {
+    paddingHorizontal: Spacing.lg,
     marginBottom: Spacing.xl,
   },
   heroTitle: {
@@ -1171,57 +1127,15 @@ const styles = StyleSheet.create({
   // sticky header: content scrolls underneath it.
   tabsBar: {
     backgroundColor: Colors.background,
+    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
   },
-  tabContent: {
-    marginTop: Spacing.sm,
-  },
-  sectionTitle: {
-    fontSize: Typography.headline.fontSize,
-    fontWeight: Typography.headline.fontWeight,
-    color: Colors.textMain,
-    marginBottom: Spacing.md,
-  },
-  // Only the second heading of the tab needs air above it: it follows the tile
-  // stack, and without this the two sections read as one block. The first
-  // heading keeps no top margin, hence a separate style rather than a change to
-  // the shared one.
-  historyTitle: {
-    marginTop: Spacing.lg,
-  },
-  // A stack of self-contained tiles: the gap between them does the sectioning,
-  // so there is no rule and no container frame ("No-Line rule").
-  historyList: {
-    gap: Spacing.sm,
-    marginTop: Spacing.sm,
-  },
-  historyState: {
-    alignItems: "center",
-    paddingVertical: Spacing.lg,
-  },
-  historyStateText: {
-    fontSize: Typography.body.fontSize,
-    color: Colors.textMuted,
-    textAlign: "center",
-    lineHeight: Typography.body.lineHeight,
-  },
-  refusalBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: Spacing.sm,
-    backgroundColor: Colors.errorContainer,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginTop: Spacing.md,
-  },
-  refusalText: {
-    flex: 1,
-    fontSize: Typography.small.fontSize,
-    color: Colors.error,
-    lineHeight: Typography.body.lineHeight,
-  },
-  artifactsList: {
-    gap: Spacing.sm,
+  // The Reader tab only. The AI tab is `ArtifactsPanel`, which brings the same
+  // gutter and the same bottom inset with it.
+  readerContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xxl,
   },
 
   // Error state
