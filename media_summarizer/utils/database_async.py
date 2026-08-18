@@ -780,25 +780,43 @@ async def get_auth_token_by_id(token_id: str) -> Optional[AuthToken]:
 
 
 async def get_auth_tokens_by_user_id(user_id: str, token_type: Optional[TokenType] = None) -> List[AuthToken]:
-    """Get all auth tokens for a user, optionally filtered by type."""
+    """Get all auth tokens for a user, optionally filtered by type.
+
+    Fully paginated: with a sliding one-year refresh, a long-lived account keeps
+    thousands of rotated rows, and a single query page (1 MB) stops well short of
+    them. Account deletion iterates this list, so a truncated read would leave
+    sessions behind.
+    """
     try:
         session = get_session()
         async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(AUTH_TOKENS_TABLE)
 
             if token_type:
-                response = await table.query(
-                    IndexName="user-type-index",
-                    KeyConditionExpression=Key("user_id").eq(user_id) & Key("token_type").eq(token_type.value),
-                )
+                query_kwargs: Dict[str, Any] = {
+                    "IndexName": "user-type-index",
+                    "KeyConditionExpression": Key("user_id").eq(user_id)
+                    & Key("token_type").eq(token_type.value),
+                }
             else:
-                response = await table.query(
-                    IndexName="user-index",
-                    KeyConditionExpression=Key("user_id").eq(user_id),
-                )
+                query_kwargs = {
+                    "IndexName": "user-index",
+                    "KeyConditionExpression": Key("user_id").eq(user_id),
+                }
 
-            items = response.get("Items", [])
-            return [AuthToken.from_dynamodb_item(item) for item in items]
+            tokens: List[AuthToken] = []
+            while True:
+                response = await table.query(**query_kwargs)
+                tokens.extend(
+                    AuthToken.from_dynamodb_item(item)
+                    for item in response.get("Items", [])
+                )
+                last_key = response.get("LastEvaluatedKey")
+                if not last_key:
+                    break
+                query_kwargs["ExclusiveStartKey"] = last_key
+
+            return tokens
     except ClientError as e:
         _log_dynamodb_error(
             "get_auth_tokens_by_user_id",
@@ -858,31 +876,39 @@ async def delete_auth_token(token_id: str) -> bool:
         raise
 
 
-async def revoke_user_tokens(user_id: str, token_type: Optional[TokenType] = None) -> int:
-    """Revoke all tokens for a user, optionally filtered by type."""
+async def revoke_refresh_token_lineage(user_id: str, lineage_id: str) -> int:
+    """Revoke the refresh tokens of one device session, and only that one.
+
+    A lineage holds at most one live token — its head — because each rotation
+    deactivates its predecessor; the loop still covers the whole lineage so a
+    logout racing a refresh cannot leave the successor usable. Every other device
+    of the account keeps its own lineage, hence its session.
+    """
     try:
-        tokens = await get_auth_tokens_by_user_id(user_id, token_type)
+        tokens = await get_auth_tokens_by_user_id(user_id, TokenType.REFRESH_TOKEN)
         revoked_count = 0
 
         for token in tokens:
-            if token.is_active:
+            if token.lineage_id == lineage_id and token.is_active:
                 token.revoke()
                 await update_auth_token(token)
                 revoked_count += 1
 
         _log_dynamodb_success(
-            "revoke_user_tokens",
+            "revoke_refresh_token_lineage",
             table=AUTH_TOKENS_TABLE,
             user_id=user_id,
+            lineage_id=lineage_id,
             count=revoked_count,
         )
         return revoked_count
     except Exception as e:
         _log_dynamodb_error(
-            "revoke_user_tokens",
+            "revoke_refresh_token_lineage",
             e,
             table=AUTH_TOKENS_TABLE,
             user_id=user_id,
+            lineage_id=lineage_id,
         )
         raise
 

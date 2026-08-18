@@ -145,6 +145,20 @@ resource "aws_dynamodb_table" "auth_tokens_v1" {
     projection_type = "ALL"
   }
 
+  # TTL (task-294). A sliding one-year refresh writes one row per rotation and the
+  # table had no expiry at all, so it grew forever.
+  #
+  # The attribute is written by the model on every put — see
+  # media_summarizer/core/models/auth.py, AuthToken.ttl_epoch — as
+  # expires_at + TOKEN_TTL_MARGIN (7 days), never as a lifetime of its own. That
+  # margin is the safety property: the sweep date sits strictly after the moment the
+  # token stops being able to authenticate anything, so a TTL deletion can never end
+  # a live session, and it clears the ~48 h DynamoDB may take to honour a TTL.
+  ttl {
+    attribute_name = "expire_at"
+    enabled        = true
+  }
+
   tags = {
     Name = "auth_tokens${local.suffix}"
   }

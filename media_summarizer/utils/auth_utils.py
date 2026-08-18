@@ -16,8 +16,10 @@ logger = logging.getLogger(__name__)
 # Prefer JWT_* variables with backward-compatible fallbacks
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY") or os.environ.get("SECRET_KEY", "your-secret-key-change-this-in-production")
 JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
-# Prefer minutes; fallback to 30 minutes if unset (security-first default)
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+# 60 minutes by default. Revocation does not ride on this duration: get_current_user
+# re-reads the user from DynamoDB on every request, so a deleted account is rejected
+# immediately whatever the JWT still says (api/dependencies/auth.py).
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 # Optional seconds override (useful for short-lived dev tokens)
 JWT_ACCESS_TOKEN_EXPIRE_SECONDS = int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_SECONDS", "0"))
 
@@ -33,10 +35,18 @@ try:
 except Exception:
     ACCESS_TOKEN_EXPIRE_HOURS = 24
 
-# Refresh token lifetime (defaults to days, but can be overridden in minutes/seconds for dev)
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
+# Refresh token lifetime (defaults to days, but can be overridden in minutes/seconds for dev).
+# One year, and *sliding*: every rotation recomputes the expiry from now, so there is no
+# absolute session cap. An active user never signs in again; an abandoned device stops
+# being refreshable a year after its last use.
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", "365"))
 REFRESH_TOKEN_EXPIRE_MINUTES = int(os.environ.get("REFRESH_TOKEN_EXPIRE_MINUTES", "0"))
 REFRESH_TOKEN_EXPIRE_SECONDS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_SECONDS", "0"))
+
+# Rotation grace window: a refresh token consumed less than this many seconds ago replays
+# the pair it was exchanged for instead of answering 401. Rotation is single-use, so
+# without this window two concurrent refreshes sign the user out.
+REFRESH_ROTATION_GRACE_SECONDS = 60
 
 
 def get_access_token_expires_seconds() -> int:

@@ -15,9 +15,9 @@ Composants & Endpoints
   - GET /api/auth/apple/login et GET /api/auth/apple/callback → même contrat (client_secret ES256 généré à la volée)
 - Local (email/mot de passe)
   - POST /api/auth/register → crée un utilisateur local auto-vérifié et ouvre directement la session (201 + access_token + refresh_token)
-  - POST /api/auth/login → access_token court (JWT) + refresh_token 30j en JSON
-  - POST /api/auth/refresh {"refresh_token": "..."} → rotation du refresh (expiration absolue conservée) + nouvel access token
-  - POST /api/auth/logout → révoque tous les refresh tokens de l’utilisateur en base
+  - POST /api/auth/login → access_token 60 min (JWT) + refresh_token glissant 1 an en JSON
+  - POST /api/auth/refresh {"refresh_token": "..."} → rotation du refresh (expiration reposée à now + 1 an) + nouvel access token. Un token consommé depuis moins de 60 s rejoue le couple déjà émis au lieu de répondre 401 (fenêtre de grâce, task-294)
+  - POST /api/auth/logout {"refresh_token": "..."} → révoque la seule lignée de l’appareil qui appelle ; les autres appareils du compte gardent leur session
   - GET  /api/auth/me → retourne l’utilisateur courant
 - Exigences d’accès API
   - La plupart des routes sensibles nécessitent un access token (Authorization: Bearer <JWT>)
@@ -26,10 +26,12 @@ Composants & Endpoints
 Transport des tokens (aucun cookie de session)
 - Refresh token
   - Transporté dans le **corps JSON** : champ `refresh_token` des réponses de register/login/refresh, champ `refresh_token` du corps de la requête /refresh
-  - Valeur opaque stockée en base (table auth_tokens), durée 30 jours **absolus**, rotation à chaque /refresh : l’ancien est marqué used_at + is_active=false et ne peut plus servir
+  - Valeur opaque stockée en base (table auth_tokens), durée **glissante** de REFRESH_TOKEN_EXPIRE_DAYS (365 par défaut) **sans plafond absolu** : chaque /refresh repose expires_at à now + 1 an. Rotation à chaque /refresh : l’ancien est marqué used_at + is_active=false et ne sert plus qu’à rejouer son successeur pendant 60 s
+  - Chaque token porte un `lineage_id` généré côté serveur au login et recopié à chaque rotation : c’est l’identité de la session d’un appareil, jamais fournie par le client, et c’est ce que /logout révoque
+  - La table a un TTL (`expire_at` = expires_at + 7 jours) : une ligne périmée finit par disparaître, et la marge garantit qu’un balayage TTL ne peut pas tuer une session encore rafraîchissable
   - Le client mobile le garde dans expo-secure-store (Keychain / Keystore). C’est le seul client, et il ne peut pas lire un cookie httpOnly : le transport par cookie a donc été supprimé (task-293), sans repli
 - Access token (header Authorization: Bearer)
-  - Durée courte configurable (JWT_ACCESS_TOKEN_EXPIRE_MINUTES, ou JWT_ACCESS_TOKEN_EXPIRE_SECONDS pour un dev flow)
+  - Durée configurable (JWT_ACCESS_TOKEN_EXPIRE_MINUTES, 60 par défaut ; JWT_ACCESS_TOKEN_EXPIRE_SECONDS pour un dev flow). Sans effet sur la révocation : get_current_user relit l’utilisateur en DynamoDB à chaque requête
   - Généré à /register, /login, /refresh et sur les deux endpoints natifs
 - Le seul cookie encore posé par l’API est `oauth_state_<provider>` : garde CSRF du flux web, host-only, Secure, httpOnly, SameSite=lax, 10 minutes, lu par le callback du même hôte
 
@@ -39,8 +41,9 @@ CORS & Redirections
 
 Sécurité & Bonnes Pratiques
 - Sessions
-  - Ne jamais logguer un refresh token : c’est un porteur de session de 30 jours
-  - Un refresh token consommé est mort (rotation), donc un rejeu répond 401 « Expired or used refresh token »
+  - Ne jamais logguer un refresh token : c’est un porteur de session d’un an
+  - Un refresh token consommé est mort passé la fenêtre de grâce de 60 s, donc un rejeu tardif répond 401 « Expired or used refresh token ». Un token révoqué par /logout n’est jamais rejouable
+  - La révocation de toutes les lignées d’un compte n’existe qu’au sein de la suppression de compte, qui supprime les lignes plutôt que de les désactiver
 - OAuth
   - Valider id_token (aud/iss/sub/email_verified) côté serveur
   - Lier les comptes par email vérifié
@@ -51,8 +54,8 @@ Variables d’Environnement (extrait)
 - JWT & sessions
   - JWT_SECRET_KEY
   - JWT_ALGORITHM=HS256
-  - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
-  - REFRESH_TOKEN_EXPIRE_DAYS=30
+  - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+  - REFRESH_TOKEN_EXPIRE_DAYS=365 (fenêtre glissante, sans plafond absolu)
   - (aucune variable COOKIE_* : le refresh token ne passe plus par un cookie)
 - CORS / Frontend
   - CORS_ORIGINS=https://app.yourdomain.com

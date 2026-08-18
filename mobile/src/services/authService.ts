@@ -95,12 +95,25 @@ export class AuthService {
     return response.json();
   }
 
+  /**
+   * Log out this device only.
+   *
+   * The refresh token goes with the call: the access token says who is signing
+   * out, the refresh token says from which device, and the server revokes just
+   * that token lineage — signing out here leaves the account's other devices
+   * signed in. With no refresh token stored there is no session to close server
+   * side, so the local wipe is all that is left to do.
+   */
   static async logout(token: string): Promise<void> {
     try {
-      await fetch(`${Config.API_BASE_URL}/api/auth/logout`, {
-        method: "POST",
-        headers: this.getAuthHeaders(token),
-      });
+      const refreshToken = await TokenStorage.getRefreshToken();
+      if (refreshToken) {
+        await fetch(`${Config.API_BASE_URL}/api/auth/logout`, {
+          method: "POST",
+          headers: this.getAuthHeaders(token),
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+      }
     } catch {
       // Ignore network errors during logout - we clear tokens regardless
     }

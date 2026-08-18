@@ -254,8 +254,8 @@ FLASHCARDS_BUCKET=...
 ```bash
 JWT_SECRET_KEY=...                     # 32+ bytes random, généré pour la prod
 JWT_ALGORITHM=HS256
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=30
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+REFRESH_TOKEN_EXPIRE_DAYS=365     # fenêtre glissante, reposée à chaque /refresh (task-294)
 # Aucune variable COOKIE_* : le refresh token voyage dans le corps JSON de
 # register/login/refresh (task-293). Les quatre clés COOKIE_* qui subsistent dans
 # le secret runtime sont mortes, aucun code ne les lit.
