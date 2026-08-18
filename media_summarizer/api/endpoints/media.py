@@ -568,11 +568,9 @@ def _build_media_item_contract(
 
     The record is the authority for identity, metadata and organization; the job
     is only an enrichment, and every field it used to provide has a durable
-    counterpart. ``media_item_id`` is the durable id, which for rows reconstructed
-    by the task-241 backfill is the very id the artifacts and Algolia objects are
-    already keyed by. ``title`` is the row's own display title -- the same field
-    the list endpoint projects, so the detail header and the inbox vignette cannot
-    disagree.
+    counterpart. ``media_item_id`` is the opaque id of this save. ``title`` is
+    the row's own display title -- the same field the list endpoint projects, so
+    the detail header and the inbox vignette cannot disagree.
     """
     return CanonicalMediaItemContract(
         media_item_id=record.media_item_id,
@@ -1039,7 +1037,7 @@ async def upload_document(
             logging.INFO,
             "media.upload.created",
             "Document uploaded and queued for parsing",
-            media_item_id=durable_media_item_id or job.id,
+            media_item_id=durable_media_item_id,
             job_id=job.id,
             source_platform="document",
             file_name=file_name,
@@ -1047,11 +1045,7 @@ async def upload_document(
         )
 
         return UploadDocumentResponse(
-            # The durable id is what every read path now resolves. It falls back to
-            # the job id only when the durable write is switched off, which is the
-            # documented rollback state and keeps the ids consistent with the
-            # pre-task-220 behaviour.
-            media_item_id=durable_media_item_id or job.id,
+            media_item_id=durable_media_item_id,
             status=job.status.value,
             source_platform="document",
             file_name=file_name,
@@ -1158,11 +1152,9 @@ async def upload_audio(
                 headers={"X-Quota-Error-Code": quota_result.error_code},
             )
 
-        # Same convention as the document upload: a deterministic key over
-        # (user, filename, size), so re-uploading the same file converges on the
-        # single library row it already has instead of duplicating it. Used only to
-        # derive the durable id -- not stored on the job, which would change the
-        # client-visible media_key of the canonical contract.
+        # Same content-key convention as the document upload. The library id is
+        # independent and random, so re-uploading creates another save even when
+        # the content key is identical.
         media_key = f"audio:{user.id}:{file_name}:{len(content)}"
 
         # Cleaned filename when it carries a name of its own, otherwise
@@ -1190,7 +1182,7 @@ async def upload_audio(
         # tags are organization, so they land on the library row -- never on the
         # job -- and the row is written before the job so nothing user-owned
         # depends on the pipeline.
-        job.media_item_id = await save_media_for_user(
+        durable_media_item_id = await save_media_for_user(
             user_id=user.id,
             media_key=media_key,
             title=media_title,
@@ -1199,6 +1191,7 @@ async def upload_audio(
             folder_id=resolved_folder_id,
             tag_ids=resolved_tag_ids,
         )
+        job.media_item_id = durable_media_item_id
 
         job = await database_async.create_processing_job(job)
 
@@ -1257,7 +1250,7 @@ async def upload_audio(
             logging.INFO,
             "media.upload_audio.created",
             "Audio file uploaded and queued for transcription",
-            media_item_id=job.media_item_id or job.id,
+            media_item_id=durable_media_item_id,
             job_id=job.id,
             source_platform="audio",
             file_name=file_name,
@@ -1266,7 +1259,7 @@ async def upload_audio(
         )
 
         return UploadAudioResponse(
-            media_item_id=job.media_item_id or job.id,
+            media_item_id=durable_media_item_id,
             status=job.status.value,
             source_platform="audio",
         )

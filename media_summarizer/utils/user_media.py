@@ -6,13 +6,14 @@ Schema (USER_MEDIA_TABLE, ``user_media-<env>``):
 - SK: media_item_id (S)
 - LSI saved-at-index: saved_at (S)
 - LSI folder-index:   folder_sort_key (S) == "<folder_id>#<saved_at>"
+- GSI media-key-index: media_key (S), media_item_id (S)
 - TTL: purge_at (N) -- user-initiated deletion ONLY
 
 This module is the ONLY place allowed to write the table. Two invariants from
 §2.2 of the task-218 benchmark are enforced here structurally rather than by
 convention, because both were violated in the incident this table exists to fix:
 
-  I1  ``create_if_absent`` holds the module's only ``put_item``. Every other
+  I1  ``create`` holds the module's only ``put_item``. Every other
       mutation is an attribute-level ``update_item``, so a metadata refresh can
       never overwrite the folder or tags a user set from another device.
 
@@ -20,17 +21,15 @@ convention, because both were violated in the incident this table exists to fix:
       Exactly two functions in the codebase touch them, both here (task-243, §6.2),
       which is what ``scripts/check_purge_at_writers.py`` enforces in CI:
       :func:`mark_deleted` sets them, reachable only from the user-initiated
-      deletion use case (``core/services/media_deletion_service.py``), and the
-      private ``_clear_deletion`` removes them when :func:`create_if_absent` finds
-      the user re-saving content they had deleted. Account deletion (task-224) is a
-      different use case and uses ``delete_all_for_user``, which removes the rows
-      outright instead of scheduling them -- an erasure request is not a soft
-      delete.
+      deletion use case (``core/services/media_deletion_service.py``). Account
+      deletion (task-224) is a different use case and uses
+      ``delete_all_for_user``, which removes the rows outright instead of
+      scheduling them -- an erasure request is not a soft delete.
 
 Table name resolution is lazy on purpose. ``required_env`` raises when the
 variable is missing, and this module is imported by the API save path; resolving
-at import time would turn a flag-off environment (or a local script that never
-touches the library) into an import crash instead of a no-op.
+at import time would turn a local script that never touches the library into an
+import crash.
 """
 
 from __future__ import annotations
@@ -62,6 +61,7 @@ _FORBIDDEN_UPDATE_ATTRS = frozenset({"purge_at", "deleted_at"})
 # Written once by the create path and never rewritten: rewriting saved_at would
 # reorder the library, and rewriting the keys is meaningless.
 _IMMUTABLE_ATTRS = frozenset({"user_id", "media_item_id", "media_key", "saved_at"})
+MEDIA_KEY_INDEX = os.environ.get("USER_MEDIA_MEDIA_KEY_INDEX", "media-key-index")
 
 
 def user_media_table_name() -> str:
@@ -69,41 +69,17 @@ def user_media_table_name() -> str:
     return required_env("USER_MEDIA_TABLE")
 
 
-def durable_media_enabled() -> bool:
-    """Whether the durable dual-write is active.
-
-    Read at call time, not cached, so flipping the Lambda environment variable
-    is an immediate rollback with no redeploy and no cold-start wait.
-    """
-    raw = (os.environ.get("DURABLE_MEDIA_ENABLED") or "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
-
-
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def create_if_absent(record: UserMediaRecord) -> tuple[UserMediaRecord, bool]:
-    """Create the library row if it does not exist yet.
+async def create(record: UserMediaRecord) -> UserMediaRecord:
+    """Create exactly one new library row for one save.
 
-    This is the whole of the idempotence story, and deliberately so: because
-    ``media_item_id`` is derived from ``(user_id, media_key)``, a conditional
-    ``put_item`` on ``attribute_not_exists(media_item_id)`` is atomic at the item
-    level and needs no read-before-write, no transaction and no lock. Two
-    concurrent saves of the same content by the same user race on a single
-    DynamoDB item and exactly one wins; the loser reads back the winner's row.
-
-    Saving content the user had deleted **revives** the row instead of returning a
-    soft-deleted one: the id is deterministic in ``(user_id, media_key)``, so the
-    "new" save collides with the row still waiting for its ``purge_at``. Returning
-    it untouched would give the user an item that is invisible everywhere and gets
-    destroyed 30 days later — a save silently swallowed by an old deletion, which
-    is the incident class this table exists to prevent.
-
-    Returns:
-        ``(record, created)`` where ``created`` is False when the row already
-        existed. On a lost race the returned record is the *stored* one, so the
-        caller never propagates metadata that was not persisted.
+    ``media_item_id`` is random and independent from ``media_key``. The
+    condition is collision protection only: it never turns a second save into
+    reuse of an earlier row. A collision is surfaced so the request can retry
+    with a fresh id instead of silently overwriting another save.
     """
     table_name = user_media_table_name()
     session = database_async.get_session()
@@ -112,80 +88,11 @@ async def create_if_absent(record: UserMediaRecord) -> tuple[UserMediaRecord, bo
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
         table = await dynamodb.Table(table_name)
-        try:
-            await table.put_item(
-                Item=record.to_dynamodb_item(),
-                ConditionExpression="attribute_not_exists(media_item_id)",
-            )
-            return record, True
-        except ClientError as exc:
-            code = exc.response.get("Error", {}).get("Code")
-            if code != "ConditionalCheckFailedException":
-                raise
-            # Lost the race, or a genuine re-save of the same content. Both are
-            # success: the row the user cares about exists.
-            resp = await table.get_item(
-                Key={
-                    "user_id": record.user_id,
-                    "media_item_id": record.media_item_id,
-                },
-                ConsistentRead=True,
-            )
-            item = resp.get("Item")
-            if not item:
-                # The condition failed but the item is gone: only reachable if it
-                # was deleted between the put and the read. Surfacing this rather
-                # than inventing a row, because a library entry that vanishes is
-                # exactly the class of bug being fixed.
-                raise
-            stored = UserMediaRecord.from_dynamodb_item(item)
-            if not stored.is_deleted:
-                return stored, False
-            revived = await _clear_deletion(
-                table, record.user_id, record.media_item_id
-            )
-            if revived is None:
-                # Someone else revived it first, or the TTL swept it between the
-                # read and the update. Either way the caller wants the current row.
-                return stored, False
-            return revived, False
-
-
-async def _clear_deletion(
-    table: Any,
-    user_id: str,
-    media_item_id: str,
-) -> Optional[UserMediaRecord]:
-    """Cancel a pending purge because the user saved the same content again.
-
-    The second half of invariant I2: this module owns ``deleted_at``/``purge_at``,
-    so cancelling a deletion lives here too and stays reachable only from
-    :func:`create_if_absent`. Deliberately *not* exposed as a helper — an
-    "un-delete this row" function callable from anywhere is how a TTL attribute
-    acquires a second writer.
-
-    Returns ``None`` when the row is no longer soft-deleted (a concurrent revive,
-    or the TTL got there first).
-    """
-    try:
-        resp = await table.update_item(
-            Key={"user_id": user_id, "media_item_id": media_item_id},
-            UpdateExpression="SET updated_at = :updated_at REMOVE deleted_at, purge_at",
-            ExpressionAttributeValues={":updated_at": _now_iso()},
-            ConditionExpression="attribute_exists(deleted_at)",
-            ReturnValues="ALL_NEW",
+        await table.put_item(
+            Item=record.to_dynamodb_item(),
+            ConditionExpression="attribute_not_exists(media_item_id)",
         )
-    except ClientError as exc:
-        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
-            return None
-        raise
-
-    logger.info(
-        "user_media: revived soft-deleted %s for user %s (re-saved before purge)",
-        media_item_id,
-        user_id,
-    )
-    return UserMediaRecord.from_dynamodb_item(resp["Attributes"])
+        return record
 
 
 async def get_user_media(
@@ -228,7 +135,7 @@ async def list_all_for_user(user_id: str) -> List[UserMediaRecord]:
     Queries the base table rather than an LSI: the caller is the account purge,
     which needs *all* rows including any whose ``saved_at`` or ``folder_sort_key``
     a future writer might leave unset. A projection would be cheaper but the rows
-    are needed whole to reach the artifacts keyed by ``media_item_id``.
+    are needed whole to reach content-scoped artifacts through ``media_key``.
 
     Soft-deleted rows are **included**, deliberately: an erasure request must take
     the rows a user deleted last week with it instead of waiting 30 days for their
@@ -284,6 +191,47 @@ async def list_library_for_user(user_id: str) -> List[UserMediaRecord]:
             for item in resp.get("Items", []):
                 record = UserMediaRecord.from_dynamodb_item(item)
                 if record.is_deleted:
+                    continue
+                records.append(record)
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            kwargs["ExclusiveStartKey"] = last_key
+    return records
+
+
+async def list_by_media_key(
+    media_key: str,
+    *,
+    include_deleted: bool = False,
+) -> List[UserMediaRecord]:
+    """Return every save that points at one globally identified content item.
+
+    The GSI is deliberately cross-user: processing is deduplicated globally, so
+    a single completed job must be able to refresh every user's save without
+    leaking that job id onto rows owned by somebody else.
+    """
+    media_key = (media_key or "").strip()
+    if not media_key:
+        return []
+
+    table_name = user_media_table_name()
+    session = database_async.get_session()
+    records: List[UserMediaRecord] = []
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        kwargs: Dict[str, Any] = {
+            "IndexName": MEDIA_KEY_INDEX,
+            "KeyConditionExpression": Key("media_key").eq(media_key),
+        }
+        while True:
+            resp = await table.query(**kwargs)
+            for item in resp.get("Items", []):
+                record = UserMediaRecord.from_dynamodb_item(item)
+                if record.is_deleted and not include_deleted:
                     continue
                 records.append(record)
             last_key = resp.get("LastEvaluatedKey")

@@ -35,7 +35,7 @@ from .user_media import (
     UserMediaRecord,
     UserMediaStatus,
     build_folder_sort_key,
-    build_media_item_id,
+    new_media_item_id,
 )
 
 # Export all models
@@ -70,6 +70,6 @@ __all__ = [
     "UserMediaRecord",
     "UserMediaStatus",
     "USER_MEDIA_SCHEMA_VERSION",
-    "build_media_item_id",
+    "new_media_item_id",
     "build_folder_sort_key",
 ]

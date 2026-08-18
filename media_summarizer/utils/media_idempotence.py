@@ -211,3 +211,33 @@ async def release_reservation(
             return
         logger.error("Error releasing media idempotence reservation: %s", e)
         raise
+
+
+async def delete_content_entry(
+    *,
+    media_key: str,
+    job_id: str,
+) -> bool:
+    """Remove the ledger pointer after the final saved reference is purged.
+
+    The condition prevents a late purge from deleting a newer reservation for
+    the same content. Returning ``False`` means the ledger already moved on.
+    """
+    identity_key = _resolve_identity_key(media_key)
+    try:
+        session = database_async.get_session()
+        async with session.resource(
+            "dynamodb",
+            region_name=database_async.AWS_REGION,
+        ) as dynamodb:
+            table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)
+            await table.delete_item(
+                Key={"media_key": identity_key},
+                ConditionExpression="job_id = :job_id",
+                ExpressionAttributeValues={":job_id": job_id},
+            )
+        return True
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        raise

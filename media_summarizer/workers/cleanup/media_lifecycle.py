@@ -6,11 +6,9 @@ deletion actually delete everything?") and neither is worth its own function:
 
 1. **``user_media`` DynamoDB stream, REMOVE events.** When the TTL sweeps a row a
    user soft-deleted 30 days earlier (see
-   ``core/services/media_deletion_service.py``), the cascade in
-   ``core/services/media_purge_service.py`` destroys the artifacts, the S3
-   objects and the search records that row owned. The cascade *must* be complete:
-   ``media_item_id`` is a hash of ``(user_id, media_key)``, so re-saving the same
-   URL later lands on the same id and would inherit whatever was left behind.
+   ``core/services/media_deletion_service.py``), the cascade removes the search
+   record for that save. Content-scoped artifacts and job objects are removed
+   only after no retained save row still references the same ``media_key``.
 
 2. **A daily schedule.** The reconciliation of §6.5: artifacts whose library row
    is gone, rows whose ``purge_at`` passed without the cascade running, dangling
@@ -105,26 +103,54 @@ async def purge_media_item(
     *,
     user_id: str,
     media_item_id: str,
+    media_key: str,
     last_job_id: Optional[str] = None,
 ) -> Dict[str, int]:
-    """Destroy everything one library item owned. Idempotent by construction.
+    """Destroy one save and content no remaining save references.
 
     Every step is a delete, so replaying the cascade after a partial failure is
     safe — which is what makes it correct to let the stream retry.
     """
-    counts: Dict[str, int] = {}
-    counts.update(
-        await media_purge_service.purge_artifacts_for_scopes(
-            user_id=user_id, media_item_ids=[media_item_id]
-        )
-    )
+    from media_summarizer.utils import media_idempotence
+    from media_summarizer.utils import user_media as user_media_store
 
-    if last_job_id:
+    counts: Dict[str, int] = {}
+    references = [
+        record
+        for record in await user_media_store.list_by_media_key(
+            media_key, include_deleted=True
+        )
+        if (record.user_id, record.media_item_id) != (user_id, media_item_id)
+    ]
+    user_still_holds_content = any(record.user_id == user_id for record in references)
+
+    if not user_still_holds_content:
+        counts.update(
+            await media_purge_service.purge_artifacts_for_scopes(
+                user_id=user_id,
+                media_content_ids=[media_key],
+            )
+        )
+
+    content_job_id = last_job_id
+    if not references and not content_job_id:
+        ledger = await media_idempotence.already_processed(media_key)
+        if ledger and ledger.get("job_id"):
+            content_job_id = str(ledger["job_id"])
+
+    if content_job_id and not references:
         # No job row to read keys off: it may have expired years ago. The prefix
         # sweeps are the whole cleanup, which is why purge_job_objects accepts
         # being called with the id alone.
-        for key, value in (await media_purge_service.purge_job_objects(last_job_id)).items():
+        for key, value in (
+            await media_purge_service.purge_job_objects(content_job_id)
+        ).items():
             counts[key] = counts.get(key, 0) + value
+        if await media_idempotence.delete_content_entry(
+            media_key=media_key,
+            job_id=content_job_id,
+        ):
+            counts["media_idempotence_rows_deleted"] = 1
 
     await asyncio.to_thread(search_indexing.delete_document, user_id, media_item_id)
     counts["search_documents_deleted"] = 1
@@ -143,7 +169,8 @@ async def _handle_removed_row(record: Dict[str, Any]) -> str:
     item = _deserialize(old_image)
     user_id = str(item.get("user_id") or "")
     media_item_id = str(item.get("media_item_id") or "")
-    if not user_id or not media_item_id:
+    media_key = str(item.get("media_key") or "")
+    if not user_id or not media_item_id or not media_key:
         logger.warning("user_media REMOVE without keys: %s", record.get("eventID"))
         return "skipped_no_keys"
 
@@ -179,6 +206,7 @@ async def _handle_removed_row(record: Dict[str, Any]) -> str:
         counts = await purge_media_item(
             user_id=user_id,
             media_item_id=media_item_id,
+            media_key=media_key,
             last_job_id=str(last_job_id) if last_job_id else None,
         )
     except Exception as exc:
@@ -306,10 +334,10 @@ async def run_reconciliation() -> Dict[str, Any]:
 
     library = await _scan_table(
         required_env("USER_MEDIA_TABLE"),
-        "user_id, media_item_id, deleted_at, purge_at, last_job_id",
+        "user_id, media_item_id, media_key, deleted_at, purge_at, last_job_id",
     )
 
-    library_ids = set()
+    library_content_scopes = set()
     per_user: Dict[str, int] = {}
     pointers: List[Tuple[str, str]] = []
     rows_deleted_pending_purge = 0
@@ -317,8 +345,10 @@ async def run_reconciliation() -> Dict[str, Any]:
 
     for row in library:
         media_item_id = str(row.get("media_item_id") or "")
-        library_ids.add(media_item_id)
         user_id = str(row.get("user_id") or "")
+        media_key = str(row.get("media_key") or "")
+        if user_id and media_key:
+            library_content_scopes.add(f"{user_id}#media#{media_key}")
         per_user[user_id] = per_user.get(user_id, 0) + 1
         last_job_id = row.get("last_job_id")
         if last_job_id:
@@ -331,7 +361,7 @@ async def run_reconciliation() -> Dict[str, Any]:
 
     artifacts = await _scan_table(
         required_env("MEDIA_ARTIFACTS_TABLE"),
-        "artifact_id, #sc, scope_id, created_at",
+        "artifact_id, #sc, scope_key, created_at",
         expression_attribute_names={"#sc": "scope"},
     )
 
@@ -345,8 +375,8 @@ async def run_reconciliation() -> Dict[str, Any]:
         # inventory (task-270).
         if str(row.get("scope") or "") != "media":
             continue
-        scope_id = str(row.get("scope_id") or "")
-        if scope_id and scope_id in library_ids:
+        scope_key = str(row.get("scope_key") or "")
+        if scope_key and scope_key in library_content_scopes:
             continue
         orphaned += 1
         created_at = _parse_iso(row.get("created_at"))

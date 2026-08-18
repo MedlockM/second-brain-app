@@ -13,19 +13,15 @@ How it relates to the other stores:
     processing_jobs     purely operational and expirable. Answers "what is the
                         pipeline doing right now". Its disappearance must be
                         invisible to the library.
-    media_artifacts     the generated content, keyed by media_item_id.
+    media_artifacts     user-owned generated content, scoped by media_key.
     media_idempotence   global per-content processing ledger, keyed by media_key.
 
 Identity
 --------
-``media_item_id`` is derived deterministically from ``(user_id, media_key)``.
-Two consequences callers must internalize:
-
-1. The same user saving the same content twice always lands on the same row,
-   which is what makes the save path idempotent with no read and no transaction.
-2. The id is **opaque**. Nothing may parse it, and rows reconstructed by the
-   Phase 2 backfill (task-241) will keep their legacy job id verbatim so the
-   existing ``media_artifacts`` rows, Algolia records and S3 keys stay valid.
+``media_item_id`` identifies one user save, while ``media_key`` identifies the
+content globally. Saving the same content twice therefore creates two opaque
+``mi_`` ids that may carry different folders and tags while both point at the
+same transcript and artifact history.
 
 Nullability
 -----------
@@ -37,10 +33,10 @@ to point at a job that no longer exists.
 
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -70,25 +66,9 @@ class UserMediaStatus(str, Enum):
     FAILED = "failed"
 
 
-def build_media_item_id(user_id: str, media_key: str) -> str:
-    """Derive the deterministic durable id for a (user, content) pair.
-
-    ``"mi_" + sha256(f"{user_id}|{media_key}").hexdigest()[:32]`` exactly as
-    specified in §4.1. Truncated to 32 hex characters, i.e. 128 bits, which keeps
-    the id short enough to read in a log line while making collisions irrelevant
-    at any plausible scale.
-
-    The separator matters: it is what stops ``("ab", "c")`` and ``("a", "bc")``
-    from colliding.
-    """
-    user_id = (user_id or "").strip()
-    media_key = (media_key or "").strip()
-    if not user_id:
-        raise ValueError("user_id is required to derive a media_item_id")
-    if not media_key:
-        raise ValueError("media_key is required to derive a media_item_id")
-    digest = hashlib.sha256(f"{user_id}|{media_key}".encode("utf-8")).hexdigest()
-    return f"mi_{digest[:32]}"
+def new_media_item_id() -> str:
+    """Return the opaque id of one save, independent from content identity."""
+    return f"mi_{uuid4().hex}"
 
 
 def build_folder_sort_key(folder_id: Optional[str], saved_at: datetime) -> str:
@@ -127,19 +107,13 @@ class UserMediaRecord(BaseModel):
 
     # --- denormalised operational hints (nullable by contract, invariant I3) --
     processing_status: Optional[UserMediaStatus] = None
-    # Pointer for debugging and correlation only. Allowed to dangle once the job
-    # expires, and never dereferenced on a read path.
+    # Pointer for debugging and correlation. Global content reads prefer
+    # media_key; direct document/audio uploads use this owned pointer.
     last_job_id: Optional[str] = None
 
     # --- soft deletion: written ONLY by the user-deletion use case -----------
     deleted_at: Optional[datetime] = None
     purge_at: Optional[int] = None
-
-    # Provenance for rows reconstructed by the Phase 2 backfill (task-241), e.g.
-    # "processing_jobs" or "media_artifacts". Absent on rows created by a live
-    # save, which makes the backfill's rollback a targeted delete instead of a
-    # guess about which rows were synthesised.
-    backfilled_from: Optional[str] = None
 
     schema_version: int = USER_MEDIA_SCHEMA_VERSION
 
@@ -152,7 +126,7 @@ class UserMediaRecord(BaseModel):
         return self.deleted_at is not None
 
     def to_dynamodb_item(self) -> Dict[str, Any]:
-        """Serialize for the idempotent create.
+        """Serialize for the one-row-per-save create.
 
         Only the create path uses this. Every later mutation is an
         attribute-level ``UpdateItem`` (invariant I1), so this method never has
@@ -185,7 +159,6 @@ class UserMediaRecord(BaseModel):
                 self.processing_status.value if self.processing_status else None
             ),
             "last_job_id": self.last_job_id,
-            "backfilled_from": self.backfilled_from,
         }
         for key, value in optional.items():
             if value is not None and value != "":

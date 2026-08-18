@@ -320,6 +320,7 @@ class ResolvedSource:
         self,
         *,
         media_item_id: str,
+        content_id: str,
         title: Optional[str],
         transcript_s3_key: str,
         language: Optional[str],
@@ -327,6 +328,7 @@ class ResolvedSource:
         translation_metadata: Dict[str, Any],
     ) -> None:
         self.media_item_id = media_item_id
+        self.content_id = content_id
         self.title = title
         self.transcript_s3_key = transcript_s3_key
         self.language = language
@@ -387,6 +389,7 @@ async def resolve_source(
     *,
     job: ProcessingJob,
     media_item_id: str,
+    content_id: str,
     title: Optional[str],
     reading_language: Optional[str],
 ) -> ResolvedSource:
@@ -422,6 +425,7 @@ async def resolve_source(
     metadata = outcome.metadata()
     return ResolvedSource(
         media_item_id=media_item_id,
+        content_id=content_id,
         title=title,
         transcript_s3_key=outcome.transcript_s3_key,
         language=metadata.get("target_language") or outcome.detected_language,
@@ -461,6 +465,7 @@ async def resolve_scope_sources(
 
     async def resolve_one(record: Any) -> Tuple[Any, Any]:
         media_item_id = getattr(record, "media_item_id", None) or getattr(record, "id", "")
+        content_id = getattr(record, "media_key", None) or media_item_id
         title = getattr(record, "title", None)
         job = await resolve_job_for_record(record)
         if job is None:
@@ -474,6 +479,7 @@ async def resolve_scope_sources(
             return record, await resolve_source(
                 job=job,
                 media_item_id=media_item_id,
+                content_id=content_id,
                 title=title,
                 reading_language=reading_language,
             )
@@ -545,8 +551,9 @@ async def _list_scope_media_records(
     )
     for page in pages:
         for record in page:
-            # A media filed in two sub-folders is one source, not two.
-            seen.setdefault(record.media_item_id, record)
+            # Several saves may point at one content item. A collection reads
+            # that transcript once, regardless of how many rows reference it.
+            seen.setdefault(record.media_key, record)
     return list(seen.values())
 
 
@@ -560,6 +567,7 @@ async def list_scope_artifacts(
     user_id: str,
     scope: ArtifactScope,
     scope_id: str,
+    content_scope_id: Optional[str] = None,
     limit: Optional[int] = None,
     cursor: Optional[str] = None,
 ) -> Tuple[List[MediaArtifactRecord], Optional[str]]:
@@ -570,7 +578,11 @@ async def list_scope_artifacts(
     mobile polls one endpoint per scope instead of one per artifact type.
     """
     return await media_artifacts.list_artifacts_by_scope(
-        scope_key=build_scope_key(user_id=user_id, scope=scope, scope_id=scope_id),
+        scope_key=build_scope_key(
+            user_id=user_id,
+            scope=scope,
+            scope_id=content_scope_id or scope_id,
+        ),
         limit=limit,
         cursor=cursor,
     )
@@ -617,6 +629,7 @@ async def plan_artifact_generation(
     user_id: str,
     scope: Any,
     scope_id: str,
+    content_scope_id: Optional[str] = None,
     artifact_type: Any,
     resolution: ScopeResolution,
     parameters: Optional[Dict[str, Any]] = None,
@@ -642,14 +655,15 @@ async def plan_artifact_generation(
     normalized_parameters = normalize_artifact_parameters(merged_parameters)
 
     generator_version = get_generator_version(resolved_type)
-    source_ids = [source.media_item_id for source in resolution.sources]
+    effective_scope_id = content_scope_id or scope_id
+    source_ids = [source.content_id for source in resolution.sources]
     now = _now_utc()
 
     def artifact_id_for(window_index: int) -> str:
         return build_artifact_id(
             user_id=user_id,
             scope=resolved_scope,
-            scope_id=scope_id,
+            scope_id=effective_scope_id,
             artifact_type=resolved_type,
             parameters=normalized_parameters,
             generator_version=generator_version,
@@ -684,7 +698,7 @@ async def plan_artifact_generation(
         scope=resolved_scope,
         scope_id=scope_id,
         scope_key=build_scope_key(
-            user_id=user_id, scope=resolved_scope, scope_id=scope_id
+            user_id=user_id, scope=resolved_scope, scope_id=effective_scope_id
         ),
         artifact_type=resolved_type,
         status=MediaArtifactStatus.QUEUED,
@@ -709,7 +723,7 @@ async def plan_artifact_generation(
         # no intermediate store and no coordination lock of ours (task-269 §2.6).
         "prompt_cache_key": _prompt_cache_key(
             scope=resolved_scope,
-            scope_id=scope_id,
+            scope_id=effective_scope_id,
             sources=resolution.sources,
         ),
         # Keys only: not a byte of transcript travels through the queue. ~5 kB at

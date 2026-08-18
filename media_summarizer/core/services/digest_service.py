@@ -113,11 +113,15 @@ async def _check_summary_short_status(
     most recent short summary" is the right answer even though several may exist
     now that the model is append-only (task-270).
     """
+    media = await user_media_store.get_user_media(user_id, media_item_id)
+    if media is None:
+        return "none", None
+
     records, _ = await media_artifacts.list_artifacts_by_scope(
         scope_key=build_scope_key(
             user_id=user_id,
             scope=ArtifactScope.MEDIA,
-            scope_id=media_item_id,
+            scope_id=media.media_key,
         )
     )
     for record in records:
@@ -302,6 +306,7 @@ async def trigger_summary_short_generation(
             user_id=user_id,
             scope=ArtifactScope.MEDIA,
             scope_id=media_item_id,
+            content_scope_id=media.media_key,
             artifact_type=MediaArtifactType.SUMMARY_SHORT,
             resolution=resolution,
         )

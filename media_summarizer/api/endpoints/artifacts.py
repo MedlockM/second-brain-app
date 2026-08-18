@@ -150,7 +150,7 @@ async def _assert_scope_owned(
     scope: ArtifactScope,
     scope_id: str,
     user_id: str,
-) -> None:
+) -> str:
     from media_summarizer.utils import database_async
     from media_summarizer.utils import user_media as user_media_store
 
@@ -160,13 +160,14 @@ async def _assert_scope_owned(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found"
             )
-        return
+        return record.media_key
 
     folder = await database_async.get_folder_by_id(scope_id)
     if folder is None or folder.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found"
         )
+    return scope_id
 
 
 @router.post(
@@ -196,7 +197,7 @@ async def create_artifact(
         artifact_type=artifact_type,
     )
     try:
-        await _assert_scope_owned(
+        content_scope_id = await _assert_scope_owned(
             scope=scope, scope_id=scope_id, user_id=current_user.id
         )
 
@@ -212,6 +213,7 @@ async def create_artifact(
             user_id=current_user.id,
             scope=scope,
             scope_id=scope_id,
+            content_scope_id=content_scope_id,
             artifact_type=artifact_type,
             resolution=resolution,
             parameters=payload.parameters,
@@ -361,7 +363,7 @@ async def list_artifacts(
         user_id=current_user.id, scope=resolved_scope.value, scope_id=scope_id
     )
     try:
-        await _assert_scope_owned(
+        content_scope_id = await _assert_scope_owned(
             scope=resolved_scope, scope_id=scope_id, user_id=current_user.id
         )
 
@@ -369,6 +371,7 @@ async def list_artifacts(
             user_id=current_user.id,
             scope=resolved_scope,
             scope_id=scope_id,
+            content_scope_id=content_scope_id,
             limit=limit,
             cursor=cursor,
         )

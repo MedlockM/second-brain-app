@@ -34,11 +34,11 @@ explanation.
 | Store | Retention | What ends it |
 |---|---|---|
 | `user_media` | **indefinite** | user deletion (§3) or account deletion (§4). Nothing else. |
-| `media_artifacts` + their S3 objects | lifetime of their `user_media` row | purge cascade (`core/services/media_purge_service.py`) |
-| Transcripts, audio, documents in S3 | lifetime of their `user_media` row | same cascade, by job-id prefix |
+| `media_artifacts` + their S3 objects | lifetime of the user's final retained save row for that `media_key` | purge cascade (`core/services/media_purge_service.py`) |
+| Transcripts, audio, documents in S3 | lifetime of the final retained save row for that `media_key` | same cascade, by job-id prefix |
 | Algolia documents | lifetime of their `user_media` row | deleted at soft-delete time, re-deleted by the cascade |
 | `processing_jobs` | 30-90 days after the last status transition — **TTL currently frozen off** (task-239) until no read path depends on it | TTL on `expire_at`, Phase 4 |
-| `media_idempotence` | indefinite | never (global content ledger, carries no user data) |
+| `media_idempotence` | lifetime of the final visible save for that content | final content purge (conditional on the recorded job id) |
 | `artifact_idempotence` / `translation_idempotence` | lifetime of the artifact they lock | purge cascade |
 | Job archives in S3 (`archives` bucket) | GLACIER_IR at day 0, expire at 365 days | bucket lifecycle rule in `archiving.tf` |
 | Library snapshots (AWS Backup) | 90 days | backup plan lifecycle (§5) |
@@ -59,17 +59,12 @@ explanation.
    `workers/cleanup/media_lifecycle.py`, which destroys the artifacts, the S3
    objects and the search records.
 
-The 30 days are a recovery window, not a legal one: the cascade is irreversible
-and `media_item_id` is a hash of `(user_id, media_key)`, so a user who re-saves
-the same URL after a purge lands on the *same* id. Anything the cascade missed
-would be inherited by the new item. Support can undo a deletion inside the window
-by clearing `deleted_at` and `purge_at`.
-
-Re-saving the same URL *inside* the window revives the row instead:
-`utils/user_media.create_if_absent` clears the two attributes when its conditional
-put collides with a soft-deleted row. Without that, the new save would land on an
-invisible row and be destroyed 30 days later by a deletion the user had already
-changed their mind about.
+The 30 days are a recovery window, not a legal one. Each re-save receives a new
+`media_item_id`; it never revives or collides with the soft-deleted row. When TTL
+finally removes that row, the cascade retains content-scoped artifacts and
+transcript objects while another retained row still references the same
+`media_key`. Support can undo a deletion inside the window by clearing
+`deleted_at` and `purge_at`.
 
 ## 4. Account deletion
 

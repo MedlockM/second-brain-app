@@ -105,18 +105,6 @@ locals {
       # automatically from the execution context. See
       # https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html#configuration-envvars-runtime
 
-      # Kill-switch for durable user_media *writes* (task-240 Phase 1). Read at
-      # call time, so an emergency rollback is `aws lambda
-      # update-function-configuration --environment
-      # ...DURABLE_MEDIA_ENABLED=0` on the affected function; set the variable
-      # below to false to make that rollback durable across applies.
-      #
-      # Since task-220 (Phase 3) the library, Search and folder READS come from
-      # user_media unconditionally, so flipping this off alone would leave users
-      # with an empty library. It is no longer a standalone rollback: it must be
-      # paired with a code rollback to the pre-task-220 revision.
-      DURABLE_MEDIA_ENABLED = var.durable_media_enabled ? "1" : "0"
-
       # Job TTL window (task-242, Phase 4). The processing_jobs table TTL is
       # re-enabled with a configurable window. Default: 90 days (conservative,
       # preserves debugging trails). The job creation code reads this to set

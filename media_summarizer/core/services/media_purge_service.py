@@ -8,26 +8,15 @@ Two callers, one implementation, on purpose:
 - ``workers/cleanup/media_lifecycle.py`` (task-243) runs it for a single item when
   the ``user_media`` TTL sweeps a row the user deleted 30 days earlier.
 
-The two paths *must* delete the same things. A media item whose artifacts survive
-its library row is exactly the failure §6.2 of
-``docs/research/task-218-durable-media-library-persistence/README.md`` warns
-about: ``media_item_id`` is deterministic in ``(user_id, media_key)``, so
-re-saving the same URL after a purge lands on the same id and would inherit the
-stale artifacts of its previous life. That is why this module exists instead of a
-second copy of the same logic in the worker.
+The two paths *must* delete the same things. Media-scoped artifacts are owned by
+``(user_id, media_key)`` and therefore survive deletion of one save while another
+retained row for that content remains. That is why this module exists instead of
+a second copy of the same logic in the worker.
 
-Nothing is shared between accounts any more
--------------------------------------------
-Artifacts used to be content-addressed: several rows sharing a
-``generation_fingerprint`` pointed at one S3 object, so purging one user's row
-could break another's. The append-only model removed that entirely (task-270) —
-each entry owns an object keyed on its own ``artifact_id``, and the id is a hash
-that includes ``user_id``. So the sibling rule this module used to carry is gone:
-delete the row, delete its object.
-
-Transcripts, audio and documents need no such guard either: their keys are
-derived from a job id (or, for share-extension uploads, from
-``shared-audio/<user_id>/``), and both are per user.
+Artifacts remain isolated by user even though their media scope is content-based:
+the artifact id and scope key both include ``user_id``. Transcripts are globally
+deduplicated, so the stream caller checks for remaining ``media_key`` references
+before asking this module to remove job objects.
 """
 
 from __future__ import annotations
@@ -62,7 +51,7 @@ def _bump(counts: Dict[str, int], step: str, count: int = 1) -> None:
 async def purge_artifacts_for_scopes(
     *,
     user_id: str,
-    media_item_ids: Iterable[str] = (),
+    media_content_ids: Iterable[str] = (),
     folder_ids: Iterable[str] = (),
 ) -> Dict[str, int]:
     """Delete every artifact of the given scopes, plus their S3 objects.
@@ -73,8 +62,8 @@ async def purge_artifacts_for_scopes(
     """
     counts: Dict[str, int] = {}
     scopes = [
-        (ArtifactScope.MEDIA, media_item_id)
-        for media_item_id in sorted(set(media_item_ids))
+        (ArtifactScope.MEDIA, media_content_id)
+        for media_content_id in sorted(set(media_content_ids))
     ] + [(ArtifactScope.FOLDER, folder_id) for folder_id in sorted(set(folder_ids))]
 
     for scope, scope_id in scopes:

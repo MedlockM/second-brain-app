@@ -1,8 +1,7 @@
 # Durable Media Library Runbook
 
-Operational runbook for the `user_media` durable library table (task-240, Phase 1 of
-the task-218 benchmark), its Phase 2 backfill (task-241) and its deletion /
-backup lifecycle (task-243, §6.2 + §6.4 + §6.5). Alarms are defined in
+Operational runbook for the `user_media` durable library table (task-240) and its
+deletion / backup lifecycle (task-243, §6.2 + §6.4 + §6.5). Alarms are defined in
 `infrastructure/terraform/modules/platform/durable_media_alerts.tf`.
 
 Retention policy and the windows quoted below:
@@ -23,8 +22,7 @@ Replace `<env>` with `dev`, `staging` or `prod` in every command below.
 - [Orphan Artifacts](#orphan-artifacts)
 - [Reconciliation Stopped](#reconciliation-stopped)
 - [Restoring the Library](#restore)
-- [Phase 2 Backfill](#backfill)
-- [Emergency Rollback](#rollback)
+- [Rollback](#rollback)
 
 ---
 
@@ -79,15 +77,10 @@ Lambdas reported no errors. There is no acceptable background rate here.
 
 ### First response
 
-- The user's save itself did **not** fail during Phase 1 (see
-  `try_save_media_for_user` in `media_summarizer/core/services/durable_media_service.py`):
-  the pipeline ran and the item is visible. Do not tell the user to re-save.
-- Fix the cause, then reconcile the missing rows with the Phase 2 backfill
-  (task-241) rather than by hand: it is idempotent and derives the same
-  deterministic ids.
-- If failures are continuous and noisy, set `DURABLE_MEDIA_ENABLED=0` (see
-  [Rollback](#rollback)) to stop the write attempts while investigating. The table
-  is not read yet, so this costs nothing but the drift the backfill will repair.
+- The save request fails when its durable row cannot be created; no successful
+  response should be reconciled by hand.
+- Fix the DynamoDB/IAM cause and let the user retry. Every retry creates a fresh
+  save id while pipeline work remains deduplicated by `media_key`.
 
 ---
 
@@ -196,10 +189,10 @@ so the content is recoverable while you investigate.
 
 ### Why this is critical
 
-The library row is gone and part of what it owned is not. Because
-`media_item_id` is `sha256(user_id|media_key)`, a user who re-saves the same URL
-lands on the *same* id and would inherit the surviving artifacts — a stale summary
-presented as fresh content.
+The library row is gone and part of what it owned is not. Each save has a random
+`media_item_id`, while artifacts and processing objects are shared by `media_key`.
+A broken cascade can therefore leak storage or remove shared content still needed
+by another visible save.
 
 ### Investigation
 
@@ -305,7 +298,7 @@ with `update-time-to-live` as part of the [restore procedure](#restore).
 **Alarm:** `media-summarizer-user-media-recent-orphan-artifacts-<env>`
 **Severity:** Warning
 **Threshold:** `artifact_rows_orphaned_recent > 0` — an artifact created in the last
-48h whose `media_item_id` has no `user_media` row
+48h whose `(user_id, media_key)` scope has no `user_media` row
 
 ### Why the window
 
@@ -436,136 +429,19 @@ last resort, not the first thing to reach for.
    ```
    `ItemCount` is updated every ~6h, so use a `select COUNT` scan for an exact
    figure on a small table.
-3. **Reconcile rather than swap, if only some rows were lost.** The restored table
-   is a *source* for the [backfill](#backfill), which is idempotent and writes only
-   missing attributes; that keeps the rows created since the damage. Swapping
-   `USER_MEDIA_TABLE` to the restored table is the last-resort path for a total
-   loss, and it also means re-pointing PITR, the backup selection, the stream
-   consumer and the export schedules, all of which name the table explicitly in
-   Terraform.
+3. **Restore the authoritative table rather than synthesising rows from jobs.**
+   Saves now have random identities, so a processing job cannot reconstruct the
+   id, folder or tags of a lost save. Swapping `USER_MEDIA_TABLE` to the restored
+   table also means re-pointing PITR, the backup selection, the stream consumer
+   and the export schedules, all of which name the table explicitly in Terraform.
 4. **Streams and PITR are off on a restored table.** Both must be re-enabled before
    the restored table can serve as the live one.
 
 ---
 
-## Backfill
-
-`scripts/backfill_user_media.py` reconstructs library rows that were lost before the
-durable table existed, from the five surviving sources in §5.3 of the benchmark. It is
-idempotent and re-runnable: run it whenever the write-failed alarm has left a gap, or
-after restoring anything.
-
-### Running it
-
-```bash
-# 1. Always dry-run first. Writes nothing, prints one line per row.
-scripts/backfill_user_media.py --suffix=-dev
-
-# 2. Read the two reports it prints the path of, in particular the quarantine one.
-# 3. Then apply.
-scripts/backfill_user_media.py --suffix=-dev --apply
-
-# 4. Re-run to prove convergence: everything must come back as NOOP.
-scripts/backfill_user_media.py --suffix=-dev --apply
-```
-
-`--suffix` only accepts `-dev` and `-staging`; prod is deliberately unreachable from
-the script. `--user-id <uuid>` restricts a run to one account, `--no-algolia` /
-`--no-s3` skip a source that is unavailable.
-
-### What it writes, and what it must never write
-
-- Writes: `user_media<env>` (conditional `PutItem` for new rows, attribute-level
-  `UpdateItem` that only fills *missing* attributes on rows that already exist) and
-  `media_idempotence<env>` (unsticking reservations, see below).
-- Reads only: `processing_jobs`, `media_artifacts`, `user_media_submissions`
-  (dropped from Terraform by task-220 — the script is a historical migration
-  artifact and this source is gone once the owner deletes the physical table),
-  `user_folders`, `users`, Algolia and S3. The script contains no write call against
-  any of them, so artifact rows, search records and S3 objects keep their existing
-  `media_item_id` and every deep link stays valid.
-- Reconstructed rows keep their **legacy** `media_item_id` (a job uuid) verbatim,
-  because that is the id `media_artifacts` and the Algolia `objectID`s already use.
-  Only new saves get the deterministic `mi_…` id. Both formats coexist; the id is
-  opaque and nothing may parse it.
-
-### Reading the output
-
-Per-row actions: `CREATE` (new row), `UPDATE` (existing row, missing attributes
-filled — `filled=` lists them), `NOOP` (nothing to do). Ledger actions: `KEEP`
-(reservation is legitimate, its job is alive), `PROCESSED` (job gone but the content
-and a library row survive), `RESET` (reservation released so the media can be
-re-ingested), `SKIP_RACE` (the row changed under the backfill and was left alone).
-
-Both reports land in `--report-dir` (default `tmp/backfill-user-media`, gitignored):
-a JSON file with per-row provenance, and a markdown quarantine file for owner review.
-
-### Quarantine
-
-Anything whose owner cannot be established from a job, a submission or an Algolia
-record is **quarantined, never guessed** — ownership is never inferred from an
-environment happening to have a single real user, and never from an artifact or an S3
-object, which carry no `user_id`. Quarantined entries are reported and left alone.
-Deciding them is a human job: identify the account, then re-run with `--user-id`.
-
-### Ledger repair
-
-Reservations frozen at `reserved` whose job has been deleted are what makes
-re-submitting a URL return a `media_item_id` that 404s. The backfill advances such a
-row to `processed` only when the content survives **and** a library row now carries
-that id; otherwise it releases the reservation (a conditional delete, exactly like
-`media_idempotence.release_reservation`) so the media can be re-ingested. Both writes
-are conditioned on `status = reserved AND job_id = <the value that was read>`, so a
-submission that re-reserved the key in the meantime is never disturbed. When
-`--apply` is used, the pre-image of the ledger is dumped to the report dir *before*
-any deletion.
-
-### Undoing a backfill
-
-```bash
-scripts/backfill_user_media.py --suffix=-dev --rollback           # dry run
-scripts/backfill_user_media.py --suffix=-dev --rollback --apply
-```
-
-This deletes exactly the rows the backfill created, identified by `backfilled_from`,
-which a live save never writes. Rows that already existed and were only enriched carry
-`backfill_enriched_from` instead: the rollback lists them and refuses to delete them,
-because a real user save created them. To undo an enrichment, strip the attributes
-listed under `filled` in that run's JSON report.
-
-The ledger repair is **not** rolled back: released reservations are gone (re-ingesting
-is the intended path) and repaired ones are legitimately `processed`.
-
----
-
 ## Rollback
 
-Phase 1 writes `user_media` but does not read it, so the rollback is a flag flip and
-nothing has to be undone. Orphan rows are inert.
-
-Immediate, no redeploy (the flag is read at call time):
-
-```bash
-aws lambda update-function-configuration \
-  --function-name media-summarizer-api-<env> \
-  --environment "Variables={...,DURABLE_MEDIA_ENABLED=0}" \
-  --region eu-west-3
-```
-
-Beware: `update-function-configuration` replaces the whole environment map. Fetch it
-first with `aws lambda get-function-configuration` and edit the single key, or the
-function loses every other variable.
-
-Durable across applies (preferred as soon as the incident is contained), in
-`infrastructure/terraform/envs/<env>`:
-
-```hcl
-module "platform" {
-  # ...
-  durable_media_enabled = false
-}
-```
-
-Do **not** delete the table to roll back: it carries `prevent_destroy` and
-`deletion_protection_enabled`, and it is the only copy of the library rows created
-since the flag went on.
+There is no write kill-switch: `user_media` is the authoritative library and a
+successful save without a row would be data loss. Roll back the offending code
+revision or restore IAM/table availability; do **not** disable writes or delete
+the table. It carries both `prevent_destroy` and deletion protection.

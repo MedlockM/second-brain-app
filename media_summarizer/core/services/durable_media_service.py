@@ -34,7 +34,7 @@ from media_summarizer.core.models.processing_job import JobStatus, ProcessingJob
 from media_summarizer.core.models.user_media import (
     UserMediaRecord,
     UserMediaStatus,
-    build_media_item_id,
+    new_media_item_id,
 )
 from media_summarizer.core.services.folder_service import ensure_default_folder
 from media_summarizer.utils import user_media as user_media_store
@@ -47,7 +47,6 @@ logger = logging.getLogger(__name__)
 # failure is visible wherever it happens.
 EVENT_WRITE_FAILED = "durable_media.write_failed"
 EVENT_CREATED = "durable_media.created"
-EVENT_REUSED = "durable_media.reused"
 EVENT_SKIPPED = "durable_media.skipped"
 
 
@@ -119,38 +118,32 @@ async def save_media_for_user(
     tag_ids: Optional[List[str]] = None,
     job_id: Optional[str] = None,
     processing_status: Optional[UserMediaStatus] = UserMediaStatus.PENDING,
-) -> Optional[str]:
+) -> str:
     """Persist the durable library row for a save. Returns its ``media_item_id``.
 
-    Idempotent by construction: the id is derived from ``(user_id, media_key)``
-    and the write is conditional, so re-saving the same content converges on the
-    same single row instead of creating a duplicate.
-
-    Returns None when the feature flag is off, which lets every call site stay a
-    plain unconditional call.
+    Every call represents a distinct user save and therefore creates a fresh
+    opaque id. Pipeline idempotence remains separate and keyed by ``media_key``.
 
     Raises:
         DurableMediaWriteError: the row could not be written. Callers on the save
             path must decide whether to fail the request; the failure is already
             logged and alarmed by the time this is raised.
     """
-    if not user_media_store.durable_media_enabled():
-        return None
-
-    try:
-        media_item_id = build_media_item_id(user_id, media_key)
-    except ValueError as exc:
+    if not (user_id or "").strip() or not (media_key or "").strip():
+        exc = ValueError("user_id and media_key are required to save media")
         log_event(
             logger,
             logging.ERROR,
             EVENT_WRITE_FAILED,
-            f"Cannot derive a durable media_item_id: {exc}",
+            f"Cannot create a durable media row: {exc}",
             user_id=user_id,
             media_key=media_key,
             job_id=job_id,
             reason="invalid_identity",
         )
-        raise DurableMediaWriteError(str(exc)) from exc
+        raise DurableMediaWriteError(str(exc))
+
+    media_item_id = new_media_item_id()
 
     resolved_folder_id = await _resolve_folder_id(user_id, folder_id)
     now = datetime.now(timezone.utc)
@@ -174,7 +167,7 @@ async def save_media_for_user(
     )
 
     try:
-        stored, created = await user_media_store.create_if_absent(record)
+        stored = await user_media_store.create(record)
     except Exception as exc:  # noqa: BLE001 - every failure mode must be alarmed
         log_event(
             logger,
@@ -192,46 +185,24 @@ async def save_media_for_user(
             f"Durable user_media write failed for {media_item_id}"
         ) from exc
 
-    if created:
-        log_event(
-            logger,
-            logging.INFO,
-            EVENT_CREATED,
-            "Durable user_media row created",
-            user_id=user_id,
-            media_item_id=media_item_id,
-            media_key=media_key,
-            job_id=job_id,
-            folder_id=resolved_folder_id,
-        )
-        return stored.media_item_id
-
-    # Row already existed: a re-save, or the loser of a concurrent race. Refresh
-    # the operational pointer only. The user's folder and tags are deliberately
-    # left alone -- the stored row may carry a later organization than this call.
     log_event(
         logger,
         logging.INFO,
-        EVENT_REUSED,
-        "Durable user_media row already existed, reused",
+        EVENT_CREATED,
+        "Durable user_media save created",
         user_id=user_id,
         media_item_id=media_item_id,
         media_key=media_key,
         job_id=job_id,
+        folder_id=resolved_folder_id,
     )
-    if job_id:
-        await mirror_attributes(
-            user_id=user_id,
-            media_item_id=media_item_id,
-            attributes={"last_job_id": job_id},
-        )
     return stored.media_item_id
 
 
 async def finalize_deduplicated_save(
     *,
     user_id: str,
-    media_item_id: Optional[str],
+    media_item_id: str,
     processing_status: UserMediaStatus,
     existing_job_id: str,
 ) -> Optional[str]:
@@ -263,9 +234,6 @@ async def finalize_deduplicated_save(
     else:
         if existing_job is not None and existing_job.user_id == user_id:
             owned_job_id = existing_job.id
-
-    if not user_media_store.durable_media_enabled() or not media_item_id:
-        return owned_job_id
 
     attributes: Dict[str, Any] = {"processing_status": processing_status}
     if owned_job_id:
@@ -312,7 +280,7 @@ async def finalize_deduplicated_save(
 async def resolve_job_for_record(
     record: UserMediaRecord,
 ) -> Optional[ProcessingJob]:
-    """Find the operational job behind a library row, if one still exists.
+    """Find the global content job behind a library row, if it still exists.
 
     Reserved for the few callers that genuinely need *pipeline* data the library
     row does not carry — today only the transcript location (raw content,
@@ -320,35 +288,43 @@ async def resolve_job_for_record(
     invariant I3, and the whole point of task-220 is that a missing job is a
     non-event for the library.
 
-    Two candidate ids, in order of trust:
-
-    1. ``last_job_id``, the pointer the mirror keeps fresh.
-    2. the ``media_item_id`` itself, but only when it is *not* a derived
-       ``mi_`` id — rows reconstructed by the task-241 backfill kept their legacy
-       job id verbatim, so for those the two are the same value.
-
-    Ownership is re-verified on the resolved job. ``processing_jobs`` is keyed by
-    job id alone, so a dangling pointer could otherwise cross a user boundary.
+    The authoritative pointer is the global ``media_idempotence`` row keyed by
+    ``record.media_key``. The content job may belong to another user: ownership
+    was already established by loading this caller-owned library row, and global
+    pipeline deduplication deliberately makes every save of the content read the
+    same transcript. ``last_job_id`` remains only for direct document/audio
+    uploads that do not enter the global ledger, and is ownership-checked.
     """
     if record is None:
         return None
 
-    from media_summarizer.utils import database_async
+    from media_summarizer.utils import database_async, media_idempotence
 
-    candidates: List[str] = []
-    if record.last_job_id:
-        candidates.append(record.last_job_id)
-    if record.media_item_id and not record.media_item_id.startswith("mi_"):
-        candidates.append(record.media_item_id)
+    content_job_id: Optional[str] = None
+    try:
+        ledger = await media_idempotence.already_processed(record.media_key)
+        if ledger and ledger.get("job_id"):
+            content_job_id = str(ledger["job_id"])
+    except Exception as exc:  # noqa: BLE001 - direct uploads can lack a ledger
+        logger.warning("Could not load content ledger for %s: %s", record.media_key, exc)
 
-    for job_id in candidates:
+    if content_job_id:
         try:
-            job = await database_async.get_processing_job_by_id(job_id)
+            job = await database_async.get_processing_job_by_id(content_job_id)
         except Exception as exc:  # noqa: BLE001 - a dead job is not an error here
-            logger.warning("Could not load job %s: %s", job_id, exc)
-            continue
-        if job and job.user_id == record.user_id:
-            return job
+            logger.warning("Could not load content job %s: %s", content_job_id, exc)
+        else:
+            if job is not None:
+                return job
+
+    if record.last_job_id and record.last_job_id != content_job_id:
+        try:
+            job = await database_async.get_processing_job_by_id(record.last_job_id)
+        except Exception as exc:  # noqa: BLE001 - a dead job is not an error here
+            logger.warning("Could not load direct job %s: %s", record.last_job_id, exc)
+        else:
+            if job is not None and job.user_id == record.user_id:
+                return job
     return None
 
 
@@ -364,8 +340,6 @@ async def mirror_attributes(
     fail because a hint could not be refreshed. Failures still emit the alarmed
     event so "best-effort" does not mean "invisible".
     """
-    if not user_media_store.durable_media_enabled():
-        return False
     if not media_item_id or not attributes:
         return False
 
@@ -391,29 +365,22 @@ async def mirror_attributes(
 
 
 async def mirror_job(job: ProcessingJob) -> bool:
-    """Push a job's current status and resolved metadata onto its library row.
+    """Push a content job's state onto every save that shares its media key.
 
     Without this, ``processing_status`` would freeze at ``pending`` forever and
     metadata the pipeline discovers late (a YouTube title, an audio duration)
     would never reach the durable record — hollowing out AC #5 while technically
     satisfying it at creation time.
 
-    Targets ``job.media_item_id``, falling back to ``job.id``: jobs created before
-    task-240 carry no pointer, and the task-241 backfill reconstructed their
-    library row under the legacy job id. Aiming at a row that does not exist is
-    harmless -- the underlying update is conditional on ``attribute_exists`` -- so
-    the fallback buys legacy jobs a working mirror at no risk.
+    The job id is copied only to rows owned by the job's user. Other users still
+    receive the content status and metadata, while resolving the transcript via
+    ``media_key``; this keeps the global processing identity from becoming a
+    cross-account pointer on their rows.
     """
-    if not user_media_store.durable_media_enabled():
-        return False
     if not job or not job.user_id:
         return False
 
-    media_item_id = job.media_item_id or job.id
-    if not media_item_id:
-        return False
-
-    attributes: Dict[str, Any] = {"last_job_id": job.id}
+    attributes: Dict[str, Any] = {}
 
     library_status = map_job_status(job.status)
     if library_status is not None:
@@ -444,8 +411,42 @@ async def mirror_job(job: ProcessingJob) -> bool:
         except (TypeError, ValueError):
             pass
 
-    return await mirror_attributes(
-        user_id=job.user_id,
-        media_item_id=media_item_id,
-        attributes=attributes,
-    )
+    updated = False
+    seen: set[tuple[str, str]] = set()
+
+    # Update the initiating save first. This remains reliable during rollout
+    # even before the new GSI has finished backfilling.
+    if job.media_item_id:
+        direct_attributes = {**attributes, "last_job_id": job.id}
+        updated = await mirror_attributes(
+            user_id=job.user_id,
+            media_item_id=job.media_item_id,
+            attributes=direct_attributes,
+        )
+        seen.add((job.user_id, job.media_item_id))
+
+    if not job.media_key:
+        return updated
+
+    try:
+        records = await user_media_store.list_by_media_key(job.media_key)
+    except Exception as exc:  # noqa: BLE001 - direct mirror already succeeded
+        logger.warning("Could not fan out media_key %s: %s", job.media_key, exc)
+        return updated
+
+    for record in records:
+        target = (record.user_id, record.media_item_id)
+        if target in seen:
+            continue
+        target_attributes = dict(attributes)
+        if record.user_id == job.user_id:
+            target_attributes["last_job_id"] = job.id
+        refreshed = await mirror_attributes(
+            user_id=record.user_id,
+            media_item_id=record.media_item_id,
+            attributes=target_attributes,
+        )
+        updated = refreshed or updated
+        seen.add(target)
+
+    return updated

@@ -98,7 +98,7 @@ async def _build_duplicate_outcome(
     user_id: str,
     resolved: ResolvedMedia,
     existing: Dict[str, Any],
-    durable_media_item_id: Optional[str],
+    durable_media_item_id: str,
 ) -> IngestionOutcome:
     """Outcome for a media_key someone (maybe another user) already processed.
 
@@ -121,10 +121,7 @@ async def _build_duplicate_outcome(
         processing_status=_library_status_from_duplicate(mapped_status),
         existing_job_id=existing_job_id,
     )
-    # The durable id is the caller's public correlation id. The media key is a
-    # safe flag-off fallback: unlike ``existing_job_id`` it cannot expose the
-    # operational id of another user's globally deduplicated job.
-    caller_media_item_id = durable_media_item_id or owned_job_id or resolved.media_key
+    caller_media_item_id = durable_media_item_id
     return IngestionOutcome(
         media_item_id=caller_media_item_id,
         job_id=owned_job_id or caller_media_item_id,
@@ -241,7 +238,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                 "media.ingest.duplicate_reused",
                 "Existing media submission reused through idempotence",
                 job_id=existing.get("job_id"),
-                media_item_id=durable_media_item_id or existing.get("job_id"),
+                media_item_id=durable_media_item_id,
                 resolver_key=resolved.resolver_key,
                 media_type=resolved.media_type.value,
                 source_platform=resolved.source_platform.value,
@@ -268,9 +265,7 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             media_item_id=durable_media_item_id,
         )
 
-        # The id the outside world uses. It is the durable one; ``job.id`` is only
-        # the fallback for the flag-off path, where no library row was written.
-        canonical_media_item_id = durable_media_item_id or job.id
+        canonical_media_item_id = durable_media_item_id
 
         reservation_created = False
         job_created = False

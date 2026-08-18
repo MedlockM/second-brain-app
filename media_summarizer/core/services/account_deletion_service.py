@@ -27,14 +27,11 @@ partial failure is a no-op on whatever already went (AC#6).
 
 Content shared between accounts
 -------------------------------
-The per-media cascade — artifact rows, their S3 objects and
-the objects a processing job wrote — lives in
-``core/services/media_purge_service.py`` and is shared with the ``user_media`` TTL
-purge (task-243). Both paths must remove exactly the same things: because
-``media_item_id`` is deterministic in ``(user_id, media_key)``, an artifact that
-outlives its media row would reattach to the next save of the same URL. See that
-module for the shared-object rule that keeps one account's departure from
-breaking another's copy of the same episode.
+The per-content cascade — artifact rows, their S3 objects and the objects a
+processing job wrote — lives in ``core/services/media_purge_service.py`` and is
+shared with the ``user_media`` TTL purge (task-243). Media-scoped artifacts are
+addressed by ``media_key`` within the user, while each library row remains an
+independent save.
 
 Deliberately out of scope
 -------------------------
@@ -175,13 +172,11 @@ class _Inventory:
     """Everything the purge has to know before it starts deleting.
 
     Collected up front because the deletion order destroys the very rows the
-    later steps need to find their targets: artifacts are reachable only through
-    ``media_item_id``, watchers only through ``media_key``, and both live on rows
-    this purge removes.
+    later steps need to find their targets: artifacts and watchers are reached
+    through ``media_key``, which lives on rows this purge removes.
     """
 
     jobs: List[ProcessingJob]
-    media_item_ids: Set[str]
     media_keys: Set[str]
     bug_report_attachment_keys: Set[str]
 
@@ -190,19 +185,11 @@ async def _collect_inventory(user_id: str) -> _Inventory:
     jobs = await _list_processing_jobs(user_id)
     library = await user_media.list_all_for_user(user_id)
 
-    media_item_ids: Set[str] = set()
     media_keys: Set[str] = set()
     for job in jobs:
-        # Legacy jobs carry artifacts under their own id; jobs created through the
-        # durable library carry a separate media_item_id. Both are looked up: an
-        # extra query that returns nothing is free, a missed one leaks artifacts.
-        media_item_ids.add(job.id)
-        if job.media_item_id:
-            media_item_ids.add(job.media_item_id)
         if job.media_key:
             media_keys.add(job.media_key)
     for record in library:
-        media_item_ids.add(record.media_item_id)
         if record.media_key:
             media_keys.add(record.media_key)
 
@@ -216,7 +203,6 @@ async def _collect_inventory(user_id: str) -> _Inventory:
 
     return _Inventory(
         jobs=jobs,
-        media_item_ids=media_item_ids,
         media_keys=media_keys,
         bug_report_attachment_keys=attachment_keys,
     )
@@ -278,7 +264,7 @@ async def _purge_artifacts(
     report.merge(
         await media_purge_service.purge_artifacts_for_scopes(
             user_id=user_id,
-            media_item_ids=inventory.media_item_ids,
+            media_content_ids=inventory.media_keys,
             folder_ids=[folder.id for folder in folders],
         )
     )

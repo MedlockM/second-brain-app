@@ -15,17 +15,11 @@ defines the model this file implements:
    ``workers/cleanup/media_lifecycle.py``, which deletes the artifacts, the S3
    objects and the index entries for good.
 
-Why a grace period at all, when the user asked for a deletion: the cascade is
-irreversible and the ids are deterministic. 30 days of "the row is invisible but
-still there" is the window in which an accidental deletion, or a bug in this
-service, is recoverable by clearing two attributes. It is also the window that
-makes the cascade safe to be eventually-consistent.
-
-Why the cascade must be complete: ``media_item_id`` is a hash of
-``(user_id, media_key)``, so a user who re-saves the same URL after a purge lands
-on the *same* id. Any artifact row or S3 object left behind is inherited by the
-new item — a stale summary presented as fresh. That is why the purge worker and
-the account purge share one implementation (``media_purge_service``).
+Why a grace period at all, when the user asked for a deletion: 30 days of "the
+row is invisible but still there" is the window in which an accidental deletion
+or a bug in this service remains recoverable. It also makes the cascade safely
+eventually-consistent. Shared content is purged only after its final visible
+library reference disappears.
 
 Account deletion is a different use case and does not come through here: an
 erasure request removes the rows outright (``user_media.delete_all_for_user``,
@@ -39,12 +33,8 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from media_summarizer.core.models.user_media import (
-    UserMediaRecord,
-    build_media_item_id,
-)
+from media_summarizer.core.models.user_media import UserMediaRecord
 from media_summarizer.core.services import search_indexing
-from media_summarizer.utils import database_async
 from media_summarizer.utils import user_media as user_media_store
 from media_summarizer.utils.logging_config import log_event
 
@@ -78,36 +68,12 @@ class DeletionResult:
 async def _resolve_row(user_id: str, media_item_id: str) -> UserMediaRecord:
     """Find the library row a client's id refers to, or raise :class:`MediaNotFound`.
 
-    The direct lookup is the whole story once task-220 has flipped the reads. It
-    is not yet, so a client that saved an item *before* the durable write shipped
-    (or that is holding a job id, which is what every Phase-1 read path returns)
-    would 404 on a row that exists under its deterministic id. The fallback goes
-    through the job to recover the real id.
-
-    TASK-220: delete the fallback once the API only ever hands out durable ids.
-    Keeping it afterwards would mean accepting a job id as a library id forever.
+    Only durable save ids are accepted. The app has never shipped, so the old
+    job-id fallback is deleted rather than carried into the per-save identity
+    model.
     """
     record = await user_media_store.get_user_media(
         user_id, media_item_id, include_deleted=True
-    )
-    if record is not None:
-        return record
-
-    job = await database_async.get_processing_job_by_id(media_item_id)
-    if job is None or job.user_id != user_id:
-        raise MediaNotFound(media_item_id)
-
-    resolved_id = job.media_item_id
-    if not resolved_id and job.media_key:
-        try:
-            resolved_id = build_media_item_id(user_id, job.media_key)
-        except ValueError:
-            resolved_id = None
-    if not resolved_id or resolved_id == media_item_id:
-        raise MediaNotFound(media_item_id)
-
-    record = await user_media_store.get_user_media(
-        user_id, resolved_id, include_deleted=True
     )
     if record is None:
         raise MediaNotFound(media_item_id)

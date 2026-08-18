@@ -10,8 +10,11 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from media_summarizer.core.models import ProcessingJob
-from media_summarizer.core.services.durable_media_service import save_media_for_user
+from media_summarizer.core.models import ProcessingJob, UserMediaStatus
+from media_summarizer.core.services.durable_media_service import (
+    finalize_deduplicated_save,
+    save_media_for_user,
+)
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
     estimate_submission_cost,
@@ -108,28 +111,16 @@ async def submit_media_for_user(
             and existing.get("status") == "processed"
             and existing.get("job_id")
         ):
-            existing_job_id = existing.get("job_id")
-            existing_job = await database_async.get_processing_job_by_id(
-                existing_job_id
-            )
-
-            # Create a billing/notification job for this user. It points at the
-            # same durable row: the library entry is per (user, media_key), so a
-            # second job for the same content does not create a second entry.
-            billing_job = ProcessingJob(
+            existing_job_id = str(existing["job_id"])
+            owned_job_id = await finalize_deduplicated_save(
                 user_id=user.id,
-                user_email=user.email,
-                source_url=getattr(existing_job, "source_url", ""),
-                media_url=audio_url,
-                media_key=media_key,
-                media_date_published=media_date_published,
-                title=media_title,
                 media_item_id=durable_media_item_id,
+                processing_status=UserMediaStatus.READY,
+                existing_job_id=existing_job_id,
             )
-            billing_job = await database_async.create_processing_job(billing_job)
 
             return {
-                "job_id": billing_job.id,
+                "job_id": owned_job_id or durable_media_item_id,
                 "status": "completed",
                 "message": "Existing summary detected -- available in app",
                 "estimated_processing_time": "0",

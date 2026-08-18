@@ -315,8 +315,8 @@ resource "aws_cloudwatch_metric_alarm" "user_media_unexplained_purge" {
 # -----------------------------------------------------------------------------
 # Alarm: the purge cascade failed.
 #
-# The row is gone and its artifacts, objects or search records are not. Because
-# media_item_id is deterministic, a re-save of the same URL would inherit them.
+# The row is gone and a cascade step that had no remaining content reference
+# failed, leaving artifacts, objects or search records behind.
 # -----------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "user_media_purge_cascade_failed" {
@@ -325,7 +325,7 @@ resource "aws_cloudwatch_metric_alarm" "user_media_purge_cascade_failed" {
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
   threshold           = "0"
-  alarm_description   = "The purge cascade failed after a user_media TTL sweep: artifacts, S3 objects or search records survive a deleted library row and would be inherited by a re-save of the same content. Runbook: infrastructure/observability/runbooks/durable-media.md#purge-cascade-failed"
+  alarm_description   = "The purge cascade failed after a user_media TTL sweep: artifacts, S3 objects or search records may survive after the final applicable library reference. Runbook: infrastructure/observability/runbooks/durable-media.md#purge-cascade-failed"
   alarm_actions       = [aws_sns_topic.pipeline_alerts[0].arn]
   treat_missing_data  = "notBreaching"
 

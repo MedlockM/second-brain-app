@@ -30,11 +30,15 @@ resource "aws_dynamodb_table" "user_media_v1" {
     type = "S"
   }
 
-  # "mi_" + sha256("<user_id>|<media_key>")[:32] for saves made by the durable
-  # write path; legacy ids verbatim for rows reconstructed by the Phase 2
-  # backfill. Opaque either way: nothing may parse it.
+  # One random opaque "mi_" id per save. Content identity lives separately in
+  # media_key, so several rows may point at the same processed content.
   attribute {
     name = "media_item_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "media_key"
     type = "S"
   }
 
@@ -57,6 +61,16 @@ resource "aws_dynamodb_table" "user_media_v1" {
   local_secondary_index {
     name            = "saved-at-index"
     range_key       = "saved_at"
+    projection_type = "ALL"
+  }
+
+  # Cross-user fan-out from one globally deduplicated processing job to every
+  # save of that content. Also lets the purge cascade keep shared content until
+  # the final visible reference disappears.
+  global_secondary_index {
+    name            = "media-key-index"
+    hash_key        = "media_key"
+    range_key       = "media_item_id"
     projection_type = "ALL"
   }
 

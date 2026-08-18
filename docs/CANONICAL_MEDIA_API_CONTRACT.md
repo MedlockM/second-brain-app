@@ -34,7 +34,10 @@ Frontend contract types:
 
 Operational behavior now implemented in runtime:
 - deterministic URL normalization via canonical media identity derivation
-- deduplication by canonical `media_key` (equivalent links reuse existing processing/media ids)
+- every successful save gets a fresh opaque `media_item_id`, even when the same user
+  saves an equivalent URL several times
+- processing and transcription are globally deduplicated by canonical `media_key`;
+  equivalent links share the content job without sharing a library row
 - response returns both `media_item_id` and `processing_job.job_id` for client tracking
 - invalid/unsupported URL errors are explicit and stable (`INVALID_URL`, `UNSUPPORTED_URL`)
 
@@ -55,6 +58,9 @@ Operational behavior now implemented in runtime:
 - every generation writes a **new immutable entry** carrying a snapshot of the sources it read; nothing is overwritten, nothing is invalidated, and adding or removing a media from a collection changes no existing entry
 - deduplication is short-window only: the `artifact_id` is a hash of (user, scope, type, parameters, generator version, source ids, current 120 s window), so a double tap or an SQS redelivery collapses into one generation while a later identical request legitimately regenerates
 - ownership is checked by comparing the entry's `user_id`, not by resolving a media item — a collection artifact has none
+- a media-scoped request still accepts a user-owned `media_item_id`, but storage and
+  history use `(user_id, media_key)` internally, so the same user's saves of one
+  content item share their artifact history
 - ceilings are 25 sources and 120 000 estimated tokens; beyond them the API refuses and never truncates
 
 `task-23` purges legacy ingestion/completion compatibility from active canonical paths:
@@ -423,11 +429,14 @@ Response (`DeleteMediaResponse`):
 
 Semantics (task-243, §6.2 of the task-218 benchmark):
 - the item leaves every read surface immediately: library reads skip soft-deleted rows and the search records are deleted synchronously
-- `purge_at` is epoch seconds; after it, the row, its artifacts, its S3 objects and its search records are destroyed irreversibly by the lifecycle worker
+- `purge_at` is epoch seconds; after it, the row and its search records are destroyed
+  irreversibly by the lifecycle worker; content-scoped artifacts and processing
+  objects survive while another retained save row still references the same `media_key`
 - inside the grace window a deletion is recoverable by support (clear `deleted_at`/`purge_at`)
 - idempotent: deleting an already-deleted item returns `200` with the original `purge_at`, never `404`, and never pushes the purge date out
-- re-ingesting the same URL before the purge cancels it: the item comes back rather than reappearing as an invisible row scheduled for destruction
-- `media_item_id` in the response is the durable library id, which may differ from the id in the path while reads still resolve through `processing_jobs` (task-220)
+- re-ingesting the same URL creates a separate visible save with a new `media_item_id`;
+  it does not revive or mutate the soft-deleted row
+- `media_item_id` in the response is the same durable library id supplied in the path
 - unknown or foreign id returns `404 MEDIA_NOT_FOUND`
 - this is the only endpoint in the system allowed to schedule a library row for purge; retention rules are in `docs/DATA_RETENTION.md`
 
@@ -568,7 +577,8 @@ HTTP mapping rules:
 ## Contract invariants
 
 - `media_key` must be deterministic from canonical URL normalization.
-- Ingestion is idempotent for equivalent normalized URLs.
+- Processing is idempotent for equivalent normalized URLs; saving is intentionally
+  non-idempotent and creates a fresh library row on every successful request.
 - Artifact creation collapses **only** requests identical in `(user, scope, scope_id, artifact_type, parameters, generator version, source ids)` **and** less than 120 s apart. Past that window the same request is a regeneration and creates a new entry: the storage is an append-only history, so nothing is ever overwritten and no request is ever refused for already existing.
 - Timestamps use ISO-8601 UTC strings.
 - `request_id` must be returned in error payload and response header.
