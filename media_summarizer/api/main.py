@@ -139,15 +139,15 @@ async def root():
 
 
 # Inclusion des routes API
-app.include_router(health.router, prefix="/api/v1/health", tags=["health"])
+app.include_router(health.router, prefix="/api/health", tags=["health"])
 app.include_router(media.router, prefix="/api/media", tags=["media"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
-app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
-app.include_router(auth_social.router, prefix="/api/v1/auth", tags=["authentication"])
-app.include_router(podcast_search.router, prefix="/api/v1/podcast-search", tags=["podcast-search"])
+app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
+app.include_router(auth_social.router, prefix="/api/auth", tags=["authentication"])
+app.include_router(podcast_search.router, prefix="/api/podcast-search", tags=["podcast-search"])
 app.include_router(account.router, prefix="/api/account", tags=["account"])
-app.include_router(podcasts.router, prefix="/api/v1", tags=["podcasts"])
-app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
+app.include_router(podcasts.router, prefix="/api", tags=["podcasts"])
+app.include_router(jobs.router, prefix="/api", tags=["jobs"])
 app.include_router(folders.router, prefix="/api/folders", tags=["folders"])
 app.include_router(review.router, prefix="/api", tags=["review"])
 app.include_router(tags.router, prefix="/api/tags", tags=["tags"])
@@ -155,8 +155,8 @@ app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(feeds.router, prefix="/api/feeds", tags=["feeds"])
 app.include_router(digest.router, prefix="/api", tags=["digest"])
 app.include_router(pricing.router, prefix="/api", tags=["pricing"])
-app.include_router(entitlements.router, prefix="/api/v1", tags=["entitlements"])
-app.include_router(feedback.router, prefix="/api/v1", tags=["feedback"])
+app.include_router(entitlements.router, prefix="/api", tags=["entitlements"])
+app.include_router(feedback.router, prefix="/api", tags=["feedback"])
 app.include_router(revenucat_webhook.router, prefix="/api", tags=["webhooks"])
 app.include_router(apify_webhook.router, prefix="/api", tags=["webhooks"])
 app.include_router(bug_reports.router, prefix="/api/bug-reports", tags=["bug-reports"])
@@ -174,7 +174,7 @@ app.include_router(bug_reports.router, prefix="/api/bug-reports", tags=["bug-rep
 # no list. DELETE /api/account is required by App Store guideline 5.1.1(v).
 CRITICAL_ROUTES: tuple[tuple[str, str], ...] = (
     ("DELETE", "/api/account"),
-    ("POST", "/api/v1/auth/login"),
+    ("POST", "/api/auth/login"),
     ("GET", "/api/media"),
 )
 

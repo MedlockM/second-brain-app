@@ -6,7 +6,7 @@ Why this module exists
 App Store guideline 5.1.1(v) requires any app that lets a user create an account
 to let them delete it from inside the app, and GDPR art. 17 requires that
 deletion to actually erase the data instead of hiding it. The route this replaces
-(``DELETE /api/v1/users/{user_id}``) did neither: it removed a single row from
+(``DELETE /api/users/{user_id}``) did neither: it removed a single row from
 ``users`` and left the library, the artifacts, the S3 objects and the search
 index behind -- an account that could no longer log in while its content stayed
 fully indexed. That is the worst of both worlds and is exactly the state the

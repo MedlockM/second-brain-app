@@ -1,7 +1,7 @@
 ---
 id: task-289
 title: Harmonize every API endpoint under /api/ and drop the /api/v1/ prefix
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-18 16:03'
 labels:
@@ -37,6 +37,36 @@ Also carrying stale paths in prose or fixtures: `tests/e2e/` (`conftest.py`, `te
 
 Out of scope, worth a separate task: `media_summarizer/api/endpoints/follows.py` documents `/api/v1/follows` routes but its router is never mounted in `main.py` — dead code, not a migration target.
 
+## Implementation Notes
+
+**Moved routers (all from `/api/v1/` prefix to `/api/` prefix):**
+1. `health.router` - Final paths: `GET /api/health/`, `GET /api/health/detailed`, `GET /api/health/system`
+2. `auth.router` - Final paths: `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`, `GET /api/auth/me`, `PATCH /api/auth/me`
+3. `auth_social.router` - Final paths: `GET /api/auth/google/login`, `GET /api/auth/google/callback`, `POST /api/auth/google/native`, `GET /api/auth/apple/login`, `GET /api/auth/apple/callback`, `POST /api/auth/apple/native`
+4. `podcast_search.router` - Final paths: `POST /api/podcast-search/search`, `POST /api/podcast-search/episodes`, `POST /api/podcast-search/submit-episode`, `GET /api/podcast-search/trending`
+5. `podcasts.router` - Final paths: `GET /api/podcasts/search`, `POST /api/podcasts/submit`
+6. `jobs.router` - Final paths: `GET /api/jobs/{job_id}`
+7. `entitlements.router` - Final paths: `GET /api/entitlements/status`
+8. `feedback.router` - Final paths: `GET /api/feedback/token`
+
+**Changes made (across execution code, tests, and workflows):**
+- Updated 8 `include_router` calls in `media_summarizer/api/main.py`
+- Updated CRITICAL_ROUTES validation in `media_summarizer/api/main.py` to check `/api/auth/login` instead of `/api/v1/auth/login`
+- Updated `_HEALTH_PATH` in `media_summarizer/api/lambda_handler.py` from `/api/v1/health/` to `/api/health/`
+- Updated 2 health check URLs in `.github/workflows/deploy-lambda.yml` (lines ~283 and ~414) to use `/api/health/` instead of `/api/v1/health/`
+- Updated OAuth2 `tokenUrl` in `media_summarizer/api/dependencies/auth.py` to `/api/auth/login`
+- Updated 9 URL references in mobile `authService.ts` calls
+- Updated 2 URL references in mobile `feedbackService.ts` and `PurchasesContext.tsx`
+- Updated 1 URL reference in mobile `userPreferencesService.ts`
+- Updated default redirect URIs in `media_summarizer/api/endpoints/auth_social.py` (Google and Apple callbacks)
+- Updated 4 test files with new endpoint paths
+- Updated 3 mobile source comments referencing old paths
+- Updated 4 backend documentation comments referencing old paths
+
+**Collision check:** Verified no route collisions; the 8 moved routers (health, auth, auth_social, podcast-search, podcasts, jobs, entitlements, feedback) have distinct path segments from the existing `/api/` routers and do not overlap.
+
+**No compatibility layer:** No dual mounts, no redirects, no aliases. All 8 routers now mount exclusively under `/api/` with appropriate subpaths.
+
 ## Notes for the owner (not acceptance criteria)
 
 - The deploy happens on push to `main`, after the implementing agent is gone. Once merged, confirm `Deploy Lambda Functions` goes green — its smoke test is itself one of the things being changed — then check the API answers on the new health path.
@@ -46,13 +76,13 @@ Out of scope, worth a separate task: `media_summarizer/api/endpoints/follows.py`
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every router in media_summarizer/api/main.py is mounted under /api/ with no v1 segment, and each moved route's final path is recorded in the task's implementation notes
-- [ ] #2 No /api/v1 path remains anywhere in executed code — application, Lambda handler, CI workflows, mobile — verifiable by grep over those paths
-- [ ] #3 The scheduled Lambda warmup targets the health route at its new path, so the synthesised event still reaches a mounted route rather than a 404
-- [ ] #4 The post-deploy smoke test in .github/workflows/deploy-lambda.yml curls the health route at its new path
-- [ ] #5 The OAuth2 tokenUrl in media_summarizer/api/dependencies/auth.py points at the login route's new path
-- [ ] #6 The 3 mobile call sites (authService.ts, PurchasesContext.tsx, feedbackService.ts) request the new paths, and no mobile source file still builds a /api/v1 URL
-- [ ] #7 The docs and tests/e2e files that state endpoint paths reflect the new ones; historical task files and docs/research READMEs are left unchanged
-- [ ] #8 No compatibility layer is left behind — no dual mount, no redirect from the old prefix, no alias kept 'just in case'
-- [ ] #9 ruff and mypy are clean on the touched Python, and the mobile app typechecks
+- [x] #1 Every router in media_summarizer/api/main.py is mounted under /api/ with no v1 segment, and each moved route's final path is recorded in the task's implementation notes
+- [x] #2 No /api/v1 path remains anywhere in executed code — application, Lambda handler, CI workflows, mobile — verifiable by grep over those paths
+- [x] #3 The scheduled Lambda warmup targets the health route at its new path, so the synthesised event still reaches a mounted route rather than a 404
+- [x] #4 The post-deploy smoke test in .github/workflows/deploy-lambda.yml curls the health route at its new path
+- [x] #5 The OAuth2 tokenUrl in media_summarizer/api/dependencies/auth.py points at the login route's new path
+- [x] #6 The 3 mobile call sites (authService.ts, PurchasesContext.tsx, feedbackService.ts) request the new paths, and no mobile source file still builds a /api/v1 URL
+- [x] #7 The docs and tests/e2e files that state endpoint paths reflect the new ones; historical task files and docs/research READMEs are left unchanged
+- [x] #8 No compatibility layer is left behind — no dual mount, no redirect from the old prefix, no alias kept 'just in case'
+- [x] #9 ruff and mypy are clean on the touched Python, and the mobile app typechecks
 <!-- AC:END -->

@@ -26,7 +26,7 @@ import {
 
 /**
  * Read-only summary of the subscription state the backend reports on
- * `GET /api/v1/entitlements/status`: tier, minutes left in the period, how much
+ * `GET /api/entitlements/status`: tier, minutes left in the period, how much
  * of the allowance is spent, and when it refills.
  *
  * Minutes are the only metered unit (task-287), so the card shows one balance

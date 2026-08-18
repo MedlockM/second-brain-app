@@ -280,7 +280,7 @@ jobs:
           curl --fail --silent --show-error \
             --retry 5 --retry-all-errors --retry-delay 3 \
             --output "$HEALTH_BODY" \
-            "$API_ENDPOINT/api/v1/health/"
+            "$API_ENDPOINT/api/health/"
           jq -e '.status == "healthy"' "$HEALTH_BODY"
 
   # ---------------------------------------------------------------------------
@@ -411,5 +411,5 @@ jobs:
           curl --fail --silent --show-error \
             --retry 5 --retry-all-errors --retry-delay 3 \
             --output "$HEALTH_BODY" \
-            "$API_ENDPOINT/api/v1/health/"
+            "$API_ENDPOINT/api/health/"
           jq -e '.status == "healthy"' "$HEALTH_BODY"

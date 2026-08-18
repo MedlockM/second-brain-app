@@ -1,6 +1,6 @@
 /**
  * Display-only helpers for the subscription state returned by
- * `GET /api/v1/entitlements/status`.
+ * `GET /api/entitlements/status`.
  *
  * Nothing here decides what the user is allowed to do: tier and quota
  * enforcement lives in the backend (`quota_enforcer.py`), the only place it

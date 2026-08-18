@@ -3,11 +3,11 @@ Account endpoint: in-app deletion of the caller's own account.
 
 There is no ``user_id`` in the path, by design. The account deleted is the one the
 bearer token authenticates, so an authorization check is not something the handler
-can forget: the route this replaces (``DELETE /api/v1/users/{user_id}``) took an
+can forget: the route this replaces (``DELETE /api/users/{user_id}``) took an
 id and compared it to the session, which is a check that has to be written
 correctly every time instead of being structurally impossible to get wrong.
 
-Reading and updating the current account stays on ``/api/v1/auth/me``.
+Reading and updating the current account stays on ``/api/auth/me``.
 """
 
 import logging
