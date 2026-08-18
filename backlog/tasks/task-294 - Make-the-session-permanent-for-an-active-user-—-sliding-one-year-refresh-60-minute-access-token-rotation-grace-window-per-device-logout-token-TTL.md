@@ -3,7 +3,7 @@ id: task-294
 title: >-
   Make the session permanent for an active user — sliding one-year refresh,
   60-minute access token, rotation grace window, per-device logout, token TTL
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-18 17:24'
 labels:

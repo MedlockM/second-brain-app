@@ -3,7 +3,7 @@ id: task-295
 title: >-
   Stop the mobile app from dropping a valid session — no purge on network
   errors, single 401 interceptor, shared refresh promise, AppState revalidation
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-18 17:25'
 labels:
