@@ -35,11 +35,12 @@ _YOUTUBE_HOSTS = {
 }
 _INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com"}
 _X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
+_TIKTOK_SHORT_HOSTS = {"vm.tiktok.com", "vt.tiktok.com"}
 _TIKTOK_HOSTS = {
     "tiktok.com",
     "www.tiktok.com",
     "m.tiktok.com",
-    "vm.tiktok.com",
+    *_TIKTOK_SHORT_HOSTS,
 }
 _SPOTIFY_HOSTS = {"open.spotify.com", "www.open.spotify.com"}
 
@@ -126,16 +127,24 @@ def _canon_instagram(path: str) -> Tuple[str, str, str]:
     return host, path, ""
 
 
-def _canon_tiktok(path: str) -> Tuple[str, str, str]:
-    host = "tiktok.com"
+def _canon_tiktok(host: str, path: str) -> Tuple[str, str, str]:
     path = _normalize_path(path)
     parts = [p for p in path.split("/") if p]
-    # Keep canonical user/video route and t-short routes.
-    if len(parts) >= 3 and parts[0].startswith("@") and parts[1] == "video":
-        path = f"/{parts[0]}/video/{parts[2]}"
-    elif len(parts) >= 2 and parts[0] == "t":
-        path = f"/t/{parts[1]}"
-    return host, path, ""
+    # Keep canonical user/video and user/photo routes, and t-short routes.
+    if len(parts) >= 3 and parts[0].startswith("@") and parts[1] in ("video", "photo"):
+        return "tiktok.com", f"/{parts[0]}/{parts[1]}/{parts[2]}", ""
+    if len(parts) >= 2 and parts[0] == "t":
+        return "tiktok.com", f"/t/{parts[1]}", ""
+    # An unexpanded share link: its path is an opaque redirect code that only
+    # means anything on the host that issued it. Collapsing the host to
+    # `tiktok.com` here used to strand the code on a domain where it matches no
+    # route at all, and the classifier rejected every link the TikTok share
+    # button produces. Short links are normally expanded upstream
+    # (`short_url_resolver`); this branch is what keeps one that could not be
+    # expanded ingestible.
+    if host in _TIKTOK_SHORT_HOSTS:
+        return host, path, ""
+    return "tiktok.com", path, ""
 
 
 def _canon_spotify(path: str) -> Tuple[str, str, str]:
@@ -205,7 +214,7 @@ def canonicalize_media_url(url: str) -> str:
     elif host in _INSTAGRAM_HOSTS:
         netloc, path, query = _canon_instagram(path)
     elif host in _TIKTOK_HOSTS:
-        netloc, path, query = _canon_tiktok(path)
+        netloc, path, query = _canon_tiktok(host, path)
     elif host in _X_HOSTS:
         netloc, path, query = _canon_x(path)
     elif host in _SPOTIFY_HOSTS:

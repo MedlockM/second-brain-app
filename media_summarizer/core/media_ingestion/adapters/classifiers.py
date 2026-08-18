@@ -36,13 +36,13 @@ _YOUTUBE_HOSTS = {
 _YOUTUBE_SHORT_HOSTS = {"youtu.be", "www.youtu.be"}
 _INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com"}
 _X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
+_TIKTOK_SHORT_HOSTS = {"vm.tiktok.com", "vt.tiktok.com"}
 _TIKTOK_HOSTS = {
     "tiktok.com",
     "www.tiktok.com",
     "m.tiktok.com",
-    "vm.tiktok.com",
+    *_TIKTOK_SHORT_HOSTS,
 }
-_TIKTOK_SHORT_HOSTS = {"vm.tiktok.com"}
 _SUPPORTED_SCHEMES = {"http", "https"}
 _FORBIDDEN_HOSTS = {"localhost"}
 _DEFAULT_BLOCKED_DOMAINS = {
@@ -70,6 +70,7 @@ _UNSUPPORTED_YOUTUBE_FORMAT_MESSAGE = "Unsupported YouTube URL format."
 _UNSUPPORTED_INSTAGRAM_FORMAT_MESSAGE = "Unsupported Instagram URL format."
 _UNSUPPORTED_X_FORMAT_MESSAGE = "Unsupported X/Twitter URL format."
 _UNSUPPORTED_TIKTOK_FORMAT_MESSAGE = "Unsupported TikTok URL format."
+_UNSUPPORTED_TIKTOK_PHOTO_MESSAGE = "TikTok photo posts are not supported yet."
 _UNSAFE_URL_FORMAT_MESSAGE = "Unsupported unsafe URL format."
 _BLOCKED_DOMAIN_MESSAGE = "Blocked URL host by safety policy."
 _MAX_URL_LENGTH = 2048
@@ -199,7 +200,21 @@ def _is_instagram_video_path(path: str) -> bool:
     )
 
 
+def _is_tiktok_photo_path(path: str) -> bool:
+    """True for a photo/carousel post, which has no transcribable audio track.
+
+    Worth telling apart from an unsupported URL *format*: the link is perfectly
+    valid and the user has no way to turn it into a video, so the answer has to
+    name the real reason (the same treatment Instagram image posts get).
+    """
+    parts = _path_segments(path)
+    return len(parts) >= 3 and parts[0].startswith("@") and parts[1] == "photo"
+
+
 def _is_tiktok_video_path(*, host: str, path: str) -> bool:
+    # An unexpanded share link: the path is an opaque redirect code, so nothing
+    # here can tell what it points at. Accept it and let the worker, which
+    # follows the redirect through yt-dlp, find out.
     if host in _TIKTOK_SHORT_HOSTS:
         return bool(_path_segments(path))
     return (path.startswith("/@") and "/video/" in path) or path.startswith("/t/")
@@ -383,6 +398,8 @@ class RuleBasedUrlClassifier(UrlClassifierPort):
             )
 
         if host in _TIKTOK_HOSTS:
+            if _is_tiktok_photo_path(path):
+                raise UnsupportedUrlError(_UNSUPPORTED_TIKTOK_PHOTO_MESSAGE)
             if not _is_tiktok_video_path(host=host, path=path):
                 raise UnsupportedUrlError(_UNSUPPORTED_TIKTOK_FORMAT_MESSAGE)
             return ClassifiedUrl(

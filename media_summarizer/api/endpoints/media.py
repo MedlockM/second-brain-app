@@ -86,6 +86,7 @@ from media_summarizer.core.services.raw_content_service import (
     RawContentNotAvailableError,
     get_raw_content,
 )
+from media_summarizer.core.services.short_url_resolver import resolve_tiktok_short_link
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.language_codes import normalize_language_code
@@ -729,6 +730,7 @@ async def ingest_url(
     from media_summarizer.core.media_ingestion.errors import (
         InvalidUrlError,
         MediaIngestionError,
+        UnsupportedUrlError,
     )
     from media_summarizer.core.media_ingestion.wiring import (
         build_default_ingest_url_use_case,
@@ -757,6 +759,14 @@ async def ingest_url(
             folder_id=payload.folder_id,
             tag_ids=payload.tag_ids,
         )
+
+        # A share link carries an opaque redirect code, not a media id, so
+        # expand it before anything reads it: the classifier cannot tell what it
+        # points at, and `media_key` -- derived from the canonical URL right
+        # after this -- would differ for two shares of the same media, which is
+        # what deduplication and the "already held" quota exemption rest on.
+        # Best effort: an unresolvable link is submitted as-is.
+        url = await resolve_tiktok_short_link(url)
 
         # Quota enforcement check before processing
         # Detect source platform for quota checking
@@ -846,6 +856,22 @@ async def ingest_url(
             logging.WARNING,
             "media.ingest.invalid_url",
             "Invalid URL provided for ingestion",
+            error_message=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except UnsupportedUrlError as exc:
+        # The URL is valid, we just do not ingest that kind of media. That is a
+        # client-side fact with a message worth reading ("TikTok photo posts are
+        # not supported yet"), so it must not fall through to the generic 500
+        # below, which replaced it with "Failed to ingest URL".
+        log_event(
+            logger,
+            logging.WARNING,
+            "media.ingest.unsupported_url",
+            "Unsupported URL provided for ingestion",
             error_message=str(exc),
         )
         raise HTTPException(
