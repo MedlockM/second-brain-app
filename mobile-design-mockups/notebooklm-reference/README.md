@@ -29,6 +29,14 @@ Ce README est incomplet par construction : il ne couvre que les écrans pour les
 - **À ne pas reprendre** : les types propres à NotebookLM visibles sur la capture (infographie, rapports, mindmap).
 - **Tâches** : task-272 (affichage), task-269 puis task-270 (stockage append-only et snapshot).
 
+## `quiz-question-by-question.png` — détail d'un artefact Quiz
+
+- **Écran visé** : `mobile/app/artifacts/[artifactId].tsx`, uniquement lorsque l'artefact est un Quiz.
+- **Écart avec l'écran actuel avant task-282** : toutes les questions étaient empilées dans le même flux vertical. La référence montre au contraire une seule question, sa progression, son feedback et une action explicite pour avancer.
+- **À reprendre** : la hiérarchie « progression → question → réponses → explication → action suivante » ; le compteur de position et la barre proportionnelle ; la distinction visuelle entre la mauvaise réponse choisie et la bonne réponse ; le bouton « Continue » après réponse.
+- **À ne pas reprendre** : la palette sombre, le chrome « Study material », les icônes et menus propres à NotebookLM, le badge de difficulté « MEDIUM », ainsi que toute logique de score ou donnée absente du contrat Quiz.
+- **Tâche** : task-282.
+
 ## Décisions de nommage de l'owner (2026-08-17)
 
 - L'onglet qui porte le transcript d'un média s'appelle **« Reader »**.

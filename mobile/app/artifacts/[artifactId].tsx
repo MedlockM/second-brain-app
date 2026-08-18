@@ -127,6 +127,8 @@ export default function ArtifactDetailScreen() {
   const router = useRouter();
   const { token } = useAuth();
   const mountedRef = useRef(true);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const artifactBodyTopRef = useRef(0);
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
@@ -193,6 +195,15 @@ export default function ArtifactDetailScreen() {
     }
   }, [router]);
 
+  const scrollToArtifactBody = useCallback(() => {
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollTo({
+        y: artifactBodyTopRef.current,
+        animated: true,
+      });
+    });
+  }, []);
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
@@ -254,6 +265,7 @@ export default function ArtifactDetailScreen() {
         </View>
       ) : (
         <ScrollView
+          ref={scrollViewRef}
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -275,7 +287,17 @@ export default function ArtifactDetailScreen() {
             <TranslationBadge translation={state.translation} />
           </View>
 
-          <ArtifactBody type={state.type} payload={state.payload} />
+          <View
+            onLayout={({ nativeEvent }) => {
+              artifactBodyTopRef.current = nativeEvent.layout.y;
+            }}
+          >
+            <ArtifactBody
+              type={state.type}
+              payload={state.payload}
+              onQuizQuestionChange={scrollToArtifactBody}
+            />
+          </View>
         </ScrollView>
       )}
     </SafeAreaView>
@@ -332,9 +354,11 @@ function TranslationBadge({
 function ArtifactBody({
   type,
   payload,
+  onQuizQuestionChange,
 }: {
   type: ArtifactKind;
   payload: ArtifactPayload;
+  onQuizQuestionChange: () => void;
 }) {
   const content = (payload?.content ?? {}) as Record<string, unknown>;
 
@@ -350,7 +374,12 @@ function ArtifactBody({
   if (type === "flashcards") {
     return <FlashcardsBody content={content} />;
   }
-  return <QuizBody content={content} />;
+  return (
+    <QuizBody
+      content={content}
+      onQuestionChange={onQuizQuestionChange}
+    />
+  );
 }
 
 // --- Summary (short) ---
@@ -599,8 +628,18 @@ interface QuizQuestion {
   explanation: string;
 }
 
-function QuizBody({ content }: { content: Record<string, unknown> }) {
+function QuizBody({
+  content,
+  onQuestionChange,
+}: {
+  content: Record<string, unknown>;
+  onQuestionChange: () => void;
+}) {
   const questions = pickQuizQuestions(content);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [completed, setCompleted] = useState(false);
+
   if (!questions || questions.length === 0) {
     return (
       <Section>
@@ -608,38 +647,120 @@ function QuizBody({ content }: { content: Record<string, unknown> }) {
       </Section>
     );
   }
+
+  const currentQuestion = questions[currentIndex];
+  const answered = picked !== null;
+  const isLastQuestion = currentIndex === questions.length - 1;
+  const progressWidth = `${((currentIndex + 1) / questions.length) * 100}%` as const;
+
+  const handleContinue = () => {
+    if (isLastQuestion) {
+      setCompleted(true);
+      return;
+    }
+    setCurrentIndex((index) => index + 1);
+    setPicked(null);
+    onQuestionChange();
+  };
+
   return (
-    <Section
-      title={`${questions.length} ${questions.length === 1 ? "question" : "questions"}`}
-    >
-      {questions.map((q, i) => (
-        <QuizQuestionCard key={`q-${i}`} index={i + 1} question={q} />
-      ))}
-    </Section>
+    <View style={styles.quizBody}>
+      <View style={styles.quizProgressHeader}>
+        <Text style={styles.quizProgressLabel}>
+          {`Question ${currentIndex + 1} / ${questions.length}`}
+        </Text>
+      </View>
+      <View
+        style={styles.quizProgressTrack}
+        accessibilityRole="progressbar"
+        accessibilityLabel="Quiz progress"
+        accessibilityValue={{
+          min: 1,
+          max: questions.length,
+          now: currentIndex + 1,
+          text: `Question ${currentIndex + 1} of ${questions.length}`,
+        }}
+        testID="quiz-progress"
+      >
+        <View style={[styles.quizProgressFill, { width: progressWidth }]} />
+      </View>
+
+      <QuizQuestionCard
+        key={`q-${currentIndex}`}
+        question={currentQuestion}
+        picked={picked}
+        onPick={setPicked}
+      />
+
+      {answered && !completed ? (
+        <Pressable
+          style={({ pressed }) => [
+            styles.quizContinueButton,
+            pressed && styles.quizContinueButtonPressed,
+          ]}
+          onPress={handleContinue}
+          accessibilityRole="button"
+          accessibilityLabel={isLastQuestion ? "Done" : "Continue"}
+          testID="quiz-continue-button"
+        >
+          <Text style={styles.quizContinueButtonText}>
+            {isLastQuestion ? "Done" : "Continue"}
+          </Text>
+          {!isLastQuestion ? (
+            <Ionicons
+              name="arrow-forward"
+              size={Typography.headline.fontSize}
+              color={Colors.onPrimary}
+            />
+          ) : null}
+        </Pressable>
+      ) : null}
+
+      {completed ? (
+        <View
+          style={styles.quizComplete}
+          accessibilityRole="text"
+          accessibilityLiveRegion="polite"
+          testID="quiz-complete"
+        >
+          <Ionicons
+            name="checkmark-circle"
+            size={Typography.headline.fontSize}
+            color={Colors.onPrimary}
+          />
+          <Text style={styles.quizCompleteText}>Quiz complete</Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
 function QuizQuestionCard({
-  index,
   question,
+  picked,
+  onPick,
 }: {
-  index: number;
   question: QuizQuestion;
+  picked: string | null;
+  onPick: (label: string) => void;
 }) {
-  const [picked, setPicked] = useState<string | null>(null);
   const correct = question.correct_answer;
   const answered = picked !== null;
 
   return (
     <View style={styles.quizCard}>
-      <Text style={styles.quizIndex}>{`Question ${index}`}</Text>
       <Text style={styles.quizQuestion}>{question.question}</Text>
       <View style={styles.quizOptions}>
         {question.options.map((opt) => {
           const isPicked = picked === opt.label;
-          const isCorrect = opt.label === correct;
+          const isCorrect = opt.label.toUpperCase() === correct;
           const showCorrect = answered && isCorrect;
           const showWrong = answered && isPicked && !isCorrect;
+          const answerState = showCorrect
+            ? ", correct answer"
+            : showWrong
+              ? ", selected answer, incorrect"
+              : "";
           return (
             <Pressable
               key={opt.label}
@@ -648,10 +769,12 @@ function QuizQuestionCard({
                 showCorrect && styles.quizOptionCorrect,
                 showWrong && styles.quizOptionWrong,
               ]}
-              onPress={() => !answered && setPicked(opt.label)}
+              onPress={() => !answered && onPick(opt.label)}
               disabled={answered}
               accessibilityRole="button"
-              accessibilityLabel={`Option ${opt.label}: ${opt.text}`}
+              accessibilityLabel={`Option ${opt.label}: ${opt.text}${answerState}`}
+              accessibilityState={{ disabled: answered, selected: isPicked }}
+              testID={`quiz-option-${opt.label}`}
             >
               <View
                 style={[
@@ -1278,6 +1401,32 @@ const styles = StyleSheet.create({
   },
 
   // Quiz
+  quizBody: {
+    marginBottom: Spacing.lg,
+  },
+  quizProgressHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: Spacing.sm,
+  },
+  quizProgressLabel: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: Typography.headline.fontWeight,
+    color: Colors.textMain,
+  },
+  quizProgressTrack: {
+    height: Spacing.xs,
+    overflow: "hidden",
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
+    marginBottom: Spacing.lg,
+  },
+  quizProgressFill: {
+    height: "100%",
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primary,
+  },
   quizCard: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.xl,
@@ -1286,13 +1435,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Colors.outlineVariant,
     ...Shadows.soft,
-  },
-  quizIndex: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: Colors.textMuted,
-    letterSpacing: 0.8,
-    marginBottom: Spacing.sm,
   },
   quizQuestion: {
     fontSize: Typography.body.fontSize,
@@ -1373,6 +1515,39 @@ const styles = StyleSheet.create({
     fontSize: Typography.body.fontSize,
     color: Colors.textMain,
     lineHeight: 23,
+  },
+  quizContinueButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    minHeight: TouchTarget.comfortable,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primary,
+  },
+  quizContinueButtonPressed: {
+    opacity: 0.8,
+  },
+  quizContinueButtonText: {
+    fontSize: Typography.body.fontSize,
+    fontWeight: Typography.headline.fontWeight,
+    color: Colors.onPrimary,
+  },
+  quizComplete: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    minHeight: TouchTarget.comfortable,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primary,
+  },
+  quizCompleteText: {
+    fontSize: Typography.body.fontSize,
+    fontWeight: Typography.headline.fontWeight,
+    color: Colors.onPrimary,
   },
 
   // Failure / not-ready states

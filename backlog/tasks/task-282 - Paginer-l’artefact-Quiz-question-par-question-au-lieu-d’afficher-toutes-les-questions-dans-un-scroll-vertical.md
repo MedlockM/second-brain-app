@@ -3,11 +3,11 @@ id: task-282
 title: >-
   Paginer l’artefact Quiz question par question au lieu d’afficher toutes les
   questions dans un scroll vertical
-status: In Progress
+status: Done
 assignee:
   - '@Codex'
 created_date: '2026-08-18 00:17'
-updated_date: '2026-08-18 01:40'
+updated_date: '2026-08-18 01:44'
 labels:
   - mobile
   - ui
@@ -76,17 +76,17 @@ La capture devra être déposée sous un nom durable dans `mobile-design-mockups
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 La capture `539538D8-4FCB-4BDB-AF24-9FD378C948E6.png` est déposée sous un nom durable dans `mobile-design-mockups/notebooklm-reference/`, et le README de ce dossier la mappe vers l’artefact Quiz en précisant les éléments repris et exclus
-- [ ] #2 `QuizBody` ne rend qu’une seule question à la fois ; aucune question suivante n’est présente dans le flux vertical ou atteignable par scroll
-- [ ] #3 La position `Question N / total` et une barre de progression proportionnelle sont visibles pour chaque question et exposent une information d’accessibilité compréhensible
-- [ ] #4 Avant réponse, toutes les options de la question courante sont sélectionnables et l’action de progression n’est pas disponible ; après un premier choix, les options sont verrouillées
-- [ ] #5 Après réponse, la bonne option est toujours identifiable, l’option choisie incorrecte est distinguée le cas échéant, et l’explication de la question courante est affichée
-- [ ] #6 Après réponse, l’action « Continue » affiche la question suivante et repositionne son contenu au début ; la dernière question utilise une action terminale explicite qui ne suggère pas qu’une question supplémentaire existe
-- [ ] #7 Sur un petit écran, le contenu trop long de la seule question courante reste consultable verticalement sans rendre une autre question par scroll
-- [ ] #8 L’en-tête, le hero, la navigation retour, les états loading/error/not-ready et les rendus summary_short, summary_detailed, notes et flashcards de `mobile/app/artifacts/[artifactId].tsx` restent inchangés fonctionnellement
-- [ ] #9 Toutes les nouvelles couleurs, espacements, typographies, rayons et tailles de cible tactile utilisent `mobile/src/constants/theme.ts` ; aucune valeur visuelle en dur ni dépendance npm n’est ajoutée
-- [ ] #10 `npx tsc --noEmit` et l’ESLint du repo passent sur `mobile/` sans nouvelle erreur ni nouveau warning ; aucun test automatisé ni fichier `mobile/.maestro/*.yaml` n’est ajouté ou modifié
-- [ ] #11 Les Implementation Notes consignent les libellés visibles, rôles d’accessibilité et éventuels `testID` introduits pour le parcours Quiz, comme matière pour la réactivation Maestro de task-254/task-172
+- [x] #1 La capture `539538D8-4FCB-4BDB-AF24-9FD378C948E6.png` est déposée sous un nom durable dans `mobile-design-mockups/notebooklm-reference/`, et le README de ce dossier la mappe vers l’artefact Quiz en précisant les éléments repris et exclus
+- [x] #2 `QuizBody` ne rend qu’une seule question à la fois ; aucune question suivante n’est présente dans le flux vertical ou atteignable par scroll
+- [x] #3 La position `Question N / total` et une barre de progression proportionnelle sont visibles pour chaque question et exposent une information d’accessibilité compréhensible
+- [x] #4 Avant réponse, toutes les options de la question courante sont sélectionnables et l’action de progression n’est pas disponible ; après un premier choix, les options sont verrouillées
+- [x] #5 Après réponse, la bonne option est toujours identifiable, l’option choisie incorrecte est distinguée le cas échéant, et l’explication de la question courante est affichée
+- [x] #6 Après réponse, l’action « Continue » affiche la question suivante et repositionne son contenu au début ; la dernière question utilise une action terminale explicite qui ne suggère pas qu’une question supplémentaire existe
+- [x] #7 Sur un petit écran, le contenu trop long de la seule question courante reste consultable verticalement sans rendre une autre question par scroll
+- [x] #8 L’en-tête, le hero, la navigation retour, les états loading/error/not-ready et les rendus summary_short, summary_detailed, notes et flashcards de `mobile/app/artifacts/[artifactId].tsx` restent inchangés fonctionnellement
+- [x] #9 Toutes les nouvelles couleurs, espacements, typographies, rayons et tailles de cible tactile utilisent `mobile/src/constants/theme.ts` ; aucune valeur visuelle en dur ni dépendance npm n’est ajoutée
+- [x] #10 `npx tsc --noEmit` et l’ESLint du repo passent sur `mobile/` sans nouvelle erreur ni nouveau warning ; aucun test automatisé ni fichier `mobile/.maestro/*.yaml` n’est ajouté ou modifié
+- [x] #11 Les Implementation Notes consignent les libellés visibles, rôles d’accessibilité et éventuels `testID` introduits pour le parcours Quiz, comme matière pour la réactivation Maestro de task-254/task-172
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -103,4 +103,29 @@ La capture devra être déposée sous un nom durable dans `mobile-design-mockups
 
 <!-- SECTION:NOTES:BEGIN -->
 Dispatch automatique autorisé par le `/goal` actif après remise à zéro du contexte. Les tâches antérieures de priorité haute sont owner-only, bloquées par des prérequis externes ou explicitement `dispatchable: false`; task-282 est indépendante et dispatchable. Les modifications non commités de task-283 dans `media_artifact.py`, `artifact_service.py` et son fichier Backlog seront préservées hors de ce commit.
+
+## Implémentation
+
+- Le Quiz ne monte plus qu'une seule question. `QuizBody` possède l'index courant, la réponse sélectionnée et l'état terminal ; changer de question remplace la carte et remonte le `ScrollView` au début du corps d'artefact.
+- La progression visible `Question N / total` est accompagnée d'une barre proportionnelle avec rôle `progressbar` et valeur accessible.
+- Avant réponse, chaque option est un bouton sélectionnable. Après le premier choix, toutes les options sont désactivées ; la bonne réponse reçoit le traitement primaire et un check, tandis qu'un choix erroné reçoit le traitement d'erreur et une croix. L'explication reste visible.
+- `Continue` n'apparaît qu'après une réponse. Sur la dernière question, l'action devient `Done`; son activation garde le feedback affiché et montre `Quiz complete`, la navigation retour d'en-tête restant disponible.
+- Le `ScrollView` extérieur est conservé, donc une question ou explication longue reste consultable sur petit écran sans rendre la question suivante.
+- La capture owner a été copiée bit-à-bit vers `mobile-design-mockups/notebooklm-reference/quiz-question-by-question.png` et son mapping, ses reprises et ses exclusions sont documentés dans le README de référence.
+
+## Surface d'automatisation et accessibilité
+
+- Libellés visibles : `Question N / total`, `EXPLANATION`, `Continue`, `Done`, `Quiz complete`.
+- Rôles : `progressbar` pour la progression ; `button` pour chaque option et l'action `Continue`/`Done` ; `text` avec live region polie pour la confirmation terminale.
+- Test IDs : `quiz-progress`, `quiz-option-<label>`, `quiz-continue-button`, `quiz-complete`.
+- Les options exposent aussi leurs états accessibles `selected` et `disabled`, ainsi que le résultat correct/incorrect dans leur libellé après réponse.
+
+## Vérifications
+
+- `npx tsc --noEmit` dans `mobile/` : succès.
+- `npx eslint 'app/artifacts/[artifactId].tsx' --max-warnings=0` : succès, aucun avertissement sur le fichier modifié.
+- `npm run lint` dans `mobile/` : succès, 0 erreur ; les 8 avertissements affichés sont tous préexistants dans d'autres fichiers.
+- `git diff --check` ciblé : succès.
+- Aucun fichier Maestro, manifeste de dépendances, contrat ou backend n'est modifié par task-282. Aucun test automatisé n'a été ajouté ou exécuté, conformément au périmètre.
+- Contrôle du diff anti-secrets : aucune donnée d'authentification ou identité de compte ajoutée.
 <!-- SECTION:NOTES:END -->
