@@ -949,7 +949,7 @@ async def fail_artifact_generation(
     *,
     artifact_id: str,
     error_message: str,
-    error_code: str = "INTERNAL_ERROR",
+    error_code: Optional[str] = None,
 ) -> Optional[MediaArtifactRecord]:
     record = await media_artifacts.get_media_artifact_by_id(artifact_id)
     if not record:
@@ -957,7 +957,8 @@ async def fail_artifact_generation(
 
     now = _now_utc()
     record.status = MediaArtifactStatus.FAILED
-    record.error_code = error_code
+    effective_error_code = error_code or "INTERNAL_ERROR"
+    record.error_code = effective_error_code
     record.error_message = error_message
     record.lease_expires_at = None
     record.updated_at = now
@@ -973,7 +974,7 @@ async def fail_artifact_generation(
         artifact_type=record.artifact_type.value,
         scope=record.scope.value,
         scope_id=record.scope_id,
-        error_code=error_code,
+        error_code=effective_error_code,
         detail=error_message,
     )
     return record

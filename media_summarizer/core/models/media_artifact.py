@@ -13,6 +13,7 @@ to repair.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -143,7 +144,13 @@ class MediaArtifactRecord(BaseModel):
         if self.storage is not None:
             item["storage"] = self.storage.model_dump(exclude_none=True)
         if self.llm_usage is not None:
-            item["llm_usage"] = self.llm_usage.model_dump()
+            usage = self.llm_usage.model_dump()
+            # DynamoDB deliberately rejects binary floats. Keep the application
+            # model convenient for pricing arithmetic and convert only at the
+            # persistence boundary, through str so the decimal value matches the
+            # rounded amount rather than the float's binary representation.
+            usage["cost_eur"] = Decimal(str(self.llm_usage.cost_eur))
+            item["llm_usage"] = usage
         if self.lease_expires_at is not None:
             item["lease_expires_at"] = self.lease_expires_at.isoformat()
         if self.error_code:
