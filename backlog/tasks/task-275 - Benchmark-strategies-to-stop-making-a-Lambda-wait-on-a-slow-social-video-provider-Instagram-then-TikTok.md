@@ -4,9 +4,10 @@ title: >-
   Benchmark strategies to stop making a Lambda wait on a slow social-video
   provider (Instagram, then TikTok)
 status: To Do
-assignee: []
+assignee:
+  - Codex
 created_date: '2026-08-17 20:54'
-updated_date: '2026-08-17 21:03'
+updated_date: '2026-08-18 00:29'
 labels:
   - benchmark
   - ingestion
@@ -68,13 +69,29 @@ The Instagram yt-dlp block may lift on its own, since the egress IP is shared an
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/research/task-275-<short-description>/README.md exists with owner_decision: pending in its front-matter and an Owner Validation section
-- [ ] #2 Each candidate is compared on save latency (happy path and provider-blocked path), monthly cost at realistic volumes, new infrastructure and attack surface including endpoint authentication, retry and failure semantics including a callback that never arrives, and resilience to a further provider slowdown
-- [ ] #3 The README establishes whether waitForFinish changes anything versus the current polling, or merely relocates the same blocking wait, rather than assuming its rejection
-- [ ] #4 A single recommendation is stated with the rejection rationale for every discarded option, and the README says whether it lets task-274's raised worker ceiling come back down and by how much
-- [ ] #5 The measured facts of the incident are carried into the README and sourced: the 63-100 s Apify runs versus 6-9 s in June, the 6/6 yt-dlp blocks, and the 30 s API Gateway integration cap
+- [x] #1 docs/research/task-275-<short-description>/README.md exists with owner_decision: pending in its front-matter and an Owner Validation section
+- [x] #2 Each candidate is compared on save latency (happy path and provider-blocked path), monthly cost at realistic volumes, new infrastructure and attack surface including endpoint authentication, retry and failure semantics including a callback that never arrives, and resilience to a further provider slowdown
+- [x] #3 The README establishes whether waitForFinish changes anything versus the current polling, or merely relocates the same blocking wait, rather than assuming its rejection
+- [x] #4 A single recommendation is stated with the rejection rationale for every discarded option, and the README says whether it lets task-274's raised worker ceiling come back down and by how much
+- [x] #5 The measured facts of the incident are carried into the README and sourced: the 63-100 s Apify runs versus 6-9 s in June, the 6/6 yt-dlp blocks, and the 30 s API Gateway integration cap
 
-- [ ] #6 The README records that the residential proxy is out of scope and deferred to V2 in task-145, and that the recommendation holds whether or not a proxy ships later — it must not assume the fallback becomes rare
-- [ ] #7 The README states whether TikTok should adopt the same shape for its own Apify fallback, or argues why a solution fitting only Instagram is acceptable
-- [ ] #8 No implementation work is performed in this task
+- [x] #6 The README records that the residential proxy is out of scope and deferred to V2 in task-145, and that the recommendation holds whether or not a proxy ships later — it must not assume the fallback becomes rare
+- [x] #7 The README states whether TikTok should adopt the same shape for its own Apify fallback, or argues why a solution fitting only Instagram is acceptable
+- [x] #8 No implementation work is performed in this task
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Auditer le fallback Apify Instagram/TikTok actuel, les ADR et benchmarks associés, ainsi que le précédent Deepgram push/pull. — Terminé.
+2. Effectuer une recherche internet exhaustive fondée sur les documentations officielles Apify, AWS Lambda/SQS et AWS Step Functions afin d’établir limites, sécurité, retries, latences et coûts à jour. — Terminé.
+3. Comparer les webhooks Apify, l’auto-ré-enqueue SQS, waitForFinish, Step Functions Standard/Express et le polling actuel sur la grille complète, avec scénarios de 100, 1 000 et 10 000 fallbacks mensuels. — Terminé.
+4. Rédiger docs/research/task-275-apify-async-orchestration/README.md avec owner_decision: pending, Owner Validation, recommandation unique, motifs de rejet, impact sur les timeouts, portée TikTok et exclusion explicite du proxy résidentiel. — Terminé.
+5. Relire le livrable contre chaque critère, vérifier les calculs et sources, puis consigner le résultat. — Terminé. La tâche reste To Do et est bloquée par owner_decision: pending jusqu’à la validation owner, conformément au lifecycle benchmark.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Mode initial. Benchmark produit dans docs/research/task-275-apify-async-orchestration/README.md. Recherche fondée sur les documentations officielles Apify et AWS, l’implémentation locale, task-274 et les benchmarks task-107/task-140. Recommandation : run Apify asynchrone avec webhook ad hoc sur tous les états terminaux, continuation SQS idempotente et backstop unique à 15 minutes qui réconcilie le run ; même orchestration pour Instagram et TikTok. waitForFinish, polling SQS continu, Step Functions et relèvement des timeouts sont comparés et rejetés avec coûts eu-west-3. Aucun code ni Terraform modifié. La recommandation attend la validation de l’owner via owner_decision.
+<!-- SECTION:NOTES:END -->
