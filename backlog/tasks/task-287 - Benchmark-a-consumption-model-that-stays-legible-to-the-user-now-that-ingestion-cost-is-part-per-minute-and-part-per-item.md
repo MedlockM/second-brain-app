@@ -84,3 +84,50 @@ Ground the work in what comparable products do — read-later and transcription 
 
 - [ ] #11 The four accounting defects listed in the description are each either fixed by the recommended model or shown to be meaningless under it, with the reasoning stated
 <!-- AC:END -->
+
+## Implementation Notes
+
+Mode: **initial** (no prior `docs/research/task-287-*` directory, no owner-rejected README to
+integrate).
+
+Delivered `docs/research/task-287-consumption-model/README.md` with `owner_decision: pending` and an
+empty `Owner Validation` block. **The recommendation awaits the owner's validation** - the task stays
+`To Do` and nothing is implemented.
+
+What the benchmark contains, mapped to the acceptance criteria:
+
+- **Measured rate card** (AC #2): every provider line fetched 2026-08-18 with URL and date, converted
+  at a dated FX rate. Deepgram 0.006642 EUR/min list, Apify YouTube 0.004313/result, TikTok
+  0.000863/result, Instagram reel 0.001984/result, LlamaParse at least 0.001078/page, web articles
+  0.000000. Cost per ingestion path tabulated at 1 / 3 / 25 / 45 minutes, plus measured LLM cost per
+  artifact read from real `media_artifacts-dev` records and measured AWS spend from Cost Explorer.
+- **The Deepgram contradiction resolved** (AC #3): the config's 0.003 EUR/min matches no published
+  rate (wrong by 2.21x); the enforcer's 0.008 is right by accident (its LLM-per-minute term is ~20x
+  too high, and the two errors cancel). Correct planning figure 0.00664 EUR/min, with the choice of
+  list vs promotional and monolingual vs multilingual argued from the provider pages and a
+  sensitivity table for each.
+- **Five models compared** (AC #4, #5, #6), including one that abandons counter-and-cap entirely
+  (fair use, Readwise/Recall shape) and one built on abstract credits (ElevenLabs shape). Each is
+  scored on how many numbers the user must hold, what the on-screen answer literally says, and the
+  figures needed to trip its safety net relative to per-tier net revenue.
+- **Recommendation**: meter minutes only, make every non-transcription path unlimited. Ladder
+  60 / 300 / 720 minutes at the unchanged 3 / 5 / 9 EUR, with the arithmetic showing margin at full
+  usage (AC #9) and why Audio-Heavy's 900 minutes are loss-making.
+- **Safety net in three layers** (AC #3 of the description's questions): the visible cap, an
+  invisible burst guard that queues instead of refusing (this is the graduated throttle the pricing
+  config declares but never implements), and a new global provider-pool circuit breaker for Apify's
+  shared non-rolling credit.
+- **One-sentence paywall copy** separating Mix from Audio-Heavy (AC #7) and a file-by-file list of the
+  mobile and API consequences (AC #8), including collapsing four quota error codes into two.
+- **Comparable products surveyed** (AC #10): Descript, Otter, Snipd, ElevenLabs, Zapier, Recall,
+  Readwise, Castmagic - what each shows and what each meters behind it.
+- **The four accounting defects** (AC #11) each answered as fixed or unrepresentable under the
+  recommended model, plus the fifth defect (the phantom throttle) from the description.
+
+Two measurements in the README are worth the owner's attention because they change the premises the
+earlier benchmarks worked from: in the dev account's 2026-08 period only 8 % of the minutes actually
+transcribed reached the visible counter and settlement never ran, and 5 of 5 completed YouTube jobs
+went through the paid Apify actor - falsifying task-65's "95 % free captions" assumption.
+
+No source code was modified. Only aggregates from the `-dev` tables are reported; no account
+identifier appears in the deliverable.
