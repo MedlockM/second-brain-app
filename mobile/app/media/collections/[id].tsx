@@ -24,9 +24,9 @@ import {
 } from "../../../src/components/ArtifactTile";
 import { ArtifactHistoryRow } from "../../../src/components/ArtifactHistoryRow";
 import { ScreenTabs, type ScreenTab } from "../../../src/components/ScreenTabs";
+import { describeArtifactRefusal } from "../../../src/lib/artifactRefusal";
 import { getFriendlyErrorMessage } from "../../../src/lib/getFriendlyErrorMessage";
 import { getMediaTypeIcon } from "../../../src/lib/mediaTypeDisplay";
-import type { HttpError } from "../../../src/lib/httpError";
 import {
   buildCollectionTree,
   type CollectionNode,
@@ -391,7 +391,7 @@ function AiTab({ collectionId }: AiTabProps) {
         await refresh();
       } catch (err) {
         if (!mountedRef.current) return;
-        setRefusal(describeRefusal(err));
+        setRefusal(describeArtifactRefusal(err, { scope: "folder" }));
       }
     },
     [token, collectionId, refresh],
@@ -474,47 +474,6 @@ function AiTab({ collectionId }: AiTabProps) {
       )}
     </ScrollView>
   );
-}
-
-/**
- * Turn a backend refusal into something the user can act on.
- *
- * Every refused generation is typed (`scope_empty`, `scope_too_large`,
- * `sources_not_ready`, quota), and the payload carries the numbers, so this
- * never has to fall back on a spinner or a silent failure.
- */
-function describeRefusal(err: unknown): string {
-  const httpError = err as HttpError | undefined;
-  const details = httpError?.details ?? {};
-  const code = httpError?.code ?? httpError?.quotaErrorCode;
-
-  switch (code) {
-    case "scope_empty":
-      return "This collection has no source with a transcript yet. Add media, or wait for the ones you saved to finish processing.";
-    case "scope_too_large": {
-      const sourceCount = Number(details.source_count ?? 0);
-      const maxSources = Number(details.max_sources ?? 0);
-      if (sourceCount > 0 && maxSources > 0 && sourceCount > maxSources) {
-        return `This collection has ${sourceCount} sources, over the ${maxSources} a single generation can read. Generate on a smaller sub-collection instead.`;
-      }
-      return "This collection holds too much text for one generation. Generate on a smaller sub-collection instead.";
-    }
-    case "sources_not_ready": {
-      const pending = Number(details.pending_count ?? 0);
-      if (pending > 0) {
-        return `${pending} ${pending === 1 ? "source is" : "sources are"} still being prepared. Try again in a moment.`;
-      }
-      return "Some sources are still being prepared. Try again in a moment.";
-    }
-    case "daily_rate_limit":
-      return "You have reached today's limit for AI generations. Try again tomorrow.";
-    case "tier_quota_exceeded":
-      return "You have reached this month's AI quota for collections.";
-    default:
-      return getFriendlyErrorMessage(err, {
-        fallback: "Unable to start this generation. Please try again.",
-      });
-  }
 }
 
 // --- Sub-components ---

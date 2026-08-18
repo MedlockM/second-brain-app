@@ -22,14 +22,32 @@ import {
 import { useAuth } from "./AuthContext";
 import { apiRequest } from "../services/apiClient";
 
+/**
+ * What `GET /api/v1/entitlements/status` returns.
+ *
+ * Minutes are the only metered unit: everything the user reads is unlimited on
+ * every tier, and a minute is only ever spent on something we transcribe. So the
+ * gauge is one number over one total, and `resets_at` is when it refills.
+ */
 export interface EntitlementStatus {
   user_id: string;
   subscription_tier: "S" | "M" | "L" | null;
   subscription_status: string | null;
   is_active: boolean;
-  period_end: string | null;
+  is_free_trial: boolean;
   auto_renew_status: boolean | null;
+  /** Minutes the plan includes for the current period. */
+  minutes_included: number;
+  /** Minutes already spent in the current period. */
+  minutes_used: number;
+  /** Minutes left, never negative. */
   minutes_remaining: number;
+  /** Longest single import this plan accepts, in minutes. */
+  max_minutes_per_item: number;
+  /** When the allowance refills. Nothing rolls over. */
+  resets_at: string | null;
+  /** Backend-owned threshold (80%): time to warn the user. */
+  warning_threshold_reached: boolean;
   offerings_config?: {
     tier: string;
     name: string;
@@ -39,6 +57,8 @@ export interface EntitlementStatus {
     description: string;
     features: string[];
   }[];
+  /** One sentence explaining what a minute covers. Sent with the offerings. */
+  minutes_legend?: string;
 }
 
 interface PurchasesContextValue {

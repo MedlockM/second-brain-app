@@ -19,7 +19,7 @@ import tempfile
 import time
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from media_summarizer.core.media_ingestion.title_derivation import (
     first_markdown_heading,
@@ -31,6 +31,7 @@ from media_summarizer.core.ports.document_parser import (
     ParseError,
     ParseResult,
 )
+from media_summarizer.core.services import provider_pool_guard, quota_enforcer
 from media_summarizer.infrastructure.resolvers.llamaparse_resolver import (
     LlamaParseResolver,
 )
@@ -165,6 +166,54 @@ async def parse_document_with_fallback(
     )
 
 
+async def _record_document_consumption(
+    *,
+    user_id: Optional[str],
+    job_id: str,
+    page_count: int,
+    provider: str,
+) -> None:
+    """Charge a parsed document and count its pages against the LlamaParse pool.
+
+    Best-effort: the parse is done and paid for, so a counter failure must not
+    fail an import that succeeded.
+    """
+    pages = max(1, int(page_count or 1))
+
+    if provider.strip().lower() == "llamaparse":
+        await provider_pool_guard.record_spend(
+            provider_pool_guard.POOL_LLAMAPARSE,
+            units=pages,
+            idempotency_token=f"llamaparse:{job_id}",
+        )
+
+    if not user_id:
+        log_event(
+            logger,
+            logging.WARNING,
+            "quota.document_debit_skipped_no_user",
+            "No user_id on the document parsing message; nothing to charge",
+            job_id=job_id,
+        )
+        return
+
+    minutes = await quota_enforcer.record_document_parse(
+        user_id,
+        page_count=pages,
+        idempotency_token=quota_enforcer.gate_token(job_id),
+    )
+    log_event(
+        logger,
+        logging.INFO,
+        "quota.document_debited",
+        "Document parse charged to the user's minutes",
+        job_id=job_id,
+        page_count=pages,
+        provider=provider,
+        debited_minutes=minutes,
+    )
+
+
 async def process_document_parsing_message(message_body: Dict[str, Any]) -> None:
     """
     Process a single document parsing message.
@@ -249,6 +298,17 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
         transcript_s3_key = f"{job_id}.md"
         markdown_bytes = result.markdown_content.encode("utf-8")
 
+        # The parse is what costs money, and its price is the page count, which
+        # only exists here: this is the single place a document is charged. One
+        # minute per five pages, keyed on the job so a redelivery cannot debit
+        # twice. LlamaParse pages also feed the shared pool of layer 3.
+        await _record_document_consumption(
+            user_id=message_body.get("user_id"),
+            job_id=str(job_id),
+            page_count=result.page_count,
+            provider=result.provider,
+        )
+
         await s3.upload_file_object(
             bucket=TRANSCRIPT_BUCKET,
             key=transcript_s3_key,
@@ -303,7 +363,6 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
                 "status": "success",
                 "media_key": media_key,
                 "canonical_job_id": job_id,
-                "minutes_used": 1,  # Documents use 1 minute credit per parse
                 "transcription_s3_key": transcript_s3_key,
                 "transcription_metadata": {
                     "provider": result.provider,

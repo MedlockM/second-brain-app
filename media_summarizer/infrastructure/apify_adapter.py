@@ -205,6 +205,15 @@ async def start_actor_run(
     if not actor_id:
         raise ApifyAdapterError("apify_actor_missing", retryable=False)
 
+    # Safety-net layer 3: the Apify credit is one monthly pool shared by every
+    # user, so it is guarded here rather than per user. Retryable on purpose -
+    # the content stays queued instead of being lost, and the last slice of credit
+    # stays available for the owner.
+    from media_summarizer.core.services import provider_pool_guard
+
+    if not await provider_pool_guard.spend_allowed(provider_pool_guard.POOL_APIFY):
+        raise ApifyAdapterError("apify_pool_exhausted", retryable=True)
+
     run_url = f"{APIFY_API_BASE_URL}/acts/{quote(actor_id, safe='~')}/runs"
     params: dict[str, str | int] = {
         "timeout": APIFY_ACTOR_TIMEOUT_SECONDS,
@@ -283,4 +292,17 @@ async def fetch_dataset_items(*, source_platform: str, dataset_id: str) -> list[
         raise ApifyAdapterError("apify_invalid_json", retryable=True) from exc
     if not isinstance(items, list):
         raise ApifyAdapterError("apify_invalid_dataset", retryable=False)
-    return [item for item in items if isinstance(item, dict)]
+
+    results = [item for item in items if isinstance(item, dict)]
+
+    # Apify bills per result, and this is the one place every actor's results are
+    # collected, so it is where the shared pool is counted. Keyed on the dataset id
+    # so a re-read of the same run cannot count twice.
+    from media_summarizer.core.services import provider_pool_guard
+
+    await provider_pool_guard.record_spend(
+        provider_pool_guard.POOL_APIFY,
+        units=len(results),
+        idempotency_token=f"apify:{dataset_id}",
+    )
+    return results

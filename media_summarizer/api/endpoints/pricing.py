@@ -68,9 +68,10 @@ async def get_public_pricing():
         # Build public-facing response (exclude internal/sensitive data)
         tiers = config.get("tiers", {})
         free_trial = config.get("free_trial", {})
-        hard_caps = config.get("hard_caps", {})
 
-        # Format tiers for mobile consumption
+        # Format tiers for mobile consumption. One metered unit means one number
+        # per tier: the minutes it includes, plus the longest single import it
+        # accepts. There are no per-category caps to publish any more.
         public_tiers = []
         tier_order = ["text_only", "mix", "audio_heavy"]
         for tier_id in tier_order:
@@ -81,10 +82,10 @@ async def get_public_pricing():
                     "name": tier_data.get("name", tier_id),
                     "name_fr": tier_data.get("name_fr", ""),
                     "price_ttc_eur": tier_data.get("price_ttc_eur"),
-                    "audio_minutes_per_month": tier_data.get("audio_minutes_per_month"),
+                    "minutes_per_month": tier_data.get("minutes_per_month"),
+                    "max_minutes_per_item": tier_data.get("max_minutes_per_item"),
                     "description": tier_data.get("description", ""),
                     "description_fr": tier_data.get("description_fr", ""),
-                    "hard_caps": hard_caps.get(tier_id, {}),
                 })
 
         # Free trial info (public-safe subset)
@@ -94,7 +95,8 @@ async def get_public_pricing():
                 "enabled": True,
                 "duration_days": free_trial.get("duration_days", 30),
                 "tier": free_trial.get("tier", "mix"),
-                "hard_caps": free_trial.get("hard_caps", {}),
+                "minutes_per_month": free_trial.get("minutes_per_month"),
+                "max_minutes_per_item": free_trial.get("max_minutes_per_item"),
             }
 
         return {
@@ -115,7 +117,7 @@ async def get_public_pricing():
 async def get_admin_pricing(request: Request):
     """
     Admin endpoint: returns the full pricing config including internal params
-    (cost monitoring, provider config, infra baseline, rate limits).
+    (unit conversions, burst guards, provider pools, provider config).
     Protected by admin secret.
     """
     _verify_admin_secret(request)
@@ -144,7 +146,7 @@ async def update_admin_pricing(
     {
         "updates": {
             "tiers": { ... updated tier definitions ... },
-            "hard_caps": { ... }
+            "burst_guards": { ... }
         }
     }
 

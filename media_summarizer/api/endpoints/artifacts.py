@@ -222,7 +222,7 @@ async def create_artifact(
         # Quota comes after the dedup verdict and before the write: the same tap
         # twice must consume nothing, and a denied request must leave no entry.
         if not plan.deduplicated:
-            quota_result = await quota_enforcer.check_artifact_generation_allowed(
+            quota_result = await quota_enforcer.check_generation_allowed(
                 current_user.id,
                 scope=scope.value,
                 source_count=len(resolution.sources),
@@ -249,7 +249,7 @@ async def create_artifact(
         if deduplicated:
             response.status_code = status.HTTP_200_OK
         else:
-            await quota_enforcer.record_artifact_generation(
+            await quota_enforcer.record_generation(
                 current_user.id,
                 scope=scope.value,
                 source_count=record.source_count,

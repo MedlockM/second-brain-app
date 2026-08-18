@@ -15,9 +15,11 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useShareIntake } from "../../src/contexts/ShareIntentContext";
+import { usePurchases } from "../../src/contexts/PurchasesContext";
 import { useMediaPolling } from "../../src/hooks/useMediaPolling";
 import { InboxItem } from "../../src/contexts/InboxContext";
 import { AddSourceSheet } from "../../src/components/AddSourceSheet";
+import { MinutesWarningBanner } from "../../src/components/MinutesWarningBanner";
 import {
   capturePhotoToImport,
   pickFileToImport,
@@ -58,6 +60,7 @@ export default function InboxScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const { startLocalUpload } = useShareIntake();
+  const { refreshEntitlements } = usePurchases();
   const [isSourceSheetVisible, setSourceSheetVisible] = useState(false);
   const {
     items,
@@ -75,10 +78,14 @@ export default function InboxScreen() {
   // Silent refetch when the screen gains focus (multi-device sync). Uses the
   // non-spinner variant so we don't show the pull-to-refresh indicator just
   // because the user navigated back to this tab.
+  // Entitlements come along for the ride: the minutes warning lives in this
+  // header, and minutes are spent by imports made from this very screen, so
+  // reading the figure fetched at sign-in would keep the banner a period behind.
   useFocusEffect(
     useCallback(() => {
       refetch();
-    }, [refetch]),
+      void refreshEntitlements();
+    }, [refetch, refreshEntitlements]),
   );
 
   const handleDigestPress = useCallback(() => {
@@ -276,6 +283,10 @@ function ListHeader({ greeting, onDigestPress, hasItems }: ListHeaderProps) {
       <View style={styles.header}>
         <Text style={styles.greeting}>{greeting}</Text>
       </View>
+
+      {/* Reads the entitlement state itself and renders nothing until the
+          period's minutes are nearly spent. */}
+      <MinutesWarningBanner />
 
       {/* Daily Digest Button */}
       <Pressable

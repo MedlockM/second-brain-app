@@ -47,7 +47,7 @@ export default function AccountScreen() {
   const router = useRouter();
 
   // This is the screen where the remaining minutes are read, and they move on
-  // every audio import, so refresh on focus instead of trusting the value
+  // every transcribed import, so refresh on focus instead of trusting the value
   // fetched at sign-in. Also picks up a purchase made from the paywall.
   useFocusEffect(
     useCallback(() => {
@@ -71,7 +71,7 @@ export default function AccountScreen() {
     ? "Change plan or restore a purchase"
     : isSubscriptionStateUnknown
       ? "See what each subscription includes"
-      : "Unlock more imports and audio minutes";
+      : "Unlock more minutes of audio and video";
 
   // Get display label for current reading language
   const readingLanguageLabel =

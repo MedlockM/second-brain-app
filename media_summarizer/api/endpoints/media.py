@@ -51,7 +51,6 @@ from media_summarizer.api.models.media_contracts import (
     TranscriptStatus as CanonicalTranscriptStatus,
 )
 from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
-from media_summarizer.core.media_ingestion.adapters.classifiers import RuleBasedUrlClassifier
 from media_summarizer.core.media_ingestion.title_derivation import (
     derive_media_title,
     label_for_file_name,
@@ -73,15 +72,8 @@ from media_summarizer.core.services.durable_media_service import (
     save_media_for_user,
     user_holds_media,
 )
-from media_summarizer.core.services.media_identity import derive_media_identity
 from media_summarizer.core.services.media_search_service import SearchFilters
-from media_summarizer.core.services.quota_enforcer import (
-    QUOTA_CATEGORY_AUDIO,
-    check_submission_allowed,
-    classify_media_type,
-    estimate_submission_cost,
-    record_submission,
-)
+from media_summarizer.core.services.quota_enforcer import check_submission_allowed
 from media_summarizer.core.services.raw_content_service import (
     RawContentNotAvailableError,
     get_raw_content,
@@ -123,29 +115,6 @@ SUPPORTED_SHARED_AUDIO_MIME_TYPES = frozenset([
 ])
 
 _AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
-
-# Same classifier the ingestion router uses, so the quota engine and the
-# pipeline can never disagree on what a URL is.
-_URL_CLASSIFIER = RuleBasedUrlClassifier()
-
-
-def _detect_quota_platform(url: str) -> str:
-    """Return the source platform of a URL for the quota pre-check.
-
-    Uses the same classifier as the ingestion pipeline itself. A second,
-    home-grown detection used to live here and only knew four platforms, so a
-    Spotify or Apple Podcasts URL was announced to the quota engine as `web` —
-    which is how audio submissions ended up counted as articles and how the
-    text-only tier's audio refusal became unreachable (task-250 Layer 0).
-
-    Falls back to `unknown` (quota category `article`) when the URL cannot be
-    classified: the use case rejects it a few lines later with a proper error.
-    """
-    try:
-        normalized_url, _ = derive_media_identity(url)
-        return _URL_CLASSIFIER.classify(normalized_url).source_platform.value
-    except Exception:
-        return "unknown"
 
 
 def _parse_form_tag_ids(raw: Optional[str]) -> Optional[List[str]]:
@@ -768,19 +737,17 @@ async def ingest_url(
         # Best effort: an unresolvable link is submitted as-is.
         url = await resolve_tiktok_short_link(url)
 
-        # Quota enforcement check before processing
-        # Detect source platform for quota checking
-        source_platform_for_quota = _detect_quota_platform(url)
-        quota_result = await check_submission_allowed(
-            user_id=user.id,
-            source_platform=source_platform_for_quota,
-            duration_seconds=0,  # duration unknown at URL ingestion time
-        )
+        # Consumption check before processing. Submitting a URL costs nothing by
+        # itself: what a link costs is decided by the provider call it ends up
+        # making, and only the worker that resolves it knows whether there is
+        # anything to transcribe and how long it is. So this check only answers
+        # "is this user entitled at all" -- the debit happens downstream.
+        quota_result = await check_submission_allowed(user.id)
         if not quota_result.allowed:
             raise HTTPException(
                 status_code=quota_result.http_status,
                 detail=quota_result.message,
-                headers={"X-Quota-Error-Code": quota_result.error_code},
+                headers={"X-Quota-Error-Code": quota_result.error_code or ""},
             )
 
         # Transcript language (task-216): the user's reading_language preference
@@ -809,25 +776,13 @@ async def ingest_url(
         use_case = build_default_ingest_url_use_case()
         outcome = await use_case.execute(command)
 
-        # Record quota usage after successful submission.
-        #
-        # Audio is deliberately not debited here: the duration is unknown at this
-        # point, and the resolution worker that finds the audio URL debits the
-        # real number of minutes at its own gate (task-250 Layer 1). Debiting a
-        # placeholder minute here as well would charge every podcast twice.
-        resolved_platform = outcome.metadata.get(
-            "source_platform", source_platform_for_quota
+        # No minutes are charged here whatever the platform: this submission has
+        # not made a provider call yet. All that is recorded is the item itself,
+        # for the invisible daily burst guard.
+        await quota_enforcer.record_submitted_item(
+            user.id,
+            idempotency_token=quota_enforcer.item_token(outcome.media_item_id),
         )
-        if classify_media_type(resolved_platform) != QUOTA_CATEGORY_AUDIO:
-            await record_submission(
-                user_id=user.id,
-                source_platform=resolved_platform,
-                duration_seconds=0,
-                estimated_cost_eur=estimate_submission_cost(
-                    resolved_platform, duration_seconds=0
-                ),
-                idempotency_token=quota_enforcer.gate_token(outcome.media_item_id),
-            )
 
         log_event(
             logger,
@@ -967,17 +922,16 @@ async def upload_document(
             tag_ids=_parse_form_tag_ids(tag_ids),
         )
 
-        # Quota enforcement check before processing
-        quota_result = await check_submission_allowed(
-            user_id=user.id,
-            source_platform="document",
-            duration_seconds=0,
-        )
+        # Consumption check before processing. A document costs a minute per five
+        # pages and the page count only exists after the parse, so the cheapest
+        # honest figure here is the minimum any document costs: one minute. The
+        # parsing worker charges the real page count.
+        quota_result = await check_submission_allowed(user.id, minutes_needed=1)
         if not quota_result.allowed:
             raise HTTPException(
                 status_code=quota_result.http_status,
                 detail=quota_result.message,
-                headers={"X-Quota-Error-Code": quota_result.error_code},
+                headers={"X-Quota-Error-Code": quota_result.error_code or ""},
             )
 
         # Media key for idempotence (user + filename + size). Computed before the
@@ -1050,13 +1004,12 @@ async def upload_document(
             },
         )
 
-        # Record quota usage after successful enqueue
-        estimated_cost = estimate_submission_cost("document", duration_seconds=0)
-        await record_submission(
-            user_id=user.id,
-            source_platform="document",
-            duration_seconds=0,
-            estimated_cost_eur=estimated_cost,
+        # The minutes this document costs are charged by the parsing worker, which
+        # is the only place the page count exists. Here we only count the item for
+        # the invisible daily burst guard.
+        await quota_enforcer.record_submitted_item(
+            user.id,
+            idempotency_token=quota_enforcer.item_token(job.id),
         )
 
         log_event(
@@ -1155,28 +1108,25 @@ async def upload_audio(
             tag_ids=_parse_form_tag_ids(tag_ids),
         )
 
-        # Quota enforcement (task-250 Layer 0). This endpoint used to enqueue a
-        # Deepgram transcription without consulting the quota engine at all: a
-        # text-only subscriber could transcribe by uploading a file, and no
-        # minute was ever counted.
-        #
-        # The whole file is in memory, so the real duration is read from the
-        # container here and the check is exact — this is the one path that knows
-        # the duration up front. A container we cannot parse yields 0, which the
-        # gate treats as "accept, debit one provisional minute, settle later".
+        # Consumption check. The whole file is in memory, so the real duration is
+        # read from the container here and the check is exact — this is the one
+        # path that knows the length up front, which is also what makes the
+        # "too long for one import" refusal possible before anything is stored. A
+        # container we cannot parse yields 0, which means "accept, debit one
+        # provisional minute, settle after transcription".
         upload_duration_seconds = (
             audio_duration_probe.probe_duration_seconds_from_bytes(content) or 0
         )
+        upload_minutes = quota_enforcer.minutes_for_seconds(upload_duration_seconds)
         quota_result = await check_submission_allowed(
-            user_id=user.id,
-            source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
-            duration_seconds=upload_duration_seconds,
+            user.id,
+            minutes_needed=upload_minutes or 1,
         )
         if not quota_result.allowed:
             raise HTTPException(
                 status_code=quota_result.http_status,
                 detail=quota_result.message,
-                headers={"X-Quota-Error-Code": quota_result.error_code},
+                headers={"X-Quota-Error-Code": quota_result.error_code or ""},
             )
 
         # Same content-key convention as the document upload. The library id is
@@ -1252,10 +1202,10 @@ async def upload_audio(
             exclude_media_item_id=durable_media_item_id,
         )
 
-        # Debit the audio minutes now that the job exists, exactly once for this
-        # job id. The transcription worker will settle the difference with the
-        # duration Deepgram bills, so an unparsable container still ends up
-        # counted correctly and a parsable one is not counted twice.
+        # Debit the minutes now that the job exists, exactly once for this job id.
+        # The transcription worker will settle the difference with the duration
+        # Deepgram bills, so an unparsable container still ends up counted
+        # correctly and a parsable one is not counted twice.
         debited_minutes = 0
         if already_held:
             log_event(
@@ -1268,15 +1218,16 @@ async def upload_audio(
                 job_id=job.id,
             )
         else:
-            debited_minutes = await record_submission(
-                user_id=user.id,
-                source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
-                duration_seconds=upload_duration_seconds,
-                estimated_cost_eur=estimate_submission_cost(
-                    quota_enforcer.QUOTA_PLATFORM_AUDIO, upload_duration_seconds
-                ),
+            debited_minutes = await quota_enforcer.record_transcription_minutes(
+                user.id,
+                minutes=upload_minutes or 1,
                 idempotency_token=quota_enforcer.gate_token(job.id),
             )
+
+        await quota_enforcer.record_submitted_item(
+            user.id,
+            idempotency_token=quota_enforcer.item_token(job.id),
+        )
 
         # Enqueue transcription message with the pre-signed URL
         await sqs.send_message(
@@ -1468,30 +1419,27 @@ async def ingest_shared_content(
             # Compute content hash for deduplication
             content_hash = hashlib.sha256(audio_content).hexdigest()
 
-            # Quota enforcement (task-250 Layer 0). Shared audio used to reach
-            # Deepgram without the quota engine ever being consulted: a
-            # text-only subscriber could transcribe by sharing a voice note,
-            # and not a single minute was counted.
-            #
-            # The bytes are in memory, so the container gives the real duration
-            # for free and the refusal below is exact. The debit itself happens
-            # once in the ingestion orchestrator, where the job id exists; this
-            # check is only here to answer the share sheet with a real HTTP
-            # error instead of a job that fails a second later.
+            # Consumption check. The bytes are in memory, so the container gives
+            # the real duration for free and the refusal below is exact. The debit
+            # itself happens once in the ingestion orchestrator, where the job id
+            # exists; this check is only here to answer the share sheet with a
+            # real HTTP error instead of a job that fails a second later.
             shared_audio_duration_seconds = (
                 audio_duration_probe.probe_duration_seconds_from_bytes(audio_content)
                 or 0
             )
             quota_result = await check_submission_allowed(
-                user_id=current_user.id,
-                source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
-                duration_seconds=shared_audio_duration_seconds,
+                current_user.id,
+                minutes_needed=(
+                    quota_enforcer.minutes_for_seconds(shared_audio_duration_seconds)
+                    or 1
+                ),
             )
             if not quota_result.allowed:
                 raise HTTPException(
                     status_code=quota_result.http_status,
                     detail=quota_result.message,
-                    headers={"X-Quota-Error-Code": quota_result.error_code},
+                    headers={"X-Quota-Error-Code": quota_result.error_code or ""},
                 )
 
             # Determine file extension from MIME

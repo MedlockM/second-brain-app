@@ -33,7 +33,7 @@ from media_summarizer.core.models.media_artifact import (
     ArtifactLlmUsage,
     MediaArtifactType,
 )
-from media_summarizer.core.services import fsrs_service
+from media_summarizer.core.services import fsrs_service, quota_enforcer
 from media_summarizer.core.services.artifact_service import (
     MAX_COLLECTION_CORPUS_TOKENS,
     claim_artifact_generation,
@@ -381,33 +381,20 @@ async def _record_generation_cost(
     artifact_id: str,
     llm_usage: ArtifactLlmUsage,
 ) -> None:
-    """Charge the measured cost to the monthly counter behind the hard block.
+    """Store the measured LLM cost against the period, for observability only.
 
-    Keyed on ``artifact_id`` so a redelivery cannot debit twice. Best-effort: the
-    provider has already billed the call, so a counter failure must not fail an
-    artifact that succeeded.
+    Nothing gates on this figure -- the minute allowance is what bounds spend --
+    but recording it is how the owner can compare the model's assumptions with the
+    real invoice. Keyed on ``artifact_id`` so a redelivery cannot record twice.
     """
     user_id = body.get("user_id")
     if not user_id or llm_usage.cost_eur <= 0:
         return
-    try:
-        from media_summarizer.utils import quota_usage_db
-
-        await quota_usage_db.increment_monthly_usage(
-            user_id,
-            cost_eur=llm_usage.cost_eur,
-            idempotency_token=f"artifact_cost:{artifact_id}",
-        )
-    except Exception as exc:
-        log_event(
-            logger,
-            logging.WARNING,
-            "artifact.cost_record_failed",
-            "Failed to record artifact LLM cost (non-fatal)",
-            artifact_id=artifact_id,
-            error_type=type(exc).__name__,
-            detail=str(exc)[:200],
-        )
+    await quota_enforcer.record_observed_cost(
+        user_id,
+        cost_eur=llm_usage.cost_eur,
+        idempotency_token=f"artifact_cost:{artifact_id}",
+    )
 
 
 async def _init_fsrs_cards(

@@ -463,15 +463,20 @@ function ShareContent({
               <Text style={styles.upgradeButtonText}>See plans</Text>
             </Pressable>
           )}
-          <Pressable
-            style={styles.retryButton}
-            onPress={onRetry}
-            accessibilityLabel="Try again"
-            accessibilityRole="button"
-          >
-            <Ionicons name="refresh" size={18} color={Colors.textMain} />
-            <Text style={styles.retryButtonText}>Try again</Text>
-          </Pressable>
+          {/* No retry on a limit: the same submission would be refused for the
+              same reason. The top bar keeps Save enabled and the intake intact,
+              so it is one tap away for a user who comes back from the paywall. */}
+          {quotaErrorCode === null && (
+            <Pressable
+              style={styles.retryButton}
+              onPress={onRetry}
+              accessibilityLabel="Try again"
+              accessibilityRole="button"
+            >
+              <Ionicons name="refresh" size={18} color={Colors.textMain} />
+              <Text style={styles.retryButtonText}>Try again</Text>
+            </Pressable>
+          )}
         </View>
       );
     }

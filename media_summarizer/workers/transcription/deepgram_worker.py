@@ -18,7 +18,6 @@ import mimetypes
 import os
 import time
 from io import BytesIO
-from math import ceil
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
@@ -514,36 +513,23 @@ async def _settle_audio_quota(
     job_id: str,
     billed_audio_seconds: float,
 ) -> None:
-    """Reconcile the monthly audio counter with the duration Deepgram billed.
+    """Reconcile the minute counter with the duration Deepgram billed.
 
     This is the only place in the pipeline that knows the real duration of every
-    transcription, whatever the platform it came from, so it is where the quota
+    transcription, whatever the platform it came from, so it is where consumption
     is made accurate (task-250 Layer 2). It deliberately does *not* live in the
     media-completed events consumer: the completion event is published twice
     (`episode_completion_status` and `episode_completed`), so debiting there
     would charge every job twice.
 
+    Every message that reaches this worker is a transcription we are paying for,
+    so every message settles. There used to be a `quota_source_platform` opt-out
+    here, which is what let Instagram reels spend Deepgram minutes for free: the
+    meter follows the provider call, and the provider call is this one.
+
     Never raises: the user has already been billed by Deepgram, so a counter
     problem must not fail a transcription that succeeded.
     """
-    # Producers whose quota category is not `audio` opt out explicitly
-    # (social video keeps its own category per the validated task-250 decision).
-    # Everything else that reaches this worker is metered in audio minutes.
-    quota_platform = (
-        message_body.get("quota_source_platform")
-        or quota_enforcer.QUOTA_PLATFORM_AUDIO
-    )
-    if quota_enforcer.classify_media_type(quota_platform) != quota_enforcer.QUOTA_CATEGORY_AUDIO:
-        log_event(
-            logger,
-            logging.INFO,
-            "quota.settlement_skipped_non_audio",
-            "Transcription is not metered in audio minutes; nothing to settle",
-            job_id=job_id,
-            quota_source_platform=quota_platform,
-        )
-        return
-
     # The gate exempted this save because the user already holds the media
     # (task-281). Settling here would charge the full billed duration against a
     # deliberate zero debit, which is the exemption undone one step later.
@@ -577,7 +563,7 @@ async def _settle_audio_quota(
         already_debited = 0
 
     try:
-        applied = await quota_enforcer.settle_audio_minutes(
+        applied = await quota_enforcer.settle_transcription_minutes(
             user_id=user_id,
             job_id=job_id,
             actual_duration_seconds=billed_audio_seconds,
@@ -772,16 +758,13 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
     transcript = extract_transcript(deepgram_payload)
     transcript_text = transcript["text"]
 
-    # --- Quota settlement (task-250 Layer 2) --------------------------------
+    # --- Consumption settlement ---------------------------------------------
     # Deepgram has now told us how much audio it billed. Reconcile the user's
-    # monthly counter with that figure before anything else, so a later failure
-    # (S3 upload, event publication) cannot lose the debit. The settlement only
+    # counter with that figure before anything else, so a later failure (S3
+    # upload, event publication) cannot lose the debit. The settlement only
     # applies the delta with what the producer already debited at its gate, and
     # is idempotent per job, so an SQS redelivery cannot debit twice.
     billed_audio_seconds = float(transcript.get("audio_duration_seconds") or 0.0)
-    minutes_used = (
-        max(1, ceil(billed_audio_seconds / 60)) if billed_audio_seconds > 0 else 1
-    )
     await _settle_audio_quota(
         message_body=message_body,
         job=job,
@@ -826,7 +809,6 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
             "status": "success",
             "media_key": message_body.get("media_key"),
             "canonical_job_id": job_id,
-            "minutes_used": minutes_used,
             "transcription_s3_key": transcript_s3_key,
             "transcription_metadata": transcription_metadata,
         },
@@ -849,7 +831,6 @@ async def process_deepgram_message(message_body: Dict[str, Any]) -> None:
                 "event_type": "episode_completed",
                 "media_key": message_body.get("media_key"),
                 "canonical_job_id": job_id,
-                "minutes_used": minutes_used,
                 "transcription_s3_key": transcript_s3_key,
             },
         )

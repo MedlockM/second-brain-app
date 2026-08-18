@@ -214,8 +214,7 @@ Typed refusals:
 | No source with a usable transcript | `422` | `scope_empty` | no |
 | More than 25 sources, or more than 120 000 estimated tokens | `422` | `scope_too_large` | no |
 | A source is still being transcribed or translated | `409` | `sources_not_ready` | **yes, as-is** |
-| Monthly AI quota reached | `403` | `tier_quota_exceeded` | next period |
-| Daily generation limit reached | `429` | `daily_rate_limit` | next day |
+| Out of minutes (collection scope only) | `403` | `out_of_minutes` | next period, or on upgrade |
 | Artifact type disabled | `400` | — | no |
 | Generation disabled globally | `503` | — | no |
 
@@ -224,6 +223,11 @@ nothing: `source_count`, `max_sources`, `estimated_tokens`, `max_tokens`.
 `sources_not_ready` carries `pending_count` and `pending_titles`; the call that
 returned it has already kicked off the missing translations, so retrying it
 unchanged is the remedy.
+
+A generation over a **single item** is free — its LLM cost is already inside what
+the item cost to ingest — so `out_of_minutes` can only ever come back on
+`scope=folder`, where the cost scales with the sources behind it (one minute per
+five sources). Its `message` names the figures and the app shows it verbatim.
 
 ### 4) GET /api/artifacts?scope=&scope_id=
 
@@ -500,8 +504,8 @@ Response (`UploadAudioResponse`, `202 Accepted`):
 - Rejections that do not depend on the file's content are stable: unsupported extension `400`, empty
   file `400`, over `MAX_UPLOAD_SIZE_BYTES` `413`. Clients are expected to enforce the extension list
   and the size ceiling locally so a refusal costs no upload.
-- A quota refusal carries the `X-Quota-Error-Code` header, exactly like the URL and shared-content
-  entrypoints.
+- A consumption refusal carries the `X-Quota-Error-Code` header (`out_of_minutes` or
+  `item_too_long`), exactly like the URL and shared-content entrypoints.
 - The library row stores `media_type` `document` / `audio`, which the list endpoint returns as-is;
   `GET /api/media/{media_item_id}` normalizes them to the canonical `article` / `audio_file`.
 

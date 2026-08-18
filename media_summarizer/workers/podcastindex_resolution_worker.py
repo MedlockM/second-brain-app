@@ -21,7 +21,7 @@ from media_summarizer.core.media_ingestion.adapters.podcast_resolver_foundation 
 )
 from media_summarizer.core.media_ingestion.domain import SourcePlatform
 from media_summarizer.core.media_ingestion.title_derivation import derive_media_title
-from media_summarizer.core.services import audio_quota_gate, quota_enforcer
+from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     normalize_transcript_text,
@@ -243,7 +243,6 @@ async def _try_rss_transcript_short_circuit(
             "status": "success",
             "media_key": body.get("media_key"),
             "canonical_job_id": job.id,
-            "minutes_used": 1,
             "transcription_s3_key": transcript_s3_key,
             "transcription_metadata": transcription_metadata,
         },
@@ -327,7 +326,7 @@ async def process_message(message: dict) -> None:
         if short_circuited:
             return
 
-        # --- Quota gate (task-250 Layer 1) ---
+        # --- Quota gate ---
         # Last chance to refuse before spending Deepgram minutes. The episode
         # duration usually comes from the podcast index; when it does not, the
         # gate falls back to an HTTP Range probe on the enclosure and, failing
@@ -339,7 +338,6 @@ async def process_message(message: dict) -> None:
             media_key=body.get("media_key"),
             audio_url=audio_url,
             known_duration_seconds=int(resolution.get("audio_duration_seconds") or 0),
-            source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
             error_step="podcast_resolution",
         )
         if not gate.allowed:

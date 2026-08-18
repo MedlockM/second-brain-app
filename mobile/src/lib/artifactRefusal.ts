@@ -9,6 +9,7 @@
 
 import { getFriendlyErrorMessage } from "./getFriendlyErrorMessage";
 import type { HttpError } from "./httpError";
+import { getQuotaErrorCode, getQuotaErrorMessage } from "./quotaError";
 
 export function describeArtifactRefusal(
   err: unknown,
@@ -18,6 +19,15 @@ export function describeArtifactRefusal(
   const details = httpError?.details ?? {};
   const code = httpError?.code ?? httpError?.quotaErrorCode;
   const isCollection = options?.scope === "folder";
+
+  // A generation over a single item is free, so only a collection can ever run
+  // into the minute allowance. The backend sentence already carries the figures
+  // (how many minutes this needs, how many are left, when they reset), so it is
+  // repeated verbatim instead of being flattened into a generic quota line.
+  const quotaCode = getQuotaErrorCode(err);
+  if (quotaCode) {
+    return getQuotaErrorMessage(err, quotaCode);
+  }
 
   switch (code) {
     case "scope_empty":
@@ -39,12 +49,6 @@ export function describeArtifactRefusal(
       }
       return "The transcript is still being prepared. Try again in a moment.";
     }
-    case "daily_rate_limit":
-      return "You have reached today's limit for AI generations. Try again tomorrow.";
-    case "tier_quota_exceeded":
-      return isCollection
-        ? "You have reached this month's AI quota for collections."
-        : "You have reached this month's AI quota.";
     default:
       return getFriendlyErrorMessage(err, {
         fallback: "Unable to start this generation. Please try again.",

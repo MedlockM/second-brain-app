@@ -5,6 +5,15 @@ interface FriendlyErrorRule {
 
 const CRITICAL_ERROR = "Error";
 
+/**
+ * Last-resort wording for an exhausted allowance, used when a refusal reaches the
+ * app without its typed code and message. Minutes are the only thing a plan
+ * limits, so there is one sentence and no "credits" vocabulary; the specific
+ * version with the figures comes from the backend through `quotaError.ts`.
+ */
+const OUT_OF_MINUTES =
+  "You're out of minutes for this period. Upgrade to keep importing audio and video.";
+
 const ERROR_CODE_MESSAGES: Record<string, string> = {
   SESSION_EXPIRED: "Your session has expired. Please sign in again.",
   INVALID_CREDENTIALS: "Invalid email or password. Please try again.",
@@ -21,10 +30,9 @@ const ERROR_CODE_MESSAGES: Record<string, string> = {
   INVALID_URL: "This link is invalid. Please try another URL.",
   UNSUPPORTED_URL: "This link is not supported yet. Please try another source.",
   VALIDATION_ERROR: "Please fill in all required fields.",
-  PAYMENT_REQUIRED: "You need more minutes or credits to continue.",
-  INSUFFICIENT_MINUTES: "You need more minutes or credits to continue.",
-  QUOTA_EXCEEDED:
-    "Your quota has been exceeded. Please upgrade your plan or wait for the next period.",
+  PAYMENT_REQUIRED: OUT_OF_MINUTES,
+  INSUFFICIENT_MINUTES: OUT_OF_MINUTES,
+  QUOTA_EXCEEDED: OUT_OF_MINUTES,
   RATE_LIMITED: "Too many requests. Please wait a moment and try again.",
   CONFLICT:
     "This action conflicts with existing data. Please refresh and try again.",
@@ -62,12 +70,8 @@ const DEFAULT_RULES: FriendlyErrorRule[] = [
     message: "An account with this email already exists.",
   },
   {
-    regex: /insufficient credits|not enough credits|you need to purchase/i,
-    message: "Insufficient credits.",
-  },
-  {
-    regex: /(payment required|402)|insufficient minutes|quota/i,
-    message: "You need more minutes or credits to continue.",
+    regex: /(payment required|402)|out of minutes|insufficient minutes|quota/i,
+    message: OUT_OF_MINUTES,
   },
   {
     regex: /invalid email|email is not valid/i,

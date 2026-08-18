@@ -1,23 +1,36 @@
 """
-Quota enforcement engine for V1 pricing tiers.
+Consumption enforcement for the validated V1 model.
 
-Enforces:
-- Monthly hard caps per media type per tier
-- Daily rate limits per tier
-- Max audio duration per import
-- Cost monitoring (warning log + hard block)
-- Free trial overrides
+One unit is metered: the **minute**. A minute is a minute of media we pay a
+transcription provider to process, plus the three flat conversions of the model
+(a bought caption set counts 1, five document pages count 1, five sources of a
+collection generation count 1). Everything that is not transcription — articles,
+web pages, TikToks, Instagram photo posts, single-item AI generations — is
+unlimited and debits nothing.
 
-This service is the single gate for all submission paths.
+The rule that keeps the accounting honest: **the meter follows the provider call,
+not the URL**. An API endpoint only ever *checks*; the debit happens at the place
+that spends provider money (the Deepgram gate, the paid caption fetch, the
+document parse, the collection generation). That is what makes "the same import
+charged twice" and "a transcription nobody charged" unrepresentable rather than
+merely fixed.
+
+Three layers protect the margin (see docs/research/task-287-consumption-model):
+1. the visible allowance itself — minutes x 0.00664 EUR is always a fraction of
+   the tier's net revenue, so no per-user euro ceiling is needed;
+2. invisible daily burst guards, which never refuse anything and only tell the
+   owner an account is worth a look;
+3. the shared provider pools, in `provider_pool_guard` — Apify credit and
+   LlamaParse credits are platform-wide and no per-user allowance can protect them.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from math import ceil
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from media_summarizer.core.services import pricing_config_service
 from media_summarizer.utils import quota_usage_db
@@ -25,85 +38,30 @@ from media_summarizer.utils import quota_usage_db
 logger = logging.getLogger(__name__)
 
 # Mapping from subscription tier enum (S/M/L) to pricing config tier key
-_SUBSCRIPTION_TIER_TO_CONFIG = {
+SUBSCRIPTION_TIER_TO_CONFIG: Mapping[str, str] = {
     "S": "text_only",
     "M": "mix",
     "L": "audio_heavy",
 }
 
-# Media type classification for quota tracking
-# Maps source_platform / resolver_key to a quota category
-QUOTA_CATEGORY_AUDIO = "audio"
-QUOTA_CATEGORY_ARTICLE = "article"
-QUOTA_CATEGORY_DOCUMENT = "document"
-QUOTA_CATEGORY_YOUTUBE = "youtube"
+# The only two refusals the product has. Anything else the enforcer could once
+# say (a per-category cap, a daily counter, a per-user euro ceiling) either no
+# longer exists or is not a user-visible concept.
+ERROR_OUT_OF_MINUTES = "out_of_minutes"
+ERROR_ITEM_TOO_LONG = "item_too_long"
 
-# Deepgram nova-3 (~0.003 EUR/min) plus downstream LLM processing.
-_AUDIO_COST_EUR_PER_MINUTE = 0.008
-
-
-# Canonical platform string to pass to the quota engine for a submission that
-# will be transcribed. Every path that spends Deepgram minutes must classify as
-# audio, whatever the URL it came from (task-250 Layer 0).
-QUOTA_PLATFORM_AUDIO = "audio"
-
-# Platforms whose ingestion always ends in a paid transcription. `spotify`,
-# `apple_podcasts`, `deezer` and `direct_url` used to fall through to the
-# `article` default, which made the audio caps and the `text_only` tier gate
-# unreachable for them.
-_AUDIO_PLATFORMS = frozenset(
-    {
-        "podcast",
-        "audio",
-        "deepgram",
-        "rss",
-        "rss_feed",
-        "spotify",
-        "apple_podcasts",
-        "deezer",
-        "direct_url",
-        "manual",
-    }
-)
-
-_YOUTUBE_PLATFORMS = frozenset({"youtube", "video"})
-
-_DOCUMENT_PLATFORMS = frozenset({"document", "pdf", "docx"})
-
-
-def classify_media_type(source_platform: str) -> str:
-    """
-    Map source_platform (or media_type) to a quota category.
-
-    Returns one of: audio, article, document, youtube
-
-    Anything unrecognised stays `article`: a wrong guess must not silently open
-    the audio budget. Paths that know they are about to transcribe pass
-    `QUOTA_PLATFORM_AUDIO` explicitly instead of relying on this mapping (a
-    YouTube video without captions, a TikTok without subtitles, a WhatsApp voice
-    note).
-    """
-    platform_lower = (source_platform or "").strip().lower()
-
-    if platform_lower in _AUDIO_PLATFORMS:
-        return QUOTA_CATEGORY_AUDIO
-    if platform_lower in _YOUTUBE_PLATFORMS:
-        return QUOTA_CATEGORY_YOUTUBE
-    if platform_lower in _DOCUMENT_PLATFORMS:
-        return QUOTA_CATEGORY_DOCUMENT
-    # Default: treat unknown as article (safe, non-audio). Covers web, article,
-    # tiktok, instagram, x, twitter, whatsapp text shares and `unknown`.
-    return QUOTA_CATEGORY_ARTICLE
+# Statuses that keep a subscription entitled.
+_ENTITLED_STATUSES = frozenset({"active", "grace_period"})
 
 
 @dataclass
 class QuotaCheckResult:
-    """Result of a quota enforcement check."""
+    """Result of a consumption check."""
 
     allowed: bool
-    error_code: Optional[str] = None  # stable user-facing code
-    message: Optional[str] = None  # human-readable explanation
-    http_status: int = 200  # suggested HTTP status code
+    error_code: Optional[str] = None  # stable machine-readable code
+    message: Optional[str] = None  # product copy, shown to the user as-is
+    http_status: int = 200
 
     @staticmethod
     def ok() -> "QuotaCheckResult":
@@ -123,12 +81,131 @@ class QuotaCheckResult:
         )
 
 
-async def _get_user_tier(user_id: str) -> Optional[str]:
-    """
-    Resolve the pricing tier key for a user from their active subscription.
+@dataclass
+class EntitlementSnapshot:
+    """Everything the product needs to know about one user's consumption.
 
-    Returns one of: 'text_only', 'mix', 'audio_heavy', or None if no subscription.
+    Single source of the figures the account tile, the paywall banner and every
+    refusal message are built from, so the gauge the user reads and the gate that
+    refuses them can never disagree.
     """
+
+    user_id: str
+    # Pricing config tier key ('text_only' | 'mix' | 'audio_heavy'), None when the
+    # user has neither a subscription nor an active trial.
+    tier: Optional[str] = None
+    subscription_tier: Optional[str] = None  # store-facing enum (S/M/L)
+    subscription_status: Optional[str] = None
+    auto_renew: Optional[bool] = None
+    is_entitled: bool = False
+    is_free_trial: bool = False
+    minutes_included: int = 0
+    minutes_used: int = 0
+    max_minutes_per_item: int = 0
+    period_key: str = ""
+    period_end: Optional[datetime] = None
+    warning_threshold_pct: int = 80
+    daily_usage: Dict[str, int] = field(default_factory=dict)
+
+    @property
+    def minutes_remaining(self) -> int:
+        """Minutes left, clamped at 0.
+
+        The counter itself is allowed to overshoot the allowance — a settlement
+        stores the duration the provider actually billed, which is the truth —
+        but the figure the user reads never goes negative.
+        """
+        return max(0, self.minutes_included - self.minutes_used)
+
+    @property
+    def warning_threshold_reached(self) -> bool:
+        """Whether the app should warn that the period is running out."""
+        if self.minutes_included <= 0:
+            return False
+        used_pct = (self.minutes_used / self.minutes_included) * 100
+        return used_pct >= self.warning_threshold_pct
+
+
+# ---------------------------------------------------------------------------
+# Conversions (benchmark §3.1)
+# ---------------------------------------------------------------------------
+
+
+def minutes_for_seconds(duration_seconds: float) -> int:
+    """Minutes charged for a transcription of `duration_seconds`.
+
+    Rounded up, and never zero for media that exists: a 20-second voice note
+    still costs a provider call.
+    """
+    if not duration_seconds or duration_seconds <= 0:
+        return 0
+    return max(1, ceil(duration_seconds / 60))
+
+
+async def _conversion(key: str, fallback: int) -> int:
+    config = await pricing_config_service.get_pricing_config()
+    value = (config.get("unit_conversion", {}) or {}).get(key, fallback)
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return fallback
+
+
+async def minutes_for_captions() -> int:
+    """Minutes charged for a caption set we pay a provider to fetch.
+
+    One flat provider fee, so one minute whatever the length of the video.
+    """
+    return await _conversion("captions_minutes", 1)
+
+
+async def minutes_for_document_pages(page_count: int) -> int:
+    """Minutes charged for a parsed document: one per five pages, minimum one."""
+    pages_per_minute = await _conversion("document_pages_per_minute", 5)
+    return max(1, ceil(max(1, page_count) / pages_per_minute))
+
+
+async def minutes_for_collection_sources(source_count: int) -> int:
+    """Minutes charged for a generation over a collection: one per five sources.
+
+    A generation over a *single item* is free — its LLM cost is already inside
+    what the item cost to ingest.
+    """
+    sources_per_minute = await _conversion("collection_sources_per_minute", 5)
+    return max(1, ceil(max(1, source_count) / sources_per_minute))
+
+
+async def cost_eur_per_minute() -> float:
+    """What one minute costs us, from the single place that knows it."""
+    config = await pricing_config_service.get_pricing_config()
+    providers = config.get("providers", {}) or {}
+    transcription = providers.get("transcription", {}) or {}
+    try:
+        return float(transcription.get("cost_per_minute_eur", 0.00664))
+    except (TypeError, ValueError):
+        return 0.00664
+
+
+# ---------------------------------------------------------------------------
+# Entitlement and billing period
+# ---------------------------------------------------------------------------
+
+
+def _next_month_start(now: datetime) -> datetime:
+    """First instant of next month — the reset date of a period with no anniversary."""
+    return now.replace(
+        year=now.year + 1 if now.month == 12 else now.year,
+        month=1 if now.month == 12 else now.month + 1,
+        day=1,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+
+async def _active_subscription(user_id: str) -> Optional[Any]:
+    """The subscription that entitles the user, or None."""
     from media_summarizer.utils import minute_db
 
     subs = await minute_db.get_subscriptions_by_user_id(user_id)
@@ -136,32 +213,22 @@ async def _get_user_tier(user_id: str) -> Optional[str]:
         return None
 
     now = datetime.now(timezone.utc)
-    active_sub = None
-    for s in subs:
-        if s.status.value in ("active", "grace_period"):
-            active_sub = s
-            break
+    for sub in subs:
+        if sub.status.value in _ENTITLED_STATUSES:
+            return sub
+        # A cancelled subscription still entitles until the period it was paid for
+        # actually ends.
         if (
-            s.status.value == "canceled"
-            and s.current_period_end
-            and s.current_period_end > now
+            sub.status.value == "canceled"
+            and sub.current_period_end
+            and sub.current_period_end > now
         ):
-            active_sub = s
-            break
-
-    if not active_sub:
-        return None
-
-    return _SUBSCRIPTION_TIER_TO_CONFIG.get(active_sub.tier.value, "mix")
+            return sub
+    return None
 
 
 async def _is_free_trial_active(user_id: str) -> bool:
-    """
-    Check if the user is currently within their free trial period.
-
-    Free trial is determined by: account age <= free_trial.duration_days
-    and no prior paid subscription.
-    """
+    """Whether the user is inside the free trial window (account age based)."""
     from media_summarizer.utils import database_async as db
 
     user = await db.get_user_by_id(user_id)
@@ -169,104 +236,186 @@ async def _is_free_trial_active(user_id: str) -> bool:
         return False
 
     config = await pricing_config_service.get_pricing_config()
-    free_trial = config.get("free_trial", {})
+    free_trial = config.get("free_trial", {}) or {}
     if not free_trial.get("enabled"):
         return False
 
-    duration_days = free_trial.get("duration_days", 30)
-    now = datetime.now(timezone.utc)
-    account_age_days = (now - user.created_at).days
-
+    duration_days = int(free_trial.get("duration_days", 30) or 30)
+    account_age_days = (datetime.now(timezone.utc) - user.created_at).days
     return account_age_days <= duration_days
 
 
-async def _get_effective_caps(
-    tier: str, user_id: str
-) -> Dict[str, Any]:
-    """
-    Get the effective hard caps for a user, considering free trial overrides.
-    """
-    config = await pricing_config_service.get_pricing_config()
-    hard_caps = config.get("hard_caps", {}).get(tier, {})
+async def get_entitlement_snapshot(
+    user_id: str,
+    *,
+    with_usage: bool = True,
+) -> EntitlementSnapshot:
+    """Resolve tier, allowance and consumption for one user.
 
-    # Check free trial override
-    if tier == "mix" and await _is_free_trial_active(user_id):
-        free_trial = config.get("free_trial", {})
-        trial_caps = free_trial.get("hard_caps", {})
-        # Free trial overrides specific caps
-        effective = dict(hard_caps)
-        if "audio_minutes" in trial_caps:
-            effective["audio_minutes"] = trial_caps["audio_minutes"]
-        if "articles" in trial_caps:
-            effective["articles"] = trial_caps["articles"]
-        if "documents" in trial_caps:
-            effective["documents"] = trial_caps["documents"]
-        # youtube not overridden in free trial config, keep tier default
-        return effective
+    The billing period is the subscription's own window, not the calendar month:
+    the counter row is keyed on the period end the app already shows as
+    `period_end`, so the allowance empties on the subscription anniversary and
+    nothing rolls over. Users without a subscription (free trial) fall back to the
+    calendar month.
 
-    return dict(hard_caps)
-
-
-async def _get_effective_cost_monitoring(
-    tier: str, user_id: str
-) -> Dict[str, Any]:
-    """
-    Get the effective cost monitoring thresholds, considering free trial overrides.
+    `with_usage=False` skips reading the counter row, for callers that only need
+    to know which row to write to.
     """
     config = await pricing_config_service.get_pricing_config()
-    cost_monitoring = config.get("cost_monitoring", {}).get(tier, {})
+    tiers = config.get("tiers", {}) or {}
+    warning_pct = int(
+        (config.get("usage_gauge", {}) or {}).get("warning_threshold_pct", 80) or 80
+    )
 
-    if tier == "mix" and await _is_free_trial_active(user_id):
-        free_trial = config.get("free_trial", {})
-        trial_cost = free_trial.get("cost_monitoring", {})
-        if trial_cost:
-            effective = dict(cost_monitoring)
-            if "warning_eur" in trial_cost:
-                effective["warning_eur"] = trial_cost["warning_eur"]
-            if "hard_block_eur" in trial_cost:
-                effective["hard_block_eur"] = trial_cost["hard_block_eur"]
-            return effective
+    subscription = await _active_subscription(user_id)
+    now = datetime.now(timezone.utc)
 
-    return dict(cost_monitoring)
+    if subscription is not None:
+        subscription_tier = subscription.tier.value
+        tier = SUBSCRIPTION_TIER_TO_CONFIG.get(subscription_tier, "mix")
+        tier_config = tiers.get(tier, {}) or {}
+        period_end = subscription.current_period_end
+        period_key = (
+            f"sub:{period_end.strftime('%Y-%m-%d')}"
+            if period_end
+            else now.strftime("%Y-%m")
+        )
+        snapshot = EntitlementSnapshot(
+            user_id=user_id,
+            tier=tier,
+            subscription_tier=subscription_tier,
+            subscription_status=subscription.status.value,
+            auto_renew=subscription.auto_renew_status,
+            is_entitled=True,
+            minutes_included=int(tier_config.get("minutes_per_month", 0) or 0),
+            max_minutes_per_item=int(tier_config.get("max_minutes_per_item", 0) or 0),
+            period_key=period_key,
+            period_end=period_end or _next_month_start(now),
+            warning_threshold_pct=warning_pct,
+        )
+    elif await _is_free_trial_active(user_id):
+        free_trial = config.get("free_trial", {}) or {}
+        tier = str(free_trial.get("tier", "mix"))
+        tier_config = tiers.get(tier, {}) or {}
+        snapshot = EntitlementSnapshot(
+            user_id=user_id,
+            tier=tier,
+            subscription_tier=None,
+            subscription_status="free_trial",
+            is_entitled=True,
+            is_free_trial=True,
+            minutes_included=int(
+                free_trial.get("minutes_per_month", tier_config.get("minutes_per_month", 0))
+                or 0
+            ),
+            max_minutes_per_item=int(
+                free_trial.get(
+                    "max_minutes_per_item", tier_config.get("max_minutes_per_item", 0)
+                )
+                or 0
+            ),
+            period_key=now.strftime("%Y-%m"),
+            period_end=_next_month_start(now),
+            warning_threshold_pct=warning_pct,
+        )
+    else:
+        return EntitlementSnapshot(
+            user_id=user_id,
+            period_key=now.strftime("%Y-%m"),
+            warning_threshold_pct=warning_pct,
+        )
+
+    if with_usage:
+        usage = await quota_usage_db.get_monthly_usage(user_id, snapshot.period_key)
+        snapshot.minutes_used = int(usage.get("minutes_used", 0) or 0)
+    return snapshot
+
+
+async def resolve_period_key(user_id: str) -> str:
+    """The counter row key of the user's current billing period."""
+    snapshot = await get_entitlement_snapshot(user_id, with_usage=False)
+    return snapshot.period_key
+
+
+# ---------------------------------------------------------------------------
+# Copy
+# ---------------------------------------------------------------------------
+
+
+def format_minutes(minutes: int) -> str:
+    """Human duration for a minute figure ("45 min", "3 h", "4 h 12 min")."""
+    minutes = max(0, int(minutes))
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, rest = divmod(minutes, 60)
+    return f"{hours} h" if rest == 0 else f"{hours} h {rest} min"
+
+
+def format_reset_date(resets_at: Optional[datetime]) -> str:
+    """Short reset date ("Sep 12"), or a safe phrase when it is unknown."""
+    if resets_at is None:
+        return "your next renewal"
+    return f"{resets_at.strftime('%b')} {resets_at.day}"
+
+
+def _out_of_minutes_message(snapshot: EntitlementSnapshot, minutes_needed: int) -> str:
+    reset = format_reset_date(snapshot.period_end)
+    remaining = snapshot.minutes_remaining
+    if remaining <= 0:
+        return f"You're out of minutes until {reset}. Upgrade to process this now."
+    return (
+        f"This import needs {minutes_needed} minutes and you have {remaining} left "
+        f"until {reset}. Upgrade to process it now."
+    )
+
+
+def _item_too_long_message(snapshot: EntitlementSnapshot, minutes_needed: int) -> str:
+    return (
+        f"This is {format_minutes(minutes_needed)} long, over the "
+        f"{format_minutes(snapshot.max_minutes_per_item)} a single import can use on "
+        "your plan. Split it into shorter parts."
+    )
+
+
+_NO_PLAN_MESSAGE = (
+    "Your plan has ended. Subscribe to keep saving audio and video to your library."
+)
+
+
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
 
 
 async def check_submission_allowed(
     user_id: str,
-    source_platform: str,
-    duration_seconds: int = 0,
+    *,
+    minutes_needed: int = 0,
 ) -> QuotaCheckResult:
-    """
-    Check whether a submission is allowed for the given user and media type.
+    """Check whether a submission may proceed.
 
-    This is the primary gate that must be called before any media ingestion.
+    `minutes_needed` is what the submission will cost *if it is transcribed*:
+    0 for a path that spends no provider minutes (an article, a TikTok), or when
+    the duration is not known yet. A path with an unknown duration is accepted
+    here and checked again by the transcription gate, which is the only place
+    that knows the real length.
 
-    Fails open on purpose: if the tier or the counters cannot be read, the
-    entitlement is *unknown*, not absent. Locking a paying subscriber out of the
-    product because a DynamoDB call failed is a worse outcome than letting one
-    submission through, so the failure is logged and the submission proceeds. A
-    successful read that shows no subscription still denies.
-
-    Args:
-        user_id: The user's ID
-        source_platform: Source platform or media type string (e.g., 'podcast', 'youtube', 'web', 'document')
-        duration_seconds: For audio, the duration in seconds (0 for non-audio)
-
-    Returns:
-        QuotaCheckResult indicating whether submission is allowed or denied with a stable error code.
+    Fails open on purpose: if the entitlement or the counters cannot be read, the
+    entitlement is *unknown*, not absent. Locking a paying subscriber out because
+    a DynamoDB call failed is worse than letting one submission through. A
+    successful read that shows no plan still refuses.
     """
     try:
-        return await _evaluate_submission_allowed(
-            user_id=user_id,
-            source_platform=source_platform,
-            duration_seconds=duration_seconds,
-        )
+        snapshot = await get_entitlement_snapshot(user_id)
+        result = evaluate_submission(snapshot, minutes_needed=minutes_needed)
+        await _note_burst_guards(snapshot, minutes_needed=minutes_needed)
+        return result
     except Exception as exc:
         logger.error(
             "quota.check_failed_open",
             extra={
                 "user_id": user_id,
-                "source_platform": source_platform,
-                "duration_seconds": duration_seconds,
+                "minutes_needed": minutes_needed,
                 "error": str(exc),
                 "error_type": type(exc).__name__,
             },
@@ -275,208 +424,71 @@ async def check_submission_allowed(
         return QuotaCheckResult.ok()
 
 
-async def _evaluate_submission_allowed(
+def evaluate_submission(
+    snapshot: EntitlementSnapshot,
     *,
-    user_id: str,
-    source_platform: str,
-    duration_seconds: int = 0,
+    minutes_needed: int = 0,
 ) -> QuotaCheckResult:
-    """Quota evaluation proper. Raises on infrastructure failure; the caller
-    (`check_submission_allowed`) decides what to do about it."""
-    media_category = classify_media_type(source_platform)
-
-    # Resolve user tier
-    tier = await _get_user_tier(user_id)
-    if tier is None:
-        # No active subscription - treat as free trial on mix if trial is active
-        if await _is_free_trial_active(user_id):
-            tier = "mix"
-        else:
-            # No subscription and no trial - deny
-            return QuotaCheckResult.denied(
-                error_code="tier_quota_exceeded",
-                message="No active subscription. Please subscribe to continue.",
-                http_status=403,
-            )
-
-    config = await pricing_config_service.get_pricing_config()
-
-    # --- 1. Tier-level audio gating (text_only tier refuses all audio) ---
-    if tier == "text_only" and media_category == QUOTA_CATEGORY_AUDIO:
+    """Pure decision over a snapshot. No I/O, so every caller reads the same rules."""
+    if not snapshot.is_entitled:
         return QuotaCheckResult.denied(
-            error_code="tier_quota_exceeded",
-            message="Your Reader tier does not include audio transcription. Please upgrade to Mix or Audio-Heavy.",
+            error_code=ERROR_OUT_OF_MINUTES,
+            message=_NO_PLAN_MESSAGE,
             http_status=403,
         )
 
-    # --- 2. Max audio duration per import ---
-    if media_category == QUOTA_CATEGORY_AUDIO and duration_seconds > 0:
-        rate_limits = config.get("rate_limits", {}).get(tier, {})
-        max_per_import_minutes = rate_limits.get("max_audio_per_import_minutes", 180)
-        duration_minutes = ceil(duration_seconds / 60)
+    if minutes_needed <= 0:
+        # Nothing to charge: reading is unlimited on every tier.
+        return QuotaCheckResult.ok()
 
-        if duration_minutes > max_per_import_minutes:
-            return QuotaCheckResult.denied(
-                error_code="audio_too_long",
-                message=f"Audio duration ({duration_minutes} min) exceeds maximum per import ({max_per_import_minutes} min).",
-                http_status=413,
-            )
-
-        # Also check global max_audio_duration_minutes from hard_caps
-        hard_caps = config.get("hard_caps", {}).get(tier, {})
-        max_global = hard_caps.get("max_audio_duration_minutes", 180)
-        if max_global > 0 and duration_minutes > max_global:
-            return QuotaCheckResult.denied(
-                error_code="audio_too_long",
-                message=f"Audio duration ({duration_minutes} min) exceeds tier maximum ({max_global} min).",
-                http_status=413,
-            )
-
-    # --- 3. Monthly hard caps ---
-    effective_caps = await _get_effective_caps(tier, user_id)
-    monthly_usage = await quota_usage_db.get_monthly_usage(user_id)
-
-    cap_field_map = {
-        QUOTA_CATEGORY_AUDIO: ("audio_minutes", "audio_minutes_used"),
-        QUOTA_CATEGORY_ARTICLE: ("articles", "articles_count"),
-        QUOTA_CATEGORY_DOCUMENT: ("documents", "documents_count"),
-        QUOTA_CATEGORY_YOUTUBE: ("youtube", "youtube_count"),
-    }
-
-    if media_category in cap_field_map:
-        cap_key, usage_key = cap_field_map[media_category]
-        cap_value = effective_caps.get(cap_key, 0)
-        current_usage = monthly_usage.get(usage_key, 0)
-
-        if media_category == QUOTA_CATEGORY_AUDIO:
-            # For audio, check minutes
-            minutes_needed = max(1, ceil(duration_seconds / 60)) if duration_seconds > 0 else 1
-            if cap_value == 0 or (current_usage + minutes_needed) > cap_value:
-                return QuotaCheckResult.denied(
-                    error_code="tier_quota_exceeded",
-                    message=f"Monthly audio quota reached ({current_usage}/{cap_value} minutes used).",
-                    http_status=403,
-                )
-        else:
-            # For non-audio, check count
-            if cap_value == 0 or (current_usage + 1) > cap_value:
-                return QuotaCheckResult.denied(
-                    error_code="tier_quota_exceeded",
-                    message=f"Monthly {media_category} quota reached ({current_usage}/{cap_value}).",
-                    http_status=403,
-                )
-
-    # --- 4. Daily rate limits ---
-    rate_limits = config.get("rate_limits", {}).get(tier, {})
-    daily_usage = await quota_usage_db.get_daily_usage(user_id)
-
-    if media_category == QUOTA_CATEGORY_AUDIO:
-        daily_limit = rate_limits.get("audio_imports_per_day", 0)
-        current_daily = daily_usage.get("audio_imports", 0)
-        if daily_limit == 0 and tier == "text_only":
-            # Already handled above (tier gating), but defensive
-            return QuotaCheckResult.denied(
-                error_code="daily_rate_limit",
-                message="Audio imports not available on your tier.",
-                http_status=429,
-            )
-        if daily_limit > 0 and current_daily >= daily_limit:
-            return QuotaCheckResult.denied(
-                error_code="daily_rate_limit",
-                message=f"Daily audio import limit reached ({current_daily}/{daily_limit}).",
-                http_status=429,
-            )
-    elif media_category == QUOTA_CATEGORY_DOCUMENT:
-        daily_limit = rate_limits.get("document_imports_per_day", 10)
-        current_daily = daily_usage.get("document_imports", 0)
-        if current_daily >= daily_limit:
-            return QuotaCheckResult.denied(
-                error_code="daily_rate_limit",
-                message=f"Daily document import limit reached ({current_daily}/{daily_limit}).",
-                http_status=429,
-            )
-    else:
-        # text (articles, youtube, social, etc.)
-        daily_limit = rate_limits.get("text_imports_per_day", 30)
-        current_daily = daily_usage.get("text_imports", 0)
-        if current_daily >= daily_limit:
-            return QuotaCheckResult.denied(
-                error_code="daily_rate_limit",
-                message=f"Daily text import limit reached ({current_daily}/{daily_limit}).",
-                http_status=429,
-            )
-
-    # --- 5. Cost monitoring (hard block) ---
-    cost_monitoring = await _get_effective_cost_monitoring(tier, user_id)
-    current_cost = monthly_usage.get("cost_eur_estimated", 0.0)
-    hard_block_eur = cost_monitoring.get("hard_block_eur", 999.0)
-    warning_eur = cost_monitoring.get("warning_eur", 999.0)
-
-    if current_cost >= hard_block_eur:
-        action = cost_monitoring.get("action", "block")
-        logger.warning(
-            "quota.cost_hard_block",
-            extra={
-                "user_id": user_id,
-                "tier": tier,
-                "current_cost_eur": current_cost,
-                "hard_block_eur": hard_block_eur,
-                "action": action,
-            },
-        )
+    if (
+        snapshot.max_minutes_per_item > 0
+        and minutes_needed > snapshot.max_minutes_per_item
+    ):
         return QuotaCheckResult.denied(
-            error_code="cost_hard_block",
-            message="Monthly cost limit reached. Submissions are paused for the remainder of this billing period.",
-            http_status=403,
+            error_code=ERROR_ITEM_TOO_LONG,
+            message=_item_too_long_message(snapshot, minutes_needed),
+            http_status=413,
         )
 
-    if current_cost >= warning_eur:
-        # Log warning but allow (CloudWatch alarm picks this up)
-        logger.warning(
-            "quota.cost_warning",
-            extra={
-                "user_id": user_id,
-                "tier": tier,
-                "current_cost_eur": current_cost,
-                "warning_eur": warning_eur,
-            },
+    if minutes_needed > snapshot.minutes_remaining:
+        return QuotaCheckResult.denied(
+            error_code=ERROR_OUT_OF_MINUTES,
+            message=_out_of_minutes_message(snapshot, minutes_needed),
+            http_status=403,
         )
 
     return QuotaCheckResult.ok()
 
 
-async def check_artifact_generation_allowed(
+async def check_generation_allowed(
     user_id: str,
     *,
     scope: str,
     source_count: int,
 ) -> QuotaCheckResult:
-    """Gate an AI generation, which the import quotas do not cover.
+    """Gate an AI generation.
 
-    Two dependencies escape `check_submission_allowed` and they are exactly the
-    ones the collection scope introduces (task-269 §10.1): a collection
-    generation can cost up to 25x a per-media one while consuming no import
-    quota, and the append-only model makes regeneration not merely possible but
-    expected — nothing in the code says "you already have this artifact".
+    A generation over a single item is free: its LLM cost is already inside what
+    the item cost to ingest. A generation over a collection is the only AI action
+    whose cost scales with the content behind it, so it converts to minutes at one
+    per five sources.
 
-    So two counters:
-    - ``ai_generations_per_day`` bounds the "keep tapping regenerate" loop, on
-      **both** scopes.
-    - ``collection_source_units`` (1 unit = one source in one generation) caps the
-      monthly volume of the **collection** scope only. The per-media cost is
-      already inside the per-media unit cost of task-65; counting it here would
-      bill the same spend twice and break nominal usage.
-
-    Fails open like `check_submission_allowed`: an unreadable counter must not
-    lock a subscriber out of the product.
+    Fails open like `check_submission_allowed`.
     """
     try:
-        return await _evaluate_artifact_generation_allowed(
-            user_id=user_id, scope=scope, source_count=source_count
+        snapshot = await get_entitlement_snapshot(user_id)
+        minutes_needed = (
+            await minutes_for_collection_sources(source_count)
+            if scope == "folder"
+            else 0
         )
+        result = evaluate_submission(snapshot, minutes_needed=minutes_needed)
+        await _note_burst_guards(snapshot, minutes_needed=minutes_needed, generations=1)
+        return result
     except Exception as exc:
         logger.error(
-            "quota.artifact_check_failed_open",
+            "quota.generation_check_failed_open",
             extra={
                 "user_id": user_id,
                 "scope": scope,
@@ -489,198 +501,73 @@ async def check_artifact_generation_allowed(
         return QuotaCheckResult.ok()
 
 
-async def _evaluate_artifact_generation_allowed(
+# ---------------------------------------------------------------------------
+# Safety-net layer 2: invisible burst guards
+# ---------------------------------------------------------------------------
+
+
+async def _note_burst_guards(
+    snapshot: EntitlementSnapshot,
     *,
-    user_id: str,
-    scope: str,
-    source_count: int,
-) -> QuotaCheckResult:
-    tier = await _get_user_tier(user_id)
-    if tier is None:
-        if await _is_free_trial_active(user_id):
-            tier = "mix"
-        else:
-            return QuotaCheckResult.denied(
-                error_code="tier_quota_exceeded",
-                message="No active subscription. Please subscribe to continue.",
-                http_status=403,
-            )
-
-    config = await pricing_config_service.get_pricing_config()
-
-    daily_limit = int(
-        (config.get("rate_limits", {}).get(tier, {}) or {}).get(
-            "ai_generations_per_day", 0
-        )
-        or 0
-    )
-    if daily_limit > 0:
-        daily_usage = await quota_usage_db.get_daily_usage(user_id)
-        current_daily = int(daily_usage.get("ai_generations", 0) or 0)
-        if current_daily >= daily_limit:
-            return QuotaCheckResult.denied(
-                error_code="daily_rate_limit",
-                message=(
-                    f"Daily AI generation limit reached ({current_daily}/{daily_limit})."
-                ),
-                http_status=429,
-            )
-
-    if scope == "folder":
-        monthly_cap = int(
-            (await _get_effective_caps(tier, user_id)).get(
-                "collection_source_units", 0
-            )
-            or 0
-        )
-        if monthly_cap > 0:
-            monthly_usage = await quota_usage_db.get_monthly_usage(user_id)
-            current_units = int(
-                monthly_usage.get("collection_source_units", 0) or 0
-            )
-            if current_units + max(1, source_count) > monthly_cap:
-                return QuotaCheckResult.denied(
-                    error_code="tier_quota_exceeded",
-                    message=(
-                        "Monthly collection AI quota reached "
-                        f"({current_units}/{monthly_cap} source units used)."
-                    ),
-                    http_status=403,
-                )
-
-    return QuotaCheckResult.ok()
-
-
-async def record_artifact_generation(
-    user_id: str,
-    *,
-    scope: str,
-    source_count: int,
-    idempotency_token: str,
+    minutes_needed: int = 0,
+    documents: int = 0,
+    document_pages: int = 0,
+    generations: int = 0,
 ) -> None:
-    """Debit the AI counters for one generation that was actually queued.
+    """Log — never refuse — when one account moves faster than any real user.
 
-    ``idempotency_token`` is the artifact id, so a retry of the request cannot
-    debit twice. Best-effort: the generation is already queued, and a counter
-    write failing must not turn into a user-facing error.
+    These guards exist so a scripted account cannot burn a month of Lambda,
+    LlamaParse pages or SQS traffic in an afternoon while staying inside its
+    minute allowance. Every size sits an order of magnitude above the heaviest
+    measured usage, so tripping one is a signal for the owner, not a limit the
+    product talks about.
     """
     try:
-        await quota_usage_db.increment_daily_usage(
-            user_id,
-            ai_generations=1,
-            idempotency_token=idempotency_token,
-        )
-        if scope == "folder" and source_count > 0:
-            await quota_usage_db.increment_monthly_usage(
-                user_id,
-                collection_source_units=source_count,
-                idempotency_token=f"artifact_units:{idempotency_token}",
-            )
+        config = await pricing_config_service.get_pricing_config()
+        guards = config.get("burst_guards", {}) or {}
+        if not guards:
+            return
+
+        daily = await quota_usage_db.get_daily_usage(snapshot.user_id)
+        snapshot.daily_usage = daily
+
+        projected = {
+            "minutes_per_day": daily.get("minutes", 0) + max(0, minutes_needed),
+            "items_per_day": daily.get("items", 0) + 1,
+            "documents_per_day": daily.get("documents", 0) + max(0, documents),
+            "document_pages_per_day": daily.get("document_pages", 0)
+            + max(0, document_pages),
+            "generations_per_day": daily.get("generations", 0) + max(0, generations),
+        }
+
+        for guard_name, projected_value in projected.items():
+            limit = int(guards.get(guard_name, 0) or 0)
+            if limit > 0 and projected_value > limit:
+                logger.warning(
+                    "quota.burst_guard_tripped",
+                    extra={
+                        "user_id": snapshot.user_id,
+                        "tier": snapshot.tier,
+                        "guard": guard_name,
+                        "limit": limit,
+                        "projected": projected_value,
+                    },
+                )
     except Exception as exc:
+        # A guard is an observation. It must never be the reason a submission fails.
         logger.warning(
-            "quota.artifact_record_failed",
+            "quota.burst_guard_check_failed",
             extra={
-                "user_id": user_id,
-                "scope": scope,
-                "source_count": source_count,
+                "user_id": snapshot.user_id,
                 "error": str(exc),
                 "error_type": type(exc).__name__,
             },
         )
 
 
-async def record_submission(
-    user_id: str,
-    source_platform: str,
-    duration_seconds: int = 0,
-    estimated_cost_eur: float = 0.0,
-    idempotency_token: Optional[str] = None,
-) -> int:
-    """
-    Record a successful submission in the usage counters.
-
-    Must be called AFTER the submission has been validated and enqueued.
-
-    Args:
-        user_id: The user's ID
-        source_platform: Source platform string
-        duration_seconds: Audio duration in seconds (0 for non-audio)
-        estimated_cost_eur: Estimated processing cost in EUR
-        idempotency_token: When set, the counters are incremented at most once
-            for this token, whatever how many times the caller runs (SQS
-            redelivery, worker retry).
-
-    Returns:
-        The number of audio minutes debited (0 for non-audio submissions). Audio
-        callers must carry this figure downstream so the Deepgram settlement only
-        applies the difference with the real duration.
-    """
-    media_category = classify_media_type(source_platform)
-
-    # Increment monthly counters
-    minutes_used = 0
-    monthly_kwargs: Dict[str, Any] = {}
-    if media_category == QUOTA_CATEGORY_AUDIO:
-        minutes_used = max(1, ceil(duration_seconds / 60)) if duration_seconds > 0 else 1
-        monthly_kwargs["audio_minutes"] = minutes_used
-    elif media_category == QUOTA_CATEGORY_ARTICLE:
-        monthly_kwargs["articles"] = 1
-    elif media_category == QUOTA_CATEGORY_DOCUMENT:
-        monthly_kwargs["documents"] = 1
-    elif media_category == QUOTA_CATEGORY_YOUTUBE:
-        monthly_kwargs["youtube"] = 1
-
-    if estimated_cost_eur > 0:
-        monthly_kwargs["cost_eur"] = estimated_cost_eur
-
-    if monthly_kwargs:
-        try:
-            await quota_usage_db.increment_monthly_usage(
-                user_id,
-                idempotency_token=idempotency_token,
-                **monthly_kwargs,
-            )
-        except Exception as e:
-            logger.error(
-                "Failed to increment monthly usage counters for user %s: %s",
-                user_id, e,
-            )
-
-    # Increment daily counters
-    daily_kwargs: Dict[str, Any] = {}
-    if media_category == QUOTA_CATEGORY_AUDIO:
-        daily_kwargs["audio_imports"] = 1
-    elif media_category == QUOTA_CATEGORY_DOCUMENT:
-        daily_kwargs["document_imports"] = 1
-    else:
-        daily_kwargs["text_imports"] = 1
-
-    if daily_kwargs:
-        try:
-            await quota_usage_db.increment_daily_usage(
-                user_id,
-                idempotency_token=idempotency_token,
-                **daily_kwargs,
-            )
-        except Exception as e:
-            logger.error(
-                "Failed to increment daily usage counters for user %s: %s",
-                user_id, e,
-            )
-
-    return minutes_used
-
-
-@dataclass
-class AudioQuotaGateResult:
-    """Outcome of the single audio gate that guards a Deepgram enqueue."""
-
-    allowed: bool
-    debited_minutes: int = 0
-    provisional: bool = False
-    error_code: Optional[str] = None
-    message: Optional[str] = None
-    http_status: int = 200
+# ---------------------------------------------------------------------------
+# Debits — one per kind of provider spend
+# ---------------------------------------------------------------------------
 
 
 def gate_token(job_id: str) -> str:
@@ -693,40 +580,260 @@ def settlement_token(job_id: str) -> str:
     return f"{job_id}:settle"
 
 
-async def gate_audio_submission(
+def item_token(job_id: str) -> str:
+    """Idempotency token of the daily item count for a submission.
+
+    Distinct from `gate_token` because both writes land in the same daily row: a
+    submission that debits minutes at the API would otherwise see its item count
+    swallowed as an already-applied token.
+    """
+    return f"{job_id}:item"
+
+
+async def _debit(
+    user_id: str,
+    *,
+    minutes: int,
+    idempotency_token: str,
+    kind: str,
+    documents: int = 0,
+    document_pages: int = 0,
+    generations: int = 0,
+    items: int = 0,
+) -> int:
+    """Charge `minutes` once for `idempotency_token` and feed the burst counters.
+
+    Best-effort by design: the provider has already been (or is about to be)
+    billed, so a counter write failing must never fail the work the user is
+    waiting for. Losing a debit under-counts one item; refusing the item the user
+    already paid for is worse.
+
+    Returns the minutes actually debited (0 when the token had already been
+    applied, or when the write failed).
+    """
+    minutes = max(0, int(minutes))
+    try:
+        applied = True
+        if minutes > 0:
+            unit_cost = await cost_eur_per_minute()
+            applied = await quota_usage_db.increment_monthly_usage(
+                user_id,
+                await resolve_period_key(user_id),
+                minutes=minutes,
+                cost_eur=round(minutes * unit_cost, 4),
+                idempotency_token=idempotency_token,
+            )
+
+        await quota_usage_db.increment_daily_usage(
+            user_id,
+            minutes=minutes,
+            items=items,
+            documents=documents,
+            document_pages=document_pages,
+            generations=generations,
+            idempotency_token=idempotency_token,
+        )
+    except Exception as exc:
+        logger.error(
+            "quota.debit_failed",
+            extra={
+                "user_id": user_id,
+                "kind": kind,
+                "minutes": minutes,
+                "idempotency_token": idempotency_token,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+            exc_info=exc,
+        )
+        return 0
+
+    if not applied:
+        logger.info(
+            "quota.debit_already_applied",
+            extra={
+                "user_id": user_id,
+                "kind": kind,
+                "idempotency_token": idempotency_token,
+            },
+        )
+        return 0
+
+    logger.info(
+        "quota.debited",
+        extra={
+            "user_id": user_id,
+            "kind": kind,
+            "minutes": minutes,
+            "idempotency_token": idempotency_token,
+        },
+    )
+    return minutes
+
+
+async def record_transcription_minutes(
+    user_id: str,
+    *,
+    minutes: int,
+    idempotency_token: str,
+) -> int:
+    """Charge minutes of transcription we are about to pay a provider for."""
+    return await _debit(
+        user_id,
+        minutes=minutes,
+        idempotency_token=idempotency_token,
+        kind="transcription",
+    )
+
+
+async def record_captions_purchase(user_id: str, *, idempotency_token: str) -> int:
+    """Charge the flat unit of a caption set bought from a provider.
+
+    Called where the transcript actually came back, so a video whose captions we
+    got for free (or that failed) costs nothing.
+    """
+    return await _debit(
+        user_id,
+        minutes=await minutes_for_captions(),
+        idempotency_token=idempotency_token,
+        kind="captions",
+    )
+
+
+async def record_document_parse(
+    user_id: str,
+    *,
+    page_count: int,
+    idempotency_token: str,
+) -> int:
+    """Charge a parsed document at one minute per five pages, minimum one."""
+    pages = max(1, int(page_count or 1))
+    return await _debit(
+        user_id,
+        minutes=await minutes_for_document_pages(pages),
+        idempotency_token=idempotency_token,
+        kind="document",
+        documents=1,
+        document_pages=pages,
+    )
+
+
+async def record_generation(
+    user_id: str,
+    *,
+    scope: str,
+    source_count: int,
+    idempotency_token: str,
+) -> int:
+    """Charge one AI generation: nothing over a single item, minutes over a collection."""
+    minutes = (
+        await minutes_for_collection_sources(source_count) if scope == "folder" else 0
+    )
+    return await _debit(
+        user_id,
+        minutes=minutes,
+        idempotency_token=idempotency_token,
+        kind=f"generation:{scope}",
+        generations=1,
+    )
+
+
+async def record_submitted_item(user_id: str, *, idempotency_token: str) -> None:
+    """Count one accepted submission against the daily item guard.
+
+    Minutes are never charged here: they are charged where the provider call is
+    made, which for a link is a worker, minutes later. This is the only place the
+    daily item counter moves, so a submission is counted exactly once whatever
+    path it later takes -- including the free paths (articles, web pages, clips
+    with captions) that never reach a debit at all, which is precisely what this
+    invisible guard is there to bound.
+    """
+    await _debit(
+        user_id,
+        minutes=0,
+        idempotency_token=idempotency_token,
+        kind="submitted_item",
+        items=1,
+    )
+
+
+async def record_observed_cost(
+    user_id: str,
+    *,
+    cost_eur: float,
+    idempotency_token: str,
+) -> None:
+    """Store a measured provider cost against the period, for observability.
+
+    Nothing reads `cost_eur_estimated` to allow or refuse anything — the minute
+    allowance is what bounds spend. This is here so the owner can compare the
+    model's assumptions with the real invoice.
+    """
+    if cost_eur <= 0:
+        return
+    try:
+        await quota_usage_db.increment_monthly_usage(
+            user_id,
+            await resolve_period_key(user_id),
+            cost_eur=cost_eur,
+            idempotency_token=idempotency_token,
+        )
+    except Exception as exc:
+        logger.warning(
+            "quota.cost_record_failed",
+            extra={
+                "user_id": user_id,
+                "idempotency_token": idempotency_token,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# Transcription gate and settlement
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TranscriptionGateResult:
+    """Outcome of the single gate that guards a transcription enqueue."""
+
+    allowed: bool
+    debited_minutes: int = 0
+    provisional: bool = False
+    error_code: Optional[str] = None
+    message: Optional[str] = None
+    http_status: int = 200
+
+
+async def gate_transcription(
     *,
     user_id: str,
     job_id: str,
-    duration_seconds: int = 0,
-    source_platform: str = QUOTA_PLATFORM_AUDIO,
+    duration_seconds: float = 0,
     debit: bool = True,
-) -> AudioQuotaGateResult:
-    """
-    Single check-and-debit gate for a submission that is about to cost Deepgram
-    minutes (task-250 Layer 1).
+) -> TranscriptionGateResult:
+    """Check and debit, immediately before a transcription is enqueued.
 
-    Every producer that enqueues on the Deepgram queue calls this immediately
-    before sending the message, and forwards `debited_minutes` in the payload so
-    the settlement in the transcription worker only applies the delta.
+    Every producer that puts a message on the transcription queue calls this and
+    forwards `debited_minutes` in the payload, so the settlement in the worker
+    only applies the delta with the duration the provider actually billed.
 
     `duration_seconds <= 0` means the duration could not be established in time.
     The submission is still accepted — refusing a legitimate share because a
     metadata probe timed out is not acceptable — and a provisional single minute
-    is debited, which the settlement corrects with Deepgram's own figure.
+    is debited, which the settlement corrects.
 
     `debit=False` charges nothing while still running the check, for a save the
-    caller established is free (task-281: the user already holds this content).
-    The two halves are separable on purpose — the debit measures what the user
-    consumed, the check protects the Deepgram bill, and a free save still spends
-    provider minutes if the pipeline runs for it.
+    caller established is free (the user already holds this content). The two
+    halves are separable on purpose: the debit measures what the user consumed,
+    the check protects the provider bill.
     """
-    check = await check_submission_allowed(
-        user_id=user_id,
-        source_platform=source_platform,
-        duration_seconds=max(0, duration_seconds),
-    )
+    minutes_needed = minutes_for_seconds(duration_seconds) or 1
+    check = await check_submission_allowed(user_id, minutes_needed=minutes_needed)
     if not check.allowed:
-        return AudioQuotaGateResult(
+        return TranscriptionGateResult(
             allowed=False,
             error_code=check.error_code,
             message=check.message,
@@ -734,65 +841,50 @@ async def gate_audio_submission(
         )
 
     if not debit:
-        return AudioQuotaGateResult(allowed=True, debited_minutes=0)
+        return TranscriptionGateResult(allowed=True, debited_minutes=0)
 
-    debited = await record_submission(
-        user_id=user_id,
-        source_platform=source_platform,
-        duration_seconds=max(0, duration_seconds),
-        estimated_cost_eur=estimate_submission_cost(
-            source_platform, max(0, duration_seconds)
-        ),
+    debited = await record_transcription_minutes(
+        user_id,
+        minutes=minutes_needed,
         idempotency_token=gate_token(job_id),
     )
-
     provisional = duration_seconds <= 0
     logger.info(
-        "quota.audio_gate_debited",
+        "quota.transcription_gate_debited",
         extra={
             "user_id": user_id,
             "job_id": job_id,
-            "source_platform": source_platform,
             "duration_seconds": duration_seconds,
             "debited_minutes": debited,
             "provisional": provisional,
         },
     )
-    return AudioQuotaGateResult(
+    return TranscriptionGateResult(
         allowed=True,
         debited_minutes=debited,
         provisional=provisional,
     )
 
 
-async def settle_audio_minutes(
+async def settle_transcription_minutes(
     *,
     user_id: str,
     job_id: str,
     actual_duration_seconds: float,
     already_debited_minutes: int = 0,
 ) -> int:
+    """Reconcile the counter with the duration the provider actually billed.
+
+    Called from the transcription worker with the provider's own duration. Only
+    the difference with what the gate debited is applied, under a per-job token,
+    so a redelivered message cannot debit twice.
+
+    Overrun policy: the true value is stored even when it takes the user past
+    their allowance — the counter is the truth, the display clamps it, and the
+    *next* import is refused naturally. Minutes are never refunded, so a delta of
+    zero or less is a no-op.
     """
-    Reconcile the monthly audio counter with the duration the provider actually
-    billed (task-250 Layer 2).
-
-    Called from the transcription worker with Deepgram's own `metadata.duration`.
-    Only the difference with what the gate already debited is applied, under a
-    per-job idempotency token, so a redelivered message cannot debit twice.
-
-    Overrun policy decided by the owner: the true value is stored even when it
-    takes the user past their monthly cap — the counter is the truth, the display
-    clamps it, and the *next* import is refused naturally. Minutes are never
-    refunded, so a delta of zero or less is a no-op.
-
-    Returns the number of minutes actually added (0 when nothing was due or when
-    the settlement had already been applied).
-    """
-    real_minutes = (
-        max(1, ceil(actual_duration_seconds / 60))
-        if actual_duration_seconds and actual_duration_seconds > 0
-        else 0
-    )
+    real_minutes = minutes_for_seconds(actual_duration_seconds)
     if real_minutes <= 0:
         logger.warning(
             "quota.settlement_skipped_no_duration",
@@ -813,67 +905,21 @@ async def settle_audio_minutes(
         )
         return 0
 
-    try:
-        applied = await quota_usage_db.increment_monthly_usage(
-            user_id,
-            audio_minutes=delta,
-            cost_eur=round(delta * _AUDIO_COST_EUR_PER_MINUTE, 4),
-            idempotency_token=settlement_token(job_id),
-        )
-    except Exception as exc:
-        # Losing a settlement under-counts one job. Failing the transcription the
-        # user already paid for would be worse, so this is logged and swallowed.
-        logger.error(
-            "quota.settlement_failed",
+    applied = await _debit(
+        user_id,
+        minutes=delta,
+        idempotency_token=settlement_token(job_id),
+        kind="settlement",
+    )
+    if applied:
+        logger.info(
+            "quota.settlement_applied",
             extra={
                 "user_id": user_id,
                 "job_id": job_id,
                 "real_minutes": real_minutes,
+                "already_debited_minutes": already_debited_minutes,
                 "delta_minutes": delta,
-                "error": str(exc),
-                "error_type": type(exc).__name__,
             },
-            exc_info=exc,
         )
-        return 0
-
-    if not applied:
-        logger.info(
-            "quota.settlement_already_applied",
-            extra={"user_id": user_id, "job_id": job_id, "delta_minutes": delta},
-        )
-        return 0
-
-    logger.info(
-        "quota.settlement_applied",
-        extra={
-            "user_id": user_id,
-            "job_id": job_id,
-            "real_minutes": real_minutes,
-            "already_debited_minutes": already_debited_minutes,
-            "delta_minutes": delta,
-        },
-    )
-    return delta
-
-
-def estimate_submission_cost(
-    source_platform: str,
-    duration_seconds: int = 0,
-) -> float:
-    """
-    Estimate the cost of a submission based on media type and duration.
-
-    Uses fixed per-item costs from the pricing config defaults.
-    Audio cost is based on Deepgram nova-3 at 0.003 EUR/min.
-    Non-audio items have a flat LLM processing cost estimate.
-    """
-    media_category = classify_media_type(source_platform)
-
-    if media_category == QUOTA_CATEGORY_AUDIO:
-        # Deepgram nova-3: 0.003 EUR/min transcription + ~0.005 EUR/min LLM processing
-        minutes = max(1, ceil(duration_seconds / 60)) if duration_seconds > 0 else 1
-        return round(minutes * _AUDIO_COST_EUR_PER_MINUTE, 4)
-    else:
-        # Non-audio: flat cost per item (LLM summarization)
-        return 0.005  # ~0.005 EUR per text/doc/youtube item
+    return applied

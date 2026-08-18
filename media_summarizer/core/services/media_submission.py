@@ -17,9 +17,11 @@ from media_summarizer.core.services.durable_media_service import (
 )
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
-    estimate_submission_cost,
     gate_token,
-    record_submission,
+    item_token,
+    minutes_for_seconds,
+    record_submitted_item,
+    record_transcription_minutes,
 )
 from media_summarizer.utils import (
     database_async,
@@ -58,11 +60,12 @@ async def submit_media_for_user(
 
     Returns a dict compatible with MediaItemSelectionResponse.
     """
-    # 0. Quota enforcement check (hard caps, rate limits, cost monitoring)
+    # 0. Consumption check. This path always ends in a transcription and its
+    # caller already knows the episode length, so the check is exact.
+    episode_minutes = minutes_for_seconds(duration_seconds or 0)
     quota_result = await check_submission_allowed(
-        user_id=user.id,
-        source_platform=source or "audio",
-        duration_seconds=duration_seconds or 0,
+        user.id,
+        minutes_needed=episode_minutes or 1,
     )
     if not quota_result.allowed:
         return {
@@ -164,18 +167,15 @@ async def submit_media_for_user(
     # Persist update
     await database_async.update_processing_job(created_job)
 
-    # Record submission in quota usage counters. This path receives the episode
-    # duration from its caller, so the debit is exact and happens before the
-    # enqueue: the transcription worker is told how many minutes were already
-    # charged and only settles the difference (task-250 Layer 1/2).
-    estimated_cost = estimate_submission_cost(source or "audio", duration_seconds or 0)
-    debited_minutes = await record_submission(
-        user_id=user.id,
-        source_platform=source or "audio",
-        duration_seconds=duration_seconds or 0,
-        estimated_cost_eur=estimated_cost,
+    # Charge the episode. This path receives the duration from its caller, so the
+    # debit is exact and happens before the enqueue: the transcription worker is
+    # told how many minutes were already charged and only settles the difference.
+    debited_minutes = await record_transcription_minutes(
+        user.id,
+        minutes=episode_minutes or 1,
         idempotency_token=gate_token(created_job.id),
     )
+    await record_submitted_item(user.id, idempotency_token=item_token(created_job.id))
 
     # Enqueue to deepgram transcription queue (direct path, no download worker needed)
     await sqs.send_message(

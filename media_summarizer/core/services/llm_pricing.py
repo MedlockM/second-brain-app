@@ -1,17 +1,15 @@
 """What a generation actually cost, from the provider's own usage block.
 
-The monthly `cost_eur_estimated` counter already backs a hard block
-(`cost_monitoring.hard_block_eur`, task-65 §9.4) but nothing wrote artifact cost
-into it: only ingestion did. Now that a collection generation can read 25
-transcripts and a user can regenerate without any technical limit (the
-append-only model has no "you already have this one"), this is the net that
-catches whatever the per-day and per-month source-unit counters let through
-(task-269 §10.2c).
+Observability, not enforcement: what bounds a user's spend is their minute
+allowance, and a generation over a single item costs zero minutes because its LLM
+cost is already inside what the item cost to ingest. This figure lands in the
+monthly `cost_eur_estimated` counter so the owner can compare the consumption
+model's assumptions with the real invoice.
 
 Prices are catalogue USD per 1M tokens, converted at the same `USD_EUR` rate as
 the task-65 pricing benchmark so both numbers stay comparable. A model that is
-not listed falls back to the most expensive entry: overestimating a cost throttles
-a user early, underestimating it bills the owner silently.
+not listed falls back to the most expensive entry: overestimating is the safe
+direction for a figure the owner reads to decide whether the model holds.
 """
 
 from __future__ import annotations

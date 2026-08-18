@@ -152,9 +152,10 @@ function shareIntentKey(intent: ShareIntent): string {
 /**
  * Build the error half of the intake state from a failed submission.
  *
- * A quota refusal keeps the backend wording: it is the only text that names the
- * limit that was hit, and getFriendlyErrorMessage would collapse it into a
- * generic "You need more minutes or credits to continue."
+ * A consumption refusal keeps the backend wording: it is the only text that
+ * carries the figures ("This import needs 45 minutes and you have 12 left until
+ * Sep 12"), and getFriendlyErrorMessage would collapse it into the generic
+ * out-of-minutes sentence, dropping every number the user needs.
  */
 function toSubmissionError(
   error: unknown,

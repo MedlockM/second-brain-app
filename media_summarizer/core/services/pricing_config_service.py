@@ -2,8 +2,8 @@
 Pricing configuration service with in-memory cache (TTL ~5 minutes).
 
 Reads all pricing/quota parameters from DynamoDB pricing_config table.
-On first load, seeds default values derived from the validated benchmark
-(docs/research/task-65-pricing-v1-benchmark/README.md, owner_decision: ok).
+On first load, seeds default values derived from the validated consumption model
+(docs/research/task-287-consumption-model/README.md, owner_decision: ok).
 
 The service is stateless-safe: multiple processes will each maintain their own
 cache but share the same DynamoDB source of truth. Changes propagate within
@@ -27,12 +27,24 @@ _cache_loaded_at: float = 0.0
 
 
 # ---------------------------------------------------------------------------
-# Default pricing values from validated task-65 benchmark (owner_decision: ok)
+# Default values from the validated consumption model of task-287
+# (docs/research/task-287-consumption-model/README.md, owner_decision: ok).
+#
+# One unit is metered: the *minute*. A minute is a minute of media we pay a
+# transcription provider to process, and everything that is not transcription is
+# unlimited. Ingestion paths that trigger no per-item provider fee (articles, web
+# pages, TikTok, Instagram photo posts, single-item AI generations) cost zero
+# minutes by design — see §3.1 of the benchmark for the conversion table.
+#
 # These are seeded into DynamoDB if the table is empty on first read.
 # ---------------------------------------------------------------------------
 
 DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
     # --- Tier definitions ---
+    # `minutes_per_month` is the *only* allowance a tier carries, and it doubles as
+    # safety-net layer 1: at 0.00664 EUR of provider budget per minute, the worst
+    # case a subscriber can cost is minutes x 0.00664, which each tier's
+    # `revenue_net_eur` covers several times over (0.40 / 1.99 / 4.78 EUR).
     "tiers": {
         "text_only": {
             "id": "text_only",
@@ -40,9 +52,13 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "name_fr": "Lecteur",
             "price_ttc_eur": 3.00,
             "revenue_net_eur": 2.125,
-            "audio_minutes_per_month": 0,
-            "description": "Articles, documents, YouTube captions. No audio transcription.",
-            "description_fr": "Articles, documents, sous-titres YouTube. Aucune transcription audio.",
+            "minutes_per_month": 60,
+            # A single import can never be allowed to swallow a whole allowance in
+            # one go; above this the submission is refused as too long, which is
+            # not something an upgrade fixes.
+            "max_minutes_per_item": 60,
+            "description": "Unlimited reading, plus 1h/month of audio and video transcription.",
+            "description_fr": "Lecture illimitée, plus 1h/mois de transcription audio et vidéo.",
         },
         "mix": {
             "id": "mix",
@@ -50,9 +66,10 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "name_fr": "Mix",
             "price_ttc_eur": 5.00,
             "revenue_net_eur": 3.542,
-            "audio_minutes_per_month": 300,
-            "description": "Everything in Reader plus 5h/month of podcast and audio transcription.",
-            "description_fr": "Tout le tier Lecteur + 5h/mois de transcription audio (podcasts).",
+            "minutes_per_month": 300,
+            "max_minutes_per_item": 180,
+            "description": "Unlimited reading, plus 5h/month of audio and video transcription.",
+            "description_fr": "Lecture illimitée, plus 5h/mois de transcription audio et vidéo.",
         },
         "audio_heavy": {
             "id": "audio_heavy",
@@ -60,9 +77,12 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "name_fr": "Audio-Heavy",
             "price_ttc_eur": 9.00,
             "revenue_net_eur": 6.375,
-            "audio_minutes_per_month": 900,
-            "description": "Everything in Mix with 15h/month of podcast and audio transcription.",
-            "description_fr": "Tout le tier Mix + 15h/mois de transcription audio (podcasts).",
+            # 720, not 900: at 900 minutes the worst case (0.006642 x 900 = 5.98 EUR)
+            # eats 94% of the 6.375 EUR net, which leaves nothing for infrastructure.
+            "minutes_per_month": 720,
+            "max_minutes_per_item": 240,
+            "description": "Unlimited reading, plus 12h/month of audio and video transcription.",
+            "description_fr": "Lecture illimitée, plus 12h/mois de transcription audio et vidéo.",
         },
     },
     # --- Free trial ---
@@ -70,97 +90,58 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
         "enabled": True,
         "duration_days": 30,
         "tier": "mix",
-        "hard_caps": {
-            "audio_minutes": 300,
-            "articles": 300,
-            "documents": 50,
-        },
-        "cost_monitoring": {
-            "warning_eur": 3.0,
-            "hard_block_eur": 5.0,
-        },
+        "minutes_per_month": 300,
+        "max_minutes_per_item": 180,
     },
-    # --- Hard caps (monthly, per tier) ---
-    "hard_caps": {
-        "text_only": {
-            "audio_minutes": 0,
-            "articles": 500,
-            "documents": 100,
-            "youtube": 100,
-            "max_audio_duration_minutes": 0,
-            # 1 unit = one source inside one collection generation (task-269
-            # §10.2b). Collection-scope only: the per-media LLM cost is already
-            # inside the per-media unit cost of task-65, so counting it here would
-            # bill the same spend twice. 400 units is ~57 generations of 7 sources
-            # a month, worst case 0.38 EUR of LLM against 2.125 EUR of net revenue.
-            "collection_source_units": 400,
-        },
-        "mix": {
-            "audio_minutes": 300,
-            "articles": 500,
-            "documents": 100,
-            "youtube": 100,
-            "max_audio_duration_minutes": 180,
-            "collection_source_units": 800,
-        },
-        "audio_heavy": {
-            "audio_minutes": 900,
-            "articles": 1500,
-            "documents": 300,
-            "youtube": 200,
-            "max_audio_duration_minutes": 180,
-            "collection_source_units": 1200,
-        },
+    # --- How each metered event converts into minutes (benchmark §3.1) ---
+    "unit_conversion": {
+        # Transcribed audio and video are charged their real length, rounded up.
+        "min_minutes_per_transcription": 1,
+        # A video whose captions we buy costs one flat provider fee, so it costs
+        # one minute whatever its length.
+        "captions_minutes": 1,
+        # LlamaParse bills at least one credit per page: five pages of document are
+        # worth about one minute of transcription budget.
+        "document_pages_per_minute": 5,
+        # A generation over a collection is the only AI action that scales with the
+        # amount of content behind it. Single-item generations are free.
+        "collection_sources_per_minute": 5,
     },
-    # --- Rate limits (daily, per tier) ---
-    "rate_limits": {
-        "text_only": {
-            "audio_imports_per_day": 0,
-            "text_imports_per_day": 30,
-            "document_imports_per_day": 10,
-            "text_imports_per_minute": 5,
-            "api_calls_per_minute": 15,
-            # What bounds "keep tapping regenerate": the append-only model no
-            # longer refuses a second artifact of the same type, so nothing else
-            # does. 30/day is six times the five types — far above normal use,
-            # far below an abusive loop.
-            "ai_generations_per_day": 30,
-        },
-        "mix": {
-            "audio_imports_per_day": 10,
-            "max_audio_per_import_minutes": 60,
-            "text_imports_per_day": 30,
-            "document_imports_per_day": 10,
-            "text_imports_per_minute": 5,
-            "api_calls_per_minute": 30,
-            "ai_generations_per_day": 50,
-        },
-        "audio_heavy": {
-            "audio_imports_per_day": 20,
-            "max_audio_per_import_minutes": 90,
-            "text_imports_per_day": 100,
-            "document_imports_per_day": 30,
-            "text_imports_per_minute": 10,
-            "api_calls_per_minute": 60,
-            "ai_generations_per_day": 80,
-        },
+    # --- Usage gauge (what the app shows before the wall) ---
+    "usage_gauge": {
+        "warning_threshold_pct": 80,
     },
-    # --- Cost monitoring thresholds (per user, per tier) ---
-    "cost_monitoring": {
-        "text_only": {
-            "warning_eur": 2.5,
-            "hard_block_eur": 3.5,
-            "action": "throttle_5_imports_per_day",
+    # --- Safety-net layer 2: invisible burst guards (benchmark §3.3) ---
+    # Not a user-visible allowance and never a refusal reason: these bound how fast
+    # a single account can burn through infrastructure in one day. Every size sits
+    # far above the heaviest measured usage, so a normal user cannot reach them, and
+    # crossing one only emits `quota.burst_guard_tripped` for the owner to look at.
+    "burst_guards": {
+        "minutes_per_day": 150,
+        "items_per_day": 60,
+        "documents_per_day": 40,
+        "document_pages_per_day": 400,
+        "generations_per_day": 50,
+    },
+    # --- Safety-net layer 3: shared provider pools (benchmark §3.3) ---
+    # Apify credit and LlamaParse credits are *fixed monthly pools shared by every
+    # user*, so no per-user cap can protect them. Capacities are expressed in the
+    # unit each provider bills, counted across all users, and the percentages are
+    # where the owner is warned and where new spend on that provider stops.
+    "provider_pools": {
+        "apify": {
+            "plan": "free",
+            "monthly_capacity": 1160,
+            "capacity_unit": "results",
+            "alarm_pct": 60,
+            "stop_pct": 90,
         },
-        "mix": {
-            "warning_eur": 4.0,
-            "hard_block_eur": 6.0,
-            "action": "throttle_1_audio_per_hour",
-        },
-        "audio_heavy": {
-            "warning_eur": 7.0,
-            "hard_block_eur": 10.0,
-            "action": "throttle_and_contact_owner",
+        "llamaparse": {
+            "plan": "free",
+            "monthly_capacity": 10000,
+            "capacity_unit": "pages",
+            "alarm_pct": 60,
+            "stop_pct": 90,
         },
     },
     # --- Provider configuration ---
@@ -168,7 +149,11 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
         "transcription": {
             "provider": "deepgram",
             "model": "nova-3",
-            "cost_per_minute_eur": 0.003,
+            # Single source of truth for what a minute costs us: Deepgram Nova-3
+            # pay-as-you-go at $0.0077/min, converted at 0.86 EUR/USD
+            # (https://deepgram.com/pricing, 2026-08-18). Nothing else in the
+            # codebase is allowed to hardcode a per-minute price.
+            "cost_per_minute_eur": 0.00664,
         },
         "llm": {
             "summary_short_model": "gpt-5-nano",
@@ -217,11 +202,15 @@ def _merge_defaults(defaults: Any, stored: Any) -> Any:
     Seeding only happens when the table is *empty*, so a key added to the
     defaults after the first seed would otherwise never reach an environment
     whose table is already populated — and a quota whose key is missing reads as
-    0, i.e. no limit at all. That is how `ai_generations_per_day` and
-    `collection_source_units` (task-270) would have been silently inert on dev.
+    0, i.e. no limit at all. That is how `minutes_per_month` and `burst_guards`
+    would have been silently inert on dev.
 
     A stored value always wins, including a stored 0: the point is to fill gaps,
     never to override what the owner has set in DynamoDB.
+
+    The reverse does not happen on its own: a top-level key *removed* from the
+    defaults stays in the table until it is deleted there. That is why dropping a
+    section here comes with a matching delete on `pricing_config-<env>`.
     """
     if isinstance(defaults, dict) and isinstance(stored, dict):
         merged = dict(defaults)

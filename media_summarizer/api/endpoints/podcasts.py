@@ -18,8 +18,8 @@ from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.services.quota_enforcer import (
     check_submission_allowed,
-    estimate_submission_cost,
-    record_submission,
+    item_token,
+    record_submitted_item,
 )
 from media_summarizer.utils import database_async, podcast_index, sqs
 from media_summarizer.utils.database_async import get_db
@@ -213,20 +213,16 @@ async def submit_podcast_for_processing(
                 detail="Authenticated user not found",
             )
 
-        # Quota enforcement check
-        # Determine source type: audio URL goes to deepgram (audio), otherwise RSS (audio/podcast)
+        # Consumption check. The episode length is unknown here, so this only
+        # answers "is this user entitled": the minutes are charged downstream,
+        # where the audio is actually sent to a provider.
         submitted_url = (payload.podcast_url or "").strip()
-        _quota_platform = "audio" if _looks_like_audio_url(submitted_url) else "podcast"
-        quota_result = await check_submission_allowed(
-            user_id=user.id,
-            source_platform=_quota_platform,
-            duration_seconds=0,  # duration unknown at submission time
-        )
+        quota_result = await check_submission_allowed(user.id)
         if not quota_result.allowed:
             raise HTTPException(
                 status_code=quota_result.http_status,
                 detail=quota_result.message,
-                headers={"X-Quota-Error-Code": quota_result.error_code},
+                headers={"X-Quota-Error-Code": quota_result.error_code or ""},
             )
 
         # Create job (pending)
@@ -270,14 +266,10 @@ async def submit_podcast_for_processing(
                 message_body=message_body,
             )
 
-        # Record quota usage after successful enqueue
-        estimated_cost = estimate_submission_cost(_quota_platform, duration_seconds=0)
-        await record_submission(
-            user_id=user.id,
-            source_platform=_quota_platform,
-            duration_seconds=0,
-            estimated_cost_eur=estimated_cost,
-        )
+        # The minutes are charged by the transcription settlement, which is the
+        # only place this path ever learns the real duration. Only the item is
+        # counted here, for the invisible daily burst guard.
+        await record_submitted_item(user.id, idempotency_token=item_token(job.id))
 
         return {"job_id": job.id, "status": job.status.value}
     except HTTPException:

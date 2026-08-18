@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 #
 # Lookup keys mirror the pricing config tier ids of
 # core/services/pricing_config_service.py (`text_only` / `mix` / `audio_heavy`),
-# which is also what quota_enforcer._SUBSCRIPTION_TIER_TO_CONFIG maps onto.
+# which is also what quota_enforcer.SUBSCRIPTION_TIER_TO_CONFIG maps onto.
 # The live layout is documented in docs/REVENUECAT_ENTITLEMENTS.md.
 ENTITLEMENT_TIER_MAP: Dict[str, SubscriptionTier] = {
     "tier_text_only": SubscriptionTier.S,

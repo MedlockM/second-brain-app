@@ -1,34 +1,46 @@
 """
-DynamoDB access layer for quota usage counters.
+DynamoDB access layer for consumption counters.
+
+Only one thing is metered, the minute (see the validated consumption model in
+docs/research/task-287-consumption-model/README.md): a minute of media we pay a
+transcription provider to process, plus the flat conversions of §3.1 (a bought
+caption set, five document pages, five collection sources).
 
 Two tables:
-- user_usage_monthly: monthly counters for hard cap enforcement
-  PK: user_id (S), SK: period (S, format YYYY-MM)
-  Attributes: audio_minutes_used, articles_count, documents_count,
-              youtube_count, cost_eur_estimated, last_updated,
+- user_usage_monthly: the allowance counter, one row per user per billing period
+  PK: user_id (S), SK: period (S)
+  Attributes: minutes_used, cost_eur_estimated (observability only), last_updated,
               settled_jobs (SS, idempotency tokens of already-applied debits)
 
-- user_usage_daily: daily counters for rate limit enforcement
+  The period is *not* a calendar month: it is the billing window the user's
+  subscription is in, so the counter empties on the subscription anniversary the
+  app already shows as `period_end`. `quota_enforcer.resolve_quota_period` owns
+  the key format; this layer only stores what it is given.
+
+  The same table carries one shared row keyed on PROVIDER_POOL_USER_ID, which
+  counts provider spend across *all* users for safety-net layer 3. That row is
+  keyed on the calendar month, because it tracks provider billing cycles rather
+  than any user's subscription.
+
+- user_usage_daily: the invisible burst guards of safety-net layer 2
   PK: user_id (S), SK: date (S, format YYYY-MM-DD)
-  Attributes: audio_imports, text_imports, document_imports,
-              last_import_timestamps (list of recent timestamps for per-minute checks)
+  Attributes: minutes, items, documents, document_pages, generations
   TTL: ttl_epoch (auto-expire after 3 days)
 
 All counter increments use atomic ADD operations to avoid race conditions.
 
-`settled_jobs` grows by at most two tokens per audio import (the submission debit
-and the Deepgram settlement). The highest tier allows 20 imports/day, so a full
-month stays around 55 kB — well inside the 400 kB DynamoDB item limit — and the
-item is scoped to a single month, so the set resets every period.
+`settled_jobs` grows by at most two tokens per transcription (the submission debit
+and the Deepgram settlement). At the highest allowance a full period stays around
+55 kB — well inside the 400 kB DynamoDB item limit — and the item is scoped to a
+single period, so the set resets every billing window.
 """
 
 from __future__ import annotations
 
 import logging
-import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from botocore.exceptions import ClientError
 
@@ -40,9 +52,29 @@ logger = logging.getLogger(__name__)
 USER_USAGE_MONTHLY_TABLE = required_env("USER_USAGE_MONTHLY_TABLE")
 USER_USAGE_DAILY_TABLE = required_env("USER_USAGE_DAILY_TABLE")
 
+# Reserved partition of the monthly table holding platform-wide provider spend.
+# Not a user id, and it can never collide with one: user ids are UUIDs.
+PROVIDER_POOL_USER_ID = "__provider_pools__"
 
-def _current_period() -> str:
-    """Return current month period string in YYYY-MM format."""
+# Daily burst-guard counters (layer 2). Keys are the keyword arguments callers
+# pass, values are the DynamoDB attribute names.
+_DAILY_COUNTERS: Mapping[str, str] = {
+    "minutes": "minutes",
+    "items": "items",
+    "documents": "documents",
+    "document_pages": "document_pages",
+    "generations": "generations",
+}
+
+# Platform-wide provider pool counters (layer 3).
+_POOL_COUNTERS: Mapping[str, str] = {
+    "apify_results": "apify_results",
+    "llamaparse_pages": "llamaparse_pages",
+}
+
+
+def _current_month() -> str:
+    """Return the current calendar month in YYYY-MM format."""
     return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
@@ -56,326 +88,262 @@ def _daily_ttl_epoch() -> int:
     return int((datetime.now(timezone.utc) + timedelta(days=3)).timestamp())
 
 
-async def get_monthly_usage(user_id: str, period: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Get monthly usage counters for a user.
-    Returns a dict with counter values (defaults to 0 if no record exists).
-    """
-    if period is None:
-        period = _current_period()
-
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(USER_USAGE_MONTHLY_TABLE)
-        response = await table.get_item(
-            Key={"user_id": user_id, "period": period}
-        )
-        item = response.get("Item")
-        if not item:
-            return {
-                "audio_minutes_used": 0,
-                "articles_count": 0,
-                "documents_count": 0,
-                "youtube_count": 0,
-                "collection_source_units": 0,
-                "cost_eur_estimated": 0.0,
-            }
-        return {
-            "audio_minutes_used": int(item.get("audio_minutes_used", 0)),
-            "articles_count": int(item.get("articles_count", 0)),
-            "documents_count": int(item.get("documents_count", 0)),
-            "youtube_count": int(item.get("youtube_count", 0)),
-            "collection_source_units": int(item.get("collection_source_units", 0)),
-            "cost_eur_estimated": float(item.get("cost_eur_estimated", 0)),
-        }
-
-
-async def increment_monthly_usage(
-    user_id: str,
+async def _atomic_add(
     *,
-    audio_minutes: int = 0,
-    articles: int = 0,
-    documents: int = 0,
-    youtube: int = 0,
-    collection_source_units: int = 0,
-    cost_eur: float = 0.0,
-    period: Optional[str] = None,
-    idempotency_token: Optional[str] = None,
+    table_name: str,
+    key: Dict[str, str],
+    additions: Dict[str, Any],
+    set_fields: Dict[str, Any],
+    idempotency_token: Optional[str],
+    log_name: str,
 ) -> bool:
-    """
-    Atomically increment monthly usage counters.
-    Creates the record if it does not exist.
+    """Apply an atomic ADD, optionally guarded by an idempotency token.
 
-    When `idempotency_token` is provided, the token is added to the item's
-    `settled_jobs` string set in the same atomic update, under a condition that
-    rejects the write if the token is already present. This makes a redelivered
-    SQS message (or a retried worker run) debit the counters exactly once.
+    When `idempotency_token` is provided the token is added to the item's
+    `settled_jobs` string set in the same update, under a condition that rejects
+    the write if the token is already there. That makes a redelivered SQS message
+    (or a retried worker run) debit the counters exactly once.
 
-    Returns True when the counters were incremented, False when the write was
-    skipped because the token had already been applied.
+    Returns True when the counters moved, False when the write was skipped
+    because the token had already been applied (or there was nothing to add).
     """
-    if period is None:
-        period = _current_period()
+    additions = {name: value for name, value in additions.items() if value}
+    if not additions:
+        return False
+
+    expr_names: Dict[str, str] = {}
+    expr_values: Dict[str, Any] = {}
+    add_parts = []
+    for index, (attribute, value) in enumerate(additions.items()):
+        placeholder = f"#a{index}"
+        value_ref = f":a{index}"
+        expr_names[placeholder] = attribute
+        expr_values[value_ref] = value
+        add_parts.append(f"{placeholder} {value_ref}")
+
+    condition_expr: Optional[str] = None
+    if idempotency_token:
+        expr_names["#sj"] = "settled_jobs"
+        expr_values[":sj"] = {idempotency_token}
+        expr_values[":token"] = idempotency_token
+        add_parts.append("#sj :sj")
+        condition_expr = "attribute_not_exists(#sj) OR NOT contains(#sj, :token)"
+
+    set_parts = []
+    for index, (attribute, value) in enumerate(set_fields.items()):
+        placeholder = f"#s{index}"
+        value_ref = f":s{index}"
+        expr_names[placeholder] = attribute
+        expr_values[value_ref] = value
+        set_parts.append(f"{placeholder} = {value_ref}")
+
+    update_expr = "ADD " + ", ".join(add_parts)
+    if set_parts:
+        update_expr += " SET " + ", ".join(set_parts)
+
+    request: Dict[str, Any] = {
+        "Key": key,
+        "UpdateExpression": update_expr,
+        "ExpressionAttributeNames": expr_names,
+        "ExpressionAttributeValues": expr_values,
+    }
+    if condition_expr:
+        request["ConditionExpression"] = condition_expr
 
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
-        table = await dynamodb.Table(USER_USAGE_MONTHLY_TABLE)
-
-        update_parts = []
-        expr_names = {}
-        expr_values = {}
-
-        if audio_minutes:
-            update_parts.append("#am :am")
-            expr_names["#am"] = "audio_minutes_used"
-            expr_values[":am"] = audio_minutes
-        if articles:
-            update_parts.append("#ac :ac")
-            expr_names["#ac"] = "articles_count"
-            expr_values[":ac"] = articles
-        if documents:
-            update_parts.append("#dc :dc")
-            expr_names["#dc"] = "documents_count"
-            expr_values[":dc"] = documents
-        if youtube:
-            update_parts.append("#yc :yc")
-            expr_names["#yc"] = "youtube_count"
-            expr_values[":yc"] = youtube
-        if collection_source_units:
-            # 1 unit = one source inside one collection generation (task-269 §10.2b).
-            update_parts.append("#su :su")
-            expr_names["#su"] = "collection_source_units"
-            expr_values[":su"] = collection_source_units
-        if cost_eur:
-            update_parts.append("#ce :ce")
-            expr_names["#ce"] = "cost_eur_estimated"
-            expr_values[":ce"] = Decimal(str(round(cost_eur, 4)))
-
-        if not update_parts:
-            return False
-
-        condition_expr: Optional[str] = None
-        if idempotency_token:
-            update_parts.append("#sj :sj")
-            expr_names["#sj"] = "settled_jobs"
-            expr_values[":sj"] = {idempotency_token}
-            expr_values[":token"] = idempotency_token
-            condition_expr = (
-                "attribute_not_exists(#sj) OR NOT contains(#sj, :token)"
-            )
-
-        # Always update last_updated
-        now_iso = datetime.now(timezone.utc).isoformat()
-
-        update_expr = "ADD " + ", ".join(update_parts) + " SET #lu = :lu"
-        expr_names["#lu"] = "last_updated"
-        expr_values[":lu"] = now_iso
-
-        request: Dict[str, Any] = {
-            "Key": {"user_id": user_id, "period": period},
-            "UpdateExpression": update_expr,
-            "ExpressionAttributeNames": expr_names,
-            "ExpressionAttributeValues": expr_values,
-        }
-        if condition_expr:
-            request["ConditionExpression"] = condition_expr
-
+        table = await dynamodb.Table(table_name)
         try:
             await table.update_item(**request)
         except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
                 logger.info(
-                    "quota.monthly_increment_skipped_duplicate",
-                    extra={
-                        "user_id": user_id,
-                        "period": period,
-                        "idempotency_token": idempotency_token,
-                    },
+                    log_name,
+                    extra={"key": key, "idempotency_token": idempotency_token},
                 )
                 return False
             raise
 
-        return True
+    return True
 
 
-async def get_daily_usage(user_id: str, date: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Get daily usage counters for a user.
-    Returns a dict with counter values (defaults to 0 if no record exists).
-    """
-    if date is None:
-        date = _current_date()
-
+async def _get_item(table_name: str, key: Dict[str, str]) -> Optional[Dict[str, Any]]:
     session = database_async.get_session()
     async with session.resource(
         "dynamodb",
         region_name=database_async.AWS_REGION,
     ) as dynamodb:
-        table = await dynamodb.Table(USER_USAGE_DAILY_TABLE)
-        response = await table.get_item(
-            Key={"user_id": user_id, "date": date}
-        )
+        table = await dynamodb.Table(table_name)
+        response = await table.get_item(Key=key)
         item = response.get("Item")
-        if not item:
-            return {
-                "audio_imports": 0,
-                "text_imports": 0,
-                "document_imports": 0,
-                "ai_generations": 0,
-                "last_text_import_ts": [],
-                "last_api_call_ts": [],
-            }
-        return {
-            "audio_imports": int(item.get("audio_imports", 0)),
-            "text_imports": int(item.get("text_imports", 0)),
-            "document_imports": int(item.get("document_imports", 0)),
-            "ai_generations": int(item.get("ai_generations", 0)),
-            "last_text_import_ts": item.get("last_text_import_ts", []),
-            "last_api_call_ts": item.get("last_api_call_ts", []),
-        }
+        return item if item else None
+
+
+# ---------------------------------------------------------------------------
+# Monthly allowance counter
+# ---------------------------------------------------------------------------
+
+
+async def get_monthly_usage(user_id: str, period: str) -> Dict[str, Any]:
+    """Return the consumption counters of one billing period.
+
+    `cost_eur_estimated` is observability only: it is the measured provider spend
+    of that period and nothing reads it to allow or refuse anything.
+    """
+    item = await _get_item(
+        USER_USAGE_MONTHLY_TABLE, {"user_id": user_id, "period": period}
+    )
+    if item is None:
+        return {"minutes_used": 0, "cost_eur_estimated": 0.0}
+    return {
+        "minutes_used": int(item.get("minutes_used", 0)),
+        "cost_eur_estimated": float(item.get("cost_eur_estimated", 0)),
+    }
+
+
+async def increment_monthly_usage(
+    user_id: str,
+    period: str,
+    *,
+    minutes: int = 0,
+    cost_eur: float = 0.0,
+    idempotency_token: Optional[str] = None,
+) -> bool:
+    """Atomically debit minutes (and record measured cost) for one period.
+
+    Creates the row if it does not exist. Returns True when the counters moved,
+    False when the write was skipped as a duplicate.
+    """
+    additions: Dict[str, Any] = {}
+    if minutes:
+        additions["minutes_used"] = minutes
+    if cost_eur:
+        additions["cost_eur_estimated"] = Decimal(str(round(cost_eur, 4)))
+
+    return await _atomic_add(
+        table_name=USER_USAGE_MONTHLY_TABLE,
+        key={"user_id": user_id, "period": period},
+        additions=additions,
+        set_fields={"last_updated": datetime.now(timezone.utc).isoformat()},
+        idempotency_token=idempotency_token,
+        log_name="quota.monthly_increment_skipped_duplicate",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Daily burst guards (safety-net layer 2)
+# ---------------------------------------------------------------------------
+
+
+async def get_daily_usage(user_id: str, date: Optional[str] = None) -> Dict[str, int]:
+    """Return today's burst-guard counters (0 when nothing was recorded)."""
+    if date is None:
+        date = _current_date()
+
+    item = await _get_item(USER_USAGE_DAILY_TABLE, {"user_id": user_id, "date": date})
+    if item is None:
+        return {name: 0 for name in _DAILY_COUNTERS}
+    return {
+        name: int(item.get(attribute, 0))
+        for name, attribute in _DAILY_COUNTERS.items()
+    }
 
 
 async def increment_daily_usage(
     user_id: str,
     *,
-    audio_imports: int = 0,
-    text_imports: int = 0,
-    document_imports: int = 0,
-    ai_generations: int = 0,
+    minutes: int = 0,
+    items: int = 0,
+    documents: int = 0,
+    document_pages: int = 0,
+    generations: int = 0,
     date: Optional[str] = None,
     idempotency_token: Optional[str] = None,
 ) -> bool:
-    """
-    Atomically increment daily usage counters.
-    Creates the record if it does not exist. Sets TTL for auto-cleanup.
+    """Atomically increment today's burst-guard counters.
 
-    `idempotency_token` behaves like in `increment_monthly_usage`: a token that
-    was already applied to this day's item makes the write a no-op instead of
-    inflating the daily import count on an SQS redelivery.
-
-    Returns True when the counters were incremented, False when skipped.
+    Creates the row if it does not exist and sets its TTL. These counters never
+    refuse anything on their own — `quota_enforcer` only reads them to decide
+    whether an account is worth the owner's attention.
     """
     if date is None:
         date = _current_date()
 
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(USER_USAGE_DAILY_TABLE)
+    provided = {
+        "minutes": minutes,
+        "items": items,
+        "documents": documents,
+        "document_pages": document_pages,
+        "generations": generations,
+    }
+    additions = {
+        _DAILY_COUNTERS[name]: value for name, value in provided.items() if value
+    }
 
-        update_parts = []
-        expr_names = {}
-        expr_values = {}
-
-        if audio_imports:
-            update_parts.append("#ai :ai")
-            expr_names["#ai"] = "audio_imports"
-            expr_values[":ai"] = audio_imports
-        if text_imports:
-            update_parts.append("#ti :ti")
-            expr_names["#ti"] = "text_imports"
-            expr_values[":ti"] = text_imports
-        if document_imports:
-            update_parts.append("#di :di")
-            expr_names["#di"] = "document_imports"
-            expr_values[":di"] = document_imports
-        if ai_generations:
-            update_parts.append("#ag :ag")
-            expr_names["#ag"] = "ai_generations"
-            expr_values[":ag"] = ai_generations
-
-        if not update_parts:
-            return False
-
-        condition_expr: Optional[str] = None
-        if idempotency_token:
-            update_parts.append("#sj :sj")
-            expr_names["#sj"] = "settled_jobs"
-            expr_values[":sj"] = {idempotency_token}
-            expr_values[":token"] = idempotency_token
-            condition_expr = (
-                "attribute_not_exists(#sj) OR NOT contains(#sj, :token)"
-            )
-
-        # Set TTL on every write
-        ttl_val = _daily_ttl_epoch()
-        update_expr = "ADD " + ", ".join(update_parts) + " SET #ttl = :ttl"
-        expr_names["#ttl"] = "ttl_epoch"
-        expr_values[":ttl"] = ttl_val
-
-        request: Dict[str, Any] = {
-            "Key": {"user_id": user_id, "date": date},
-            "UpdateExpression": update_expr,
-            "ExpressionAttributeNames": expr_names,
-            "ExpressionAttributeValues": expr_values,
-        }
-        if condition_expr:
-            request["ConditionExpression"] = condition_expr
-
-        try:
-            await table.update_item(**request)
-        except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
-                logger.info(
-                    "quota.daily_increment_skipped_duplicate",
-                    extra={
-                        "user_id": user_id,
-                        "date": date,
-                        "idempotency_token": idempotency_token,
-                    },
-                )
-                return False
-            raise
-
-        return True
+    return await _atomic_add(
+        table_name=USER_USAGE_DAILY_TABLE,
+        key={"user_id": user_id, "date": date},
+        additions=additions,
+        set_fields={"ttl_epoch": _daily_ttl_epoch()},
+        idempotency_token=idempotency_token,
+        log_name="quota.daily_increment_skipped_duplicate",
+    )
 
 
-async def record_import_timestamp(
-    user_id: str,
+# ---------------------------------------------------------------------------
+# Shared provider pools (safety-net layer 3)
+# ---------------------------------------------------------------------------
+
+
+async def get_provider_pool_usage(month: Optional[str] = None) -> Dict[str, int]:
+    """Return this calendar month's provider spend across every user."""
+    if month is None:
+        month = _current_month()
+
+    item = await _get_item(
+        USER_USAGE_MONTHLY_TABLE,
+        {"user_id": PROVIDER_POOL_USER_ID, "period": month},
+    )
+    if item is None:
+        return {name: 0 for name in _POOL_COUNTERS}
+    return {
+        name: int(item.get(attribute, 0))
+        for name, attribute in _POOL_COUNTERS.items()
+    }
+
+
+async def increment_provider_pool_usage(
     *,
-    field: str,
-    date: Optional[str] = None,
-) -> None:
+    apify_results: int = 0,
+    llamaparse_pages: int = 0,
+    month: Optional[str] = None,
+    idempotency_token: Optional[str] = None,
+) -> bool:
+    """Record provider spend against the shared monthly pool.
+
+    Apify credit and LlamaParse credits are fixed monthly pools shared by every
+    user, so no per-user allowance can protect them. This is the counter behind
+    the alarm and the stop threshold of `provider_pools` in the pricing config.
     """
-    Append current timestamp to a list field (for per-minute rate tracking).
-    Only keeps the last 120 entries (2 minutes of per-second imports max).
+    if month is None:
+        month = _current_month()
 
-    field: one of 'last_text_import_ts' or 'last_api_call_ts'
-    """
-    if date is None:
-        date = _current_date()
+    provided = {
+        "apify_results": apify_results,
+        "llamaparse_pages": llamaparse_pages,
+    }
+    additions = {
+        _POOL_COUNTERS[name]: value for name, value in provided.items() if value
+    }
 
-    now_ts = int(time.time())
-
-    session = database_async.get_session()
-    async with session.resource(
-        "dynamodb",
-        region_name=database_async.AWS_REGION,
-    ) as dynamodb:
-        table = await dynamodb.Table(USER_USAGE_DAILY_TABLE)
-
-        # Use list_append to add the timestamp, creating the list if absent
-        await table.update_item(
-            Key={"user_id": user_id, "date": date},
-            UpdateExpression=(
-                "SET #f = list_append(if_not_exists(#f, :empty), :ts), "
-                "#ttl = :ttl"
-            ),
-            ExpressionAttributeNames={
-                "#f": field,
-                "#ttl": "ttl_epoch",
-            },
-            ExpressionAttributeValues={
-                ":ts": [now_ts],
-                ":empty": [],
-                ":ttl": _daily_ttl_epoch(),
-            },
-        )
+    return await _atomic_add(
+        table_name=USER_USAGE_MONTHLY_TABLE,
+        key={"user_id": PROVIDER_POOL_USER_ID, "period": month},
+        additions=additions,
+        set_fields={"last_updated": datetime.now(timezone.utc).isoformat()},
+        idempotency_token=idempotency_token,
+        log_name="quota.provider_pool_increment_skipped_duplicate",
+    )

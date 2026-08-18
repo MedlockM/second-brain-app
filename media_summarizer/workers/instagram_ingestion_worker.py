@@ -45,6 +45,7 @@ from media_summarizer.core.media_ingestion.errors import (
     NonRetryableProviderResolutionError,
     RetryableProviderResolutionError,
 )
+from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.infrastructure import apify_adapter
 from media_summarizer.infrastructure.apify_adapter import ApifyActorKind
 from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
@@ -408,6 +409,28 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
         else:
             await database_async.update_processing_job(job)
 
+        # A reel is about to be transcribed by the minute like any other audio:
+        # the meter follows the provider call, not the URL (task-287). This gate
+        # is the last point where that Deepgram spend can still be refused, and
+        # the only place it is charged -- without it a reel was transcribed for
+        # free whatever the user's remaining allowance.
+        gate = await audio_quota_gate.gate_audio_transcription(
+            job_id=job_id,
+            user_id=user_id,
+            job=job,
+            media_key=media_key,
+            known_duration_seconds=audio_duration_seconds,
+            error_step="instagram_ingestion",
+        )
+        if not gate.allowed:
+            return {
+                "job_id": job_id,
+                "media_key": media_key,
+                "content_type": resolved_content_type,
+                "routed_to": "quota_refused",
+                "error_code": gate.error_code,
+            }
+
         await enqueue_deepgram_transcription(
             job_id=job_id,
             audio_url=resolved.audio_url,
@@ -421,10 +444,9 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             # what the API stored at submission (task-266).
             episode_title=job.title or message_body.get("episode_title"),
             podcast_title=job.title or message_body.get("podcast_title"),
-            audio_duration_seconds=audio_duration_seconds,
-            # Instagram is metered in its own quota category, not in audio
-            # minutes (validated task-250 decision).
-            quota_source_platform="instagram",
+            audio_duration_seconds=gate.duration_seconds or audio_duration_seconds,
+            quota_debited_minutes=gate.debited_minutes,
+            quota_debit_skipped=gate.debit_skipped,
             resolver_key=resolved.resolver_key,
             caption=resolver_metadata.get("caption"),
             comments=resolver_metadata.get("comments", []),

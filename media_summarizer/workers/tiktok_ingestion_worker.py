@@ -714,7 +714,6 @@ async def _publish_success_event(
             "status": "success",
             "media_key": media_key,
             "canonical_job_id": job_id,
-            "minutes_used": 1,
             "transcription_s3_key": transcript_s3_key,
             "transcription_metadata": transcription_metadata,
         },

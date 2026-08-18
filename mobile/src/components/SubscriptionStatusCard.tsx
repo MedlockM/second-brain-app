@@ -17,17 +17,21 @@ import {
 } from "../constants/theme";
 import type { EntitlementStatus } from "../contexts/PurchasesContext";
 import {
-  formatPeriodEnd,
-  getPeriodEndLabel,
+  formatResetDate,
+  getResetDateLabel,
   getStatusNote,
   getTierLabel,
-  includesAudioMinutes,
+  getUsageRatio,
 } from "../lib/subscriptionDisplay";
 
 /**
  * Read-only summary of the subscription state the backend reports on
- * `GET /api/v1/entitlements/status`: tier, audio minutes left this month and
- * period end.
+ * `GET /api/v1/entitlements/status`: tier, minutes left in the period, how much
+ * of the allowance is spent, and when it refills.
+ *
+ * Minutes are the only metered unit (task-287), so the card shows one balance
+ * over one total instead of a per-feature breakdown: reading is unlimited on
+ * every tier, and a minute is only spent on something we transcribe.
  *
  * The card never gates anything — it only reports. Four states are rendered,
  * and the difference between them matters:
@@ -37,7 +41,7 @@ import {
  *   would be a claim the app cannot back.
  * - no active plan (`is_active === false`): the backend said so, that one is
  *   authoritative.
- * - active: tier plus the two figures.
+ * - active: tier, the minutes gauge and the reset date.
  */
 interface SubscriptionStatusCardProps {
   /** Backend entitlement payload, `null` while unknown or after a failure. */
@@ -126,18 +130,16 @@ function CardBody({
       <View testID="account-plan-inactive">
         <Text style={styles.planName}>No active plan</Text>
         <Text style={styles.bodyText}>
-          Your audio minutes and renewal date appear here once a subscription is
-          active.
+          Your minutes and reset date appear here once a subscription is active.
         </Text>
       </View>
     );
   }
 
-  const tier = entitlement.subscription_tier;
-  const tierLabel = getTierLabel(tier);
+  const tierLabel = getTierLabel(entitlement.subscription_tier);
   const statusNote = getStatusNote(entitlement.subscription_status);
-  const periodEnd = formatPeriodEnd(entitlement.period_end);
-  const periodEndLabel = getPeriodEndLabel(entitlement);
+  const resetDate = formatResetDate(entitlement.resets_at);
+  const resetDateLabel = getResetDateLabel(entitlement);
   const minutesRemaining = String(entitlement.minutes_remaining);
 
   return (
@@ -159,26 +161,60 @@ function CardBody({
         <Metric
           testID="account-plan-minutes"
           value={minutesRemaining}
-          label="AUDIO MIN LEFT"
-          accessibilityLabel={`${minutesRemaining} audio minutes left this month`}
+          label="MINUTES LEFT"
+          accessibilityLabel={`${minutesRemaining} of ${entitlement.minutes_included} minutes left this period`}
         />
         <Metric
-          testID="account-plan-period-end"
-          value={periodEnd ?? "Unknown"}
-          label={periodEndLabel}
+          testID="account-plan-reset-date"
+          value={resetDate ?? "Unknown"}
+          label={resetDateLabel}
           accessibilityLabel={
-            periodEnd
-              ? `${periodEndLabel.toLowerCase()} ${periodEnd}`
-              : "Period end date unknown"
+            resetDate
+              ? `${resetDateLabel.toLowerCase()} ${resetDate}`
+              : "Reset date unknown"
           }
         />
       </View>
 
-      {!includesAudioMinutes(tier) && (
-        <Text style={styles.hintText}>
-          Reader covers text only, so it comes without audio minutes.
-        </Text>
-      )}
+      <UsageBar entitlement={entitlement} />
+
+      <Text style={styles.hintText}>
+        Minutes cover audio and video we transcribe. Reading is unlimited.
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Thin bar showing how much of the period's allowance is spent. Deliberately
+ * decoration around the figures above rather than the figures themselves: it is
+ * the glanceable part, so it carries no text of its own and is hidden from the
+ * screen reader, which already reads "N of M minutes left this period".
+ */
+function UsageBar({
+  entitlement,
+}: {
+  entitlement: EntitlementStatus;
+}): React.JSX.Element | null {
+  if (entitlement.minutes_included <= 0) {
+    return null;
+  }
+  const usedFraction = getUsageRatio(entitlement);
+
+  return (
+    <View
+      testID="account-plan-usage-bar"
+      style={styles.usageTrack}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <View
+        style={[
+          styles.usageFill,
+          // Percent width so the fill follows the track without measuring it.
+          { width: `${usedFraction * 100}%` },
+        ]}
+      />
     </View>
   );
 }
@@ -284,6 +320,18 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     letterSpacing: 0.5,
     marginTop: Spacing.xs,
+  },
+  usageTrack: {
+    height: Spacing.xs,
+    marginTop: Spacing.md,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
+    overflow: "hidden",
+  },
+  usageFill: {
+    height: "100%",
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primary,
   },
   retryButton: {
     flexDirection: "row",

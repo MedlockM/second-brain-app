@@ -1,12 +1,14 @@
 """
-Shared audio quota gate for every producer that enqueues a Deepgram
-transcription (task-250 Layer 1).
+Shared gate for every producer that enqueues a transcription (task-250 Layer 1).
 
 The producer that resolves the audio URL is the last place where a job can still
-be refused *before* spending provider minutes. This module holds the sequence
-they all need — establish the duration, ask the quota engine, debit once, fail
-the job cleanly on refusal — so no producer drifts from it. Both the resolution
-workers and the ingestion orchestrator use it.
+be refused *before* spending provider minutes, and — since the meter follows the
+provider call rather than the URL — it is also the only place allowed to charge
+them. Whatever the media came from (a podcast feed, a YouTube video with no
+captions, a TikTok, an Instagram reel, an uploaded file), if it is about to be
+transcribed it goes through here and it is charged its real length. This module
+holds the sequence they all need — establish the duration, ask the enforcer, debit
+once, fail the job cleanly on refusal — so no producer drifts from it.
 
 The contract with the transcription worker is the `quota_debited_minutes` field
 in the SQS payload: whatever this gate debited must be forwarded, so the
@@ -55,12 +57,14 @@ class AudioGateDecision:
 
     @property
     def failure_message(self) -> str:
-        """Job error message that `user_facing_errors` can map to a real string.
+        """What the user reads on the item that could not be processed.
 
-        The stable error code has to appear verbatim in the message: that is what
-        the user-facing translation layer keys on.
+        Product copy, already carrying the figures that explain the refusal ("You're
+        out of minutes until Sep 12"). It is stored on the job as-is: prefixing it
+        with a machine code, as this used to, put `out_of_minutes:` in front of a
+        sentence shown on a screen.
         """
-        return f"{self.error_code}: {self.message or 'Quota exceeded'}"
+        return self.message or "This import could not be processed."
 
 
 async def resolve_audio_duration_seconds(
@@ -142,7 +146,6 @@ async def gate_audio_transcription(
     audio_bytes: Optional[bytes] = None,
     known_duration_seconds: int = 0,
     media_item_id: Optional[str] = None,
-    source_platform: str = quota_enforcer.QUOTA_PLATFORM_AUDIO,
     error_step: str = "quota_enforcement",
     probe_budget_seconds: float = audio_duration_probe.DEFAULT_PROBE_BUDGET_SECONDS,
     mark_job_failed: bool = True,
@@ -161,12 +164,14 @@ async def gate_audio_transcription(
     cannot find itself and exempt itself. It defaults to the pointer the job
     already carries, so every existing producer gets the check for free.
     """
+    source_platform = getattr(job, "source_platform", None)
+
     if not user_id:
         log_event(
             logger,
             logging.WARNING,
             "quota.gate_skipped_no_user",
-            "No user_id available for the audio quota gate; submission allowed",
+            "No user_id available for the transcription gate; submission allowed",
             job_id=job_id,
             source_platform=source_platform,
         )
@@ -193,13 +198,12 @@ async def gate_audio_transcription(
 
     # The check still runs for a free save. Free means the user is not charged,
     # not that the pipeline below is free to spend an unbounded number of
-    # Deepgram minutes for someone already over their cap: this gate is the last
+    # provider minutes for someone already out of them: this gate is the last
     # point where that spend can still be refused.
-    gate = await quota_enforcer.gate_audio_submission(
+    gate = await quota_enforcer.gate_transcription(
         user_id=user_id,
         job_id=job_id,
         duration_seconds=duration_seconds,
-        source_platform=source_platform,
         debit=not already_held,
     )
 
@@ -267,7 +271,7 @@ async def gate_audio_transcription(
         await _publish_quota_failure_event(
             job_id=job_id,
             media_key=media_key,
-            reason=gate.error_code or "tier_quota_exceeded",
+            reason=gate.error_code or quota_enforcer.ERROR_OUT_OF_MINUTES,
         )
 
     return decision

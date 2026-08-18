@@ -37,26 +37,32 @@ Not allowed:
 ## Core ingestion flow
 
 1. canonicalize URL and derive `media_key`
-2. **quota enforcement check** via `quota_enforcer.check_submission_allowed` (hard caps, daily rate limits, max audio duration, cost monitoring block)
+2. **consumption check** via `quota_enforcer.check_submission_allowed` (does the plan have the minutes this import needs?)
 3. route URL through `ResolverRouter` (classification + resolver lookup)
 4. resolve URL through `ContentResolverPort`
 5. submit persistence/pipeline through `SubmissionOrchestratorPort`
-6. **record submission** via `quota_enforcer.record_submission` (atomically increment monthly/daily usage counters)
+6. **count the accepted submission** via `quota_enforcer.record_submitted_item` (daily burst guard only — no minutes are charged here)
 
-## Quota enforcement (task-110)
+## Consumption enforcement (task-288, per the validated model of task-287)
 
-All submission entry points (`POST /api/media/ingest-url`, `POST /api/media/upload`, `POST /api/v1/podcasts/submit`, and `media_submission.submit_media_for_user`) call the quota enforcement engine before creating a job.
+**One unit is metered: the minute.** A minute is a minute of media we pay a transcription provider to process, plus three flat conversions — a bought caption set counts 1, five document pages count 1, five sources of a collection generation count 1. Everything else (articles, web pages, TikToks, Instagram photo posts, single-item AI generations) is unlimited and costs nothing.
 
-The engine checks in order:
-1. Tier-level audio gating (text_only tier refuses all audio structurally)
-2. Max audio duration per import (60 min for Mix, 90 min for Audio-Heavy)
-3. Monthly hard caps per media type (audio_minutes, articles, documents, youtube)
-4. Daily rate limits per media type
-5. Cost monitoring hard block (estimated monthly cost exceeds threshold)
+**The meter follows the provider call, not the URL.** An API endpoint only ever *checks*; the debit happens where provider money is spent — the Deepgram gate (`audio_quota_gate`), the paid caption fetch, the document parse, the collection generation. That is what makes "a transcription nobody charged" and "the same import charged twice" unrepresentable rather than merely fixed. There is no per-platform category map and therefore no platform that can be exempt.
 
-On denial, a stable error code is returned (`tier_quota_exceeded`, `daily_rate_limit`, `audio_too_long`, `cost_hard_block`) that the mobile app can pattern-match for localized display.
+All submission entry points (`POST /api/media/ingest-url`, `POST /api/media/upload`, `POST /api/v1/podcasts/submit`, and `media_submission.submit_media_for_user`) call `check_submission_allowed` before creating a job, with the minutes the import will cost when its duration is already known.
 
-Usage counters are stored in DynamoDB tables `user_usage_monthly` (PK: user_id, SK: YYYY-MM) and `user_usage_daily` (PK: user_id, SK: YYYY-MM-DD) with atomic ADD operations.
+The check has exactly two refusals, and the difference is whether upgrading fixes it:
+- `item_too_long` (413) — this single item is longer than `max_minutes_per_item` on this plan. Splitting it fixes it; no paywall is offered.
+- `out_of_minutes` (403) — the period's minutes are spent, or there is no plan at all. Upgrading fixes it.
+
+Both carry a product-copy `message` with the figures inline, which the app displays verbatim.
+
+Three safety-net layers, one of them visible:
+1. the allowance itself — minutes x `cost_per_minute_eur` is always a fraction of the tier's net revenue, so no per-user euro ceiling is needed;
+2. `burst_guards` — invisible daily counters (minutes, items, documents, pages, generations) that **never refuse anything** and only emit `quota.burst_guard_tripped` for the owner;
+3. `provider_pool_guard` — Apify credit and LlamaParse credits are platform-wide monthly pools, so they are counted across all users and degrade (alarm at 60%, stop at 90%) independently of any per-user allowance.
+
+Counters live in DynamoDB tables `user_usage_monthly` (PK: user_id, SK: the billing period — the subscription's own anniversary window, not the calendar month) and `user_usage_daily` (PK: user_id, SK: YYYY-MM-DD), written with atomic ADD plus a per-write idempotency token so a redelivered SQS message cannot debit twice.
 
 ## URL classification and routing policy (task-21)
 
@@ -233,9 +239,10 @@ happens in the worker, never in the HTTP request:
 3. `instagram_ingestion_worker` runs `InstagramApifyResolver`, which detects the
    content type from the URL path (`/reel/` -> reel, `/p/` -> post, `/tv/` -> igtv).
 4. For **Reels/IGTV**: yt-dlp first (free); on an Instagram IP block, the Apify
-   Reel Scraper returns `audioUrl` (preferred) or `videoUrl`. The worker hands
-   the URL to `deepgram-transcription-queue` in `push` mode with
-   `quota_source_platform="instagram"`.
+   Reel Scraper returns `audioUrl` (preferred) or `videoUrl`. The worker passes
+   through `audio_quota_gate` and only then hands the URL to
+   `deepgram-transcription-queue` in `push` mode — a reel we transcribe costs the
+   minutes it is long, like any other audio.
 5. For **Image posts** (single or carousel): the Apify Post Scraper returns
    `displayUrl`, `images`, `childPosts` and the resolver a `MediaType.IMAGE_POST`
    payload. The worker fails the job with `unsupported_content` — no OCR/vision

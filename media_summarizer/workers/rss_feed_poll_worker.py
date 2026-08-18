@@ -18,7 +18,7 @@ import logging
 import os
 
 from media_summarizer.core.media_ingestion.title_derivation import derive_media_title
-from media_summarizer.core.services import audio_quota_gate, quota_enforcer
+from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.core.services.rss_feed_service import poll_feed
 from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.env import required_env
@@ -79,9 +79,9 @@ async def _route_item_to_pipeline(
     job = await database_async.create_processing_job(job)
 
     if item_type == "audio" and audio_url:
-        # Quota gate (task-250 Layer 0/1): automatic polling used to enqueue
-        # Deepgram transcriptions without touching the counters at all, so a
-        # single subscribed feed could spend an unbounded number of minutes.
+        # Quota gate: automatic polling used to enqueue Deepgram transcriptions
+        # without touching the counters at all, so a single subscribed feed could
+        # spend an unbounded number of minutes.
         gate = await audio_quota_gate.gate_audio_transcription(
             job_id=job.id,
             user_id=user_id,
@@ -89,7 +89,6 @@ async def _route_item_to_pipeline(
             media_key=guid,
             audio_url=audio_url,
             known_duration_seconds=int(item.get("duration_seconds") or 0),
-            source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
             error_step="rss_feed_poll",
         )
         if not gate.allowed:

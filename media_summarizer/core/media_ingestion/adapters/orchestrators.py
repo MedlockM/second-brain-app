@@ -94,9 +94,9 @@ def _library_status_from_duplicate(
     return UserMediaStatus.PROCESSING
 
 
-# Transcription providers that are paid by the minute. Only Deepgram spends audio
-# quota: native subtitles, Apify transcripts and shared text produce a transcript
-# without consuming a single minute of anyone's budget.
+# Transcription providers that are paid by the minute. Only Deepgram is metered by
+# length: native subtitles, Apify transcripts and shared text produce a transcript
+# without spending a single minute of anyone's allowance.
 _AUDIO_BILLED_TRANSCRIPTION_PROVIDERS = frozenset({"deepgram"})
 
 
@@ -137,13 +137,15 @@ async def _debit_deduplicated_audio_save(
 
     The pipeline being skipped is not the same statement as the save being free.
     Global deduplication is a provider-cost optimisation shared by everybody; the
-    audio quota measures one user's entitlement to consume audio, so their first
-    copy of a media is charged like any other -- and every copy after that is
-    free, because they already hold it (task-281).
+    minute allowance measures how much audio and video *this user* takes in, so
+    their first copy of a media is charged like any other -- and every copy after
+    that is free, because they already hold it (task-281). The alternative, giving
+    a media away to everyone but whoever saved it first, is arbitrary from the
+    user's seat and trivially gamed.
 
     Debited outside the gate on purpose: there is no provider spend left to
     refuse here, so refusing the save would cost the user their library entry to
-    protect a bill nobody is about to pay. Going past the monthly cap is the
+    protect a bill nobody is about to pay. Going past the allowance is the
     settlement's existing overrun policy -- the counter stays true and the *next*
     real import is the one that gets refused.
 
@@ -184,17 +186,15 @@ async def _debit_deduplicated_audio_save(
 
     audio_seconds = _audio_seconds_billed_by(existing_job)
     if audio_seconds is None:
-        # Not metered in audio minutes. The non-audio counters of a save are
-        # debited by the API endpoint, which already runs on deduplicated saves.
+        # Nothing was transcribed for this content, so there is nothing to charge:
+        # articles, documents, captioned videos and shared text are unlimited.
         return
 
-    debited = await quota_enforcer.record_submission(
+    debited = await quota_enforcer.record_transcription_minutes(
         user_id=user_id,
-        source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
-        duration_seconds=audio_seconds,
-        estimated_cost_eur=quota_enforcer.estimate_submission_cost(
-            quota_enforcer.QUOTA_PLATFORM_AUDIO, audio_seconds
-        ),
+        # 0 seconds means "transcribed, length unknown": one provisional minute,
+        # like the gate does when a duration probe comes back empty.
+        minutes=quota_enforcer.minutes_for_seconds(audio_seconds) or 1,
         idempotency_token=quota_enforcer.gate_token(media_item_id),
     )
     log_event(
@@ -437,7 +437,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     source=resolved.source_platform.value,
                 )
                 duration_seconds = resolved.metadata.get("duration_seconds", 0)
-                minutes_used = max(1, int((duration_seconds or 0) / 60) + (1 if (duration_seconds or 0) % 60 > 0 else 0))
                 transcription_metadata: Dict[str, Any] = {
                     "provider": "apify_native",
                     "language": "unknown",
@@ -469,7 +468,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                         "status": "success",
                         "media_key": resolved.media_key,
                         "canonical_job_id": job.id,
-                        "minutes_used": minutes_used,
                         "transcription_s3_key": transcript_s3_key,
                         "transcription_metadata": transcription_metadata,
                     },
@@ -486,7 +484,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
                     transcript_source="apify_native",
-                    minutes_used=minutes_used,
                 )
             elif resolved.raw_text is not None and resolved.media_family == MediaFamily.TEXT:
                 transcript_s3_key = f"{job.id}.txt"
@@ -519,7 +516,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                         "status": "success",
                         "media_key": resolved.media_key,
                         "canonical_job_id": job.id,
-                        "minutes_used": 1,
                         "transcription_s3_key": transcript_s3_key,
                         "transcription_metadata": transcription_metadata,
                     },

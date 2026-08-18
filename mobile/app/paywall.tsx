@@ -26,48 +26,64 @@ import {
 import { usePurchases } from "../src/contexts/PurchasesContext";
 import { Colors, Typography, Spacing, BorderRadius, TouchTarget } from "../src/constants/theme";
 
-// Tier display metadata (fallback when offerings not loaded yet)
+/**
+ * Tier display metadata, kept in sync with OFFERINGS_CONFIG in
+ * `media_summarizer/api/endpoints/entitlements.py`.
+ *
+ * Minutes are the only thing a plan limits: what separates the tiers is how much
+ * we transcribe for you, and everything you read is unlimited on all three. So no
+ * bullet promises a feature another tier lacks — that only ever confused the
+ * choice, since the three tiers have exactly the same features.
+ */
 const TIER_INFO = [
   {
     identifier: "text_only",
     name: "Reader",
     price: "3 EUR/mo",
-    minutes: "0 min audio",
+    minutes: "60 min (1 h)",
     highlight: false,
     features: [
-      "Unlimited articles & web content",
-      "PDF & document processing",
-      "YouTube with captions",
-      "Flashcards, notes & summaries",
+      "1 hour of audio and video a month",
+      "Unlimited articles, web pages and documents",
+      "Unlimited flashcards, notes and summaries",
     ],
   },
   {
     identifier: "mix",
     name: "Mix",
     price: "5 EUR/mo",
-    minutes: "300 min audio (5h)",
+    minutes: "300 min (5 h)",
     highlight: true,
     features: [
-      "Everything in Reader",
-      "5h podcast transcription/month",
-      "Podcast import & processing",
-      "Audio file uploads",
+      "5 hours of audio and video a month",
+      "Unlimited articles, web pages and documents",
+      "Unlimited flashcards, notes and summaries",
     ],
   },
   {
     identifier: "audio_heavy",
     name: "Audio-Heavy",
     price: "9 EUR/mo",
-    minutes: "900 min audio (15h)",
+    minutes: "720 min (12 h)",
     highlight: false,
     features: [
-      "Everything in Mix",
-      "15h podcast transcription/month",
-      "Priority processing",
-      "Higher daily import limits",
+      "12 hours of audio and video a month",
+      "Unlimited articles, web pages and documents",
+      "Unlimited flashcards, notes and summaries",
     ],
   },
 ];
+
+/**
+ * The one sentence that makes the number on each card mean something. Mirrors
+ * MINUTES_LEGEND in `entitlements.py`, which the backend also sends with the
+ * offerings; this copy is what renders while offerings load and is the version the
+ * user actually reads here.
+ */
+const MINUTES_LEGEND =
+  "Minutes cover audio and video we transcribe. A video with subtitles counts as " +
+  "one minute whatever its length, a PDF counts a minute per five pages, and " +
+  "articles, web pages and short clips are free.";
 
 export default function PaywallScreen() {
   const router = useRouter();
@@ -182,7 +198,8 @@ export default function PaywallScreen() {
         </TouchableOpacity>
         <Text style={styles.title}>Choose Your Plan</Text>
         <Text style={styles.subtitle}>
-          Unlock the full power of your second brain
+          Mix covers about five hours of listening a month, Audio-Heavy covers
+          twelve - everything you read stays unlimited on both.
         </Text>
       </View>
 
@@ -258,6 +275,13 @@ export default function PaywallScreen() {
               </View>
             );
           })
+        )}
+
+        {/* What a minute buys, once, under the three cards. */}
+        {!isLoadingOfferings && (
+          <Text testID="paywall-minutes-legend" style={styles.legendText}>
+            {MINUTES_LEGEND}
+          </Text>
         )}
 
         {/* Restore Purchases */}
@@ -418,6 +442,13 @@ const styles = StyleSheet.create({
   purchaseButtonTextHighlight: {
     color: Colors.onPrimary,
     fontWeight: "700",
+  },
+  legendText: {
+    ...Typography.small,
+    color: Colors.textMuted,
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.xs,
+    lineHeight: 18,
   },
   restoreButton: {
     marginTop: Spacing.lg,

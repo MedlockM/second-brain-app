@@ -61,7 +61,7 @@ from urllib.parse import parse_qs, urlsplit
 import yt_dlp
 
 from media_summarizer.core.media_ingestion.title_derivation import select_title
-from media_summarizer.core.services import audio_quota_gate
+from media_summarizer.core.services import audio_quota_gate, quota_enforcer
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     group_caption_lines,
@@ -725,7 +725,6 @@ async def _publish_success_event(
             "status": "success",
             "media_key": media_key,
             "canonical_job_id": job_id,
-            "minutes_used": 1,
             "transcription_s3_key": transcript_s3_key,
             "transcription_metadata": transcription_metadata,
         },
@@ -1081,6 +1080,18 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
         if not await apify_orchestration.complete_callback(job):
             return {"mode": "apify_callback_ignored", "job_id": job_id}
 
+        # Captions bought from Apify: a flat unit whatever the video length
+        # (task-287). Charged here, after the callback claim, because this is
+        # where the provider actually delivered -- a run that failed or a
+        # duplicate callback costs the user nothing. The native yt-dlp subtitle
+        # branch below debits nothing at all: no provider was paid for it.
+        apify_user_id = message_body.get("user_id")
+        if apify_user_id:
+            await quota_enforcer.record_captions_purchase(
+                apify_user_id,
+                idempotency_token=quota_enforcer.gate_token(job_id),
+            )
+
         await _publish_success_event(
             job_id=job_id,
             media_key=message_body.get("media_key"),
@@ -1144,10 +1155,9 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
         await database_async.update_processing_job(job)
 
         # This video has no subtitles, so it is about to be paid for by the
-        # minute like any podcast: charge the audio quota before enqueueing
-        # (task-250 Layer 1). yt-dlp already gave us the exact duration, so no
-        # probe is needed. The submission was counted as a YouTube import at
-        # ingest time; the audio minutes are a distinct counter.
+        # minute like any podcast: charge its real length before enqueueing.
+        # yt-dlp already gave us the exact duration, so no probe is needed. This
+        # is the only debit on this path -- submitting the URL costs nothing.
         gate = await audio_quota_gate.gate_audio_transcription(
             job_id=job.id,
             user_id=message_body.get("user_id"),

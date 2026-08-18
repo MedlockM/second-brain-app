@@ -1,12 +1,12 @@
-/** Header the backend quota enforcer sets on every refused submission. */
+/** Header the backend consumption gate sets on every refused submission. */
 export const QUOTA_ERROR_CODE_HEADER = "X-Quota-Error-Code";
 
 export type HttpError = Error & {
   status?: number;
   code?: string;
   /**
-   * Raw X-Quota-Error-Code value when the backend quota enforcer refused the
-   * request (tier_quota_exceeded, audio_too_long, daily_rate_limit, …).
+   * Raw X-Quota-Error-Code value when the backend refused the request on
+   * consumption grounds (`out_of_minutes` or `item_too_long`).
    */
   quotaErrorCode?: string;
   /**

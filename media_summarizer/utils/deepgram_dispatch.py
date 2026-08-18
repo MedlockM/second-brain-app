@@ -45,7 +45,6 @@ async def enqueue_deepgram_transcription(
     quota_debit_skipped: bool = False,
     content_mime_type: Optional[str] = None,
     original_name: Optional[str] = None,
-    quota_source_platform: Optional[str] = None,
     resolver_key: Optional[str] = None,
     caption: Optional[str] = None,
     comments: Optional[list[Any]] = None,
@@ -58,9 +57,9 @@ async def enqueue_deepgram_transcription(
     logs a warning and silently falls back to ``pull`` when the field is
     missing, which masks bugs.
 
-    ``quota_debited_minutes`` is how many audio minutes the producer already
-    debited at its quota gate. The worker settles the difference with Deepgram's
-    own duration, so a producer that omits it makes the user pay the whole real
+    ``quota_debited_minutes`` is how many minutes the producer already debited at
+    its quota gate. The worker settles the difference with Deepgram's own
+    duration, so a producer that omits it makes the user pay the whole real
     duration a second time.
 
     ``quota_debit_skipped`` says the gate deliberately debited nothing because the
@@ -69,11 +68,9 @@ async def enqueue_deepgram_transcription(
     against a zero debit, so an exempt save that omits this flag ends up charged
     exactly what the exemption was meant to spare it.
 
-    ``quota_source_platform`` names the platform whose quota category applies.
-    The worker settles audio minutes for every message that leaves it unset, so
-    a producer whose media is metered in another category (Instagram, per the
-    validated task-250 decision) must pass it or its minutes get billed as
-    audio on top of the category the API already debited.
+    Every message that reaches Deepgram is metered in minutes, whatever the
+    platform the audio came from: the meter follows the provider call, not the
+    URL (task-287). There is no per-platform opt-out.
     """
     body: dict[str, Any] = {
         "job_id": job_id,
@@ -86,7 +83,6 @@ async def enqueue_deepgram_transcription(
     }
     optional_fields = {
         "media_key": media_key,
-        "quota_source_platform": quota_source_platform,
         "resolver_key": resolver_key,
         "caption": caption,
         "comments": comments,

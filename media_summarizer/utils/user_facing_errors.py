@@ -106,22 +106,18 @@ _ACTIONABLE_RULES: Sequence[Tuple[re.Pattern[str], str]] = [
         re.compile(r"extractor_failed|yt_dlp_timeout|subtitle_fetch|subtitle_http_status"),
         "TikTok extraction is temporarily unavailable. Please retry.",
     ),
-    # --- Quota enforcement errors (task-110) ---
+    # --- Consumption refusals ---
+    # Only a safety net: a refused import already carries the enforcer's own
+    # sentence, with the figures that explain it ("You're out of minutes until
+    # Sep 12"). These two rules exist for the case where only the machine code
+    # survived into an exception string.
     (
-        re.compile(r"tier_quota_exceeded"),
-        "You have reached your monthly usage limit for this content type. Please upgrade your plan or wait until next month.",
+        re.compile(r"out_of_minutes"),
+        "You're out of minutes for this period. Upgrade to keep importing audio and video.",
     ),
     (
-        re.compile(r"daily_rate_limit"),
-        "You have reached your daily import limit. Please try again tomorrow.",
-    ),
-    (
-        re.compile(r"audio_too_long"),
-        "This audio file is too long for your current plan. Please choose a shorter file or upgrade.",
-    ),
-    (
-        re.compile(r"cost_hard_block"),
-        "Your monthly processing budget has been reached. Submissions are paused until the next billing period.",
+        re.compile(r"item_too_long"),
+        "This is too long for a single import on your plan. Split it into shorter parts.",
     ),
 ]
 
