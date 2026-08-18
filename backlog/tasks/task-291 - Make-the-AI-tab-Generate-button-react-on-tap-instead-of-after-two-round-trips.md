@@ -1,7 +1,7 @@
 ---
 id: task-291
 title: Make the AI tab Generate button react on tap instead of after two round-trips
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-18 16:35'
 updated_date: '2026-08-18 20:40'
