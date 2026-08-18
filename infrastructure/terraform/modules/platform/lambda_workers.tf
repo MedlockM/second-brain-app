@@ -30,26 +30,19 @@ locals {
     }
     youtube_ingestion = {
       memory_size = 512
-      timeout     = 120
+      timeout     = 60
       queue_arn   = aws_sqs_queue.youtube_ingestion.arn
       handler     = "media_summarizer.workers.lambda_handlers.youtube_ingestion_handler"
     }
-    # 300 s, not the 120 s the other ingestion workers use: yt-dlp takes up to
-    # 30 s before the Apify fallback, and an Apify Instagram run was measured at
-    # 63-100 s on 2026-08-17 (task-274). 120 s left under 18 s of headroom in the
-    # worst measured case, so the Lambda was killed before its terminal writes.
-    # The resolver's poll loop bounds itself by whatever this leaves it
-    # (utils/invocation_budget.py), so raising it widens the budget rather than
-    # letting anything run unbounded.
     instagram_ingestion = {
       memory_size = 512
-      timeout     = 300
+      timeout     = 60
       queue_arn   = aws_sqs_queue.instagram_ingestion.arn
       handler     = "media_summarizer.workers.lambda_handlers.instagram_ingestion_handler"
     }
     tiktok_ingestion = {
       memory_size = 512
-      timeout     = 120
+      timeout     = 60
       queue_arn   = aws_sqs_queue.tiktok_ingestion.arn
       handler     = "media_summarizer.workers.lambda_handlers.tiktok_ingestion_handler"
     }
@@ -130,7 +123,12 @@ resource "aws_lambda_function" "worker" {
   # code no longer carries hardcoded defaults, so this block is the only source
   # of resource names at runtime (see runtime_env.tf).
   environment {
-    variables = local.lambda_environment
+    variables = contains(
+      ["instagram_ingestion", "tiktok_ingestion", "youtube_ingestion"],
+      each.key,
+      ) ? merge(local.lambda_environment, {
+        APIFY_WEBHOOK_URL = "${aws_apigatewayv2_api.main.api_endpoint}/api/webhooks/apify"
+    }) : local.lambda_environment
   }
 
   depends_on = [

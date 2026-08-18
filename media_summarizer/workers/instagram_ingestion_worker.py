@@ -45,8 +45,12 @@ from media_summarizer.core.media_ingestion.errors import (
     NonRetryableProviderResolutionError,
     RetryableProviderResolutionError,
 )
+from media_summarizer.infrastructure import apify_adapter
+from media_summarizer.infrastructure.apify_adapter import ApifyActorKind
 from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
+    InstagramApifyRequired,
     InstagramApifyResolver,
+    InstagramContentType,
 )
 from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.deepgram_dispatch import enqueue_deepgram_transcription
@@ -57,6 +61,7 @@ from media_summarizer.utils.logging_config import (
     reset_log_context,
     setup_logging,
 )
+from media_summarizer.workers import apify_orchestration
 from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
     process_message_with_retry,
@@ -66,16 +71,10 @@ logger = logging.getLogger(__name__)
 
 INSTAGRAM_INGESTION_QUEUE = required_env("INSTAGRAM_INGESTION_QUEUE")
 EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
-INSTAGRAM_WORKER_MAX_RETRIES = max(
-    1, int(os.environ.get("INSTAGRAM_WORKER_MAX_RETRIES", "3"))
-)
+INSTAGRAM_WORKER_MAX_RETRIES = max(1, int(os.environ.get("INSTAGRAM_WORKER_MAX_RETRIES", "3")))
 
-_DEFAULT_TEMPORARY_MESSAGE = (
-    "Instagram media extraction is temporarily unavailable. Please retry."
-)
-_DEFAULT_UNSUPPORTED_MESSAGE = (
-    "Unable to extract transcribable media from this Instagram URL."
-)
+_DEFAULT_TEMPORARY_MESSAGE = "Instagram media extraction is temporarily unavailable. Please retry."
+_DEFAULT_UNSUPPORTED_MESSAGE = "Unable to extract transcribable media from this Instagram URL."
 _IMAGE_POST_MESSAGE = "Instagram image posts are not supported yet."
 
 
@@ -186,6 +185,9 @@ async def _mark_job_failed(
         failure_details=error.details or error.code,
     )
     job.extraction_metadata["failed_at"] = _now_iso_utc()
+    if job.apify_state == "processing":
+        job.apify_state = "processed"
+        job.apify_completed_at = datetime.now(timezone.utc)
     job.mark_failed(
         error_message=error.user_message,
         error_step="instagram_ingestion",
@@ -194,7 +196,8 @@ async def _mark_job_failed(
 
 
 async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, Any]:
-    """Process an Instagram ingestion message: resolve via Apify and route accordingly."""
+    """Process an initial, callback, or deadline Instagram queue message."""
+    message_type = str(message_body.get("message_type") or "ingest")
     job_id = (message_body.get("job_id") or "").strip()
     normalized_url = (message_body.get("normalized_url") or "").strip()
     media_key = (message_body.get("media_key") or "").strip()
@@ -224,37 +227,131 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             user_message=_DEFAULT_TEMPORARY_MESSAGE,
         )
 
-    job.mark_extracting()
-    await database_async.update_processing_job(job)
-
-    # Resolve via InstagramApifyResolver
     resolver = InstagramApifyResolver()
-    context = _build_resolve_context(
-        normalized_url=normalized_url,
-        media_key=media_key or job_id,
-        user_id=user_id or "unknown",
-    )
 
-    try:
-        resolved = await resolver.resolve(context)
-    except RetryableProviderResolutionError as exc:
-        raise InstagramIngestionError(
-            "provider_error",
-            details=f"apify_retryable:{exc}",
-            retryable=True,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
-        ) from exc
-    except NonRetryableProviderResolutionError as exc:
-        raise InstagramIngestionError(
-            "unsupported_content",
-            details=f"apify_non_retryable:{exc}",
-            retryable=False,
-            user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
-        ) from exc
+    if message_type == "apify_backstop":
+        expired = await apify_orchestration.expire_backstop(
+            job_id=job_id,
+            run_id=str(message_body.get("apify_run_id") or ""),
+            source_platform="instagram",
+        )
+        if expired:
+            await _publish_failure_event(
+                job_id=job_id,
+                media_key=media_key or expired.media_key,
+                reason="apify_callback_deadline_exceeded",
+            )
+        return {"job_id": job_id, "routed_to": "backstop"}
+
+    if message_type == "apify_callback":
+        run_id = str(message_body.get("apify_run_id") or "").strip()
+        job = await apify_orchestration.claim_callback(job_id, run_id)
+        if not job:
+            return {"job_id": job_id, "routed_to": "duplicate_callback"}
+        if str(message_body.get("apify_status") or "") != "SUCCEEDED":
+            raise InstagramIngestionError(
+                "provider_error",
+                details=f"apify_terminal_{message_body.get('apify_status')}",
+                retryable=False,
+                user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            )
+        stored_context = dict(job.apify_context or {})
+        normalized_url = str(stored_context.get("normalized_url") or "").strip()
+        media_key = str(stored_context.get("media_key") or job.media_key or "").strip()
+        user_id = str(stored_context.get("user_id") or job.user_id).strip()
+        try:
+            content_type = InstagramContentType(str(stored_context.get("instagram_content_type") or ""))
+            items = await apify_adapter.fetch_dataset_items(
+                source_platform="instagram",
+                dataset_id=job.apify_dataset_id or "",
+            )
+            context = _build_resolve_context(
+                normalized_url=normalized_url,
+                media_key=media_key or job_id,
+                user_id=user_id or "unknown",
+            )
+            resolved = resolver.resolve_apify_dataset(
+                context=context,
+                content_type=content_type,
+                actor_id=job.apify_actor_id or "",
+                items=items,
+            )
+        except apify_adapter.ApifyAdapterError as exc:
+            raise InstagramIngestionError(
+                "provider_error",
+                details=exc.code,
+                retryable=exc.retryable,
+                user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            ) from exc
+        except (ValueError, NonRetryableProviderResolutionError) as exc:
+            raise InstagramIngestionError(
+                "unsupported_content",
+                details=f"apify_result_invalid:{exc}",
+                retryable=False,
+                user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
+            ) from exc
+        message_body = stored_context
+    else:
+        job.mark_extracting()
+        await database_async.update_processing_job(job)
+        context = _build_resolve_context(
+            normalized_url=normalized_url,
+            media_key=media_key or job_id,
+            user_id=user_id or "unknown",
+        )
+        try:
+            resolved = await resolver.resolve(context)
+        except InstagramApifyRequired as exc:
+            kind = ApifyActorKind.INSTAGRAM_POST if exc.content_type == InstagramContentType.POST else ApifyActorKind.INSTAGRAM_REEL
+            stored_context = {
+                **message_body,
+                "normalized_url": exc.normalized_url,
+                "instagram_content_type": exc.content_type.value,
+            }
+            try:
+                run = await apify_orchestration.start_run_for_job(
+                    job=job,
+                    kind=kind,
+                    source_platform="instagram",
+                    input_data=resolver.build_apify_input(
+                        normalized_url=exc.normalized_url,
+                        content_type=exc.content_type,
+                    ),
+                    queue_name=INSTAGRAM_INGESTION_QUEUE,
+                    context=stored_context,
+                )
+            except apify_adapter.ApifyAdapterError as adapter_exc:
+                raise InstagramIngestionError(
+                    "provider_error",
+                    details=adapter_exc.code,
+                    retryable=adapter_exc.retryable,
+                    user_message=_DEFAULT_TEMPORARY_MESSAGE,
+                ) from adapter_exc
+            return {
+                "job_id": job_id,
+                "media_key": media_key,
+                "content_type": exc.content_type.value,
+                "routed_to": "apify_webhook",
+                "apify_run_id": run.run_id,
+            }
+        except RetryableProviderResolutionError as exc:
+            raise InstagramIngestionError(
+                "provider_error",
+                details=f"resolver_retryable:{exc}",
+                retryable=True,
+                user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            ) from exc
+        except NonRetryableProviderResolutionError as exc:
+            raise InstagramIngestionError(
+                "unsupported_content",
+                details=f"resolver_non_retryable:{exc}",
+                retryable=False,
+                user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
+            ) from exc
 
     # Extract metadata from resolver result
     resolver_metadata = resolved.metadata or {}
-    content_type = resolver_metadata.get("instagram_content_type")
+    resolved_content_type = resolver_metadata.get("instagram_content_type")
     transcript_source = resolver_metadata.get("transcript_source")
 
     if resolved.media_type == MediaType.IMAGE_POST:
@@ -268,7 +365,7 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             "Instagram image post rejected: no OCR/vision pipeline exists",
             job_id=job_id,
             media_item_id=job_id,
-            instagram_content_type=content_type,
+            instagram_content_type=resolved_content_type,
             post_type=resolver_metadata.get("post_type"),
             image_count=resolver_metadata.get("image_count", 0),
         )
@@ -292,7 +389,7 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
         extraction_metadata = _build_extraction_metadata(
             source_url=normalized_url,
             download_url=resolved.audio_url,
-            content_type=content_type,
+            content_type=resolved_content_type,
             transcript_source=transcript_source or "deepgram_pending",
             resolver_metadata=resolver_metadata,
         )
@@ -305,7 +402,11 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
         if resolved.title:
             job.title = resolved.title
         job.mark_transcribing()
-        await database_async.update_processing_job(job)
+        if message_type == "apify_callback":
+            if not await apify_orchestration.complete_callback(job):
+                return {"job_id": job_id, "routed_to": "duplicate_callback"}
+        else:
+            await database_async.update_processing_job(job)
 
         await enqueue_deepgram_transcription(
             job_id=job_id,
@@ -337,7 +438,7 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             "Instagram reel queued for Deepgram (push mode)",
             job_id=job_id,
             media_item_id=job_id,
-            instagram_content_type=content_type,
+            instagram_content_type=resolved_content_type,
             transcript_source="deepgram_pending",
             audio_url_kind=resolver_metadata.get("audio_url_kind"),
         )
@@ -345,7 +446,7 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
         return {
             "job_id": job_id,
             "media_key": media_key,
-            "content_type": content_type,
+            "content_type": resolved_content_type,
             "transcript_source": "deepgram_pending",
             "routed_to": "deepgram_queue",
         }
@@ -385,9 +486,7 @@ async def process_message(message: Dict[str, Any]) -> None:
         provider="apify",
     )
 
-    receive_count = int(
-        (message.get("Attributes") or {}).get("ApproximateReceiveCount", "1")
-    )
+    receive_count = int((message.get("Attributes") or {}).get("ApproximateReceiveCount", "1"))
 
     try:
         await process_instagram_message(body)
@@ -461,7 +560,7 @@ async def poll_queue() -> None:
     )
     while True:
         try:
-            receive_params = get_sqs_receive_params(visibility_timeout=300)
+            receive_params = get_sqs_receive_params(visibility_timeout=360)
             messages = await sqs.receive_messages(
                 queue_name=INSTAGRAM_INGESTION_QUEUE,
                 max_messages=receive_params["MaxNumberOfMessages"],

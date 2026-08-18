@@ -11,6 +11,7 @@ from fastapi.openapi.utils import get_openapi
 
 from media_summarizer.api.endpoints import (
     account,
+    apify_webhook,
     artifacts,
     auth,
     auth_social,
@@ -92,6 +93,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
@@ -142,9 +144,7 @@ app.include_router(media.router, prefix="/api/media", tags=["media"])
 app.include_router(artifacts.router, prefix="/api", tags=["artifacts"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
 app.include_router(auth_social.router, prefix="/api/v1/auth", tags=["authentication"])
-app.include_router(
-    podcast_search.router, prefix="/api/v1/podcast-search", tags=["podcast-search"]
-)
+app.include_router(podcast_search.router, prefix="/api/v1/podcast-search", tags=["podcast-search"])
 app.include_router(account.router, prefix="/api/account", tags=["account"])
 app.include_router(podcasts.router, prefix="/api/v1", tags=["podcasts"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
@@ -158,6 +158,7 @@ app.include_router(pricing.router, prefix="/api", tags=["pricing"])
 app.include_router(entitlements.router, prefix="/api/v1", tags=["entitlements"])
 app.include_router(feedback.router, prefix="/api/v1", tags=["feedback"])
 app.include_router(revenucat_webhook.router, prefix="/api", tags=["webhooks"])
+app.include_router(apify_webhook.router, prefix="/api", tags=["webhooks"])
 app.include_router(bug_reports.router, prefix="/api/bug-reports", tags=["bug-reports"])
 
 # --- Startup guard: the routes above must really be mounted ---------------
@@ -241,9 +242,7 @@ def custom_openapi():
             routes=app.routes,
         )
 
-    components = openapi_schema.setdefault("components", {}).setdefault(
-        "securitySchemes", {}
-    )
+    components = openapi_schema.setdefault("components", {}).setdefault("securitySchemes", {})
     # Add or update BearerAuth scheme
     components["BearerAuth"] = {
         "type": "http",

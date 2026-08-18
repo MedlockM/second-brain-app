@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import aioboto3
@@ -30,9 +31,7 @@ logger = logging.getLogger(__name__)
 # explicitly everywhere a boto/aioboto resource is opened.
 AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
 if not AWS_REGION:
-    raise RuntimeError(
-        "AWS region not configured: set AWS_REGION or AWS_DEFAULT_REGION."
-    )
+    raise RuntimeError("AWS region not configured: set AWS_REGION or AWS_DEFAULT_REGION.")
 
 # Table names, injected by Terraform from
 # infrastructure/terraform/modules/platform/runtime_env.tf. No defaults: see
@@ -204,9 +203,7 @@ async def get_user_by_email(email: str) -> Optional[User]:
     async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
         table = await dynamodb.Table(USERS_TABLE)
         try:
-            response = await table.query(
-                IndexName="email-index", KeyConditionExpression=Key("email").eq(email)
-            )
+            response = await table.query(IndexName="email-index", KeyConditionExpression=Key("email").eq(email))
             items = response.get("Items", [])
             if items:
                 return User.from_dynamodb_item(items[0])
@@ -311,6 +308,263 @@ async def get_processing_job_by_id(job_id: str) -> Optional[ProcessingJob]:
         raise
 
 
+async def persist_apify_run(job: ProcessingJob) -> ProcessingJob:
+    """Persist provider correlation immediately after an Apify run starts."""
+    item = job.to_dynamodb_item()
+    field_names = (
+        "apify_run_id",
+        "apify_dataset_id",
+        "apify_actor_id",
+        "apify_actor_kind",
+        "apify_source_platform",
+        "apify_state",
+        "apify_context",
+        "apify_backstop_scheduled",
+        "apify_started_at",
+        "updated_at",
+        "expire_at",
+    )
+    values = {name: item[name] for name in field_names if name in item}
+    names = {f"#a{index}": name for index, name in enumerate(values)}
+    expression_values = {f":v{index}": value for index, value in enumerate(values.values())}
+    set_parts = [f"#a{index} = :v{index}" for index in range(len(values))]
+
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
+            await table.update_item(
+                Key={"id": job.id},
+                UpdateExpression=("SET " + ", ".join(set_parts) + " REMOVE apify_claimed_at, apify_completed_at"),
+                ExpressionAttributeNames=names,
+                ExpressionAttributeValues=expression_values,
+                ConditionExpression="attribute_exists(id)",
+            )
+        await _mirror_job_to_durable_library(job)
+        return job
+    except ClientError as exc:
+        _log_dynamodb_error(
+            "persist_apify_run",
+            exc,
+            table=PROCESSING_JOBS_TABLE,
+            job_id=job.id,
+        )
+        raise
+
+
+async def mark_apify_backstop_scheduled(job_id: str, run_id: str) -> Optional[ProcessingJob]:
+    """Record that the delayed deadline message is durably queued."""
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
+            try:
+                response = await table.update_item(
+                    Key={"id": job_id},
+                    UpdateExpression="SET apify_backstop_scheduled = :yes, updated_at = :now",
+                    ConditionExpression="apify_run_id = :run_id",
+                    ExpressionAttributeValues={
+                        ":yes": True,
+                        ":now": now,
+                        ":run_id": run_id,
+                    },
+                    ReturnValues="ALL_NEW",
+                )
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                    return None
+                raise
+        return ProcessingJob.from_dynamodb_item(response["Attributes"])
+    except ClientError as exc:
+        _log_dynamodb_error(
+            "mark_apify_backstop_scheduled",
+            exc,
+            table=PROCESSING_JOBS_TABLE,
+            job_id=job_id,
+        )
+        raise
+
+
+async def claim_apify_callback(
+    job_id: str,
+    run_id: str,
+    *,
+    lease_seconds: int = 120,
+) -> Optional[ProcessingJob]:
+    """Acquire one callback continuation, allowing retry after an expired lease."""
+    now = datetime.now(timezone.utc)
+    claim_before = now - timedelta(seconds=lease_seconds)
+    expression_values = {
+        ":run_id": run_id,
+        ":waiting": "waiting",
+        ":processing": "processing",
+        ":now": now.isoformat(),
+        ":claim_before": claim_before.isoformat(),
+        ":completed": JobStatus.COMPLETED.value,
+        ":failed": JobStatus.FAILED.value,
+        ":cancelled": JobStatus.CANCELLED.value,
+    }
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
+            try:
+                response = await table.update_item(
+                    Key={"id": job_id},
+                    UpdateExpression=("SET apify_state = :processing, apify_claimed_at = :now, updated_at = :now"),
+                    ConditionExpression=(
+                        "attribute_exists(id) AND apify_run_id = :run_id AND "
+                        "(apify_state = :waiting OR "
+                        "(apify_state = :processing AND apify_claimed_at < :claim_before)) "
+                        "AND job_status <> :completed AND job_status <> :failed "
+                        "AND job_status <> :cancelled"
+                    ),
+                    ExpressionAttributeValues=expression_values,
+                    ReturnValues="ALL_NEW",
+                )
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                    return None
+                raise
+        return ProcessingJob.from_dynamodb_item(response["Attributes"])
+    except ClientError as exc:
+        _log_dynamodb_error(
+            "claim_apify_callback",
+            exc,
+            table=PROCESSING_JOBS_TABLE,
+            job_id=job_id,
+        )
+        raise
+
+
+async def complete_apify_callback(job: ProcessingJob) -> bool:
+    """Persist callback output only while this run still owns the job."""
+    job.apify_state = "processed"
+    job.apify_completed_at = datetime.now(timezone.utc)
+    job.touch()
+    item = job.to_dynamodb_item()
+    set_parts: List[str] = []
+    names: Dict[str, str] = {}
+    values: Dict[str, Any] = {
+        ":expected_run": job.apify_run_id,
+        ":processing": "processing",
+        ":completed": JobStatus.COMPLETED.value,
+        ":failed": JobStatus.FAILED.value,
+        ":cancelled": JobStatus.CANCELLED.value,
+    }
+    for index, (key, value) in enumerate(item.items()):
+        if key == "id":
+            continue
+        name_ref = f"#a{index}"
+        value_ref = f":v{index}"
+        names[name_ref] = key
+        values[value_ref] = value
+        set_parts.append(f"{name_ref} = {value_ref}")
+
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
+            try:
+                await table.update_item(
+                    Key={"id": job.id},
+                    UpdateExpression="SET " + ", ".join(set_parts),
+                    ConditionExpression=(
+                        "apify_run_id = :expected_run AND "
+                        "apify_state = :processing AND "
+                        "job_status <> :completed AND job_status <> :failed AND "
+                        "job_status <> :cancelled"
+                    ),
+                    ExpressionAttributeNames=names,
+                    ExpressionAttributeValues=values,
+                )
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                    return False
+                raise
+        await _mirror_job_to_durable_library(job)
+        return True
+    except ClientError as exc:
+        _log_dynamodb_error(
+            "complete_apify_callback",
+            exc,
+            table=PROCESSING_JOBS_TABLE,
+            job_id=job.id,
+        )
+        raise
+
+
+async def expire_apify_run(
+    job_id: str,
+    run_id: str,
+    *,
+    error_message: str,
+    error_step: str,
+) -> Optional[ProcessingJob]:
+    """Atomically fail an unclaimed run when its delayed backstop fires."""
+    job = await get_processing_job_by_id(job_id)
+    if not job or job.apify_run_id != run_id or job.apify_state not in {"waiting", "processing"}:
+        return None
+    if job.is_terminal_state():
+        return None
+
+    job.apify_state = "expired"
+    job.apify_completed_at = datetime.now(timezone.utc)
+    job.mark_failed(error_message=error_message, error_step=error_step)
+    item = job.to_dynamodb_item()
+    set_parts: List[str] = []
+    names: Dict[str, str] = {}
+    values: Dict[str, Any] = {
+        ":expected_run": run_id,
+        ":waiting": "waiting",
+        ":processing": "processing",
+        ":completed": JobStatus.COMPLETED.value,
+        ":failed": JobStatus.FAILED.value,
+        ":cancelled": JobStatus.CANCELLED.value,
+    }
+    for index, (key, value) in enumerate(item.items()):
+        if key == "id":
+            continue
+        name_ref = f"#a{index}"
+        value_ref = f":v{index}"
+        names[name_ref] = key
+        values[value_ref] = value
+        set_parts.append(f"{name_ref} = {value_ref}")
+
+    try:
+        session = get_session()
+        async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+            table = await dynamodb.Table(PROCESSING_JOBS_TABLE)
+            try:
+                await table.update_item(
+                    Key={"id": job_id},
+                    UpdateExpression="SET " + ", ".join(set_parts),
+                    ConditionExpression=(
+                        "apify_run_id = :expected_run AND "
+                        "(apify_state = :waiting OR apify_state = :processing) AND "
+                        "job_status <> :completed AND job_status <> :failed AND "
+                        "job_status <> :cancelled"
+                    ),
+                    ExpressionAttributeNames=names,
+                    ExpressionAttributeValues=values,
+                )
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                    return None
+                raise
+        await _mirror_job_to_durable_library(job)
+        return job
+    except ClientError as exc:
+        _log_dynamodb_error(
+            "expire_apify_run",
+            exc,
+            table=PROCESSING_JOBS_TABLE,
+            job_id=job_id,
+        )
+        raise
+
+
 async def get_processing_jobs_by_status(status: JobStatus) -> List[ProcessingJob]:
     """Get all processing jobs with a specific status."""
     try:
@@ -356,9 +610,7 @@ async def _mirror_job_to_durable_library(job: ProcessingJob) -> None:
 
         await mirror_job(job)
     except Exception as exc:  # noqa: BLE001 - best-effort by contract
-        logger.warning(
-            "Durable library mirror skipped for job %s: %s", job.id, exc
-        )
+        logger.warning("Durable library mirror skipped for job %s: %s", job.id, exc)
 
 
 async def update_processing_job(job: ProcessingJob) -> ProcessingJob:
@@ -413,8 +665,7 @@ async def update_processing_job(job: ProcessingJob) -> ProcessingJob:
                 if e.response["Error"]["Code"] != "ConditionalCheckFailedException":
                     raise
                 logger.warning(
-                    "Processing job %s no longer exists; skipped operational "
-                    "update and mirrored the durable library row only",
+                    "Processing job %s no longer exists; skipped operational update and mirrored the durable library row only",
                     job.id,
                 )
 
@@ -528,9 +779,7 @@ async def get_auth_token_by_id(token_id: str) -> Optional[AuthToken]:
         raise
 
 
-async def get_auth_tokens_by_user_id(
-    user_id: str, token_type: Optional[TokenType] = None
-) -> List[AuthToken]:
+async def get_auth_tokens_by_user_id(user_id: str, token_type: Optional[TokenType] = None) -> List[AuthToken]:
     """Get all auth tokens for a user, optionally filtered by type."""
     try:
         session = get_session()
@@ -540,8 +789,7 @@ async def get_auth_tokens_by_user_id(
             if token_type:
                 response = await table.query(
                     IndexName="user-type-index",
-                    KeyConditionExpression=Key("user_id").eq(user_id)
-                    & Key("token_type").eq(token_type.value),
+                    KeyConditionExpression=Key("user_id").eq(user_id) & Key("token_type").eq(token_type.value),
                 )
             else:
                 response = await table.query(
@@ -610,9 +858,7 @@ async def delete_auth_token(token_id: str) -> bool:
         raise
 
 
-async def revoke_user_tokens(
-    user_id: str, token_type: Optional[TokenType] = None
-) -> int:
+async def revoke_user_tokens(user_id: str, token_type: Optional[TokenType] = None) -> int:
     """Revoke all tokens for a user, optionally filtered by type."""
     try:
         tokens = await get_auth_tokens_by_user_id(user_id, token_type)
@@ -671,6 +917,7 @@ async def cleanup_expired_tokens() -> int:
 
 
 # ---------- Folder operations ----------
+
 
 async def create_folder(folder: Folder) -> Folder:
     """Create a new folder in DynamoDB."""
@@ -790,6 +1037,7 @@ async def delete_folder(folder_id: str) -> bool:
 
 
 # ---------- Tag operations ----------
+
 
 async def create_tag(tag: Tag) -> Tag:
     """Create a new tag in DynamoDB."""
@@ -1003,6 +1251,7 @@ async def get_active_rss_feeds() -> List[UserRssFeed]:
                 if idx_err.response["Error"]["Code"] == "ValidationException":
                     # Fallback: scan with filter
                     from boto3.dynamodb.conditions import Attr
+
                     response = await table.scan(
                         FilterExpression=Attr("status").eq("active"),
                     )

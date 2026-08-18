@@ -99,6 +99,21 @@ class ProcessingJob(BaseModel):
     extraction_metadata: Optional[Dict[str, Any]] = None
     transcription_metadata: Optional[Dict[str, Any]] = None
 
+    # Operational correlation for non-blocking Apify runs. These fields live on
+    # the expirable job rather than durable user_media: they describe one
+    # provider attempt, not the media the user owns.
+    apify_run_id: Optional[str] = None
+    apify_dataset_id: Optional[str] = None
+    apify_actor_id: Optional[str] = None
+    apify_actor_kind: Optional[str] = None
+    apify_source_platform: Optional[str] = None
+    apify_state: Optional[str] = None
+    apify_context: Optional[Dict[str, Any]] = None
+    apify_backstop_scheduled: bool = False
+    apify_started_at: Optional[datetime] = None
+    apify_claimed_at: Optional[datetime] = None
+    apify_completed_at: Optional[datetime] = None
+
     # Error handling
     error_message: Optional[str] = None
     error_step: Optional[str] = None
@@ -140,9 +155,7 @@ class ProcessingJob(BaseModel):
     def retry_count_validation(self):
         """Validate retry count against max retries."""
         if self.retry_count > self.max_retries:
-            raise ValueError(
-                f"Retry count ({self.retry_count}) cannot exceed max retries ({self.max_retries})"
-            )
+            raise ValueError(f"Retry count ({self.retry_count}) cannot exceed max retries ({self.max_retries})")
         return self
 
     def touch(self) -> None:
@@ -161,7 +174,7 @@ class ProcessingJob(BaseModel):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
-        
+
         # Add TTL if set
         if self.expire_at:
             item["expire_at"] = self.expire_at
@@ -184,6 +197,14 @@ class ProcessingJob(BaseModel):
             "media_date_published",
             "extraction_metadata",
             "transcription_metadata",
+            "apify_run_id",
+            "apify_dataset_id",
+            "apify_actor_id",
+            "apify_actor_kind",
+            "apify_source_platform",
+            "apify_state",
+            "apify_context",
+            "apify_backstop_scheduled",
             "error_message",
             "error_step",
             "download_duration",
@@ -202,7 +223,13 @@ class ProcessingJob(BaseModel):
                     item[field] = value
 
         # Handle datetime fields
-        datetime_fields = ["started_at", "completed_at"]
+        datetime_fields = [
+            "started_at",
+            "completed_at",
+            "apify_started_at",
+            "apify_claimed_at",
+            "apify_completed_at",
+        ]
         for field in datetime_fields:
             value = getattr(self, field)
             if value is not None:
@@ -214,7 +241,15 @@ class ProcessingJob(BaseModel):
     def from_dynamodb_item(cls, item: Dict[str, Any]) -> "ProcessingJob":
         """Create a ProcessingJob instance from a DynamoDB item."""
         # Convert datetime strings back to datetime objects
-        datetime_fields = ["created_at", "updated_at", "started_at", "completed_at"]
+        datetime_fields = [
+            "created_at",
+            "updated_at",
+            "started_at",
+            "completed_at",
+            "apify_started_at",
+            "apify_claimed_at",
+            "apify_completed_at",
+        ]
         for field in datetime_fields:
             if field in item and item[field]:
                 item[field] = datetime.fromisoformat(item[field])
@@ -228,7 +263,7 @@ class ProcessingJob(BaseModel):
             item["status"] = JobStatus(status_value)
             # Remove the DynamoDB field name so it doesn't interfere with model creation
             del item["job_status"]
-            
+
         # Handle expire_at (TTL) - convert Decimal to int if coming from boto3
         if "expire_at" in item:
             item["expire_at"] = int(item["expire_at"])
@@ -253,15 +288,13 @@ class ProcessingJob(BaseModel):
         if new_status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
             self.completed_at = datetime.now(timezone.utc)
             if self.started_at:
-                self.total_duration = int(
-                    (self.completed_at - self.started_at).total_seconds()
-                )
+                self.total_duration = int((self.completed_at - self.started_at).total_seconds())
 
         # Handle error information
         if new_status == JobStatus.FAILED:
             self.error_message = error_message
             self.error_step = error_step
-            
+
         # Update TTL on status change (extend life)
         # TTL window is configurable per task-242 Phase 4 (default 90 days)
         ttl_days = _get_ttl_days()
@@ -339,7 +372,6 @@ class ProcessingJob(BaseModel):
         self.extraction_metadata = metadata
         self.updated_at = datetime.now(timezone.utc)
 
-
     def set_processing_duration(self, step: str, duration: int) -> None:
         """Set the processing duration for a specific step."""
         if step == "download":
@@ -374,7 +406,7 @@ class ProcessingJob(BaseModel):
         for key, value in kwargs.items():
             if hasattr(self, key) and key != "id":  # Don't allow ID updates
                 setattr(self, key, value)
-        
+
         # Update TTL on any update
         # TTL window is configurable per task-242 Phase 4 (default 90 days)
         ttl_days = _get_ttl_days()

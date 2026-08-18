@@ -55,29 +55,6 @@ class Settings:
         self.YTDLP_TIMEOUT_SECONDS = float(
             os.getenv("YTDLP_TIMEOUT_SECONDS", "30")
         )
-        self.APIFY_INSTAGRAM_API_TOKEN = os.getenv("APIFY_INSTAGRAM_API_TOKEN", "")
-        self.APIFY_YOUTUBE_API_TOKEN = os.getenv("APIFY_YOUTUBE_API_TOKEN", "")
-        self.APIFY_INSTAGRAM_REEL_ACTOR_ID = os.getenv(
-            "APIFY_INSTAGRAM_REEL_ACTOR_ID", "khadinakbar~video-subtitle-extractor"
-        )
-        self.APIFY_INSTAGRAM_POST_ACTOR_ID = os.getenv(
-            "APIFY_INSTAGRAM_POST_ACTOR_ID", "apify~instagram-post-scraper"
-        )
-        # task-216: the actor must accept a `language` input so the transcript
-        # can be requested in the user's reading_language.
-        self.APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = os.getenv(
-            "APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID", "starvibe~youtube-video-transcript"
-        )
-        self.APIFY_TIMEOUT_SECONDS = int(
-            os.getenv("APIFY_TIMEOUT_SECONDS", "60")
-        )
-        self.APIFY_POLL_INTERVAL_SECONDS = float(
-            os.getenv("APIFY_POLL_INTERVAL_SECONDS", "3")
-        )
-        self.APIFY_MAX_POLLS = int(
-            os.getenv("APIFY_MAX_POLLS", "40")
-        )
-
         # Document Parsing Configuration
         self.LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY", "")
         self.LLAMAPARSE_TIMEOUT_SECONDS = int(os.getenv("LLAMAPARSE_TIMEOUT_SECONDS", "120"))
@@ -103,21 +80,6 @@ class Settings:
         self.REVENUCAT_API_KEY = os.getenv("REVENUCAT_API_KEY", "")
         self.REVENUCAT_WEBHOOK_SECRET = os.getenv("REVENUCAT_WEBHOOK_SECRET", "")
         self.REVENUCAT_PROJECT_ID = os.getenv("REVENUCAT_PROJECT_ID", "")
-
-        # Apify TikTok Configuration
-        self.APIFY_TIKTOK_API_TOKEN = os.getenv("APIFY_TIKTOK_API_TOKEN", "")
-        self.APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID = os.getenv(
-            "APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID", ""
-        )
-        self.APIFY_TIKTOK_TIMEOUT_SECONDS = float(
-            os.getenv("APIFY_TIKTOK_TIMEOUT_SECONDS", "60")
-        )
-        self.APIFY_TIKTOK_POLL_INTERVAL_SECONDS = float(
-            os.getenv("APIFY_TIKTOK_POLL_INTERVAL_SECONDS", "3")
-        )
-        self.APIFY_TIKTOK_MAX_POLLS = int(
-            os.getenv("APIFY_TIKTOK_MAX_POLLS", "40")
-        )
 
         # Test Configuration
         self.TEST_ENVIRONMENT = os.getenv("TEST_ENVIRONMENT", "")

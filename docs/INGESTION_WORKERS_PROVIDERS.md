@@ -4,7 +4,7 @@ Authoritative reference for the ingestion pipeline. Lists each source type's
 primary extraction path, fallback chain, terminal failure behavior, and
 downstream hand-off.
 
-Last verified against codebase: 2026-06-15 (post task-203: prewarm removed, translation state machine added).
+Last verified against codebase: 2026-08-18 (task-277: shared asynchronous Apify orchestration).
 
 ---
 
@@ -114,6 +114,38 @@ Hands off to `deepgram-transcription-queue` with `deepgram_mode="pull"` (Deepgra
 
 ---
 
+## Shared Apify orchestration
+
+Instagram, TikTok and YouTube use
+`media_summarizer/infrastructure/apify_adapter.py` as their only Apify HTTP
+adapter. The adapter starts an actor through `POST /v2/acts/{actor}/runs`, adds
+one ad-hoc webhook covering `SUCCEEDED`, `FAILED`, `ABORTED` and `TIMED-OUT`,
+then returns the run and dataset IDs immediately. It never polls a run.
+
+The worker persists the run correlation and continuation context on the
+`ProcessingJob` before returning. The authenticated
+`POST /api/webhooks/apify` endpoint accepts the terminal notification, checks
+that its run and dataset match the current job, and places a continuation on
+the same ingestion queue. A conditional DynamoDB claim makes duplicate or stale
+callbacks no-ops. The worker then reads the already-terminal dataset through
+the adapter and resumes its platform-specific pipeline.
+
+Every start also places a delayed message on that same queue with
+`DelaySeconds=900`. It expires a still-waiting job with the explicit
+`apify_callback_deadline_exceeded` failure reason, but does nothing after a
+callback has been claimed or the job has reached a terminal state. All three
+worker Lambdas use a 60-second timeout and their SQS queues use a 360-second
+visibility timeout.
+
+Runtime configuration is owned by the adapter:
+`APIFY_REQUEST_TIMEOUT_SECONDS`, `APIFY_ACTOR_TIMEOUT_SECONDS`, the three
+platform credentials and actor IDs, `APIFY_WEBHOOK_URL`, and
+`APIFY_WEBHOOK_SECRET`. Terraform injects the API Gateway callback URL into the
+workers. The shared Bearer credential belongs only in the runtime Secrets
+Manager secret and must never be committed.
+
+---
+
 ## YouTube
 
 **Source type**: `youtube`
@@ -138,12 +170,13 @@ Ref: `youtube_ingestion_worker.py::_extract_youtube_info`, `youtube_ingestion_wo
 | Step | Trigger condition | Action |
 |---|---|---|
 | 1 (primary) | yt-dlp extraction succeeds AND subtitles present | Fetch and parse native subtitles, upload transcript to S3 (`strategy_used="native_subtitles"`) |
-| 2 | yt-dlp raises with YouTube IP-block / login-wall error (`_is_ip_blocked_youtube_error`) | Apify YouTube Transcript actor (`APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID`) via `_fetch_apify_transcript()` — synchronous run, read dataset items, read transcript text from the configured actor's flat transcript field (`strategy_used="apify_transcript"`) |
+| 2 | yt-dlp raises with YouTube IP-block / login-wall error (`_is_ip_blocked_youtube_error`) | Start the Apify YouTube Transcript actor asynchronously, persist its run, and return. The callback continuation reads the terminal dataset and parses the configured actor's flat transcript field (`strategy_used="apify_transcript"`) |
 | 3 | yt-dlp succeeded but no subtitles found (`NativeSubtitlesUnavailable`) | Resolve audio URL from yt-dlp info dict via `resolve_direct_media_url(info)`, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` (`strategy_used="deepgram_via_ytdlp_url"`) |
 
 The IP-block matcher normalises Unicode `'` (U+2019) to ASCII `'` before substring matching so phrasings like `Sign in to confirm you're not a bot` match alongside the ASCII variant. It does NOT match geo restrictions, deleted videos, rate limits, or generic yt-dlp errors — those propagate as terminal `youtube_*` failures.
 
-Apify call uses dedicated credentials: `APIFY_YOUTUBE_API_TOKEN` (token) and `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` (actor). The actor ID may be configured with `/` or `~`; the worker normalizes it to the Apify API `~` form.
+Apify uses the dedicated `APIFY_YOUTUBE_API_TOKEN` credential and
+`APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID`; both are read only by the shared adapter.
 
 #### Supported actor dialects
 
@@ -162,29 +195,10 @@ An actor ID with no known dialect fails fast with `apify_actor_unsupported:<acto
 
 > **The task-216 language control on the Apify path is inert until the runtime secret is switched.** As of 2026-08-05 the deployed `media-summarizer-runtime-dev` secret holds `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID = "scrape-creators~best-youtube-transcripts-scraper"`, which has no `language` input. Deploying the code alone is safe (that actor is a supported dialect and keeps working exactly as before, just without language selection), but the user's `reading_language` will **not** reach the Apify fallback until an operator updates the secret.
 
-To enable it, set the actor in the runtime secret for each environment **before or atomically with** the deploy:
-
-```bash
-# 1. Read the current secret
-aws secretsmanager get-secret-value --region eu-west-3 \
-  --secret-id media-summarizer-runtime-dev \
-  --query SecretString --output text > /tmp/runtime-dev.json
-
-# 2. Set the language-aware actor
-python3 - <<'PY'
-import json
-path = "/tmp/runtime-dev.json"
-data = json.load(open(path))
-data["APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID"] = "starvibe~youtube-video-transcript"
-json.dump(data, open(path, "w"))
-PY
-
-# 3. Push the new version, then delete the local copy (it contains all runtime secrets)
-aws secretsmanager put-secret-value --region eu-west-3 \
-  --secret-id media-summarizer-runtime-dev \
-  --secret-string "file:///tmp/runtime-dev.json"
-rm -f /tmp/runtime-dev.json
-```
+To enable it, update `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` in the runtime secret
+through the Secrets Manager console or the owner's controlled secret-update
+workflow before, or atomically with, the deploy. Do not export the complete
+runtime secret to a tracked file or paste it into task notes.
 
 The Lambda picks the new value up on its next cold start (secrets are loaded once per cold start). `.env.example` documents the same value, and the supported actors, for a new environment — Terraform carries no secret values (task-221 §7.3). If an environment is left on `scrape-creators`, the worker emits a `transcription.language_request_unsupported` WARNING per affected job and records `extraction_metadata.language_supported=false`, so the gap is visible in logs rather than silent.
 
@@ -217,7 +231,7 @@ In the last two cases the task-192 pipeline (detection + GPT-5-nano translation)
 
 Verified live against the Apify API on 2026-08-05 with `starvibe~youtube-video-transcript`: EN video + `language=en` → `en`; same EN video + `language=fr` → real French track; FR video + `language=fr` → `fr`; ES video + `language=es` → `es`; ES video + `language=ja` → `language_not_available`, fallback to the default track. Omitting `language` on that ES video returns Catalan, which is why the language is always sent when known. The same EN video run through the deployed `scrape-creators` actor asking `fr` returns `en` with `language_supported=false`, confirming the degradation path.
 
-Ref: `youtube_ingestion_worker.py::process_youtube_message`, `youtube_ingestion_worker.py::_fetch_apify_transcript`, `youtube_ingestion_worker.py::_apify_actor_dialect`, `youtube_ingestion_worker.py::_build_apify_transcript_payload`, `youtube_ingestion_worker.py::_requested_transcript_language`, `youtube_ingestion_worker.py::_is_ip_blocked_youtube_error`, `utils/language_codes.py::resolve_language_code`
+Ref: `youtube_ingestion_worker.py::process_youtube_message`, `youtube_ingestion_worker.py::_start_apify_transcript_run`, `youtube_ingestion_worker.py::_parse_apify_transcript`, `youtube_ingestion_worker.py::_apify_actor_dialect`, `youtube_ingestion_worker.py::_build_apify_transcript_payload`, `youtube_ingestion_worker.py::_requested_transcript_language`, `youtube_ingestion_worker.py::_is_ip_blocked_youtube_error`, `utils/language_codes.py::resolve_language_code`
 
 ### Terminal failure mode
 
@@ -256,7 +270,10 @@ Workflow:
 3. yt-dlp runs without cookies; on success the resolver picks the best audio stream via `resolve_direct_media_url(info)` and returns a `ResolvedMedia` with `audio_url` populated
 4. The worker hands the URL to the Deepgram queue with `deepgram_mode="push"` (Instagram CDNs block Deepgram's own fetch, so the Deepgram worker downloads the bytes and posts them), carrying the caption, the comments, the derived title (task-266) and `quota_source_platform="instagram"` so the minutes are not billed a second time as audio
 
-The Apify poll loop is bounded by the invocation's remaining time (`utils/invocation_budget.py`, published by `lambda_handlers.py` from `context.get_remaining_time_in_millis()`), never by `APIFY_MAX_POLLS` alone: a fixed 120 s of polling inside a 120 s worker is what killed the Lambda mid-resolution before task-274. `APIFY_POLL_RESERVE_SECONDS` (default 15) is what stays for the job's terminal write and the Deepgram send. The worker's Lambda timeout is 300 s and the queue's visibility timeout 1800 s (6x).
+When yt-dlp cannot resolve a Reel, the resolver raises
+`InstagramApifyRequired` with the normalized URL and actor input. The worker
+starts the actor, persists its run and returns; parsing and the Deepgram handoff
+happen only when the callback continuation supplies the terminal dataset.
 
 Ref: `instagram_apify_resolver.py::InstagramApifyResolver.resolve`, `instagram_apify_resolver.py::_resolve_reel_via_ytdlp`, `utils/ytdlp_helpers.py::resolve_direct_media_url`, `instagram_ingestion_worker.py::process_instagram_message`
 
@@ -266,9 +283,9 @@ Ref: `instagram_apify_resolver.py::InstagramApifyResolver.resolve`, `instagram_a
 |---|---|---|
 | 1 (primary) | yt-dlp extracts a usable audio stream | Hand off to Deepgram via the `enqueue_deepgram_transcription` helper with `deepgram_mode="push"` |
 | 2 | yt-dlp raises with an Instagram login-wall / rate-limit / restricted-content error (`_looks_like_ig_ip_blocked_error`), or any other yt-dlp failure | Catch as internal `_InstagramYtdlpBlocked`, fall back to the Apify Reel Scraper path |
-| 3 (Apify fallback) | yt-dlp blocked OR sentinel forces it | `apify~instagram-reel-scraper` (configurable via `APIFY_INSTAGRAM_REEL_ACTOR_ID`) with input `{"username": [<url>], "resultsLimit": 1}` returns reel metadata. Resolver picks `audioUrl` (preferred) or `videoUrl` (fallback) and emits a `ResolvedMedia` with `audio_url` populated |
+| 3 (Apify fallback) | yt-dlp blocked OR sentinel forces it | Start `apify~instagram-reel-scraper` (configurable via `APIFY_INSTAGRAM_REEL_ACTOR_ID`) with `{"username": [<url>], "resultsLimit": 1}`, persist the run and return. On callback, parse the dataset; the resolver picks `audioUrl` (preferred) or `videoUrl` (fallback) |
 | 4 (Deepgram handoff) | Either primary or Apify produced an `audio_url` | `enqueue_deepgram_transcription(..., deepgram_mode="push", source_platform="instagram", quota_source_platform="instagram")` |
-| 5 (budget exhausted) | The Apify run is still `RUNNING` when the invocation budget runs out | `instagram.apify.poll_budget_exhausted` then a retryable failure, so SQS redelivers rather than the Lambda being killed mid-poll |
+| 5 (callback absent) | No terminal callback is claimed within 15 minutes | The delayed same-queue backstop marks the waiting job failed and publishes `apify_callback_deadline_exceeded` |
 
 The yt-dlp "blocked" detector is intentionally permissive — any `DownloadError` or unexpected exception is treated as a soft block so the Apify branch always gets a chance. This mirrors the deliberate simplification: Instagram from Lambda is hostile enough that paying for Apify on uncertain failures is cheaper than triaging dozens of error phrasings.
 
@@ -302,7 +319,7 @@ Ref: `instagram_ingestion_worker.py::InstagramIngestionError`, `instagram_ingest
 
 | Provider/library | Identifier | Extracts | Key env vars |
 |---|---|---|---|
-| Apify Instagram Post Scraper | `apify~instagram-post-scraper` (configurable via `APIFY_INSTAGRAM_POST_ACTOR_ID`) | Image URLs, caption, comments, post type (single / carousel / video-post) | `APIFY_INSTAGRAM_API_TOKEN`, `APIFY_INSTAGRAM_POST_ACTOR_ID` (+ shared `APIFY_TIMEOUT_*`) |
+| Apify Instagram Post Scraper | `apify~instagram-post-scraper` (configurable via `APIFY_INSTAGRAM_POST_ACTOR_ID`) | Image URLs, caption, comments, post type (single / carousel / video-post) | `APIFY_INSTAGRAM_API_TOKEN`, `APIFY_INSTAGRAM_POST_ACTOR_ID` (read by the shared adapter) |
 
 URL classification scans every path segment for a known indicator (`reel`, `p`, `tv`) so both `/p/<id>/` and `/<username>/p/<id>/` shapes resolve to the same content type.
 
@@ -352,7 +369,7 @@ Ref: `tiktok_ingestion_worker.py::_extract_tiktok_info`, `tiktok_ingestion_worke
 
 | Step | Trigger condition | Action |
 |---|---|---|
-| 1 | yt-dlp raises with TikTok status `10204` / `"IP address is blocked"` (`_looks_like_ip_blocked_error`), OR sentinel forces it | Apify TikTok Transcript actor (`APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID`, default `scrape-creators~best-tiktok-transcripts-scraper`) via `_fetch_apify_tiktok_dataset()` — POST `{"videos": [<url>]}` to `run-sync-get-dataset-items`, parse the WEBVTT `transcript` field via `_parse_timed_text_payload`, upload as native transcript (`strategy_used="apify_native_transcript"`) |
+| 1 | yt-dlp raises with TikTok status `10204` / `"IP address is blocked"` (`_looks_like_ip_blocked_error`), OR sentinel forces it | Start the Apify TikTok Transcript actor asynchronously with `{"videos": [<url>]}`, persist the run and return. The callback continuation parses the WEBVTT `transcript` field via `_parse_timed_text_payload` and uploads it (`strategy_used="apify_native_transcript"`) |
 | 2 | yt-dlp succeeded but `NativeSubtitlesUnavailable` (no captions on the video) | Resolve direct media URL from yt-dlp `info` via `resolve_direct_media_url`, hand off via `enqueue_deepgram_transcription` with `deepgram_mode="pull_with_push_fallback"` (`strategy_used` from `_build_fallback_extraction_metadata`) |
 
 When the Apify actor returns `success=false` or no transcript, the job fails terminally — the new actor does not expose a media URL, so there is no chained Deepgram path from the IP-block branch.
@@ -361,9 +378,10 @@ The IP-block matcher accepts both the legacy `10204` token and the modern phrasi
 
 E2E test seam: a sentinel query param `__e2e_force_ip_block__=1` forces the Apify branch. The shared helper lives in `utils/ingestion_sentinels.py`.
 
-Apify call uses dedicated credentials: `APIFY_TIKTOK_API_TOKEN` (token) and `APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID` (actor). The actor ID separator is `~`, not `/` (Apify Console UI shows `/`, but the API requires `~`).
+Apify uses the dedicated `APIFY_TIKTOK_API_TOKEN` credential and
+`APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID`; both are read only by the shared adapter.
 
-Ref: `tiktok_ingestion_worker.py::process_tiktok_message`, `tiktok_ingestion_worker.py::_fetch_apify_tiktok_dataset`, `tiktok_ingestion_worker.py::_extract_apify_transcript_text`, `tiktok_ingestion_worker.py::_looks_like_ip_blocked_error`, `utils/ytdlp_helpers.py::resolve_direct_media_url`
+Ref: `tiktok_ingestion_worker.py::process_tiktok_message`, `tiktok_ingestion_worker.py::_start_apify_fallback`, `tiktok_ingestion_worker.py::_complete_apify_fallback`, `tiktok_ingestion_worker.py::_extract_apify_transcript_text`, `tiktok_ingestion_worker.py::_looks_like_ip_blocked_error`, `utils/ytdlp_helpers.py::resolve_direct_media_url`
 
 ### Terminal failure mode
 

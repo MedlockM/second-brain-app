@@ -28,12 +28,15 @@ import httpx
 import yt_dlp
 
 from media_summarizer.core.media_ingestion.title_derivation import select_title
+from media_summarizer.core.models.processing_job import ProcessingJob
 from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     group_caption_lines,
     normalize_transcript_text,
 )
+from media_summarizer.infrastructure import apify_adapter
+from media_summarizer.infrastructure.apify_adapter import ApifyActorKind
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.deepgram_dispatch import (
     DEEPGRAM_TRANSCRIPTION_QUEUE,
@@ -53,6 +56,7 @@ from media_summarizer.utils.tiktok_limiter import (
     TikTokRateLimitExceeded,
     acquire_tiktok_slot,
 )
+from media_summarizer.workers import apify_orchestration
 from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
     process_message_with_retry,
@@ -64,28 +68,8 @@ TRANSCRIPT_BUCKET = required_env("TRANSCRIPT_BUCKET")
 TIKTOK_INGESTION_QUEUE = required_env("TIKTOK_INGESTION_QUEUE")
 EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 YTDLP_TIMEOUT_SECONDS = float(os.environ.get("YTDLP_TIMEOUT_SECONDS", "30"))
-TIKTOK_SUBTITLE_FETCH_TIMEOUT_SECONDS = float(
-    os.environ.get("TIKTOK_SUBTITLE_FETCH_TIMEOUT_SECONDS", "20")
-)
-TIKTOK_WORKER_MAX_RETRIES = max(
-    1, int(os.environ.get("TIKTOK_WORKER_MAX_RETRIES", "3"))
-)
-
-# Apify configuration for TikTok transcript fallback.
-# The actor (scrape-creators~best-tiktok-transcripts-scraper by default) takes
-# `{"videos": [<url>]}` as input and returns a list of items with a `success`
-# flag plus a `transcript` string in WEBVTT format (or empty/missing on failure).
-APIFY_TIKTOK_API_TOKEN = os.environ.get("APIFY_TIKTOK_API_TOKEN", "")
-APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID = os.environ.get(
-    "APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID",
-    "scrape-creators~best-tiktok-transcripts-scraper",
-)
-APIFY_API_BASE_URL = os.environ.get(
-    "APIFY_API_BASE_URL", "https://api.apify.com/v2"
-)
-APIFY_TIKTOK_TIMEOUT_SECONDS = float(
-    os.environ.get("APIFY_TIKTOK_TIMEOUT_SECONDS", "120")
-)
+TIKTOK_SUBTITLE_FETCH_TIMEOUT_SECONDS = float(os.environ.get("TIKTOK_SUBTITLE_FETCH_TIMEOUT_SECONDS", "20"))
+TIKTOK_WORKER_MAX_RETRIES = max(1, int(os.environ.get("TIKTOK_WORKER_MAX_RETRIES", "3")))
 
 _YTDLP_EXTRACTOR_VERSION = "v1"
 _AUDIO_URL_PROTOCOLS = {
@@ -94,9 +78,7 @@ _AUDIO_URL_PROTOCOLS = {
     "http_dash_segments",
     "https_dash_segments",
 }
-_TIMESTAMP_LINE_RE = re.compile(
-    r"^\s*(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}\s+-->\s+(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}"
-)
+_TIMESTAMP_LINE_RE = re.compile(r"^\s*(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}\s+-->\s+(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _TEXT_KEYS = ("text", "content", "utterance", "caption")
 _CONTAINER_KEYS = (
@@ -116,12 +98,8 @@ _TIKTOK_SHORT_HOSTS = {"vm.tiktok.com"}
 
 _UNAVAILABLE_MESSAGE = "This TikTok video is unavailable or cannot be processed."
 _UNSUPPORTED_MESSAGE = "Unable to resolve transcribable media from this TikTok URL."
-_TEMPORARY_EXTRACTOR_MESSAGE = (
-    "TikTok extraction is temporarily unavailable. Please retry."
-)
-_RATE_LIMITED_MESSAGE = (
-    "TikTok media extraction is temporarily rate limited. Please retry later."
-)
+_TEMPORARY_EXTRACTOR_MESSAGE = "TikTok extraction is temporarily unavailable. Please retry."
+_RATE_LIMITED_MESSAGE = "TikTok media extraction is temporarily rate limited. Please retry later."
 
 
 class TikTokIPBlocked(Exception):
@@ -160,10 +138,7 @@ def _now_iso_utc() -> str:
 
 def _looks_like_rate_limited_error(message: str) -> bool:
     normalized = (message or "").lower()
-    return any(
-        token in normalized
-        for token in ("429", "rate limit", "rate-limited", "too many requests", "quota")
-    )
+    return any(token in normalized for token in ("429", "rate limit", "rate-limited", "too many requests", "quota"))
 
 
 def _looks_like_unavailable_error(message: str) -> bool:
@@ -362,9 +337,7 @@ def _parse_caption_payload(
     normalized_ext = (ext or "").strip().lower()
     normalized_content_type = (content_type or "").strip().lower()
     is_json = (
-        normalized_ext in {"json", "srv3"}
-        or "application/json" in normalized_content_type
-        or payload.lstrip().startswith(("{", "["))
+        normalized_ext in {"json", "srv3"} or "application/json" in normalized_content_type or payload.lstrip().startswith(("{", "["))
     )
     if is_json:
         return _parse_json_caption_payload(payload)
@@ -427,10 +400,7 @@ async def _fetch_subtitle_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]
         "language": str(candidate.get("language") or "").strip() or None,
         # Paragraph count, comparable with the Deepgram path (task-231 §13.1).
         "segments_count": count_paragraphs(text),
-        "source_detail": (
-            f"tiktok_native_subtitles:{candidate.get('language') or 'unknown'}:"
-            f"{candidate.get('ext') or 'unknown'}"
-        ),
+        "source_detail": (f"tiktok_native_subtitles:{candidate.get('language') or 'unknown'}:{candidate.get('ext') or 'unknown'}"),
         "source_url": str(candidate.get("url") or "").strip() or None,
         "ext": str(candidate.get("ext") or "").strip() or None,
         "fetched_at": _now_iso_utc(),
@@ -635,85 +605,6 @@ def _resolve_direct_media_url(info: Dict[str, Any]) -> Dict[str, Any]:
         "acodec": selected.get("acodec") or info.get("acodec"),
         "vcodec": selected.get("vcodec") or info.get("vcodec"),
     }
-
-
-async def _fetch_apify_tiktok_dataset(normalized_url: str) -> list[Dict[str, Any]]:
-    """
-    Call the Apify TikTok transcript actor synchronously and return dataset items.
-
-    Uses the actor run-sync endpoint which starts the actor, waits for completion,
-    and returns the dataset items in one call. Each item carries `success`,
-    `id`, `url`, and `transcript` (WEBVTT string when success is true).
-    """
-    if not APIFY_TIKTOK_API_TOKEN:
-        raise TikTokIngestionError(
-            "apify_actor_failed",
-            details="missing_apify_tiktok_api_token",
-            retryable=False,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
-        )
-
-    run_url = (
-        f"{APIFY_API_BASE_URL}/acts/{APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID}"
-        f"/run-sync-get-dataset-items"
-    )
-    params = {"token": APIFY_TIKTOK_API_TOKEN}
-    payload = {"videos": [normalized_url]}
-
-    try:
-        async with httpx.AsyncClient(
-            timeout=APIFY_TIKTOK_TIMEOUT_SECONDS,
-            follow_redirects=True,
-        ) as client:
-            response = await client.post(
-                run_url,
-                params=params,
-                json=payload,
-            )
-    except (httpx.TimeoutException, httpx.TransportError) as exc:
-        raise TikTokIngestionError(
-            "apify_actor_failed",
-            details=f"apify_network_error:{type(exc).__name__}",
-            retryable=True,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
-        ) from exc
-
-    if response.status_code in (401, 403):
-        raise TikTokIngestionError(
-            "apify_actor_failed",
-            details=f"apify_auth_error:{response.status_code}",
-            retryable=False,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
-        )
-    if response.status_code >= 500:
-        raise TikTokIngestionError(
-            "apify_actor_failed",
-            details=f"apify_server_error:{response.status_code}",
-            retryable=True,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
-        )
-    if response.status_code >= 400:
-        raise TikTokIngestionError(
-            "apify_actor_failed",
-            details=f"apify_client_error:{response.status_code}",
-            retryable=False,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
-        )
-
-    try:
-        items = response.json()
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise TikTokIngestionError(
-            "apify_actor_failed",
-            details="apify_invalid_json_response",
-            retryable=False,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
-        ) from exc
-
-    if not isinstance(items, list):
-        items = []
-
-    return items
 
 
 def _extract_apify_transcript_text(items: list[Dict[str, Any]]) -> Optional[str]:
@@ -954,6 +845,9 @@ async def _mark_job_failed(
         "failure_details": error.details or error.code,
         "failed_at": _now_iso_utc(),
     }
+    if job.apify_state == "processing":
+        job.apify_state = "processed"
+        job.apify_completed_at = datetime.now(timezone.utc)
     job.mark_failed(
         error_message=error.user_message,
         error_step="tiktok_ingestion",
@@ -962,8 +856,8 @@ async def _mark_job_failed(
 
 
 async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]:
+    message_type = str(message_body.get("message_type") or "ingest")
     job_id = (message_body.get("job_id") or "").strip()
-    normalized_url = (message_body.get("normalized_url") or "").strip()
 
     if not job_id:
         raise TikTokIngestionError(
@@ -972,19 +866,78 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             retryable=False,
             user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
         )
-    if not normalized_url:
-        raise TikTokIngestionError(
-            "extractor_failed",
-            details="missing_normalized_url",
-            retryable=False,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
-        )
-
     job = await database_async.get_processing_job_by_id(job_id)
     if not job:
         raise TikTokIngestionError(
             "extractor_failed",
             details=f"processing_job_not_found:{job_id}",
+            retryable=False,
+            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+        )
+
+    if message_type == "apify_backstop":
+        expired = await apify_orchestration.expire_backstop(
+            job_id=job_id,
+            run_id=str(message_body.get("apify_run_id") or ""),
+            source_platform="tiktok",
+        )
+        if expired:
+            await _publish_failure_event(
+                job_id=job_id,
+                media_key=message_body.get("media_key") or expired.media_key,
+                reason="apify_callback_deadline_exceeded",
+            )
+        return {"mode": "apify_backstop", "job_id": job_id}
+
+    callback_envelope = dict(message_body)
+    if message_type == "apify_callback":
+        run_id = str(message_body.get("apify_run_id") or "").strip()
+        job = await apify_orchestration.claim_callback(job_id, run_id)
+        if not job:
+            return {"mode": "apify_callback_ignored", "job_id": job_id}
+        message_body = dict(job.apify_context or {})
+        callback_status = str(callback_envelope.get("apify_status") or "").upper()
+        if callback_status != "SUCCEEDED":
+            raise TikTokIngestionError(
+                "apify_actor_failed",
+                details=f"apify_terminal_{callback_status}",
+                retryable=False,
+                user_message=_UNSUPPORTED_MESSAGE,
+            )
+        try:
+            items = await apify_adapter.fetch_dataset_items(
+                source_platform="tiktok",
+                dataset_id=job.apify_dataset_id or "",
+            )
+        except apify_adapter.ApifyAdapterError as exc:
+            raise TikTokIngestionError(
+                "apify_actor_failed",
+                details=exc.code,
+                retryable=exc.retryable,
+                user_message=(_TEMPORARY_EXTRACTOR_MESSAGE if exc.retryable else _UNSUPPORTED_MESSAGE),
+            ) from exc
+        normalized_url = str(message_body.get("normalized_url") or "").strip()
+        if not normalized_url:
+            raise TikTokIngestionError(
+                "apify_actor_failed",
+                details="apify_context_missing_url",
+                retryable=False,
+                user_message=_UNSUPPORTED_MESSAGE,
+            )
+        tiktok_id = _extract_tiktok_id(normalized_url)
+        return await _complete_apify_fallback(
+            job=job,
+            tiktok_id=tiktok_id,
+            normalized_url=normalized_url,
+            message_body=message_body,
+            items=items,
+        )
+
+    normalized_url = (message_body.get("normalized_url") or "").strip()
+    if not normalized_url:
+        raise TikTokIngestionError(
+            "extractor_failed",
+            details="missing_normalized_url",
             retryable=False,
             user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
         )
@@ -1005,9 +958,8 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             tiktok_id=tiktok_id,
             detail="e2e_sentinel_force_ip_block",
         )
-        return await _process_apify_fallback(
+        return await _start_apify_fallback(
             job=job,
-            job_id=job_id,
             tiktok_id=tiktok_id,
             normalized_url=normalized_url,
             message_body=message_body,
@@ -1026,9 +978,8 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             tiktok_id=tiktok_id,
             detail=ip_exc.details,
         )
-        return await _process_apify_fallback(
+        return await _start_apify_fallback(
             job=job,
-            job_id=job_id,
             tiktok_id=tiktok_id,
             normalized_url=normalized_url,
             message_body=message_body,
@@ -1067,9 +1018,7 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             user_id=message_body.get("user_id"),
             job=job,
             media_key=message_body.get("media_key"),
-            known_duration_seconds=int(
-                audio_result.get("audio_duration_seconds") or 0
-            ),
+            known_duration_seconds=int(audio_result.get("audio_duration_seconds") or 0),
             error_step="tiktok_ingestion",
         )
         if not gate.allowed:
@@ -1135,23 +1084,59 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
     }
 
 
-async def _process_apify_fallback(
+async def _start_apify_fallback(
     *,
-    job: Any,
-    job_id: str,
+    job: ProcessingJob,
     tiktok_id: str,
     normalized_url: str,
     message_body: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """
-    Apify fallback path: called when yt-dlp is IP-blocked.
+    """Start the transcript actor and return without waiting for completion."""
+    context = dict(message_body)
+    context.update(
+        {
+            "job_id": job.id,
+            "normalized_url": normalized_url,
+            "tiktok_id": tiktok_id,
+        }
+    )
+    for transient_key in ("message_type", "apify_run_id", "apify_status"):
+        context.pop(transient_key, None)
+    try:
+        run = await apify_orchestration.start_run_for_job(
+            job=job,
+            kind=ApifyActorKind.TIKTOK_TRANSCRIPT,
+            source_platform="tiktok",
+            input_data={"videos": [normalized_url]},
+            queue_name=TIKTOK_INGESTION_QUEUE,
+            context=context,
+        )
+    except apify_adapter.ApifyAdapterError as exc:
+        raise TikTokIngestionError(
+            "apify_actor_failed",
+            details=exc.code,
+            retryable=exc.retryable,
+            user_message=(_TEMPORARY_EXTRACTOR_MESSAGE if exc.retryable else _UNSUPPORTED_MESSAGE),
+        ) from exc
 
-    Fetches the Apify transcript actor dataset; on a usable transcript the job
-    completes. On any other outcome (no transcript, success=false, missing
-    field) the job fails terminally — the actor does not expose a media URL,
-    so there is no Deepgram fallback chained from here.
-    """
-    items = await _fetch_apify_tiktok_dataset(normalized_url)
+    return {
+        "mode": "apify_pending",
+        "job_id": job.id,
+        "media_key": message_body.get("media_key"),
+        "tiktok_id": tiktok_id,
+        "apify_run_id": run.run_id,
+    }
+
+
+async def _complete_apify_fallback(
+    *,
+    job: ProcessingJob,
+    tiktok_id: str,
+    normalized_url: str,
+    message_body: Dict[str, Any],
+    items: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Complete a claimed callback from its already-terminal dataset."""
     transcript_text = _extract_apify_transcript_text(items)
 
     if not transcript_text:
@@ -1162,7 +1147,7 @@ async def _process_apify_fallback(
             user_message=_UNSUPPORTED_MESSAGE,
         )
 
-    transcript_s3_key = await _upload_native_transcript(job_id, transcript_text)
+    transcript_s3_key = await _upload_native_transcript(job.id, transcript_text)
     transcription_metadata = _build_apify_native_transcription_metadata(
         source_url=normalized_url,
         transcript_text=transcript_text,
@@ -1175,10 +1160,11 @@ async def _process_apify_fallback(
         transcript_text=transcript_text,
     )
     job.mark_completed()
-    await database_async.update_processing_job(job)
+    if not await apify_orchestration.complete_callback(job):
+        return {"mode": "apify_callback_ignored", "job_id": job.id}
 
     await _publish_success_event(
-        job_id=job_id,
+        job_id=job.id,
         media_key=message_body.get("media_key"),
         transcript_s3_key=transcript_s3_key,
         transcription_metadata=transcription_metadata,
@@ -1189,14 +1175,14 @@ async def _process_apify_fallback(
         logging.INFO,
         "transcription.completed",
         "TikTok Apify native transcript completed",
-        job_id=job_id,
+        job_id=job.id,
         tiktok_id=tiktok_id,
         fallback_strategy="apify_native_transcript",
     )
 
     return {
         "mode": "apify_native_transcript",
-        "job_id": job_id,
+        "job_id": job.id,
         "media_key": message_body.get("media_key"),
         "tiktok_id": tiktok_id,
         "source_detail": "apify_tiktok_transcript",
@@ -1227,9 +1213,7 @@ async def process_message(message: Dict[str, Any]) -> None:
         source_platform="tiktok",
     )
 
-    receive_count = int(
-        (message.get("Attributes") or {}).get("ApproximateReceiveCount", "1")
-    )
+    receive_count = int((message.get("Attributes") or {}).get("ApproximateReceiveCount", "1"))
 
     try:
         result = await process_tiktok_message(body)
@@ -1254,6 +1238,20 @@ async def process_message(message: Dict[str, Any]) -> None:
                 media_item_id=result["job_id"],
                 transcript_source="apify_native_transcript",
                 fallback_strategy=result["source_detail"],
+            )
+        elif result["mode"] in {
+            "apify_pending",
+            "apify_callback_ignored",
+            "apify_backstop",
+        }:
+            log_event(
+                logger,
+                logging.INFO,
+                "apify.orchestration",
+                "TikTok Apify orchestration advanced",
+                job_id=result["job_id"],
+                media_item_id=result["job_id"],
+                orchestration_mode=result["mode"],
             )
         else:
             log_event(
@@ -1354,7 +1352,7 @@ async def poll_queue() -> None:
     )
     while True:
         try:
-            receive_params = get_sqs_receive_params(visibility_timeout=300)
+            receive_params = get_sqs_receive_params(visibility_timeout=360)
             messages = await sqs.receive_messages(
                 queue_name=TIKTOK_INGESTION_QUEUE,
                 max_messages=receive_params["MaxNumberOfMessages"],
