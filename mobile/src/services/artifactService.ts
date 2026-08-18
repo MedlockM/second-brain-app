@@ -1,59 +1,22 @@
 import { apiRequest } from "./apiClient";
-import type { ArtifactType, ArtifactStatus } from "../types/media";
+import type { ArtifactType } from "../types/media";
+import type {
+  ArtifactContentResponse,
+  ArtifactDetail,
+  ArtifactListResponse,
+  ArtifactScope,
+  GenerateArtifactRequest,
+} from "../types/artifacts";
 
-/** What a generation was run over. "folder" is what the UI calls a collection. */
-export type ArtifactScope = "media" | "folder";
-
-export interface GenerateArtifactRequest {
-  scope: ArtifactScope;
-  scope_id: string;
-  artifact_type: ArtifactType;
-  parameters?: Record<string, unknown>;
-}
-
-export interface ArtifactSource {
-  media_item_id: string;
-  title?: string | null;
-  language?: string | null;
-  excluded: boolean;
-  excluded_reason?: string | null;
-}
-
-/** One row of a scope's artifact history. */
-export interface ArtifactSummary {
-  artifact_id: string;
-  artifact_type: ArtifactType;
-  status: ArtifactStatus;
-  title?: string | null;
-  source_count: number;
-  created_at: string;
-  completed_at?: string | null;
-  error_code?: string | null;
-}
-
-export interface ArtifactDetail extends ArtifactSummary {
-  scope: ArtifactScope;
-  scope_id: string;
-  sources: ArtifactSource[];
-  s3_key?: string | null;
-}
-
-export interface ArtifactListResponse {
-  scope: ArtifactScope;
-  scope_id: string;
-  artifacts: ArtifactSummary[];
-  next_cursor?: string | null;
-}
-
-export interface ArtifactContentResponse {
-  artifact_id: string;
-  artifact_type: ArtifactType;
-  scope: ArtifactScope;
-  scope_id: string;
-  status: ArtifactStatus;
-  /** Parsed JSON payload (shape depends on artifact_type). */
-  content: Record<string, unknown>;
-}
+export type {
+  ArtifactContentResponse,
+  ArtifactDetail,
+  ArtifactListResponse,
+  ArtifactScope,
+  ArtifactSource,
+  ArtifactSummary,
+  GenerateArtifactRequest,
+} from "../types/artifacts";
 
 /**
  * Artifact service for the mobile app.

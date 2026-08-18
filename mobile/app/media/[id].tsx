@@ -15,6 +15,7 @@ import * as Linking from "expo-linking";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { MediaService } from "../../src/services/mediaService";
 import { ArtifactService } from "../../src/services/artifactService";
+import type { ArtifactSummary } from "../../src/types/artifacts";
 import { OrganizationService } from "../../src/services/organizationService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
 import { formatDuration } from "../../src/lib/formatDuration";
@@ -41,6 +42,8 @@ import type {
   ArtifactType,
 } from "../../src/types/media";
 import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
+import { describeArtifactRefusal } from "../../src/lib/artifactRefusal";
+import { ArtifactHistoryRow } from "../../src/components/ArtifactHistoryRow";
 
 /**
  * The two intra-screen tabs of a media item: what it says, and what the models
@@ -59,11 +62,6 @@ const MEDIA_DETAIL_TABS: readonly ScreenTab<MediaDetailTabKey>[] = [
  * short/detailed split. Surface them under the "Summary" tile instead of
  * dropping them on the floor.
  */
-function bucketArtifactType(raw: ArtifactType): ArtifactType {
-  if (raw === "summary") return "summary_short";
-  return raw;
-}
-
 function buildInitialArtifactStates(): Record<ArtifactType, ArtifactTileState> {
   return {
     summary: { status: "idle" },
@@ -76,7 +74,6 @@ function buildInitialArtifactStates(): Record<ArtifactType, ArtifactTileState> {
 }
 
 const ARTIFACT_POLL_INTERVAL_MS = 3000;
-const ARTIFACT_TRANSLATION_RETRY_MAX_ATTEMPTS = 100;
 
 /** Delay between polls when translation is pending (ms). */
 const TRANSLATION_POLL_DELAY_MS = 3000;
@@ -316,7 +313,9 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     message: string;
     tone: "success" | "error";
   } | null>(null);
-  const toastOpacity = useRef(new Animated.Value(0)).current;
+  // Not a ref: an Animated.Value is created once and read during render, which
+  // is exactly `useMemo` and not `useRef().current`.
+  const toastOpacity = useMemo(() => new Animated.Value(0), []);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback(
@@ -401,82 +400,89 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   }, [router, media_item.media_item_id, currentFolderId]);
 
   const [activeTab, setActiveTab] = useState<MediaDetailTabKey>("reader");
-  // Artifacts are a per-scope history now, so the media detail response carries
-  // no artifact projection: this screen reads the history and keeps the newest
-  // entry per type for its tiles. Rendering the history itself is task-273.
-  const [artifactStates, setArtifactStates] = useState<
-    Record<ArtifactType, ArtifactTileState>
-  >(buildInitialArtifactStates);
+  // Artifacts are a per-scope append-only history: the media detail response
+  // carries no artifact projection any more. This screen holds the history and
+  // derives its tiles from it — the newest entry per type — so there is one
+  // source of truth behind both the tiles and the list under them.
+  const [artifactHistory, setArtifactHistory] = useState<ArtifactSummary[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [generationRefusal, setGenerationRefusal] = useState<string | null>(null);
 
   const mountedRef = useRef(true);
   const artifactPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const artifactRetryTimeoutsRef = useRef<
-    Partial<Record<ArtifactType, ReturnType<typeof setTimeout>>>
-  >({});
-  const artifactRetryAttemptsRef = useRef<
-    Partial<Record<ArtifactType, number>>
-  >({});
-  const handleGenerateRef = useRef<
-    (artifactType: ArtifactType) => Promise<void>
-  >(async () => undefined);
   const [rawContent, setRawContent] = useState<TranscriptContentState>({
     status: "idle",
   });
 
   useEffect(() => {
-    const artifactRetryTimeouts = artifactRetryTimeoutsRef.current;
     return () => {
       mountedRef.current = false;
       if (artifactPollRef.current) {
         clearInterval(artifactPollRef.current);
       }
-      for (const timeout of Object.values(artifactRetryTimeouts)) {
-        if (timeout) clearTimeout(timeout);
-      }
     };
   }, []);
 
   // One request per scope serves both the history and the in-flight progress, so
-  // there is never a request per artifact type. The list comes back newest-first,
-  // hence the first entry seen for a type is the one the tile shows.
-  const refreshArtifactStates = useCallback(async (): Promise<
-    Record<ArtifactType, ArtifactTileState>
+  // there is never a request per artifact type.
+  const refreshArtifacts = useCallback(async (): Promise<
+    ArtifactSummary[] | null
   > => {
-    const next = buildInitialArtifactStates();
-    if (!token) return next;
-
+    if (!token) return null;
     const response = await ArtifactService.listArtifacts(
       token,
       "media",
       media_item.media_item_id,
     );
-    const seen = new Set<ArtifactType>();
-    for (const artifact of response.artifacts) {
-      const bucket = bucketArtifactType(artifact.artifact_type);
-      if (seen.has(bucket)) continue;
-      seen.add(bucket);
-      next[bucket] = {
-        status: artifact.status,
-        artifactId: artifact.artifact_id,
-      };
-    }
-    return next;
+    return response.artifacts;
   }, [token, media_item.media_item_id]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const states = await refreshArtifactStates();
-        if (!cancelled && mountedRef.current) setArtifactStates(states);
+        const artifacts = await refreshArtifacts();
+        if (cancelled || !mountedRef.current || artifacts === null) return;
+        setArtifactHistory(artifacts);
       } catch {
-        // Non-fatal: the tiles stay in their idle state and a generation still works.
+        // Non-fatal: the tiles stay idle and a generation still works.
+      } finally {
+        if (!cancelled && mountedRef.current) setHistoryLoaded(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [refreshArtifactStates]);
+  }, [refreshArtifacts]);
+
+  // The list itself says whether anything is in flight, so the poll starts and
+  // stops from its own content rather than from a separate flag.
+  const hasArtifactInFlight = useMemo(
+    () =>
+      artifactHistory.some(
+        (artifact) =>
+          artifact.status === "queued" || artifact.status === "generating",
+      ),
+    [artifactHistory],
+  );
+
+  // The newest entry per type, for the tiles. The list comes back newest-first,
+  // so the first entry seen for a type wins.
+  const artifactStates = useMemo(() => {
+    const states = buildInitialArtifactStates();
+    const seen = new Set<ArtifactType>();
+    for (const artifact of artifactHistory) {
+      const type = artifact.artifact_type;
+      if (seen.has(type) || !(type in states)) continue;
+      seen.add(type);
+      states[type] = {
+        status: artifact.status,
+        artifactId: artifact.artifact_id,
+        error: artifact.error_code ?? undefined,
+      };
+    }
+    return states;
+  }, [artifactHistory]);
 
   const startArtifactPolling = useCallback(() => {
     if (artifactPollRef.current) return;
@@ -485,110 +491,55 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       if (!token || !mountedRef.current) return;
 
       try {
-        const newStates = await refreshArtifactStates();
-        if (!mountedRef.current) return;
-        setArtifactStates(newStates);
-
-        // Stop if no artifacts are in progress
-        const hasInProgress = Object.values(newStates).some(
-          (s) => s.status === "queued" || s.status === "generating",
-        );
-        if (!hasInProgress && artifactPollRef.current) {
-          clearInterval(artifactPollRef.current);
-          artifactPollRef.current = null;
-        }
+        const artifacts = await refreshArtifacts();
+        if (!mountedRef.current || artifacts === null) return;
+        setArtifactHistory(artifacts);
       } catch {
         // Silent fail during polling
       }
     }, ARTIFACT_POLL_INTERVAL_MS);
-  }, [token, refreshArtifactStates]);
+  }, [token, refreshArtifacts]);
+
+  useEffect(() => {
+    if (hasArtifactInFlight) {
+      startArtifactPolling();
+      return;
+    }
+    if (artifactPollRef.current) {
+      clearInterval(artifactPollRef.current);
+      artifactPollRef.current = null;
+    }
+  }, [hasArtifactInFlight, startArtifactPolling]);
 
   const handleGenerate = useCallback(
     async (artifactType: ArtifactType) => {
       if (!token || !mountedRef.current) return;
-
-      const pendingRetry = artifactRetryTimeoutsRef.current[artifactType];
-      if (pendingRetry) {
-        clearTimeout(pendingRetry);
-        delete artifactRetryTimeoutsRef.current[artifactType];
-      }
-
-      setArtifactStates((prev) => ({
-        ...prev,
-        [artifactType]: { status: "queued" },
-      }));
+      setGenerationRefusal(null);
 
       try {
-        const result = await ArtifactService.generateArtifact(
+        await ArtifactService.generateArtifact(
           token,
           "media",
           media_item.media_item_id,
           artifactType,
         );
         if (!mountedRef.current) return;
-
-        setArtifactStates((prev) => ({
-          ...prev,
-          [artifactType]: {
-            status: result.status,
-            artifactId: result.artifact_id,
-          },
-        }));
-        delete artifactRetryAttemptsRef.current[artifactType];
-
-        startArtifactPolling();
+        // The POST answers with the entry already queued, so a single refresh
+        // puts it in the history and flips the tile: no optimistic state to
+        // reconcile, and the new entry shows with its real id.
+        const artifacts = await refreshArtifacts();
+        if (!mountedRef.current || artifacts === null) return;
+        setArtifactHistory(artifacts);
       } catch (err) {
         if (!mountedRef.current) return;
-
-        // Handle 409 CONFLICT: translation is in-flight. No artifact record
-        // exists yet, so retry the POST at the normal polling cadence. Once
-        // accepted, regular artifact-status polling takes over.
-        const httpStatus = (err as { status?: number } | undefined)?.status;
-        if (httpStatus === 409) {
-          const attempt =
-            (artifactRetryAttemptsRef.current[artifactType] ?? 0) + 1;
-          artifactRetryAttemptsRef.current[artifactType] = attempt;
-          if (attempt >= ARTIFACT_TRANSLATION_RETRY_MAX_ATTEMPTS) {
-            delete artifactRetryAttemptsRef.current[artifactType];
-            setArtifactStates((prev) => ({
-              ...prev,
-              [artifactType]: {
-                status: "failed",
-                error: "Translation is taking longer than expected. Please try again.",
-              },
-            }));
-            return;
-          }
-
-          setArtifactStates((prev) => ({
-            ...prev,
-            [artifactType]: { status: "queued" },
-          }));
-          if (!artifactRetryTimeoutsRef.current[artifactType]) {
-            artifactRetryTimeoutsRef.current[artifactType] = setTimeout(() => {
-              delete artifactRetryTimeoutsRef.current[artifactType];
-              if (mountedRef.current) {
-                void handleGenerateRef.current(artifactType);
-              }
-            }, ARTIFACT_POLL_INTERVAL_MS);
-          }
-          return;
-        }
-
-        delete artifactRetryAttemptsRef.current[artifactType];
-        setArtifactStates((prev) => ({
-          ...prev,
-          [artifactType]: {
-            status: "failed",
-            error: getFriendlyErrorMessage(err),
-          },
-        }));
+        // A refusal is typed and carries its reason (a transcript still being
+        // prepared, a quota reached). Showing it beats the silent retry loop
+        // that used to hide it behind a spinner.
+        setGenerationRefusal(describeArtifactRefusal(err, { scope: "media" }));
       }
     },
-    [token, media_item.media_item_id, startArtifactPolling],
+    [token, media_item.media_item_id, refreshArtifacts],
   );
-  handleGenerateRef.current = handleGenerate;
-
   // The title is whatever the library row holds, exactly like the inbox
   // vignette -- and nothing more: since task-266 the backend always stores a
   // readable, non-empty title, so the URL-then-"Untitled" chain that used to be
@@ -657,6 +608,10 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     };
   }, []);
 
+  // The poll reschedules itself; going through a ref keeps the callback from
+  // referencing its own binding before it is declared.
+  const pollForTranslationRef = useRef<() => Promise<void>>(async () => undefined);
+
   const pollForTranslation = useCallback(async () => {
     if (!token || !mountedRef.current) return;
     translationPollCountRef.current += 1;
@@ -687,7 +642,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         // Translation still in progress (queued/in_progress), show content and keep polling
         setRawContent({ status: "translation_pending", content: trimmed });
         translationPollRef.current = setTimeout(() => {
-          void pollForTranslation();
+          void pollForTranslationRef.current();
         }, TRANSLATION_POLL_DELAY_MS);
       } else {
         // Translation ready (or max polls reached -- show whatever we have)
@@ -697,11 +652,15 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       // Silent fail during translation polling -- keep current state
       if (translationPollCountRef.current < TRANSLATION_POLL_MAX_ATTEMPTS) {
         translationPollRef.current = setTimeout(() => {
-          void pollForTranslation();
+          void pollForTranslationRef.current();
         }, TRANSLATION_POLL_DELAY_MS);
       }
     }
   }, [token, media_item.media_item_id]);
+
+  useEffect(() => {
+    pollForTranslationRef.current = pollForTranslation;
+  }, [pollForTranslation]);
 
   const fetchRawContent = useCallback(async () => {
     if (!token) return;
@@ -733,7 +692,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         // Show the original transcript immediately, start polling for translation
         setRawContent({ status: "translation_pending", content: trimmed });
         translationPollRef.current = setTimeout(() => {
-          void pollForTranslation();
+          void pollForTranslationRef.current();
         }, TRANSLATION_POLL_DELAY_MS);
       } else {
         setRawContent({ status: "ready", content: trimmed });
@@ -752,25 +711,35 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         }),
       });
     }
-  }, [token, media_item.media_item_id, pollForTranslation]);
+  }, [token, media_item.media_item_id]);
+
+  // Whether the transcript fetch has already been kicked off for the media as it
+  // currently stands. A flag rather than a read of `rawContent`: deciding from
+  // the state would put the state in the dependencies and re-run the effect on
+  // every transition it causes.
+  const rawFetchStartedRef = useRef(false);
 
   useEffect(() => {
-    if (!mediaReady) {
-      // Reset whenever processing rewinds (e.g. user retries an item).
-      setRawContent((prev) => (prev.status === "idle" ? prev : { status: "idle" }));
-      return;
-    }
-    if (transcriptStatus === "failed") {
-      setRawContent({ status: "not_available" });
-      return;
-    }
-    setRawContent((prev) => {
-      if (prev.status === "idle" || prev.status === "error") {
-        void fetchRawContent();
-        return { status: "loading" };
+    let cancelled = false;
+    void (async () => {
+      if (!mediaReady) {
+        // Reset whenever processing rewinds (e.g. user retries an item).
+        rawFetchStartedRef.current = false;
+        if (!cancelled) setRawContent({ status: "idle" });
+        return;
       }
-      return prev;
-    });
+      if (transcriptStatus === "failed") {
+        if (!cancelled) setRawContent({ status: "not_available" });
+        return;
+      }
+      if (rawFetchStartedRef.current) return;
+      rawFetchStartedRef.current = true;
+      if (!cancelled) setRawContent({ status: "loading" });
+      await fetchRawContent();
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [mediaReady, transcriptStatus, fetchRawContent]);
 
   return (
@@ -865,6 +834,47 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
                   />
                 ))}
               </View>
+
+              {generationRefusal ? (
+                <View style={styles.refusalBanner} testID="media-ai-refusal">
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={18}
+                    color={Colors.error}
+                  />
+                  <Text style={styles.refusalText}>{generationRefusal}</Text>
+                </View>
+              ) : null}
+
+              {/* The history. Several entries of the same type coexist: a
+                  regeneration adds one instead of replacing the previous, and
+                  nothing here is deduplicated or marked stale. No "N sources"
+                  line — a media item is a single source. */}
+              <Text style={styles.sectionTitle}>Generated</Text>
+              {!historyLoaded ? (
+                <View style={styles.historyState}>
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                </View>
+              ) : artifactHistory.length === 0 ? (
+                <View style={styles.historyState} testID="media-ai-history-empty">
+                  <Text style={styles.historyStateText}>
+                    Nothing generated yet. Pick a format above to create one.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.historyList}>
+                  {artifactHistory.map((artifact) => (
+                    <ArtifactHistoryRow
+                      key={artifact.artifact_id}
+                      artifact={artifact}
+                      showSourceCount={false}
+                      onPress={(entry) =>
+                        router.push(`/artifacts/${entry.artifact_id}`)
+                      }
+                    />
+                  ))}
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -1176,6 +1186,35 @@ const styles = StyleSheet.create({
   },
   // A stack of self-contained tiles: the gap between them does the sectioning,
   // so there is no rule and no container frame ("No-Line rule").
+  historyList: {
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  historyState: {
+    alignItems: "center",
+    paddingVertical: Spacing.lg,
+  },
+  historyStateText: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textMuted,
+    textAlign: "center",
+    lineHeight: Typography.body.lineHeight,
+  },
+  refusalBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    backgroundColor: Colors.errorContainer,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginTop: Spacing.md,
+  },
+  refusalText: {
+    flex: 1,
+    fontSize: Typography.small.fontSize,
+    color: Colors.error,
+    lineHeight: Typography.body.lineHeight,
+  },
   artifactsList: {
     gap: Spacing.sm,
   },
