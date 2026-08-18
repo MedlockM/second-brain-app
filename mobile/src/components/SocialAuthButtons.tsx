@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useAuth } from "../contexts/AuthContext";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
+import { getGoogleIosRedirectUri } from "../lib/googleOAuth";
 import { Config } from "../constants/config";
 import {
   Colors,
@@ -25,6 +26,29 @@ import {
 
 // Required for expo-auth-session to dismiss the web browser on redirect
 WebBrowser.maybeCompleteAuthSession();
+
+/**
+ * Redirect URI for the native Google flow, or `undefined` to keep the
+ * expo-auth-session default.
+ *
+ * iOS: the library would default to `<bundleId>:/oauthredirect`, which an iOS
+ * OAuth client rejects with `Error 400: redirect_uri_mismatch` — such a client
+ * only accepts its reserved scheme. It is therefore derived from the configured
+ * iOS client ID (never hardcoded, so rotating the client keeps it valid) and the
+ * matching scheme is declared in `ios.scheme` in app.config.ts.
+ *
+ * Android: no override needed. Google keys an Android OAuth client on package
+ * name + signing fingerprint and documents `<package>:/oauthredirect` as its
+ * custom-scheme redirect, which is exactly what the library already builds from
+ * `Application.applicationId`. The missing piece there was only the manifest
+ * intent filter, now declared in `android.scheme`.
+ *
+ * Web: no override either — `makeRedirectUri` produces the right origin.
+ */
+const GOOGLE_REDIRECT_URI =
+  Platform.OS === "ios"
+    ? (getGoogleIosRedirectUri(Config.GOOGLE_CLIENT_ID_IOS) ?? undefined)
+    : undefined;
 
 interface SocialAuthButtonsProps {
   onError: (message: string) => void;
@@ -48,6 +72,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
     iosClientId: Config.GOOGLE_CLIENT_ID_IOS,
     androidClientId: Config.GOOGLE_CLIENT_ID_ANDROID,
     webClientId: Config.GOOGLE_CLIENT_ID_WEB,
+    redirectUri: GOOGLE_REDIRECT_URI,
   });
 
   const handleGoogleSignIn = async () => {

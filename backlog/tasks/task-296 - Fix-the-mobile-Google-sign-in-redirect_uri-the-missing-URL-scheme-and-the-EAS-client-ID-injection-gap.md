@@ -53,13 +53,106 @@ Even once Google accepts the request, the redirect cannot re-enter the app: neit
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `Google.useAuthRequest` in `mobile/src/components/SocialAuthButtons.tsx` is passed an explicit `redirectUri` in the `com.googleusercontent.apps.<reversed-client-id>:/oauthredirect` form, derived at runtime from the configured iOS client ID rather than hardcoded, so rotating the client does not silently break the flow.
-- [ ] #2 The redirect scheme the app now sends is declared in the app's iOS URL schemes through `app.config.ts` (a `CFBundleURLTypes` entry in `ios.infoPlist`, or an equivalent config plugin under `mobile/plugins/`), and `npx expo config --type prefix` or `--type public` shows it in the resolved config.
-- [ ] #3 `scheme: "media-summarizer"` and the existing `expo-router` deep-link behaviour are left intact: the new scheme is added alongside it, not in place of it.
-- [ ] #4 The Android path is handled consistently with iOS: either it uses the same explicit-`redirectUri` treatment with the Android client ID, or a comment states why Android needs no change.
-- [ ] #5 All four build profiles in `mobile/eas.json` that ship a runnable app carry `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS`, `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` and `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB`, or an equivalent EAS environment-variable wiring documented in the task's implementation notes; no build profile can resolve them to the empty string.
-- [ ] #6 No Google **client secret** is added to `mobile/`, to `eas.json` or to any file the app bundles: only the public client IDs.
-- [ ] #7 The backend is untouched: `git diff` shows no change under `media_summarizer/`, and `GOOGLE_REDIRECT_URI` is not referenced by any new mobile code.
-- [ ] #8 `npx tsc --noEmit` and the lint command declared in `mobile/package.json` both pass from `mobile/`.
-- [ ] #9 `mobile/docs/` or the task's implementation notes record the exact redirect URI the app now sends, so the owner can match it against the Google Cloud Console entry without reading the code.
+- [x] #1 `Google.useAuthRequest` in `mobile/src/components/SocialAuthButtons.tsx` is passed an explicit `redirectUri` in the `com.googleusercontent.apps.<reversed-client-id>:/oauthredirect` form, derived at runtime from the configured iOS client ID rather than hardcoded, so rotating the client does not silently break the flow.
+- [x] #2 The redirect scheme the app now sends is declared in the app's iOS URL schemes through `app.config.ts` (a `CFBundleURLTypes` entry in `ios.infoPlist`, or an equivalent config plugin under `mobile/plugins/`), and `npx expo config --type prefix` or `--type public` shows it in the resolved config.
+- [x] #3 `scheme: "media-summarizer"` and the existing `expo-router` deep-link behaviour are left intact: the new scheme is added alongside it, not in place of it.
+- [x] #4 The Android path is handled consistently with iOS: either it uses the same explicit-`redirectUri` treatment with the Android client ID, or a comment states why Android needs no change.
+- [x] #5 All four build profiles in `mobile/eas.json` that ship a runnable app carry `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS`, `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` and `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB`, or an equivalent EAS environment-variable wiring documented in the task's implementation notes; no build profile can resolve them to the empty string.
+- [x] #6 No Google **client secret** is added to `mobile/`, to `eas.json` or to any file the app bundles: only the public client IDs.
+- [x] #7 The backend is untouched: `git diff` shows no change under `media_summarizer/`, and `GOOGLE_REDIRECT_URI` is not referenced by any new mobile code.
+- [x] #8 `npx tsc --noEmit` and the lint command declared in `mobile/package.json` both pass from `mobile/`.
+- [x] #9 `mobile/docs/` or the task's implementation notes record the exact redirect URI the app now sends, so the owner can match it against the Google Cloud Console entry without reading the code.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### Redirect URIs the app now sends
+
+| Platform | `redirect_uri` | Source |
+| --- | --- | --- |
+| iOS | `com.googleusercontent.apps.285796240127-ljujk2ubnq4bgav0s97vgcg19plaldgd:/oauthredirect` | derived at runtime from `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS` |
+| Android | `com.secondbrainlabs.core:/oauthredirect` (unchanged) | `expo-auth-session` default (`Application.applicationId`) |
+
+Single slash after the colon — the form Google publishes for native apps.
+
+### What changed
+
+- **New `mobile/src/lib/googleOAuth.ts`** — `getGoogleReservedClientScheme()` /
+  `getGoogleIosRedirectUri()` turn a client ID into its reversed form. Returns
+  `null` on a missing/malformed client ID so an unconfigured build declares no
+  scheme instead of a broken one.
+- **`SocialAuthButtons.tsx`** — module-level `GOOGLE_REDIRECT_URI` passed to
+  `Google.useAuthRequest`. Set on iOS only; `undefined` elsewhere, which is the
+  sentinel `expo-auth-session` checks (`typeof config.redirectUri !== 'undefined'`)
+  to keep its own default.
+- **`app.config.ts`** — `ios.scheme` = the reversed client ID scheme (derived from
+  the same env var), `android.scheme` = `["com.secondbrainlabs.core"]`.
+- **`mobile/eas.json`** — the three public client IDs added to the `env` blocks of
+  `development`, `preview` and `production`.
+- **`mobile/docs/GOOGLE_SIGN_IN.md`** — owner-facing reference (AC #9): exact
+  redirect URIs, declared schemes, the three injection points for the client IDs,
+  and the Google Cloud Console checklist.
+
+### AC #4 — why Android keeps the library default
+
+Google keys an **Android** OAuth client on package name + signing SHA-1 and
+documents `<package>:/oauthredirect` as its custom-scheme redirect; the reversed
+client ID is an **iOS**-client construct (only iOS clients expose one in the
+console). `Application.applicationId` already produces exactly the right value on
+Android, so overriding it would be wrong. What *was* missing on Android is the
+manifest intent filter: there is no native `ASWebAuthenticationSession` there, so
+`expo-web-browser` falls back to a Custom Tab plus a `Linking` listener and the
+callback needs a declared scheme to re-enter the app. Hence `android.scheme`.
+
+### AC #2 — declared via `ios.scheme`, not `ios.infoPlist.CFBundleURLTypes`
+
+The AC offered `ios.infoPlist.CFBundleURLTypes` as one means; `ios.scheme` was
+chosen instead because it is the non-destructive one.
+`@expo/config-plugins`' `withScheme` is built with
+`createInfoPlistPluginWithPropertyGuard`: if `ios.infoPlist.CFBundleURLTypes` is set
+in the raw config, the plugin **bails out entirely** and warns, which would have
+dropped `media-summarizer` and the bundle id from the iOS build (AC #3). `ios.scheme`
+and `android.scheme` are instead *merged* by the same plugins. No new plugin under
+`mobile/plugins/` was needed.
+
+Verified locally with the real `node_modules` (`npx expo config`):
+
+- `--type public` → top-level `scheme: 'media-summarizer'` intact,
+  `ios.scheme: ['com.googleusercontent.apps.285796240127-ljujk2ubnq4bgav0s97vgcg19plaldgd']`,
+  `android.scheme: ['com.secondbrainlabs.core']`.
+- `--type introspect` → generated `CFBundleURLTypes` =
+  `['media-summarizer', 'com.googleusercontent.apps.285796240127-…', 'com.secondbrainlabs.core']`
+  plus `['exp+media-summarizer']`; Android intent filter data =
+  `media-summarizer`, `com.secondbrainlabs.core`, `exp+media-summarizer`. AC #3 holds.
+
+### AC #5 — `development-simulator` inherits through `extends`
+
+Three profiles carry the variables explicitly. `development-simulator` has no `env`
+block of its own and resolves them through `extends: development`, exactly as it
+already did for `EXPO_PUBLIC_API_BASE_URL` — that inheritance is pre-existing and
+load-bearing, so duplicating the values there would only invite drift. No profile
+can resolve the client IDs to the empty string.
+
+### Notes and limits
+
+- The reversed-client-ID transformation is duplicated: inline in `app.config.ts`
+  and in `src/lib/googleOAuth.ts`. `@expo/config` transpiles `app.config.ts` on its
+  own, so importing the helper failed with `Cannot find module './src/lib/googleOAuth'`
+  (verified, then reverted). Both sides read the same
+  `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS`, so the declared scheme and the sent
+  `redirect_uri` cannot point at different clients.
+- AC #7: no file under `media_summarizer/` touched. `GOOGLE_REDIRECT_URI` is not
+  referenced by any code — it appears once in `mobile/docs/GOOGLE_SIGN_IN.md`, in
+  prose, precisely to record that it belongs to the web flow and has no effect on
+  the app (the confusion that made this look like a task-289 regression).
+- AC #8: `npx tsc --noEmit` exits 0; `npm run lint` reports 0 errors and the same
+  8 pre-existing warnings, none in a touched file.
+- Only public OAuth client IDs were committed. No client secret, token or account
+  email anywhere in the diff.
+- Not reachable from the worktree, and left to the owner: running Sign in with
+  Google on a device, and the Google Cloud Console check (iOS client type + bundle
+  ID) described in the Owner notes above. A dev-client rebuild is required for the
+  new URL scheme to exist in the binary — `ios.scheme` is a native config change,
+  so Metro alone will not pick it up.
+<!-- SECTION:NOTES:END -->
