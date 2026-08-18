@@ -24,6 +24,7 @@ import {
 import { ArtifactsPanel } from "../../../src/components/ArtifactsPanel";
 import { ScreenTabs, type ScreenTab } from "../../../src/components/ScreenTabs";
 import { describeArtifactRefusal } from "../../../src/lib/artifactRefusal";
+import { mergeArtifactIntoHistory } from "../../../src/lib/artifactHistory";
 import { getFriendlyErrorMessage } from "../../../src/lib/getFriendlyErrorMessage";
 import { getMediaTypeIcon } from "../../../src/lib/mediaTypeDisplay";
 import {
@@ -285,6 +286,13 @@ function AiTab({ collectionId }: AiTabProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+  // The types whose POST is in flight. The history cannot know about them yet —
+  // the entry only exists once the request answers, and over a collection that
+  // request reads every descendant source's transcript from S3 first. Without
+  // this, the tap stays visually unanswered for the whole round-trip.
+  const [requestsInFlight, setRequestsInFlight] = useState<readonly ArtifactType[]>(
+    [],
+  );
   const mountedRef = useRef(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -375,27 +383,57 @@ function AiTab({ collectionId }: AiTabProps) {
         error: artifact.error_code ?? undefined,
       };
     }
+    // A request still in flight wins over whatever the history says about that
+    // type — a previous `ready` or `failed` entry included, since the button
+    // that was just tapped belongs to the newest attempt. `queued` is the state
+    // the entry itself comes back with, so the tile shows the spinner from the
+    // tap frame and nothing changes visually when the POST answers. It also
+    // takes the button out of the tile, which is what stops a second tap from
+    // firing a second POST.
+    for (const type of requestsInFlight) {
+      states[type] = { status: "queued" };
+    }
     return states;
-  }, [history]);
+  }, [history, requestsInFlight]);
 
   const handleGenerate = useCallback(
     async (artifactType: ArtifactType) => {
       if (!token) return;
       setRefusal(null);
+      // Before the POST, with nothing awaited in between: this is the update
+      // that flips the tile, and it must land on the frame the finger lifts.
+      setRequestsInFlight((current) =>
+        current.includes(artifactType) ? current : [...current, artifactType],
+      );
+
       try {
-        await ArtifactService.generateArtifact(
+        const created = await ArtifactService.generateArtifact(
           token,
           "folder",
           collectionId,
           artifactType,
         );
-        await refresh();
+        if (!mountedRef.current) return;
+        // The POST answers the entry itself, so it goes straight into the
+        // history: no list call, hence no eventually-consistent GSI read that
+        // could come back without it and hide a running generation. It also
+        // arms the poll immediately, from the returned status.
+        setHistory((current) => mergeArtifactIntoHistory(current, created));
       } catch (err) {
         if (!mountedRef.current) return;
         setRefusal(describeArtifactRefusal(err, { scope: "folder" }));
+      } finally {
+        // Both paths: the merged entry carries a real status from here, and a
+        // refusal has to give the button back — keeping the type in the set
+        // would lock the tile on a spinner nothing will ever clear.
+        if (mountedRef.current) {
+          setRequestsInFlight((current) =>
+            current.filter((type) => type !== artifactType),
+          );
+        }
       }
     },
-    [token, collectionId, refresh],
+    [token, collectionId],
   );
 
   const handleOpenArtifact = useCallback(

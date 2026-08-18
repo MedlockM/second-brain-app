@@ -1,10 +1,10 @@
 ---
 id: task-291
 title: Make the AI tab Generate button react on tap instead of after two round-trips
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-18 16:35'
-updated_date: '2026-08-18 18:12'
+updated_date: '2026-08-18 20:40'
 labels:
   - mobile
   - ui
@@ -63,14 +63,77 @@ A refusal must still leave the button tappable and surface the existing refusal 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 In `mobile/app/media/[id].tsx` and `mobile/app/media/collections/[id].tsx`, the tile's in-progress rendering no longer depends solely on the fetched artifact history: each screen holds local state naming the artifact types whose generation request is in flight, and that state feeds the tile state used for rendering.
-- [ ] #2 The local in-flight state is set before the POST is issued, on both screens, so no `await` sits between the press handler and the state update that flips the tile.
-- [ ] #3 The local in-flight state is cleared on both the success path and the refusal path; on refusal the tile offers a tappable Generate button again and the existing refusal banner is what reports the reason.
-- [ ] #4 While a generation request is in flight for a given artifact type, that tile offers no tappable Generate button, so a second tap cannot issue a second POST for the same type.
-- [ ] #5 `handleGenerate` on both screens no longer calls the artifact-list endpoint after the POST: the `ArtifactDetail` returned by `ArtifactService.generateArtifact` is merged into the history state, deduped by `artifact_id`, and grep shows no list call left inside either `handleGenerate`.
-- [ ] #6 The merge handles a response whose status is not `queued` (a deduplicated POST answers with an existing entry that may already be `ready` or `failed`) by replacing the entry of the same `artifact_id` rather than appending a duplicate row.
-- [ ] #7 The generate button in `mobile/src/components/ArtifactTile.tsx` uses the repo's `style={({ pressed }) => [...]}` form with a distinct pressed style, matching the convention already used in `app/(tabs)/inbox.tsx` and `src/components/ArtifactHistoryRow.tsx`.
-- [ ] #8 The `queued`, `generating`, `failed` (Retry) and `!sourceReady` (`Processing...`) renderings of `ArtifactTile` are behaviourally unchanged, and the poll still starts and stops from the history's own content.
-- [ ] #9 `npx tsc --noEmit` and the lint command declared in `mobile/package.json` both pass from `mobile/`.
-- [ ] #10 No section heading, spacing or layout style is changed on the AI tab: that perimeter belongs to task-290 (landed) and task-292 (the shared component this task builds on).
+- [x] #1 In `mobile/app/media/[id].tsx` and `mobile/app/media/collections/[id].tsx`, the tile's in-progress rendering no longer depends solely on the fetched artifact history: each screen holds local state naming the artifact types whose generation request is in flight, and that state feeds the tile state used for rendering.
+- [x] #2 The local in-flight state is set before the POST is issued, on both screens, so no `await` sits between the press handler and the state update that flips the tile.
+- [x] #3 The local in-flight state is cleared on both the success path and the refusal path; on refusal the tile offers a tappable Generate button again and the existing refusal banner is what reports the reason.
+- [x] #4 While a generation request is in flight for a given artifact type, that tile offers no tappable Generate button, so a second tap cannot issue a second POST for the same type.
+- [x] #5 `handleGenerate` on both screens no longer calls the artifact-list endpoint after the POST: the `ArtifactDetail` returned by `ArtifactService.generateArtifact` is merged into the history state, deduped by `artifact_id`, and grep shows no list call left inside either `handleGenerate`.
+- [x] #6 The merge handles a response whose status is not `queued` (a deduplicated POST answers with an existing entry that may already be `ready` or `failed`) by replacing the entry of the same `artifact_id` rather than appending a duplicate row.
+- [x] #7 The generate button in `mobile/src/components/ArtifactTile.tsx` uses the repo's `style={({ pressed }) => [...]}` form with a distinct pressed style, matching the convention already used in `app/(tabs)/inbox.tsx` and `src/components/ArtifactHistoryRow.tsx`.
+- [x] #8 The `queued`, `generating`, `failed` (Retry) and `!sourceReady` (`Processing...`) renderings of `ArtifactTile` are behaviourally unchanged, and the poll still starts and stops from the history's own content.
+- [x] #9 `npx tsc --noEmit` and the lint command declared in `mobile/package.json` both pass from `mobile/`.
+- [x] #10 No section heading, spacing or layout style is changed on the AI tab: that perimeter belongs to task-290 (landed) and task-292 (the shared component this task builds on).
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The tap is answered by local state, and the POST answer is the only thing the
+history waits for.
+
+**Local in-flight state.** Each screen holds `requestsInFlight: readonly
+ArtifactType[]` (`app/media/[id].tsx`, and `AiTab` in
+`app/media/collections/[id].tsx`). It is written as the first statement after
+`setRefusal(null)` in `handleGenerate`, before the POST, so nothing is awaited
+between the press and the update that flips the tile.
+
+**Where it lands in the render.** Inside the existing `artifactStates` /
+`tileStates` memo, as a second pass over `requestsInFlight` after the pass over
+the history, writing `{ status: "queued" }`. Two consequences worth stating:
+the in-flight entry wins over whatever the history says about that type (a
+previous `ready` or `failed` included — the button that was tapped belongs to
+the newest attempt), and `queued` is exactly the state the created entry comes
+back with, so nothing changes visually when the POST answers. `ArtifactTile`
+keeps its props and its four renderings untouched: it already drops the button
+for `queued`, which is what makes a second POST for the same type unreachable.
+
+**The second round-trip is gone.** `handleGenerate` merges the returned
+`ArtifactDetail` into the history through
+`mergeArtifactIntoHistory(history, entry)` (new,
+`mobile/src/lib/artifactHistory.ts`): replace the entry with the same
+`artifact_id` in place, prepend only when absent. In place, not append, because
+a deduplicated POST answers an entry that is already in the list and may
+already be `ready` or `failed`; and replacing rather than prepending keeps the
+list newest-first by `created_at`, which is what the tile pass reads. The
+`listArtifacts` call left `handleGenerate` on both screens — `refreshArtifacts`
+/ `refresh` are still the initial load, the poll and the history Retry, and
+`handleGenerate` no longer depends on them.
+
+**Cleanup on both paths**, in a `finally` guarded by `mountedRef`: on success
+the merged entry carries a real status from there on, and on refusal the type
+has to leave the set or the tile stays on a spinner nothing will ever clear —
+the refusal banner (unchanged) reports the reason while the button is tappable
+again.
+
+**Poll unchanged**: `hasArtifactInFlight` / `hasInFlight` still derive from the
+history alone. The local set deliberately does not arm it — there is nothing to
+poll until the entry exists — and the merged entry arms it on the frame it
+lands, without the eventually-consistent `scope-index` GSI read that could
+previously answer without the new entry and leave a running generation
+invisible.
+
+**Press feedback**: the generate button switches to
+`style={({ pressed }) => [...]}` with `generateButtonPressed`
+(`scale: 0.98`, `opacity: 0.9`), the same values as `inbox.tsx`'s
+`digestButtonPressed` and `ArtifactHistoryRow`'s `rowPressed`.
+
+Checks from `mobile/`: `npx tsc --noEmit` clean, `npm run lint` 0 errors (8
+pre-existing warnings, none in a touched file). No automated test added, per the
+project rule.
+
+Not verifiable from the worktree: the felt latency on a simulator/device,
+including the worst case named in the owner note (a collection with several
+sources, where the POST does the largest S3 fan-out). `.maestro/05_artifact_trigger_action.yaml`
+still asserts a `View` button that task-290 removed, so that flow is already
+failing for a reason outside this task and was left untouched.
+<!-- SECTION:NOTES:END -->

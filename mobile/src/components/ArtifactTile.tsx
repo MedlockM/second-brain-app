@@ -35,6 +35,12 @@ import type { ArtifactStatus, ArtifactType } from "../types/media";
 /**
  * What the screen knows about one artifact type: the backend status, or `idle`
  * when nothing has been generated yet.
+ *
+ * The status is not necessarily read off a fetched entry: a host reports a
+ * generation request whose POST is still in flight as `queued` here, so the
+ * spinner appears on the tap frame instead of after the round-trip. The tile
+ * does not need to tell the two apart — both mean the same thing to the user,
+ * and both must take the button away so a second tap cannot fire a second POST.
  */
 export type ArtifactTileState = {
   status: ArtifactStatus | "idle";
@@ -105,7 +111,11 @@ export function ArtifactTile({
 
         {canGenerate && (
           <Pressable
-            style={[styles.generateButton, isFailed && styles.retryButton]}
+            style={({ pressed }) => [
+              styles.generateButton,
+              isFailed && styles.retryButton,
+              pressed && styles.generateButtonPressed,
+            ]}
             onPress={onGenerate}
             testID={`artifact-tile-generate-${label}`}
             accessibilityLabel={`Generate ${label}`}
@@ -206,6 +216,13 @@ const styles = StyleSheet.create({
     minHeight: TouchTarget.minimum,
     justifyContent: "center",
     alignItems: "center",
+  },
+  // The same press feedback every other button in the app gives (inbox digest
+  // card, artifact history row): the request behind this one can take seconds,
+  // so the finger must get an answer on the frame it lands.
+  generateButtonPressed: {
+    transform: [{ scale: 0.98 }],
+    opacity: 0.9,
   },
   generateButtonText: {
     fontSize: Typography.label.fontSize,

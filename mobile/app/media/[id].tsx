@@ -40,6 +40,7 @@ import type {
 } from "../../src/types/media";
 import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
 import { describeArtifactRefusal } from "../../src/lib/artifactRefusal";
+import { mergeArtifactIntoHistory } from "../../src/lib/artifactHistory";
 
 /**
  * The two intra-screen tabs of a media item: what it says, and what the models
@@ -404,6 +405,13 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [generationRefusal, setGenerationRefusal] = useState<string | null>(null);
+  // The types whose POST is in flight. The history cannot know about them yet —
+  // the entry only exists once the request answers, and that request reads every
+  // source's transcript from S3 before it does. Without this, the tap stays
+  // visually unanswered for the whole round-trip and reads as ignored.
+  const [requestsInFlight, setRequestsInFlight] = useState<readonly ArtifactType[]>(
+    [],
+  );
 
   const mountedRef = useRef(true);
   const artifactPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -484,8 +492,18 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         error: artifact.error_code ?? undefined,
       };
     }
+    // A request still in flight wins over whatever the history says about that
+    // type — a previous `ready` or `failed` entry included, since the button
+    // that was just tapped belongs to the newest attempt. `queued` is the state
+    // the entry itself comes back with, so the tile shows the spinner from the
+    // tap frame and nothing changes visually when the POST answers. It also
+    // takes the button out of the tile, which is what stops a second tap from
+    // firing a second POST.
+    for (const type of requestsInFlight) {
+      states[type] = { status: "queued" };
+    }
     return states;
-  }, [artifactHistory]);
+  }, [artifactHistory, requestsInFlight]);
 
   const startArtifactPolling = useCallback(() => {
     if (artifactPollRef.current) return;
@@ -510,28 +528,45 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     async (artifactType: ArtifactType) => {
       if (!token || !mountedRef.current) return;
       setGenerationRefusal(null);
+      // Before the POST, with nothing awaited in between: this is the update
+      // that flips the tile, and it must land on the frame the finger lifts.
+      setRequestsInFlight((current) =>
+        current.includes(artifactType) ? current : [...current, artifactType],
+      );
 
       try {
-        await ArtifactService.generateArtifact(
+        const created = await ArtifactService.generateArtifact(
           token,
           "media",
           media_item.media_item_id,
           artifactType,
         );
         if (!mountedRef.current) return;
-        // The POST answers with the entry already queued, so a single refresh
-        // puts it in the history and flips the tile: no optimistic state to
-        // reconcile, and the new entry shows with its real id.
-        await refreshArtifacts();
+        // The POST answers the entry itself, so it goes straight into the
+        // history: no list call, hence no eventually-consistent GSI read that
+        // could come back without it and hide a running generation. It also
+        // arms the poll immediately, from the returned status.
+        setArtifactHistory((current) =>
+          mergeArtifactIntoHistory(current, created),
+        );
       } catch (err) {
         if (!mountedRef.current) return;
         // A refusal is typed and carries its reason (a transcript still being
         // prepared, a quota reached). Showing it beats the silent retry loop
         // that used to hide it behind a spinner.
         setGenerationRefusal(describeArtifactRefusal(err, { scope: "media" }));
+      } finally {
+        // Both paths: the merged entry carries a real status from here, and a
+        // refusal has to give the button back — keeping the type in the set
+        // would lock the tile on a spinner nothing will ever clear.
+        if (mountedRef.current) {
+          setRequestsInFlight((current) =>
+            current.filter((type) => type !== artifactType),
+          );
+        }
       }
     },
-    [token, media_item.media_item_id, refreshArtifacts],
+    [token, media_item.media_item_id],
   );
   // The title is whatever the library row holds, exactly like the inbox
   // vignette -- and nothing more: since task-266 the backend always stores a

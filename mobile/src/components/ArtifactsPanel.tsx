@@ -53,7 +53,11 @@ const EMPTY_HISTORY_COPY =
   "Nothing generated yet. Pick a format above to create one.";
 
 export interface ArtifactsPanelProps {
-  /** The newest state per artifact type, driving the five tiles. */
+  /**
+   * The newest state per artifact type, driving the five tiles. A screen also
+   * reports its own in-flight generation requests through it, so a tap flips the
+   * tile without waiting for the POST to answer.
+   */
   tileStates: Record<ArtifactType, ArtifactTileState>;
   /** Whether the underlying source is far enough along to generate from. */
   sourceReady: boolean;
