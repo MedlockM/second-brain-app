@@ -3,11 +3,11 @@ id: task-275
 title: >-
   Benchmark strategies to stop making a Lambda wait on a slow social-video
   provider (Instagram, then TikTok)
-status: To Do
+status: Done
 assignee:
   - Codex
 created_date: '2026-08-17 20:54'
-updated_date: '2026-08-18 00:29'
+updated_date: '2026-08-18 00:55'
 labels:
   - benchmark
   - ingestion
@@ -94,4 +94,6 @@ The Instagram yt-dlp block may lift on its own, since the egress IP is shared an
 
 <!-- SECTION:NOTES:BEGIN -->
 Mode initial. Benchmark produit dans docs/research/task-275-apify-async-orchestration/README.md. Recherche fondée sur les documentations officielles Apify et AWS, l’implémentation locale, task-274 et les benchmarks task-107/task-140. Recommandation : run Apify asynchrone avec webhook ad hoc sur tous les états terminaux, continuation SQS idempotente et backstop unique à 15 minutes qui réconcilie le run ; même orchestration pour Instagram et TikTok. waitForFinish, polling SQS continu, Step Functions et relèvement des timeouts sont comparés et rejetés avec coûts eu-west-3. Aucun code ni Terraform modifié. La recommandation attend la validation de l’owner via owner_decision.
+
+Décision owner traitée le 2026-08-18 : `owner_decision: ok`; la recommandation du README est acceptée. L’implémentation transverse a été livrée par task-277, qui supersède explicitement le ticket d’implémentation task-276.
 <!-- SECTION:NOTES:END -->

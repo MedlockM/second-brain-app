@@ -1,12 +1,12 @@
 ---
-owner_decision: pending   # pending | ok | abandoned | redo | more
+owner_decision: ok   # pending | ok | abandoned | redo | more
 ---
 
 # Benchmark : orchestration non bloquante des fallbacks Apify
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — accepter la recommandation, la modifier, demander un complément ou l'abandonner)_
+**Decision**: ce qui est recommandé
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---
