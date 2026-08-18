@@ -522,10 +522,9 @@ async def google_native(
             email=email.lower().strip(), provider="google", provider_sub=sub
         )
 
-        # Create refresh token
-        refresh_expires_at = get_refresh_token_expires_at()
+        # Refresh token: opens a new device-session lineage, sliding expiry
         refresh = AuthToken.create_refresh_token(
-            user_id=user.id, email=user.email, absolute_expires_at=refresh_expires_at
+            user_id=user.id, email=user.email, expires_at=get_refresh_token_expires_at()
         )
         refresh = await database_async.create_auth_token(refresh)
 
@@ -611,10 +610,9 @@ async def apple_native(
             email=email.lower().strip(), provider="apple", provider_sub=sub
         )
 
-        # Create refresh token
-        refresh_expires_at = get_refresh_token_expires_at()
+        # Refresh token: opens a new device-session lineage, sliding expiry
         refresh = AuthToken.create_refresh_token(
-            user_id=user.id, email=user.email, absolute_expires_at=refresh_expires_at
+            user_id=user.id, email=user.email, expires_at=get_refresh_token_expires_at()
         )
         refresh = await database_async.create_auth_token(refresh)
 

@@ -123,19 +123,29 @@ export class AuthService {
    * The tokens are read here rather than passed in: nothing outside this layer
    * holds them, and the local session is dropped whatever the call answers — a
    * logout the network swallowed must still sign the user out of the device.
+   *
+   * Log out this device only: the access token says who is signing out, the
+   * refresh token says from which device, and the server revokes just that token
+   * lineage — so signing out here leaves the account's other devices signed in.
+   * With no refresh token stored there is no lineage to close server side, so
+   * the local wipe is all that is left to do.
    */
   static async logout(): Promise<void> {
     const accessToken = await TokenStorage.getAccessToken();
-    try {
-      await fetch(`${Config.API_BASE_URL}/api/auth/logout`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        },
-      });
-    } catch {
-      // Ignore network errors during logout - we clear tokens regardless
+    const refreshToken = await TokenStorage.getRefreshToken();
+    if (refreshToken) {
+      try {
+        await fetch(`${Config.API_BASE_URL}/api/auth/logout`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+      } catch {
+        // Ignore network errors during logout - we clear tokens regardless
+      }
     }
     await SessionManager.clearSession();
   }
