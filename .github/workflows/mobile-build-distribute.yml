@@ -63,7 +63,12 @@ on:
         type: boolean
 
 env:
-  NODE_VERSION: "20"
+  # Node 22+, not 20: eas-cli 22 bundles typescript 7, which no longer exposes
+  # `transpileModule`. `@expo/require-utils` then falls back to Node's
+  # `module.stripTypeScriptTypes`, which only exists from Node 22 -- without it
+  # `app.config.ts` is evaluated as plain JS and every eas command dies on
+  # "Missing initializer in const declaration".
+  NODE_VERSION: "22"
   EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
 jobs:
