@@ -136,7 +136,7 @@ un staging ou une soumission.
 | Isolation API Lambda | `task-217` | **Fait (2026-08-06)** — image API ARM64 dédiée (`infrastructure/docker/lambda-api.Dockerfile`), image workers séparée, reserved concurrency configurable, warm-up EventBridge, health gate de release, logs API Gateway enrichis, `docs/API_LAMBDA_RUNTIME.md`. Mesuré le 2026-08-13 : cold 5,2 s / warm 1,0 s |
 | Isolation dev/prod | `task-221` (benchmark, `owner_decision: ok`, option B) → `task-237` → `task-248` | **Fait (2026-08-13)** — `envs/{dev,staging,prod}` sur `modules/platform`, un state par env, 100 % des noms suffixés, `scripts/tf_plan_guard.sh`. Dev reste dans `125313707865`, **prod dans le compte dédié `866874944541`** (organisation `o-7sf5u7j5hd`). `staging` détruit, son répertoire conservé comme référentiel jetable |
 | Nettoyage legacy AWS | `task-249` | **Fait** — 21 tables DynamoDB non suffixées supprimées ; il ne reste que 26 tables `-dev` + la table de lock du state |
-| Sécurité users legacy | `task-222`, `task-224`, `task-253` | **Corrigé et déployé** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email`, `update_user` et `POST /api/v1/auth/verify-email` supprimés. 2026-08-12 (`task-224`) : `endpoints/users.py` et `DELETE /api/v1/users/{user_id}` supprimés au profit de `DELETE /api/account`, qui déduit le compte du token. 2026-08-13 (`task-253`) : le 404 de `DELETE /api/account` en dev est corrigé et un **startup guard** échoue au boot si une route critique n'est pas montée. Le code est déployé depuis le 2026-08-13T18:02. **Reste** : le run E2E complet (Phase 4) |
+| Sécurité users legacy | `task-222`, `task-224`, `task-253` | **Corrigé et déployé** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email`, `update_user` et `POST /api/auth/verify-email` supprimés. 2026-08-12 (`task-224`) : `endpoints/users.py` et `DELETE /api/users/{user_id}` supprimés au profit de `DELETE /api/account`, qui déduit le compte du token. 2026-08-13 (`task-253`) : le 404 de `DELETE /api/account` en dev est corrigé et un **startup guard** échoue au boot si une route critique n'est pas montée. Le code est déployé depuis le 2026-08-13T18:02. **Reste** : le run E2E complet (Phase 4) |
 | Dérive de dépendances Lambda | `6b22542` | **Corrigé le 2026-08-13, après incident** — l'API dev a répondu 500 sur toutes les routes pendant ~2 h 20 : le startup guard de `task-253` lisait mal `app.routes` sur FastAPI 0.13x, et les Dockerfiles résolvaient `fastapi>=0.104.0` au build (0.141.1 dans l'image contre 0.116.1 dans `uv.lock` et le venv local) — donc irreproductible localement. Les images installent désormais depuis `uv export --frozen`. **Non commité au 2026-08-13** : la même bascule sur `uv.lock` pour `api.Dockerfile`, `worker.Dockerfile`, `test-orchestrator.Dockerfile`, `pr.yml` et `main.yml` (5 fichiers modifiés dans le worktree) |
 | Suppression/export de compte | `mobile/app/settings/delete-account.tsx`, `media_summarizer/core/services/account_deletion_service.py`, `task-224` | **Fait en code (2026-08-12)** — suppression de compte in-app (Account > Delete Account) branchée sur `DELETE /api/account`, qui purge DynamoDB + S3 + Algolia. Le bouton `Export Data` mort est retiré : l'accès et la portabilité passent par `privacy@mediasummarizer.com` sous un mois, documenté dans la privacy policy. Le bouton `Settings` mort reste à traiter hors `task-224` |
 | Source + CI | `task-223`, `task-227`, `task-228` | **Fait** — `main` = `origin/main` = `6b22542` ; `Main Branch Checks` **vert** sur ce SHA ; `Deploy Lambda Functions` vert sur ce même SHA. Reste hors P0 : `Mobile Build & Distribute` (cf. Phase 7) |
@@ -263,14 +263,14 @@ COOKIE_SAMESITE=Lax
 # Google OAuth (Sign in with Google)
 GOOGLE_CLIENT_ID=...                   # Web client ID — vérifie l'`aud` des id_tokens mobiles iOS/Android
 GOOGLE_CLIENT_SECRET=...               # Requis pour le flow web /google/callback
-GOOGLE_REDIRECT_URI=https://api.<your-domain>/api/v1/auth/google/callback
+GOOGLE_REDIRECT_URI=https://api.<your-domain>/api/auth/google/callback
 
 # Apple OAuth (Sign in with Apple)
 APPLE_TEAM_ID=...                      # Visible dans Apple Developer Account → Membership
 APPLE_KEY_ID=...                       # Du Sign in with Apple Key généré dans Apple Developer
 APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 APPLE_CLIENT_ID=...                    # Service ID (ex: com.secondbrainlabs.core.signinwithapple)
-APPLE_REDIRECT_URI=https://api.<your-domain>/api/v1/auth/apple/callback
+APPLE_REDIRECT_URI=https://api.<your-domain>/api/auth/apple/callback
 ```
 
 Côté mobile (`mobile/.env` ou EAS secrets) :
@@ -500,7 +500,7 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 
 **Résultats dev** :
 - API endpoint : `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com`
-- Health check : `GET /api/v1/health/` → `HTTP 200 {"status":"healthy","database":"connected"}` ✨
+- Health check : `GET /api/health/` → `HTTP 200 {"status":"healthy","database":"connected"}` ✨
 - ECR repository : `125313707865.dkr.ecr.eu-west-3.amazonaws.com/media-summarizer-lambda`
 - Runtime secret ARN : `arn:aws:secretsmanager:eu-west-3:125313707865:secret:media-summarizer-runtime-dev-OyXaYL`
 - Coût mensuel attendu (dev sans trafic) : ~$0.50-1/mois (Secrets Manager $0.40 fixe + reste négligeable).
@@ -548,7 +548,7 @@ livré :
 
 **Résultats prod (compte `866874944541`, créé le 2026-08-13)** :
 
-- 199 ressources créées ; API `GET /api/v1/health/` → `HTTP 200`
+- 199 ressources créées ; API `GET /api/health/` → `HTTP 200`
   `{"status":"healthy",…}` en 5,4 s à froid ; worker `search_indexing-prod`
   invoqué à vide → `StatusCode 200`, pas de `FunctionError`.
 - Les images Lambda sont tirées de l'ECR de **dev** (`125313707865`) : il a fallu
@@ -620,7 +620,7 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 - **task-135** — Provision queue Instagram manquante en Terraform ✅
 - **task-136** — Fix Algolia API key corrompue par commentaire trailing dans Secrets Manager ✅
 - **task-137** — Fix Deepgram worker : floats → Decimal pour DynamoDB ✅
-- **task-138** — Fix `/api/v1/podcasts/submit` : classification plateforme au lieu de `source_platform=rss` hardcodé ✅
+- **task-138** — Fix `/api/podcasts/submit` : classification plateforme au lieu de `source_platform=rss` hardcodé ✅
 - **task-139** — Fix fallback Deepgram sur CDN URLs bloquées par politiques IP source ✅
 - **task-140** — Benchmark TikTok extraction strategies given Lambda IP blocking ✅
 - **task-141** — Audit workers + application du fix `mark_extracting`/`episode_url` à Instagram ✅
@@ -769,7 +769,7 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 > Le code RevenueCat mobile/backend est implémenté (`task-99`, complété par
 > `task-244` et `task-245`) : SDK mobile, paywall 3 tiers, `restorePurchases`,
 > endpoint `POST /api/webhooks/revenucat` (6 event types, idempotence par
-> `event_id` + TTL 30 j), table `revenucat_events`, `GET /api/v1/entitlements/status`.
+> `event_id` + TTL 30 j), table `revenucat_events`, `GET /api/entitlements/status`.
 > Les routes sont montées (`api/main.py:158,160`) et déployées. Ce qui reste est
 > le setup stores et la validation sandbox réelle.
 
@@ -899,7 +899,7 @@ faite :
    Testing, achat + restore. Dépend aussi du build Android (`task-163`).
 5. **Boucler le circuit webhook** une fois un achat sandbox réalisé :
    l'événement atterrit dans `revenucat_events-dev`, `subscriptions-dev` porte le
-   bon tier, et `GET /api/v1/entitlements/status` renvoie `is_active: true` avec
+   bon tier, et `GET /api/entitlements/status` renvoie `is_active: true` avec
    le `minutes_remaining` correspondant.
 
 Le Test Store et ses 3 produits `*_test` **restent en place** :
@@ -1132,9 +1132,9 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
    - Le support Terraform existe déjà dans `infrastructure/terraform/modules/platform/lambda_api.tf` (`api_custom_domain`, `api_zone_id`, `aws_acm_certificate`, API Gateway domain mapping, Route53 record conditionnel) : les ressources sont conditionnées par `count` sur ces deux variables, donc vides tant qu'elles ne sont pas renseignées.
    - Passer `api_custom_domain = "api.secondbrainlabs.com"` et `api_zone_id` au bloc `module "platform"` de `infrastructure/terraform/envs/prod/main.tf`, puis `terraform -chdir=infrastructure/terraform/envs/prod apply`.
    - Créer/valider le DNS Cloudflare ou Route53 selon la zone réellement utilisée. Si Cloudflare reste le DNS autoritaire, créer le CNAME vers le `target_domain_name` exposé par Terraform.
-   - `terraform apply` puis vérifier `curl https://api.secondbrainlabs.com/api/v1/auth/apple/callback` → HTTP 302.
-   - **Apple Developer Portal** → Identifiers → Service IDs → `com.secondbrainlabs.core.signinwithapple` → Configure → ajouter Domain `secondbrainlabs.com` (déjà présent) et Return URL `https://api.secondbrainlabs.com/api/v1/auth/apple/callback` (déjà présent), **retirer** les entrées `jji077bi8e.execute-api.*` ajoutées en Phase 5.
-   - **AWS Secrets Manager** → mettre à jour `APPLE_REDIRECT_URI` vers `https://api.secondbrainlabs.com/api/v1/auth/apple/callback`.
+   - `terraform apply` puis vérifier `curl https://api.secondbrainlabs.com/api/auth/apple/callback` → HTTP 302.
+   - **Apple Developer Portal** → Identifiers → Service IDs → `com.secondbrainlabs.core.signinwithapple` → Configure → ajouter Domain `secondbrainlabs.com` (déjà présent) et Return URL `https://api.secondbrainlabs.com/api/auth/apple/callback` (déjà présent), **retirer** les entrées `jji077bi8e.execute-api.*` ajoutées en Phase 5.
+   - **AWS Secrets Manager** → mettre à jour `APPLE_REDIRECT_URI` vers `https://api.secondbrainlabs.com/api/auth/apple/callback`.
    - **`mobile/eas.json`** → profile `development` et `preview` :
      `EXPO_PUBLIC_API_BASE_URL` repasse à
      `https://api.secondbrainlabs.com`. Attention : le profile `production`
@@ -1171,7 +1171,7 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
    - Ajouter les liens Privacy/Terms sur login/register et Account.
    - **Fait (`task-224`, 2026-08-12)** : suppression de compte in-app
      (Account > Delete Account → `DELETE /api/account`) qui purge DynamoDB, S3 et
-     l'index Algolia ; l'ancienne `DELETE /api/v1/users/{user_id}`, qui ne
+     l'index Algolia ; l'ancienne `DELETE /api/users/{user_id}`, qui ne
      supprimait que la ligne `users`, est supprimée. Le bouton `Export Data` mort
      est retiré, l'accès (art. 15) et la portabilité (art. 20) sont traités
      manuellement par mail sous un mois, documenté en privacy policy §8.
@@ -1283,7 +1283,7 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 | ~~CRUD users legacy non authentifié~~ | **Traité** (`task-222`, `task-224`, `task-253`) : surface legacy supprimée, `DELETE /api/account` déduit le compte du token et purge DynamoDB + S3 + Algolia, startup guard contre les routes silencieusement absentes. |
 | ~~État local non poussé sur GitHub~~ | **Traité** : `main` = `origin/main` = `6b22542`, et le SHA déployé est celui qui a passé les gates. |
 | Dérive silencieuse entre l'image Lambda et le lockfile | **Cause de l'incident du 2026-08-13** (API dev 500 sur toutes les routes, ~2 h 20) : les Dockerfiles résolvaient les intervalles de `pyproject.toml` au build, donc chaque build produisait une image différente et aucune exécution locale ne pouvait reproduire le bug. Mitigation : installer depuis `uv export --frozen` — fait pour les deux images Lambda, **à committer pour les trois images et les deux workflows restants**. |
-| Un health check vert lu comme « l'environnement fonctionne » | `GET /api/v1/health/` ne teste que DynamoDB via le rôle IAM. Prod répond `200` avec un secret runtime **vide**. Ne jamais s'en servir comme preuve qu'un environnement est opérationnel — seul un E2E complet l'établit. |
+| Un health check vert lu comme « l'environnement fonctionne » | `GET /api/health/` ne teste que DynamoDB via le rôle IAM. Prod répond `200` avec un secret runtime **vide**. Ne jamais s'en servir comme preuve qu'un environnement est opérationnel — seul un E2E complet l'établit. |
 | Prod ouverte alors qu'elle est en veille | Trois booléens (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) à repasser à `true`, plus le quota de concurrence et le secret runtime. Une prod servant de vrais utilisateurs sans alarmes est une faute ; la veille n'est acceptable qu'avant lancement. |
 | CI donnant un faux sentiment de sécurité | Gates verts au 2026-08-13. Rester vigilant sur trois points : ne pas remettre de `|| true`, ne pas mettre le workflow Maestro en sommeil dans les required checks, et pin les outils via `uv.lock` pour que la CI lint avec les mêmes versions que le poste owner. |
 | Build mobile sans secrets runtime | Les trois environnements EAS sont peuplés ; reste `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` (`task-238`) et `EXPO_TOKEN` côté GitHub Actions. `mobile/.env` gitignored ne constitue pas une configuration de build distante. |

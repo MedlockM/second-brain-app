@@ -32,7 +32,7 @@ proven at scale (ClickUp, Ahrefs, Mercury, CircleCI, Typeform).
 ### SSO Integration
 
 Users accessing the feedback board from the mobile app are automatically authenticated
-via Canny JWT SSO. The backend endpoint `GET /api/v1/feedback/token` generates a signed
+via Canny JWT SSO. The backend endpoint `GET /api/feedback/token` generates a signed
 JWT containing the user's ID, name, and email. The mobile app opens the Canny WebView URL
 with the SSO token embedded as a query parameter.
 

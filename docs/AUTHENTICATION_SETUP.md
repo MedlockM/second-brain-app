@@ -8,20 +8,20 @@ Objectif
 Composants & Endpoints
 - Auth sociale (OIDC)
   - Google
-    - GET /api/v1/auth/google/login → redirige vers Google avec state
-    - GET /api/v1/auth/google/callback?code=...&state=... → échange code→tokens, vérifie id_token, relie/crée l’utilisateur, émet un refresh cookie httpOnly 30j, redirige FRONTEND_URL
+    - GET /api/auth/google/login → redirige vers Google avec state
+    - GET /api/auth/google/callback?code=...&state=... → échange code→tokens, vérifie id_token, relie/crée l’utilisateur, émet un refresh cookie httpOnly 30j, redirige FRONTEND_URL
   - Apple
-    - GET /api/v1/auth/apple/login → redirige vers Apple
-    - GET /api/v1/auth/apple/callback?code=...&state=... → génère client_secret (ES256), échange code, vérifie id_token, relie/crée l’utilisateur, émet refresh cookie 30j, redirige FRONTEND_URL
+    - GET /api/auth/apple/login → redirige vers Apple
+    - GET /api/auth/apple/callback?code=...&state=... → génère client_secret (ES256), échange code, vérifie id_token, relie/crée l’utilisateur, émet refresh cookie 30j, redirige FRONTEND_URL
 - Fallback local (email/mot de passe)
-  - POST /api/v1/auth/register → crée un utilisateur local + envoie un email de vérification
-  - POST /api/v1/auth/login → émet refresh cookie 30j + access token court (JWT) en réponse JSON
-  - POST /api/v1/auth/refresh → rotation du refresh (cookie remplacé, expiration absolue conservée) + access token court
-  - POST /api/v1/auth/logout → révoque les refresh tokens + supprime le cookie
-  - GET  /api/v1/auth/me → retourne l’utilisateur courant
+  - POST /api/auth/register → crée un utilisateur local + envoie un email de vérification
+  - POST /api/auth/login → émet refresh cookie 30j + access token court (JWT) en réponse JSON
+  - POST /api/auth/refresh → rotation du refresh (cookie remplacé, expiration absolue conservée) + access token court
+  - POST /api/auth/logout → révoque les refresh tokens + supprime le cookie
+  - GET  /api/auth/me → retourne l’utilisateur courant
 - Exigences d’accès API
   - La plupart des routes sensibles nécessitent un access token (Authorization: Bearer <JWT>)
-  - Exemple strict: POST /api/v1/podcast-search/submit-episode → require_verified_email
+  - Exemple strict: POST /api/podcast-search/submit-episode → require_verified_email
 
 Cookies & Sessions
 - Refresh cookie (httpOnly)
@@ -63,39 +63,39 @@ Variables d’Environnement (extrait)
 - Google OAuth
   - GOOGLE_CLIENT_ID
   - GOOGLE_CLIENT_SECRET
-  - GOOGLE_REDIRECT_URI=https://api.yourdomain.com/api/v1/auth/google/callback
+  - GOOGLE_REDIRECT_URI=https://api.yourdomain.com/api/auth/google/callback
 - Apple OAuth
   - APPLE_CLIENT_ID
   - APPLE_TEAM_ID
   - APPLE_KEY_ID
   - APPLE_PRIVATE_KEY (PEM; peut être fourni en une ligne avec \n)
-  - APPLE_REDIRECT_URI=https://api.yourdomain.com/api/v1/auth/apple/callback
+  - APPLE_REDIRECT_URI=https://api.yourdomain.com/api/auth/apple/callback
 
 Exemples — Flux côté client
 - Login Google (navigateur)
-  - 1) Ouvrir /api/v1/auth/google/login → redirection Google
+  - 1) Ouvrir /api/auth/google/login → redirection Google
   - 2) Consentement utilisateur → redirection /auth/google/callback → refresh cookie posé → redirection FRONTEND_URL
-  - 3) Sur le front, appeler /api/v1/auth/me et afficher l’état connecté
+  - 3) Sur le front, appeler /api/auth/me et afficher l’état connecté
 
 - Login local (curl)
   ```bash path=null start=null
-  curl -X POST http://localhost:8000/api/v1/auth/login \
-    -H 'Content-Type: application/json' \
-    -d '{"email": "user@example.com", "password": "your-pass"}' -i
+  curl -X POST http://localhost:8000/api/auth/login \
+    -H ‘Content-Type: application/json’ \
+    -d ‘{"email": "user@example.com", "password": "your-pass"}’ -i
   # → Set-Cookie: refresh_token=...; HttpOnly; Path=/; Max-Age=... 
   ```
 
 - Refresh (curl)
   ```bash path=null start=null
-  curl -X POST http://localhost:8000/api/v1/auth/refresh \
-    -H 'Content-Type: application/json' \
-    -H 'Cookie: refresh_token=<value>'
+  curl -X POST http://localhost:8000/api/auth/refresh \
+    -H ‘Content-Type: application/json’ \
+    -H ‘Cookie: refresh_token=<value>’
   ```
 
 - Appel d’une route protégée
   ```bash path=null start=null
-  curl -X GET http://localhost:8000/api/v1/auth/me \
-    -H 'Authorization: Bearer <access_token>'
+  curl -X GET http://localhost:8000/api/auth/me \
+    -H ‘Authorization: Bearer <access_token>’
   ```
 
 Gestion des Erreurs Courantes
@@ -103,8 +103,8 @@ Gestion des Erreurs Courantes
 - 400 OAuth non configuré → vérifier GOOGLE_* ou APPLE_* dans l’environnement
 
 La vérification d’email par lien a été retirée : les comptes sont auto-vérifiés
-à l’inscription. Les endpoints stubs `/api/v1/auth/verify-email` et
-`/api/v1/auth/resend-verification` ont été supprimés (task-222) — le premier
+à l’inscription. Les endpoints stubs `/api/auth/verify-email` et
+`/api/auth/resend-verification` ont été supprimés (task-222) — le premier
 était non authentifié et mutait le champ `email_verified_at` d’un email
 arbitraire.
 

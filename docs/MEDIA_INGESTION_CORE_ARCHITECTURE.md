@@ -49,7 +49,7 @@ Not allowed:
 
 **The meter follows the provider call, not the URL.** An API endpoint only ever *checks*; the debit happens where provider money is spent — the Deepgram gate (`audio_quota_gate`), the paid caption fetch, the document parse, the collection generation. That is what makes "a transcription nobody charged" and "the same import charged twice" unrepresentable rather than merely fixed. There is no per-platform category map and therefore no platform that can be exempt.
 
-All submission entry points (`POST /api/media/ingest-url`, `POST /api/media/upload`, `POST /api/v1/podcasts/submit`, and `media_submission.submit_media_for_user`) call `check_submission_allowed` before creating a job, with the minutes the import will cost when its duration is already known.
+All submission entry points (`POST /api/media/ingest-url`, `POST /api/media/upload`, `POST /api/podcasts/submit`, and `media_submission.submit_media_for_user`) call `check_submission_allowed` before creating a job, with the minutes the import will cost when its duration is already known.
 
 The check has exactly two refusals, and the difference is whether upgrading fixes it:
 - `item_too_long` (413) — this single item is longer than `max_minutes_per_item` on this plan. Splitting it fixes it; no paywall is offered.

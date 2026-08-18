@@ -50,18 +50,38 @@ Out of scope, worth a separate task: `media_summarizer/api/endpoints/follows.py`
 8. `feedback.router` - Final paths: `GET /api/feedback/token`
 
 **Changes made (across execution code, tests, and workflows):**
+
+*Backend execution:*
 - Updated 8 `include_router` calls in `media_summarizer/api/main.py`
 - Updated CRITICAL_ROUTES validation in `media_summarizer/api/main.py` to check `/api/auth/login` instead of `/api/v1/auth/login`
 - Updated `_HEALTH_PATH` in `media_summarizer/api/lambda_handler.py` from `/api/v1/health/` to `/api/health/`
-- Updated 2 health check URLs in `.github/workflows/deploy-lambda.yml` (lines ~283 and ~414) to use `/api/health/` instead of `/api/v1/health/`
+- Updated 2 health check URLs in `.github/workflows/deploy-lambda.yml` (post-deploy smoke tests)
 - Updated OAuth2 `tokenUrl` in `media_summarizer/api/dependencies/auth.py` to `/api/auth/login`
-- Updated 9 URL references in mobile `authService.ts` calls
-- Updated 2 URL references in mobile `feedbackService.ts` and `PurchasesContext.tsx`
-- Updated 1 URL reference in mobile `userPreferencesService.ts`
-- Updated default redirect URIs in `media_summarizer/api/endpoints/auth_social.py` (Google and Apple callbacks)
-- Updated 4 test files with new endpoint paths
-- Updated 3 mobile source comments referencing old paths
-- Updated 4 backend documentation comments referencing old paths
+- Updated default redirect URIs in `media_summarizer/api/endpoints/auth_social.py` (Google and Apple OAuth callbacks)
+
+*Mobile (7 files, exceeding initial 3 call sites predicted by task):*
+- **`authService.ts`** — 6 direct API calls: register, login, me, logout, refresh, google/native, apple/native
+- **`feedbackService.ts`** — 1 direct API call: feedback token
+- **`userPreferencesService.ts`** — 1 direct API call (beyond the 3 initially scoped): PATCH /api/auth/me for reading_language preference
+- **`PurchasesContext.tsx`** — 1 direct API call (one of the 3 initially scoped): entitlements status
+- **`subscriptionDisplay.ts`** — documentation comment (not API-related, but references the endpoint signature)
+- **`purchaseService.ts`** — documentation comment referencing entitlements endpoint
+- **`SubscriptionStatusCard.tsx`** — documentation comment referencing entitlements endpoint
+
+*Tests:*
+- Updated 4 e2e test files with new endpoint paths (`conftest.py`, `test_health.py`, `test_transcript_translation.py`, `test_phase4_other_sources.py`)
+- Updated `tests/e2e/README.md` test coverage table
+
+*Documentation (9 files, per AC #7):*
+- `docs/AUTHENTICATION_SETUP.md` — 16 path references updated across endpoint specs, environment variable examples, and curl usage examples
+- `docs/V1_LAUNCH_PLAN.md` — 13 path references updated in historical deployment records and implementation notes
+- `docs/CANONICAL_MEDIA_API_CONTRACT.md` — 5 path references updated; legacy paths framing preserved while removing prefix
+- `docs/INGESTION_WORKERS_PROVIDERS.md` — 2 path references updated
+- `docs/API_LAMBDA_RUNTIME.md` — 1 path reference updated
+- `docs/ERROR_HANDLING_BEST_PRACTICES.md` — 1 path reference updated (example error payload)
+- `docs/MEDIA_INGESTION_CORE_ARCHITECTURE.md` — 1 path reference updated
+- `docs/community/feedback-channels.md` — 1 path reference updated
+- `tests/e2e/README.md` — 1 path reference updated in test coverage table
 
 **Collision check:** Verified no route collisions; the 8 moved routers (health, auth, auth_social, podcast-search, podcasts, jobs, entitlements, feedback) have distinct path segments from the existing `/api/` routers and do not overlap.
 
