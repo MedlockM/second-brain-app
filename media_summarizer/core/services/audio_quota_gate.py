@@ -12,6 +12,15 @@ The contract with the transcription worker is the `quota_debited_minutes` field
 in the SQS payload: whatever this gate debited must be forwarded, so the
 settlement in `deepgram_worker` only applies the difference with the duration
 Deepgram actually billed.
+
+Since task-281 the gate also answers a question that comes *before* the quota
+engine: does this user already hold this content? A media already in their
+library -- any folder, any collection -- costs them nothing to file again, so the
+gate runs its check as usual and skips only the debit, saying so through
+`AudioGateDecision.debit_skipped`. Producers forward that as
+`quota_debit_skipped` in the SQS payload, which is the second half of the
+contract: without it the settlement would see `quota_debited_minutes == 0` and
+charge the whole real duration, undoing the exemption.
 """
 
 from __future__ import annotations
@@ -22,6 +31,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from media_summarizer.core.services import audio_duration_probe, quota_enforcer
+from media_summarizer.core.services.durable_media_service import user_holds_media
 from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.logging_config import log_event
 
@@ -37,6 +47,11 @@ class AudioGateDecision:
     duration_seconds: int = 0
     error_code: Optional[str] = None
     message: Optional[str] = None
+    # True when the submission was let through without touching the counters
+    # because the user already holds this content (task-281). Distinct from
+    # `debited_minutes == 0`, which a real debit of zero could also produce, and
+    # the only thing that tells the settlement to stand down.
+    debit_skipped: bool = False
 
     @property
     def failure_message(self) -> str:
@@ -126,6 +141,7 @@ async def gate_audio_transcription(
     audio_url: Optional[str] = None,
     audio_bytes: Optional[bytes] = None,
     known_duration_seconds: int = 0,
+    media_item_id: Optional[str] = None,
     source_platform: str = quota_enforcer.QUOTA_PLATFORM_AUDIO,
     error_step: str = "quota_enforcement",
     probe_budget_seconds: float = audio_duration_probe.DEFAULT_PROBE_BUDGET_SECONDS,
@@ -139,6 +155,11 @@ async def gate_audio_transcription(
 
     Without a `user_id` there is nobody to charge and nobody to protect: the
     submission is let through and the anomaly is logged, rather than dropped.
+
+    `media_item_id` identifies the library row of *this* save, which is written
+    before the gate runs; it is excluded from the already-held lookup so a save
+    cannot find itself and exempt itself. It defaults to the pointer the job
+    already carries, so every existing producer gets the check for free.
     """
     if not user_id:
         log_event(
@@ -151,6 +172,18 @@ async def gate_audio_transcription(
         )
         return AudioGateDecision(allowed=True)
 
+    # The question that decides whether this save costs the user anything
+    # (task-281): a media already in their library -- any folder, any collection
+    # -- is free to file again. Per user and per content, and deliberately
+    # unrelated to the global idempotence reservation, which keeps answering the
+    # other question, whether the pipeline still has work to do.
+    current_media_item_id = media_item_id or getattr(job, "media_item_id", None)
+    already_held = bool(media_key) and await user_holds_media(
+        user_id=user_id,
+        media_key=media_key or "",
+        exclude_media_item_id=current_media_item_id,
+    )
+
     duration_seconds = await resolve_audio_duration_seconds(
         known_duration_seconds=known_duration_seconds,
         audio_bytes=audio_bytes,
@@ -158,21 +191,30 @@ async def gate_audio_transcription(
         probe_budget_seconds=probe_budget_seconds,
     )
 
+    # The check still runs for a free save. Free means the user is not charged,
+    # not that the pipeline below is free to spend an unbounded number of
+    # Deepgram minutes for someone already over their cap: this gate is the last
+    # point where that spend can still be refused.
     gate = await quota_enforcer.gate_audio_submission(
         user_id=user_id,
         job_id=job_id,
         duration_seconds=duration_seconds,
         source_platform=source_platform,
+        debit=not already_held,
     )
 
     if gate.allowed:
         log_event(
             logger,
             logging.INFO,
-            "quota.audio_gate_passed",
-            "Audio quota gate passed",
+            "quota.audio_gate_already_held" if already_held else "quota.audio_gate_passed",
+            "User already holds this media; the save is free"
+            if already_held
+            else "Audio quota gate passed",
             job_id=job_id,
             user_id=user_id,
+            media_key=media_key,
+            media_item_id=current_media_item_id,
             source_platform=source_platform,
             duration_seconds=duration_seconds,
             debited_minutes=gate.debited_minutes,
@@ -182,6 +224,7 @@ async def gate_audio_transcription(
             allowed=True,
             debited_minutes=gate.debited_minutes,
             duration_seconds=duration_seconds,
+            debit_skipped=already_held,
         )
 
     decision = AudioGateDecision(

@@ -199,6 +199,59 @@ async def save_media_for_user(
     return stored.media_item_id
 
 
+async def user_holds_media(
+    *,
+    user_id: str,
+    media_key: str,
+    exclude_media_item_id: Optional[str] = None,
+) -> bool:
+    """Does this user already have this content in their library?
+
+    The question the audio quota asks before debiting (task-281). It is *not* the
+    question the global idempotence ledger answers: that one says whether the
+    pipeline still has work to do, for everybody at once, while this one is
+    scoped to a single owner and ignores processing entirely. A media the user
+    already holds costs them nothing to file again, whether or not a job runs.
+
+    Scoped to the user and to nothing else: every folder, every collection and
+    every processing status counts as held, because the rule is about owning the
+    content, not about where it was filed. Soft-deleted rows do not count -- a
+    user who deleted an item no longer holds it, so re-saving it debits again.
+
+    ``exclude_media_item_id`` is the save currently being made. The durable row
+    is written before the quota gate runs (task-218 §4.3), so without excluding
+    it every save would find itself and never debit anything. The underlying read
+    is strongly consistent, so the row a save wrote a moment earlier is visible
+    to the save that follows it.
+
+    Fails *open* (returns False, so the caller debits): the lookup hits the table
+    the save path just wrote to successfully, so an error here is close to
+    impossible, and the failure mode that must not exist is a quota anyone can
+    open by making a read fail.
+    """
+    media_key = (media_key or "").strip()
+    if not (user_id or "").strip() or not media_key:
+        return False
+
+    try:
+        records = await user_media_store.list_for_user_by_media_key(user_id, media_key)
+    except Exception as exc:  # noqa: BLE001 - never fail a save over a quota read
+        log_event(
+            logger,
+            logging.WARNING,
+            "durable_media.holds_lookup_failed",
+            f"Could not establish whether the user already holds the media: {exc}",
+            user_id=user_id,
+            media_key=media_key,
+            error_type=type(exc).__name__,
+        )
+        return False
+
+    return any(
+        record.media_item_id != exclude_media_item_id for record in records
+    )
+
+
 async def finalize_deduplicated_save(
     *,
     user_id: str,

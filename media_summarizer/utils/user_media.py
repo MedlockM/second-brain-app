@@ -39,7 +39,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
 from media_summarizer.core.models.user_media import (
@@ -226,6 +226,57 @@ async def list_by_media_key(
         kwargs: Dict[str, Any] = {
             "IndexName": MEDIA_KEY_INDEX,
             "KeyConditionExpression": Key("media_key").eq(media_key),
+        }
+        while True:
+            resp = await table.query(**kwargs)
+            for item in resp.get("Items", []):
+                record = UserMediaRecord.from_dynamodb_item(item)
+                if record.is_deleted and not include_deleted:
+                    continue
+                records.append(record)
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            kwargs["ExclusiveStartKey"] = last_key
+    return records
+
+
+async def list_for_user_by_media_key(
+    user_id: str,
+    media_key: str,
+    *,
+    include_deleted: bool = False,
+) -> List[UserMediaRecord]:
+    """Every save *one* user made of one globally identified content item.
+
+    The question the audio quota asks before debiting (task-281), and it is the
+    owner's partition that answers it, not ``media-key-index``: that GSI is
+    cross-user by design, it can only be read eventually-consistently, and a
+    quota decision taken a second after the save that precedes it needs to see
+    that save. Querying ``user_id`` consistently and filtering on ``media_key``
+    reads the same partition ``list_library_for_user`` already reads on every
+    library load, which bounds the cost to something the app pays constantly.
+
+    Soft-deleted rows are excluded by default, exactly like the library reads: an
+    item the user deleted is no longer held.
+    """
+    user_id = (user_id or "").strip()
+    media_key = (media_key or "").strip()
+    if not user_id or not media_key:
+        return []
+
+    table_name = user_media_table_name()
+    session = database_async.get_session()
+    records: List[UserMediaRecord] = []
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        kwargs: Dict[str, Any] = {
+            "KeyConditionExpression": Key("user_id").eq(user_id),
+            "FilterExpression": Attr("media_key").eq(media_key),
+            "ConsistentRead": True,
         }
         while True:
             resp = await table.query(**kwargs)

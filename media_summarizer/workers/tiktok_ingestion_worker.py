@@ -1043,6 +1043,7 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             podcast_title=message_body.get("podcast_title") or job.source_platform,
             audio_duration_seconds=gate.duration_seconds,
             quota_debited_minutes=gate.debited_minutes,
+            quota_debit_skipped=gate.debit_skipped,
         )
 
         return {

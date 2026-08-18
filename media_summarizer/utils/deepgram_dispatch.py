@@ -42,6 +42,7 @@ async def enqueue_deepgram_transcription(
     podcast_title: Optional[str] = None,
     audio_duration_seconds: int = 0,
     quota_debited_minutes: int = 0,
+    quota_debit_skipped: bool = False,
     content_mime_type: Optional[str] = None,
     original_name: Optional[str] = None,
     quota_source_platform: Optional[str] = None,
@@ -62,6 +63,12 @@ async def enqueue_deepgram_transcription(
     own duration, so a producer that omits it makes the user pay the whole real
     duration a second time.
 
+    ``quota_debit_skipped`` says the gate deliberately debited nothing because the
+    user already holds this content (task-281). It is not the same statement as
+    ``quota_debited_minutes == 0``: the worker settles the full billed duration
+    against a zero debit, so an exempt save that omits this flag ends up charged
+    exactly what the exemption was meant to spare it.
+
     ``quota_source_platform`` names the platform whose quota category applies.
     The worker settles audio minutes for every message that leaves it unset, so
     a producer whose media is metered in another category (Instagram, per the
@@ -75,6 +82,7 @@ async def enqueue_deepgram_transcription(
         "source_platform": source_platform,
         "audio_duration_seconds": audio_duration_seconds,
         "quota_debited_minutes": quota_debited_minutes,
+        "quota_debit_skipped": quota_debit_skipped,
     }
     optional_fields = {
         "media_key": media_key,

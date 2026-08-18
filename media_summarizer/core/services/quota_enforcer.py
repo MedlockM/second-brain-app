@@ -699,6 +699,7 @@ async def gate_audio_submission(
     job_id: str,
     duration_seconds: int = 0,
     source_platform: str = QUOTA_PLATFORM_AUDIO,
+    debit: bool = True,
 ) -> AudioQuotaGateResult:
     """
     Single check-and-debit gate for a submission that is about to cost Deepgram
@@ -712,6 +713,12 @@ async def gate_audio_submission(
     The submission is still accepted — refusing a legitimate share because a
     metadata probe timed out is not acceptable — and a provisional single minute
     is debited, which the settlement corrects with Deepgram's own figure.
+
+    `debit=False` charges nothing while still running the check, for a save the
+    caller established is free (task-281: the user already holds this content).
+    The two halves are separable on purpose — the debit measures what the user
+    consumed, the check protects the Deepgram bill, and a free save still spends
+    provider minutes if the pipeline runs for it.
     """
     check = await check_submission_allowed(
         user_id=user_id,
@@ -725,6 +732,9 @@ async def gate_audio_submission(
             message=check.message,
             http_status=check.http_status,
         )
+
+    if not debit:
+        return AudioQuotaGateResult(allowed=True, debited_minutes=0)
 
     debited = await record_submission(
         user_id=user_id,

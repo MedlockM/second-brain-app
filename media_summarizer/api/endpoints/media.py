@@ -71,6 +71,7 @@ from media_summarizer.core.services import (
 from media_summarizer.core.services.durable_media_service import (
     resolve_job_for_record,
     save_media_for_user,
+    user_holds_media,
 )
 from media_summarizer.core.services.media_identity import derive_media_identity
 from media_summarizer.core.services.media_search_service import SearchFilters
@@ -1215,19 +1216,41 @@ async def upload_audio(
             http_method="GET",
         )
 
+        # Re-uploading a file already in the library is the same save twice: the
+        # content key is per user and per file, so an identical upload costs the
+        # user nothing again (task-281). The row created just above is excluded,
+        # otherwise every upload would find itself and never be debited.
+        already_held = await user_holds_media(
+            user_id=user.id,
+            media_key=media_key,
+            exclude_media_item_id=durable_media_item_id,
+        )
+
         # Debit the audio minutes now that the job exists, exactly once for this
         # job id. The transcription worker will settle the difference with the
         # duration Deepgram bills, so an unparsable container still ends up
         # counted correctly and a parsable one is not counted twice.
-        debited_minutes = await record_submission(
-            user_id=user.id,
-            source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
-            duration_seconds=upload_duration_seconds,
-            estimated_cost_eur=estimate_submission_cost(
-                quota_enforcer.QUOTA_PLATFORM_AUDIO, upload_duration_seconds
-            ),
-            idempotency_token=quota_enforcer.gate_token(job.id),
-        )
+        debited_minutes = 0
+        if already_held:
+            log_event(
+                logger,
+                logging.INFO,
+                "quota.audio_gate_already_held",
+                "User already holds this audio file; the upload is free",
+                user_id=user.id,
+                media_item_id=durable_media_item_id,
+                job_id=job.id,
+            )
+        else:
+            debited_minutes = await record_submission(
+                user_id=user.id,
+                source_platform=quota_enforcer.QUOTA_PLATFORM_AUDIO,
+                duration_seconds=upload_duration_seconds,
+                estimated_cost_eur=estimate_submission_cost(
+                    quota_enforcer.QUOTA_PLATFORM_AUDIO, upload_duration_seconds
+                ),
+                idempotency_token=quota_enforcer.gate_token(job.id),
+            )
 
         # Enqueue transcription message with the pre-signed URL
         await sqs.send_message(
@@ -1241,6 +1264,7 @@ async def upload_audio(
                 "original_name": file_name,
                 "audio_duration_seconds": upload_duration_seconds,
                 "quota_debited_minutes": debited_minutes,
+                "quota_debit_skipped": already_held,
                 "deepgram_mode": "pull",
             },
         )

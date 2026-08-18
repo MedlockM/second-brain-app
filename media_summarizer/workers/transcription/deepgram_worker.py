@@ -544,6 +544,21 @@ async def _settle_audio_quota(
         )
         return
 
+    # The gate exempted this save because the user already holds the media
+    # (task-281). Settling here would charge the full billed duration against a
+    # deliberate zero debit, which is the exemption undone one step later.
+    if message_body.get("quota_debit_skipped"):
+        log_event(
+            logger,
+            logging.INFO,
+            "quota.settlement_skipped_already_held",
+            "Save exempted at the gate because the user already holds the media",
+            job_id=job_id,
+            media_key=message_body.get("media_key"),
+            billed_audio_seconds=billed_audio_seconds,
+        )
+        return
+
     user_id = message_body.get("user_id") or getattr(job, "user_id", None)
     if not user_id:
         log_event(

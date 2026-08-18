@@ -360,6 +360,7 @@ async def process_message(message: dict) -> None:
                 "episode_image": episode_image,
                 "audio_duration_seconds": gate.duration_seconds,
                 "quota_debited_minutes": gate.debited_minutes,
+                "quota_debit_skipped": gate.debit_skipped,
                 "deepgram_mode": "pull",
             },
         )

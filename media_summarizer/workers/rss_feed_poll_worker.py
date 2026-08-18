@@ -120,6 +120,7 @@ async def _route_item_to_pipeline(
                 "source_platform": "rss_feed",
                 "audio_duration_seconds": gate.duration_seconds,
                 "quota_debited_minutes": gate.debited_minutes,
+                "quota_debit_skipped": gate.debit_skipped,
                 "deepgram_mode": "pull",
             },
         )
