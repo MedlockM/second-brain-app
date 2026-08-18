@@ -3,10 +3,10 @@ id: task-287
 title: >-
   Benchmark a consumption model that stays legible to the user now that
   ingestion cost is part per-minute and part per-item
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-18 04:35'
-updated_date: '2026-08-18 04:38'
+updated_date: '2026-08-18 14:11'
 labels:
   - benchmark
   - pricing
@@ -87,6 +87,7 @@ Ground the work in what comparable products do — read-later and transcription 
 
 ## Implementation Notes
 
+<!-- SECTION:NOTES:BEGIN -->
 Mode: **initial** (no prior `docs/research/task-287-*` directory, no owner-rejected README to
 integrate).
 
@@ -131,3 +132,4 @@ went through the paid Apify actor - falsifying task-65's "95 % free captions" as
 
 No source code was modified. Only aggregates from the `-dev` tables are reported; no account
 identifier appears in the deliverable.
+<!-- SECTION:NOTES:END -->
