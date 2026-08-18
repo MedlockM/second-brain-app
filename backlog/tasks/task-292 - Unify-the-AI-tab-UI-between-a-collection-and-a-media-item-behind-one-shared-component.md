@@ -3,9 +3,10 @@ id: task-292
 title: >-
   Unify the AI tab UI between a collection and a media item behind one shared
   component
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-18 16:42'
+updated_date: '2026-08-18 17:54'
 labels:
   - mobile
   - ui
