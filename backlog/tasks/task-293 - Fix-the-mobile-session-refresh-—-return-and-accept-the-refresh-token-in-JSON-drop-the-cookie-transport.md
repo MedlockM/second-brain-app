@@ -3,7 +3,7 @@ id: task-293
 title: >-
   Fix the mobile session refresh — return and accept the refresh token in JSON,
   drop the cookie transport
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-18 17:24'
 labels:
@@ -56,12 +56,104 @@ Les flux OAuth **web** `/api/auth/google/login|callback` et `/api/auth/apple/log
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 /api/auth/login et /api/auth/register renvoient un refresh_token dans leur corps de réponse JSON, déclaré dans leur modèle de réponse
-- [ ] #2 /api/auth/refresh lit le refresh token dans le corps de la requête et n'accède plus aux cookies
+- [x] #1 /api/auth/login et /api/auth/register renvoient un refresh_token dans leur corps de réponse JSON, déclaré dans leur modèle de réponse
+- [x] #2 /api/auth/refresh lit le refresh token dans le corps de la requête et n'accède plus aux cookies
 - [ ] #3 Plus aucune référence au cookie de refresh dans le code applicatif : un grep de set_cookie, COOKIE_NAME_REFRESH, COOKIE_SECURE, COOKIE_SAMESITE et COOKIE_DOMAIN sur media_summarizer/ ne retourne rien
-- [ ] #4 get_current_user_flexible et RequireAuthFlexible sont supprimés et aucun appelant ne subsiste dans le repo
-- [ ] #5 media_summarizer/core/security.py est supprimé et scripts/create_test_user.py obtient son hachage de mot de passe depuis utils/auth_utils.py
-- [ ] #6 Les variables COOKIE_* ont disparu de .env.example et docs/AUTHENTICATION_SETUP.md décrit le transport JSON du refresh token au lieu du cookie httpOnly
-- [ ] #7 mobile/src/types/auth.ts déclare refresh_token sur TokenVerificationResponse et persistTokens n'a plus de cast inline
-- [ ] #8 ruff check et mypy sont clean sur media_summarizer/, npx tsc --noEmit et npm run lint sont clean dans mobile/
+- [x] #4 get_current_user_flexible et RequireAuthFlexible sont supprimés et aucun appelant ne subsiste dans le repo
+- [x] #5 media_summarizer/core/security.py est supprimé et scripts/create_test_user.py obtient son hachage de mot de passe depuis utils/auth_utils.py
+- [x] #6 Les variables COOKIE_* ont disparu de .env.example et docs/AUTHENTICATION_SETUP.md décrit le transport JSON du refresh token au lieu du cookie httpOnly
+- [x] #7 mobile/src/types/auth.ts déclare refresh_token sur TokenVerificationResponse et persistTokens n'a plus de cast inline
+- [x] #8 ruff check et mypy sont clean sur media_summarizer/, npx tsc --noEmit et npm run lint sont clean dans mobile/
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### Ce qui change dans le contrat
+
+`TokenVerificationResponse` (`media_summarizer/core/models/auth.py`) porte désormais un
+`refresh_token` **requis**, et sert de modèle de réponse aux trois endpoints locaux :
+
+- `POST /api/auth/register` → 201 avec une session complète. Il ne renvoyait qu'un
+  `AuthUser` : ajouter `refresh_token` à `AuthUser` aurait pollué `/me` et toutes les
+  réponses utilisateur, donc register renvoie la même enveloppe que login.
+- `POST /api/auth/login` → inchangé sauf le champ ajouté.
+- `POST /api/auth/refresh` → prend un corps `RefreshRequest` (`{"refresh_token": "..."}`)
+  et renvoie le token rotaté dans le corps. Plus aucun accès aux cookies, donc plus de
+  401 « Missing refresh token » : un corps sans champ donne 422, un token inconnu 401
+  « Invalid refresh token ». La rotation elle-même n'est pas touchée (task-294 s'en charge).
+- `POST /api/auth/logout` → révoque toujours les refresh tokens en base, ne pose plus
+  d'en-tête de suppression de cookie.
+
+Côté mobile, `register()` ne rappelle plus `login()` derrière : son commentaire disait
+explicitement que ce second appel existait parce que register ne renvoyait que
+l'utilisateur et que le mobile ne pouvait pas lire le cookie. La prémisse disparaît avec
+cette tâche, donc le contournement aussi (un aller-retour réseau et un refresh token
+orphelin en base de moins par inscription).
+
+**Effet de bord repéré et corrigé** : `tests/e2e/conftest.py` et
+`tests/e2e/test_transcript_translation.py` lisaient `resp.json()["id"]` sur
+`/api/auth/register`. L'id est maintenant sous `["user"]["id"]` — les deux fixtures sont
+mises à jour, sinon le run E2E de l'owner casse au setup. Aucun test n'a été ajouté.
+
+### AC #3 laissée décochée — un `set_cookie` subsiste, et c'est volontaire
+
+Après la passe, sur `media_summarizer/` :
+
+- `COOKIE_NAME_REFRESH`, `COOKIE_SECURE`, `COOKIE_SAMESITE`, `COOKIE_DOMAIN` : **0 hit**.
+- `set_cookie` : **1 hit**, `_set_state_cookie` dans `auth_social.py`, qui pose
+  `oauth_state_<provider>` — la garde CSRF des flux OAuth **web**, que la section
+  « Hors périmètre » demande explicitement de conserver. Ce cookie n'a rien à voir avec
+  le refresh : il est posé par `/google/login|/apple/login`, relu 10 minutes plus tard par
+  le callback du même hôte, et c'est la seule chose qui empêche un callback non sollicité
+  d'aboutir. Le supprimer ferait échouer toute validation de state en silence ; le
+  remplacer par un state signé sans cookie retirerait le lien au navigateur, ce qui est
+  strictement plus faible face au login-CSRF. La condition de tête de l'AC (« plus aucune
+  référence au cookie **de refresh** ») est donc tenue, mais son grep littéral ne l'est
+  pas : l'AC reste décochée, à l'owner de trancher s'il veut aussi voir partir le state.
+
+Ce cookie a quand même été nettoyé au passage : il ne lit plus les variables `COOKIE_*` et
+devient host-only, `Secure`, `httpOnly`, `SameSite=lax`. Le `domain=COOKIE_DOMAIN` précédent
+était d'ailleurs cassé en prod — un `Domain=app.<domaine>` posé par une réponse de
+`api.<domaine>` est rejeté par le navigateur, donc chaque callback web y aurait répondu
+`state_mismatch`. `_clear_state_cookie` (zéro appelant) est supprimé.
+
+### Autres suppressions
+
+- `_set_refresh_cookie`, `_clear_refresh_cookie`, `_refresh_cookie_clear_headers` et les
+  quatre constantes `COOKIE_*` de `auth.py`, plus les trois de `auth_social.py` et l'import
+  `auth as auth_local` qui n'existait que pour partager le helper.
+- `get_current_user_flexible` / `RequireAuthFlexible` (`api/dependencies/auth.py`) : zéro
+  appelant, et c'était le dernier code capable d'authentifier via cookie.
+- `media_summarizer/core/security.py` : module mort doublon de `utils/auth_utils.py`
+  (second secret dérivé `JWT_SECRET_KEY + "-refresh"`, `create_refresh_token` JWT jamais
+  appelé). `scripts/create_test_user.py` prend `hash_password` dans `utils/auth_utils.py`.
+- Les callbacks OAuth web ne créent plus de refresh token en base : ils n'avaient plus
+  aucun moyen de le transmettre, donc chaque passage écrivait une ligne inutilisable dans
+  `auth_tokens`. Ils vérifient l'id_token, lient/créent l'utilisateur, et redirigent.
+- `pyproject.toml` : `media_summarizer.api.endpoints.auth` quitte la liste des overrides
+  mypy (vérifié : mypy passe sans elle une fois les cookies partis). `auth_social` y reste,
+  pour trois erreurs préexistantes sans rapport (`credits=100` legacy, typage de
+  `_b64_to_int`).
+
+### Vérifications faites
+
+- `ruff check media_summarizer/ scripts/ tests/` → clean.
+- `uv run mypy media_summarizer/` → `Success: no issues found in 170 source files`.
+- `python scripts/check_env_example_complete.py` → OK, 232 variables (le guard aurait
+  échoué si un `COOKIE_*` était resté lu par le code).
+- `mobile/` : `npx tsc --noEmit` → aucune sortie ; `npm run lint` → 0 error, 8 warnings
+  préexistants, tous dans des fichiers non touchés ici.
+- Greps de l'AC #3 rejoués, résultat détaillé ci-dessus.
+
+### Hors de portée depuis le worktree
+
+Rien de ce qui touche au runtime déployé n'est vérifiable ici : le déploiement part au push
+sur `main`, après la sortie de l'agent. Restent donc à l'owner, comme le prévoit la
+description : le sondage `POST /api/auth/refresh` sur l'API dev (200 avec un token valide,
+401 « Invalid refresh token » avec `{"refresh_token":"probe"}`) et le test E2E manuel des
+trois modes de connexion après expiration de l'access token. Les quatre clés `COOKIE_*` du
+secret runtime dev/prod deviennent mortes — elles peuvent rester, plus aucun code ne les
+lit ; `docs/DEVBOX_SETUP.md` prévient qu'elles apparaîtront désormais dans la liste
+`skipped:` de l'injection `.env` sans que ce soit une anomalie.
+<!-- SECTION:NOTES:END -->

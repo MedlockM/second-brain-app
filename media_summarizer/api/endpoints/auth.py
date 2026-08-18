@@ -1,9 +1,13 @@
 """
 Authentication endpoints for local email/password with 30-day absolute refresh sessions.
+
+Both tokens travel in the JSON body: the access token as ``access_token`` and the
+refresh token as ``refresh_token``. The only client is the mobile app, which keeps
+the refresh token in its secure store and posts it back to /refresh — it cannot
+read an httpOnly cookie, which is why the cookie transport is gone (task-293).
 """
 
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -11,8 +15,6 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
-    Request,
-    Response,
     status,
 )
 from pydantic import BaseModel, Field
@@ -23,6 +25,7 @@ from media_summarizer.core.models.auth import (
     AuthToken,
     AuthUser,
     LoginRequest,
+    RefreshRequest,
     RegisterRequest,
     TokenType,
     TokenVerificationResponse,
@@ -43,52 +46,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Config
-REFRESH_COOKIE_NAME = os.environ.get("COOKIE_NAME_REFRESH", "refresh_token")
-COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN")
-COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
-COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").lower()  # lax|strict|none
 
-
-def _set_refresh_cookie(
-    response: Response, token_value: str, absolute_expires_at: datetime
-) -> None:
-    max_age = int((absolute_expires_at - datetime.now(timezone.utc)).total_seconds())
-    max_age = max(0, max_age)
-    response.set_cookie(
-        key=REFRESH_COOKIE_NAME,
-        value=token_value,
-        max_age=max_age,
-        expires=max_age,
-        domain=COOKIE_DOMAIN,
-        path="/",
-        secure=COOKIE_SECURE,
-        httponly=True,
-        samesite=COOKIE_SAMESITE,
-    )
-
-
-def _clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(
-        key=REFRESH_COOKIE_NAME,
-        domain=COOKIE_DOMAIN,
-        path="/",
-    )
-
-
-def _refresh_cookie_clear_headers() -> dict[str, str]:
-    response = Response()
-    _clear_refresh_cookie(response)
-    cookie_header = response.headers.get("set-cookie")
-    if not cookie_header:
-        return {}
-    return {"set-cookie": cookie_header}
-
-
-@router.post("/register", response_model=AuthUser, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=TokenVerificationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def register(
     request: RegisterRequest,
-    response: Response,
     db: DynamoDBConnection = Depends(get_db),
 ):
     email = request.email.lower().strip()
@@ -112,15 +77,24 @@ async def register(
         user_id=user.id, email=user.email, absolute_expires_at=refresh_expires_at
     )
     refresh = await database_async.create_auth_token(refresh)
-    _set_refresh_cookie(response, refresh.token, refresh.expires_at)
 
-    return AuthUser(id=user.id, email=user.email, reading_language=user.reading_language)
+    # Access token: registration opens a session, no second /login round-trip needed
+    access_seconds = get_access_token_expires_seconds()
+    access_token = create_access_token(
+        data=create_token_payload(user_id=user.id, email=user.email),
+        expires_delta=timedelta(seconds=access_seconds),
+    )
+    return TokenVerificationResponse(
+        access_token=access_token,
+        refresh_token=refresh.token,
+        token_type="bearer",
+        expires_in=access_seconds,
+        user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
+    )
 
 
 @router.post("/login", response_model=TokenVerificationResponse)
-async def login(
-    request: LoginRequest, response: Response, db: DynamoDBConnection = Depends(get_db)
-):
+async def login(request: LoginRequest, db: DynamoDBConnection = Depends(get_db)):
     email = request.email.lower().strip()
     user = await database_async.get_user_by_email(email)
     if (
@@ -138,7 +112,6 @@ async def login(
         user_id=user.id, email=user.email, absolute_expires_at=refresh_expires_at
     )
     refresh = await database_async.create_auth_token(refresh)
-    _set_refresh_cookie(response, refresh.token, refresh.expires_at)
 
     # Access token
     access_seconds = get_access_token_expires_seconds()
@@ -148,6 +121,7 @@ async def login(
     )
     return TokenVerificationResponse(
         access_token=access_token,
+        refresh_token=refresh.token,
         token_type="bearer",
         expires_in=access_seconds,
         user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
@@ -156,24 +130,14 @@ async def login(
 
 @router.post("/refresh", response_model=TokenVerificationResponse)
 async def refresh_token(
-    request: Request, response: Response, db: DynamoDBConnection = Depends(get_db)
+    request: RefreshRequest, db: DynamoDBConnection = Depends(get_db)
 ):
-    clear_headers = _refresh_cookie_clear_headers()
-    token_value = request.cookies.get(REFRESH_COOKIE_NAME)
-    if not token_value:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing refresh token",
-            headers=clear_headers,
-        )
-
     # Load token from DB
-    auth_token = await database_async.get_auth_token_by_token(token_value)
+    auth_token = await database_async.get_auth_token_by_token(request.refresh_token)
     if not auth_token or auth_token.token_type != TokenType.REFRESH_TOKEN:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
-            headers=clear_headers,
         )
 
     if (
@@ -184,7 +148,6 @@ async def refresh_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Expired or used refresh token",
-            headers=clear_headers,
         )
 
     # Get user
@@ -193,7 +156,6 @@ async def refresh_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
-            headers=clear_headers,
         )
 
     # Rotate refresh: mark used + inactive, then create a new one with same absolute expiry
@@ -206,7 +168,6 @@ async def refresh_token(
         absolute_expires_at=auth_token.expires_at,
     )
     new_refresh = await database_async.create_auth_token(new_refresh)
-    _set_refresh_cookie(response, new_refresh.token, new_refresh.expires_at)
 
     # New access token
     access_seconds = get_access_token_expires_seconds()
@@ -217,6 +178,7 @@ async def refresh_token(
 
     return TokenVerificationResponse(
         access_token=access_token,
+        refresh_token=new_refresh.token,
         token_type="bearer",
         expires_in=access_seconds,
         user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
@@ -225,13 +187,11 @@ async def refresh_token(
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
 async def logout(
-    response: Response,
     current_user: AuthUser = Depends(get_current_user),
     db: DynamoDBConnection = Depends(get_db),
 ):
-    # Revoke refresh tokens for the user and clear cookie
+    # Revoke every refresh token of the user; the client drops its stored copy
     await database_async.revoke_user_tokens(current_user.id, TokenType.REFRESH_TOKEN)
-    _clear_refresh_cookie(response)
     return {"message": "Successfully logged out"}
 
 

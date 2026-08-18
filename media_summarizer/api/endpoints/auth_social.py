@@ -1,9 +1,13 @@
 """
 Social authentication endpoints (Google, Apple) using OAuth/OIDC.
 
-- Login endpoints redirect to provider auth pages with state protection
-- Callback endpoints exchange code -> tokens, verify id_token,
-  link or create user, set refresh cookie (30d absolute), and redirect frontend
+- Native endpoints (/google/native, /apple/native) verify an id_token obtained by
+  the mobile SDK and return access + refresh tokens in JSON. This is the only path
+  that opens a session — the mobile app is the only client.
+- Web login/callback endpoints redirect to the provider and, on return, verify the
+  id_token and link or create the user. They no longer issue any session material:
+  the refresh cookie they used to set had no client left able to read it (task-293).
+  They are kept because their redirect URIs are registered with Apple and Google.
 
 Notes:
 - Google id_token is validated via tokeninfo endpoint (server-side verification)
@@ -28,8 +32,6 @@ from jose import jwt
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field
 
-# Reuse cookie helper from local auth module
-from media_summarizer.api.endpoints import auth as auth_local
 from media_summarizer.core.models import User
 from media_summarizer.core.models.auth import AuthToken
 from media_summarizer.utils import database_async
@@ -44,10 +46,6 @@ from media_summarizer.utils.database_async import DynamoDBConnection, get_db
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Common cookie config
-COOKIE_DOMAIN = os.environ.get("COOKIE_DOMAIN")
-COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
-COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").lower()  # lax|strict|none
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
 # Google OAuth config
@@ -76,34 +74,27 @@ APPLE_NATIVE_AUDIENCE = os.environ.get("APPLE_NATIVE_AUDIENCE")
 def _set_state_cookie(
     response: Response, provider: str, state: str, ttl_seconds: int = 600
 ) -> None:
+    """Bind the OAuth ``state`` to the browser that started the web flow.
+
+    This is the CSRF guard of the web login/callback pair, read back by the
+    callback through ``_get_state_cookie``. It is host-only on purpose: the
+    cookie is set and read by the API host, so a Domain attribute pointing at
+    the app domain would simply be rejected by the browser.
+    """
     response.set_cookie(
         key=f"oauth_state_{provider}",
         value=state,
         max_age=ttl_seconds,
         expires=ttl_seconds,
-        domain=COOKIE_DOMAIN,
         path="/",
-        secure=COOKIE_SECURE,
+        secure=True,
         httponly=True,
-        samesite=COOKIE_SAMESITE,
+        samesite="lax",
     )
 
 
 def _get_state_cookie(request: Request, provider: str) -> Optional[str]:
     return request.cookies.get(f"oauth_state_{provider}")
-
-
-def _clear_state_cookie(response: Response, provider: str) -> None:
-    try:
-        response.delete_cookie(
-            key=f"oauth_state_{provider}", domain=COOKIE_DOMAIN, path="/"
-        )
-        response.delete_cookie(
-            key=f"oauth_state_{provider}_uid", domain=COOKIE_DOMAIN, path="/"
-        )
-    except Exception:
-        # Non-fatal: cookie will expire naturally
-        pass
 
 
 async def _link_or_create_user(email: str, provider: str, provider_sub: str) -> User:
@@ -152,7 +143,7 @@ def _redirect_error(provider: str, reason: str) -> RedirectResponse:
 
 
 @router.get("/google/login")
-async def google_login(response: Response) -> RedirectResponse:
+async def google_login() -> RedirectResponse:
     if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URI:
         raise HTTPException(status_code=500, detail="Google OAuth not configured")
 
@@ -182,7 +173,6 @@ async def google_login(response: Response) -> RedirectResponse:
 @router.get("/google/callback")
 async def google_callback(
     request: Request,
-    response: Response,
     code: Optional[str] = None,
     state: Optional[str] = None,
     db: DynamoDBConnection = Depends(get_db),
@@ -237,20 +227,13 @@ async def google_callback(
         if not email or not email_verified or not sub:
             return _redirect_error("google", "invalid_claims")
 
-        # Link or create user
-        user = await _link_or_create_user(
+        # Link or create user. No session material is issued here: the web flow
+        # has no client able to receive it (task-293).
+        await _link_or_create_user(
             email=email.lower().strip(), provider="google", provider_sub=sub
         )
 
-        # Create refresh token and set cookie
-        refresh_expires_at = get_refresh_token_expires_at()
-        refresh = AuthToken.create_refresh_token(
-            user_id=user.id, email=user.email, absolute_expires_at=refresh_expires_at
-        )
-        refresh = await database_async.create_auth_token(refresh)
-        redirect = _redirect_success("google")
-        auth_local._set_refresh_cookie(redirect, refresh.token, refresh.expires_at)
-        return redirect
+        return _redirect_success("google")
 
     except httpx.HTTPStatusError as e:
         logger.warning(f"Google callback HTTP error: {e.response.status_code}")
@@ -377,7 +360,7 @@ async def _apple_verify_id_token(id_token: str) -> Dict[str, Any]:
 
 
 @router.get("/apple/login")
-async def apple_login(response: Response) -> RedirectResponse:
+async def apple_login() -> RedirectResponse:
     if not APPLE_CLIENT_ID or not APPLE_REDIRECT_URI:
         raise HTTPException(status_code=500, detail="Apple OAuth not configured")
 
@@ -404,7 +387,6 @@ async def apple_login(response: Response) -> RedirectResponse:
 @router.get("/apple/callback")
 async def apple_callback(
     request: Request,
-    response: Response,
     code: Optional[str] = None,
     state: Optional[str] = None,
     db: DynamoDBConnection = Depends(get_db),
@@ -451,20 +433,13 @@ async def apple_callback(
         if not email_verified:
             return _redirect_error("apple", "email_not_verified")
 
-        # Link or create user
-        user = await _link_or_create_user(
+        # Link or create user. No session material is issued here: the web flow
+        # has no client able to receive it (task-293).
+        await _link_or_create_user(
             email=email.lower().strip(), provider="apple", provider_sub=sub
         )
 
-        # Create refresh token and set cookie
-        refresh_expires_at = get_refresh_token_expires_at()
-        refresh = AuthToken.create_refresh_token(
-            user_id=user.id, email=user.email, absolute_expires_at=refresh_expires_at
-        )
-        refresh = await database_async.create_auth_token(refresh)
-        redirect = _redirect_success("apple")
-        auth_local._set_refresh_cookie(redirect, refresh.token, refresh.expires_at)
-        return redirect
+        return _redirect_success("apple")
 
     except httpx.HTTPStatusError as e:
         logger.warning(f"Apple callback HTTP error: {e.response.status_code}")

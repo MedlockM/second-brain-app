@@ -194,9 +194,12 @@ chmod 600 .env
 
 Le secret dev contient 37 clés. Une seule est légitimement vide (`COOKIE_DOMAIN`)
 — `REVENUCAT_WEBHOOK_SECRET` **est renseignée** depuis le 2026-08-13 — et
-l'injection en saute normalement deux :
+l'injection en saute normalement cinq, toutes mortes :
 
-- `COOKIE_DOMAIN` — commentée dans le template, sans objet sur localhost.
+- `COOKIE_NAME_REFRESH`, `COOKIE_SECURE`, `COOKIE_SAMESITE`, `COOKIE_DOMAIN` —
+  **clés mortes** depuis task-293 : le refresh token voyage dans le corps JSON de
+  register/login/refresh, plus dans un cookie httpOnly, et aucun code ne lit ces
+  quatre noms. Elles ont quitté `.env.example` ; inutile de les reconstituer.
 - `ALGOLIA_INDEX_NAME` — **clé morte**, aucun code ne la lit. Le nom d'index vaut
   `media_items_{ENVIRONMENT}`, calculé par `utils/algolia_client.py`. Elle traîne
   dans le secret depuis task-205 ; inoffensive, mais ne pas la reconstituer.

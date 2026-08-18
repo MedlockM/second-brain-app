@@ -16,6 +16,8 @@ export interface AuthUser {
 
 export interface TokenVerificationResponse {
   access_token: string;
+  /** Opaque 30-day refresh token, returned by register, login and refresh. */
+  refresh_token: string;
   token_type: string;
   expires_in: number;
   user: AuthUser;

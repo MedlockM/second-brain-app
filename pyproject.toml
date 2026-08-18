@@ -92,10 +92,11 @@ module = "media_summarizer.utils.s3"
 disable_error_code = ["return", "assignment"]
 
 [[tool.mypy.overrides]]
-# API endpoints with legacy/deprecated model attributes and FastAPI cookie arg types
+# API endpoints with legacy/deprecated model attributes and loose response payloads.
+# endpoints.auth left the list with task-293: dropping the cookie transport removed
+# the last untyped argument it needed suppressed.
 module = [
     "media_summarizer.api.endpoints.feeds",
-    "media_summarizer.api.endpoints.auth",
     "media_summarizer.api.endpoints.auth_social",
     "media_summarizer.api.endpoints.users",
     "media_summarizer.api.endpoints.tags",

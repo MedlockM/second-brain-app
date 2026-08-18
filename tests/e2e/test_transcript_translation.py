@@ -59,7 +59,8 @@ async def french_reader_headers(
         json={"email": email, "password": password},
     )
     resp.raise_for_status()
-    user_id = resp.json()["id"]
+    # /register returns a full session (access_token, refresh_token, user)
+    user_id = resp.json()["user"]["id"]
     print(f"\n[e2e] created french_reader user {email} (id={user_id})")
 
     resp = await http_client.post(

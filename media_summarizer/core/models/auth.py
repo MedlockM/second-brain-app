@@ -153,12 +153,26 @@ class AuthToken(BaseModel):
 
 
 class TokenVerificationResponse(BaseModel):
-    """Response model for token verification."""
+    """Session payload returned by register, login and refresh.
+
+    The refresh token travels in the JSON body: the only client is the mobile
+    app, which stores it in the secure store and sends it back to /refresh.
+    """
 
     access_token: str = Field(..., description="JWT access token")
+    refresh_token: str = Field(
+        ...,
+        description="Opaque refresh token, absolute 30-day lifetime, rotated at /refresh",
+    )
     token_type: str = Field(default="bearer", description="Token type")
-    expires_in: int = Field(..., description="Token expiration time in seconds")
+    expires_in: int = Field(..., description="Access token lifetime in seconds")
     user: Dict[str, Any] = Field(..., description="User information")
+
+
+class RefreshRequest(BaseModel):
+    """Request model for /refresh: the refresh token is sent in the body."""
+
+    refresh_token: str = Field(..., description="Refresh token issued at login")
 
 
 class RegisterRequest(BaseModel):

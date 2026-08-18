@@ -76,7 +76,8 @@ async def test_user(http_client: httpx.AsyncClient):
         json={"email": email, "password": password},
     )
     resp.raise_for_status()
-    user_id = resp.json()["id"]
+    # /register returns a full session (access_token, refresh_token, user)
+    user_id = resp.json()["user"]["id"]
     user = {"email": email, "password": password, "id": user_id}
 
     print(f"\n[e2e] created test user {email} (id={user_id})")
