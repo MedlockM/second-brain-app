@@ -3,9 +3,10 @@ id: task-293
 title: >-
   Fix the mobile session refresh — return and accept the refresh token in JSON,
   drop the cookie transport
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-18 17:24'
+updated_date: '2026-08-18 18:00'
 labels:
   - bug
   - auth
