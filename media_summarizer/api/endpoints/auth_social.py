@@ -54,6 +54,13 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI") or os.environ.get(
     "GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback"
 )
+# Google native (mobile app) audiences — the iOS and Android OAuth client IDs,
+# distinct from GOOGLE_CLIENT_ID (web client) used by the web callback flow.
+# expo-auth-session exchanges the authorization code against the platform client,
+# so the id_token the app sends to /google/native carries that client as its
+# `aud`; it can never equal the web client ID.
+GOOGLE_NATIVE_AUDIENCE_IOS = os.environ.get("GOOGLE_NATIVE_AUDIENCE_IOS")
+GOOGLE_NATIVE_AUDIENCE_ANDROID = os.environ.get("GOOGLE_NATIVE_AUDIENCE_ANDROID")
 
 # Apple OAuth config
 APPLE_TEAM_ID = os.environ.get("APPLE_TEAM_ID")
@@ -142,6 +149,32 @@ def _redirect_error(provider: str, reason: str) -> RedirectResponse:
 # ------------------ Google OAuth ------------------
 
 
+def _google_native_accepted_audiences() -> list[str]:
+    """Audiences accepted for an id_token coming from the mobile app.
+
+    Google mints the id_token for the OAuth client the code exchange ran against,
+    and ``expo-auth-session`` runs it against the *platform* client — the iOS one
+    on iOS, the Android one on Android (``providers/Google.js`` selects the client
+    id from ``Platform.select``). So the native ``aud`` is one of those two, and
+    the web client in ``GOOGLE_CLIENT_ID`` is only reachable through the web
+    ``/google/callback`` flow. It stays in the list because it is a legitimate
+    audience for a token minted by that flow, and because it is the only value
+    configured until the two native keys are provisioned.
+
+    This mirrors what ``APPLE_NATIVE_AUDIENCE`` does for Apple: widen the accepted
+    set for the native endpoint only, never for the web callback.
+    """
+    accepted: list[str] = []
+    for candidate in (
+        GOOGLE_CLIENT_ID,
+        GOOGLE_NATIVE_AUDIENCE_IOS,
+        GOOGLE_NATIVE_AUDIENCE_ANDROID,
+    ):
+        if candidate and candidate not in accepted:
+            accepted.append(candidate)
+    return accepted
+
+
 @router.get("/google/login")
 async def google_login() -> RedirectResponse:
     if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URI:
@@ -219,6 +252,9 @@ async def google_callback(
         )
         sub = info.get("sub")
 
+        # Single audience on purpose: this flow exchanged the code against the web
+        # client itself a few lines up, so the id_token can only be minted for
+        # GOOGLE_CLIENT_ID. The native audiences widen /google/native only.
         if aud != GOOGLE_CLIENT_ID or iss not in (
             "accounts.google.com",
             "https://accounts.google.com",
@@ -483,7 +519,8 @@ async def google_native(
     Verify a Google ID token obtained by the mobile native SDK and return
     access + refresh tokens for the mobile app.
     """
-    if not GOOGLE_CLIENT_ID:
+    accepted_audiences = _google_native_accepted_audiences()
+    if not accepted_audiences:
         raise HTTPException(status_code=500, detail="Google OAuth not configured")
 
     try:
@@ -503,10 +540,19 @@ async def google_native(
         )
         sub = info.get("sub")
 
-        if aud != GOOGLE_CLIENT_ID or iss not in (
+        if aud not in accepted_audiences or iss not in (
             "accounts.google.com",
             "https://accounts.google.com",
         ):
+            # Client IDs are public identifiers, so logging them is safe — and it
+            # is the only way to tell "the native audience keys were never
+            # provisioned" apart from "a token from another project reached us".
+            logger.warning(
+                "Google native token rejected: aud=%r iss=%r accepted=%r",
+                aud,
+                iss,
+                accepted_audiences,
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid audience or issuer",

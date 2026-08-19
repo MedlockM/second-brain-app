@@ -261,9 +261,11 @@ REFRESH_TOKEN_EXPIRE_DAYS=365     # fenêtre glissante, reposée à chaque /refr
 # le secret runtime sont mortes, aucun code ne les lit.
 
 # Google OAuth (Sign in with Google)
-GOOGLE_CLIENT_ID=...                   # Web client ID — vérifie l'`aud` des id_tokens mobiles iOS/Android
+GOOGLE_CLIENT_ID=...                   # Web client ID — audience du flow web /google/callback uniquement
 GOOGLE_CLIENT_SECRET=...               # Requis pour le flow web /google/callback
 GOOGLE_REDIRECT_URI=https://api.<your-domain>/api/auth/google/callback
+GOOGLE_NATIVE_AUDIENCE_IOS=...         # Client ID iOS — `aud` des id_tokens obtenus sur iOS
+GOOGLE_NATIVE_AUDIENCE_ANDROID=...     # Client ID Android — `aud` des id_tokens obtenus sur Android
 
 # Apple OAuth (Sign in with Apple)
 APPLE_TEAM_ID=...                      # Visible dans Apple Developer Account → Membership
@@ -282,6 +284,17 @@ EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB=...    # même valeur que GOOGLE_CLIENT_ID côt
 EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS=...
 EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID=...
 ```
+
+**Quel client émet l'id_token mobile.** `expo-auth-session` fait un flow
+authorization code + PKCE contre le client de la **plateforme** — le client iOS sur
+iOS, le client Android sur Android (`providers/Google.js`, `Platform.select`) — puis
+échange le code contre ce même client. Google émet donc l'id_token avec ce client
+comme `aud`, jamais le client Web : `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB` ne sert que
+sur la plateforme web. C'est pourquoi le backend a besoin de
+`GOOGLE_NATIVE_AUDIENCE_IOS` / `_ANDROID` pour valider `/auth/google/native`
+(task-298). Le comportement inverse — un id_token émis pour le client Web — n'existe
+qu'avec le SDK natif Google Sign-In, où un `serverClientId`/`webClientId` le demande
+explicitement ; ce n'est pas le SDK utilisé ici.
 
 `mobile/.env` est gitignored. Contrairement à l'état noté au 2026-07-31, les trois
 environnements EAS `development`, `preview` et `production` **contiennent bien**
