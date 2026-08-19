@@ -1,16 +1,16 @@
 ---
 id: task-263
 title: Redesign the mobile UI along Google NotebookLM's interface
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-13 19:45'
+updated_date: '2026-08-19 19:25'
 labels:
   - mobile
   - ui
   - design
 dependencies: []
 priority: high
-dispatchable: false
 ---
 
 ## Description
