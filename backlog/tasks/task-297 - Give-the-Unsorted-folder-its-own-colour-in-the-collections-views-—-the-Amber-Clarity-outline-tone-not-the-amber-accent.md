@@ -3,7 +3,7 @@ id: task-297
 title: >-
   Give the Unsorted folder its own colour in the collections views — the Amber
   Clarity outline tone, not the amber accent
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-19 19:14'
 labels:
