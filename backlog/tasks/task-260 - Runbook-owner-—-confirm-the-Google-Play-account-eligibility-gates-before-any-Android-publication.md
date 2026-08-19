@@ -1,11 +1,12 @@
 ---
 id: task-260
 title: >-
-  Runbook owner — confirm the four Google Play account eligibility gates before
-  any Android publication
+  Runbook owner — confirm the Google Play account eligibility gates before any
+  Android publication
 status: To Do
 assignee: []
 created_date: '2026-08-13 19:01'
+updated_date: '2026-08-19 20:08'
 labels:
   - release
   - owner-only
@@ -13,7 +14,6 @@ labels:
   - phase-10
 dependencies: []
 priority: high
-dispatchable: false
 ---
 
 ## Description
@@ -29,6 +29,8 @@ Les $25 payés le 2026-06-01 achètent un compte développeur, pas le droit de p
 
 L'étape 4 est la seule qui coûte du **temps calendaire** et non de l'administratif. Faites-la en premier si vous n'en lisez qu'une.
 
+**Constaté le 2026-08-19 (screenshot owner) — une cinquième porte que ce runbook ignorait.** L'accueil de la Play Console affiche le bandeau « Pour publier des applis, terminez la configuration de votre compte de développeur » et deux actions ouvertes : *Confirmer que vous avez accès à un appareil mobile Android* et *Valider votre numéro de téléphone de contact*. La première est l'étape 0 bis ci-dessous ; elle exige un **appareil Android physique**, ce que le runbook d'origine ne mentionnait nulle part. Relevé au même endroit : le compte est de type **personnel** (ce qui règle l'étape 0 et rend l'exigence de closed testing de l'étape 4 très probable).
+
 ## ⛔ Ce qui ne doit jamais entrer dans le repo
 
 Le dépôt est **public**. Ne consignez nulle part, dans aucun fichier suivi : adresse postale, numéro de téléphone, numéro de pièce d'identité, D-U-N-S, coordonnées bancaires, identifiants fiscaux, email racine du compte, emails des testeurs. Ce qui se consigne est uniquement du **statut** : « vérifié », « en attente depuis le JJ/MM », « non applicable », plus une date.
@@ -40,6 +42,18 @@ Le dépôt est **public**. Ne consignez nulle part, dans aucun fichier suivi : a
 Play Console → **Paramètres** → **Détails du compte développeur** → champ *Type de compte*.
 
 Notez si le compte est **personnel** ou **organisation**. Les étapes 3 et 4 ne s'appliquent pas de la même façon selon la réponse, et il vaut mieux le savoir avant d'engager quoi que ce soit.
+
+## Étape 0 bis — Confirmer l'accès à un appareil Android physique (bloquant dur, ajouté le 2026-08-19)
+
+Play Console → **Accueil** → carte *Terminer la configuration de votre compte de développeur* → *Confirmer que vous avez accès à un appareil mobile Android* → **Afficher les détails**.
+
+Google demande d'installer l'**application mobile Play Console** sur un appareil Android et de s'y connecter avec le compte développeur. Tant que ce n'est pas fait, le bandeau « Pour publier des applis, terminez la configuration de votre compte de développeur » reste affiché et **aucune publication n'est possible** — cette porte est en amont de l'étape 4, pas à côté.
+
+Conséquences pour ce projet :
+
+- **Un émulateur ne convient pas.** Le libellé exige « un véritable appareil mobile Android » et la vérification s'appuie sur l'attestation d'appareil ; un AVD n'est pas certifié Play Protect. L'émulateur reste utilisable pour `task-163` et `task-165` (tester l'app), **pas** pour cette porte-ci. À confirmer sur pièce si vous tentez malgré tout.
+- **Il suffit d'un accès temporaire, pas d'un achat.** L'app Play Console se connecte avec *votre* compte Google : installer l'app sur l'appareil d'un proche, s'y connecter, confirmer, puis se déconnecter suffit. Compter 5 minutes.
+- La validation du **numéro de téléphone de contact** listée juste en dessous dans la même carte dépend des autres validations (identité + documents approuvés par Google) : elle se débloque après, elle ne se traite pas isolément.
 
 ## Étape 1 — Vérification d'identité du compte développeur
 
@@ -103,4 +117,6 @@ Mettez à jour `docs/V1_LAUNCH_PLAN.md` en deux endroits déjà prévus pour ça
 - [ ] #6 La ligne « Google Play Console » du tableau des comptes externes du plan ne contient plus « à confirmer par l'owner » mais l'état réel
 - [ ] #7 Aucune donnée personnelle n'a été écrite dans un fichier suivi : ni adresse, ni téléphone, ni pièce d'identité, ni D-U-N-S, ni coordonnées bancaires ou fiscales, ni email des testeurs — vérifiable par un `git diff` relu avant commit
 - [ ] #8 Si le closed testing s'applique, `task-238` porte une note indiquant que sa partie Play reste bloquée tant que le profil de paiement n'est pas vérifié
+- [ ] #9 La confirmation d'accès à un appareil Android physique (étape 0 bis) est faite via l'app mobile Play Console, et son statut est consigné avec sa date ; si elle reste ouverte, le bloquant est écrit tel quel dans `docs/V1_LAUNCH_PLAN.md` Phase 2.2 — sans identifier l'appareil ni son propriétaire
+- [ ] #10 Le statut de la validation du numéro de téléphone de contact est consigné avec sa date, sans le numéro lui-même
 <!-- AC:END -->
