@@ -62,7 +62,7 @@ Three safety-net layers, one of them visible:
 2. `burst_guards` — invisible daily counters (minutes, items, documents, pages, generations) that **never refuse anything** and only emit `quota.burst_guard_tripped` for the owner;
 3. `provider_pool_guard` — Apify credit and LlamaParse credits are platform-wide monthly pools, so they are counted across all users and degrade (alarm at 60%, stop at 90%) independently of any per-user allowance.
 
-Counters live in DynamoDB tables `user_usage_monthly` (PK: user_id, SK: the billing period — the subscription's own anniversary window, not the calendar month) and `user_usage_daily` (PK: user_id, SK: YYYY-MM-DD), written with atomic ADD plus a per-write idempotency token so a redelivered SQS message cannot debit twice.
+Counters live in DynamoDB tables `user_usage_monthly` (PK: user_id, SK: the billing period — never the calendar month, but the window the entitlement runs on: `sub:<YYYY-MM-DD>` for a subscription's anniversary window, `trial:<YYYY-MM-DD>` for the single non-renewing window of a free trial) and `user_usage_daily` (PK: user_id, SK: YYYY-MM-DD), written with atomic ADD plus a per-write idempotency token so a redelivered SQS message cannot debit twice.
 
 ## URL classification and routing policy (task-21)
 

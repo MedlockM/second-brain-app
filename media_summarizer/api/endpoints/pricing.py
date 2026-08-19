@@ -59,7 +59,13 @@ class PricingUpdateRequest(BaseModel):
 async def get_public_pricing():
     """
     Public endpoint for the mobile app to fetch current pricing/tier information.
-    Returns tier definitions, free trial info, and feature descriptions.
+
+    This is the *only* runtime source of plan figures the app reads (task-299):
+    the paywall renders its cards from `tiers`, its trial line from `free_trial`
+    and its minutes legend from `unit_conversion`, so a figure changed through
+    `PUT /api/pricing/admin` moves the screen with no build. Nothing on the
+    client re-states these numbers.
+
     Never exposes internal cost monitoring or provider config.
     """
     try:
@@ -71,7 +77,10 @@ async def get_public_pricing():
 
         # Format tiers for mobile consumption. One metered unit means one number
         # per tier: the minutes it includes, plus the longest single import it
-        # accepts. There are no per-category caps to publish any more.
+        # accepts. There are no per-category caps to publish any more, and no
+        # prose `description` either — it only ever re-worded `minutes_per_month`,
+        # which is how the paywall drifted from the config in the first place.
+        # The client turns the figures into sentences.
         public_tiers = []
         tier_order = ["text_only", "mix", "audio_heavy"]
         for tier_id in tier_order:
@@ -84,8 +93,6 @@ async def get_public_pricing():
                     "price_ttc_eur": tier_data.get("price_ttc_eur"),
                     "minutes_per_month": tier_data.get("minutes_per_month"),
                     "max_minutes_per_item": tier_data.get("max_minutes_per_item"),
-                    "description": tier_data.get("description", ""),
-                    "description_fr": tier_data.get("description_fr", ""),
                 })
 
         # Free trial info (public-safe subset)
@@ -99,9 +106,26 @@ async def get_public_pricing():
                 "max_minutes_per_item": free_trial.get("max_minutes_per_item"),
             }
 
+        # How a metered event converts into minutes. Public on purpose: it is
+        # what the user is told a minute buys, so it must come from the same
+        # config the enforcer converts with, not from a sentence written twice.
+        unit_conversion = config.get("unit_conversion", {})
+
         return {
             "tiers": public_tiers,
             "free_trial": public_free_trial,
+            "unit_conversion": {
+                # `min_minutes_per_transcription` stays internal: transcribed
+                # media is billed its own length, and the rounding floor is not
+                # a claim the paywall makes.
+                "captions_minutes": unit_conversion.get("captions_minutes"),
+                "document_pages_per_minute": unit_conversion.get(
+                    "document_pages_per_minute"
+                ),
+                "collection_sources_per_minute": unit_conversion.get(
+                    "collection_sources_per_minute"
+                ),
+            },
             "currency": "EUR",
             "billing_period": "monthly",
         }

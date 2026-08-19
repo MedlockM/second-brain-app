@@ -16,60 +16,6 @@ from media_summarizer.core.services import quota_enforcer
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# What the paywall shows when the user has no plan. Minutes are the only metered
-# unit, so each tier is one number; everything that is not transcription is
-# unlimited on every tier and is said as such rather than listed per tier.
-OFFERINGS_CONFIG = [
-    {
-        "tier": "S",
-        "name": "Reader",
-        "display_name": "Reader",
-        "price_eur": 3.00,
-        "minutes_per_month": 60,
-        "description": "One hour of listening a month. Everything you read is unlimited.",
-        "features": [
-            "60 minutes of audio and video a month",
-            "Unlimited articles, web pages and documents",
-            "Unlimited flashcards, notes and summaries",
-        ],
-    },
-    {
-        "tier": "M",
-        "name": "Mix",
-        "display_name": "Mix",
-        "price_eur": 5.00,
-        "minutes_per_month": 300,
-        "description": "About five hours of listening a month. Everything you read is unlimited.",
-        "features": [
-            "300 minutes of audio and video a month",
-            "Unlimited articles, web pages and documents",
-            "Unlimited flashcards, notes and summaries",
-        ],
-    },
-    {
-        "tier": "L",
-        "name": "Audio-Heavy",
-        "display_name": "Audio-Heavy",
-        "price_eur": 9.00,
-        "minutes_per_month": 720,
-        "description": "Twelve hours of listening a month. Everything you read is unlimited.",
-        "features": [
-            "720 minutes of audio and video a month",
-            "Unlimited articles, web pages and documents",
-            "Unlimited flashcards, notes and summaries",
-        ],
-    },
-]
-
-# The one sentence that explains what a minute is. Shown under the plan list and
-# next to the account gauge, so the user never has to guess why a two-hour video
-# with subtitles cost them one minute.
-MINUTES_LEGEND = (
-    "Minutes cover audio and video we transcribe. A video with subtitles counts as "
-    "one minute whatever its length, a PDF counts a minute per five pages, and "
-    "articles, web pages and short clips are free."
-)
-
 
 @router.get("/entitlements/status")
 async def get_entitlements_status(
@@ -82,11 +28,16 @@ async def get_entitlements_status(
     - `minutes_included` / `minutes_used` / `minutes_remaining` / `resets_at` are the
       gauge, and `warning_threshold_reached` says when to show the banner.
     - `max_minutes_per_item` is what makes "too long for one import" explainable.
-    - `offerings_config` and `minutes_legend` are only sent when there is no plan.
 
-    There is one date, `resets_at`: the allowance empties on the subscription
-    anniversary, so the period end and the reset are the same instant, and sending
-    it twice under two names would only invite the app to render two.
+    What a plan *costs and includes* is deliberately not here: the paywall reads
+    `GET /api/pricing`, which serves the pricing config itself. This endpoint
+    only ever describes the caller's own state (task-299).
+
+    There is one date, `resets_at`: it is the end of the period the gauge
+    describes, so the period end and the reset are the same instant and sending it
+    twice under two names would only invite the app to render two. On a
+    subscription that instant is the renewal anniversary; during the free trial it
+    is the moment the trial closes, after which nothing refills at all.
     """
     try:
         snapshot = await quota_enforcer.get_entitlement_snapshot(current_user.id)
@@ -107,10 +58,6 @@ async def get_entitlements_status(
             ),
             "warning_threshold_reached": snapshot.warning_threshold_reached,
         }
-
-        if not snapshot.is_entitled:
-            response["offerings_config"] = OFFERINGS_CONFIG
-            response["minutes_legend"] = MINUTES_LEGEND
 
         return response
     except Exception as e:

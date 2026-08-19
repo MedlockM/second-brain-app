@@ -1,16 +1,18 @@
 ---
 id: task-299
 title: 'Make the Choose Your Plan paywall exact, complete and non-redundant'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-19 20:24'
+updated_date: '2026-08-19 22:12'
 labels:
   - mobile
   - ui
   - paywall
   - copy
   - phase-6
-dependencies: []
+dependencies:
+  - task-300
 priority: high
 ---
 
@@ -61,17 +63,156 @@ Nothing is deployed and there are no users: delete the copies that lose, do not 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No claim on the paywall contradicts pricing_config_service.DEFAULT_PRICING_CONFIG or the quota_enforcer conversions: nothing that debits minutes (documents at one minute per five pages, collection-level generations at one minute per five sources, any transcribed audio or video) is described as unlimited or free anywhere on the screen
-- [ ] #2 The paths presented as costing nothing are exactly the ones that debit zero minutes in quota_enforcer (articles, web pages, TikToks, Instagram photo posts, single-item generations) and the copy no longer uses the category 'short clips', which does not exist in the backend
-- [ ] #3 Each tier communicates its own longest single import with the value from its tier config (60 min on Reader, 180 min on Mix, 240 min on Audio-Heavy) and says that going over it is a refusal, not an upgrade prompt
-- [ ] #4 The 30-day Mix free trial is communicated from the live entitlement state returned by GET /api/v1/entitlements/status (is_free_trial / subscription_status) so the screen is true both inside and outside the trial window, and the wording does not present it as a store introductory offer
-- [ ] #5 Every fact appears once on the screen: no card prints its allowance twice, no line is identical across two tier cards, the subtitle no longer restates a value already on a card, and 'reading is unlimited' is stated exactly once
-- [ ] #6 The tier facts (name, monthly allowance, per-import ceiling, trial terms) reach the screen from one runtime source that the app reads, and the now-redundant copies are deleted rather than kept as fallbacks — a repo-wide grep for the figures 60, 300, 720, 180, 240 and for the prices 3/5/9 finds each tier's numbers in one authoritative place only
-- [ ] #7 Prices displayed come from the store package priceString when offerings are loaded, and no second hardcoded EUR price list survives in mobile/
-- [ ] #8 The store-mandated renewal and charge disclosure is present once, and the Restore Purchases action is still on the screen
-- [ ] #9 The Account tab hint in mobile/src/components/SubscriptionStatusCard.tsx and the refusal messages in quota_enforcer state the same rules in the same words as the new paywall copy, with no claim on one surface that the other contradicts
-- [ ] #10 The total user-visible character count of the paywall copy does not exceed today's, and the implementation notes record the before/after figures
-- [ ] #11 mobile/.maestro/07_paywall.yaml still matches the screen (texts Choose Your Plan, Reader, Mix, Audio-Heavy, absence of Unavailable, ids paywall-screen and paywall-close-button) or is updated in the same change
-- [ ] #12 cd mobile && npm run typecheck && npm run lint are clean, and if any Python file was touched, ruff check . and mypy media_summarizer are clean too
-- [ ] #13 The header comment of mobile/app/paywall.tsx no longer claims the three tiers have identical features and records where the plan figures now come from
+- [x] #1 No claim on the paywall contradicts pricing_config_service.DEFAULT_PRICING_CONFIG or the quota_enforcer conversions: nothing that debits minutes (documents at one minute per five pages, collection-level generations at one minute per five sources, any transcribed audio or video) is described as unlimited or free anywhere on the screen
+- [x] #2 The paths presented as costing nothing are exactly the ones that debit zero minutes in quota_enforcer (articles, web pages, TikToks, Instagram photo posts, single-item generations) and the copy no longer uses the category 'short clips', which does not exist in the backend
+- [x] #3 Each tier communicates its own longest single import with the value from its tier config (60 min on Reader, 180 min on Mix, 240 min on Audio-Heavy) and says that going over it is a refusal, not an upgrade prompt
+- [x] #4 The 30-day Mix free trial is communicated from the live entitlement state returned by GET /api/v1/entitlements/status (is_free_trial / subscription_status) so the screen is true both inside and outside the trial window, and the wording does not present it as a store introductory offer
+- [x] #5 Every fact appears once on the screen: no card prints its allowance twice, no line is identical across two tier cards, the subtitle no longer restates a value already on a card, and 'reading is unlimited' is stated exactly once
+- [x] #6 The tier facts (name, monthly allowance, per-import ceiling, trial terms) reach the screen from one runtime source that the app reads, and the now-redundant copies are deleted rather than kept as fallbacks — a repo-wide grep for the figures 60, 300, 720, 180, 240 and for the prices 3/5/9 finds each tier's numbers in one authoritative place only
+- [x] #7 Prices displayed come from the store package priceString when offerings are loaded, and no second hardcoded EUR price list survives in mobile/
+- [x] #8 The store-mandated renewal and charge disclosure is present once, and the Restore Purchases action is still on the screen
+- [x] #9 The Account tab hint in mobile/src/components/SubscriptionStatusCard.tsx and the refusal messages in quota_enforcer state the same rules in the same words as the new paywall copy, with no claim on one surface that the other contradicts
+- [x] #10 The total user-visible character count of the paywall copy does not exceed today's, and the implementation notes record the before/after figures
+- [x] #11 mobile/.maestro/07_paywall.yaml still matches the screen (texts Choose Your Plan, Reader, Mix, Audio-Heavy, absence of Unavailable, ids paywall-screen and paywall-close-button) or is updated in the same change
+- [x] #12 cd mobile && npm run typecheck && npm run lint are clean, and if any Python file was touched, ruff check . and mypy media_summarizer are clean too
+- [x] #13 The header comment of mobile/app/paywall.tsx no longer claims the three tiers have identical features and records where the plan figures now come from
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### Une seule source runtime : `GET /api/pricing`
+
+Les trois copies des mêmes chiffres sont réduites à une. `OFFERINGS_CONFIG` et
+`MINUTES_LEGEND` sont supprimés d'`entitlements.py`, avec les champs
+`offerings_config` / `minutes_legend` de la réponse et le type que
+`PurchasesContext.tsx` déclarait sans jamais le lire. `TIER_INFO` et sa légende
+disparaissent de `paywall.tsx`. Restent : `DEFAULT_PRICING_CONFIG` (autoritaire)
+et `GET /api/pricing`, qui la sert.
+
+Le partage des rôles entre les deux endpoints devient net et est écrit dans les
+deux docstrings : `/api/v1/entitlements/status` ne décrit que **l'état de
+l'appelant** (son plan, sa jauge, sa date), `/api/pricing` ne décrit que **l'offre**
+(tiers, plafonds, trial, conversions). Le paywall lit les deux, chacun pour ce
+qu'il sait.
+
+`/api/pricing` gagne `unit_conversion` (`captions_minutes`,
+`document_pages_per_minute`, `collection_sources_per_minute`) : la légende des
+minutes est désormais *calculée* à partir des mêmes valeurs que `quota_enforcer`
+convertit, au lieu d'être une phrase écrite deux fois qui pouvait dériver.
+`min_minutes_per_transcription` reste interne — l'arrondi plancher n'est pas une
+promesse faite à l'écran, et exposer un champ que personne ne lit était la
+mécanique même du bug. Même raison pour `description` / `description_fr`,
+supprimés du payload public **et** de `DEFAULT_PRICING_CONFIG` : ils ne faisaient
+que reformuler `minutes_per_month` en prose, personne ne les lisait, et la ligne
+d'allocation est maintenant dérivée du nombre. (Les tables `pricing_config-dev`
+déjà peuplées gardent ces attributs — `_merge_defaults` ne supprime rien — mais
+plus rien ne les lit.)
+
+Côté app, `src/services/pricingService.ts` (fetch public, sans session : une
+grille tarifaire n'est pas une donnée utilisateur) et `src/lib/planCopy.ts`, où
+vivent **toutes** les phrases et **aucun** chiffre. Le paywall n'est plus qu'un
+rendu. Si `/api/pricing` ne répond pas, l'écran affiche une erreur et un bouton
+« Try again » : pas de cartes plutôt que des cartes fausses — décrire un plan
+avec des nombres compilés dans le build est exactement la dérive qu'on supprime.
+
+### Ce que l'écran dit maintenant (copie finale, lisible sans build)
+
+Titre `Choose Your Plan`, sous-titre `Plans differ only by how much we transcribe for you.`
+
+Ligne d'essai (visible **uniquement** si `is_free_trial` est vrai ; date = `resets_at`) :
+`Your 30-day free trial is running: Mix access until 18 Sep, at no charge and nothing to cancel.`
+
+| Carte | Prix | Ligne 1 | Ligne 2 | Bouton |
+|---|---|---|---|---|
+| Reader | store `priceString` (repli `3 EUR/mo`) | `1 h of audio and video a month` | `1 h max per import` | Subscribe |
+| Mix *(mis en avant)* | store `priceString` (repli `5 EUR/mo`) | `5 h of audio and video a month` | `3 h max per import` | Subscribe |
+| Audio-Heavy | store `priceString` (repli `9 EUR/mo`) | `12 h of audio and video a month` | `4 h max per import` | Subscribe |
+
+Légende, une fois, sous les cartes :
+
+> Minutes cover audio and video we transcribe. Reading your library is unlimited.
+> Audio and video count their real length, a video with bought subtitles 1 min, a
+> PDF 1 min per 5 pages, a whole-collection generation 1 min per 5 sources.
+> Articles, web pages, TikToks, Instagram photo posts and single-item generations
+> count nothing. Past a plan's per-import maximum an import is refused, not
+> billed: split it into shorter parts.
+
+Puis `Restore Purchases` et le texte légal, inchangés.
+
+Trois décisions de rédaction qui méritent d'être dites :
+
+- **« Reading *your library* is unlimited »**, pas « reading is unlimited ». Consulter
+  ce qui est déjà enregistré est gratuit pour tout média ; c'est l'*import* d'un
+  PDF qui débite. La forme non qualifiée aurait contredit la phrase suivante.
+- **Le badge « Most Popular » est supprimé.** Rien n'a jamais été vendu : c'était
+  un claim invérifiable sur un écran dont la tâche est d'être exact. La mise en
+  avant visuelle reste, mais elle est maintenant dérivée de `free_trial.tier` —
+  la carte encadrée est celle du niveau que l'essai accorde.
+- **Le plafond par import est chiffré sur chaque carte, et la règle de refus dite
+  une seule fois** dans la légende. La répéter par carte aurait violé « aucune
+  ligne identique entre deux cartes ».
+
+### Cohérence entre surfaces
+
+Le hint de l'onglet Compte n'est plus une chaîne recopiée : il *importe*
+`MINUTES_RULE`, la première phrase de la légende du paywall. Les deux écrans
+expliquent le compteur avec les mêmes mots, ou pas du tout.
+
+`_NO_PLAN_MESSAGE` disait « Subscribe to keep saving **audio and video** to your
+library » alors que `evaluate_submission` refuse **tout** import sans plan, un
+article compris : il promettait un palier gratuit qui n'a jamais existé.
+Corrigé en « Subscribe to keep saving to your library ». `_item_too_long_message`
+n'a pas bougé — il partageait déjà « split it into shorter parts » et
+`formatMinutes` en TS est le miroir de `format_minutes` en Python, donc « 3 h »
+sur la carte et « 3 h » dans le refus s'écrivent pareil.
+
+`docs/store-listing/app-store-connect.md` (note owner) : les trois descriptions
+produit étaient fausses — Audio-Heavy annonçait encore l'allocation d'avant
+task-287, Mix et Audio-Heavy étaient formulées comme cumulatives (« Reader plus… »)
+alors qu'une allocation est un total, et Reader citait documents et captions sans
+dire qu'ils débitent. Remplacées par les lignes d'allocation du paywall, mot pour
+mot.
+
+### Vérifications
+
+- `cd mobile && npm run typecheck` : clean. `npm run lint` : 0 erreur, 6 warnings
+  tous préexistants (`no-explicit-any` dans les `catch` du paywall et de
+  `purchaseService`, `no-unused-vars` dans `(tabs)/_layout.tsx` et `digest.tsx`).
+- `ruff check .` et `mypy media_summarizer` (170 fichiers) : clean.
+- **Caractères visibles : 1123 avant → 1117 après**, ligne d'essai comprise (pire
+  cas) ; 1020 hors fenêtre d'essai. Compté chaîne par chaîne, chacune vérifiée
+  présente dans le source, légende et cartes rendues en exécutant réellement
+  `planCopy.ts` compilé sur le payload que `/api/pricing` produit à partir de
+  `DEFAULT_PRICING_CONFIG`.
+- Grep repo-wide : plus aucun 60/300/720/180/240 ni prix 3/5/9 lié à un tier dans
+  `mobile/` — les seuls « 60 » restants y sont des conversions minutes↔heures. Les
+  valeurs des tiers n'existent plus qu'en un endroit,
+  `pricing_config_service.DEFAULT_PRICING_CONFIG`.
+- `mobile/.maestro/07_paywall.yaml` est inchangé et matche toujours : `Choose Your
+  Plan` est en dur dans le header, `Reader` / `Mix` / `Audio-Heavy` arrivent de
+  `/api/pricing` avec ces noms exacts, `Unavailable` n'apparaît toujours que si un
+  package du store manque, et les ids `paywall-screen` / `paywall-close-button`
+  n'ont pas bougé.
+
+### AC #5, une nuance assumée
+
+« Aucune ligne identique entre deux cartes » : les trois boutons portent toujours
+`Subscribe`. C'est un libellé d'action, pas un fait sur le plan — trois verbes
+différents pour la même action seraient une régression. Les six bullets
+identiques que visait l'AC ont disparu.
+
+### Reste à l'owner
+
+- **Le rendu visuel ne peut être jugé que sur appareil** : la ligne d'essai en
+  encadré, deux lignes par carte au lieu de trois puces, et la légende à quatre
+  phrases changent l'équilibre de l'écran.
+- **Le paywall dépend maintenant d'un `/api/pricing` déployé avec
+  `unit_conversion`.** Avant le push sur `main`, une app buildée en local qui
+  parle au `-dev` actuel affichera la légende sans la phrase des conversions (les
+  champs absents sont omis, pas de crash), mais les cartes seront correctes.
+  Après déploiement, vérifier que `GET /api/pricing` renvoie bien `unit_conversion`
+  et n'a plus de `description`.
+- **Capture pour App Review** : la refaire après ce changement, l'ancienne montre
+  les bullets supprimées.
+<!-- SECTION:NOTES:END -->

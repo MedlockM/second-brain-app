@@ -28,9 +28,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import ceil
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Tuple, TypeGuard
 
 from media_summarizer.core.services import pricing_config_service
 from media_summarizer.utils import quota_usage_db
@@ -191,6 +191,23 @@ async def cost_eur_per_minute() -> float:
 # ---------------------------------------------------------------------------
 
 
+# Opening and closing instants of a free trial. The trial is the only period a
+# user gets without paying, and it has exactly one of these for its whole life.
+TrialWindow = Tuple[datetime, datetime]
+
+
+def _trial_period_key(window: TrialWindow) -> str:
+    """Counter row key of a free trial: `trial:<YYYY-MM-DD of the account creation>`.
+
+    Keyed on the *opening* of the window, not its close, because a trial holds one
+    allowance for its whole life: extending `free_trial.duration_days` must move
+    the end date without handing out a second helping of minutes, which is exactly
+    what re-keying on the close would do. A subscription keys on its close instead
+    — there, a new window is precisely what a new allowance means.
+    """
+    return f"trial:{window[0].strftime('%Y-%m-%d')}"
+
+
 def _next_month_start(now: datetime) -> datetime:
     """First instant of next month — the reset date of a period with no anniversary."""
     return now.replace(
@@ -227,22 +244,41 @@ async def _active_subscription(user_id: str) -> Optional[Any]:
     return None
 
 
-async def _is_free_trial_active(user_id: str) -> bool:
-    """Whether the user is inside the free trial window (account age based)."""
+async def _free_trial_window(
+    user_id: str, config: Mapping[str, Any]
+) -> Optional[TrialWindow]:
+    """The one billing window the user's free trial has, or None when there is none.
+
+    A trial is a billing period like a subscription's, except it happens once and
+    never renews: it opens at the account's creation instant and closes
+    `free_trial.duration_days` later. Both the entitlement test and the date the
+    app shows are read from this pair, so what refuses an import and what the
+    gauge announces can never disagree.
+    """
+    free_trial = config.get("free_trial", {}) or {}
+    if not free_trial.get("enabled"):
+        return None
+
     from media_summarizer.utils import database_async as db
 
     user = await db.get_user_by_id(user_id)
     if not user:
-        return False
-
-    config = await pricing_config_service.get_pricing_config()
-    free_trial = config.get("free_trial", {}) or {}
-    if not free_trial.get("enabled"):
-        return False
+        return None
 
     duration_days = int(free_trial.get("duration_days", 30) or 30)
-    account_age_days = (datetime.now(timezone.utc) - user.created_at).days
-    return account_age_days <= duration_days
+    return user.created_at, user.created_at + timedelta(days=duration_days)
+
+
+def _is_free_trial_active(
+    window: Optional[TrialWindow], now: datetime
+) -> TypeGuard[TrialWindow]:
+    """Whether `now` is inside the trial window.
+
+    The comparison is strict on the close instant, which is the same instant
+    `period_end` announces: the last day of the trial is entitled, the moment it
+    closes is not, and no extra day is granted by counting whole days.
+    """
+    return window is not None and now < window[1]
 
 
 async def get_entitlement_snapshot(
@@ -252,11 +288,13 @@ async def get_entitlement_snapshot(
 ) -> EntitlementSnapshot:
     """Resolve tier, allowance and consumption for one user.
 
-    The billing period is the subscription's own window, not the calendar month:
-    the counter row is keyed on the period end the app already shows as
-    `period_end`, so the allowance empties on the subscription anniversary and
-    nothing rolls over. Users without a subscription (free trial) fall back to the
-    calendar month.
+    The billing period is never the calendar month: it is the window the user's
+    entitlement actually runs on, so the counter row is keyed on the same
+    `period_end` the app shows and nothing rolls over. For a subscription that is
+    its renewal window, emptying on the anniversary; for a free trial it is the
+    single window that opens at the account's creation and closes
+    `free_trial.duration_days` later, so one trial grants one allowance and
+    crossing a month boundary refills nothing.
 
     `with_usage=False` skips reading the counter row, for callers that only need
     to know which row to write to.
@@ -269,6 +307,9 @@ async def get_entitlement_snapshot(
 
     subscription = await _active_subscription(user_id)
     now = datetime.now(timezone.utc)
+    trial_window = (
+        await _free_trial_window(user_id, config) if subscription is None else None
+    )
 
     if subscription is not None:
         subscription_tier = subscription.tier.value
@@ -293,7 +334,7 @@ async def get_entitlement_snapshot(
             period_end=period_end or _next_month_start(now),
             warning_threshold_pct=warning_pct,
         )
-    elif await _is_free_trial_active(user_id):
+    elif _is_free_trial_active(trial_window, now):
         free_trial = config.get("free_trial", {}) or {}
         tier = str(free_trial.get("tier", "mix"))
         tier_config = tiers.get(tier, {}) or {}
@@ -314,8 +355,8 @@ async def get_entitlement_snapshot(
                 )
                 or 0
             ),
-            period_key=now.strftime("%Y-%m"),
-            period_end=_next_month_start(now),
+            period_key=_trial_period_key(trial_window),
+            period_end=trial_window[1],
             warning_threshold_pct=warning_pct,
         )
     else:
@@ -377,9 +418,11 @@ def _item_too_long_message(snapshot: EntitlementSnapshot, minutes_needed: int) -
     )
 
 
-_NO_PLAN_MESSAGE = (
-    "Your plan has ended. Subscribe to keep saving audio and video to your library."
-)
+# Named "audio and video" until task-299: without a plan `evaluate_submission`
+# refuses *every* import, an article included, so singling out the metered paths
+# promised a free tier that has never existed. Reading is unlimited *within* a
+# plan, which is what the paywall says.
+_NO_PLAN_MESSAGE = "Your plan has ended. Subscribe to keep saving to your library."
 
 
 # ---------------------------------------------------------------------------

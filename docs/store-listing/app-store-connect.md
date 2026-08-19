@@ -53,9 +53,19 @@ Display Name is capped at 30 characters, Description at 45.
 
 | Product | Display Name | Description |
 |---------|--------------|-------------|
-| `…text_only_monthly` | Reader | Articles, documents and YouTube captions. |
-| `…mix_monthly` | Mix | Reader plus 5 hours of audio per month. |
-| `…audio_heavy_monthly` | Audio-Heavy | Mix plus 15 hours of audio per month. |
+| `…text_only_monthly` | Reader | 1 h of audio and video a month. |
+| `…mix_monthly` | Mix | 5 h of audio and video a month. |
+| `…audio_heavy_monthly` | Audio-Heavy | 12 h of audio and video a month. |
+
+These are the allowance lines the paywall builds from `minutes_per_month`
+(task-299), word for word, so App Review reads the same claim on the store sheet
+and on the screen. They replaced three wrong ones: Audio-Heavy still advertised
+the allowance it had *before* task-287 cut it, and Mix and Audio-Heavy were
+phrased as cumulative (*Reader plus…*, *Mix plus…*) when each tier's allowance
+is a total, not an addition. Reader's named documents and captions — both of
+which debit minutes — and said nothing about the transcription it includes. The
+figures themselves live only in `pricing_config_service.DEFAULT_PRICING_CONFIG`:
+if one moves, re-derive these three lines from it.
 
 ### Do NOT add an introductory offer
 

@@ -57,8 +57,6 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             # one go; above this the submission is refused as too long, which is
             # not something an upgrade fixes.
             "max_minutes_per_item": 60,
-            "description": "Unlimited reading, plus 1h/month of audio and video transcription.",
-            "description_fr": "Lecture illimitée, plus 1h/mois de transcription audio et vidéo.",
         },
         "mix": {
             "id": "mix",
@@ -68,8 +66,6 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             "revenue_net_eur": 3.542,
             "minutes_per_month": 300,
             "max_minutes_per_item": 180,
-            "description": "Unlimited reading, plus 5h/month of audio and video transcription.",
-            "description_fr": "Lecture illimitée, plus 5h/mois de transcription audio et vidéo.",
         },
         "audio_heavy": {
             "id": "audio_heavy",
@@ -81,8 +77,6 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
             # eats 94% of the 6.375 EUR net, which leaves nothing for infrastructure.
             "minutes_per_month": 720,
             "max_minutes_per_item": 240,
-            "description": "Unlimited reading, plus 12h/month of audio and video transcription.",
-            "description_fr": "Lecture illimitée, plus 12h/mois de transcription audio et vidéo.",
         },
     },
     # --- Free trial ---

@@ -13,9 +13,12 @@ import type { EntitlementStatus } from "../contexts/PurchasesContext";
 export type SubscriptionTier = "S" | "M" | "L";
 
 /**
- * Display names of the backend subscription tiers, kept in sync with the
- * `display_name` values of OFFERINGS_CONFIG in
- * `media_summarizer/api/endpoints/entitlements.py`.
+ * Display names of the backend subscription tiers.
+ *
+ * The store-facing enum (S/M/L) only ever travels on the entitlement payload,
+ * which does not carry a label, so the account card needs one here. The paywall
+ * does not: it reads the tier names from `GET /api/pricing` along with their
+ * figures. If a tier is ever renamed, this map is the one place that follows.
  */
 const TIER_LABELS: Record<SubscriptionTier, string> = {
   S: "Reader",

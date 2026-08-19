@@ -1,8 +1,20 @@
 /**
- * Paywall screen showing the 3 subscription tiers with native purchase buttons.
+ * Paywall screen showing the subscription tiers with native purchase buttons.
  *
  * Displays RevenueCat offerings and handles the purchase flow including
  * success, cancellation, pending (Ask to Buy), and error states.
+ *
+ * **Where the figures come from.** Nothing about a plan is written in this file.
+ * The tiers, their allowances, their per-import ceilings and the trial terms are
+ * fetched from `GET /api/pricing` — the backend pricing config itself — and
+ * turned into sentences by `src/lib/planCopy.ts`; prices come from the store
+ * package. Until task-299 the same numbers lived here, in `entitlements.py` and
+ * in the config at once, and this screen was the copy that had gone stale: it
+ * advertised documents and collection-wide generations as unlimited when both
+ * debit minutes, and never mentioned that the longest single import a plan
+ * accepts differs per tier, or that a server-side trial was already running.
+ * The tiers are *not* feature-identical, and no comment here should say so
+ * again — nor should any figure be quoted here, not even in prose.
  */
 import React, { useEffect, useState } from "react";
 import {
@@ -24,70 +36,20 @@ import {
   restorePurchases,
 } from "../src/services/purchaseService";
 import { usePurchases } from "../src/contexts/PurchasesContext";
+import {
+  fetchPublicPricing,
+  type PublicPricing,
+} from "../src/services/pricingService";
+import {
+  buildFreeTrialLine,
+  buildMinutesLegend,
+  buildPlanCards,
+} from "../src/lib/planCopy";
 import { Colors, Typography, Spacing, BorderRadius, TouchTarget } from "../src/constants/theme";
-
-/**
- * Tier display metadata, kept in sync with OFFERINGS_CONFIG in
- * `media_summarizer/api/endpoints/entitlements.py`.
- *
- * Minutes are the only thing a plan limits: what separates the tiers is how much
- * we transcribe for you, and everything you read is unlimited on all three. So no
- * bullet promises a feature another tier lacks — that only ever confused the
- * choice, since the three tiers have exactly the same features.
- */
-const TIER_INFO = [
-  {
-    identifier: "text_only",
-    name: "Reader",
-    price: "3 EUR/mo",
-    minutes: "60 min (1 h)",
-    highlight: false,
-    features: [
-      "1 hour of audio and video a month",
-      "Unlimited articles, web pages and documents",
-      "Unlimited flashcards, notes and summaries",
-    ],
-  },
-  {
-    identifier: "mix",
-    name: "Mix",
-    price: "5 EUR/mo",
-    minutes: "300 min (5 h)",
-    highlight: true,
-    features: [
-      "5 hours of audio and video a month",
-      "Unlimited articles, web pages and documents",
-      "Unlimited flashcards, notes and summaries",
-    ],
-  },
-  {
-    identifier: "audio_heavy",
-    name: "Audio-Heavy",
-    price: "9 EUR/mo",
-    minutes: "720 min (12 h)",
-    highlight: false,
-    features: [
-      "12 hours of audio and video a month",
-      "Unlimited articles, web pages and documents",
-      "Unlimited flashcards, notes and summaries",
-    ],
-  },
-];
-
-/**
- * The one sentence that makes the number on each card mean something. Mirrors
- * MINUTES_LEGEND in `entitlements.py`, which the backend also sends with the
- * offerings; this copy is what renders while offerings load and is the version the
- * user actually reads here.
- */
-const MINUTES_LEGEND =
-  "Minutes cover audio and video we transcribe. A video with subtitles counts as " +
-  "one minute whatever its length, a PDF counts a minute per five pages, and " +
-  "articles, web pages and short clips are free.";
 
 export default function PaywallScreen() {
   const router = useRouter();
-  const { refreshEntitlements } = usePurchases();
+  const { refreshEntitlements, entitlementStatus } = usePurchases();
   // Pushed from the Account tab or from a quota refusal, back returns to the
   // caller. Reached by deep link (media-summarizer://paywall) there is no screen
   // underneath, and router.back() is a no-op that traps the user on the paywall,
@@ -100,19 +62,33 @@ export default function PaywallScreen() {
     router.replace("/(tabs)");
   };
   const [offerings, setOfferings] = useState<PurchasesOfferings | null>(null);
-  const [isLoadingOfferings, setIsLoadingOfferings] = useState(true);
+  const [pricing, setPricing] = useState<PublicPricing | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  // Bumped by the retry button; the load lives in the effect and this is what
+  // re-runs it, so there is one loading path rather than two.
+  const [reloadToken, setReloadToken] = useState(0);
 
+  // The store and the backend are asked at the same time and awaited together:
+  // a card is only ever rendered once both its price and its figures exist, so
+  // no tier is ever shown with an allowance the config no longer holds.
   useEffect(() => {
-    const loadOfferings = async () => {
-      setIsLoadingOfferings(true);
-      const result = await getOfferings();
-      setOfferings(result);
-      setIsLoadingOfferings(false);
+    const load = async () => {
+      setIsLoading(true);
+      const [storeOfferings, publicPricing] = await Promise.all([
+        getOfferings(),
+        fetchPublicPricing().catch((error: unknown) => {
+          console.error("[Paywall] Failed to load pricing:", error);
+          return null;
+        }),
+      ]);
+      setOfferings(storeOfferings);
+      setPricing(publicPricing);
+      setIsLoading(false);
     };
-    loadOfferings();
-  }, []);
+    load();
+  }, [reloadToken]);
 
   const handlePurchase = async (pkg: PurchasesPackage) => {
     setIsPurchasing(true);
@@ -181,6 +157,9 @@ export default function PaywallScreen() {
     );
   };
 
+  const planCards = pricing === null ? [] : buildPlanCards(pricing);
+  const trialLine = buildFreeTrialLine(pricing, entitlementStatus);
+
   // Without the top inset the Close button sits at y=16..64, underneath the
   // Dynamic Island, where the system swallows the tap: unreachable on any recent
   // iPhone. Every other screen already insets the same way.
@@ -197,9 +176,9 @@ export default function PaywallScreen() {
           <Text style={styles.closeText}>Close</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Choose Your Plan</Text>
+        {/* Says what separates the tiers without restating any card's figures. */}
         <Text style={styles.subtitle}>
-          Mix covers about five hours of listening a month, Audio-Heavy covers
-          twelve - everything you read stays unlimited on both.
+          Plans differ only by how much we transcribe for you.
         </Text>
       </View>
 
@@ -209,79 +188,99 @@ export default function PaywallScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {isLoadingOfferings ? (
+        {isLoading ? (
           <ActivityIndicator
             size="large"
             color={Colors.primary}
             style={styles.loader}
           />
+        ) : pricing === null ? (
+          // No figures, no cards: a plan described from numbers baked into the
+          // build is exactly the drift this screen was rewritten to end.
+          <View testID="paywall-pricing-error" style={styles.errorBox}>
+            <Text style={styles.errorText}>
+              We could not load the plans. Check your connection and try again.
+            </Text>
+            <TouchableOpacity
+              testID="paywall-retry-button"
+              style={styles.retryButton}
+              onPress={() => setReloadToken((token) => token + 1)}
+            >
+              <Text style={styles.retryButtonText}>Try again</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
-          TIER_INFO.map((tier) => {
-            const pkg = getTierPackage(tier.identifier);
-            const priceLabel = pkg
-              ? pkg.product.priceString + "/mo"
-              : tier.price;
+          <>
+            {/* Live state, not a standing offer: only a caller the backend
+                reports as being in the trial window ever reads this. */}
+            {trialLine !== null && (
+              <Text testID="paywall-trial-note" style={styles.trialNote}>
+                {trialLine}
+              </Text>
+            )}
 
-            return (
-              <View
-                key={tier.identifier}
-                testID={`paywall-tier-${tier.identifier}`}
-                style={[
-                  styles.tierCard,
-                  tier.highlight && styles.tierCardHighlight,
-                ]}
-              >
-                {tier.highlight && (
-                  <View style={styles.popularBadge}>
-                    <Text style={styles.popularText}>Most Popular</Text>
-                  </View>
-                )}
+            {planCards.map((card) => {
+              const pkg = getTierPackage(card.id);
+              const priceLabel = pkg
+                ? pkg.product.priceString + "/mo"
+                : card.configuredPrice;
 
-                <Text style={styles.tierName}>{tier.name}</Text>
-                <Text style={styles.tierPrice}>{priceLabel}</Text>
-                <Text style={styles.tierMinutes}>{tier.minutes}</Text>
-
-                <View style={styles.featureList}>
-                  {tier.features.map((feature, idx) => (
-                    <View key={idx} style={styles.featureRow}>
-                      <Text style={styles.featureCheck}>+</Text>
-                      <Text style={styles.featureText}>{feature}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <TouchableOpacity
+              return (
+                <View
+                  key={card.id}
+                  testID={`paywall-tier-${card.id}`}
                   style={[
-                    styles.purchaseButton,
-                    tier.highlight && styles.purchaseButtonHighlight,
-                    (isPurchasing || !pkg) && styles.purchaseButtonDisabled,
+                    styles.tierCard,
+                    card.isTrialTier && styles.tierCardHighlight,
                   ]}
-                  onPress={() => pkg && handlePurchase(pkg)}
-                  disabled={isPurchasing || !pkg}
                 >
-                  {isPurchasing ? (
-                    <ActivityIndicator size="small" color={Colors.onPrimary} />
-                  ) : (
-                    <Text
-                      style={[
-                        styles.purchaseButtonText,
-                        tier.highlight && styles.purchaseButtonTextHighlight,
-                      ]}
-                    >
-                      {pkg ? "Subscribe" : "Unavailable"}
-                    </Text>
+                  <Text style={styles.tierName}>{card.name}</Text>
+                  {priceLabel !== null && (
+                    <Text style={styles.tierPrice}>{priceLabel}</Text>
                   )}
-                </TouchableOpacity>
-              </View>
-            );
-          })
-        )}
 
-        {/* What a minute buys, once, under the three cards. */}
-        {!isLoadingOfferings && (
-          <Text testID="paywall-minutes-legend" style={styles.legendText}>
-            {MINUTES_LEGEND}
-          </Text>
+                  <View style={styles.featureList}>
+                    {card.allowance !== null && (
+                      <Text style={styles.featureText}>{card.allowance}</Text>
+                    )}
+                    {card.perImportLimit !== null && (
+                      <Text style={styles.featureText}>
+                        {card.perImportLimit}
+                      </Text>
+                    )}
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.purchaseButton,
+                      card.isTrialTier && styles.purchaseButtonHighlight,
+                      (isPurchasing || !pkg) && styles.purchaseButtonDisabled,
+                    ]}
+                    onPress={() => pkg && handlePurchase(pkg)}
+                    disabled={isPurchasing || !pkg}
+                  >
+                    {isPurchasing ? (
+                      <ActivityIndicator size="small" color={Colors.onPrimary} />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.purchaseButtonText,
+                          card.isTrialTier && styles.purchaseButtonTextHighlight,
+                        ]}
+                      >
+                        {pkg ? "Subscribe" : "Unavailable"}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+
+            {/* What a minute buys, once, under the cards. */}
+            <Text testID="paywall-minutes-legend" style={styles.legendText}>
+              {buildMinutesLegend(pricing)}
+            </Text>
+          </>
         )}
 
         {/* Restore Purchases */}
@@ -358,6 +357,41 @@ const styles = StyleSheet.create({
   loader: {
     marginTop: Spacing.xxl,
   },
+  errorBox: {
+    marginTop: Spacing.xl,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: Colors.surface,
+    alignItems: "center",
+  },
+  errorText: {
+    ...Typography.body,
+    color: Colors.textMain,
+    textAlign: "center",
+  },
+  retryButton: {
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    minHeight: TouchTarget.minimum,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.surfaceContainer,
+  },
+  retryButtonText: {
+    ...Typography.label,
+    fontWeight: "600",
+    color: Colors.textMain,
+  },
+  trialNote: {
+    ...Typography.small,
+    color: Colors.textMain,
+    backgroundColor: Colors.surfaceContainerLow,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginTop: Spacing.md,
+    lineHeight: 18,
+  },
   tierCard: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.xl,
@@ -370,20 +404,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
     borderWidth: 2,
   },
-  popularBadge: {
-    position: "absolute",
-    top: -12,
-    alignSelf: "center",
-    backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.full,
-  },
-  popularText: {
-    ...Typography.small,
-    fontWeight: "700",
-    color: Colors.onPrimary,
-  },
   tierName: {
     ...Typography.headline,
     color: Colors.textMain,
@@ -394,30 +414,13 @@ const styles = StyleSheet.create({
     color: Colors.textMain,
     marginTop: Spacing.xs,
   },
-  tierMinutes: {
-    ...Typography.label,
-    color: Colors.textMuted,
-    marginTop: Spacing.xs,
-  },
   featureList: {
     marginTop: Spacing.md,
-  },
-  featureRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: Spacing.xs,
-  },
-  featureCheck: {
-    ...Typography.body,
-    color: Colors.primary,
-    fontWeight: "700",
-    marginRight: Spacing.sm,
-    width: 16,
+    gap: Spacing.xs,
   },
   featureText: {
     ...Typography.body,
     color: Colors.textMain,
-    flex: 1,
   },
   purchaseButton: {
     marginTop: Spacing.md,

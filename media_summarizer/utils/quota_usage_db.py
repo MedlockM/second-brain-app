@@ -13,9 +13,15 @@ Two tables:
               settled_jobs (SS, idempotency tokens of already-applied debits)
 
   The period is *not* a calendar month: it is the billing window the user's
-  subscription is in, so the counter empties on the subscription anniversary the
-  app already shows as `period_end`. `quota_enforcer.resolve_quota_period` owns
-  the key format; this layer only stores what it is given.
+  entitlement is in, so the counter empties on the date the app already shows as
+  `period_end`. Two formats, both owned by `quota_enforcer` — this layer only
+  stores what it is given:
+    - `sub:<YYYY-MM-DD>`, the end of the subscription window, so a renewal opens a
+      fresh row on the anniversary;
+    - `trial:<YYYY-MM-DD>`, the day the account was created, so the free trial has
+      exactly one row for its whole length. Keyed on its start rather than its end
+      because a trial never renews: extending `free_trial.duration_days` moves the
+      end date without granting a second allowance.
 
   The same table carries one shared row keyed on PROVIDER_POOL_USER_ID, which
   counts provider spend across *all* users for safety-net layer 3. That row is

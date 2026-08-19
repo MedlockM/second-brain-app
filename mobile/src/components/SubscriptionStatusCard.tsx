@@ -23,6 +23,7 @@ import {
   getTierLabel,
   getUsageRatio,
 } from "../lib/subscriptionDisplay";
+import { MINUTES_RULE } from "../lib/planCopy";
 
 /**
  * Read-only summary of the subscription state the backend reports on
@@ -178,9 +179,9 @@ function CardBody({
 
       <UsageBar entitlement={entitlement} />
 
-      <Text style={styles.hintText}>
-        Minutes cover audio and video we transcribe. Reading is unlimited.
-      </Text>
+      {/* The paywall's own first sentence, imported rather than re-typed: the
+          two screens explain the meter in the same words or not at all. */}
+      <Text style={styles.hintText}>{MINUTES_RULE}</Text>
     </View>
   );
 }

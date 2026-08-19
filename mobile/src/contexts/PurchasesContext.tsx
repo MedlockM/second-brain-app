@@ -23,11 +23,16 @@ import { useAuth } from "./AuthContext";
 import { apiRequest } from "../services/apiClient";
 
 /**
- * What `GET /api/entitlements/status` returns.
+ * What `GET /api/entitlements/status` returns: the caller's own state, and
+ * nothing about what a plan costs or includes — that is `GET /api/pricing`,
+ * read by `src/services/pricingService.ts`. The endpoint used to append an
+ * `offerings_config` / `minutes_legend` pair for callers without a plan, which
+ * this app declared and never read; it is gone (task-299).
  *
- * Minutes are the only metered unit: everything the user reads is unlimited on
- * every tier, and a minute is only ever spent on something we transcribe. So the
- * gauge is one number over one total, and `resets_at` is when it refills.
+ * Minutes are the only metered unit, so the gauge is one number over one total.
+ * `resets_at` is the end of the period it describes: the renewal anniversary on
+ * a subscription, the trial's close during the free trial, after which nothing
+ * refills at all.
  */
 export interface EntitlementStatus {
   user_id: string;
@@ -48,17 +53,6 @@ export interface EntitlementStatus {
   resets_at: string | null;
   /** Backend-owned threshold (80%): time to warn the user. */
   warning_threshold_reached: boolean;
-  offerings_config?: {
-    tier: string;
-    name: string;
-    display_name: string;
-    price_eur: number;
-    minutes_per_month: number;
-    description: string;
-    features: string[];
-  }[];
-  /** One sentence explaining what a minute covers. Sent with the offerings. */
-  minutes_legend?: string;
 }
 
 interface PurchasesContextValue {
