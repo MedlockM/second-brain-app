@@ -17,6 +17,7 @@ import { getFriendlyErrorMessage } from "../../../src/lib/getFriendlyErrorMessag
 import {
   buildCollectionTree,
   DEFAULT_COLLECTION_LABEL,
+  DEFAULT_COLLECTION_TINT,
   type CollectionNode,
 } from "../../../src/lib/collectionTree";
 import {
@@ -161,7 +162,11 @@ export default function CollectionsExplorerScreen() {
           data={listData}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <FolderRow node={item} onPress={handleOpenCollection} />
+            <FolderRow
+              node={item}
+              isDefault={item.is_default === true}
+              onPress={handleOpenCollection}
+            />
           )}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -176,10 +181,12 @@ export default function CollectionsExplorerScreen() {
 
 interface FolderRowProps {
   node: CollectionNode;
+  /** The system default folder, tinted apart from the user's own collections. */
+  isDefault: boolean;
   onPress: (node: CollectionNode) => void;
 }
 
-function FolderRow({ node, onPress }: FolderRowProps) {
+function FolderRow({ node, isDefault, onPress }: FolderRowProps) {
   const childCount = node.children.length;
   const subtitleParts: string[] = [];
   if (node.directMediaCount > 0) {
@@ -201,8 +208,17 @@ function FolderRow({ node, onPress }: FolderRowProps) {
       accessibilityLabel={`Open collection ${node.name}`}
       accessibilityRole="button"
     >
-      <View style={styles.folderIconContainer}>
-        <Ionicons name="folder" size={26} color={Colors.primary} />
+      <View
+        style={[
+          styles.folderIconContainer,
+          isDefault && styles.folderIconContainerDefault,
+        ]}
+      >
+        <Ionicons
+          name="folder"
+          size={26}
+          color={isDefault ? DEFAULT_COLLECTION_TINT : Colors.primary}
+        />
       </View>
       <View style={styles.folderTextSection}>
         <Text style={styles.folderName} numberOfLines={1}>
@@ -291,6 +307,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceContainerLow,
     alignItems: "center",
     justifyContent: "center",
+  },
+  /** Deeper tonal step for the default folder -- a colour block, never a rule. */
+  folderIconContainerDefault: {
+    backgroundColor: Colors.surfaceContainerHigh,
   },
   folderTextSection: {
     flex: 1,

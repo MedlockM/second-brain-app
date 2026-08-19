@@ -1,3 +1,4 @@
+import { Colors } from "../constants/theme";
 import type { Collection } from "../types/organization";
 
 /**
@@ -5,6 +6,20 @@ import type { Collection } from "../types/organization";
  * `Uncategorized`. Only the display differs; the backend name is untouched.
  */
 export const DEFAULT_COLLECTION_LABEL = "Unsorted";
+
+/**
+ * Tint of the default folder wherever it is listed, so it reads as a system
+ * container and not as one more user collection.
+ *
+ * The olive-grey `outline` tone instead of the amber accent, which DESIGN.md
+ * reserves for "high-value interactions (CTAs, active states) and meaningful
+ * accents" -- a catch-all bin is none of those. `textMuted` was the other
+ * candidate but falls under the 3:1 that WCAG 1.4.11 asks of a non-text
+ * graphic (2.9:1 on `surface`); `outline` clears it on every system surface.
+ *
+ * Single source of truth: every screen showing the default folder reads this.
+ */
+export const DEFAULT_COLLECTION_TINT = Colors.outline;
 
 export interface CollectionNode extends Collection {
   children: CollectionNode[];

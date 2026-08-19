@@ -30,6 +30,7 @@ import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
 import {
   buildCollectionTree,
   DEFAULT_COLLECTION_LABEL,
+  DEFAULT_COLLECTION_TINT,
   type CollectionNode,
 } from "../../src/lib/collectionTree";
 import { parseHighlightSnippet } from "../../src/lib/highlightSnippet";
@@ -463,7 +464,11 @@ function CollectionsState({
       keyExtractor={(item) => item.id}
       numColumns={3}
       renderItem={({ item }) => (
-        <CollectionTile collection={item} onPress={onOpenCollection} />
+        <CollectionTile
+          collection={item}
+          isDefault={item.is_default === true}
+          onPress={onOpenCollection}
+        />
       )}
       contentContainerStyle={styles.collectionsGridContent}
       showsVerticalScrollIndicator={false}
@@ -476,9 +481,12 @@ function CollectionsState({
 
 function CollectionTile({
   collection,
+  isDefault,
   onPress,
 }: {
   collection: CollectionNode;
+  /** The system default folder, tinted apart from the user's own collections. */
+  isDefault: boolean;
   onPress: (collection: CollectionNode) => void;
 }) {
   return (
@@ -493,7 +501,11 @@ function CollectionTile({
         accessibilityRole="button"
       >
         <View style={styles.collectionIcon}>
-          <Ionicons name="folder" size={42} color={Colors.primary} />
+          <Ionicons
+            name="folder"
+            size={42}
+            color={isDefault ? DEFAULT_COLLECTION_TINT : Colors.primary}
+          />
         </View>
         <Text style={styles.collectionName} numberOfLines={2}>
           {collection.name}

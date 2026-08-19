@@ -19,6 +19,7 @@ import {
   BorderRadius,
   Shadows,
 } from "../../src/constants/theme";
+import { DEFAULT_COLLECTION_TINT } from "../../src/lib/collectionTree";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { OrganizationService } from "../../src/services/organizationService";
@@ -422,7 +423,11 @@ export default function CollectionScreen() {
             accessibilityLabel="Unsorted"
           >
             <View style={styles.unsortedLeft}>
-              <Ionicons name="file-tray-outline" size={24} color={Colors.primary} />
+              <Ionicons
+                name="file-tray-outline"
+                size={24}
+                color={DEFAULT_COLLECTION_TINT}
+              />
               <Text style={styles.unsortedLabel}>Non trié</Text>
             </View>
             <View style={styles.unsortedRight}>
