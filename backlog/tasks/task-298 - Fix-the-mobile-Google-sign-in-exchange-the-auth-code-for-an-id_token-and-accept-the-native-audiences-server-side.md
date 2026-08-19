@@ -3,7 +3,7 @@ id: task-298
 title: >-
   Fix the mobile Google sign-in: exchange the auth code for an id_token, and
   accept the native audiences server-side
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-19 19:16'
 labels:
