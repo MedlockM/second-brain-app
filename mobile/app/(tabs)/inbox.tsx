@@ -20,6 +20,7 @@ import { useMediaPolling } from "../../src/hooks/useMediaPolling";
 import { InboxItem } from "../../src/contexts/InboxContext";
 import { AddSourceSheet } from "../../src/components/AddSourceSheet";
 import { MinutesWarningBanner } from "../../src/components/MinutesWarningBanner";
+import { FreeTrialNotice } from "../../src/components/FreeTrialNotice";
 import {
   capturePhotoToImport,
   pickFileToImport,
@@ -284,8 +285,13 @@ function ListHeader({ greeting, onDigestPress, hasItems }: ListHeaderProps) {
         <Text style={styles.greeting}>{greeting}</Text>
       </View>
 
-      {/* Reads the entitlement state itself and renders nothing until the
-          period's minutes are nearly spent. */}
+      {/* Both read the entitlement state themselves and render nothing until
+          they have something true to say — the trial notice while a trial is
+          running, the minutes warning once the allowance is nearly spent. They
+          stack in that order and each carries its own top margin, so a trial
+          user who is also low on minutes sees both, neither displacing the
+          other. */}
+      <FreeTrialNotice />
       <MinutesWarningBanner />
 
       {/* Daily Digest Button */}

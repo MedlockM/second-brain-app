@@ -1,9 +1,10 @@
 ---
 id: task-301
 title: 'Tell the user they are in a free trial: Account tab date and Inbox countdown'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-19 20:42'
+updated_date: '2026-08-19 23:22'
 labels:
   - mobile
   - ui
@@ -48,14 +49,116 @@ The countdown derives from `resets_at`, which after `task-300` is the trial's cl
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Account tab card identifies a running trial as a trial instead of falling back to the 'Active plan' heading, and is_free_trial from the entitlement payload is what drives it — the field is no longer declared-but-unused in mobile/
-- [ ] #2 The date shown on the Account tab during a trial is labelled as the end of the free trial, and getResetDateLabel no longer returns 'PERIOD ENDS' for a trial
-- [ ] #3 A centred notice at the top of the Inbox shows 'Free Trial - X days left' while the trial runs, with X derived from the entitlement payload's resets_at and never from a locally reconstructed trial length
-- [ ] #4 The remaining-days figure is never negative or zero while access is still granted, the last day of the trial reads as a true statement, and the rounding rule is stated in the component
-- [ ] #5 The Inbox notice renders nothing when the entitlement status is missing, loading or errored, and disappears as soon as is_free_trial is false — a subscriber and a user past their trial both see no notice
-- [ ] #6 The Inbox notice and MinutesWarningBanner can both be present without overlapping or displacing each other, and the existing greeting, digest button and section header of ListHeader are unchanged
-- [ ] #7 MinutesWarningBanner no longer tells a trial user that this month's minutes 'reset on' a date, since a trial allowance does not refill
-- [ ] #8 No entitlement decision is taken client-side: the app still reads tier, allowance and trial state from the backend payload and computes only display strings from them
-- [ ] #9 The Inbox notice carries a testID consistent with the existing ones so it is assertable from Maestro
-- [ ] #10 cd mobile && npm run typecheck && npm run lint are clean
+- [x] #1 The Account tab card identifies a running trial as a trial instead of falling back to the 'Active plan' heading, and is_free_trial from the entitlement payload is what drives it — the field is no longer declared-but-unused in mobile/
+- [x] #2 The date shown on the Account tab during a trial is labelled as the end of the free trial, and getResetDateLabel no longer returns 'PERIOD ENDS' for a trial
+- [x] #3 A centred notice at the top of the Inbox shows 'Free Trial - X days left' while the trial runs, with X derived from the entitlement payload's resets_at and never from a locally reconstructed trial length
+- [x] #4 The remaining-days figure is never negative or zero while access is still granted, the last day of the trial reads as a true statement, and the rounding rule is stated in the component
+- [x] #5 The Inbox notice renders nothing when the entitlement status is missing, loading or errored, and disappears as soon as is_free_trial is false — a subscriber and a user past their trial both see no notice
+- [x] #6 The Inbox notice and MinutesWarningBanner can both be present without overlapping or displacing each other, and the existing greeting, digest button and section header of ListHeader are unchanged
+- [x] #7 MinutesWarningBanner no longer tells a trial user that this month's minutes 'reset on' a date, since a trial allowance does not refill
+- [x] #8 No entitlement decision is taken client-side: the app still reads tier, allowance and trial state from the backend payload and computes only display strings from them
+- [x] #9 The Inbox notice carries a testID consistent with the existing ones so it is assertable from Maestro
+- [x] #10 cd mobile && npm run typecheck && npm run lint are clean
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### Une date, deux surfaces, une seule conversion
+
+Le compte à rebours et la date affichée viennent du même `resets_at` et passent par la
+même projection : `getDaysUntil(iso, now)` (`mobile/src/lib/subscriptionDisplay.ts`) compte
+des **frontières de minuit locales**, pas des tranches de 24 h. `formatResetDate` formate
+déjà en heure locale ; compter en millisecondes écoulées puis arrondir aurait pu donner
+« 2 days left » sous une date affichée à J+1 aux abords de minuit — exactement le genre de
+désaccord d'un jour qui a lancé la tâche (`2026-09-01T00:00Z` rendu « Aug 31 »). Deux
+projections identiques ne peuvent pas diverger.
+
+`Math.round` sur la différence de minuits, pas `floor` : un passage à l'heure d'été rend
+une journée de 23 ou 25 h, et l'arrondi absorbe le décalage. Résultat clampé à 0 pour ne
+jamais rendre de négatif si le payload est en retard sur l'horloge.
+
+### La règle d'arrondi, et le seul jour qu'elle ne peut pas énoncer
+
+`getDaysUntil` rend 0 quand la fermeture tombe aujourd'hui, 1 quand elle tombe demain.
+Le wording de l'owner, `Free Trial - X days left`, est donc rendu tel quel à partir de 2, et
+le dernier jour dit **`Free Trial - last day`** : « 0 days left » serait faux tant que
+l'accès est accordé, et « 1 day left » le serait tout autant pour les onze dernières heures.
+`last day` est vrai pendant toute cette journée-là, quelle que soit l'heure de fermeture.
+La règle est écrite dans le composant, à côté du code qui l'applique.
+
+Troisième cas : `resets_at` est nullable. Le backend dit que le trial tourne, la notice
+reste donc affichée — mais réduite à `Free Trial`, sans compteur qu'il faudrait inventer.
+
+### Ce que le client décide : rien
+
+`is_free_trial` du backend est la seule chose qui allume la notice ; aucune comparaison de
+dates ne sert à deviner l'état. Une seule garde suffit : `!entitlementStatus?.is_free_trial`
+couvre payload absent, en cours de chargement, en erreur, abonné et trial terminé — les
+cinq cas rendent `null`. Le compte à rebours n'est que la mise en forme d'une date que le
+serveur envoie, ce que la contrainte autorise explicitement.
+
+### Onglet Account
+
+`getResetDateLabel` teste `is_free_trial` en premier et rend `FREE TRIAL ENDS` : pendant un
+trial `auto_renew_status` est toujours `null`, donc l'ancienne cascade tombait
+systématiquement sur `PERIOD ENDS`, le plus ambigu de ses trois libellés. Le titre de la
+carte devient `Free trial` au lieu de retomber sur `Active plan` (le `subscription_tier`
+étant `null`, `getTierLabel` ne pouvait rien rendre).
+
+Le tier accordé par le trial n'est pas dans le payload d'entitlement — il vit dans la config
+pricing. `account.tsx` va donc le chercher sur `GET /api/pricing`, **uniquement** quand
+`is_free_trial` est vrai (un abonné a déjà son tier dans le payload), et en silence si
+l'appel échoue : la carte nomme le trial avec ou sans lui. Il est rendu dans la puce déjà
+présente à droite du titre — libre pendant un trial, puisque `getStatusNote("free_trial")`
+rend `null`. Le nom n'est jamais promu en titre : « Mix » seul se lirait comme un plan
+acheté. Le nom est filtré par `isFreeTrial` au moment d'être passé en prop plutôt que remis
+à zéro dans l'effet (le lint interdit un `setState` synchrone dans un effet), donc un trial
+qui se termine ne peut pas laisser sa puce derrière lui.
+
+### `MinutesWarningBanner`
+
+La phrase « They reset on <date> » était fausse pour un trial depuis task-300 : l'allocation
+ne se recharge pas, elle se termine. La bannière a maintenant deux formulations, choisies
+sur `is_free_trial` — « of your free trial minutes … They do not refill — your trial ends on
+<date>. » contre la formulation mensuelle inchangée pour les abonnés.
+
+### Copie finale et style, pour lecture sans build
+
+Notice Inbox (`mobile/src/components/FreeTrialNotice.tsx`, testID `free-trial-notice`) :
+
+- `Free Trial - 29 days left` / `Free Trial - 1 day left` / `Free Trial - last day` / `Free Trial`
+- une pastille qui se dimensionne à son texte, centrée par une ligne parente
+  (`row: { alignItems: "center", marginTop: Spacing.md, paddingHorizontal: Spacing.md }`,
+  `pill: { paddingVertical: Spacing.xs, paddingHorizontal: Spacing.md,
+  borderRadius: BorderRadius.full, backgroundColor: Colors.highlight }`,
+  `text: { ...Typography.small, fontWeight: "600", color: Colors.onHighlight }`).
+  `Colors.highlight` / `onHighlight` du design system, jamais une couleur inventée.
+- Volontairement une petite pastille et non une bannière pleine largeur : la bannière
+  minutes juste en dessous est la pleine largeur, et les deux ne doivent pas se lire comme
+  la même alerte. Elles s'empilent dans le `ListHeader` (notice puis bannière), chacune
+  portant sa propre marge haute, donc un utilisateur en trial et à court de minutes voit
+  les deux sans chevauchement. Salutation, bouton Daily Digest et en-tête de section sont
+  inchangés.
+
+Carte Account : titre `Free trial`, puce `Mix` (nom lu dans la config), métrique
+`FREE TRIAL ENDS` / `18 sept.`, et le rappel `Minutes cover audio and video we transcribe.
+Reading your library is unlimited. Trial minutes do not refill.` — le vocabulaire du
+paywall de task-299 (`free trial`, nom du tier) est repris tel quel.
+
+### Vérifications
+
+`cd mobile && npm run typecheck && npm run lint` : typecheck muet, lint 0 erreur (6 warnings
+préexistants, tous hors des fichiers touchés — `_layout.tsx`, `digest.tsx`, `paywall.tsx`,
+`purchaseService.ts`).
+
+La projection a été rejouée hors app sur le compte réel décrit par la tâche (créé le
+2026-08-19 20:42Z, fermeture 2026-09-18 20:42Z, appareil en Europe/Paris) : le 2026-08-20
+→ `Free Trial - 29 days left` sous une date affichée « 18 sept. » ; le 2026-09-17 22:00Z
+(déjà le 18 en local) → `last day`, comme à 08:00Z et 20:41Z le 18 ; date nulle ou
+illisible → `Free Trial`.
+
+À vérifier par l'owner après déploiement : le rendu visuel de la pastille (petite, centrée)
+ne se juge qu'au simulateur, et sur son compte de dev l'onglet Account doit afficher
+« 18 septembre ».
+<!-- SECTION:NOTES:END -->

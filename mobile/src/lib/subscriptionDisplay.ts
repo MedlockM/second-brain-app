@@ -52,16 +52,53 @@ export function formatResetDate(isoDate: string | null): string | null {
 }
 
 /**
- * What the `resets_at` date means. On a renewing plan it is when the minutes
- * refill — nothing rolls over, so that date is the only thing that gives the
- * remaining balance a deadline. On a plan that will not renew it is when access
- * stops instead, and `auto_renew_status` is nullable, so an unknown renewal
- * intent stays neutral rather than promising a refill.
+ * What the `resets_at` date means. During the free trial it is the instant the
+ * trial closes, after which nothing refills at all (task-300), so it is named
+ * for what it is — `auto_renew_status` is always null on a trial, which used to
+ * make it fall through to the vague "PERIOD ENDS". On a renewing plan the date
+ * is when the minutes refill — nothing rolls over, so it is the only thing that
+ * gives the remaining balance a deadline. On a plan that will not renew it is
+ * when access stops instead, and `auto_renew_status` is nullable, so an unknown
+ * renewal intent stays neutral rather than promising a refill.
  */
 export function getResetDateLabel(entitlement: EntitlementStatus): string {
+  if (entitlement.is_free_trial) return "FREE TRIAL ENDS";
   if (entitlement.auto_renew_status === true) return "RESETS";
   if (entitlement.auto_renew_status === false) return "ENDS";
   return "PERIOD ENDS";
+}
+
+/**
+ * Whole days left before `isoDate`, counted as **local midnight boundaries**:
+ * 0 while the closing instant falls on today, 1 when it falls tomorrow, and so
+ * on. Returns `null` for a missing or unparseable date, and never a negative
+ * number.
+ *
+ * Counting boundaries rather than 24-hour slices is what keeps a countdown and
+ * `formatResetDate` from disagreeing: both project the same instant into the
+ * device's local calendar, so "2 days left" and "ends Sep 18" cannot be off by
+ * a day the way a `Math.ceil` over elapsed milliseconds would be near midnight.
+ *
+ * This says nothing about entitlement — a 0 means "closes today", not "over".
+ * Whether access is still granted is `is_free_trial` from the backend, and the
+ * caller keeps that separation.
+ */
+export function getDaysUntil(isoDate: string | null, now: Date = new Date()): number | null {
+  if (!isoDate) return null;
+  const timestamp = new Date(isoDate).getTime();
+  if (Number.isNaN(timestamp)) return null;
+
+  const end = startOfLocalDay(new Date(timestamp));
+  const today = startOfLocalDay(now);
+  const days = Math.round((end - today) / MS_PER_DAY);
+  return Math.max(0, days);
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** Local midnight of the day `date` falls on, as a timestamp. */
+function startOfLocalDay(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
 /**

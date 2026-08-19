@@ -23,8 +23,8 @@ import { UsageWarningDismissal } from "../lib/usageWarningDismissal";
  * percentage that triggered the notice are then the same one.
  *
  * Deliberately not a modal and never repeated once dismissed — it carries no
- * decision, only the two facts that let the user make one (how much is left, when
- * it refills) plus a way to see the plans.
+ * decision, only the two facts that let the user make one (how much is left, what
+ * happens on the date) plus a way to see the plans.
  */
 export function MinutesWarningBanner(): React.JSX.Element | null {
   const router = useRouter();
@@ -53,9 +53,11 @@ export function MinutesWarningBanner(): React.JSX.Element | null {
 
   const usedPercent = Math.round(getUsageRatio(entitlementStatus) * 100);
   const resetDate = formatResetDate(resetsAt);
-  const message = resetDate
-    ? `You've used ${usedPercent}% of this month's minutes. They reset on ${resetDate}.`
-    : `You've used ${usedPercent}% of this month's minutes.`;
+  const message = buildMessage(
+    usedPercent,
+    resetDate,
+    entitlementStatus.is_free_trial,
+  );
 
   const handleDismiss = (): void => {
     setIsDismissed(true);
@@ -90,6 +92,26 @@ export function MinutesWarningBanner(): React.JSX.Element | null {
       </Pressable>
     </View>
   );
+}
+
+/**
+ * The banner's sentence. A trial allowance is a single window that never
+ * refills (task-300), so telling a trial user their minutes "reset on" that
+ * date was false on this surface too — the date is when the trial closes, and
+ * the wording now says which of the two it is.
+ */
+function buildMessage(
+  usedPercent: number,
+  resetDate: string | null,
+  isFreeTrial: boolean,
+): string {
+  const spent = isFreeTrial
+    ? `You've used ${usedPercent}% of your free trial minutes.`
+    : `You've used ${usedPercent}% of this month's minutes.`;
+  if (resetDate === null) return spent;
+  return isFreeTrial
+    ? `${spent} They do not refill — your trial ends on ${resetDate}.`
+    : `${spent} They reset on ${resetDate}.`;
 }
 
 const styles = StyleSheet.create({

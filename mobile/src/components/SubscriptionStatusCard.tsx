@@ -43,6 +43,11 @@ import { MINUTES_RULE } from "../lib/planCopy";
  * - no active plan (`is_active === false`): the backend said so, that one is
  *   authoritative.
  * - active: tier, the minutes gauge and the reset date.
+ *
+ * A free trial is an active state of its own, and it used to be indistinguishable
+ * from a purchased plan here: `subscription_tier` is null during a trial, so the
+ * heading fell back to "Active plan" and the date to "PERIOD ENDS" (task-301).
+ * It now names itself, and names what its date is.
  */
 interface SubscriptionStatusCardProps {
   /** Backend entitlement payload, `null` while unknown or after a failure. */
@@ -51,12 +56,19 @@ interface SubscriptionStatusCardProps {
   isLoading: boolean;
   /** Re-runs the entitlements request (used by the unavailable state). */
   onRetry: () => void;
+  /**
+   * Display name of the tier the free trial grants, from `GET /api/pricing`.
+   * `null` when it is not a trial or the pricing has not loaded — the trial is
+   * named either way, only the tier chip depends on it.
+   */
+  trialTierName?: string | null;
 }
 
 export function SubscriptionStatusCard({
   entitlement,
   isLoading,
   onRetry,
+  trialTierName = null,
 }: SubscriptionStatusCardProps): React.JSX.Element {
   return (
     <View testID="account-plan-card" style={styles.card}>
@@ -65,6 +77,7 @@ export function SubscriptionStatusCard({
         entitlement={entitlement}
         isLoading={isLoading}
         onRetry={onRetry}
+        trialTierName={trialTierName}
       />
     </View>
   );
@@ -74,6 +87,7 @@ function CardBody({
   entitlement,
   isLoading,
   onRetry,
+  trialTierName = null,
 }: SubscriptionStatusCardProps): React.JSX.Element {
   // Only the very first load shows a spinner. Once a payload is on screen, a
   // background refresh (tab focus, post-purchase) keeps showing the figures
@@ -137,23 +151,28 @@ function CardBody({
     );
   }
 
+  const isTrial = entitlement.is_free_trial;
   const tierLabel = getTierLabel(entitlement.subscription_tier);
   const statusNote = getStatusNote(entitlement.subscription_status);
   const resetDate = formatResetDate(entitlement.resets_at);
   const resetDateLabel = getResetDateLabel(entitlement);
   const minutesRemaining = String(entitlement.minutes_remaining);
+  // The trial's own tier is the one the gauge below is measuring, and it is
+  // worth naming — but it never becomes the heading, which would read as a plan
+  // the user bought.
+  const chipText = isTrial ? trialTierName : statusNote;
 
   return (
     <View>
       <View style={styles.titleRow}>
-        {/* An active subscription on a tier this build does not know still says
-            something true rather than nothing. */}
+        {/* A trial names itself; an active subscription on a tier this build does
+            not know still says something true rather than nothing. */}
         <Text testID="account-plan-tier" style={styles.planName}>
-          {tierLabel ?? "Active plan"}
+          {isTrial ? "Free trial" : (tierLabel ?? "Active plan")}
         </Text>
-        {statusNote !== null && (
+        {chipText !== null && (
           <View style={styles.statusChip}>
-            <Text style={styles.statusChipText}>{statusNote}</Text>
+            <Text style={styles.statusChipText}>{chipText}</Text>
           </View>
         )}
       </View>
@@ -180,8 +199,14 @@ function CardBody({
       <UsageBar entitlement={entitlement} />
 
       {/* The paywall's own first sentence, imported rather than re-typed: the
-          two screens explain the meter in the same words or not at all. */}
-      <Text style={styles.hintText}>{MINUTES_RULE}</Text>
+          two screens explain the meter in the same words or not at all. A trial
+          allowance is spent once and never refills, which the date above says
+          but the meter rule does not. */}
+      <Text style={styles.hintText}>
+        {isTrial
+          ? `${MINUTES_RULE} Trial minutes do not refill.`
+          : MINUTES_RULE}
+      </Text>
     </View>
   );
 }

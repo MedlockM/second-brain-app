@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import { usePurchases } from "../../src/contexts/PurchasesContext";
 import { V1_READING_LANGUAGES } from "../../src/services/userPreferencesService";
 import { FeedbackService } from "../../src/services/feedbackService";
 import { SubscriptionStatusCard } from "../../src/components/SubscriptionStatusCard";
+import { fetchPublicPricing } from "../../src/services/pricingService";
 import {
   Colors,
   Typography,
@@ -44,7 +45,35 @@ export default function AccountScreen() {
     refreshEntitlements,
   } = usePurchases();
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
+  const [trialTierName, setTrialTierName] = useState<string | null>(null);
   const router = useRouter();
+
+  // The entitlement payload says a trial is running but not which tier it
+  // grants: the trial's terms live in the pricing config, served by the public
+  // `GET /api/pricing`. Fetched only for a trial — a subscriber's tier is on the
+  // payload already — and silent on failure, since the card names the trial with
+  // or without it. The name is gated on `isFreeTrial` where it is passed down
+  // rather than cleared here, so a trial that ends cannot leave its tier behind.
+  const isFreeTrial = entitlementStatus?.is_free_trial === true;
+  useEffect(() => {
+    if (!isFreeTrial) return;
+    let isCurrent = true;
+    void fetchPublicPricing()
+      .then((pricing) => {
+        if (!isCurrent) return;
+        const trialTierId = pricing.free_trial?.enabled
+          ? pricing.free_trial.tier
+          : null;
+        const tier = pricing.tiers.find((entry) => entry.id === trialTierId);
+        setTrialTierName(tier?.name ?? null);
+      })
+      .catch(() => {
+        if (isCurrent) setTrialTierName(null);
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [isFreeTrial]);
 
   // This is the screen where the remaining minutes are read, and they move on
   // every transcribed import, so refresh on focus instead of trusting the value
@@ -148,6 +177,7 @@ export default function AccountScreen() {
           entitlement={entitlementStatus}
           isLoading={isEntitlementLoading}
           onRetry={() => void refreshEntitlements()}
+          trialTierName={isFreeTrial ? trialTierName : null}
         />
 
         {/* Subscription entry point */}
