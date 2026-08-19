@@ -57,14 +57,106 @@ The shape to follow already exists a few lines up, for Apple: `APPLE_NATIVE_AUDI
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `mobile/src/components/SocialAuthButtons.tsx` obtains a real Google `id_token` before calling `loginWithGoogle`: the authorization code returned by `promptAsync()` is exchanged for tokens (either by consuming the hook's `response`, or via an explicit `exchangeCodeAsync` with the request's `codeVerifier`), and the chosen approach and its rationale are recorded in the implementation notes.
-- [ ] #2 The component no longer reads `id_token` off the immediate return value of `promptAsync()` — a `grep` for `authentication?.idToken` on the raw `promptAsync` result in `mobile/src/` returns nothing, or the remaining occurrence is provably on the exchanged result.
-- [ ] #3 The user-cancel path still shows no error, and `isGoogleLoading` is reset on every exit path of the Google handler including the exchange failing.
-- [ ] #4 `/google/native` in `media_summarizer/api/endpoints/auth_social.py` accepts the token when its `aud` matches any configured native Google audience (iOS, Android) in addition to `GOOGLE_CLIENT_ID`, mirroring the `APPLE_NATIVE_AUDIENCE` pattern; a token whose `aud` matches none of them is still rejected with 401, and the `iss` check is unchanged.
-- [ ] #5 The web `/google/callback` handler keeps its single-audience check against `GOOGLE_CLIENT_ID` — the widened audience list is not applied to the web flow.
-- [ ] #6 The new backend audience variable(s) are declared in `.env.example` with a comment stating which Google client each holds and that they are public identifiers, and `python scripts/check_env_example_complete.py` passes.
-- [ ] #7 The false claim in `docs/V1_LAUNCH_PLAN.md:264` that the web client ID verifies the `aud` of mobile id_tokens is corrected, stating which client actually mints the token under `expo-auth-session`.
-- [ ] #8 No Google client secret is added to `mobile/`, to `eas.json`, or to any file the app bundles.
-- [ ] #9 `ruff check` and `mypy` pass on the changed Python files, and `npx tsc --noEmit` plus the lint command declared in `mobile/package.json` pass from `mobile/`.
-- [ ] #10 Any `console.log`/`print` added while diagnosing is removed before the task is handed back (AGENTS.md, "Debug instrumentation is temporary").
+- [x] #1 `mobile/src/components/SocialAuthButtons.tsx` obtains a real Google `id_token` before calling `loginWithGoogle`: the authorization code returned by `promptAsync()` is exchanged for tokens (either by consuming the hook's `response`, or via an explicit `exchangeCodeAsync` with the request's `codeVerifier`), and the chosen approach and its rationale are recorded in the implementation notes.
+- [x] #2 The component no longer reads `id_token` off the immediate return value of `promptAsync()` — a `grep` for `authentication?.idToken` on the raw `promptAsync` result in `mobile/src/` returns nothing, or the remaining occurrence is provably on the exchanged result.
+- [x] #3 The user-cancel path still shows no error, and `isGoogleLoading` is reset on every exit path of the Google handler including the exchange failing.
+- [x] #4 `/google/native` in `media_summarizer/api/endpoints/auth_social.py` accepts the token when its `aud` matches any configured native Google audience (iOS, Android) in addition to `GOOGLE_CLIENT_ID`, mirroring the `APPLE_NATIVE_AUDIENCE` pattern; a token whose `aud` matches none of them is still rejected with 401, and the `iss` check is unchanged.
+- [x] #5 The web `/google/callback` handler keeps its single-audience check against `GOOGLE_CLIENT_ID` — the widened audience list is not applied to the web flow.
+- [x] #6 The new backend audience variable(s) are declared in `.env.example` with a comment stating which Google client each holds and that they are public identifiers, and `python scripts/check_env_example_complete.py` passes.
+- [x] #7 The false claim in `docs/V1_LAUNCH_PLAN.md:264` that the web client ID verifies the `aud` of mobile id_tokens is corrected, stating which client actually mints the token under `expo-auth-session`.
+- [x] #8 No Google client secret is added to `mobile/`, to `eas.json`, or to any file the app bundles.
+- [x] #9 `ruff check` and `mypy` pass on the changed Python files, and `npx tsc --noEmit` plus the lint command declared in `mobile/package.json` pass from `mobile/`.
+- [x] #10 Any `console.log`/`print` added while diagnosing is removed before the task is handed back (AGENTS.md, "Debug instrumentation is temporary").
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### AC #1 — explicit `exchangeCodeAsync`, not the hook's `response`
+
+Both shapes were viable; the explicit exchange won on three counts.
+
+1. **The loading state stays provable.** The handler remains a single linear
+   `async` function, so `isGoogleLoading` is released in one `finally` that every
+   exit path goes through — cancel, a missing code, a token response without an
+   `id_token`, a rejected exchange, a backend refusal (AC #3). The `useEffect`
+   shape has to release it from a second place and correlate the effect firing
+   with the handler that started the flow.
+2. **The hook's exchange has no failure path.** `providers/Google.js` runs
+   `exchangeRequest.performAsync(discovery).then(...)` with no `catch`: a failed
+   exchange leaves `fullResult` at `null` forever and produces an unhandled
+   rejection. Nothing would ever wake the effect, so the spinner would spin until
+   the user kills the app — the exact behaviour AC #3 forbids.
+3. **It reads where the value is.** The exchanged `TokenResponse.idToken` is what
+   gets posted, instead of `fullResult.params.id_token`, a field the provider
+   synthesises.
+
+The cost is that the hook's own auto-exchange must be switched off, which is why
+the config now carries `shouldAutoExchangeCode: false`. Left on, two requests
+would race for the same single-use authorization code and Google would answer
+`invalid_grant` to whichever landed second.
+
+The exchange reuses the request object rather than re-deriving anything:
+`googleRequest.clientId` (already `Platform.select`-ed by the provider),
+`googleRequest.redirectUri` (the task-296 reversed-client-ID URI on iOS) and
+`googleRequest.codeVerifier` (the PKCE verifier of the request that produced the
+code). No client secret: iOS and Android OAuth clients are public clients and PKCE
+is what binds the exchange to the authorization request (AC #8).
+
+`dismiss` joined `cancel` on the silent path — both are the user backing out, and
+neither deserves an error banner.
+
+### AC #4/#5 — widened audiences on the native endpoint only
+
+`GOOGLE_NATIVE_AUDIENCE_IOS` and `GOOGLE_NATIVE_AUDIENCE_ANDROID` hold the iOS and
+Android OAuth client IDs. `_google_native_accepted_audiences()` builds the accepted
+list from them plus `GOOGLE_CLIENT_ID`, de-duplicated, skipping the unset ones —
+the same shape `_apple_verify_id_token` uses for `APPLE_NATIVE_AUDIENCE`. An `aud`
+outside that list still returns `401 Invalid audience or issuer`, and the `iss`
+check is byte-for-byte the one that was there.
+
+Named `*_NATIVE_AUDIENCE_*` rather than `GOOGLE_CLIENT_ID_IOS/ANDROID` on purpose:
+the server never initiates a flow with them and never exchanges a code against
+them, it only compares an `aud`. The name says so.
+
+Two follow-on details:
+
+- The endpoint's configuration guard moved from `if not GOOGLE_CLIENT_ID` to
+  `if not accepted_audiences`, which is the condition that actually matters now.
+- A rejection logs `aud`, `iss` and the accepted list at WARNING. Client IDs are
+  public identifiers, so nothing leaks, and it is the only way to tell "the native
+  audience keys were never provisioned in Secrets Manager" apart from "a token
+  from another project reached us" — the two shapes the owner will be looking at
+  after deploying. This is operational logging on a refusal path, not diagnostic
+  instrumentation, so it stays (AC #10).
+
+### AC #7 — the corrected claim
+
+`docs/V1_LAUNCH_PLAN.md` §3.2 no longer says the web client verifies mobile
+`aud`s. It now states that `expo-auth-session` runs the authorization *and* the
+exchange against the platform client (iOS on iOS, Android on Android, per
+`Platform.select` in `providers/Google.js`), so Google mints the id_token for that
+client; the web client ID is only used when the app runs on the web platform. The
+inverse arrangement exists only with the native Google Sign-In SDK, where a
+`serverClientId`/`webClientId` asks for it explicitly — not the SDK used here.
+
+Same correction applied to the misleading comment in `mobile/.env.example`, and
+`mobile/docs/GOOGLE_SIGN_IN.md` gained two sections: why `promptAsync()` returns a
+code and not an id_token, and which client mints the token.
+
+### Verification
+
+`ruff check` and `mypy` clean on `auth_social.py`;
+`python scripts/check_env_example_complete.py` OK (234 variables);
+`npx tsc --noEmit` clean; `npm run lint` 0 errors (6 warnings, all pre-existing
+and in files this task does not touch).
+
+`ruff format --check` still wants to reformat `auth_social.py`, but every hunk it
+proposes is pre-existing (the file is wrapped at 88 columns, the project sets
+`line-length = 135`) and none touches a line added here. AC #9 asks for
+`ruff check`, which passes.
+
+Not verifiable from the worktree, and left to the owner as the task's own notes
+say: the deploy, provisioning the two new keys in `media-summarizer-runtime-dev`,
+and running the flow on a device to see `POST /api/auth/google/native 200`.
+<!-- SECTION:NOTES:END -->

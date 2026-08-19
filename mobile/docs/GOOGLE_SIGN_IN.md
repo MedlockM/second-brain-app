@@ -1,7 +1,8 @@
 # Google sign-in — redirect URIs and client wiring
 
 Reference for matching the app against the Google Cloud Console entries without
-reading the code. Fixed in task-296 after `Error 400: redirect_uri_mismatch` on iOS.
+reading the code. Fixed in task-296 after `Error 400: redirect_uri_mismatch` on iOS,
+then in task-298 for the code exchange and the accepted audience.
 
 ## How the flow works
 
@@ -13,6 +14,43 @@ negotiates directly with Google through `expo-auth-session/providers/google`
 Consequence: `GOOGLE_REDIRECT_URI` in Secrets Manager and `/api/auth/google/callback`
 belong to the **separate web flow** (`/api/auth/google/login`). They have no effect
 on the app, and the redirect URIs below are never registered there.
+
+## `promptAsync()` returns a code, not an id_token
+
+Off the web, the provider forces `responseType: Code`, so the value `promptAsync()`
+resolves with is the *raw* authorization result — `{type: 'success', params: {code},
+authentication: null}`. Reading `authentication?.idToken` off it always yields
+`undefined`; the hook's own auto-exchange publishes its result only through the
+second tuple element (`fullResult`).
+
+`SocialAuthButtons` therefore:
+
+1. passes `shouldAutoExchangeCode: false`, so the hook does not fire a competing
+   exchange for the same single-use code (whichever request lands second gets
+   `invalid_grant`), and
+2. calls `exchangeCodeAsync` itself with `googleRequest.clientId`,
+   `googleRequest.redirectUri` and `googleRequest.codeVerifier`, keeping the whole
+   handler linear so `isGoogleLoading` is released in one `finally`.
+
+No client secret is involved: the iOS and Android clients are public clients and
+PKCE is what proves the exchange belongs to the request.
+
+## Which client mints the id_token
+
+The exchange runs against the **platform** client — the iOS one on iOS, the Android
+one on Android — so that client is the `aud` of the id_token. The web client ID is
+never the audience of a native token; it only applies when the app runs on the web
+platform.
+
+The backend must accept those two audiences on `/auth/google/native`, through
+`GOOGLE_NATIVE_AUDIENCE_IOS` and `GOOGLE_NATIVE_AUDIENCE_ANDROID` (same values as
+the `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS` / `_ANDROID` below). Without them the request
+is refused with `401 Invalid audience or issuer`. The web `/auth/google/callback`
+keeps its single-audience check against the web client.
+
+The opposite arrangement — Google minting the id_token for the web client — only
+exists with the native Google Sign-In SDK, where a `serverClientId`/`webClientId`
+asks for it. That is not the SDK used here.
 
 ## Exact redirect URI the app sends
 

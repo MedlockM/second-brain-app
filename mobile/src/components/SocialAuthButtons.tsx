@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
+import { exchangeCodeAsync } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { Ionicons } from "@expo/vector-icons";
@@ -67,12 +68,21 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
 
   const isLoading = isGoogleLoading || isAppleLoading;
 
-  // Google Auth Session configuration
-  const [, , googlePromptAsync] = Google.useAuthRequest({
+  /**
+   * Google Auth Session configuration.
+   *
+   * `shouldAutoExchangeCode: false` turns off the hook's own background code
+   * exchange. Left on, it would race the explicit exchange below for the same
+   * single-use authorization code — whichever request lands second gets
+   * `invalid_grant` from Google — and it publishes its outcome only through the
+   * second tuple element, which this component does not read.
+   */
+  const [googleRequest, , googlePromptAsync] = Google.useAuthRequest({
     iosClientId: Config.GOOGLE_CLIENT_ID_IOS,
     androidClientId: Config.GOOGLE_CLIENT_ID_ANDROID,
     webClientId: Config.GOOGLE_CLIENT_ID_WEB,
     redirectUri: GOOGLE_REDIRECT_URI,
+    shouldAutoExchangeCode: false,
   });
 
   const handleGoogleSignIn = async () => {
@@ -80,21 +90,54 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
     setIsGoogleLoading(true);
     try {
       const result = await googlePromptAsync();
-      if (result.type === "success") {
-        const idToken = result.authentication?.idToken;
-        if (!idToken) {
-          onError("Failed to obtain Google ID token. Please try again.");
-          return;
-        }
-        await loginWithGoogle(idToken);
-        router.replace("/(tabs)/inbox");
-      } else if (result.type === "cancel") {
-        // User cancelled - no error to show
-      } else {
-        onError("Google sign-in was not completed. Please try again.");
+
+      // `cancel` (browser closed) and `dismiss` (session dismissed) are the user
+      // backing out, not a failure: stay silent and just drop the loading state.
+      if (result.type === "cancel" || result.type === "dismiss") {
+        return;
       }
+      if (result.type !== "success") {
+        onError("Google sign-in was not completed. Please try again.");
+        return;
+      }
+
+      // Off the web, the Google provider forces `responseType: Code`, so the
+      // authorization result carries a code and `authentication` is null. The
+      // id_token only exists after exchanging that code against the token
+      // endpoint, with the PKCE verifier of the request that produced it — and
+      // the client the exchange runs against (iOS or Android) is the audience
+      // the id_token is minted for, never the web client.
+      const code = result.params.code;
+      if (!code || !googleRequest) {
+        onError("Google sign-in was not completed. Please try again.");
+        return;
+      }
+
+      const tokens = await exchangeCodeAsync(
+        {
+          clientId: googleRequest.clientId,
+          redirectUri: googleRequest.redirectUri,
+          code,
+          extraParams: googleRequest.codeVerifier
+            ? { code_verifier: googleRequest.codeVerifier }
+            : {},
+        },
+        Google.discovery,
+      );
+
+      if (!tokens.idToken) {
+        onError("Failed to obtain Google ID token. Please try again.");
+        return;
+      }
+
+      await loginWithGoogle(tokens.idToken);
+      router.replace("/(tabs)/inbox");
     } catch (err) {
-      onError(getFriendlyErrorMessage(err));
+      onError(
+        getFriendlyErrorMessage(err, {
+          fallback: "Google sign-in could not be completed. Please try again.",
+        }),
+      );
     } finally {
       setIsGoogleLoading(false);
     }
