@@ -48,12 +48,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from boto3.dynamodb.types import TypeDeserializer
+from botocore.exceptions import ClientError
 
 from media_summarizer.core.services import (
     cover_capture,
     media_purge_service,
     search_indexing,
 )
+from media_summarizer.core.services.engagement_service import RECENT_WINDOW_DAYS
 from media_summarizer.utils import database_async
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
@@ -68,6 +70,7 @@ EVENT_UNEXPLAINED_PURGE = "user_media.unexplained_purge"
 EVENT_REMOVED_BY_CALLER = "user_media.removed_by_caller"
 EVENT_RECONCILED = "user_media.reconciliation_completed"
 EVENT_RECONCILE_FAILED = "user_media.reconciliation_failed"
+EVENT_ENGAGEMENT_PURGE_FAILED = "user_media.engagement_purge_failed"
 
 # An artifact row whose library row is gone is only actionable when it is *new*:
 # dev carries a permanent standing drift from the task-241 backfill (139
@@ -335,6 +338,96 @@ def _parse_iso(value: Any) -> Optional[datetime]:
     return parsed
 
 
+def _log_engagement_purge_failure(table_name: str, exc: Exception, *, scanning: bool = False) -> None:
+    """One warning shape for both the scan and the per-row write.
+
+    Deliberately without an alarm: a stamp that survives one night is purged the
+    next, and the read path ignored it in the meantime either way. The event is
+    there so a *systematic* breakage is visible in CloudWatch.
+    """
+    log_event(
+        logger,
+        logging.WARNING,
+        EVENT_ENGAGEMENT_PURGE_FAILED,
+        (
+            "Could not scan a table for stale engagement stamps"
+            if scanning
+            else "Could not remove a stale engagement stamp"
+        ),
+        table=table_name,
+        error_type=type(exc).__name__,
+    )
+
+
+async def _purge_stale_engagement_stamps(
+    *,
+    table_name: str,
+    rows: Iterable[Dict[str, Any]],
+    key_fields: Tuple[str, ...],
+    cutoff: str,
+) -> int:
+    """REMOVE every ``last_engaged_at`` that fell out of the freshness window.
+
+    The 90-day window was enforced at read time only -- ``list_recent`` bounds
+    its ``engaged-index`` query by it -- so a stamp written six months ago was
+    still stored, and still held an entry in the sparse index, forever. Past the
+    window the value is removed from the row rather than merely hidden, which is
+    what takes it out of the index too: the index should hold engaged items, not
+    the whole history of them (task-311).
+
+    **Why this is an explicit write and not a TTL.** DynamoDB allows exactly one
+    TTL attribute per table; ``user_media_v1`` already spends it on ``purge_at``
+    (user-initiated deletion, invariant I2), and ``dynamodb_user_media.tf`` says
+    in so many words not to add a second one. A TTL would also destroy the whole
+    library row rather than one attribute -- the wrong granularity entirely, since
+    the row must survive and only the stamp goes. So the purge is a targeted
+    ``UpdateItem``, issued from the pass that already scans the table.
+
+    The write is conditional on the stamp still being older than the cutoff, so
+    an engagement recorded between the scan and this write is never erased. The
+    comparison is lexicographic on the ISO-8601 string, the same one
+    ``stamp_engagement`` and the ``engaged-index`` range condition already make:
+    every stamp is written as a UTC ``isoformat()``, so the two orders agree.
+
+    A failed removal is logged and the loop continues -- a stale decoration is
+    not worth aborting the run that reports the library's outcome gauges.
+    """
+    stale = [
+        row
+        for row in rows
+        if isinstance(row.get("last_engaged_at"), str) and str(row["last_engaged_at"]) < cutoff
+    ]
+    if not stale:
+        return 0
+
+    removed = 0
+    session = database_async.get_session()
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        for row in stale:
+            try:
+                await table.update_item(
+                    Key={field: row[field] for field in key_fields},
+                    UpdateExpression="REMOVE last_engaged_at",
+                    ExpressionAttributeValues={":cutoff": cutoff},
+                    ConditionExpression="last_engaged_at < :cutoff",
+                )
+            except ClientError as exc:
+                if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                    # Re-engaged between the scan and this write, or already
+                    # removed by an overlapping run. Both are correct outcomes.
+                    continue
+                _log_engagement_purge_failure(table_name, exc)
+            except Exception as exc:
+                _log_engagement_purge_failure(table_name, exc)
+            else:
+                removed += 1
+    return removed
+
+
 async def _count_dangling_pointers(
     pointers: List[Tuple[str, str]],
 ) -> Tuple[int, int]:
@@ -359,9 +452,14 @@ async def run_reconciliation() -> Dict[str, Any]:
     recent_cutoff = now - timedelta(hours=ORPHAN_RECENT_WINDOW_HOURS)
     overdue_cutoff = int((now - timedelta(hours=PURGE_OVERDUE_GRACE_HOURS)).timestamp())
 
+    # One source of truth for the window: the read path's own constant, so the
+    # stored data can never drift from what "Continue learning" considers fresh.
+    engagement_cutoff = (now - timedelta(days=RECENT_WINDOW_DAYS)).isoformat()
+
+    user_media_table = required_env("USER_MEDIA_TABLE")
     library = await _scan_table(
-        required_env("USER_MEDIA_TABLE"),
-        "user_id, media_item_id, media_key, deleted_at, purge_at, last_job_id",
+        user_media_table,
+        "user_id, media_item_id, media_key, deleted_at, purge_at, last_job_id, last_engaged_at",
     )
 
     library_content_scopes = set()
@@ -412,6 +510,46 @@ async def run_reconciliation() -> Dict[str, Any]:
 
     pointers_checked, pointers_dangling = await _count_dangling_pointers(pointers)
 
+    # Both purges are *additive* to the reconciliation, not part of it: whatever
+    # they cost, the gauges above are the outcome metric this run exists to
+    # publish, so neither may take the run down with it.
+    #
+    # Soft-deleted rows are purged too: their stamp is already invisible to the
+    # read path, and leaving it behind would keep them in the sparse index until
+    # the TTL sweeps the row 30 days later. Nothing else about them is touched.
+    stamps_purged_media = 0
+    try:
+        stamps_purged_media = await _purge_stale_engagement_stamps(
+            table_name=user_media_table,
+            rows=library,
+            key_fields=("user_id", "media_item_id"),
+            cutoff=engagement_cutoff,
+        )
+    except Exception as exc:
+        _log_engagement_purge_failure(user_media_table, exc)
+
+    # `user_folders` carries the same attribute with no index of its own (by
+    # design), so it is not covered by the scan above and needs its own pass.
+    stamps_purged_collections = 0
+    try:
+        folders = await _scan_table(
+            database_async.USER_FOLDERS_TABLE,
+            "#fid, last_engaged_at",
+            # `id` goes through a name placeholder like `scope` above: cheap
+            # insurance against DynamoDB's reserved-word list, which is long.
+            expression_attribute_names={"#fid": "id"},
+        )
+        stamps_purged_collections = await _purge_stale_engagement_stamps(
+            table_name=database_async.USER_FOLDERS_TABLE,
+            rows=folders,
+            key_fields=("id",),
+            cutoff=engagement_cutoff,
+        )
+    except Exception as exc:
+        _log_engagement_purge_failure(
+            database_async.USER_FOLDERS_TABLE, exc, scanning=True
+        )
+
     report = {
         "library_rows": len(library),
         "library_users": len(per_user),
@@ -423,6 +561,8 @@ async def run_reconciliation() -> Dict[str, Any]:
         "artifact_rows_orphaned_recent": orphaned_recent,
         "pointers_checked": pointers_checked,
         "pointers_dangling": pointers_dangling,
+        "engagement_stamps_purged_media": stamps_purged_media,
+        "engagement_stamps_purged_collections": stamps_purged_collections,
     }
 
     log_event(
