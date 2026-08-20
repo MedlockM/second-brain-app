@@ -215,29 +215,49 @@ export function buildPlanGuidance(
   let recommendationLine: string | null = null;
 
   if (hasUsageSignal && ranked.length > 0) {
-    const covering = ranked.find(
-      (card) => (card.minutesPerMonth ?? 0) >= used,
-    ) ?? null;
-    // The plan being lived in is a floor, never a ceiling.
-    const floor = isTrial && trialCard !== null ? trialCard : null;
-    const floorMinutes = floor?.minutesPerMonth ?? 0;
     const largest = ranked[ranked.length - 1];
+    // Spending the whole allowance is not the same as spending part of it. The
+    // figure stops being a measure of what the user needs and becomes the point
+    // where they were stopped — their real need is *at least* that, and unknown
+    // above it. Recommending the plan that covers it would hand them back the
+    // one that just refused their import, so a capped period looks strictly one
+    // size up instead.
+    const isCapped = used >= allowance;
 
-    if (covering === null) {
-      recommended = largest;
+    if (isCapped) {
+      const nextUp = ranked.find(
+        (card) => (card.minutesPerMonth ?? 0) > allowance,
+      ) ?? null;
+      recommended = nextUp ?? largest;
       recommendationLine =
-        `You've used ${formatMinutes(used)} this period — more than any plan ` +
-        `includes. ${largest.name} is the largest we offer.`;
-    } else if ((covering.minutesPerMonth ?? 0) < floorMinutes && floor !== null) {
-      recommended = floor;
-      recommendationLine =
-        `You've used ${formatMinutes(used)} of your trial so far. ${floor.name} ` +
-        "keeps you on the plan you're already using.";
+        nextUp === null
+          ? `You used up all ${formatMinutes(allowance)} this period. ` +
+            `${largest.name} is the largest plan we offer.`
+          : `You used up all ${formatMinutes(allowance)} this period. ` +
+            `${nextUp.name} is the next size up.`;
     } else {
-      recommended = covering;
-      recommendationLine =
-        `You've used ${formatMinutes(used)} this period. ${covering.name} is the ` +
-        "smallest plan that covers that.";
+      const covering =
+        ranked.find((card) => (card.minutesPerMonth ?? 0) >= used) ?? null;
+      // The plan being lived in is a floor, never a ceiling.
+      const floor = isTrial && trialCard !== null ? trialCard : null;
+      const floorMinutes = floor?.minutesPerMonth ?? 0;
+
+      if (covering === null) {
+        recommended = largest;
+        recommendationLine =
+          `You've used ${formatMinutes(used)} this period — more than any plan ` +
+          `includes. ${largest.name} is the largest we offer.`;
+      } else if ((covering.minutesPerMonth ?? 0) < floorMinutes && floor !== null) {
+        recommended = floor;
+        recommendationLine =
+          `You've used ${formatMinutes(used)} of your trial so far. ${floor.name} ` +
+          "keeps you on the plan you're already using.";
+      } else {
+        recommended = covering;
+        recommendationLine =
+          `You've used ${formatMinutes(used)} this period. ${covering.name} is the ` +
+          "smallest plan that covers that.";
+      }
     }
   }
 
