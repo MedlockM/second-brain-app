@@ -3,9 +3,10 @@ id: task-305
 title: >-
   Record and expose the engagement signal behind "Continue learning" per
   validated benchmark (task-303)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-19 21:09'
+updated_date: '2026-08-20 19:20'
 labels:
   - backend
   - api
