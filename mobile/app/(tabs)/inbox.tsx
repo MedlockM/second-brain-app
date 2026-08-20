@@ -1,16 +1,16 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   ActivityIndicator,
   Alert,
   Pressable,
   RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router";
@@ -18,10 +18,16 @@ import { useAuth } from "../../src/contexts/AuthContext";
 import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { usePurchases } from "../../src/contexts/PurchasesContext";
 import { useMediaPolling } from "../../src/hooks/useMediaPolling";
-import { InboxItem } from "../../src/contexts/InboxContext";
+import type { InboxItem } from "../../src/contexts/InboxContext";
+import { useHomeSections } from "../../src/hooks/useHomeSections";
 import { AddSourceSheet } from "../../src/components/AddSourceSheet";
 import { MinutesWarningBanner } from "../../src/components/MinutesWarningBanner";
 import { FreeTrialNotice } from "../../src/components/FreeTrialNotice";
+import {
+  HomeTile,
+  TILE_GAP,
+  type HomeTileItem,
+} from "../../src/components/HomeTile";
 import {
   capturePhotoToImport,
   pickFileToImport,
@@ -36,28 +42,41 @@ import {
   Shadows,
   TouchTarget,
 } from "../../src/constants/theme";
-import type {
-  MediaListItem,
-  MediaType,
-  SourcePlatform,
-} from "../../src/types/media";
-import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
-import { getRelativeTime } from "../../src/lib/relativeTime";
+import type { MediaListItem, MediaType } from "../../src/types/media";
+import type { RecentEngagement } from "../../src/types/engagements";
+import type { Collection } from "../../src/types/organization";
 
 /**
- * Inbox screen - displays shared media items as uniform vignettes.
+ * Home screen — a greeting, the Daily Digest entry point, and two horizontal
+ * rows of tiles: "Continue learning" and "Recently added" (task-307).
  *
- * V1 design decisions:
- * - No polling: single fetch on mount + pull-to-refresh + refetch on focus
- * - No processing status badges or spinners per item
- * - Optimistic insertion: pending local items appear instantly as placeholders
- * - Tapping an item navigates to detail (which handles its own "Generating text..." state)
+ * The vertical list of every media item that used to live here is gone: task-306
+ * moved the full library to the Search tab, which is where a list of everything
+ * belongs. What is left is a landing screen — what you were in the middle of,
+ * and what just arrived — and it is deliberately short.
+ *
+ * Three sources feed it, plus the digest count, and each fails alone: the media
+ * list comes from `useMediaPolling`, the engagement row and the collections from
+ * `useHomeSections`. Only the very first media fetch may show a full-screen
+ * spinner; no row ever shows one, because a row with nothing to say is simply
+ * absent.
  *
  * Also hosts the ingestion gestures (task-264): a camera button that shoots
  * straight away, and an "add" button opening the choice between a file and a
  * gallery photo. All three hand the result to the share confirmation screen,
  * where the collection and tags are picked before sending.
  */
+
+/**
+ * How many tiles "Recently added" holds. The row is a landing strip, not a
+ * library: past a dozen the user is better served by the Search tab, and every
+ * extra tile is a cover to fetch on a screen that already has two rows.
+ */
+const RECENTLY_ADDED_LIMIT = 12;
+
+/** Covers borrowed from a collection's members to draw its mosaic. */
+const MAX_COLLECTION_PREVIEWS = 4;
+
 export default function InboxScreen() {
   const { user } = useAuth();
   const router = useRouter();
@@ -74,6 +93,12 @@ export default function InboxScreen() {
     refetch,
     retry,
   } = useMediaPolling();
+  const {
+    continueLearning,
+    collections,
+    digestCount,
+    refresh: refreshSections,
+  } = useHomeSections();
 
   const greeting = getGreeting(user?.email?.split("@")[0]);
 
@@ -86,17 +111,29 @@ export default function InboxScreen() {
   useFocusEffect(
     useCallback(() => {
       refetch();
+      void refreshSections();
       void refreshEntitlements();
-    }, [refetch, refreshEntitlements]),
+    }, [refetch, refreshSections, refreshEntitlements]),
   );
+
+  const handleRefresh = useCallback(async () => {
+    // Both, together: the spinner belongs to the gesture, not to one endpoint,
+    // and `refreshSections` never rejects.
+    await Promise.all([refresh(), refreshSections()]);
+  }, [refresh, refreshSections]);
 
   const handleDigestPress = useCallback(() => {
     router.push("/(tabs)/digest");
   }, [router]);
 
-  const handleItemPress = useCallback(
-    (mediaItemId: string) => {
-      router.push(`/media/${mediaItemId}`);
+  const handleTilePress = useCallback(
+    (item: HomeTileItem) => {
+      if (item.kind === "media") {
+        router.push(`/media/${item.id}`);
+      } else if (item.kind === "collection") {
+        router.push(`/media/collections/${item.id}`);
+      }
+      // A pending share has no id to open yet; its tile is disabled.
     },
     [router],
   );
@@ -132,25 +169,18 @@ export default function InboxScreen() {
     handleImportResult(await capturePhotoToImport(), "photo");
   }, [handleImportResult]);
 
-  // Build a unified list: pending local items first, then backend items
-  const unifiedItems: UnifiedItem[] = [
-    ...pendingLocalItems.map(
-      (local): UnifiedItem => ({
-        kind: "local",
-        key: local.localId,
-        local,
-      }),
-    ),
-    ...items.map(
-      (backend): UnifiedItem => ({
-        kind: "backend",
-        key: backend.media_item_id,
-        backend,
-      }),
-    ),
-  ];
+  const continueTiles = useMemo(
+    () => continueLearning.map(toEngagementTile),
+    [continueLearning],
+  );
 
-  // Loading state
+  const recentTiles = useMemo(
+    () => buildRecentlyAdded(items, collections, pendingLocalItems),
+    [items, collections, pendingLocalItems],
+  );
+
+  // Loading state — the only spinner on this screen, and only on the very first
+  // media fetch. Every later refresh happens under the existing content.
   if (isLoading) {
     return (
       <SafeAreaView testID="inbox-screen" style={styles.container} edges={["top"]}>
@@ -165,8 +195,9 @@ export default function InboxScreen() {
     );
   }
 
-  // Error state
-  if (error && items.length === 0) {
+  // Error state — only when the media list failed *and* has nothing cached. The
+  // other two sections are decorations on a screen that cannot show its content.
+  if (error && items.length === 0 && pendingLocalItems.length === 0) {
     return (
       <SafeAreaView testID="inbox-screen" style={styles.container} edges={["top"]}>
         <View style={styles.header}>
@@ -194,38 +225,65 @@ export default function InboxScreen() {
     );
   }
 
-  const hasItems = unifiedItems.length > 0;
+  const hasAnything = continueTiles.length > 0 || recentTiles.length > 0;
 
   return (
     <SafeAreaView testID="inbox-screen" style={styles.container} edges={["top"]}>
-      <FlatList
-        data={unifiedItems}
-        keyExtractor={(item) => item.key}
-        renderItem={({ item }) => (
-          <UnifiedItemCard item={item} onPress={handleItemPress} />
-        )}
-        contentContainerStyle={styles.listContent}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
-            onRefresh={refresh}
+            onRefresh={handleRefresh}
             tintColor={Colors.primary}
             colors={[Colors.primary]}
           />
         }
-        ListHeaderComponent={
-          <ListHeader
-            greeting={greeting}
-            onDigestPress={handleDigestPress}
-            hasItems={hasItems}
+      >
+        <View style={styles.header}>
+          <Text style={styles.greeting}>{greeting}</Text>
+        </View>
+
+        {/* Both read the entitlement state themselves and render nothing until
+            they have something true to say — the trial notice while a trial is
+            running, the minutes warning once the allowance is nearly spent. They
+            stack in that order and each carries its own top margin, so a trial
+            user who is also low on minutes sees both, neither displacing the
+            other. */}
+        <FreeTrialNotice />
+        <MinutesWarningBanner />
+
+        <DigestCard count={digestCount} onPress={handleDigestPress} />
+
+        {/* Absent entirely when there is nothing to continue: no heading, no
+            empty box, no placeholder tiles. A brand-new account has engaged with
+            nothing, and entries age out of the server's window on their own. */}
+        {continueTiles.length > 0 && (
+          <TileRow
+            testID="home-continue-learning-row"
+            icon="play-circle"
+            title="Continue learning"
+            tiles={continueTiles}
+            onTilePress={handleTilePress}
           />
-        }
-        ListEmptyComponent={!hasItems ? <EmptyState /> : null}
-      />
+        )}
+
+        {recentTiles.length > 0 && (
+          <TileRow
+            testID="home-recently-added-row"
+            icon="sparkles"
+            title="Recently added"
+            tiles={recentTiles}
+            onTilePress={handleTilePress}
+          />
+        )}
+
+        {!hasAnything && <EmptyState />}
+      </ScrollView>
 
       {/* box-none: the row now spans the full width, so without this it would
-          swallow taps on the list items sitting behind it. */}
+          swallow taps on the content sitting behind it. */}
       <View style={styles.fabStack} pointerEvents="box-none">
         <Pressable
           testID="inbox-camera-button"
@@ -261,65 +319,85 @@ export default function InboxScreen() {
   );
 }
 
-// --- Types ---
-
-interface UnifiedItem {
-  kind: "local" | "backend";
-  key: string;
-  local?: InboxItem;
-  backend?: MediaListItem;
-}
-
 // --- Sub-components ---
 
-interface ListHeaderProps {
-  greeting: string;
-  onDigestPress: () => void;
-  hasItems: boolean;
+interface DigestCardProps {
+  count: number | null;
+  onPress: () => void;
 }
 
-function ListHeader({ greeting, onDigestPress, hasItems }: ListHeaderProps) {
+/**
+ * The Daily Digest entry point, with today's count on its right.
+ *
+ * The badge is rendered only when there is a real figure to show: no zero, no
+ * dash, no spinner. A digest fetch that failed leaves `count` null and the card
+ * keeps working as the plain entry point it was before task-307.
+ */
+function DigestCard({ count, onPress }: DigestCardProps) {
+  const showCount = typeof count === "number" && count > 0;
+
   return (
-    <View>
-      {/* Greeting */}
-      <View style={styles.header}>
-        <Text style={styles.greeting}>{greeting}</Text>
+    <Pressable
+      style={({ pressed }) => [
+        styles.digestButton,
+        pressed && styles.digestButtonPressed,
+      ]}
+      onPress={onPress}
+      accessibilityLabel={
+        showCount
+          ? `Open Daily Digest, ${count} items`
+          : "Open Daily Digest"
+      }
+      accessibilityRole="button"
+    >
+      <View style={styles.digestIconContainer}>
+        <Ionicons name="book-outline" size={22} color={Colors.primary} />
       </View>
+      <Text style={styles.digestButtonLabel}>Daily Digest</Text>
+      <View style={styles.digestButtonRight}>
+        {showCount && (
+          <View style={styles.digestCountBadge}>
+            <Text style={styles.digestCountText}>{count}</Text>
+          </View>
+        )}
+        <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
+      </View>
+    </Pressable>
+  );
+}
 
-      {/* Both read the entitlement state themselves and render nothing until
-          they have something true to say — the trial notice while a trial is
-          running, the minutes warning once the allowance is nearly spent. They
-          stack in that order and each carries its own top margin, so a trial
-          user who is also low on minutes sees both, neither displacing the
-          other. */}
-      <FreeTrialNotice />
-      <MinutesWarningBanner />
+interface TileRowProps {
+  testID: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  tiles: HomeTileItem[];
+  onTilePress: (item: HomeTileItem) => void;
+}
 
-      {/* Daily Digest Button */}
-      <Pressable
-        style={({ pressed }) => [
-          styles.digestButton,
-          pressed && styles.digestButtonPressed,
-        ]}
-        onPress={onDigestPress}
-        accessibilityLabel="Open Daily Digest"
-        accessibilityRole="button"
-      >
-        <View style={styles.digestIconContainer}>
-          <Ionicons name="book-outline" size={22} color={Colors.primary} />
-        </View>
-        <Text style={styles.digestButtonLabel}>Daily Digest</Text>
-        <View style={styles.digestButtonRight}>
-          <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
-        </View>
-      </Pressable>
-
-      {/* Section header */}
-      {hasItems && (
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>YOUR MEDIA</Text>
-        </View>
-      )}
+/**
+ * A heading and one horizontally scrollable row of tiles.
+ *
+ * The heading is Title Case with an icon in the primary tint, replacing the
+ * uppercase muted `YOUR MEDIA` label the vertical list used. The icon is an
+ * Ionicon rather than an emoji: Ionicons is the app's icon language everywhere
+ * else, and an emoji renders differently on each platform.
+ */
+function TileRow({ testID, icon, title, tiles, onTilePress }: TileRowProps) {
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeaderRow}>
+        <Ionicons name={icon} size={18} color={Colors.primary} />
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
+      <FlatList
+        testID={testID}
+        data={tiles}
+        keyExtractor={(tile) => `${tile.kind}:${tile.id}`}
+        renderItem={({ item }) => <HomeTile item={item} onPress={onTilePress} />}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.rowContent}
+      />
     </View>
   );
 }
@@ -341,163 +419,129 @@ function EmptyState() {
   );
 }
 
-// --- Unified Item Card ---
+// --- Tile assembly ---
 
-interface UnifiedItemCardProps {
-  item: UnifiedItem;
-  onPress: (mediaItemId: string) => void;
+/**
+ * The engagement row is already merged, ordered and signed server-side, so this
+ * only maps the wire shape onto the tile shape — and keeps the order it came in.
+ */
+function toEngagementTile(entry: RecentEngagement): HomeTileItem {
+  if (entry.kind === "collection") {
+    return {
+      kind: "collection",
+      id: entry.id,
+      name: entry.title?.trim() || "Collection",
+      itemCount: entry.item_count ?? 0,
+      previewImages: entry.preview_images ?? [],
+    };
+  }
+  return {
+    kind: "media",
+    id: entry.id,
+    title: entry.title ?? null,
+    creator: entry.creator_name ?? null,
+    imageUrl: entry.image_url ?? null,
+    // No `updated_at` on this payload, and `engaged_at` would churn the cache on
+    // every engagement — the id alone is the stable identity here.
+    cacheKey: entry.id,
+    mediaType: (entry.media_type ?? "unknown") as MediaType,
+  };
 }
 
-function UnifiedItemCard({ item, onPress }: UnifiedItemCardProps) {
-  if (item.kind === "local" && item.local) {
-    return <LocalItemCard item={item.local} />;
+/**
+ * "Recently added": the newest saves and the newest collections in one row.
+ *
+ * Pending shares come first whatever their age — they are what the user just
+ * did, and keeping them at the head is what makes a share visible on return from
+ * the confirmation screen while the backend catches up.
+ *
+ * Media and collections are then interleaved on their own timestamps
+ * (`created_at` on both sides) and the whole thing is capped. A collection's
+ * mosaic borrows covers from the media list already in hand rather than issuing
+ * one request per collection: the row is a decoration, and a decoration does not
+ * get to multiply round trips.
+ */
+function buildRecentlyAdded(
+  media: MediaListItem[],
+  collections: Collection[],
+  pending: InboxItem[],
+): HomeTileItem[] {
+  const pendingTiles: HomeTileItem[] = pending.map((local) => ({
+    kind: "pending",
+    id: local.localId,
+    url: local.url,
+    sourcePlatform: local.sourcePlatform,
+    failed: local.state === "failed",
+  }));
+
+  const coversByCollection = indexCoversByCollection(media);
+  const dated: { at: number; tile: HomeTileItem }[] = [];
+
+  for (const item of media) {
+    dated.push({
+      at: toTimestamp(item.created_at),
+      tile: {
+        kind: "media",
+        id: item.media_item_id,
+        title: item.title ?? null,
+        creator: item.creator_name ?? null,
+        imageUrl: item.media_image ?? null,
+        cacheKey: `${item.media_item_id}:${item.updated_at}`,
+        mediaType: (item.media_type ?? "unknown") as MediaType,
+      },
+    });
   }
-  if (item.kind === "backend" && item.backend) {
-    return <BackendItemCard item={item.backend} onPress={onPress} />;
-  }
-  return null;
-}
 
-// --- Backend Item Card (no status badge) ---
-
-interface BackendItemCardProps {
-  item: MediaListItem;
-  onPress: (mediaItemId: string) => void;
-}
-
-function BackendItemCard({ item, onPress }: BackendItemCardProps) {
-  // Keyed by media id rather than a bare boolean, like `MediaListCard`: a
-  // `FlatList` cell can be handed a different item, and a failure recorded for
-  // the previous one must not hide the new one's cover.
-  const [failedCoverId, setFailedCoverId] = useState<string | null>(null);
-
-  const sourceUrl = item.source_url ?? "";
-
-  let displayDomain: string;
-  try {
-    displayDomain = new URL(sourceUrl).hostname.replace(/^www\./, "");
-  } catch {
-    displayDomain = sourceUrl;
+  for (const collection of collections) {
+    dated.push({
+      at: toTimestamp(collection.created_at),
+      tile: {
+        kind: "collection",
+        id: collection.id,
+        name: collection.name,
+        itemCount: collection.media_count,
+        previewImages: coversByCollection.get(collection.id) ?? [],
+      },
+    });
   }
 
-  const mediaType = (item.media_type ?? "unknown") as MediaType;
-  const mediaTypeLabel = getMediaTypeLabel(mediaType);
-  const mediaTypeBgColor = getMediaTypeBgColor(mediaType);
-  const timeAgo = getRelativeTime(item.created_at);
-  const icon = getMediaTypeIcon(mediaType);
+  dated.sort((a, b) => b.at - a.at);
 
-  // The stored title, as-is: it is derived server-side and never empty
-  // (task-266). The URL fallback that used to live here duplicated the domain
-  // line rendered right below the title.
-  const displayTitle = item.title;
-
-  // Already a fetchable URL: a re-hosted cover is an `s3://` locator server-side
-  // and the API signs it on read (task-304). With no cover -- or when loading
-  // one fails -- the media-type glyph is drawn on the same tonal square, so a
-  // row with a picture and a row without keep the same silhouette.
-  const coverUrl = item.media_image?.trim() ?? "";
-  const showCover = coverUrl.length > 0 && failedCoverId !== item.media_item_id;
-
-  return (
-    <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-      onPress={() => onPress(item.media_item_id)}
-      accessibilityLabel={`${mediaTypeLabel} from ${displayDomain}`}
-      accessibilityRole="button"
-    >
-      <View style={styles.cardContent}>
-        <View style={styles.thumbnailContainer}>
-          {showCover ? (
-            <Image
-              source={{
-                uri: coverUrl,
-                // Survives the rotating signature of a presigned cover.
-                cacheKey: `${item.media_item_id}:${item.updated_at}`,
-              }}
-              recyclingKey={item.media_item_id}
-              cachePolicy="memory-disk"
-              contentFit="cover"
-              transition={150}
-              priority="low"
-              style={styles.thumbnailImage}
-              onError={() => setFailedCoverId(item.media_item_id)}
-              accessible={false}
-            />
-          ) : (
-            <Ionicons name={icon} size={28} color={Colors.textMuted} />
-          )}
-        </View>
-
-        {/* Text content */}
-        <View style={styles.cardTextSection}>
-          {/* Type badge + time */}
-          <View style={styles.cardMeta}>
-            <View
-              style={[styles.typeBadge, { backgroundColor: mediaTypeBgColor }]}
-            >
-              <Text style={styles.typeBadgeText}>{mediaTypeLabel}</Text>
-            </View>
-            <Text style={styles.timeText}>{timeAgo}</Text>
-          </View>
-
-          {/* Title / URL */}
-          <Text style={styles.cardTitle} numberOfLines={2}>
-            {displayTitle}
-          </Text>
-
-          {/* Source domain */}
-          <Text style={styles.cardDomain}>{displayDomain}</Text>
-        </View>
-      </View>
-    </Pressable>
+  return [...pendingTiles, ...dated.map((entry) => entry.tile)].slice(
+    0,
+    RECENTLY_ADDED_LIMIT,
   );
 }
 
-// --- Local (optimistic) Item Card ---
-
-interface LocalItemCardProps {
-  item: InboxItem;
-}
-
-function LocalItemCard({ item }: LocalItemCardProps) {
-  let displayDomain: string;
-  try {
-    const parsed = new URL(item.url);
-    displayDomain = parsed.hostname.replace(/^www\./, "");
-  } catch {
-    displayDomain = item.url;
+/**
+ * Up to four member covers per collection, taken from the media list the screen
+ * already holds — one pass over it rather than one scan per collection.
+ *
+ * Best-effort by construction: the list endpoint is capped, so a collection
+ * whose members all fall outside it draws the accent surface instead, which is a
+ * designed state and not a degraded one. The media list arrives newest-first, so
+ * the covers kept are the collection's newest.
+ */
+function indexCoversByCollection(media: MediaListItem[]): Map<string, string[]> {
+  const byCollection = new Map<string, string[]>();
+  for (const item of media) {
+    const collectionId = item.folder_id;
+    if (!collectionId) continue;
+    const cover = item.media_image?.trim();
+    if (!cover) continue;
+    const covers = byCollection.get(collectionId) ?? [];
+    if (covers.length >= MAX_COLLECTION_PREVIEWS) continue;
+    covers.push(cover);
+    byCollection.set(collectionId, covers);
   }
-
-  const isFailed = item.state === "failed";
-  const icon = getSourcePlatformIcon(item.sourcePlatform);
-
-  return (
-    <View
-      style={[styles.card, isFailed && styles.cardFailed]}
-      accessibilityLabel={`Pending link from ${displayDomain}`}
-    >
-      <View style={styles.cardContent}>
-        <View style={styles.thumbnailContainer}>
-          {isFailed ? (
-            <Ionicons name="alert-circle" size={28} color={Colors.error} />
-          ) : (
-            <Ionicons name={icon} size={28} color={Colors.textMuted} />
-          )}
-        </View>
-        <View style={styles.cardTextSection}>
-          {/* Title = URL */}
-          <Text style={styles.cardTitle} numberOfLines={2}>
-            {item.url}
-          </Text>
-          <Text style={styles.cardDomain}>{displayDomain}</Text>
-          {isFailed && item.errorMessage && (
-            <Text style={styles.errorMessage}>{item.errorMessage}</Text>
-          )}
-        </View>
-      </View>
-    </View>
-  );
+  return byCollection;
 }
+
+function toTimestamp(value?: string | null): number {
+  const parsed = Date.parse(value ?? "");
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 
 // --- Helper functions ---
 
@@ -518,66 +562,6 @@ function getGreeting(name?: string | null): string {
   return `Good ${timeOfDay}`;
 }
 
-
-function getMediaTypeLabel(type: MediaType): string {
-  switch (type) {
-    case "podcast_episode":
-      return "PODCAST";
-    case "article":
-      return "ARTICLE";
-    case "youtube_video":
-      return "VIDEO";
-    case "short_video":
-      return "SHORT";
-    case "audio_file":
-    case "audio":
-      return "AUDIO";
-    case "shared_text":
-      return "TEXT";
-    case "document":
-      return "DOC";
-    default:
-      return "LINK";
-  }
-}
-
-function getMediaTypeBgColor(type: MediaType): string {
-  switch (type) {
-    case "podcast_episode":
-      return Colors.primary;
-    case "youtube_video":
-    case "short_video":
-      return Colors.errorContainer;
-    case "article":
-      return Colors.surfaceContainerHigh;
-    default:
-      return Colors.surfaceContainerHigh;
-  }
-}
-
-
-function getSourcePlatformIcon(
-  platform?: SourcePlatform,
-): React.ComponentProps<typeof Ionicons>["name"] {
-  switch (platform) {
-    case "spotify":
-    case "apple_podcasts":
-    case "deezer":
-    case "rss":
-    case "podcast_index":
-      return "headset-outline";
-    case "youtube":
-      return "play-circle-outline";
-    case "instagram":
-    case "tiktok":
-      return "videocam-outline";
-    case "x":
-      return "chatbubble-outline";
-    default:
-      return "link-outline";
-  }
-}
-
 // --- Styles ---
 
 const styles = StyleSheet.create({
@@ -595,10 +579,12 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: Colors.textMain,
   },
-  listContent: {
-    // Room for the floating add button so it never covers the last card.
+  scrollContent: {
+    // Room for the floating buttons so they never cover the last row.
     paddingBottom: TouchTarget.large + Spacing.xl,
   },
+
+  // Loading state
   centeredContainer: {
     flex: 1,
     justifyContent: "center",
@@ -677,105 +663,43 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.sm,
   },
-
-  // Section
-  sectionHeaderRow: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.md,
-  },
-  sectionTitle: {
-    fontSize: Typography.small.fontSize,
-    fontWeight: "700",
-    color: Colors.textMuted,
-    letterSpacing: 0.8,
-  },
-
-  // Card
-  card: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.sm + 4,
-    marginHorizontal: Spacing.md,
-    marginBottom: Spacing.md,
-    minHeight: TouchTarget.comfortable,
-    ...Shadows.soft,
-  },
-  cardPressed: {
-    transform: [{ scale: 0.98 }],
-    opacity: 0.9,
-  },
-  cardFailed: {
-    borderWidth: 1,
-    borderColor: Colors.errorContainer,
-  },
-  cardContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-  },
-  thumbnailContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.surfaceContainerLow,
+  digestCountBadge: {
+    minWidth: 24,
+    paddingHorizontal: Spacing.xs + 2,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
     alignItems: "center",
     justifyContent: "center",
-    // The container frames the cover as well as the fallback glyph, so the
-    // picture has to be clipped to its rounded corners.
-    overflow: "hidden",
   },
-  thumbnailImage: {
-    width: "100%",
-    height: "100%",
+  digestCountText: {
+    fontSize: Typography.small.fontSize,
+    fontWeight: "700",
+    color: Colors.textMain,
   },
-  cardTextSection: {
-    flex: 1,
-    paddingVertical: Spacing.xs,
-    gap: 2,
+
+  // Rows
+  section: {
+    marginBottom: Spacing.lg,
   },
-  cardMeta: {
+  sectionHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
-    marginBottom: Spacing.xs,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
   },
-  typeBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.md,
-  },
-  typeBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
+  sectionTitle: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: Typography.headline.fontWeight,
     color: Colors.textMain,
-    letterSpacing: 0.5,
   },
-  timeText: {
-    fontSize: 11,
-    color: Colors.textMuted,
-  },
-  cardTitle: {
-    fontSize: Typography.body.fontSize,
-    fontWeight: "700",
-    color: Colors.textMain,
-    lineHeight: 22,
-  },
-  cardDomain: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-  },
-  errorMessage: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.error,
-    marginTop: Spacing.xs,
+  rowContent: {
+    paddingHorizontal: Spacing.md,
+    gap: TILE_GAP,
   },
 
-  // Add button (floating): the entry point for a file import or a photo.
-  // The two ingestion controls sit side by side, centred over the list, with the
-  // primary one on the right. Both are opaque and carry a filled colour rather
-  // than an outline: the background is a pale cream, so a white or near-white
-  // button would read as a shadow rather than a control.
+  // Floating ingestion controls (unchanged: task-264)
   fabStack: {
     position: "absolute",
     left: 0,

@@ -995,9 +995,12 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
 **Déclencheur de réactivation** : l'UI est figée, c'est-à-dire qu'aucune refonte
 d'écran n'est plus prévue. C'est un jalon produit, pas une date. Les flows
 vérifient la copie affichée et des `testID` (`Welcome back`, `Good .*`,
-`YOUR MEDIA`, `AI Artifacts`, `Choose Your Plan`, `Reader`/`Mix`/`Audio-Heavy`,
-`paywall-screen`, `search-result-card`…) : tant qu'un écran peut bouger, chaque
-itération de design casse des selectors et la remise au vert est à refaire.
+`Continue learning`/`Recently added`, `AI Artifacts`, `Choose Your Plan`,
+`Reader`/`Mix`/`Audio-Heavy`, `paywall-screen`, `search-result-card`…) : tant
+qu'un écran peut bouger, chaque itération de design casse des selectors et la
+remise au vert est à refaire. Illustration : `task-307` a remplacé la liste
+verticale de l'Inbox par deux rangées de tuiles, ce qui a périmé l'ancien
+sélecteur `YOUR MEDIA` cité ici jusqu'au 2026-08-21.
 
 **Ce qui dort** : uniquement les déclencheurs automatiques `push` (branches
 `main`, `second-brain-project`) et `pull_request` de

@@ -1,11 +1,16 @@
-# Flow 03: Inbox Visibility
-# Verifies that shared items appear in the inbox after a share submission.
+# Flow 03: Home Visibility
+# Verifies that shared items appear on the Home screen after a share submission.
 #
-# The current inbox UI deliberately omits per-item processing badges/spinners
-# (see app/(tabs)/inbox.tsx header comment) — items either appear as optimistic
-# pending placeholders or as plain backend cards with a media-type badge.
+# Since task-307 this screen is no longer a vertical list of every item: it is a
+# greeting, the Daily Digest card, and two horizontally scrollable rows of tiles
+# — "Continue learning" and "Recently added". The full library moved to the
+# Search tab (task-306), so nothing asserted here looks for it.
 #
-# Last reviewed against the codebase on 2026-06-11.
+# A pending share renders as a tile at the head of "Recently added" showing the
+# shared URL, which is what makes the post-share assertion below resolvable
+# before the backend has confirmed anything.
+#
+# Last reviewed against the codebase on 2026-08-21.
 appId: com.secondbrainlabs.core
 tags:
   - critical
@@ -25,7 +30,7 @@ tags:
 
 - runFlow: utils/login.yaml
 
-# Inbox: greeting + Daily Digest entry point
+# Home: greeting + Daily Digest entry point
 - assertVisible:
     text: "Good .*"
     regex: true
@@ -34,12 +39,20 @@ tags:
 - assertVisible:
     text: "Daily Digest"
 
-# When the inbox already has items, the YOUR MEDIA section header is shown.
+# "Continue learning" is absent entirely until the account has engaged with
+# something — a generation launched, or an artifact opened and read. A freshly
+# seeded test account has done neither, so this is optional by design.
 - assertVisible:
-    text: "YOUR MEDIA"
+    text: "Continue learning"
     optional: true
 
-# Simulate a share to populate the inbox
+# "Recently added" holds whatever the account already has; it becomes
+# non-optional after the share below.
+- assertVisible:
+    text: "Recently added"
+    optional: true
+
+# Simulate a share to populate the row
 - openLink: "media-summarizer://share?url=${SHARE_TEST_URL}&sourceApp=android-share-intent"
 
 - assertVisible:
@@ -53,28 +66,26 @@ tags:
     text: "Saved!"
     timeout: 8000
 
-# Wait for auto-dismiss back to inbox
+# Wait for auto-dismiss back to Home
 - assertVisible:
     text: "Inbox"
     timeout: 8000
 
-# Verify the shared URL host appears in a card. Cards may be either:
-# - the optimistic "local" placeholder (pre-confirmation),
-# - or the backend card once useMediaPolling has refetched on focus.
+# The share is now in the row, either as the optimistic pending tile (which
+# shows the shared URL while the backend catches up) or as the confirmed media
+# tile once useMediaPolling has refetched on focus. Either way the row exists.
+- assertVisible:
+    text: "Recently added"
+    timeout: 15000
+
 - extendedWaitUntil:
     visible:
       text: "youtube.com"
     timeout: 15000
 
-# Once the backend card lands, a media-type badge becomes visible.
-# YouTube URLs surface as "VIDEO" via getMediaTypeLabel("youtube_video").
-- assertVisible:
-    text: "VIDEO"
-    optional: true
-    timeout: 15000
-
-# Pull-to-refresh sanity check (does not assert anything specific — we mostly
-# want to confirm no crash and that the screen still renders the greeting).
+# The row scrolls horizontally; the page scrolls vertically. Both are exercised
+# here as a sanity check — we mostly want to confirm no crash and that the
+# screen still renders the greeting afterwards.
 - scroll:
     direction: DOWN
     duration: 500

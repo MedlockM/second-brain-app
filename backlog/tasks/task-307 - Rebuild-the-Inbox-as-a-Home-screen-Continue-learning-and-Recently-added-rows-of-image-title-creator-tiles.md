@@ -3,9 +3,10 @@ id: task-307
 title: >-
   Rebuild the Inbox as a Home screen: Continue learning and Recently added rows
   of image/title/creator tiles
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-20 16:18'
+updated_date: '2026-08-21 01:10'
 labels:
   - mobile
   - ui
@@ -64,18 +65,79 @@ The vertical `FlatList` over `unifiedItems`, `UnifiedItemCard`, `BackendItemCard
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Inbox renders a greeting, the Daily Digest card, then a horizontally scrollable 'Continue learning' row and a horizontally scrollable 'Recently added' row, and no vertical list of media items remains on the screen
-- [ ] #2 Continue learning is fed by the read path task-305 exposes, keeps that order, and the entire section including its heading is absent when the list is empty
-- [ ] #3 Recently added merges the most recently saved media and the most recently created collections into one newest-first row, capped at a limit stated in the code
-- [ ] #4 Pending local share items appear at the head of Recently added showing the shared URL, so a share is visible on return from the confirmation screen
-- [ ] #5 One shared tile component renders both rows with a large cover image, a title on up to three lines and the creator on one muted line, reading media_image and creator_name through expo-image with the props and ratio the task-302 README specifies
-- [ ] #6 A tile with no available image falls back to the media-type icon on a theme surface, and a collection tile renders a mosaic of up to four member covers or an accent surface with its name and item count
-- [ ] #7 A media tile opens /media/<id> and a collection tile opens /media/collections/<id>
-- [ ] #8 The Daily Digest card shows the daily digest count and renders no badge at all when the figure is unavailable, with a failed digest fetch leaving the card usable
-- [ ] #9 Each of the three data sources fails independently: one error never blanks the other sections, and no section can be left permanently loading — only the first load may show a full-screen spinner
-- [ ] #10 The vertical list and its now-unused parts are deleted — UnifiedItemCard, BackendItemCard, LocalItemCard, the YOUR MEDIA header and any helper or style left with no reader
-- [ ] #11 inbox-screen, inbox-camera-button, inbox-add-button and the AddSourceSheet behaviour are unchanged, and pull-to-refresh plus refetch-on-focus with entitlement refresh still work
-- [ ] #12 mobile/.maestro/03_inbox_visibility.yaml no longer asserts YOUR MEDIA, asserts the two new sections instead, and its post-share assertion resolves against the pending tile
-- [ ] #13 FreeTrialNotice (testID free-trial-notice) and MinutesWarningBanner both still render in the new header, in that order and without overlap, neither restyled
-- [ ] #14 Each row carries a testID, each tile an accessibilityLabel, touch targets stay at 48 px minimum, only theme.ts tokens are used, and cd mobile && npm run typecheck && npm run lint are clean
+- [x] #1 The Inbox renders a greeting, the Daily Digest card, then a horizontally scrollable 'Continue learning' row and a horizontally scrollable 'Recently added' row, and no vertical list of media items remains on the screen
+- [x] #2 Continue learning is fed by the read path task-305 exposes, keeps that order, and the entire section including its heading is absent when the list is empty
+- [x] #3 Recently added merges the most recently saved media and the most recently created collections into one newest-first row, capped at a limit stated in the code
+- [x] #4 Pending local share items appear at the head of Recently added showing the shared URL, so a share is visible on return from the confirmation screen
+- [x] #5 One shared tile component renders both rows with a large cover image, a title on up to three lines and the creator on one muted line, reading media_image and creator_name through expo-image with the props and ratio the task-302 README specifies
+- [x] #6 A tile with no available image falls back to the media-type icon on a theme surface, and a collection tile renders a mosaic of up to four member covers or an accent surface with its name and item count
+- [x] #7 A media tile opens /media/<id> and a collection tile opens /media/collections/<id>
+- [x] #8 The Daily Digest card shows the daily digest count and renders no badge at all when the figure is unavailable, with a failed digest fetch leaving the card usable
+- [x] #9 Each of the three data sources fails independently: one error never blanks the other sections, and no section can be left permanently loading — only the first load may show a full-screen spinner
+- [x] #10 The vertical list and its now-unused parts are deleted — UnifiedItemCard, BackendItemCard, LocalItemCard, the YOUR MEDIA header and any helper or style left with no reader
+- [x] #11 inbox-screen, inbox-camera-button, inbox-add-button and the AddSourceSheet behaviour are unchanged, and pull-to-refresh plus refetch-on-focus with entitlement refresh still work
+- [x] #12 mobile/.maestro/03_inbox_visibility.yaml no longer asserts YOUR MEDIA, asserts the two new sections instead, and its post-share assertion resolves against the pending tile
+- [x] #13 FreeTrialNotice (testID free-trial-notice) and MinutesWarningBanner both still render in the new header, in that order and without overlap, neither restyled
+- [x] #14 Each row carries a testID, each tile an accessibilityLabel, touch targets stay at 48 px minimum, only theme.ts tokens are used, and cd mobile && npm run typecheck && npm run lint are clean
 <!-- AC:END -->
+
+
+## Implementation Notes
+<!-- SECTION:NOTES:BEGIN -->
+### Ce qui a été écrit
+
+- `mobile/src/components/HomeTile.tsx` (nouveau) — la tuile partagée des deux rangées, plus la mosaïque de collection.
+- `mobile/src/hooks/useHomeSections.ts` (nouveau) — les deux sources que l'écran possède en propre (engagements, collections) et le compteur du digest.
+- `mobile/app/(tabs)/inbox.tsx` — réécrit : `ScrollView` + deux `FlatList` horizontales à la place de la `FlatList` verticale.
+- `mobile/.maestro/03_inbox_visibility.yaml` — assertions mises à jour.
+
+### Constantes de layout (à lire sans builder — cf. note owner)
+
+```
+TILE_WIDTH        = 200      // HomeTile.tsx
+TILE_COVER_HEIGHT = 113      // 200 x 113 = 16:9 à un demi-point près
+TILE_GAP          = Spacing.md (16)
+rowContent        = { paddingHorizontal: Spacing.md (16), gap: 16 }
+titre             = Typography.label, fontSize 15, lineHeight 20, numberOfLines 3
+sous-titre        = Typography.small, Colors.textSubtle, numberOfLines 1
+RECENTLY_ADDED_LIMIT   = 12
+MAX_COLLECTION_PREVIEWS = 4
+```
+
+Ce que ces nombres donnent au bord droit : la tuile 1 occupe [16, 216], la tuile 2 démarre à 232. Sur l'écran le plus étroit visé (375 pt) il en reste ~143 pt de visible, ~158 pt sur 390 pt — coupée dans les deux cas, jamais affleurante. C'est le seul signal qui dit à l'utilisateur que la rangée défile, d'où le choix de 200 plutôt que 176 (qui laissait la deuxième tuile entièrement visible sur 390 pt).
+
+### Décisions à connaître
+
+**La mosaïque de « Recently added » ne coûte aucune requête.** L'API des engagements livre `preview_images` pour « Continue learning », mais `GET /api/folders` ne renvoie pas de couvertures. Plutôt qu'une requête par collection, les couvertures sont indexées en une passe sur la liste média déjà en main (`indexCoversByCollection`), par `folder_id`. C'est du best-effort assumé : une collection dont aucun membre n'est dans la page courante retombe sur la surface accent, qui est un état conçu, pas un état dégradé.
+
+**Clé de cache des images.** Les tuiles média de « Recently added » utilisent `${media_item_id}:${updated_at}`, la forme exacte du §6.2 du README task-302. Les tuiles issues des engagements n'ont pas d'`updated_at` dans leur payload et `engaged_at` changerait à chaque engagement — donc l'`id` seul, qui est l'identité stable disponible. Les vignettes de mosaïque, elles, sont signées : leur clé est l'URL amputée de sa query string, ce qui survit à la rotation de signature tout en changeant quand l'objet change.
+
+**Le sentinel de la rangée vide.** « Continue learning » disparaît en entier quand la liste est vide (AC #2). « Recently added » disparaît de même quand il n'y a rien du tout, et l'`EmptyState` d'origine (« Your shared media will appear here. ») reprend la main — il n'était pas dans la liste des suppressions de l'AC #10 et c'est la seule affordance d'onboarding de l'écran.
+
+**Indépendance des sources (AC #9).** `useHomeSections` émet ses trois appels en `Promise.allSettled` : un rejet laisse les deux autres utilisables, et un refresh qui échoue conserve la valeur précédente plutôt que de vider la section. Aucune des trois n'expose de flag de chargement — une rangée sans contenu est absente, ce qui rend un spinner de section inutile par construction. Le seul spinner plein écran reste celui du premier `fetch` média, inchangé.
+
+**Le `setState` différé d'un tick** dans `useHomeSections` reprend la forme de `useMediaPolling` : la règle `react-hooks/set-state-in-effect` est active dans ce dépôt et refuse un `setState` atteint synchroniquement depuis un effet.
+
+### Deux points pour la relecture owner
+
+1. **La collection sans couverture affiche son nom deux fois** — une fois sur le bloc accent (l'AC #6 demande « an accent surface with its name and item count ») et une fois sur la ligne de titre de la tuile, juste en dessous, puisque le composant est partagé avec les tuiles média. L'AC est satisfaite littéralement ; si la redondance déplaît au simulateur, retirer le `accentName` de `HomeTile.tsx` suffit. C'est exactement la pièce que la note owner signalait comme sans référence dans le screenshot.
+2. **Une couleur littérale subsiste sur cet écran** : `digestIconContainer` porte `"rgba(255, 203, 5, 0.1)"`. C'est du code d'origine, sur la carte que la tâche demandait explicitement de garder telle quelle en n'y ajoutant que le compteur ; `theme.ts` n'expose pas de token « primary à 10 % » et l'exprimer via `opacity` délaverait aussi l'icône. Tout le code neuf (tuile, rangées, badge) n'utilise que des tokens.
+
+### Suppressions (AC #10)
+
+`UnifiedItemCard`, `BackendItemCard`, `LocalItemCard`, le type `UnifiedItem`, le `ListHeader` et son en-tête `YOUR MEDIA`, la `FlatList` verticale, ainsi que `getMediaTypeLabel`, `getMediaTypeBgColor`, `getRelativeTime` et les styles de carte (`card`, `cardContent`, `thumbnailContainer`, `typeBadge`, `cardMeta`, `timeText`, `cardDomain`, `errorMessage`, `cardFailed`…) — plus aucune tuile ne porte de badge de type ni d'horodatage. `grep -rn "UnifiedItemCard\|BackendItemCard\|LocalItemCard\|UnifiedItem"` sur `mobile/` ne renvoie rien. Les copies de `getMediaTypeLabel` / `getMediaTypeBgColor` qui subsistent dans `MediaListCard.tsx` sont lues par l'onglet Search et ne sont pas concernées. Le type local `PendingShare` que j'avais introduit a été remplacé par l'`InboxItem` existant plutôt que de créer un jumeau.
+
+### Maestro (AC #12)
+
+`03_inbox_visibility.yaml` n'assère plus `YOUR MEDIA` ni le badge `VIDEO` (les tuiles n'en portent plus). Il assère « Continue learning » en `optional` — un compte de test fraîchement créé n'a engagé avec rien, la rangée est donc légitimement absente — et « Recently added » en `optional` avant le partage, puis en assertion ferme après, car la tuile optimiste la fait exister à coup sûr. L'assertion post-partage `youtube.com` se résout sur cette même tuile, dont le titre est l'URL partagée. Rien n'est affirmé ici sur un *run* : seul le câblage du YAML est vérifiable depuis le worktree.
+
+Egalement mis à jour : `docs/V1_LAUNCH_PLAN.md` citait `YOUR MEDIA` comme exemple de sélecteur Maestro fragile — l'exemple est devenu littéralement vrai, il est remplacé par les nouveaux sélecteurs avec la date de péremption de l'ancien.
+
+### Vérifications
+
+`cd mobile && npm run typecheck` puis `npm run lint` : 0 erreur. Les deux warnings restants (`digest.tsx` `CARD_WIDTH` inutilisé, `purchaseService.ts` `any`) préexistent dans des fichiers que cette tâche ne touche pas.
+
+### Note owner (hors AC)
+
+Seul un simulateur peut juger la largeur de tuile, le cadrage 16:9 et la profondeur du peek au bord droit. Les constantes sont ci-dessus pour être lues sans build ; les deux points de relecture listés plus haut sont ceux qui méritent un coup d'œil avant de ficher l'écran.
+<!-- SECTION:NOTES:END -->
