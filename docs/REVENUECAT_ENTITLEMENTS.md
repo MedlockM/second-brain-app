@@ -53,8 +53,16 @@ key to RevenueCat — and neither needs a code change: the identifiers and the
 package lookup keys already match. Checklist:
 `docs/V1_LAUNCH_PLAN.md` Phase 6, item 3.
 
-No Google Play app is declared yet; that is `task-238`, which attaches its
-products to the same entitlements.
+A Google Play app was added to the project on 2026-08-20 — `appb253c0f75a`,
+package `com.secondbrainlabs.core` — and holds **no product**. Its service
+account credentials upload but do not validate: RevenueCat authenticates, then
+Google answers that the package name does not exist. A package name only becomes
+visible to the Google Play Developer API once a signed bundle carrying that
+`applicationId` has been uploaded to a test track — creating the app in Play
+Console is not enough, since the name is fixed by the first AAB and not at
+creation. So the Android products wait on the Android build (`task-163`), and
+`task-238` attaches them to the same entitlements afterwards. Its Implementation
+Notes carry the full state.
 
 ## Offering and packages
 
@@ -95,8 +103,11 @@ Where the SDK keys come from, since none of them is in `mobile/eas.json`: the
 iOS one lives in `mobile/.env`, which is gitignored, so a local build reads it
 and an EAS cloud build does not; the Maestro job injects the Test Store key
 through the environment and never reads `eas.json` either, building with
-`expo prebuild` + `xcodebuild`. There is no Android key at all — no Google Play
-app is declared in the project yet (`task-238`).
+`expo prebuild` + `xcodebuild`. The Android key exists since the Play app was
+created — RevenueCat mints a public SDK key at that moment, whether or not the
+service credentials validate — but `mobile/.env` still holds the
+`.env.example` placeholder for it, so Android configures the SDK with a
+placeholder string today (`task-238`).
 
 ## Adding a store product
 
