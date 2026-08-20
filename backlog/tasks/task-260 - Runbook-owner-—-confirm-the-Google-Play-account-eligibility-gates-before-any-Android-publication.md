@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-13 19:01'
-updated_date: '2026-08-19 20:08'
+updated_date: '2026-08-21 01:20'
 labels:
   - release
   - owner-only
@@ -14,6 +14,7 @@ labels:
   - phase-10
 dependencies: []
 priority: high
+dispatchable: false
 ---
 
 ## Description
@@ -22,6 +23,8 @@ priority: high
 ⚠️ **MANUEL — OWNER UNIQUEMENT. NE JAMAIS DISPATCHER VERS UN SUBAGENT.**
 
 Toutes les étapes se passent dans la Play Console derrière l'authentification de l'owner, et plusieurs manipulent des données d'identité et bancaires. Aucun agent ne peut y accéder, et aucun agent ne doit tenter de les reconstituer.
+
+**`dispatchable: false` posé le 2026-08-21.** L'avertissement ci-dessus n'existait que dans cette description : le front-matter, lui, ne portait pas le verrou, si bien que `scripts/dispatch_backlog.sh` — qui construit sa denylist en lisant `dispatchable: false` dans le front-matter et rien d'autre — laissait cette tâche éligible au dispatch. Sans dépendance non résolue et en priorité `high`, elle serait partie en tête de la sélection de la Phase 1. Le verrou est maintenant là où le script le lit.
 
 ## Pourquoi cette tâche
 
