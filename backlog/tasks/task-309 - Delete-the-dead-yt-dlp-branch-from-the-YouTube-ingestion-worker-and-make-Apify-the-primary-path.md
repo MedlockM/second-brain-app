@@ -3,9 +3,10 @@ id: task-309
 title: >-
   Delete the dead yt-dlp branch from the YouTube ingestion worker and make Apify
   the primary path
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-20 19:38'
+updated_date: '2026-08-20 23:40'
 labels:
   - backend
   - ingestion
@@ -56,11 +57,68 @@ Confirm after the deploy on `main` by saving a YouTube video and a YouTube short
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The YouTube worker no longer imports yt_dlp and contains no yt-dlp extraction attempt, no IP-block/geo/age/unavailable predicate written against yt-dlp errors, and no ip_blocked fallback plumbing
-- [ ] #2 The Apify transcript path is the worker's first and only transcript path, with its language fallback, actor-dialect resolution, callback/backstop orchestration and quota debiting behaviourally unchanged
-- [ ] #3 Videos that are geo-restricted, age-restricted or unavailable still resolve to a specific user-facing error through the ApifyTranscriptFailure taxonomy, and the mapping used for each is documented in the code
-- [ ] #4 Every Terraform dashboard widget and alarm keyed on a yt-dlp-specific YouTube event or metric is removed, and terraform validate is clean
-- [ ] #5 grep for yt_dlp and ytdlp across the YouTube worker returns nothing, while the TikTok worker's yt-dlp path is untouched and the yt_dlp dependency remains declared for it
-- [ ] #6 docs/ADR/social-video-and-youtube-ingestion-fallback-strategy.md marks the previous YouTube strategy superseded and records Apify-only as the current one, citing the 2026-08-20 dev measurement (10/10 saves via Apify, bot-check on every yt-dlp attempt)
-- [ ] #7 ruff and mypy are clean on the changed Python files
+- [x] #1 The YouTube worker no longer imports yt_dlp and contains no yt-dlp extraction attempt, no IP-block/geo/age/unavailable predicate written against yt-dlp errors, and no ip_blocked fallback plumbing
+- [x] #2 The Apify transcript path is the worker's first and only transcript path, with its language fallback, actor-dialect resolution, callback/backstop orchestration and quota debiting behaviourally unchanged
+- [x] #3 Videos that are geo-restricted, age-restricted or unavailable still resolve to a specific user-facing error through the ApifyTranscriptFailure taxonomy, and the mapping used for each is documented in the code
+- [x] #4 Every Terraform dashboard widget and alarm keyed on a yt-dlp-specific YouTube event or metric is removed, and terraform validate is clean
+- [x] #5 grep for yt_dlp and ytdlp across the YouTube worker returns nothing, while the TikTok worker's yt-dlp path is untouched and the yt_dlp dependency remains declared for it
+- [x] #6 docs/ADR/social-video-and-youtube-ingestion-fallback-strategy.md marks the previous YouTube strategy superseded and records Apify-only as the current one, citing the 2026-08-20 dev measurement (10/10 saves via Apify, bot-check on every yt-dlp attempt)
+- [x] #7 ruff and mypy are clean on the changed Python files
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Apify is now the worker's only transcript path. The yt-dlp branch, the subtitle
+candidate collection, the direct-media-URL resolution and the Deepgram push
+hand-off are gone; `DEEPGRAM_TRANSCRIPTION_QUEUE`, `YTDLP_TIMEOUT_SECONDS` and
+`YOUTUBE_SUBTITLE_FETCH_TIMEOUT_SECONDS` are no longer read by this worker.
+The file went from 1046 to 468 lines.
+
+**AC #3 required real work, not just deletion.** The yt-dlp branch carried the
+geo / age / unavailable predicates (`_is_geo_restricted_error` and friends,
+matched against yt-dlp exception strings) and their dedicated user messages.
+Deleting it would have collapsed every actor refusal into a single generic
+`apify_actor_error`. The specificity is restored on the Apify side by
+`_classify_actor_error`, which matches substrings of the actor's
+`error_category`: `geo`/`region`/`country`, `age`/`sign_in`/`login`,
+`unavailable`/`private`/`deleted`/`removed`/`not_found`, else
+`apify_actor_error:<category>`. Three members were added to
+`ApifyTranscriptFailure` (`GEO_RESTRICTED`, `AGE_RESTRICTED`,
+`VIDEO_UNAVAILABLE`) and the error codes `youtube_geo_restricted` /
+`youtube_age_restricted` are preserved, so the observability contract is
+unchanged. The mapping table lives in the function docstring and is mirrored in
+`docs/INGESTION_WORKERS_PROVIDERS.md`.
+
+**AC #4 was a no-op, verified rather than assumed.** `grep -rn
+'ytdlp|yt_dlp|yt-dlp|ip_blocked|native_subtitles|strategy_used'` over
+`infrastructure/` returns nothing under `terraform/`: the YouTube widgets in
+`pipeline_dashboard.tf` are platform-generic (`IngestByPlatform`, queue depth,
+`apify_calls`) and no alarm is keyed on a yt-dlp event. The only hit was prose
+in `infrastructure/observability/runbooks/pipeline-alerts.md:299`, which blamed
+"yt-dlp outdated" for youtube-ingestion failures; it now names the Apify failure
+modes. `terraform validate` (envs/dev) and `terraform fmt -check -recursive` are
+clean.
+
+**Beyond the ACs, kept minimal:** `.env.example` lost the now-orphaned
+`YOUTUBE_SUBTITLE_FETCH_TIMEOUT_SECONDS` (no reader left anywhere) and its stale
+"transcript-first via youtube-transcript-api" header;
+`scripts/check_env_example_complete.py` passes. `YTDLP_TIMEOUT_SECONDS` stays —
+the TikTok worker and the Instagram resolver still read it.
+
+**Noticed, deliberately not touched (out of scope):**
+`YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS` is still defined in
+`media_summarizer/core/config.py:52` but is a leftover of the
+`youtube-transcript-api` era removed by task-129, unrelated to the yt-dlp
+branch. Worth its own cleanup task.
+
+Checks: `ruff check .` clean · `mypy media_summarizer/` clean (174 files) ·
+`terraform validate` + `fmt -check` clean · `check_env_example_complete.py` OK
+(236 vars). No automated tests written, per project rule.
+
+**Owner note — the behaviour is only observable after the worker image is
+redeployed on push to `main`.** Then save a YouTube URL on dev and check
+`processing_jobs-dev` shows `extractor: apify_youtube_transcript` with a single
+~1.6 s invocation and no `Sign in to confirm you're not a bot` line in
+`/aws/lambda/media-summarizer-worker-youtube_ingestion-dev`.
+<!-- SECTION:NOTES:END -->
