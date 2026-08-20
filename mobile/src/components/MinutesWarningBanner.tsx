@@ -73,7 +73,7 @@ export function MinutesWarningBanner(): React.JSX.Element | null {
         <Pressable
           testID="minutes-warning-see-plans"
           style={({ pressed }) => [styles.link, pressed && styles.linkPressed]}
-          onPress={() => router.push("/paywall")}
+          onPress={() => router.push("/paywall?reason=running_low")}
           accessibilityLabel="See plans"
           accessibilityRole="button"
         >

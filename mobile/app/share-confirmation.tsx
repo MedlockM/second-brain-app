@@ -179,8 +179,10 @@ export default function ShareConfirmationScreen() {
 
   // Offered when the backend refused the submission for a tier allowance. The
   // share intake is left untouched so the user can Save again once subscribed.
+  // The reason travels with the push so the paywall can open on the refusal the
+  // user is standing in rather than on a generic pitch.
   const handleOpenPaywall = () => {
-    router.push("/paywall");
+    router.push("/paywall?reason=out_of_minutes");
   };
 
   const canSave = intake.status === "ready" || intake.status === "error";

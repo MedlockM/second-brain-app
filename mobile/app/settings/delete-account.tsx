@@ -18,6 +18,10 @@ import { usePurchases } from "../../src/contexts/PurchasesContext";
 import { AccountService } from "../../src/services/accountService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
 import {
+  PRIVACY_CONTACT_EMAIL,
+  STORE_SUBSCRIPTIONS_URL,
+} from "../../src/constants/legal";
+import {
   Colors,
   Typography,
   Spacing,
@@ -35,16 +39,6 @@ import {
  * the data first. The destructive button stays disabled until the irreversibility
  * is explicitly acknowledged, and the native alert is the second and final gate.
  */
-
-// Same address as the "Access / Portability" section of the privacy policy: the
-// app has no self-service export, so this is the only route to a data copy and
-// the two must not drift.
-const PRIVACY_CONTACT_EMAIL = "privacy@mediasummarizer.com";
-
-const STORE_SUBSCRIPTIONS_URL =
-  Platform.OS === "ios"
-    ? "https://apps.apple.com/account/subscriptions"
-    : "https://play.google.com/store/account/subscriptions";
 
 const ERASED_ITEMS: readonly string[] = [
   "Your library, folders and tags",

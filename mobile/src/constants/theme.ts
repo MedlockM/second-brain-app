@@ -14,6 +14,21 @@ export const Colors = {
 
   textMain: "#2b2d42",
   textMuted: "#8d99ae",
+  /**
+   * Secondary text that still has to be *read*, not merely glanced at.
+   *
+   * `textMuted` measures 2.75:1 on `background` and 2.88:1 on `surface`, well
+   * under the 4.5:1 WCAG AA asks for below 18.66px — which made every small
+   * grey line on the paywall (the per-import ceiling, "Restore Purchases", the
+   * whole legal block, the close button) formally unreadable. This is the same
+   * blue-grey hue darkened to 5.3:1 on `background` and 5.6:1 on `surface`.
+   *
+   * `textMuted` is kept for what it is genuinely good at — inactive icons, tab
+   * bar glyphs, decoration — and the two are not interchangeable: anything the
+   * user has to read uses this one. Generalising the swap to the rest of the app
+   * is a design-system pass of its own.
+   */
+  textSubtle: "#5c6880",
 
   outline: "#78776f",
   outlineVariant: "#c8c7bd",

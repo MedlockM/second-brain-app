@@ -19,7 +19,15 @@ export interface PricingTier {
   id: string;
   name: string;
   name_fr: string;
-  /** Configured price. The store package's own `priceString` wins when loaded. */
+  /**
+   * The owner's configured reference price, part of the endpoint's contract —
+   * and deliberately **never rendered**. It is one EUR figure, while the store
+   * charges whatever the user's storefront charges: shown on a purchase screen
+   * it is a price the user will not be billed, which is both a lie to them and a
+   * store review problem. Every price the app displays comes from the RevenueCat
+   * package (`product.priceString`, `product.price`, `product.currencyCode`);
+   * when there is no package there is no price and no card.
+   */
   price_ttc_eur: number | null;
   /** Minutes the tier includes per period. */
   minutes_per_month: number | null;

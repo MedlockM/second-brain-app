@@ -48,11 +48,13 @@ tags:
     timeout: 45000
 - assertVisible:
     text: "Choose Your Plan"
+
+# A tier is only rendered when the store has a package to sell for it, so the
+# three names being on screen *is* the check that the three Test Store products
+# are still wired to the three config tiers. There is no longer an "Unavailable"
+# row to assert the absence of: a tier the store cannot sell is not drawn at all.
 - assertVisible:
     text: "Reader"
-- assertNotVisible:
-    text: "Unavailable"
-
 - scrollUntilVisible:
     element:
       text: "Mix"
@@ -60,9 +62,6 @@ tags:
     timeout: 10000
 - assertVisible:
     text: "Mix"
-- assertNotVisible:
-    text: "Unavailable"
-
 - scrollUntilVisible:
     element:
       text: "Audio-Heavy"
@@ -70,14 +69,25 @@ tags:
     timeout: 10000
 - assertVisible:
     text: "Audio-Heavy"
-- assertNotVisible:
-    text: "Unavailable"
 
 # One CTA in a sticky footer buys the selected plan, so it is on screen whatever
-# the scroll position — and it must never read "Unavailable", which is what the
-# button says when the store package behind the selected tier is missing.
+# the scroll position.
 - assertVisible:
     id: "paywall-subscribe-button"
+
+# App Store guideline 3.1.2 and Play's subscription policy both require these two
+# links on the purchase screen itself, in the binary. They were missing entirely
+# until the paywall rework, so the flow guards them: losing them again is a store
+# rejection, not a cosmetic regression.
+- scrollUntilVisible:
+    element:
+      id: "paywall-terms-link"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    id: "paywall-terms-link"
+- assertVisible:
+    id: "paywall-privacy-link"
 
 # The Close button lives in the fixed header, outside the tier ScrollView, so it
 # stays on screen however far the list is scrolled. Asserting it instead of

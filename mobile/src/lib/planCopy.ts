@@ -19,12 +19,20 @@
  * catalogues (`ARTIFACT_TILES`, `V1_READING_LANGUAGES`) wherever one exists, so
  * a capability cannot be advertised here after being removed there:
  *
- * - `buildPlanHighlights` — four check lines, above the plans. What a reader
- *   deciding between three allowances actually reads.
+ * - `buildPlanHighlights` — four check lines, under the plans. What a reader
+ *   who has seen the prices wants confirmed before paying.
  * - `buildPlanIncludes` — the same four subjects, exhaustively, behind a
  *   disclosure. Kept because "everything an import can be" is a real question
  *   and the answer is long; put on screen unprompted it is the wall of text
  *   every paywall study says nobody reads.
+ *
+ * The screen also *argues*, and the second rule is that it may only argue from
+ * checkable facts: `buildPlanGuidance` derives the recommended plan from minutes
+ * the account really spent and "best value" from arithmetic on the store's own
+ * prices, `buildHourlyRate` makes three allowances comparable without mental
+ * division, and `buildPaywallReasonLine` restates the refusal the reader is
+ * standing in. Nothing here claims popularity or urgency: with no users, both
+ * would be inventions.
  */
 import { ARTIFACT_TILES } from "../components/ArtifactTile";
 import { V1_READING_LANGUAGES } from "../services/userPreferencesService";
@@ -51,11 +59,48 @@ export function formatMinutes(minutes: number): string {
   return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
 }
 
-/** Configured price as a fallback label, e.g. "5 EUR/mo". */
-function formatConfiguredPrice(price: number | null): string | null {
-  if (price === null || !Number.isFinite(price)) return null;
-  const rounded = Math.round(price * 100) / 100;
-  return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(2)} EUR/mo`;
+/**
+ * Money, formatted in the store's own currency.
+ *
+ * Only ever fed amounts *derived from the store package* (`product.price`,
+ * `product.currencyCode`), never from the pricing config: the config holds one
+ * EUR figure while the store bills whatever the user's storefront charges, so a
+ * configured price rendered on a purchase screen is a price the user will not
+ * be charged. Returns `null` rather than guessing when the platform has no Intl
+ * data — a missing line is fine, a wrong currency is not.
+ */
+function formatCurrency(amount: number, currencyCode: string | null): string | null {
+  if (currencyCode === null || currencyCode.length === 0) return null;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: currencyCode,
+    }).format(amount);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What an hour of transcription costs on a tier, e.g. "≈ 1,00 € an hour".
+ *
+ * The one figure that makes three plans comparable at a glance. Without it the
+ * reader has to divide a price by an allowance in their head, and the actual
+ * shape of the offer — the entry tier costs several times more per hour than the
+ * one above it — stays invisible. Derived, never authored: it moves with both the
+ * config's allowance and the store's price.
+ */
+export function buildHourlyRate(
+  priceAmount: number | null,
+  currencyCode: string | null,
+  minutesPerMonth: number | null,
+): string | null {
+  if (priceAmount === null || !Number.isFinite(priceAmount) || priceAmount <= 0) {
+    return null;
+  }
+  if (minutesPerMonth === null || minutesPerMonth <= 0) return null;
+  const formatted = formatCurrency((priceAmount * 60) / minutesPerMonth, currencyCode);
+  return formatted === null ? null : `≈ ${formatted} an hour`;
 }
 
 /** What one tier card shows. Every string is derived, none is authored twice. */
@@ -63,10 +108,10 @@ export interface PlanCard {
   /** Tier id, also the RevenueCat package identifier and the card's testID. */
   id: string;
   name: string;
-  /** Shown only until the store package is loaded, then its price wins. */
-  configuredPrice: string | null;
-  /** The tier's own monthly allowance, stated once on the card. */
+  /** The tier's own monthly allowance — the card's dominant line. */
   allowance: string | null;
+  /** Minutes behind `allowance`, for the hourly rate and the recommendation. */
+  minutesPerMonth: number | null;
   /** The tier's own longest single import, which differs from tier to tier. */
   perImportLimit: string | null;
   /** The tier the server-side trial grants; highlighted, never labelled "popular". */
@@ -77,15 +122,19 @@ function buildPlanCard(tier: PricingTier, trialTierId: string | null): PlanCard 
   return {
     id: tier.id,
     name: tier.name,
-    configuredPrice: formatConfiguredPrice(tier.price_ttc_eur),
+    // "a month" is carried by the price column ("per month"), not repeated here:
+    // this line has to survive at 20px next to a price on a 375pt screen.
     allowance:
       tier.minutes_per_month === null
         ? null
-        : `${formatMinutes(tier.minutes_per_month)} of audio and video a month`,
+        : `${formatMinutes(tier.minutes_per_month)} of audio and video`,
+    minutesPerMonth: tier.minutes_per_month,
+    // Lower case and clause-shaped: it is read inside a "·"-separated meta line
+    // under the allowance, never as a sentence of its own.
     perImportLimit:
       tier.max_minutes_per_item === null
         ? null
-        : `Up to ${formatMinutes(tier.max_minutes_per_item)} in a single import`,
+        : `up to ${formatMinutes(tier.max_minutes_per_item)} in one import`,
     isTrialTier: trialTierId !== null && tier.id === trialTierId,
   };
 }
@@ -97,6 +146,171 @@ export function buildPlanCards(pricing: PublicPricing): PlanCard[] {
   // parsed network response, and a missing key must leave a sentence out, never
   // throw inside a render.
   return (pricing.tiers ?? []).map((tier) => buildPlanCard(tier, trialTierId));
+}
+
+/** Which plan the screen argues for, why, and what each card is labelled. */
+export interface PlanGuidance {
+  /** Tier the screen preselects, or `null` when nothing justifies a choice. */
+  recommendedTierId: string | null;
+  /** The reasoning, shown above the cards. `null` when there is none to give. */
+  recommendationLine: string | null;
+  /** Tier id → the single badge its card carries. */
+  badges: Record<string, string>;
+}
+
+/**
+ * Turn what the account has actually consumed into a recommendation.
+ *
+ * The screen used to preselect the trial's tier for everyone, including people
+ * who never had a trial, and showed no reason at all — a card highlighted for
+ * reasons the reader cannot see is just a nudge. Every label produced here is a
+ * checkable fact instead: minutes the account really spent, an hourly rate
+ * computed from the store's own price. Nothing claims popularity, which is not
+ * something this app can honestly claim.
+ *
+ * Two rules shape the pick:
+ *
+ * - the smallest plan that covers the period's consumption, so the screen is
+ *   allowed to argue *down* — recommending the cheapest plan that works is the
+ *   part that makes the rest believable;
+ * - never below the plan the user is currently living in. Someone three days
+ *   into a trial has barely spent anything, and answering "take the cheaper one"
+ *   would offer them less than what they are trying.
+ *
+ * With no consumption recorded there is nothing to reason from, so it returns no
+ * line and lets the caller fall back to the trial's tier.
+ */
+export function buildPlanGuidance(
+  cards: PlanCard[],
+  /** Store price amount per tier id. Only tiers actually purchasable appear. */
+  priceByTier: Record<string, number>,
+  entitlement: EntitlementStatus | null,
+): PlanGuidance {
+  const badges: Record<string, string> = {};
+  const ranked = cards
+    .filter((card) => card.minutesPerMonth !== null && card.minutesPerMonth > 0)
+    .sort((a, b) => (a.minutesPerMonth ?? 0) - (b.minutesPerMonth ?? 0));
+
+  const isTrial = entitlement?.is_free_trial === true;
+  const trialCard = cards.find((card) => card.isTrialTier) ?? null;
+  const used = entitlement?.minutes_used ?? 0;
+
+  let recommended: PlanCard | null = null;
+  let recommendationLine: string | null = null;
+
+  if (used > 0 && ranked.length > 0) {
+    const covering = ranked.find(
+      (card) => (card.minutesPerMonth ?? 0) >= used,
+    ) ?? null;
+    // The plan being lived in is a floor, never a ceiling.
+    const floor = isTrial && trialCard !== null ? trialCard : null;
+    const floorMinutes = floor?.minutesPerMonth ?? 0;
+    const largest = ranked[ranked.length - 1];
+
+    if (covering === null) {
+      recommended = largest;
+      recommendationLine =
+        `You've used ${formatMinutes(used)} this period — more than any plan ` +
+        `includes. ${largest.name} is the largest we offer.`;
+    } else if ((covering.minutesPerMonth ?? 0) < floorMinutes && floor !== null) {
+      recommended = floor;
+      recommendationLine =
+        `You've used ${formatMinutes(used)} of your trial so far. ${floor.name} ` +
+        "keeps you on the plan you're already using.";
+    } else {
+      recommended = covering;
+      recommendationLine =
+        `You've used ${formatMinutes(used)} this period. ${covering.name} is the ` +
+        "smallest plan that covers that.";
+    }
+  }
+
+  if (recommended !== null) {
+    badges[recommended.id] = "RECOMMENDED FOR YOU";
+  }
+  // A trial tier is worth naming, but only to someone the backend reports as
+  // actually being in the trial — a badge for a trial they never had is a lie.
+  if (isTrial && trialCard !== null && badges[trialCard.id] === undefined) {
+    badges[trialCard.id] = "YOUR TRIAL PLAN";
+  }
+
+  const cheapestPerMinute = pickBestValue(ranked, priceByTier);
+  if (cheapestPerMinute !== null && badges[cheapestPerMinute] === undefined) {
+    badges[cheapestPerMinute] = "BEST VALUE";
+  }
+
+  return {
+    recommendedTierId: recommended?.id ?? trialCard?.id ?? null,
+    recommendationLine,
+    badges,
+  };
+}
+
+/**
+ * The tier with the lowest price per minute, or `null` when no single tier wins
+ * outright. Arithmetic on the store's own prices, so it is a statement about the
+ * offer rather than a marketing claim.
+ */
+function pickBestValue(
+  ranked: PlanCard[],
+  priceByTier: Record<string, number>,
+): string | null {
+  const rates = ranked
+    .filter((card) => typeof priceByTier[card.id] === "number")
+    .map((card) => ({
+      id: card.id,
+      rate: priceByTier[card.id] / (card.minutesPerMonth ?? 1),
+    }));
+  if (rates.length < 2) return null;
+
+  const sorted = [...rates].sort((a, b) => a.rate - b.rate);
+  return sorted[0].rate < sorted[1].rate ? sorted[0].id : null;
+}
+
+/** Why the paywall was opened, when the caller knows. */
+export type PaywallReason = "out_of_minutes" | "running_low";
+
+/**
+ * The refusal the user is standing in, restated at the top of the paywall.
+ *
+ * The screen is reached from three places — the Account tab, the usage banner
+ * and a submission the backend just refused — and used to look identical from
+ * all three. Someone who arrives mid-import, having just been told they cannot
+ * save the thing they were saving, should not have to re-derive why they are
+ * looking at prices. Built from the live entitlement rather than from text
+ * carried in the route, so the figures cannot go stale between the two screens.
+ */
+export function buildPaywallReasonLine(
+  reason: PaywallReason | null,
+  entitlement: EntitlementStatus | null,
+): string | null {
+  if (reason === null || entitlement === null) return null;
+
+  const isTrial = entitlement.is_free_trial;
+  const resetsOn = formatResetDate(entitlement.resets_at);
+
+  if (reason === "out_of_minutes") {
+    // A trial allowance is a single window that never refills (task-300), so
+    // "they come back on the 12th" would be false for exactly the people most
+    // likely to read this line.
+    if (isTrial) {
+      return (
+        "Your trial minutes are spent, and they do not refill. Pick a plan to " +
+        "keep importing audio and video."
+      );
+    }
+    return resetsOn === null
+      ? "You're out of minutes for this period. A larger plan gives you more now."
+      : `You're out of minutes until ${resetsOn}. A larger plan gives you more now.`;
+  }
+
+  const left = formatMinutes(entitlement.minutes_remaining);
+  if (isTrial) {
+    return `${left} left in your trial, and trial minutes do not refill.`;
+  }
+  return resetsOn === null
+    ? `${left} left this period.`
+    : `${left} left until ${resetsOn}.`;
 }
 
 /**
