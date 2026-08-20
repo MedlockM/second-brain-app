@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Colors,
@@ -14,16 +15,48 @@ import { getMediaTypeIcon } from "../lib/mediaTypeDisplay";
 import { getRelativeTime } from "../lib/relativeTime";
 
 /**
- * Uniform media row used to list `MediaListItem` results outside the inbox
- * (e.g. inside the collections explorer). Tapping it opens the media detail,
- * matching the inbox/search behaviour.
+ * Uniform media row for a vertical library list: the cover, the media type and
+ * the age, the title, then the creator. Tapping it opens the media detail.
+ *
+ * The second line holds `creator_name` and falls back to the source domain: five
+ * sources can never have a creator (shared text, documents, audio files), and a
+ * domain is the only other thing that says where the media comes from. The two
+ * are never stacked — the row keeps a fixed height whatever the source.
+ *
+ * The cover is 16:9 and cropped with `contentFit="cover"`, the ratio validated
+ * on the task-302 benchmark (§6.4): it matches the two highest-volume sources
+ * (YouTube, `og:image`) and keeps every row the same height. It is rendered with
+ * `expo-image` rather than React Native's `Image` for the three props that
+ * benchmark selected it for (§6.1-6.2): a `cacheKey` that survives the rotating
+ * signature of a re-hosted cover, a `recyclingKey` so a recycled row never shows
+ * the previous item's picture, and an explicit `memory-disk` policy.
+ *
+ * With no cover — or when loading one fails — the media-type glyph is drawn on
+ * `surfaceContainerLow`. There is no third state: an empty grey rectangle is the
+ * anti-pattern the benchmark names (§6.3).
  */
+
+/** 112 x 63 is exactly 16:9, wide enough to read a thumbnail on a phone. */
+const COVER_WIDTH = 112;
+const COVER_HEIGHT = 63;
+
 interface MediaListCardProps {
   item: MediaListItem;
   onPress: (mediaItemId: string) => void;
+  /** Set by the list rendering the row so a flow can address it. */
+  testID?: string;
 }
 
-export function MediaListCard({ item, onPress }: MediaListCardProps): React.JSX.Element {
+export function MediaListCard({
+  item,
+  onPress,
+  testID,
+}: MediaListCardProps): React.JSX.Element {
+  // Keyed by media id rather than a bare boolean: a `FlatList` cell can be
+  // handed a different item, and a failure recorded for the previous one must
+  // not hide the new one's cover.
+  const [failedCoverId, setFailedCoverId] = useState<string | null>(null);
+
   const sourceUrl = item.source_url ?? "";
 
   let displayDomain: string;
@@ -44,16 +77,44 @@ export function MediaListCard({ item, onPress }: MediaListCardProps): React.JSX.
   // raw source URL, which duplicated the domain line right below it.
   const displayTitle = item.title;
 
+  const creator = item.creator_name?.trim() ?? "";
+  const subtitle = creator || displayDomain;
+
+  const coverUrl = item.media_image?.trim() ?? "";
+  const showCover = coverUrl.length > 0 && failedCoverId !== item.media_item_id;
+
   return (
     <Pressable
+      testID={testID}
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={() => onPress(item.media_item_id)}
-      accessibilityLabel={`${mediaTypeLabel} from ${displayDomain}`}
+      accessibilityLabel={
+        creator
+          ? `${displayTitle} by ${creator}, ${mediaTypeLabel}`
+          : `${displayTitle}, ${mediaTypeLabel} from ${displayDomain}`
+      }
       accessibilityRole="button"
     >
       <View style={styles.cardContent}>
-        <View style={styles.thumbnailContainer}>
-          <Ionicons name={icon} size={28} color={Colors.textMuted} />
+        <View style={styles.coverContainer}>
+          {showCover ? (
+            <Image
+              source={{
+                uri: coverUrl,
+                cacheKey: `${item.media_item_id}:${item.updated_at}`,
+              }}
+              recyclingKey={item.media_item_id}
+              cachePolicy="memory-disk"
+              contentFit="cover"
+              transition={150}
+              priority="low"
+              style={styles.cover}
+              onError={() => setFailedCoverId(item.media_item_id)}
+              accessible={false}
+            />
+          ) : (
+            <Ionicons name={icon} size={28} color={Colors.textMuted} />
+          )}
         </View>
 
         <View style={styles.cardTextSection}>
@@ -70,9 +131,9 @@ export function MediaListCard({ item, onPress }: MediaListCardProps): React.JSX.
             {displayTitle}
           </Text>
 
-          {displayDomain ? (
-            <Text style={styles.cardDomain} numberOfLines={1}>
-              {displayDomain}
+          {subtitle ? (
+            <Text style={styles.cardSubtitle} numberOfLines={1}>
+              {subtitle}
             </Text>
           ) : null}
         </View>
@@ -140,13 +201,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.md,
   },
-  thumbnailContainer: {
-    width: 72,
-    height: 72,
+  // The container is the fallback surface *and* the frame of the cover: one
+  // tonal rectangle either way, so a row with a picture and a row without have
+  // the same silhouette.
+  coverContainer: {
+    width: COVER_WIDTH,
+    height: COVER_HEIGHT,
     borderRadius: BorderRadius.lg,
     backgroundColor: Colors.surfaceContainerLow,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  cover: {
+    width: "100%",
+    height: "100%",
   },
   cardTextSection: {
     flex: 1,
@@ -165,13 +234,13 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
   },
   typeBadgeText: {
-    fontSize: 11,
+    fontSize: Typography.small.fontSize,
     fontWeight: "700",
     color: Colors.textMain,
     letterSpacing: 0.5,
   },
   timeText: {
-    fontSize: 11,
+    fontSize: Typography.small.fontSize,
     color: Colors.textMuted,
   },
   cardTitle: {
@@ -180,8 +249,8 @@ const styles = StyleSheet.create({
     color: Colors.textMain,
     lineHeight: 22,
   },
-  cardDomain: {
+  cardSubtitle: {
     fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
+    color: Colors.textSubtle,
   },
 });

@@ -1,15 +1,13 @@
 import { Redirect, Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/contexts/AuthContext";
-import { Colors, Typography, TouchTarget } from "../../src/constants/theme";
+import { Colors, TouchTarget } from "../../src/constants/theme";
 import { ActivityIndicator, View, StyleSheet } from "react-native";
-
-type IoniconsName = React.ComponentProps<typeof Ionicons>["name"];
 
 /**
  * Protected tabs layout.
  * Navigation guard: redirects to login if not authenticated.
- * Tab bar follows the mockup navigation pattern (Inbox, Search, Digest, Account).
+ * Tab bar follows the mockup navigation pattern (Inbox, Library, Digest, Account).
  */
 export default function TabsLayout() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -55,13 +53,18 @@ export default function TabsLayout() {
           ),
         }}
       />
+      {/* The screen file stays `search`, and so does its test id: what changed
+          is what the tab holds. It is the library — every collection and every
+          saved media item — with the search over it in a pill at the top, so it
+          is labelled for the content and not for one of the two ways to reach
+          it (task-306). */}
       <Tabs.Screen
         name="search"
         options={{
-          title: "Search",
+          title: "Library",
           tabBarButtonTestID: "search-tab-button",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="search-outline" size={size} color={color} />
+            <Ionicons name="library-outline" size={size} color={color} />
           ),
         }}
       />

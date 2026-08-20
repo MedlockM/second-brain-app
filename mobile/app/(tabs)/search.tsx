@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Platform,
   Pressable,
+  RefreshControl,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -34,6 +35,7 @@ import {
   type CollectionNode,
 } from "../../src/lib/collectionTree";
 import { parseHighlightSnippet } from "../../src/lib/highlightSnippet";
+import { MediaListCard } from "../../src/components/MediaListCard";
 import {
   Colors,
   Typography,
@@ -129,6 +131,16 @@ function formatTimestamp(unixTimestamp: number): string {
 
 // --- Main Screen Component ---
 
+/**
+ * The library tab: everything the user saved, plus the search over it.
+ *
+ * Two bodies, mutually exclusive, switched by the query in the floating pill.
+ * With nothing typed it shows the library — the collections *and* every media
+ * item, newest first. Typing hands the screen over to Algolia; clearing the
+ * query gives it back.
+ *
+ * The tab keeps its `search-tab-button` id whatever its label reads.
+ */
 export default function SearchScreen() {
   const { isAuthenticated } = useAuth();
   const router = useRouter();
@@ -141,11 +153,19 @@ export default function SearchScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Library state. The two halves are fetched by two independent requests and
+  // carry their own loading and error flags: one failing must leave the other
+  // rendered, with its own retry.
   const [collections, setCollections] = useState<CollectionNode[]>([]);
   const [defaultCollection, setDefaultCollection] =
     useState<CollectionNode | null>(null);
   const [collectionsLoading, setCollectionsLoading] = useState(true);
   const [collectionsError, setCollectionsError] = useState<string | null>(null);
+  const [media, setMedia] = useState<MediaListItem[]>([]);
+  const [mediaLoading, setMediaLoading] = useState(true);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Debounce the search query
   const debouncedQuery = useDebounce(query, 300);
@@ -185,28 +205,17 @@ export default function SearchScreen() {
     performSearch();
   }, [debouncedQuery, isAuthenticated]);
 
+  // Neither loader throws: each one owns its error state, so the caller can
+  // always await both and only has its own spinner to clear.
   const loadCollections = useCallback(async () => {
     if (!isAuthenticated) return;
-    setCollectionsError(null);
 
     try {
-      const [folders, mediaResponse] = await Promise.all([
-        OrganizationService.getUserCollections(),
-        MediaService.listMedia(),
-      ]);
-
-      const directCountById = new Map<string, number>();
-      for (const media of mediaResponse.items as MediaListItem[]) {
-        if (!media.folder_id) continue;
-        directCountById.set(
-          media.folder_id,
-          (directCountById.get(media.folder_id) ?? 0) + 1,
-        );
-      }
-
-      const tree = buildCollectionTree(folders, directCountById);
+      const folders = await OrganizationService.getUserCollections();
+      const tree = buildCollectionTree(folders);
       setCollections(tree.roots);
       setDefaultCollection(tree.defaultCollection);
+      setCollectionsError(null);
     } catch (err) {
       setCollectionsError(
         getFriendlyErrorMessage(err, {
@@ -216,17 +225,42 @@ export default function SearchScreen() {
     }
   }, [isAuthenticated]);
 
+  const loadMedia = useCallback(async () => {
+    if (!isAuthenticated) return;
+
+    try {
+      const response = await MediaService.listMedia();
+      // Rendered in the order the endpoint returns: `GET /api/media` already
+      // sorts the whole library `saved_at` DESC server-side, so a client-side
+      // re-sort could only disagree with it.
+      setMedia(response.items);
+      setMediaError(null);
+    } catch (err) {
+      setMediaError(
+        getFriendlyErrorMessage(err, {
+          fallback: "Unable to load your library.",
+        }),
+      );
+    }
+  }, [isAuthenticated]);
+
+  // Refetch on every focus, so a media saved from the share sheet or the inbox
+  // is here on the way back. The two loading flags are only ever cleared: they
+  // belong to the first load, and a later focus refetches silently under the
+  // content already on screen.
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setCollectionsLoading(true);
-      loadCollections().finally(() => {
+      void loadCollections().finally(() => {
         if (active) setCollectionsLoading(false);
+      });
+      void loadMedia().finally(() => {
+        if (active) setMediaLoading(false);
       });
       return () => {
         active = false;
       };
-    }, [loadCollections]),
+    }, [loadCollections, loadMedia]),
   );
 
   const handleClearQuery = useCallback(() => {
@@ -257,6 +291,13 @@ export default function SearchScreen() {
     [router],
   );
 
+  const handleOpenMedia = useCallback(
+    (mediaItemId: string) => {
+      router.push(`/media/${mediaItemId}`);
+    },
+    [router],
+  );
+
   // The default folder holds every media saved without an explicit collection.
   // It is excluded from `roots` by `buildCollectionTree`, so pin it in front
   // under its display label -- same pattern as the collections explorer.
@@ -273,8 +314,22 @@ export default function SearchScreen() {
 
   const handleRetryCollections = useCallback(() => {
     setCollectionsLoading(true);
-    loadCollections().finally(() => setCollectionsLoading(false));
+    void loadCollections().finally(() => setCollectionsLoading(false));
   }, [loadCollections]);
+
+  const handleRetryMedia = useCallback(() => {
+    setMediaLoading(true);
+    void loadMedia().finally(() => setMediaLoading(false));
+  }, [loadMedia]);
+
+  // Pull-to-refresh reloads both halves: the gesture is on the one scroll that
+  // carries them, so refreshing only one of them would be a lie.
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    void Promise.all([loadCollections(), loadMedia()]).finally(() =>
+      setIsRefreshing(false),
+    );
+  }, [loadCollections, loadMedia]);
 
   return (
     <View style={styles.container}>
@@ -285,12 +340,19 @@ export default function SearchScreen() {
         ) : error ? (
           <ErrorState message={error} />
         ) : !hasSearched ? (
-          <CollectionsState
+          <LibraryState
             collections={sortedCollections}
-            isLoading={collectionsLoading}
-            error={collectionsError}
-            onRetry={handleRetryCollections}
+            collectionsLoading={collectionsLoading}
+            collectionsError={collectionsError}
+            onRetryCollections={handleRetryCollections}
             onOpenCollection={handleOpenCollection}
+            media={media}
+            mediaLoading={mediaLoading}
+            mediaError={mediaError}
+            onRetryMedia={handleRetryMedia}
+            onOpenMedia={handleOpenMedia}
+            isRefreshing={isRefreshing}
+            onRefresh={handleRefresh}
           />
         ) : results.length === 0 ? (
           <NoResultsState query={debouncedQuery} />
@@ -394,88 +456,230 @@ function GlassSurface({
   );
 }
 
-function CollectionsState({
-  collections,
-  isLoading,
-  error,
-  onRetry,
-  onOpenCollection,
-}: {
+interface LibraryStateProps {
   collections: CollectionNode[];
-  isLoading: boolean;
-  error: string | null;
-  onRetry: () => void;
+  collectionsLoading: boolean;
+  collectionsError: string | null;
+  onRetryCollections: () => void;
   onOpenCollection: (collection: CollectionNode) => void;
-}) {
-  if (isLoading) {
-    return (
-      <View style={styles.emptyContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={[styles.emptyHint, { marginTop: Spacing.md }]}>
-          Loading collections...
-        </Text>
-      </View>
-    );
-  }
+  media: MediaListItem[];
+  mediaLoading: boolean;
+  mediaError: string | null;
+  onRetryMedia: () => void;
+  onOpenMedia: (mediaItemId: string) => void;
+  isRefreshing: boolean;
+  onRefresh: () => void;
+}
 
-  if (error) {
-    return (
-      <View style={styles.emptyContainer}>
-        <Ionicons
-          name="cloud-offline-outline"
-          size={48}
-          color={Colors.textMuted}
-          style={styles.emptyIcon}
-        />
-        <Text style={styles.emptyTitle}>{error}</Text>
-        <Pressable
-          style={styles.retryButton}
-          onPress={onRetry}
-          accessibilityLabel="Retry loading collections"
-          accessibilityRole="button"
-        >
-          <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  if (collections.length === 0) {
-    return (
-      <View style={styles.emptyContainer}>
-        <Ionicons
-          name="folder-open-outline"
-          size={48}
-          color={Colors.textMuted}
-          style={styles.emptyIcon}
-        />
-        <Text style={styles.emptyTitle}>No collections yet</Text>
-        <Text style={styles.emptyHint}>
-          Organize media into collections when you save them.
-        </Text>
-      </View>
-    );
-  }
+/**
+ * The library: the collections and every saved media item, in **one vertical
+ * scroll** — the collections grid rides in the list header, the media rows are
+ * the list.
+ *
+ * Chosen over `ScreenTabs`, the other shape the design system offers, for two
+ * reasons. First, the two halves come from two independent requests, and the
+ * requirement is that a failure of one leaves the other usable: side by side in
+ * one scroll, the error card sits *next to* the half that worked instead of
+ * hiding behind a tab nobody has a reason to open. Second, a segmented control
+ * would be a second bar of chrome directly under the floating search pill,
+ * spending the top of the screen on navigation on a screen whose whole job is to
+ * show what you saved. The cost of this choice is that a user with many
+ * collections scrolls past them to reach the media — acceptable, because the
+ * grid is three tiles wide and the list is what the scroll is for.
+ */
+function LibraryState({
+  collections,
+  collectionsLoading,
+  collectionsError,
+  onRetryCollections,
+  onOpenCollection,
+  media,
+  mediaLoading,
+  mediaError,
+  onRetryMedia,
+  onOpenMedia,
+  isRefreshing,
+  onRefresh,
+}: LibraryStateProps) {
+  // What stands in for the media rows while there are none: its own spinner on
+  // the first load, its own error card with a retry, or the empty library.
+  const mediaPlaceholder = mediaLoading ? (
+    <View style={styles.sectionLoadingRow}>
+      <ActivityIndicator color={Colors.primary} />
+    </View>
+  ) : mediaError ? (
+    <InlineErrorCard
+      message={mediaError}
+      onRetry={onRetryMedia}
+      retryAccessibilityLabel="Retry loading your library"
+    />
+  ) : (
+    <EmptyLibraryState />
+  );
 
   return (
     <FlatList
-      data={collections}
-      keyExtractor={(item) => item.id}
-      numColumns={3}
+      testID="library-media-list"
+      data={media}
+      keyExtractor={(item) => item.media_item_id}
+      keyboardShouldPersistTaps="handled"
       renderItem={({ item }) => (
-        <CollectionTile
-          collection={item}
-          isDefault={item.is_default === true}
-          onPress={onOpenCollection}
+        <MediaListCard
+          item={item}
+          onPress={onOpenMedia}
+          testID="library-media-card"
         />
       )}
-      contentContainerStyle={styles.collectionsGridContent}
+      contentContainerStyle={styles.libraryListContent}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={onRefresh}
+          tintColor={Colors.primary}
+          colors={[Colors.primary]}
+          // The list starts below the floating pill, so the spinner has to as
+          // well -- otherwise it appears underneath it.
+          progressViewOffset={CONTENT_TOP_INSET}
+        />
+      }
       ListHeaderComponent={
-        <Text style={styles.collectionsTitle}>Collections</Text>
+        <LibraryHeader
+          collections={collections}
+          collectionsLoading={collectionsLoading}
+          collectionsError={collectionsError}
+          onRetryCollections={onRetryCollections}
+          onOpenCollection={onOpenCollection}
+          mediaCount={media.length}
+        />
+      }
+      ListEmptyComponent={mediaPlaceholder}
+      // Rows already on screen are never dropped for an error, so a refresh that
+      // fails says so at the end of the list instead of silently keeping stale
+      // rows.
+      ListFooterComponent={
+        mediaError && media.length > 0 ? (
+          <InlineErrorCard
+            message={mediaError}
+            onRetry={onRetryMedia}
+            retryAccessibilityLabel="Retry loading your library"
+          />
+        ) : null
       }
     />
+  );
+}
+
+function LibraryHeader({
+  collections,
+  collectionsLoading,
+  collectionsError,
+  onRetryCollections,
+  onOpenCollection,
+  mediaCount,
+}: {
+  collections: CollectionNode[];
+  collectionsLoading: boolean;
+  collectionsError: string | null;
+  onRetryCollections: () => void;
+  onOpenCollection: (collection: CollectionNode) => void;
+  mediaCount: number;
+}) {
+  return (
+    <View style={styles.libraryHeader}>
+      <Text style={styles.sectionTitle}>Collections</Text>
+
+      {collectionsLoading ? (
+        <View style={styles.sectionLoadingRow}>
+          <ActivityIndicator color={Colors.primary} />
+        </View>
+      ) : collectionsError ? (
+        <InlineErrorCard
+          message={collectionsError}
+          onRetry={onRetryCollections}
+          retryAccessibilityLabel="Retry loading collections"
+        />
+      ) : collections.length === 0 ? (
+        <Text style={styles.sectionHint}>
+          No collections yet. Organize media into collections when you save them.
+        </Text>
+      ) : (
+        // Laid out by wrapping rather than by a nested FlatList: a vertical
+        // virtualized list inside another one is unsupported, and the number of
+        // collections a user can own is bounded by the backend folder cap.
+        <View style={styles.collectionsGrid}>
+          {collections.map((collection) => (
+            <CollectionTile
+              key={collection.id}
+              collection={collection}
+              isDefault={collection.is_default === true}
+              onPress={onOpenCollection}
+            />
+          ))}
+        </View>
+      )}
+
+      <View style={styles.mediaSectionHeader}>
+        <Text style={styles.sectionTitle}>All media</Text>
+        {mediaCount > 0 ? (
+          <Text style={styles.mediaSectionCount}>
+            {mediaCount} {mediaCount === 1 ? "item" : "items"}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * A half that failed, stated where that half would have been. A tonal card, no
+ * stroke, so it reads as a slot of the page and not as an alert dialog.
+ */
+function InlineErrorCard({
+  message,
+  onRetry,
+  retryAccessibilityLabel,
+}: {
+  message: string;
+  onRetry: () => void;
+  retryAccessibilityLabel: string;
+}) {
+  return (
+    <View style={styles.inlineErrorCard}>
+      <Ionicons
+        name="cloud-offline-outline"
+        size={28}
+        color={Colors.textMuted}
+      />
+      <Text style={styles.inlineErrorText}>{message}</Text>
+      <Pressable
+        style={styles.retryButton}
+        onPress={onRetry}
+        accessibilityLabel={retryAccessibilityLabel}
+        accessibilityRole="button"
+      >
+        <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
+        <Text style={styles.retryButtonText}>Retry</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function EmptyLibraryState() {
+  return (
+    <View style={styles.emptyLibraryContainer}>
+      <Ionicons
+        name="albums-outline"
+        size={48}
+        color={Colors.textMuted}
+        style={styles.emptyIcon}
+      />
+      <Text style={styles.emptyTitle}>Your library is empty</Text>
+      <Text style={styles.emptyHint}>
+        Share a link from any app, or import a file from the Inbox, and it shows
+        up here.
+      </Text>
+    </View>
   );
 }
 
@@ -685,17 +889,70 @@ const styles = StyleSheet.create({
     marginTop: Spacing.lg,
   },
 
-  // Collections grid
-  collectionsGridContent: {
-    paddingHorizontal: Spacing.md,
+  // Library (idle state): one scroll, the collections grid in the list header
+  // and the media rows below. `MediaListCard` brings its own horizontal margin,
+  // so the gutter lives on the header instead of on the content container.
+  libraryListContent: {
     paddingTop: CONTENT_TOP_INSET,
     paddingBottom: Spacing.xxl,
   },
-  collectionsTitle: {
+  libraryHeader: {
+    paddingHorizontal: Spacing.md,
+  },
+  sectionTitle: {
     fontSize: Typography.headline.fontSize,
     fontWeight: "700",
     color: Colors.textMain,
     marginBottom: Spacing.md,
+  },
+  sectionHint: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textSubtle,
+    lineHeight: Typography.body.lineHeight,
+    marginBottom: Spacing.lg,
+  },
+  sectionLoadingRow: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.xl,
+  },
+  collectionsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  mediaSectionHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+  },
+  mediaSectionCount: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textSubtle,
+    marginBottom: Spacing.md,
+  },
+
+  // One half of the library failed to load. Tonal surface, no stroke: it is a
+  // slot of the page, not an alert.
+  inlineErrorCard: {
+    alignItems: "center",
+    gap: Spacing.sm,
+    backgroundColor: Colors.surfaceContainer,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  inlineErrorText: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textMain,
+    textAlign: "center",
+    lineHeight: Typography.body.lineHeight,
+  },
+  emptyLibraryContainer: {
+    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xl,
   },
   collectionTileSlot: {
     width: "33.333%",
@@ -735,7 +992,6 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm + 4,
     borderRadius: BorderRadius.lg,
     minHeight: TouchTarget.minimum,
-    marginTop: Spacing.lg,
   },
   retryButtonText: {
     fontSize: Typography.label.fontSize,
