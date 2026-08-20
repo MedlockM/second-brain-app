@@ -1,12 +1,12 @@
 ---
-owner_decision: pending   # pending | ok | abandoned | redo | more
+owner_decision: ok   # pending | ok | abandoned | redo | more
 ---
 
 # Benchmark : the engagement-recency model behind the Inbox "Continue learning" row
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture)_
+**Decision**: Recommandation
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---
