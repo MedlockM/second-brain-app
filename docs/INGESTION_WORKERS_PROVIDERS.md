@@ -151,29 +151,32 @@ Manager secret and must never be committed.
 **Source type**: `youtube`
 **Worker file**: `media_summarizer/workers/youtube_ingestion_worker.py`
 
-### Primary path
+### Only path (Apify, task-309)
 
 | Provider/library | Identifier | Extracts | Key env vars |
 |---|---|---|---|
-| yt-dlp | `yt_dlp.YoutubeDL` with `writesubtitles=True`, `writeautomaticsub=True`, `subtitleslangs=["all"]` | Native + auto-generated subtitle text (VTT / SRT / JSON) from YouTube CDN | `YOUTUBE_INGESTION_QUEUE`, `YTDLP_TIMEOUT_SECONDS`, `TRANSCRIPT_BUCKET` |
+| Apify | YouTube Transcript actor, id from `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` | Transcript text (flat field or timed segments), plus best-effort title / channel / thumbnail | `YOUTUBE_INGESTION_QUEUE`, `TRANSCRIPT_BUCKET`, `EPISODE_COMPLETED_EVENTS_QUEUE`, `APIFY_YOUTUBE_API_TOKEN`, `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` |
 
 Workflow:
 1. Extract `video_id` from the normalized URL
-2. Run `yt_dlp.YoutubeDL.extract_info(url, download=False)` with subtitle options
-3. Collect candidates via `collect_subtitle_candidates(info)` from `utils/ytdlp_helpers.py`
-4. If subtitles found: prefer the requested transcript language when present (see "Transcript language selection" below), fetch, parse, upload to S3 as `{job_id}.txt`, publish success event with `strategy_used="native_subtitles"`
+2. Start the actor run asynchronously via `apify_orchestration.start_run_for_job`, persisting the run and arming an SQS backstop; the invocation returns `mode="apify_pending"`
+3. On the actor callback, fetch the terminal dataset and parse the configured actor's flat transcript field (see "Supported actor dialects")
+4. Upload to S3 as `{job_id}.txt`, debit the flat captions unit (task-287), publish the success event with `strategy_used="apify_transcript"`
 
-Ref: `youtube_ingestion_worker.py::_extract_youtube_info`, `youtube_ingestion_worker.py::_fetch_native_subtitles`, `utils/ytdlp_helpers.py::collect_subtitle_candidates`
+There is **no fallback chain**: no yt-dlp attempt, no Deepgram audio path. No
+supported actor exposes a raw audio URL, so an actor failure is terminal.
 
-### Fallback chain
+Ref: `youtube_ingestion_worker.py::process_youtube_message`, `youtube_ingestion_worker.py::_start_apify_transcript_run`, `youtube_ingestion_worker.py::_parse_apify_transcript`
 
-| Step | Trigger condition | Action |
-|---|---|---|
-| 1 (primary) | yt-dlp extraction succeeds AND subtitles present | Fetch and parse native subtitles, upload transcript to S3 (`strategy_used="native_subtitles"`) |
-| 2 | yt-dlp raises with YouTube IP-block / login-wall error (`_is_ip_blocked_youtube_error`) | Start the Apify YouTube Transcript actor asynchronously, persist its run, and return. The callback continuation reads the terminal dataset and parses the configured actor's flat transcript field (`strategy_used="apify_transcript"`) |
-| 3 | yt-dlp succeeded but no subtitles found (`NativeSubtitlesUnavailable`) | Resolve audio URL from yt-dlp info dict via `resolve_direct_media_url(info)`, enqueue to `deepgram-transcription-queue` with `deepgram_mode="push"` (`strategy_used="deepgram_via_ytdlp_url"`) |
+#### Why yt-dlp was removed
 
-The IP-block matcher normalises Unicode `'` (U+2019) to ASCII `'` before substring matching so phrasings like `Sign in to confirm you're not a bot` match alongside the ASCII variant. It does NOT match geo restrictions, deleted videos, rate limits, or generic yt-dlp errors — those propagate as terminal `youtube_*` failures.
+yt-dlp used to be the primary path with Apify as an IP-block fallback (task-177).
+Measured on dev on 2026-08-20: 10 of 12 YouTube jobs succeeded via
+`apify_youtube_transcript`, **zero** via yt-dlp, and every yt-dlp attempt logged
+`Sign in to confirm you're not a bot`. The dead round-trip billed ~6.4 s per
+invocation against ~1.6 s for pure-Apify ones, on every save. task-309 deleted
+the branch rather than demoting it. The yt-dlp package remains in the image for
+the TikTok worker and the Instagram resolver, which still use it successfully.
 
 Apify uses the dedicated `APIFY_YOUTUBE_API_TOKEN` credential and
 `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID`; both are read only by the shared adapter.
@@ -204,7 +207,9 @@ The Lambda picks the new value up on its next cold start (secrets are loaded onc
 
 #### Failure details
 
-Apify failure details are the `ApifyTranscriptFailure` enum (`apify_token_missing`, `apify_actor_missing`, `apify_actor_unsupported`, `apify_network`, `apify_payment_required`, `apify_auth_error`, `apify_server_error`, `apify_client_error`, `apify_invalid_json`, `apify_no_results`, `apify_invalid_result`, `apify_actor_error`, `apify_empty_transcript`). They surface in `YouTubeIngestionError.details`, in `extraction_metadata.failure_details`, and in the failure event `reason` — treat them as an observability contract.
+Apify failure details are the `ApifyTranscriptFailure` enum (`apify_token_missing`, `apify_actor_missing`, `apify_actor_unsupported`, `apify_network`, `apify_payment_required`, `apify_auth_error`, `apify_server_error`, `apify_client_error`, `apify_invalid_json`, `apify_no_results`, `apify_invalid_result`, `apify_actor_error`, `apify_empty_transcript`, `apify_geo_restricted`, `apify_age_restricted`, `apify_video_unavailable`). They surface in `YouTubeIngestionError.details`, in `extraction_metadata.failure_details`, and in the failure event `reason` — treat them as an observability contract.
+
+An actor item with `status="error"` is mapped to a specific failure by `_classify_actor_error`, which matches on a substring of `error_category`: `geo` / `region` / `country` → `apify_geo_restricted` (`youtube_geo_restricted`); `age` / `sign_in` / `login` → `apify_age_restricted` (`youtube_age_restricted`); `unavailable` / `private` / `deleted` / `removed` / `not_found` → `apify_video_unavailable` (`youtube_unavailable`); anything else → `apify_actor_error:<category>`. All four are terminal. `language_not_available` never reaches the classifier — the callback branch retries it on the video's default track first.
 
 ### Transcript language selection (task-216)
 
@@ -214,10 +219,9 @@ The target transcript language is **not** decided by the worker and there is no 
 2. the authenticated user's `reading_language` preference (task-190), else
 3. nothing — no language is sent to the provider.
 
-The value is normalized to a bare lowercase ISO 639-1 code (`normalize_language_code` in `utils/language_codes.py`) and travels API → orchestrator → SQS `transcript_language` → worker. The worker reads it via `_requested_transcript_language` (which also accepts `language` / `locale` as weaker hints for non-API producers) and uses it on **both** paths:
+The value is normalized to a bare lowercase ISO 639-1 code (`normalize_language_code` in `utils/language_codes.py`) and travels API → orchestrator → SQS `transcript_language` → worker. The worker reads it via `_requested_transcript_language` (which also accepts `language` / `locale` as weaker hints for non-API producers) and uses it on the Apify path:
 
-- **yt-dlp** (primary path, works today in every environment): `_language_preference_key` ranks the requested language first among subtitle candidates.
-- **Apify** (IP-block fallback only): `language` is sent in the actor input **when the configured actor supports it**, so the actor returns that language's captions directly and no downstream translation LLM call is needed. See "Rollout prerequisite" above — this requires the runtime secret to name `starvibe~youtube-video-transcript`.
+- **Apify** (the only path): `language` is sent in the actor input **when the configured actor supports it**, so the actor returns that language's captions directly and no downstream translation LLM call is needed. See "Rollout prerequisite" above — this requires the runtime secret to name `starvibe~youtube-video-transcript`.
 
 Three degradation levels on the Apify path, all of them non-fatal:
 
@@ -231,22 +235,22 @@ In the last two cases the task-192 pipeline (detection + GPT-5-nano translation)
 
 Verified live against the Apify API on 2026-08-05 with `starvibe~youtube-video-transcript`: EN video + `language=en` → `en`; same EN video + `language=fr` → real French track; FR video + `language=fr` → `fr`; ES video + `language=es` → `es`; ES video + `language=ja` → `language_not_available`, fallback to the default track. Omitting `language` on that ES video returns Catalan, which is why the language is always sent when known. The same EN video run through the deployed `scrape-creators` actor asking `fr` returns `en` with `language_supported=false`, confirming the degradation path.
 
-Ref: `youtube_ingestion_worker.py::process_youtube_message`, `youtube_ingestion_worker.py::_start_apify_transcript_run`, `youtube_ingestion_worker.py::_parse_apify_transcript`, `youtube_ingestion_worker.py::_apify_actor_dialect`, `youtube_ingestion_worker.py::_build_apify_transcript_payload`, `youtube_ingestion_worker.py::_requested_transcript_language`, `youtube_ingestion_worker.py::_is_ip_blocked_youtube_error`, `utils/language_codes.py::resolve_language_code`
+Ref: `youtube_ingestion_worker.py::process_youtube_message`, `youtube_ingestion_worker.py::_start_apify_transcript_run`, `youtube_ingestion_worker.py::_parse_apify_transcript`, `youtube_ingestion_worker.py::_apify_actor_dialect`, `youtube_ingestion_worker.py::_build_apify_transcript_payload`, `youtube_ingestion_worker.py::_requested_transcript_language`, `utils/language_codes.py::resolve_language_code`
 
 ### Terminal failure mode
 
 - `YouTubeIngestionError` after max retries (`YOUTUBE_WORKER_MAX_RETRIES`, default 3)
 - Mark job failed (`error_step="youtube_ingestion"`)
 - Publish `episode_completion_status(status=failure)`
-- Non-retryable codes: `youtube_unavailable` (deleted/private), `youtube_age_restricted`, `youtube_geo_restricted`, `youtube_apify_failed` (Apify also failed after IP-block), `youtube_subtitle_fetch_failed`
-- Retryable codes: `youtube_ytdlp_timeout`, `youtube_apify_failed` with `retryable=True` (Apify network / 5xx)
+- Non-retryable codes: `youtube_unavailable` (deleted/private/unreadable), `youtube_age_restricted`, `youtube_geo_restricted`, `youtube_apify_failed` (terminal Apify run or config error)
+- Retryable codes: `youtube_apify_failed` with `retryable=True` (Apify network / 5xx)
 
 Ref: `youtube_ingestion_worker.py::YouTubeIngestionError`, `youtube_ingestion_worker.py::ApifyTranscriptFailure`
 
 ### Downstream dependencies
 
-- Native subtitles / Apify transcript success: `EPISODE_COMPLETION_EVENTS_QUEUE` env var, default queue `episode-completion-events` (inline)
-- yt-dlp succeeded + no captions: `deepgram-transcription-queue` (push mode, then Deepgram publishes the completion event to its own `EPISODE_COMPLETED_EVENTS_QUEUE` — see drift note in Cross-cutting section)
+- Apify transcript success: `EPISODE_COMPLETION_EVENTS_QUEUE` env var, default queue `episode-completion-events` (inline)
+- No Deepgram hand-off: the worker no longer enqueues `deepgram-transcription-queue` at all (task-309 removed the only path that produced an audio URL)
 
 ---
 

@@ -296,7 +296,7 @@ Run `./scripts/replay_dlq.sh --help` for the full list of available DLQs.
 3. **Worker-specific checks:**
 
    **podcastindex-resolution:** PodcastIndex API down, API key expired
-   **youtube-ingestion:** yt-dlp outdated, YouTube blocking
+   **youtube-ingestion:** Apify actor failing, actor id misconfigured in the runtime secret, credits exhausted
    **tiktok-ingestion:** Apify actor failing, rate limits
    **x-ingestion:** X API rate limits, bearer token expired
    **audio-download:** S3 permissions, source URL unreachable

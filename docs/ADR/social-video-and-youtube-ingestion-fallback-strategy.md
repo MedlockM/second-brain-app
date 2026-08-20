@@ -112,7 +112,11 @@ Implication d'implementation:
 
 **Status: SUPERSEDED by task-126/task-129 (June 2026). YouTube now blocks all cloud provider IPs, making `youtube-transcript-api` and `yt-dlp` non-functional from Lambda.**
 
-### YouTube extraction (V1, post-task-126)
+### YouTube extraction (V1, post-task-126) -- SUPERSEDED par task-309, voir V2 ci-dessous
+
+> **NOTE**: la section ci-dessous decrit la strategie V1 telle que decidee apres task-126,
+> puis amendee par task-177 (yt-dlp redevenu primaire). Elle est superseded par la
+> strategie V2 (Apify seul) qui suit.
 
 Strategie retenue:
 - Apify YouTube Transcript actor as primary and sole extraction method
@@ -142,6 +146,46 @@ Amendements posterieurs (la cascade courante fait foi dans `docs/INGESTION_WORKE
 References:
 - `docs/research/task-126-youtube-extraction/README.md` (benchmark and owner decision)
 - `media_summarizer/workers/youtube_ingestion_worker.py` (implementation)
+
+### YouTube extraction (V2, post-task-309) -- STRATEGIE COURANTE
+
+Date: 2026-08-20
+
+**Strategie retenue: l'acteur Apify YouTube Transcript est le chemin unique.**
+Aucune tentative yt-dlp, aucun fallback Deepgram, aucune cascade.
+
+Mesure sur `dev` le 2026-08-20 qui motive la decision:
+
+| Constat | Valeur |
+| --- | --- |
+| Jobs YouTube dans `processing_jobs-dev` | 12 |
+| Succes via `extractor: apify_youtube_transcript` | 10 |
+| Succes via un extracteur yt-dlp | **0** |
+| Tentatives yt-dlp finissant en `Sign in to confirm you're not a bot` | toutes |
+| Cout de l'invocation qui tente yt-dlp avant de basculer | ~6.4 s |
+| Cout d'une invocation Apify pure, meme job | ~1.6-1.7 s |
+
+L'amendement task-177 (yt-dlp primaire, Apify en fallback IP-block) est donc caduc:
+depuis les IPs Lambda le primaire ne repond plus jamais, et chaque sauvegarde YouTube
+payait un aller-retour mort plus l'invocation Lambda supplementaire qu'il imposait.
+Le projet n'ayant pas de base installee, la branche est **supprimee** et non retrogradee.
+
+Consequences:
+- `youtube_ingestion_worker.py` n'importe plus yt-dlp ni `utils/ytdlp_helpers.py`
+- les variables `YTDLP_TIMEOUT_SECONDS` et `YOUTUBE_SUBTITLE_FETCH_TIMEOUT_SECONDS` ne
+  sont plus lues par ce worker (la premiere reste utilisee par TikTok et Instagram)
+- le worker n'alimente plus `deepgram-transcription-queue`: aucun acteur supporte
+  n'expose d'URL audio brute, donc un echec acteur est terminal
+- les refus geo / age / video indisponible, autrefois detectes sur les chaines
+  d'exception yt-dlp, sont desormais derives de `error_category` renvoye par l'acteur
+  via `_classify_actor_error` (taxonomie `ApifyTranscriptFailure`), de sorte que le
+  message utilisateur reste specifique
+- le paquet yt-dlp reste dans l'image: le worker TikTok et le resolver Instagram
+  l'utilisent toujours (TikTok: 2/2 saves via `native_subtitles` le 2026-08-20)
+
+References:
+- `backlog/tasks/task-309 - Delete-the-dead-yt-dlp-branch-from-the-YouTube-ingestion-worker-and-make-Apify-the-primary-path.md`
+- `docs/INGESTION_WORKERS_PROVIDERS.md` (cascade courante, section YouTube)
 
 ## Principes transverses
 - `native_transcript` reste la source prioritaire chaque fois qu'elle existe
