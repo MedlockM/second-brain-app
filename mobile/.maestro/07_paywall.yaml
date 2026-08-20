@@ -73,6 +73,12 @@ tags:
 - assertNotVisible:
     text: "Unavailable"
 
+# One CTA in a sticky footer buys the selected plan, so it is on screen whatever
+# the scroll position — and it must never read "Unavailable", which is what the
+# button says when the store package behind the selected tier is missing.
+- assertVisible:
+    id: "paywall-subscribe-button"
+
 # The Close button lives in the fixed header, outside the tier ScrollView, so it
 # stays on screen however far the list is scrolled. Asserting it instead of
 # scrolling to it also avoids a swipe-down on an iOS sheet, which the system

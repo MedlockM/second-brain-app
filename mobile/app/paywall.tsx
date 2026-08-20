@@ -28,6 +28,7 @@ import {
   Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { PurchasesOfferings, PurchasesPackage } from "react-native-purchases";
 import {
@@ -43,9 +44,17 @@ import {
 import {
   buildFreeTrialLine,
   buildPlanCards,
+  buildPlanHighlights,
   buildPlanIncludes,
 } from "../src/lib/planCopy";
-import { Colors, Typography, Spacing, BorderRadius, TouchTarget } from "../src/constants/theme";
+import {
+  Colors,
+  Typography,
+  Spacing,
+  BorderRadius,
+  Shadows,
+  TouchTarget,
+} from "../src/constants/theme";
 
 export default function PaywallScreen() {
   const router = useRouter();
@@ -66,6 +75,12 @@ export default function PaywallScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  // Which plan the CTA buys. `null` until the pricing lands, then the tier the
+  // free trial grants — the one the user is already living in, so the default is
+  // "keep what you have" rather than a guess at what they can afford.
+  const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
+  // The exhaustive list is one tap away, never in the way.
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
   // Bumped by the retry button; the load lives in the effect and this is what
   // re-runs it, so there is one loading path rather than two.
   const [reloadToken, setReloadToken] = useState(0);
@@ -159,12 +174,45 @@ export default function PaywallScreen() {
 
   const planCards = pricing === null ? [] : buildPlanCards(pricing);
   const trialLine = buildFreeTrialLine(pricing, entitlementStatus);
+  const highlights = buildPlanHighlights();
+  const isInTrial = entitlementStatus?.is_free_trial === true;
+
+  // The selection defaults to the trial's tier, and falls back to the first card
+  // when the config marks none — the CTA must always have something to buy.
+  const defaultTierId =
+    planCards.find((card) => card.isTrialTier)?.id ?? planCards[0]?.id ?? null;
+  const activeTierId =
+    selectedTierId !== null &&
+    planCards.some((card) => card.id === selectedTierId)
+      ? selectedTierId
+      : defaultTierId;
+  const selectedCard =
+    planCards.find((card) => card.id === activeTierId) ?? null;
+  const selectedPackage =
+    selectedCard === null ? undefined : getTierPackage(selectedCard.id);
+  // The store's own price string when it is loaded, the configured one as a
+  // stand-in, and no price at all rather than a made-up one.
+  const selectedPrice = selectedPackage
+    ? `${selectedPackage.product.priceString}/mo`
+    : (selectedCard?.configuredPrice ?? null);
+  const ctaLabel =
+    selectedPackage && selectedCard
+      ? selectedPrice === null
+        ? `Start with ${selectedCard.name}`
+        : `Start with ${selectedCard.name} — ${selectedPrice}`
+      : "Unavailable";
 
   // Without the top inset the Close button sits at y=16..64, underneath the
   // Dynamic Island, where the system swallows the tap: unreachable on any recent
   // iPhone. Every other screen already insets the same way.
   return (
-    <SafeAreaView style={styles.container} edges={["top"]} testID="paywall-screen">
+    // The bottom inset comes with the sticky footer: without it the CTA sits
+    // under the home indicator on any recent iPhone.
+    <SafeAreaView
+      style={styles.container}
+      edges={["top", "bottom"]}
+      testID="paywall-screen"
+    >
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -184,8 +232,8 @@ export default function PaywallScreen() {
           turn it into summaries, notes and flashcards you keep.
         </Text>
         <Text style={styles.subtitle}>
-          Plans differ only by how much we transcribe for you — everything below
-          is in all of them.
+          Everything the app does is in every plan. What changes is how much we
+          transcribe for you.
         </Text>
       </View>
 
@@ -226,84 +274,128 @@ export default function PaywallScreen() {
               </Text>
             )}
 
+            {/* What every plan does, above the prices: the four lines almost
+                everyone reads, in the order a newcomer meets the product. The
+                exhaustive version is one tap below, not in the way. */}
+            <View testID="paywall-highlights" style={styles.highlightBlock}>
+              {highlights.map((highlight) => (
+                <View
+                  key={highlight.id}
+                  testID={`paywall-highlight-${highlight.id}`}
+                  style={styles.highlightRow}
+                >
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={20}
+                    color={Colors.primary}
+                  />
+                  <Text style={styles.highlightText}>{highlight.text}</Text>
+                </View>
+              ))}
+
+              <TouchableOpacity
+                testID="paywall-includes-toggle"
+                style={styles.detailToggle}
+                onPress={() => setIsDetailOpen((open) => !open)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isDetailOpen }}
+              >
+                <Text style={styles.detailToggleText}>
+                  {isDetailOpen ? "Hide the details" : "See exactly what is included"}
+                </Text>
+                <Ionicons
+                  name={isDetailOpen ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color={Colors.textMain}
+                />
+              </TouchableOpacity>
+
+              {isDetailOpen && (
+                <View testID="paywall-includes">
+                  {buildPlanIncludes(pricing).map((section) => (
+                    <View
+                      key={section.id}
+                      testID={`paywall-includes-${section.id}`}
+                      style={styles.includesSection}
+                    >
+                      <Text style={styles.includesTitle}>{section.title}</Text>
+                      {section.items.map((item, index) => (
+                        <View key={index} style={styles.includesRow}>
+                          <Text style={styles.includesBullet}>•</Text>
+                          <Text style={styles.includesItem}>{item}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* The only thing left to decide, named as such. */}
+            <Text style={styles.selectorLabel}>
+              Pick how much we transcribe for you
+            </Text>
+
             {planCards.map((card) => {
               const pkg = getTierPackage(card.id);
               const priceLabel = pkg
                 ? pkg.product.priceString + "/mo"
                 : card.configuredPrice;
+              const isSelected = card.id === activeTierId;
 
               return (
-                <View
+                <TouchableOpacity
                   key={card.id}
                   testID={`paywall-tier-${card.id}`}
-                  style={[
-                    styles.tierCard,
-                    card.isTrialTier && styles.tierCardHighlight,
-                  ]}
+                  style={[styles.tierCard, isSelected && styles.tierCardSelected]}
+                  onPress={() => setSelectedTierId(card.id)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel={`${card.name}, ${priceLabel ?? "price unavailable"}`}
                 >
-                  <Text style={styles.tierName}>{card.name}</Text>
-                  {priceLabel !== null && (
-                    <Text style={styles.tierPrice}>{priceLabel}</Text>
-                  )}
+                  <View style={styles.tierRadioColumn}>
+                    <Ionicons
+                      name={isSelected ? "radio-button-on" : "radio-button-off"}
+                      size={22}
+                      color={isSelected ? Colors.textMain : Colors.outlineVariant}
+                    />
+                  </View>
 
-                  <View style={styles.featureList}>
+                  <View style={styles.tierBody}>
+                    <View style={styles.tierTitleRow}>
+                      <Text style={styles.tierName}>{card.name}</Text>
+                      {/* Only true for someone the backend reports as being in
+                          the trial. The tier is still the default selection for
+                          everyone else, but a badge claiming a trial they never
+                          had would be a lie, and "popular" is a claim we cannot
+                          make with no users. */}
+                      {card.isTrialTier && isInTrial && (
+                        <View style={styles.tierBadge}>
+                          <Text style={styles.tierBadgeText}>YOUR TRIAL TIER</Text>
+                        </View>
+                      )}
+                    </View>
+
                     {card.allowance !== null && (
-                      <Text style={styles.featureText}>{card.allowance}</Text>
+                      <Text style={styles.tierFigure}>{card.allowance}</Text>
                     )}
                     {card.perImportLimit !== null && (
-                      <Text style={styles.featureText}>
+                      <Text style={styles.tierFigureMuted}>
                         {card.perImportLimit}
                       </Text>
                     )}
+                    {!pkg && (
+                      <Text style={styles.tierUnavailable}>Unavailable</Text>
+                    )}
                   </View>
 
-                  <TouchableOpacity
-                    style={[
-                      styles.purchaseButton,
-                      card.isTrialTier && styles.purchaseButtonHighlight,
-                      (isPurchasing || !pkg) && styles.purchaseButtonDisabled,
-                    ]}
-                    onPress={() => pkg && handlePurchase(pkg)}
-                    disabled={isPurchasing || !pkg}
-                  >
-                    {isPurchasing ? (
-                      <ActivityIndicator size="small" color={Colors.onPrimary} />
-                    ) : (
-                      <Text
-                        style={[
-                          styles.purchaseButtonText,
-                          card.isTrialTier && styles.purchaseButtonTextHighlight,
-                        ]}
-                      >
-                        {pkg ? "Subscribe" : "Unavailable"}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
+                  {priceLabel !== null && (
+                    <Text style={styles.tierPrice}>{priceLabel}</Text>
+                  )}
+                </TouchableOpacity>
               );
             })}
 
-            {/* What every plan does, once, under the cards: none of it varies
-                by tier, and a reader who has never used the app cannot judge
-                three allowances without it. */}
-            <View testID="paywall-includes" style={styles.includesBlock}>
-              <Text style={styles.includesHeading}>Included in every plan</Text>
-              {buildPlanIncludes(pricing).map((section) => (
-                <View
-                  key={section.id}
-                  testID={`paywall-includes-${section.id}`}
-                  style={styles.includesSection}
-                >
-                  <Text style={styles.includesTitle}>{section.title}</Text>
-                  {section.items.map((item, index) => (
-                    <View key={index} style={styles.includesRow}>
-                      <Text style={styles.includesBullet}>•</Text>
-                      <Text style={styles.includesItem}>{item}</Text>
-                    </View>
-                  ))}
-                </View>
-              ))}
-            </View>
           </>
         )}
 
@@ -332,6 +424,32 @@ export default function PaywallScreen() {
               "the end of the current period."}
         </Text>
       </ScrollView>
+
+      {/* One CTA, in a footer that never scrolls away, naming what it buys and
+          what it costs — per-card buttons turned the screen into three identical
+          decisions, and a price only visible on a row that can be scrolled off
+          is a price the stores consider hidden. */}
+      {!isLoading && pricing !== null && (
+        <View style={styles.footer}>
+          <TouchableOpacity
+            testID="paywall-subscribe-button"
+            style={[
+              styles.purchaseButton,
+              (isPurchasing || !selectedPackage) && styles.purchaseButtonDisabled,
+            ]}
+            onPress={() => selectedPackage && handlePurchase(selectedPackage)}
+            disabled={isPurchasing || !selectedPackage}
+            accessibilityRole="button"
+            accessibilityLabel={ctaLabel}
+          >
+            {isPurchasing ? (
+              <ActivityIndicator size="small" color={Colors.onPrimary} />
+            ) : (
+              <Text style={styles.purchaseButtonText}>{ctaLabel}</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -422,57 +540,128 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
     lineHeight: 18,
   },
+  // Selection lives in the fill, not a stroke: the design system asks for tonal
+  // shifts over 1px borders for anything structural.
   tierCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    marginTop: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+    minHeight: TouchTarget.comfortable,
   },
-  tierCardHighlight: {
-    borderColor: Colors.primary,
-    borderWidth: 2,
+  tierCardSelected: {
+    backgroundColor: Colors.highlight,
+  },
+  tierRadioColumn: {
+    justifyContent: "center",
+  },
+  tierBody: {
+    flex: 1,
+  },
+  tierTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
   },
   tierName: {
     ...Typography.headline,
     color: Colors.textMain,
+  },
+  tierBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
+  },
+  tierBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    color: Colors.textMain,
+  },
+  tierFigure: {
+    ...Typography.label,
+    color: Colors.textMain,
+    marginTop: Spacing.xs,
+  },
+  tierFigureMuted: {
+    ...Typography.small,
+    color: Colors.textMuted,
+  },
+  tierUnavailable: {
+    ...Typography.small,
+    fontWeight: "600",
+    color: Colors.error,
     marginTop: Spacing.xs,
   },
   tierPrice: {
-    ...Typography.display,
+    ...Typography.headline,
     color: Colors.textMain,
-    marginTop: Spacing.xs,
+    textAlign: "right",
   },
-  featureList: {
+  selectorLabel: {
+    ...Typography.label,
+    fontWeight: "600",
+    color: Colors.textMain,
+    marginTop: Spacing.lg,
+  },
+  highlightBlock: {
     marginTop: Spacing.md,
-    gap: Spacing.xs,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: Colors.surface,
+    ...Shadows.soft,
   },
-  featureText: {
-    ...Typography.body,
+  highlightRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  highlightText: {
+    ...Typography.small,
+    flex: 1,
     color: Colors.textMain,
+    lineHeight: 18,
+  },
+  detailToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.xs,
+    minHeight: TouchTarget.minimum,
+  },
+  detailToggleText: {
+    ...Typography.label,
+    fontWeight: "600",
+    color: Colors.textMain,
+    textDecorationLine: "underline",
+  },
+  // Sits on the background rather than floating: the design system asks for
+  // tonal separation over strokes, and a shadow here would fight the card above.
+  footer: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.md,
+    backgroundColor: Colors.background,
   },
   purchaseButton: {
-    marginTop: Spacing.md,
-    backgroundColor: Colors.surfaceContainer,
+    backgroundColor: Colors.primary,
     borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
     alignItems: "center",
     justifyContent: "center",
     minHeight: TouchTarget.comfortable,
   },
-  purchaseButtonHighlight: {
-    backgroundColor: Colors.primary,
-  },
   purchaseButtonDisabled: {
     opacity: 0.5,
   },
   purchaseButtonText: {
-    ...Typography.label,
-    color: Colors.textMain,
-    fontWeight: "600",
-  },
-  purchaseButtonTextHighlight: {
+    ...Typography.headline,
     color: Colors.onPrimary,
     fontWeight: "700",
   },

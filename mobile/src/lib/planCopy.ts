@@ -14,11 +14,17 @@
  *
  * What a plan *does* — the sources it accepts, the artifacts it generates, the
  * organisation and search around them — is the other half of the answer, and it
- * lives in `buildPlanIncludes` below. It is the same for every tier, so it is
- * stated once under the cards instead of three times on them, and it is derived
- * from the app's own catalogues (`ARTIFACT_TILES`, `V1_READING_LANGUAGES`)
- * wherever one exists, so a capability cannot be advertised here after being
- * removed there.
+ * is the same for every tier, so it is stated once rather than three times on
+ * the cards. It comes in two lengths, and both are built from the app's own
+ * catalogues (`ARTIFACT_TILES`, `V1_READING_LANGUAGES`) wherever one exists, so
+ * a capability cannot be advertised here after being removed there:
+ *
+ * - `buildPlanHighlights` — four check lines, above the plans. What a reader
+ *   deciding between three allowances actually reads.
+ * - `buildPlanIncludes` — the same four subjects, exhaustively, behind a
+ *   disclosure. Kept because "everything an import can be" is a real question
+ *   and the answer is long; put on screen unprompted it is the wall of text
+ *   every paywall study says nobody reads.
  */
 import { ARTIFACT_TILES } from "../components/ArtifactTile";
 import { V1_READING_LANGUAGES } from "../services/userPreferencesService";
@@ -75,11 +81,11 @@ function buildPlanCard(tier: PricingTier, trialTierId: string | null): PlanCard 
     allowance:
       tier.minutes_per_month === null
         ? null
-        : `${formatMinutes(tier.minutes_per_month)} of audio and video transcribed every month`,
+        : `${formatMinutes(tier.minutes_per_month)} of audio and video a month`,
     perImportLimit:
       tier.max_minutes_per_item === null
         ? null
-        : `Up to ${formatMinutes(tier.max_minutes_per_item)} in one single import`,
+        : `Up to ${formatMinutes(tier.max_minutes_per_item)} in a single import`,
     isTrialTier: trialTierId !== null && tier.id === trialTierId,
   };
 }
@@ -156,6 +162,53 @@ export function buildMinutesLegend(pricing: PublicPricing): string[] {
   );
 
   return sentences;
+}
+
+/** One scannable promise, rendered as a check line above the plans. */
+export interface PlanHighlight {
+  /** React key and testID suffix — matches the id of the detailed section. */
+  id: string;
+  text: string;
+}
+
+/**
+ * The four things a subscription does, one short line each, shown *above* the
+ * plans.
+ *
+ * This is the version almost everyone reads. The detailed sections below say the
+ * same four things exhaustively for the minority who open them, and the two are
+ * built from the same catalogues so they cannot drift: same ids, same order.
+ * A reader deciding between three allowances needs to know what an allowance
+ * buys before they see the prices, not after the CTA.
+ */
+export function buildPlanHighlights(): PlanHighlight[] {
+  return [
+    {
+      id: "capture",
+      text:
+        "Save from any app: YouTube, podcasts, TikTok, Instagram, X, articles, " +
+        "PDFs, documents, photos and audio files",
+    },
+    {
+      id: "read",
+      text: "Read the full transcript, translated into your reading language",
+    },
+    {
+      id: "generate",
+      text: `Generate ${listArtifactLabels()} on demand, per item or per collection`,
+    },
+    {
+      id: "organise",
+      text: "Organise in collections and tags, search everything, daily digest",
+    },
+  ];
+}
+
+/** "summaries, notes, flashcards and quizzes", from the tiles themselves. */
+function listArtifactLabels(): string {
+  const labels = ARTIFACT_TILES.map((tile) => tile.label.toLowerCase());
+  if (labels.length < 2) return labels.join("");
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
 }
 
 /** A titled group of plain sentences, rendered as one block under the cards. */
