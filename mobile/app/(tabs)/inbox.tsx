@@ -10,6 +10,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router";
@@ -365,6 +366,11 @@ interface BackendItemCardProps {
 }
 
 function BackendItemCard({ item, onPress }: BackendItemCardProps) {
+  // Keyed by media id rather than a bare boolean, like `MediaListCard`: a
+  // `FlatList` cell can be handed a different item, and a failure recorded for
+  // the previous one must not hide the new one's cover.
+  const [failedCoverId, setFailedCoverId] = useState<string | null>(null);
+
   const sourceUrl = item.source_url ?? "";
 
   let displayDomain: string;
@@ -385,6 +391,13 @@ function BackendItemCard({ item, onPress }: BackendItemCardProps) {
   // line rendered right below the title.
   const displayTitle = item.title;
 
+  // Already a fetchable URL: a re-hosted cover is an `s3://` locator server-side
+  // and the API signs it on read (task-304). With no cover -- or when loading
+  // one fails -- the media-type glyph is drawn on the same tonal square, so a
+  // row with a picture and a row without keep the same silhouette.
+  const coverUrl = item.media_image?.trim() ?? "";
+  const showCover = coverUrl.length > 0 && failedCoverId !== item.media_item_id;
+
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
@@ -393,9 +406,26 @@ function BackendItemCard({ item, onPress }: BackendItemCardProps) {
       accessibilityRole="button"
     >
       <View style={styles.cardContent}>
-        {/* Thumbnail placeholder */}
         <View style={styles.thumbnailContainer}>
-          <Ionicons name={icon} size={28} color={Colors.textMuted} />
+          {showCover ? (
+            <Image
+              source={{
+                uri: coverUrl,
+                // Survives the rotating signature of a presigned cover.
+                cacheKey: `${item.media_item_id}:${item.updated_at}`,
+              }}
+              recyclingKey={item.media_item_id}
+              cachePolicy="memory-disk"
+              contentFit="cover"
+              transition={150}
+              priority="low"
+              style={styles.thumbnailImage}
+              onError={() => setFailedCoverId(item.media_item_id)}
+              accessible={false}
+            />
+          ) : (
+            <Ionicons name={icon} size={28} color={Colors.textMuted} />
+          )}
         </View>
 
         {/* Text content */}
@@ -691,6 +721,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceContainerLow,
     alignItems: "center",
     justifyContent: "center",
+    // The container frames the cover as well as the fallback glyph, so the
+    // picture has to be clipped to its rounded corners.
+    overflow: "hidden",
+  },
+  thumbnailImage: {
+    width: "100%",
+    height: "100%",
   },
   cardTextSection: {
     flex: 1,
