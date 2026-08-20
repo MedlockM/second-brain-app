@@ -1016,8 +1016,71 @@ async def get_folders_by_user_id(user_id: str) -> List[Folder]:
         raise
 
 
+async def stamp_folder_engagement(
+    folder_id: str,
+    *,
+    user_id: str,
+    dampener_seconds: int,
+    now: Optional[datetime] = None,
+) -> bool:
+    """Record that the user just engaged with one collection (task-303).
+
+    A targeted ``UpdateItem`` on the single attribute, never a model ``put_item``:
+    :func:`update_folder` rewrites the whole item, so stamping through it would race
+    a concurrent rename over the rest of the row.
+
+    Ownership travels in the condition rather than in a preceding read, so a folder
+    id belonging to somebody else simply writes nothing. The dampener is the same
+    conditional shape the media stamp uses, and for the same reason: a user flipping
+    between two artifacts of the same collection should produce one write per
+    minute, not one per tap.
+
+    Returns:
+        True when the stamp landed, False when the condition refused it (unknown
+        folder, another user's folder, or an engagement younger than the dampener).
+    """
+    moment = now or datetime.now(timezone.utc)
+    cutoff = moment - timedelta(seconds=dampener_seconds)
+    session = get_session()
+    async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
+        table = await dynamodb.Table(USER_FOLDERS_TABLE)
+        try:
+            await table.update_item(
+                Key={"id": folder_id},
+                UpdateExpression="SET last_engaged_at = :now",
+                ExpressionAttributeNames={"#owner": "user_id"},
+                ExpressionAttributeValues={
+                    ":now": moment.isoformat(),
+                    ":cutoff": cutoff.isoformat(),
+                    ":owner": user_id,
+                },
+                ConditionExpression=(
+                    "attribute_exists(id) AND #owner = :owner "
+                    "AND (attribute_not_exists(last_engaged_at) "
+                    "OR last_engaged_at < :cutoff)"
+                ),
+            )
+            return True
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return False
+            _log_dynamodb_error(
+                "stamp_folder_engagement",
+                e,
+                table=USER_FOLDERS_TABLE,
+                folder_id=folder_id,
+            )
+            raise
+
+
 async def update_folder(folder: Folder) -> Folder:
-    """Update a folder in DynamoDB."""
+    """Update a folder in DynamoDB.
+
+    A full ``put_item`` of the model, which is why every attribute stored on a
+    folder row has to round-trip through ``Folder`` -- ``last_engaged_at`` included.
+    An attribute the model does not know about is erased here, silently, the next
+    time the collection is renamed.
+    """
     try:
         session = get_session()
         async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:

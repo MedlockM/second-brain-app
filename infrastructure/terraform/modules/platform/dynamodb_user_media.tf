@@ -54,6 +54,19 @@ resource "aws_dynamodb_table" "user_media_v1" {
     type = "S"
   }
 
+  # The engagement clock behind the Inbox "Continue learning" row (task-303,
+  # Option A). ISO-8601, ABSENT until the user first launches a generation on this
+  # item or opens one of its artifacts -- which is what keeps engaged-index below
+  # sparse: one index entry per *engaged* item, not one per library row.
+  #
+  # Declared here only because the index below keys on it. The provider documents
+  # that an `attribute` block which is neither a table key nor an index key
+  # produces an infinite plan loop, so this block and that index move together.
+  attribute {
+    name = "last_engaged_at"
+    type = "S"
+  }
+
   # Local secondary indexes MUST be declared at table creation and can never be
   # added later, so §4.1 declares them now even though Phase 1 does not read
   # them: the alternative is recreating the authoritative library table.
@@ -78,6 +91,36 @@ resource "aws_dynamodb_table" "user_media_v1" {
     name            = "folder-index"
     range_key       = "folder_sort_key"
     projection_type = "ALL"
+  }
+
+  # "Continue learning", in one bounded Query: newest engagements first, windowed
+  # by a sort-key range condition on last_engaged_at (90 days, so the row empties
+  # itself), capped by Limit.
+  #
+  # A GSI and not an LSI, deliberately: an LSI can only be created *with* the
+  # table (see the comment above), and this table carries prevent_destroy,
+  # deletion protection and PITR. A GSI is an online UpdateTable -- the table stays
+  # available while the backfill runs, and the index is simply not queryable until
+  # it reports ACTIVE. That is why the row is empty on the first deploy.
+  #
+  # INCLUDE and not ALL: the projected attributes are exactly what a tile draws, so
+  # the read path is render-ready with no fetch back to the table. `deleted_at` is
+  # projected so the read can drop a row the user soft-deleted before its purge_at
+  # TTL sweeps it -- the signal disappears with its subject, which is the whole
+  # reason task-303 stores it here instead of in an activity table.
+  # user_id / media_item_id come for free: DynamoDB always projects the base keys.
+  global_secondary_index {
+    name            = "engaged-index"
+    hash_key        = "user_id"
+    range_key       = "last_engaged_at"
+    projection_type = "INCLUDE"
+    non_key_attributes = [
+      "title",
+      "creator_name",
+      "thumbnail_url",
+      "media_type",
+      "deleted_at",
+    ]
   }
 
   # THE ONLY TTL ON THIS TABLE, and it is user-driven.

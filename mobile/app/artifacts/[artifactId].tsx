@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useAuth } from "../../src/contexts/AuthContext";
 import { ArtifactService } from "../../src/services/artifactService";
+import { EngagementService } from "../../src/services/engagementService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
 import {
   BorderRadius,
@@ -129,6 +130,11 @@ export default function ArtifactDetailScreen() {
   const mountedRef = useRef(true);
   const scrollViewRef = useRef<ScrollView>(null);
   const artifactBodyTopRef = useRef(0);
+  // "Opened and read" is reported once per mount (task-303), from the moment the
+  // content is actually on screen — not on tap, and not from the two `GET`s that
+  // fetch it, which stay safe methods. A retry after a failure re-reports nothing:
+  // the user already got their engagement recorded on the first successful render.
+  const engagementReportedRef = useRef(false);
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
@@ -154,6 +160,15 @@ export default function ArtifactDetailScreen() {
         sourceTitle,
         translation,
       });
+      if (!engagementReportedRef.current) {
+        engagementReportedRef.current = true;
+        // Not awaited: the row this feeds is somewhere else entirely, and
+        // `reportEngagement` never rejects.
+        void EngagementService.reportEngagement(
+          response.scope === "folder" ? "collection" : "media",
+          response.scope_id,
+        );
+      }
     } catch (err) {
       if (!mountedRef.current) return;
       const httpStatus = (err as { status?: number } | undefined)?.status;

@@ -426,6 +426,16 @@ output "user_tags_table_name" {
 }
 
 # User folders table (hierarchical media organization)
+#
+# A collection row also carries `last_engaged_at` (task-303, Option A), and that
+# needs NO schema change here, deliberately: `user-index` already returns every
+# folder of a user in one Query with an ALL projection, so the attribute arrives
+# with the folders the Inbox reads anyway and the "Continue learning" ordering
+# happens in Python. A collection count is bounded by hand-creation (tens), so a
+# second index would be one that "is seldom used" -- exactly what AWS's secondary
+# index guidance says not to add. If collections ever become machine-generated,
+# mirror user_media's sparse (user_id, last_engaged_at) GSI; the attribute is
+# already there, so that stays a purely additive change.
 resource "aws_dynamodb_table" "user_folders_v1" {
   name         = "user_folders${local.suffix}"
   billing_mode = "PAY_PER_REQUEST"

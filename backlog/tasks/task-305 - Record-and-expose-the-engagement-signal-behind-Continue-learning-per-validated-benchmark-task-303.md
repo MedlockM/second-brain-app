@@ -52,14 +52,116 @@ Record when a user engages with a media item or a collection — opening an alre
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The implementation follows the owner's Decision field in docs/research/task-303-*/README.md, and the Implementation Notes state which option was implemented and quote the decision that mandated it
-- [ ] #2 Every interaction the README counts as an engagement records one, for both the media and the collection scope, from the call sites named in the description
-- [ ] #3 The storage the README mandates exists in Terraform with its TTL and IAM grants, and terraform validate plus terraform plan exit 0 for the -dev environment
-- [ ] #4 A read path returns the recency list in the README's order, capped at its stated length, and covers media and collections as the README specifies
-- [ ] #5 A failed engagement write cannot surface an error, block or delay opening an artifact, or retry in a loop — the accompanying read still succeeds
-- [ ] #6 The throttle rule from the README is implemented, and no code path records an engagement on render or on scroll
-- [ ] #7 GET /api/artifacts/{id} and GET /api/artifacts/{id}/content remain free of side effects unless the README explicitly chose the opposite
-- [ ] #8 A media or collection removed by the user, and every row of a deleted account, leaves no engagement entry that could resurface it — the purge cascade and delete_all_for_user both account for the new storage
-- [ ] #9 The mobile client records the engagement at the artifact-open sites and exposes a service method for the read path, with cd mobile && npm run typecheck && npm run lint clean
-- [ ] #10 ruff and mypy are clean on the touched Python, and no local mirror or second store of the signal exists
+- [x] #1 The implementation follows the owner's Decision field in docs/research/task-303-*/README.md, and the Implementation Notes state which option was implemented and quote the decision that mandated it
+- [x] #2 Every interaction the README counts as an engagement records one, for both the media and the collection scope, from the call sites named in the description
+- [x] #3 The storage the README mandates exists in Terraform with its TTL and IAM grants, and terraform validate plus terraform plan exit 0 for the -dev environment
+- [x] #4 A read path returns the recency list in the README's order, capped at its stated length, and covers media and collections as the README specifies
+- [x] #5 A failed engagement write cannot surface an error, block or delay opening an artifact, or retry in a loop — the accompanying read still succeeds
+- [x] #6 The throttle rule from the README is implemented, and no code path records an engagement on render or on scroll
+- [x] #7 GET /api/artifacts/{id} and GET /api/artifacts/{id}/content remain free of side effects unless the README explicitly chose the opposite
+- [x] #8 A media or collection removed by the user, and every row of a deleted account, leaves no engagement entry that could resurface it — the purge cascade and delete_all_for_user both account for the new storage
+- [x] #9 The mobile client records the engagement at the artifact-open sites and exposes a service method for the read path, with cd mobile && npm run typecheck && npm run lint clean
+- [x] #10 ruff and mypy are clean on the touched Python, and no local mirror or second store of the signal exists
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### The decision that was implemented
+
+`docs/research/task-303-engagement-recency-model/README.md` carries
+`owner_decision: ok` with, under `## Owner Validation`:
+
+> **Decision**: Recommandation
+
+So the implemented shape is the README's **Recommendation — Option A**: *"Continue
+learning" as an open-based recency row, stored as one attribute on the things
+themselves* — one nullable ISO-8601 `last_engaged_at` on the subject rows, plus one
+sparse GSI on `user_media_v1`. No activity table (Option B), no derivation from
+`media_artifacts` (Option C), no device-local store.
+
+### What was built, per the README's five decisions
+
+1. **Semantics.** Exactly two events stamp the attribute. **E1** — a generation was
+   launched: `POST /api/artifacts` stamps the scope it just accepted, on the
+   deduplicated `200` path too (`media_summarizer/api/endpoints/artifacts.py`).
+   **E2** — an artifact was opened and its content loaded: the artifact viewer
+   reports it once per mount. Opening a media detail screen stamps nothing, and the
+   transcript reader stamps nothing.
+2. **Storage.** `last_engaged_at` on `UserMediaRecord` and on `Folder`, plus the
+   sparse `engaged-index` GSI (`user_id` HASH / `last_engaged_at` RANGE,
+   `INCLUDE` projection = `title`, `creator_name`, `thumbnail_url`, `media_type`,
+   `deleted_at`) in `dynamodb_user_media.tf`. `user_folders_v1` gets the attribute
+   and **no** index, as mandated: `user-index` already returns every folder with an
+   `ALL` projection, so the folder side is windowed and ordered in Python.
+3. **Write path.** Two explicit server-side writes; `POST /api/engagements {kind, id}`
+   → `204` for E2. Both go through `engagement_service.stamp`, which swallows and
+   logs `engagement.stamp_failed` on the `quota_enforcer._debit` pattern, never
+   retries and never raises. Dampened by a 60 s conditional write
+   (`attribute_not_exists(last_engaged_at) OR last_engaged_at < :cutoff`), so a
+   re-open storm is one write rather than twenty — and, more importantly, one index
+   mutation rather than twenty, since changing an indexed key is a delete + put.
+4. **Read path.** `GET /api/engagements/recent?limit=12` returns one merged,
+   already-sorted, render-ready list of media *and* collection entries with signed
+   covers. Server-side default 12, `limit` clamped to 1-20. The 90-day freshness
+   window is a sort-key range condition, so the row empties itself and the client
+   hides the section.
+5. **Deletion.** No new code, by construction: the signal is an attribute of the row
+   it describes. Nothing was added to the purge cascade, to `delete_all_for_user`, to
+   the folder-deletion path or to the account-deletion inventory; soft-deleted rows
+   are excluded on read with `attribute_not_exists(deleted_at)`. Docstrings in
+   `utils/user_media.py` record *why* those paths are untouched, so the next reader
+   does not conclude a step was forgotten.
+
+The README's **"one thing the implementer must not miss"** is handled:
+`database_async.update_folder()` writes a full `put_item` of
+`Folder.to_dynamodb_item()`, so `last_engaged_at` now round-trips through the `Folder`
+model *and* both serializers — otherwise renaming a collection would silently erase
+its engagement clock. The new `database_async.stamp_folder_engagement` is a targeted
+`UpdateItem`, not a read-modify-write, so it cannot clobber a concurrent rename
+either. Converting `update_folder` itself to a targeted `UpdateItem` (§7.2's optional
+hardening) was left alone: it is a behaviour change to an unrelated write path.
+
+### Deliberate details worth knowing
+
+- **Where E2 is reported.** The two sites named in the task description
+  (`mobile/app/media/[id].tsx`, `mobile/app/media/collections/[id].tsx`) only
+  `router.push('/artifacts/<id>')`. The stamp is fired from the destination of both
+  pushes, `mobile/app/artifacts/[artifactId].tsx`, because the README requires the
+  artifact to be opened **and its content loaded**, once per screen mount. Stamping
+  at the two push sites would record an engagement for an artifact whose content then
+  failed to load, and would miss every other route into the viewer. A
+  `useRef` guard is set before the request is issued, so a retry after an error does
+  not re-report.
+- **No hidden write in a safe method.** `GET /api/artifacts/{id}` and
+  `GET /api/artifacts/{id}/content` stay side-effect-free, and
+  `get_artifact_content`'s docstring now says so and why: the mobile client replays a
+  `GET` once after refreshing a 401, and `expo-router` can render a screen the user
+  never opened.
+- **The stamp does not go through `user_media.update_attributes`.** That helper always
+  appends `updated_at`, and `updated_at` is the cache key of the `expo-image` covers —
+  stamping through it would invalidate every cover on every artifact open.
+- **No TTL, no IAM change, no env var.** Option A's freshness window is a query range
+  condition, not an expiry, and `dynamodb_user_media.tf` already forbids a second TTL
+  attribute on that table. `local.table_arns` in `runtime_env.tf` already wildcards
+  `table/*<suffix>` and `.../index/*`, so the new GSI needs no grant. The index name
+  is a module constant, so `.env.example` stays complete.
+
+### Verification
+
+| Command | Exit | Result |
+| --- | --- | --- |
+| `ruff check .` | 0 | All checks passed |
+| `mypy media_summarizer/` | 0 | no issues in 174 source files |
+| `python scripts/check_purge_at_writers.py` | 0 | invariant I2 holds |
+| `python scripts/check_env_example_complete.py` | 0 | 237 vars declared |
+| `terraform validate` (`envs/dev`) | 0 | valid |
+| `terraform plan` (`envs/dev`) | 0 | `0 to add, 1 to change, 0 to destroy` — in-place `UpdateTable` on `user_media-dev` |
+| `terraform fmt -check -recursive modules/platform` | 0 | formatted |
+| `cd mobile && npm run typecheck` | 0 | clean |
+| `cd mobile && npm run lint` | 0 | 0 errors (2 pre-existing warnings in untouched files) |
+
+No automated tests were written (project rule). The owner-side checks stay as written
+in the description: the GSI backfills in the background after apply, so the row is
+legitimately empty until the first engagement is recorded post-deploy.
+<!-- SECTION:NOTES:END -->

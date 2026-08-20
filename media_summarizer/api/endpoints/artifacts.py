@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models.media_artifact import ArtifactScope
-from media_summarizer.core.services import quota_enforcer
+from media_summarizer.core.services import engagement_service, quota_enforcer
 from media_summarizer.core.services.artifact_service import (
     ArtifactGenerationDisabledError,
     ArtifactScopeEmptyError,
@@ -256,6 +256,22 @@ async def create_artifact(
                 idempotency_token=record.artifact_id,
             )
 
+        # E1 of task-303: launching a generation is the strongest intent signal the
+        # app has, and the wait is precisely when the user needs a way back — so the
+        # scope enters "Continue learning" here, deduplicated path included. The
+        # ownership assertion above is what lets this skip its own check. Swallows
+        # everything by contract: a recency stamp must never fail a generation the
+        # user asked for.
+        await engagement_service.stamp(
+            user_id=current_user.id,
+            kind=(
+                engagement_service.KIND_MEDIA
+                if scope == ArtifactScope.MEDIA
+                else engagement_service.KIND_COLLECTION
+            ),
+            subject_id=scope_id,
+        )
+
         log_event(
             logger,
             logging.INFO,
@@ -483,6 +499,12 @@ async def get_artifact_content(
     record, verifies ownership, downloads the blob and inlines the parsed
     content in the response so the mobile client doesn't need to deal with
     presigned URLs.
+
+    Side-effect-free, and it must stay that way: the "artifact opened" engagement
+    (task-303 §5.2) is reported by an explicit ``POST /api/engagements`` from the
+    viewer, not stamped here. This route is replayed by the client after a 401
+    refresh and can be run by a router preload for a screen the user never opens, so
+    a write on this path would record engagements nobody made.
     """
     token = bind_log_context(user_id=current_user.id, artifact_id=artifact_id)
     try:

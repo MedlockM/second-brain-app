@@ -17,6 +17,7 @@ from media_summarizer.api.endpoints import (
     auth_social,
     bug_reports,
     digest,
+    engagements,
     entitlements,
     feedback,
     feeds,
@@ -154,6 +155,7 @@ app.include_router(tags.router, prefix="/api/tags", tags=["tags"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(feeds.router, prefix="/api/feeds", tags=["feeds"])
 app.include_router(digest.router, prefix="/api", tags=["digest"])
+app.include_router(engagements.router, prefix="/api", tags=["engagements"])
 app.include_router(pricing.router, prefix="/api", tags=["pricing"])
 app.include_router(entitlements.router, prefix="/api", tags=["entitlements"])
 app.include_router(feedback.router, prefix="/api", tags=["feedback"])

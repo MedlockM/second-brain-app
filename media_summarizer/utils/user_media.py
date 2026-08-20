@@ -7,6 +7,7 @@ Schema (USER_MEDIA_TABLE, ``user_media-<env>``):
 - LSI saved-at-index: saved_at (S)
 - LSI folder-index:   folder_sort_key (S) == "<folder_id>#<saved_at>"
 - GSI media-key-index: media_key (S), media_item_id (S)
+- GSI engaged-index:  user_id (S), last_engaged_at (S) -- sparse (task-303)
 - TTL: purge_at (N) -- user-initiated deletion ONLY
 
 This module is the ONLY place allowed to write the table. Two invariants from
@@ -26,6 +27,15 @@ convention, because both were violated in the incident this table exists to fix:
       ``delete_all_for_user``, which removes the rows outright instead of
       scheduling them -- an erasure request is not a soft delete.
 
+The engagement signal behind the Inbox "Continue learning" row (task-303) is an
+*attribute of this row*, ``last_engaged_at``, and that is the property the design
+was chosen for: deleting the media deletes the signal, in the same write. Nothing
+about it is added to the purge cascade, to :func:`delete_all_for_user` or to the
+account-deletion inventory, and there is no separate store that could keep a
+pointer to destroyed content. A row that is soft-deleted but not yet swept keeps
+its attribute for the length of its grace period, so the read path
+(:func:`list_recently_engaged`) drops it on ``attribute_not_exists(deleted_at)``.
+
 Table name resolution is lazy on purpose. ``required_env`` raises when the
 variable is missing, and this module is imported by the API save path; resolving
 at import time would turn a local script that never touches the library into an
@@ -36,7 +46,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from boto3.dynamodb.conditions import Attr, Key
@@ -62,6 +72,19 @@ _FORBIDDEN_UPDATE_ATTRS = frozenset({"purge_at", "deleted_at"})
 # reorder the library, and rewriting the keys is meaningless.
 _IMMUTABLE_ATTRS = frozenset({"user_id", "media_item_id", "media_key", "saved_at"})
 MEDIA_KEY_INDEX = os.environ.get("USER_MEDIA_MEDIA_KEY_INDEX", "media-key-index")
+
+# Sparse GSI (user_id, last_engaged_at) behind "Continue learning" (task-303).
+# Not an env var: it is part of the table definition, and a mismatch between the
+# name here and the name in Terraform is a deploy error, not a configuration knob.
+ENGAGED_INDEX = "engaged-index"
+
+# How long one engagement dampens the next on the same subject. Shorter than any
+# plausible session boundary, longer than any tap sequence: a user flipping
+# between two artifacts of the same media produces one write per minute, not one
+# per tap. What this saves is the index churn (a change to an indexed key is a
+# delete plus a put) and the ordering noise -- a write rejected by a condition
+# still consumes a write unit.
+ENGAGEMENT_DAMPENER_SECONDS = 60
 
 
 def user_media_table_name() -> str:
@@ -344,6 +367,125 @@ async def count_media_per_folder(user_id: str) -> Dict[str, int]:
     return counts
 
 
+async def stamp_engagement(
+    user_id: str,
+    media_item_id: str,
+    *,
+    now: Optional[datetime] = None,
+) -> bool:
+    """Record that the user just engaged with one library item (task-303).
+
+    Engagement means exactly two things (§2.2 of the benchmark): a generation was
+    launched on this item, or one of its artifacts was opened and rendered. Opening
+    the media detail screen is not one of them.
+
+    A targeted ``SET`` of a single attribute, deliberately *not* routed through
+    :func:`update_attributes`: that helper always appends ``updated_at``, and
+    ``updated_at`` is what the client builds its cover cache key from -- stamping an
+    engagement through it would invalidate every cover on every open.
+
+    The condition carries three refusals at once, which is why the return value is
+    a bool and not an exception:
+
+    * ``attribute_exists(media_item_id)`` -- the row is gone (purged, erased);
+    * ``attribute_not_exists(deleted_at)`` -- the user deleted the item, and an
+      item leaving every read path must not keep climbing back up the row;
+    * the dampener -- the last engagement is younger than
+      ``ENGAGEMENT_DAMPENER_SECONDS``.
+
+    Returns:
+        True when the stamp landed, False when the condition refused it. Never
+        raises for a refusal: a caller that cared would be a caller that could fail
+        the user's actual action.
+    """
+    moment = now or datetime.now(timezone.utc)
+    cutoff = moment - timedelta(seconds=ENGAGEMENT_DAMPENER_SECONDS)
+
+    table_name = user_media_table_name()
+    session = database_async.get_session()
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        try:
+            await table.update_item(
+                Key={"user_id": user_id, "media_item_id": media_item_id},
+                UpdateExpression="SET last_engaged_at = :now",
+                ExpressionAttributeValues={
+                    ":now": moment.isoformat(),
+                    ":cutoff": cutoff.isoformat(),
+                },
+                ConditionExpression=(
+                    "attribute_exists(media_item_id) "
+                    "AND attribute_not_exists(deleted_at) "
+                    "AND (attribute_not_exists(last_engaged_at) "
+                    "OR last_engaged_at < :cutoff)"
+                ),
+            )
+            return True
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                return False
+            raise
+
+
+async def list_recently_engaged(
+    user_id: str,
+    *,
+    limit: int,
+    since: datetime,
+) -> List[Dict[str, Any]]:
+    """The user's most recently engaged library items, newest first (task-303).
+
+    One bounded ``Query`` on the sparse ``engaged-index``: the freshness window is a
+    sort-key range condition, so stale entries cost nothing to exclude and the row
+    empties itself when the user stops using the app for a season.
+
+    Returns **projected index items, not records**: ``engaged-index`` is an
+    ``INCLUDE`` projection carrying only what a tile draws, so ``media_key`` is
+    absent and :meth:`UserMediaRecord.from_dynamodb_item` must not be used on these
+    dicts. That is the point -- the read is render-ready with no fetch back to the
+    table.
+
+    Eventually consistent, unavoidably: a GSI cannot be read consistently. An
+    engagement written a fraction of a second before the Inbox refetches may not be
+    in the index yet, which human-scale navigation time absorbs.
+
+    ``Limit`` is applied by DynamoDB *before* the soft-delete filter, so the loop
+    keeps paging until it holds ``limit`` visible entries or the window is
+    exhausted.
+    """
+    if limit <= 0:
+        return []
+
+    table_name = user_media_table_name()
+    session = database_async.get_session()
+    items: List[Dict[str, Any]] = []
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(table_name)
+        kwargs: Dict[str, Any] = {
+            "IndexName": ENGAGED_INDEX,
+            "KeyConditionExpression": (
+                Key("user_id").eq(user_id) & Key("last_engaged_at").gt(since.isoformat())
+            ),
+            "FilterExpression": Attr("deleted_at").not_exists(),
+            "ScanIndexForward": False,
+            "Limit": limit,
+        }
+        while True:
+            resp = await table.query(**kwargs)
+            items.extend(resp.get("Items", []))
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key or len(items) >= limit:
+                break
+            kwargs["ExclusiveStartKey"] = last_key
+    return items[:limit]
+
+
 async def delete_all_for_user(user_id: str) -> int:
     """Hard-delete every library row of one user. Account deletion only.
 
@@ -353,6 +495,12 @@ async def delete_all_for_user(user_id: str) -> int:
     too, since the query covers the whole partition.
 
     Idempotent: deleting an already-deleted partition is a no-op that returns 0.
+
+    The engagement signal needs no step of its own here: ``last_engaged_at`` is an
+    attribute of the rows this deletes, and its ``engaged-index`` entry goes with
+    the row DynamoDB removes. There is no engagement store left to sweep, which is
+    exactly why task-303 put the signal on the subject instead of in an activity
+    table.
     """
     table_name = user_media_table_name()
     session = database_async.get_session()
