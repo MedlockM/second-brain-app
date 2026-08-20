@@ -1,9 +1,10 @@
 ---
 id: task-308
 title: Stop purging a shared cover object when other saves still reference it
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-20 19:38'
+updated_date: '2026-08-20 21:00'
 labels:
   - backend
   - ingestion
@@ -52,9 +53,9 @@ The behaviour is only observable after the cleanup worker image is redeployed on
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 purge_media_item deletes a re-hosted cover object only when no other user_media row still references it, using the same reference set that already guards the transcript and job objects
-- [ ] #2 A cover whose stored value is a hotlinked URL still takes the no-op path and reports no deletion, unchanged from task-304
-- [ ] #3 The comment above the cover-deletion branch states the real invariant (the locator is shared across every save of the same media_key) instead of claiming the cover belongs to a single save
-- [ ] #4 The counts dictionary returned by purge_media_item distinguishes the skipped-because-shared case from the deleted case, so the cleanup batch summary does not report a deletion that did not happen
-- [ ] #5 ruff and mypy are clean on media_summarizer/workers/cleanup/media_lifecycle.py
+- [x] #1 purge_media_item deletes a re-hosted cover object only when no other user_media row still references it, using the same reference set that already guards the transcript and job objects
+- [x] #2 A cover whose stored value is a hotlinked URL still takes the no-op path and reports no deletion, unchanged from task-304
+- [x] #3 The comment above the cover-deletion branch states the real invariant (the locator is shared across every save of the same media_key) instead of claiming the cover belongs to a single save
+- [x] #4 The counts dictionary returned by purge_media_item distinguishes the skipped-because-shared case from the deleted case, so the cleanup batch summary does not report a deletion that did not happen
+- [x] #5 ruff and mypy are clean on media_summarizer/workers/cleanup/media_lifecycle.py
 <!-- AC:END -->
