@@ -42,8 +42,8 @@ import {
 } from "../src/services/pricingService";
 import {
   buildFreeTrialLine,
-  buildMinutesLegend,
   buildPlanCards,
+  buildPlanIncludes,
 } from "../src/lib/planCopy";
 import { Colors, Typography, Spacing, BorderRadius, TouchTarget } from "../src/constants/theme";
 
@@ -176,9 +176,16 @@ export default function PaywallScreen() {
           <Text style={styles.closeText}>Close</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Choose Your Plan</Text>
-        {/* Says what separates the tiers without restating any card's figures. */}
+        {/* Two sentences, two jobs: what the app does at all — which the cards
+            never said, and which nobody arriving from a store listing knows —
+            then what separates the tiers. Neither restates a card's figures. */}
+        <Text style={styles.tagline}>
+          Save any video, podcast, article or document, get it back as text, and
+          turn it into summaries, notes and flashcards you keep.
+        </Text>
         <Text style={styles.subtitle}>
-          Plans differ only by how much we transcribe for you.
+          Plans differ only by how much we transcribe for you — everything below
+          is in all of them.
         </Text>
       </View>
 
@@ -276,10 +283,27 @@ export default function PaywallScreen() {
               );
             })}
 
-            {/* What a minute buys, once, under the cards. */}
-            <Text testID="paywall-minutes-legend" style={styles.legendText}>
-              {buildMinutesLegend(pricing)}
-            </Text>
+            {/* What every plan does, once, under the cards: none of it varies
+                by tier, and a reader who has never used the app cannot judge
+                three allowances without it. */}
+            <View testID="paywall-includes" style={styles.includesBlock}>
+              <Text style={styles.includesHeading}>Included in every plan</Text>
+              {buildPlanIncludes(pricing).map((section) => (
+                <View
+                  key={section.id}
+                  testID={`paywall-includes-${section.id}`}
+                  style={styles.includesSection}
+                >
+                  <Text style={styles.includesTitle}>{section.title}</Text>
+                  {section.items.map((item, index) => (
+                    <View key={index} style={styles.includesRow}>
+                      <Text style={styles.includesBullet}>•</Text>
+                      <Text style={styles.includesItem}>{item}</Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </View>
           </>
         )}
 
@@ -341,8 +365,14 @@ const styles = StyleSheet.create({
     color: Colors.textMain,
     marginTop: Spacing.md,
   },
-  subtitle: {
+  tagline: {
     ...Typography.body,
+    color: Colors.textMain,
+    marginTop: Spacing.sm,
+    textAlign: "center",
+  },
+  subtitle: {
+    ...Typography.small,
     color: Colors.textMuted,
     marginTop: Spacing.xs,
     textAlign: "center",
@@ -446,11 +476,44 @@ const styles = StyleSheet.create({
     color: Colors.onPrimary,
     fontWeight: "700",
   },
-  legendText: {
+  includesBlock: {
+    marginTop: Spacing.lg,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: Colors.surfaceContainerLow,
+  },
+  includesHeading: {
+    ...Typography.label,
+    fontWeight: "700",
+    color: Colors.textMain,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  includesSection: {
+    marginTop: Spacing.md,
+  },
+  includesTitle: {
+    ...Typography.label,
+    fontWeight: "600",
+    color: Colors.textMain,
+    marginBottom: Spacing.xs,
+  },
+  // Bullet in its own column so a wrapped sentence keeps its left edge under
+  // the first word rather than under the dot.
+  includesRow: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  includesBullet: {
     ...Typography.small,
     color: Colors.textMuted,
-    marginTop: Spacing.md,
-    paddingHorizontal: Spacing.xs,
+    lineHeight: 18,
+  },
+  includesItem: {
+    ...Typography.small,
+    flex: 1,
+    color: Colors.textMuted,
     lineHeight: 18,
   },
   restoreButton: {
