@@ -78,12 +78,6 @@ import {
   TouchTarget,
 } from "../src/constants/theme";
 
-/** A tier the store can actually sell: a card and the package behind it. */
-interface PurchasableTier {
-  card: PlanCard;
-  pkg: PurchasesPackage;
-}
-
 export default function PaywallScreen() {
   const router = useRouter();
   const { refreshEntitlements, entitlementStatus } = usePurchases();
@@ -106,7 +100,10 @@ export default function PaywallScreen() {
     }
     router.replace("/(tabs)");
   };
-  const [tiers, setTiers] = useState<PurchasableTier[]>([]);
+  const [cards, setCards] = useState<PlanCard[]>([]);
+  const [packageByTier, setPackageByTier] = useState<
+    Record<string, PurchasesPackage>
+  >({});
   const [pricing, setPricing] = useState<PublicPricing | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPurchasing, setIsPurchasing] = useState(false);
@@ -121,10 +118,16 @@ export default function PaywallScreen() {
   const [reloadToken, setReloadToken] = useState(0);
 
   // The store and the backend are asked at the same time and awaited together,
-  // then joined: a tier is only ever rendered once *both* its store package and
-  // its figures exist. A tier the store cannot sell is not a card with a broken
-  // button on it — it is not a card. That is what removed the "Unavailable"
-  // state, which used to render three dead rows and a dead CTA with no way out.
+  // then matched up. They fail independently and the screen treats them that
+  // way: the backend owns what a plan *is*, the store owns what it *costs*.
+  //
+  // Losing the backend leaves nothing to describe, so that is the error state.
+  // Losing the store only loses the prices — and the app cannot invent one, since
+  // the config holds a single EUR figure while the store bills per storefront. So
+  // the plans are still described, and buying is switched off until the store
+  // answers. Collapsing both into one error was wrong twice over: it blamed the
+  // connection for a store problem, and it hid a perfectly loaded plan list
+  // behind a dead end.
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
@@ -137,18 +140,37 @@ export default function PaywallScreen() {
       ]);
 
       const packages = storeOfferings?.current?.availablePackages ?? [];
-      const cards = publicPricing === null ? [] : buildPlanCards(publicPricing);
-      const purchasable = cards.flatMap<PurchasableTier>((card) => {
+      const planCards =
+        publicPricing === null ? [] : buildPlanCards(publicPricing);
+      const matched: Record<string, PurchasesPackage> = {};
+      for (const card of planCards) {
         const pkg = packages.find(
           (candidate) =>
             candidate.identifier.toLowerCase().includes(card.id) ||
             candidate.product.identifier.toLowerCase().includes(card.id),
         );
-        return pkg === undefined ? [] : [{ card, pkg }];
-      });
+        if (pkg !== undefined) matched[card.id] = pkg;
+      }
+
+      // Nothing to sell is a configuration fact worth naming in the log, and the
+      // two causes need different fixes: zero packages means the SDK is not
+      // configured or the offering is empty, while packages whose identifiers do
+      // not contain a tier id means the store products are named something the
+      // pricing config does not know.
+      if (planCards.length > 0 && Object.keys(matched).length === 0) {
+        console.warn(
+          "[Paywall] No purchasable tier. Store returned",
+          packages.length,
+          "package(s):",
+          packages.map((pkg) => pkg.product.identifier),
+          "— configured tiers:",
+          planCards.map((card) => card.id),
+        );
+      }
 
       setPricing(publicPricing);
-      setTiers(purchasable);
+      setCards(planCards);
+      setPackageByTier(matched);
       setIsLoading(false);
     };
     load();
@@ -225,31 +247,42 @@ export default function PaywallScreen() {
   const trialLine = buildFreeTrialLine(pricing, entitlementStatus);
   const reasonLine = buildPaywallReasonLine(reason, entitlementStatus);
   const highlights = buildPlanHighlights();
-  // One failure state for two data sources: figures with no sellable package and
-  // packages with no figures are equally unusable, and the second one used to
-  // land on an error box with no retry in it.
-  const hasPlans = pricing !== null && tiers.length > 0;
+
+  // Three states, not two. `hasPlans` is about the backend: with no figures
+  // there is nothing to put on screen. `canPurchase` is about the store: without
+  // it the same plans are shown, priced at nothing and bought with nothing.
+  const purchasableCards = cards.filter(
+    (card) => packageByTier[card.id] !== undefined,
+  );
+  const hasPlans = cards.length > 0;
+  const canPurchase = purchasableCards.length > 0;
+  // A tier the store cannot sell is still worth describing, but it drops out of
+  // the list as soon as its siblings *are* sellable — a row that cannot be
+  // bought next to rows that can is just a dead end.
+  const visibleCards = canPurchase ? purchasableCards : cards;
 
   const guidance = buildPlanGuidance(
-    tiers.map((tier) => tier.card),
+    visibleCards,
     Object.fromEntries(
-      tiers.map((tier) => [tier.card.id, tier.pkg.product.price]),
+      purchasableCards.map((card) => [card.id, packageByTier[card.id].product.price]),
     ),
     entitlementStatus,
   );
 
-  const defaultTierId = guidance.recommendedTierId ?? tiers[0]?.card.id ?? null;
+  const defaultTierId = guidance.recommendedTierId ?? visibleCards[0]?.id ?? null;
   const activeTierId =
     selectedTierId !== null &&
-    tiers.some((tier) => tier.card.id === selectedTierId)
+    visibleCards.some((card) => card.id === selectedTierId)
       ? selectedTierId
       : defaultTierId;
-  const selected =
-    tiers.find((tier) => tier.card.id === activeTierId) ?? null;
+  const selectedCard =
+    visibleCards.find((card) => card.id === activeTierId) ?? null;
+  const selectedPackage =
+    selectedCard === null ? undefined : packageByTier[selectedCard.id];
   const ctaLabel =
-    selected === null
+    selectedCard === null || selectedPackage === undefined
       ? "Choose a plan"
-      : `Start with ${selected.card.name} — ${selected.pkg.product.priceString}/mo`;
+      : `Start with ${selectedCard.name} — ${selectedPackage.product.priceString}/mo`;
 
   return (
     // The bottom inset comes with the sticky footer: without it the CTA sits
@@ -297,8 +330,8 @@ export default function PaywallScreen() {
             style={styles.loader}
           />
         ) : !hasPlans ? (
-          // No figures, or nothing the store will sell: either way there is no
-          // honest plan to show. A plan described from numbers baked into the
+          // The backend is the only source of what a plan is, so without it there
+          // is nothing to describe. A plan described from numbers baked into the
           // build is exactly the drift this screen was rewritten to end.
           <View testID="paywall-pricing-error" style={styles.errorBox}>
             <Text style={styles.errorText}>
@@ -315,6 +348,27 @@ export default function PaywallScreen() {
           </View>
         ) : (
           <>
+            {/* Prices come from the store or not at all. When the store has
+                nothing to offer, saying "check your connection" blames the wrong
+                thing — the plans loaded fine — and hiding them helps nobody. */}
+            {!canPurchase && (
+              <View testID="paywall-store-notice" style={styles.noticeBox}>
+                <Text style={styles.noticeText}>
+                  The {STORE_NAME} is not offering these subscriptions right now,
+                  so prices and purchase are unavailable. What each plan includes
+                  is below.
+                </Text>
+                <TouchableOpacity
+                  testID="paywall-retry-button"
+                  style={styles.retryButton}
+                  onPress={() => setReloadToken((token) => token + 1)}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.retryButtonText}>Try again</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* The refusal the user is standing in, restated before the prices:
                 someone who arrives mid-import should not have to re-derive why
                 they are looking at plans. */}
@@ -342,7 +396,9 @@ export default function PaywallScreen() {
                 already selected. A highlighted card with no stated reason is a
                 nudge; a highlighted card that shows its arithmetic is advice. */}
             <Text style={styles.selectorLabel}>
-              Pick your monthly transcription time
+              {canPurchase
+                ? "Pick your monthly transcription time"
+                : "What each plan gives you"}
             </Text>
             {guidance.recommendationLine !== null && (
               <Text
@@ -353,15 +409,22 @@ export default function PaywallScreen() {
               </Text>
             )}
 
-            <View accessibilityRole="radiogroup">
-              {tiers.map(({ card, pkg }) => {
-                const isSelected = card.id === activeTierId;
+            <View accessibilityRole={canPurchase ? "radiogroup" : undefined}>
+              {visibleCards.map((card) => {
+                const pkg = packageByTier[card.id];
+                const isSelected = pkg !== undefined && card.id === activeTierId;
                 const badge = guidance.badges[card.id] ?? null;
-                const hourlyRate = buildHourlyRate(
-                  pkg.product.price,
-                  pkg.product.currencyCode,
-                  card.minutesPerMonth,
-                );
+                // No package, no price, and therefore no hourly rate: both are
+                // the store's to state. The allowance and the ceiling are the
+                // backend's, so they stay.
+                const hourlyRate =
+                  pkg === undefined
+                    ? null
+                    : buildHourlyRate(
+                        pkg.product.price,
+                        pkg.product.currencyCode,
+                        card.minutesPerMonth,
+                      );
                 const meta = [hourlyRate, card.perImportLimit]
                   .filter((part): part is string => part !== null)
                   .join(" · ");
@@ -375,14 +438,19 @@ export default function PaywallScreen() {
                       isSelected && styles.tierCardSelected,
                     ]}
                     onPress={() => setSelectedTierId(card.id)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: isSelected }}
+                    disabled={pkg === undefined}
+                    accessibilityRole={pkg === undefined ? "text" : "radio"}
+                    accessibilityState={
+                      pkg === undefined ? undefined : { selected: isSelected }
+                    }
                     // Everything that distinguishes the plans, not just the name
                     // and the price: the allowance and the ceiling *are* the
                     // decision, and a screen reader used to get neither.
                     accessibilityLabel={[
                       card.name,
-                      `${pkg.product.priceString} per month`,
+                      pkg === undefined
+                        ? "price unavailable"
+                        : `${pkg.product.priceString} per month`,
                       card.allowance,
                       meta.length > 0 ? meta.replace(" · ", ", ") : null,
                       badge,
@@ -390,13 +458,17 @@ export default function PaywallScreen() {
                       .filter((part): part is string => Boolean(part))
                       .join(", ")}
                   >
-                    <View style={styles.tierRadioColumn}>
-                      <Ionicons
-                        name={isSelected ? "radio-button-on" : "radio-button-off"}
-                        size={22}
-                        color={isSelected ? Colors.textMain : Colors.outline}
-                      />
-                    </View>
+                    {pkg !== undefined && (
+                      <View style={styles.tierRadioColumn}>
+                        <Ionicons
+                          name={
+                            isSelected ? "radio-button-on" : "radio-button-off"
+                          }
+                          size={22}
+                          color={isSelected ? Colors.textMain : Colors.outline}
+                        />
+                      </View>
+                    )}
 
                     <View style={styles.tierBody}>
                       {badge !== null && (
@@ -407,10 +479,12 @@ export default function PaywallScreen() {
 
                       <View style={styles.tierTitleRow}>
                         <Text style={styles.tierName}>{card.name}</Text>
-                        <Text style={styles.tierPrice}>
-                          {pkg.product.priceString}
-                          <Text style={styles.tierPricePeriod}>/mo</Text>
-                        </Text>
+                        {pkg !== undefined && (
+                          <Text style={styles.tierPrice}>
+                            {pkg.product.priceString}
+                            <Text style={styles.tierPricePeriod}>/mo</Text>
+                          </Text>
+                        )}
                       </View>
 
                       {/* The allowance carries the card, not the name: it is the
@@ -504,16 +578,20 @@ export default function PaywallScreen() {
           )}
         </TouchableOpacity>
 
-        {/* Legal. The renewal terms are required wording; the two links are
-            required *in the binary, on the purchase screen* by App Store
-            guideline 3.1.2 and by Play's subscription policy, and were absent
-            entirely — which is one of the most common paywall rejections. */}
-        <Text style={styles.legalText}>
-          Payment is charged to your {STORE_NAME} account at confirmation of
-          purchase. The subscription renews monthly unless it is cancelled at
-          least 24 hours before the end of the current period, and your account
-          is charged for the renewal within the 24 hours before it.
-        </Text>
+        {/* Legal. The renewal terms are required wording on a screen that can
+            actually take money, so they follow the purchase path; the two links
+            are required *in the binary, on the purchase screen* by App Store
+            guideline 3.1.2 and by Play's subscription policy, were absent
+            entirely — one of the most common paywall rejections — and stay put
+            whatever the store is doing. */}
+        {canPurchase && (
+          <Text style={styles.legalText}>
+            Payment is charged to your {STORE_NAME} account at confirmation of
+            purchase. The subscription renews monthly unless it is cancelled at
+            least 24 hours before the end of the current period, and your account
+            is charged for the renewal within the 24 hours before it.
+          </Text>
+        )}
         <View style={styles.legalLinks}>
           <TouchableOpacity
             testID="paywall-terms-link"
@@ -542,17 +620,19 @@ export default function PaywallScreen() {
           decisions, and a price only visible on a row that can be scrolled off
           is a price the stores consider hidden. The reassurance sits with the
           button rather than in the legal block nobody reaches. */}
-      {!isLoading && hasPlans && (
+      {!isLoading && canPurchase && (
         <View style={styles.footer}>
           <TouchableOpacity
             testID="paywall-subscribe-button"
             style={[
               styles.purchaseButton,
-              (isPurchasing || selected === null) &&
+              (isPurchasing || selectedPackage === undefined) &&
                 styles.purchaseButtonDisabled,
             ]}
-            onPress={() => selected !== null && handlePurchase(selected.pkg)}
-            disabled={isPurchasing || selected === null}
+            onPress={() =>
+              selectedPackage !== undefined && handlePurchase(selectedPackage)
+            }
+            disabled={isPurchasing || selectedPackage === undefined}
             accessibilityRole="button"
             accessibilityLabel={ctaLabel}
           >
@@ -653,6 +733,22 @@ const styles = StyleSheet.create({
     ...Typography.label,
     fontWeight: "600",
     color: Colors.textMain,
+  },
+  // A degraded state, not a failure: the plans below are real and complete, only
+  // the prices are missing. Neutral surface rather than the amber used for a
+  // limit the user has hit, which is about them and not about the store.
+  noticeBox: {
+    marginTop: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.surfaceContainerLow,
+    alignItems: "center",
+  },
+  noticeText: {
+    ...Typography.small,
+    color: Colors.textMain,
+    textAlign: "center",
+    lineHeight: 18,
   },
   // The reason the user is here, in the app's own alert tone rather than an
   // error red: nothing has gone wrong, a limit was reached.

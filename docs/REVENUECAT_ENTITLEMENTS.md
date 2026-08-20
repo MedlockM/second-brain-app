@@ -80,6 +80,24 @@ Test Store products only.
 package or product identifier, so a package lookup key must keep containing its
 tier id.
 
+An offering that resolves no purchasable product is therefore the *normal* state
+of an iOS build today, and the paywall treats it as such rather than as a
+failure: it still describes every plan from `GET /api/pricing` — allowance,
+per-import ceiling, everything included — and only switches off the prices, the
+selection and the purchase button, since a price may come from the store or not
+at all. The screen logs `[Paywall] No purchasable tier` with the identifiers the
+store did return, which separates the two causes: zero packages means the SDK
+key is missing or the offering is empty, while packages whose identifiers carry
+no tier id means the store products are named something the pricing config does
+not know.
+
+Where the SDK keys come from, since none of them is in `mobile/eas.json`: the
+iOS one lives in `mobile/.env`, which is gitignored, so a local build reads it
+and an EAS cloud build does not; the Maestro job injects the Test Store key
+through the environment and never reads `eas.json` either, building with
+`expo prebuild` + `xcodebuild`. There is no Android key at all — no Google Play
+app is declared in the project yet (`task-238`).
+
 ## Adding a store product
 
 No code change. In the dashboard, or with these three v2 API calls (bearer token
