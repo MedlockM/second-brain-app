@@ -65,3 +65,45 @@ The reworked Inbox opens on a **"Continue learning"** row: the media items **and
 - [ ] #8 A cost and effort comparison ends in a single recommendation stated as what the owner would be validating
 - [ ] #9 No production code, contract or Terraform file is modified by this task
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Mode: **initial** (no `docs/research/task-303-*` directory existed, no prior
+`README.owner-rejected-*.md`, no complement request). Research only: no production code, no
+contract and no Terraform file was touched.
+
+Deliverable: `docs/research/task-303-engagement-recency-model/README.md`
+(`owner_decision: pending`, `Decision` and `Validated at` left empty).
+
+What it recommends, in one line: an **open-based** engagement signal (`last_engaged_at`)
+stored **server-side as one attribute on the subject itself** — plus one new sparse GSI
+`engaged-index` (`user_id`, `last_engaged_at`) on `user_media_v1`, the same attribute on
+`user_folders_v1` with **no new index**, two explicit writes (`POST /api/artifacts` plus a new
+`POST /api/engagements`, never a `GET` side effect), and one render-ready
+`GET /api/engagements/recent?limit=12` covering media and collections in a single merged list.
+
+Question #1 (the one the owner flagged) is arbitrated in favour of open-based, with the
+progress-based alternative analysed and rejected for v1 on three app-specific grounds; the
+README names the exact condition under which the owner should choose progress instead (the
+transcript becoming a first-class reading surface). A media-detail open and a transcript read
+are both excluded, the second because Reader is the default tab at
+`mobile/app/media/[id].tsx:398`, which makes "transcript displayed" the same event as "media
+opened".
+
+Four storage shapes are compared (attribute + sparse GSI, a dedicated `user_activity` table in
+both upsert and event form, and deriving the row from `media_artifacts`) on writes per
+interaction, index storage, whether one query answers both kinds, purge-cascade and
+account-deletion behaviour, schema churn, and effort.
+
+Two findings the implementation task will need regardless of the option chosen:
+- `database_async.update_folder()` is a full `put_item` of `Folder.to_dynamodb_item()`, so any
+  new attribute on a folder row is erased on the next rename unless the model round-trips it.
+  `user_media` is immune to the equivalent bug by invariant I1.
+- The engagement stamp must not go through `user_media.update_attributes`, which always bumps
+  `updated_at` — the field task-302 uses to build the `expo-image` cover cache key.
+
+**The recommendation awaits the owner's validation.** The task stays `To Do`; the owner sets
+`owner_decision` on the README (`ok` / `abandoned` / `redo` / `more`), which is what unblocks
+task-305.
+<!-- SECTION:NOTES:END -->
