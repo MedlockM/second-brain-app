@@ -37,7 +37,16 @@ worker = [
     # Cover thumbnails: the workers that re-host an Instagram/TikTok cover or a
     # user photo downscale it before storing (task-304). Only the worker image
     # needs it -- the API just signs a URL.
-    "pillow>=11.0.0",
+    #
+    # The `<12.3` ceiling is the worker base image, not a bug in Pillow. 12.3.0
+    # is the first release to drop the `manylinux_2_17_aarch64` wheel and ship
+    # `manylinux_2_27+` only, while `public.ecr.aws/lambda/python:3.11-arm64` is
+    # Amazon Linux 2 with glibc 2.26. Above this ceiling uv finds no compatible
+    # wheel, falls back to the 47 MB sdist and the build dies on the missing
+    # libjpeg headers -- which is exactly how task-304 shipped to main without
+    # ever reaching a Lambda. Lift the ceiling by moving the image to the
+    # AL2023 base (python:3.12-arm64), not by loosening this line.
+    "pillow>=11.0.0,<12.3",
 ]
 dev = [
     "black>=23.0.0",
@@ -47,9 +56,11 @@ dev = [
     # Required by the E2E suite only (tests/e2e/, run via `pytest -m e2e`).
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
-    # Keep worker modules importable for local checks and the E2E suite.
+    # Keep worker modules importable for local checks and the E2E suite. Pillow
+    # carries the same ceiling as the worker extra so both resolve to one
+    # version in the lock.
     "trafilatura>=1.12.0",
-    "pillow>=11.0.0",
+    "pillow>=11.0.0,<12.3",
 ]
 
 [build-system]
