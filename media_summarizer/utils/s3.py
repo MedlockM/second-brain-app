@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import mimetypes
 import os
-from typing import Any, BinaryIO, Dict, List, Optional
+from typing import Any, BinaryIO, Dict, List, Optional, Sequence, Tuple
 
 from media_summarizer.utils.database_async import AWS_REGION
 from media_summarizer.utils.logging_config import log_event
@@ -394,6 +394,40 @@ async def generate_presigned_url(
             bucket=bucket,
             key=key,
         )
+
+
+async def generate_presigned_urls(
+    items: Sequence[Tuple[str, str]], expiration: int = 3600
+) -> List[Optional[str]]:
+    """Sign several objects through a single client.
+
+    ``generate_presigned_url`` opens one aioboto3 client per call, which is
+    harmless for the one URL an audio upload needs and wasteful for the twenty
+    covers of a library page (task-302 §3.4). Signing is a local HMAC, so the
+    only cost worth removing is the client construction.
+
+    Returns one entry per input, ``None`` where signing failed: a cover that
+    cannot be signed is a missing image, never a failed list read.
+    """
+    if not items:
+        return []
+    results: List[Optional[str]] = []
+    async with session.create_client("s3", **_client_kwargs()) as s3:
+        for bucket, key in items:
+            try:
+                results.append(
+                    await s3.generate_presigned_url(
+                        "get_object",
+                        Params={"Bucket": bucket, "Key": key},
+                        ExpiresIn=expiration,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - one bad key must not sink the page
+                logger.warning(
+                    "Could not presign s3://%s/%s: %s", bucket, key, type(exc).__name__
+                )
+                results.append(None)
+    return results
 
 
 async def list_objects(

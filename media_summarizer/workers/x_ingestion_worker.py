@@ -21,6 +21,10 @@ from urllib.parse import unquote
 
 import httpx
 
+from media_summarizer.core.media_ingestion.media_metadata import (
+    normalize_cover_url,
+    select_creator,
+)
 from media_summarizer.core.media_ingestion.title_derivation import (
     derive_media_title,
     first_sentence,
@@ -58,12 +62,17 @@ _DEFAULT_UNAVAILABLE_MESSAGE = "This X post is unavailable or cannot be processe
 _DEFAULT_CREDITS_MESSAGE = (
     "X API credits are depleted for lookup requests. Please recharge and retry."
 )
+# `attachments.media_keys` and `media.fields` ride the lookup we already make:
+# X bills per post read, and expansions do not multiply reads, so the cover
+# costs nothing extra (task-302 §2.3). `preview_image_url` is what a video or a
+# GIF exposes; `url` is what a photo exposes.
 _LOOKUP_QUERY_PARAMS = {
     "tweet.fields": (
         "created_at,author_id,conversation_id,lang,public_metrics,entities,note_tweet"
     ),
-    "expansions": "author_id",
+    "expansions": "author_id,attachments.media_keys",
     "user.fields": "username,name",
+    "media.fields": "type,url,preview_image_url",
 }
 
 
@@ -105,6 +114,31 @@ def _extract_text(tweet_payload: Dict[str, Any]) -> str:
         if note_text:
             return note_text
     return str(tweet_payload.get("text") or "").strip()
+
+
+def _first_media_url(payload: Dict[str, Any]) -> Optional[str]:
+    """Cover of the post's first attachment, or ``None`` for a text-only post.
+
+    A photo carries ``url``; a video or a GIF carries ``preview_image_url``.
+    Both live on `pbs.twimg.com`, which is unsigned and stable, so the value is
+    hotlinked (task-302 §5.1). The author's avatar is deliberately *not* a
+    fallback: an avatar is a person, not a subject (task-302 §11).
+    """
+    includes = payload.get("includes")
+    if not isinstance(includes, dict):
+        return None
+    media = includes.get("media")
+    if not isinstance(media, list):
+        return None
+    for entry in media:
+        if not isinstance(entry, dict):
+            continue
+        url = normalize_cover_url(
+            entry.get("url") or entry.get("preview_image_url")
+        )
+        if url:
+            return url
+    return None
 
 
 def _user_by_author_id(payload: Dict[str, Any], author_id: str) -> Dict[str, Any]:
@@ -236,6 +270,7 @@ async def _lookup_post(tweet_id: str) -> Dict[str, Any]:
         "author_id": author_id or None,
         "author_username": username,
         "author_name": author_name,
+        "cover_url": _first_media_url(payload),
         "created_at": str(data.get("created_at") or "").strip() or None,
         "lang": str(data.get("lang") or "").strip() or None,
         "public_metrics": data.get("public_metrics")
@@ -452,6 +487,22 @@ async def process_x_message(message_body: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     job.title = episode_title
+    # Display name first, handle second: both identify the same account, and the
+    # tile shows one line (task-302 §7.3).
+    x_creator = select_creator(
+        [
+            lookup_result.get("author_name"),
+            f"@{lookup_result['author_username']}"
+            if lookup_result.get("author_username")
+            else None,
+        ],
+        title=episode_title,
+    )
+    if x_creator:
+        job.creator_name = x_creator
+    x_cover = normalize_cover_url(lookup_result.get("cover_url"))
+    if x_cover:
+        job.media_image = x_cover
     job.set_transcription_location(transcript_s3_key)
     job.set_transcription_metadata(transcription_metadata)
     job.extraction_metadata = extraction_metadata

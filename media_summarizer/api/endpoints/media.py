@@ -61,6 +61,7 @@ from media_summarizer.core.models.user_media import UserMediaRecord, UserMediaSt
 from media_summarizer.core.ports.document_parser import DocumentFormat
 from media_summarizer.core.services import (
     audio_duration_probe,
+    cover_capture,
     folder_service,
     media_deletion_service,
     media_search_service,
@@ -327,6 +328,10 @@ class MediaSearchItem(BaseModel):
 
     media_item_id: str
     title: Optional[str] = None
+    # Publisher of the media -- channel, show, site, account (task-304). Nullable
+    # by contract: shared text, documents and audio files have none, and the tile
+    # simply omits its second line.
+    creator_name: Optional[str] = None
     source_platform: Optional[str] = None
     media_type: Optional[str] = None
     status: Optional[str] = None
@@ -534,6 +539,7 @@ def _build_media_item_contract(
     record: UserMediaRecord,
     job: Optional[ProcessingJob],
     job_status: CanonicalJobLifecycle,
+    cover_url: Optional[str] = None,
 ) -> CanonicalMediaItemContract:
     """Project the durable library row onto the canonical media item contract.
 
@@ -547,6 +553,8 @@ def _build_media_item_contract(
         media_item_id=record.media_item_id,
         media_key=record.media_key or record.media_item_id,
         title=record.title,
+        media_image=cover_url,
+        creator_name=record.creator_name,
         original_url=record.source_url or "",
         normalized_url=record.source_url or "",
         media_type=_canonical_media_type(record.media_type, record.source_platform),
@@ -948,6 +956,12 @@ async def upload_document(
             label=label_for_file_name(file_name),
             file_name_candidates=[file_name],
         )
+        # No cover here even for a photo: the bytes are not in S3 yet. The
+        # parsing worker builds the thumbnail once the object exists, from the
+        # object itself, and mirrors it back (task-302 §4, rows 9-10). A PDF or
+        # a DOCX never gets one -- `ParseResult` carries no image and there is no
+        # page rasteriser in the runtime. No creator either: an uploaded file has
+        # no publisher we can read.
 
         # Durable library entry first (task-240, task-218 §4.3): the job, the S3
         # object and the queue message are operational and may be retried; what
@@ -1144,6 +1158,11 @@ async def upload_audio(
             source_platform="audio",
             file_name_candidates=[file_name],
         )
+        # No cover and no creator for an audio upload, by construction: the file
+        # goes straight to Deepgram, and reading an ID3 `APIC`/`artist` tag would
+        # need `mutagen` in the runtime for a payoff limited to ripped podcast
+        # episodes, which already get real artwork through the podcast path
+        # (task-302 §4, row 11). The tile keeps its media-type icon.
 
         # Create processing job
         job = ProcessingJob(
@@ -1606,8 +1625,15 @@ async def get_media_item(
         # GET /api/artifacts?scope=media&scope_id=... in one call. Embedding a
         # "current artifact per type" projection here is the assumption the
         # append-only model removes.
+        # A re-hosted cover is stored as an `s3://` locator; the client must
+        # never see one, so it is signed here exactly as the list endpoint does
+        # (task-302 §5.5). A hotlinked URL passes straight through.
+        cover_url = await cover_capture.resolve_cover_url(record.thumbnail_url)
+
         return CanonicalMediaStatusResponse(
-            media_item=_build_media_item_contract(record, job, job_status),
+            media_item=_build_media_item_contract(
+                record, job, job_status, cover_url=cover_url
+            ),
             processing_job=_build_processing_job_contract(record, job, job_status),
         )
 

@@ -142,6 +142,12 @@ class IngestSharedContentUseCase:
                 # sentence is the title (task-266): the same rule X already
                 # applies to a post body.
                 title=first_sentence(normalized_text),
+                # No cover and no creator, by construction rather than by
+                # omission: there is no provider to ask and the sharer is the
+                # user themselves (task-302 §4, row 7). The tile renders its
+                # media-type icon and drops its second line.
+                cover_url=None,
+                creator_name=None,
                 metadata={
                     "share_type": share_type.value,
                     "resolver_key": "shared.text",
@@ -177,6 +183,11 @@ class IngestSharedContentUseCase:
                 # `metadata["original_name"]` below, and a WhatsApp voice note
                 # whose name is `PTT-20260817-WA0003.opus` legitimately falls
                 # through to the "Voice note — <date>" label (task-266).
+                #
+                # No cover and no creator either, and deliberately so: reading an
+                # ID3 `APIC`/`artist` tag would need `mutagen` in the runtime and
+                # only ever pays off for a ripped podcast episode, which already
+                # has real artwork through the podcast path (task-302 §11).
                 audio_s3_key=staged_audio_s3_key,
                 metadata={
                     "share_type": share_type.value,

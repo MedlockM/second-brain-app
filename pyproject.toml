@@ -34,6 +34,10 @@ dependencies = [
 worker = [
     # Article extraction runs only in the shared asynchronous worker image.
     "trafilatura>=1.12.0",
+    # Cover thumbnails: the workers that re-host an Instagram/TikTok cover or a
+    # user photo downscale it before storing (task-304). Only the worker image
+    # needs it -- the API just signs a URL.
+    "pillow>=11.0.0",
 ]
 dev = [
     "black>=23.0.0",
@@ -45,6 +49,7 @@ dev = [
     "pytest-asyncio>=0.23.0",
     # Keep worker modules importable for local checks and the E2E suite.
     "trafilatura>=1.12.0",
+    "pillow>=11.0.0",
 ]
 
 [build-system]

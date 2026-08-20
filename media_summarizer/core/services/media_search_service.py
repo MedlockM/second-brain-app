@@ -17,9 +17,10 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from media_summarizer.core.media_ingestion.media_metadata import parse_cover_locator
 from media_summarizer.core.models.user_media import UserMediaRecord
 from media_summarizer.core.services.folder_service import _get_descendant_ids
-from media_summarizer.utils import database_async
+from media_summarizer.utils import database_async, s3
 from media_summarizer.utils import user_media as user_media_store
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,12 @@ logger = logging.getLogger(__name__)
 # Default page size
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
+
+# How long a signed cover URL stays usable. Generous on purpose: the Inbox
+# refetches on focus, and a shorter window would expire under an app left open
+# across a session. The client caches across rotations through `expo-image`'s
+# `cacheKey` (task-302 §6.2), so a changing signature costs no re-download.
+COVER_URL_EXPIRATION_SECONDS = 86400
 
 
 @dataclass
@@ -134,6 +141,7 @@ async def search_media(
 
     # Serialize items to response dicts
     items = [_record_to_search_result(record) for record in page_items]
+    await _resolve_cover_urls(items)
 
     return SearchResult(
         items=items,
@@ -218,6 +226,31 @@ def _apply_cursor(
     return []
 
 
+async def _resolve_cover_urls(items: List[Dict[str, Any]]) -> None:
+    """Turn stored cover values into something the client can fetch, in place.
+
+    ``thumbnail_url`` holds one of two shapes (task-302 §5): an absolute
+    third-party URL, hotlinked as-is, or an ``s3://bucket/key`` locator for a
+    re-hosted cover, which is signed here. Every locator on the page goes
+    through a single client, and a signing failure blanks that one cover rather
+    than failing the read -- the tile then falls back to its media-type icon.
+    """
+    pending: List[tuple[int, tuple[str, str]]] = []
+    for index, item in enumerate(items):
+        located = parse_cover_locator(item.get("media_image"))
+        if located:
+            pending.append((index, located))
+    if not pending:
+        return
+
+    signed = await s3.generate_presigned_urls(
+        [located for _, located in pending],
+        expiration=COVER_URL_EXPIRATION_SECONDS,
+    )
+    for (index, _), url in zip(pending, signed):
+        items[index]["media_image"] = url
+
+
 def _record_to_search_result(record: UserMediaRecord) -> Dict[str, Any]:
     """Convert a durable library row to a search result dict.
 
@@ -229,6 +262,7 @@ def _record_to_search_result(record: UserMediaRecord) -> Dict[str, Any]:
     return {
         "media_item_id": record.media_item_id,
         "title": record.title,
+        "creator_name": record.creator_name,
         "source_platform": record.source_platform,
         "media_type": record.media_type,
         "status": record.processing_status.value if record.processing_status else None,

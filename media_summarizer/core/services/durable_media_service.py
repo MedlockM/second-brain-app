@@ -108,6 +108,7 @@ async def save_media_for_user(
     user_id: str,
     media_key: str,
     title: Optional[str] = None,
+    creator_name: Optional[str] = None,
     source_url: Optional[str] = None,
     source_platform: Optional[str] = None,
     media_type: Optional[str] = None,
@@ -152,6 +153,7 @@ async def save_media_for_user(
         media_item_id=media_item_id,
         media_key=media_key,
         title=title,
+        creator_name=creator_name,
         source_url=source_url,
         source_platform=source_platform,
         media_type=media_type,
@@ -444,6 +446,7 @@ async def mirror_job(job: ProcessingJob) -> bool:
     # that does not know a field cannot blank out what another worker resolved.
     for source_attr, target_attr in (
         ("title", "title"),
+        ("creator_name", "creator_name"),
         ("source_url", "source_url"),
         ("source_platform", "source_platform"),
         ("media_type", "media_type"),

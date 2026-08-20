@@ -88,6 +88,10 @@ class UserMediaRecord(BaseModel):
 
     # --- display metadata ----------------------------------------------------
     title: Optional[str] = None
+    # Who publishes the media, not who wrote it: a channel, a show, a site, an
+    # account (task-302 §7.3). One field, publisher-first -- in five of six
+    # sources the entity a reader recognises is the publisher, not a person.
+    creator_name: Optional[str] = None
     source_url: Optional[str] = None
     source_platform: Optional[str] = None
     media_type: Optional[str] = None
@@ -148,6 +152,7 @@ class UserMediaRecord(BaseModel):
         }
         optional: Dict[str, Any] = {
             "title": self.title,
+            "creator_name": self.creator_name,
             "source_url": self.source_url,
             "source_platform": self.source_platform,
             "media_type": self.media_type,

@@ -103,8 +103,15 @@ def configure_shared_index_settings() -> None:
         client.set_settings(
             index_name=index_name,
             index_settings={
+                # Ordered on purpose: a match in an earlier attribute
+                # outranks a later one. The creator sits above the transcript
+                # because "everything I saved from this show" is a real query
+                # that transcript matches answer only by accident, and below the
+                # title because an exact title match must stay first
+                # (task-302 §7.4).
                 "searchableAttributes": [
                     "title",
+                    "creator_name",
                     "transcript",
                 ],
                 "attributesForFaceting": [
@@ -118,6 +125,7 @@ def configure_shared_index_settings() -> None:
                 "attributesToRetrieve": [
                     "media_item_id",
                     "title",
+                    "creator_name",
                     "source_platform",
                     "created_at",
                     "chunk_index",

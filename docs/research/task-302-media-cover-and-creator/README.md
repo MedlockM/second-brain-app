@@ -1,13 +1,13 @@
 ---
-owner_decision: pending   # pending | ok | abandoned | redo | more
+owner_decision: ok   # pending | ok | abandoned | redo | more
 ---
 
 # Benchmark: cover image and creator name extraction per ingestion source
 
 ## Owner Validation
 
-**Decision**:
-**Validated at**:
+**Decision**: Approach C
+**Validated at**: 2026-08-20
 
 ---
 

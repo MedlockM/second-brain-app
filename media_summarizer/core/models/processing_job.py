@@ -77,6 +77,9 @@ class ProcessingJob(BaseModel):
 
     # Searchable metadata
     title: Optional[str] = None  # Display title of the media item
+    # Publisher of the media (channel, show, site, account). Mirrored onto the
+    # durable library row exactly like the title (task-302).
+    creator_name: Optional[str] = None
     source_platform: Optional[str] = None  # e.g. youtube, spotify, tiktok, web, audio
     media_type: Optional[str] = None  # e.g. podcast, article, video, audio
 
@@ -188,6 +191,7 @@ class ProcessingJob(BaseModel):
             "media_key",
             "media_image",
             "title",
+            "creator_name",
             "source_platform",
             "media_type",
             "audio_s3_key",

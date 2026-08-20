@@ -10,8 +10,13 @@ export interface DigestMediaItem {
   media_type: string;
   summary_excerpt: string;
   processed_at: string;
-  /** Optional thumbnail URL for the media item */
+  /**
+   * Cover image, resolved into a fetchable URL by the API. Absent for the three
+   * sources that can never have one (shared text, documents, audio files).
+   */
   thumbnail_url?: string;
+  /** Publisher of the media: a channel, a show, a site, an account. */
+  creator_name?: string;
   /** Estimated reading time in minutes */
   read_time_minutes?: number;
 }

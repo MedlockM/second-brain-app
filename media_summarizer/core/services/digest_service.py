@@ -92,6 +92,8 @@ async def _get_media_items_for_period(
             DigestMediaItem(
                 media_item_id=record.media_item_id,
                 title=record.title,
+                thumbnail_url=record.thumbnail_url,
+                creator_name=record.creator_name,
                 media_type=record.media_type,
                 source_platform=record.source_platform,
                 added_at=record.saved_at.isoformat(),

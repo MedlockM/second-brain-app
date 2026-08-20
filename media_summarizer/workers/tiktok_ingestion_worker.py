@@ -27,9 +27,14 @@ from urllib.parse import urlsplit
 import httpx
 import yt_dlp
 
+from media_summarizer.core.media_ingestion.media_metadata import (
+    largest_thumbnail,
+    normalize_cover_url,
+    select_creator,
+)
 from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.core.models.processing_job import ProcessingJob
-from media_summarizer.core.services import audio_quota_gate
+from media_summarizer.core.services import audio_quota_gate, cover_capture
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     group_caption_lines,
@@ -994,6 +999,29 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
     if ytdlp_title:
         job.title = ytdlp_title
 
+    # The account is the publisher and belongs in the creator field, which is
+    # what stops it from ever being mistaken for a title again (task-304).
+    ytdlp_creator = select_creator(
+        [info.get("uploader"), info.get("creator"), info.get("uploader_id")],
+        title=job.title,
+    )
+    if ytdlp_creator:
+        job.creator_name = ytdlp_creator
+
+    # TikTok covers are served from `*.tiktokcdn.com` with an `x-expires`
+    # signature and stop resolving within hours to days, so the image is
+    # re-hosted rather than hotlinked (task-302 §5.1). A failure returns None
+    # and the tile falls back to its media-type icon.
+    tiktok_cover = normalize_cover_url(info.get("thumbnail")) or largest_thumbnail(
+        info.get("thumbnails")
+    )
+    cover_locator = await cover_capture.capture_from_url(
+        source_url=tiktok_cover,
+        media_item_id=job.media_item_id,
+    )
+    if cover_locator:
+        job.media_image = cover_locator
+
     # yt-dlp succeeded -- try native subtitles first
     try:
         native_result = await _fetch_native_subtitles(info)
@@ -1159,6 +1187,10 @@ async def _complete_apify_fallback(
         source_url=normalized_url,
         transcript_text=transcript_text,
     )
+    # No cover and no creator on this branch: the transcript actor returns the
+    # text alone, and it only runs when yt-dlp was IP-blocked -- so there is no
+    # `info` dict to read either (task-302 §4, row 4). Whatever the submit path
+    # stored stays, and an empty field means the tile keeps its media-type icon.
     job.mark_completed()
     if not await apify_orchestration.complete_callback(job):
         return {"mode": "apify_callback_ignored", "job_id": job.id}

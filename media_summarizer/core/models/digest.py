@@ -38,6 +38,11 @@ class DigestMediaItem(BaseModel):
 
     media_item_id: str
     title: Optional[str] = None
+    # The digest card has rendered `thumbnail_url` since it was written, while
+    # this contract never carried the field -- so the image slot was always
+    # empty (task-302 §2.5). Both halves now exist.
+    thumbnail_url: Optional[str] = None
+    creator_name: Optional[str] = None
     media_type: Optional[str] = None
     source_platform: Optional[str] = None
     summary_short_artifact_id: Optional[str] = None

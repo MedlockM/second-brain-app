@@ -135,6 +135,10 @@ class ResolvedMedia:
     source_platform: SourcePlatform
     resolver_key: str
     title: Optional[str] = None
+    # Cover and publisher, when the resolver's provider already returns them, so
+    # a tile is complete from the submit request onwards (task-302 §3.2).
+    cover_url: Optional[str] = None
+    creator_name: Optional[str] = None
     audio_url: Optional[str] = None
     audio_s3_key: Optional[str] = None
     raw_text: Optional[str] = None

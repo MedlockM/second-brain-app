@@ -51,6 +51,7 @@ async def process_indexing_message(message: Dict[str, Any]) -> None:
     user_id = body.get("user_id")
     transcription_s3_key = body.get("transcription_s3_key")
     title = body.get("title")
+    creator_name = body.get("creator_name")
     source_platform = body.get("source_platform")
     created_at = body.get("created_at")
 
@@ -90,6 +91,7 @@ async def process_indexing_message(message: Dict[str, Any]) -> None:
             media_item_id=media_item_id,
             transcript_text=transcript_text,
             title=title,
+            creator_name=creator_name,
             source_platform=source_platform,
             created_at=created_at,
         )

@@ -31,7 +31,7 @@ from media_summarizer.core.ports.document_parser import (
     ParseError,
     ParseResult,
 )
-from media_summarizer.core.services import provider_pool_guard, quota_enforcer
+from media_summarizer.core.services import cover_capture, provider_pool_guard, quota_enforcer
 from media_summarizer.infrastructure.resolvers.llamaparse_resolver import (
     LlamaParseResolver,
 )
@@ -350,6 +350,21 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
                 )
                 if parsed_title:
                     job.title = parsed_title
+            else:
+                # A camera capture or a gallery pick *is* its own cover, and it
+                # is already in our bucket -- but at up to 50 MB it is unservable
+                # as a list thumbnail, so a downscaled derivative is written to
+                # the covers bucket (task-302 §4, rows 9-10). Nothing is
+                # downloaded from a third party here. A PDF or a DOCX gets no
+                # cover: `ParseResult` carries no image and there is no page
+                # rasteriser in this runtime.
+                cover_locator = await cover_capture.capture_from_s3(
+                    bucket=DOCUMENT_BUCKET,
+                    key=str(document_s3_key),
+                    media_item_id=job.media_item_id,
+                )
+                if cover_locator:
+                    job.media_image = cover_locator
             job.source_platform = "document"
             job.media_type = "document"
             job.mark_completed()

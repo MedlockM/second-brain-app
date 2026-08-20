@@ -48,6 +48,7 @@ async def _enqueue_search_indexing(
     user_id: Optional[str],
     transcription_s3_key: Optional[str],
     title: Optional[str],
+    creator_name: Optional[str],
     source_platform: Optional[str],
 ) -> None:
     """
@@ -89,6 +90,7 @@ async def _enqueue_search_indexing(
                 "user_id": user_id,
                 "transcription_s3_key": transcription_s3_key,
                 "title": title,
+                "creator_name": creator_name,
                 "source_platform": source_platform,
                 "created_at": int(time.time()),
             },
@@ -182,6 +184,7 @@ async def process_event(message: Dict[str, Any]) -> None:
             user_id=canonical_job.user_id,
             transcription_s3_key=transcription_s3_key,
             title=canonical_job.title or media_title,
+            creator_name=canonical_job.creator_name,
             source_platform=canonical_job.source_platform,
         )
         indexed_user_ids.add(canonical_job.user_id)
@@ -248,6 +251,9 @@ async def process_event(message: Dict[str, Any]) -> None:
                     user_id=watcher_user_id,
                     transcription_s3_key=transcription_s3_key,
                     title=(getattr(job, "title", None) if job else None) or media_title,
+                    creator_name=(
+                        getattr(job, "creator_name", None) if job else None
+                    ),
                     source_platform=(getattr(job, "source_platform", None) if job else None),
                 )
                 indexed_user_ids.add(watcher_user_id)

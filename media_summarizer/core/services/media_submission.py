@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from media_summarizer.core.media_ingestion.media_metadata import select_creator
 from media_summarizer.core.models import ProcessingJob, UserMediaStatus
 from media_summarizer.core.services.durable_media_service import (
     finalize_deduplicated_save,
@@ -79,10 +80,17 @@ async def submit_media_for_user(
     # place in the codebase that decides where an unfiled item lands (task-220).
     # Whatever happens to the job below -- watcher, billing duplicate, expiry --
     # this row is what the user sees in their library.
+    # `source_title` is the show, `media_title` the episode -- so the creator
+    # is already an argument of this function and only had nowhere to go
+    # (task-304). Rejected candidates (the "Podcast" placeholder, a name equal
+    # to the episode title) fall back to no creator at all.
+    creator_name = select_creator([source_title], title=media_title)
+
     durable_media_item_id = await save_media_for_user(
         user_id=user.id,
         media_key=media_key,
         title=media_title,
+        creator_name=creator_name,
         source_url=audio_url,
         source_platform=source or "audio",
         media_type="podcast_episode",
@@ -101,6 +109,7 @@ async def submit_media_for_user(
         media_image=media_image,
         media_date_published=media_date_published,
         title=media_title,
+        creator_name=creator_name,
         media_item_id=durable_media_item_id,
     )
 

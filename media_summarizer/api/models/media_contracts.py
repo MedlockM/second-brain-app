@@ -178,6 +178,12 @@ class MediaItemContract(BaseModel):
     # thing instead of each inventing a label. Nullable: a row whose metadata has
     # not resolved yet carries no title, and clients degrade to the source URL.
     title: Optional[str] = None
+    # Cover and publisher, same two values the list endpoint returns, so the
+    # detail header and the Inbox tile cannot disagree (task-304). `media_image`
+    # is already resolved into a fetchable URL by the endpoint -- clients never
+    # see the `s3://` locator the row stores for a re-hosted cover.
+    media_image: Optional[str] = None
+    creator_name: Optional[str] = None
     original_url: str
     normalized_url: str
     media_type: MediaType

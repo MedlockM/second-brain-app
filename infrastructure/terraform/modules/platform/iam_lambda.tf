@@ -84,7 +84,8 @@ resource "aws_iam_policy" "lambda_worker" {
           "${aws_s3_bucket.flashcards.arn}/*",
           "${aws_s3_bucket.quiz.arn}/*",
           "${aws_s3_bucket.documents.arn}/*",
-          "${aws_s3_bucket.archives.arn}/*"
+          "${aws_s3_bucket.archives.arn}/*",
+          "${aws_s3_bucket.covers.arn}/*"
         ]
       },
       {
@@ -102,7 +103,8 @@ resource "aws_iam_policy" "lambda_worker" {
           aws_s3_bucket.flashcards.arn,
           aws_s3_bucket.quiz.arn,
           aws_s3_bucket.documents.arn,
-          aws_s3_bucket.archives.arn
+          aws_s3_bucket.archives.arn,
+          aws_s3_bucket.covers.arn
         ]
       },
       {
@@ -237,7 +239,8 @@ resource "aws_iam_policy" "lambda_api" {
           "${aws_s3_bucket.flashcards.arn}/*",
           "${aws_s3_bucket.quiz.arn}/*",
           "${aws_s3_bucket.documents.arn}/*",
-          "${aws_s3_bucket.archives.arn}/*"
+          "${aws_s3_bucket.archives.arn}/*",
+          "${aws_s3_bucket.covers.arn}/*"
         ]
       },
       {
@@ -255,7 +258,8 @@ resource "aws_iam_policy" "lambda_api" {
           aws_s3_bucket.flashcards.arn,
           aws_s3_bucket.quiz.arn,
           aws_s3_bucket.documents.arn,
-          aws_s3_bucket.archives.arn
+          aws_s3_bucket.archives.arn,
+          aws_s3_bucket.covers.arn
         ]
       },
       {

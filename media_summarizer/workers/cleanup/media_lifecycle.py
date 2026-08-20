@@ -49,7 +49,11 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from boto3.dynamodb.types import TypeDeserializer
 
-from media_summarizer.core.services import media_purge_service, search_indexing
+from media_summarizer.core.services import (
+    cover_capture,
+    media_purge_service,
+    search_indexing,
+)
 from media_summarizer.utils import database_async
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
@@ -105,6 +109,7 @@ async def purge_media_item(
     media_item_id: str,
     media_key: str,
     last_job_id: Optional[str] = None,
+    thumbnail_url: Optional[str] = None,
 ) -> Dict[str, int]:
     """Destroy one save and content no remaining save references.
 
@@ -151,6 +156,12 @@ async def purge_media_item(
             job_id=content_job_id,
         ):
             counts["media_idempotence_rows_deleted"] = 1
+
+    # A re-hosted cover belongs to this one save, so it goes unconditionally --
+    # unlike the transcript, which other saves of the same content still read.
+    # A hotlinked URL has nothing to delete and `delete_cover` says so (task-304).
+    if await cover_capture.delete_cover(thumbnail_url):
+        counts["cover_objects_deleted"] = 1
 
     await asyncio.to_thread(search_indexing.delete_document, user_id, media_item_id)
     counts["search_documents_deleted"] = 1
@@ -208,6 +219,9 @@ async def _handle_removed_row(record: Dict[str, Any]) -> str:
             media_item_id=media_item_id,
             media_key=media_key,
             last_job_id=str(last_job_id) if last_job_id else None,
+            thumbnail_url=(
+                str(item["thumbnail_url"]) if item.get("thumbnail_url") else None
+            ),
         )
     except Exception as exc:
         log_event(

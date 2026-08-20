@@ -114,6 +114,7 @@ def index_transcript(
     media_item_id: str,
     transcript_text: str,
     title: Optional[str] = None,
+    creator_name: Optional[str] = None,
     source_platform: Optional[str] = None,
     created_at: Optional[int] = None,
 ) -> Dict[str, Any]:
@@ -129,6 +130,7 @@ def index_transcript(
         media_item_id: Unique identifier for the media item.
         transcript_text: Full transcript text to index.
         title: Optional title/description of the media.
+        creator_name: Optional publisher of the media (channel, show, site).
         source_platform: Optional platform source (youtube, audio, web, etc.).
         created_at: Unix timestamp of creation. Defaults to current time.
 
@@ -154,6 +156,7 @@ def index_transcript(
             "media_item_id": media_item_id,
             "user_id": user_id,
             "title": title or "",
+            "creator_name": creator_name or "",
             "source_platform": source_platform or "",
             "created_at": timestamp,
             "chunk_index": i,

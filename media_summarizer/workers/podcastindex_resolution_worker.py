@@ -20,6 +20,7 @@ from media_summarizer.core.media_ingestion.adapters.podcast_resolver_foundation 
     normalize_podcast_source_url,
 )
 from media_summarizer.core.media_ingestion.domain import SourcePlatform
+from media_summarizer.core.media_ingestion.media_metadata import select_creator
 from media_summarizer.core.media_ingestion.title_derivation import derive_media_title
 from media_summarizer.core.services import audio_quota_gate
 from media_summarizer.core.services.transcript_formatting import (
@@ -311,6 +312,13 @@ async def process_message(message: dict) -> None:
         job.media_url = audio_url
         job.title = episode_title
         job.media_image = resolution.get("episode_image") or job.media_image
+        # The show, not the host: `podcast_title` has been resolved through
+        # feedTitle / the channel <title> since task-138 and forwarded to the
+        # Deepgram queue, where no consumer ever read it back. It is the
+        # creator the tile wants (task-304).
+        podcast_creator = select_creator([podcast_title], title=job.title)
+        if podcast_creator:
+            job.creator_name = podcast_creator
         if resolution.get("episode_date_published"):
             job.media_date_published = int(resolution["episode_date_published"])
         await database_async.update_processing_job(job)

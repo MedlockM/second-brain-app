@@ -60,6 +60,12 @@ from urllib.parse import parse_qs, urlsplit
 
 import yt_dlp
 
+from media_summarizer.core.media_ingestion.media_metadata import (
+    largest_thumbnail,
+    normalize_cover_url,
+    select_creator,
+    youtube_thumbnail_url,
+)
 from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.core.services import audio_quota_gate, quota_enforcer
 from media_summarizer.core.services.transcript_formatting import (
@@ -132,6 +138,13 @@ _APIFY_ACTOR_DIALECTS: Dict[str, Dict[str, Any]] = {
 # actor guarantees it in its output schema, so all known spellings are tried and
 # a missing title simply leaves the submission-time value in place (task-266).
 _APIFY_TITLE_FIELDS = ("title", "video_title", "videoTitle", "name")
+
+# Same story for the channel and the cover: neither actor declares them in
+# its output schema, so every known spelling is probed and a miss simply
+# leaves the field empty -- for the cover, `youtube_thumbnail_url` then
+# rebuilds a deterministic `i.ytimg.com` URL from the video id (task-304).
+_APIFY_CREATOR_FIELDS = ("channel", "channel_name", "channelName", "author", "uploader")
+_APIFY_THUMBNAIL_FIELDS = ("thumbnail", "thumbnail_url", "thumbnailUrl", "cover")
 
 _YTDLP_EXTRACTOR_VERSION = "v1"
 
@@ -543,9 +556,9 @@ def _apify_item_transcript_text(item: Dict[str, Any], dialect: Dict[str, Any]) -
     return ""
 
 
-def _apify_item_title(item: Dict[str, Any]) -> Optional[str]:
-    """Video title carried by the actor dataset item, when it carries one."""
-    for field in _APIFY_TITLE_FIELDS:
+def _apify_item_string(item: Dict[str, Any], fields: tuple[str, ...]) -> Optional[str]:
+    """First non-empty string the dataset item carries under ``fields``."""
+    for field in fields:
         value = item.get(field)
         if isinstance(value, str) and value.strip():
             return value.strip()
@@ -603,7 +616,9 @@ def _parse_apify_transcript(
 
     return {
         "text": transcript_text,
-        "title": _apify_item_title(item),
+        "title": _apify_item_string(item, _APIFY_TITLE_FIELDS),
+        "creator": _apify_item_string(item, _APIFY_CREATOR_FIELDS),
+        "thumbnail": _apify_item_string(item, _APIFY_THUMBNAIL_FIELDS),
         # Language actually delivered by the actor; may differ from the request
         # when we fell back to the video default or the actor cannot select a
         # language at all (task-192 translates downstream). Resolved through
@@ -1076,6 +1091,22 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
         apify_title = select_title([apify_result.get("title")])
         if apify_title:
             job.title = apify_title
+        # Neither transcript actor declares a thumbnail or a channel in its
+        # output schema, but the video id was parsed from the URL long before
+        # this branch -- so the cover is the deterministic `i.ytimg.com` one
+        # (task-302 §4, row 2). All known channel spellings are probed and a
+        # missing one simply leaves the field empty.
+        apify_creator = select_creator(
+            [apify_result.get("creator")],
+            title=job.title,
+        )
+        if apify_creator:
+            job.creator_name = apify_creator
+        apify_cover = normalize_cover_url(
+            apify_result.get("thumbnail")
+        ) or youtube_thumbnail_url(video_id)
+        if apify_cover:
+            job.media_image = apify_cover
         job.mark_completed()
         if not await apify_orchestration.complete_callback(job):
             return {"mode": "apify_callback_ignored", "job_id": job_id}
@@ -1126,6 +1157,25 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
     )
     if ytdlp_title:
         job.title = ytdlp_title
+
+    # The channel and the cover come out of the very same `info` dict, and the
+    # cover is an unsigned `i.ytimg.com` URL that lives as long as the video --
+    # so it is hotlinked, not re-hosted (task-302 §5.1). The deterministic
+    # `hqdefault` URL is the last resort: `maxresdefault` is absent on older
+    # uploads and a 404 there is a blank tile.
+    ytdlp_creator = select_creator(
+        [info.get("channel"), info.get("uploader"), info.get("uploader_id")],
+        title=job.title,
+    )
+    if ytdlp_creator:
+        job.creator_name = ytdlp_creator
+    ytdlp_cover = (
+        normalize_cover_url(info.get("thumbnail"))
+        or largest_thumbnail(info.get("thumbnails"))
+        or youtube_thumbnail_url(video_id)
+    )
+    if ytdlp_cover:
+        job.media_image = ytdlp_cover
 
     try:
         native_result = await _fetch_native_subtitles(

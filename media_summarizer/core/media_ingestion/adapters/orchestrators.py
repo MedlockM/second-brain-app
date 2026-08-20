@@ -16,6 +16,10 @@ from media_summarizer.core.media_ingestion.domain import (
     ResolvedMedia,
 )
 from media_summarizer.core.media_ingestion.errors import OrchestrationError
+from media_summarizer.core.media_ingestion.media_metadata import (
+    normalize_cover_url,
+    select_creator,
+)
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.media_ingestion.title_derivation import derive_media_title
 from media_summarizer.core.models import ProcessingJob, UserMediaStatus
@@ -343,10 +347,19 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         # a media_key already processed *globally* is still a brand-new library
         # entry for THIS user, and that is the case §1.6.1 got wrong by handing
         # the requesting user another user's job id.
+        # A cover known at submission is hotlinked as-is: the sources whose URL
+        # is signed and expiring resolve inside their worker, not here, and
+        # re-host there (task-302 §5). Nothing on this path downloads an image,
+        # so the share request stays as fast as it is today.
+        cover_url = normalize_cover_url(resolved.cover_url)
+        creator_name = select_creator([resolved.creator_name], title=title)
+
         durable_media_item_id = await save_media_for_user(
             user_id=command.user.user_id,
             media_key=resolved.media_key,
             title=title,
+            creator_name=creator_name,
+            thumbnail_url=cover_url,
             source_url=resolved.normalized_url,
             source_platform=resolved.source_platform.value,
             media_type=resolved.media_type.value,
@@ -381,6 +394,8 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             media_url=resolved.audio_url,
             media_key=resolved.media_key,
             title=title,
+            creator_name=creator_name,
+            media_image=cover_url,
             source_platform=resolved.source_platform.value,
             media_type=resolved.media_type.value,
             # Pointer from the operational row to the durable one: how the status

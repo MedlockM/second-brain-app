@@ -27,6 +27,10 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import (
     NonRetryableProviderResolutionError,
 )
+from media_summarizer.core.media_ingestion.media_metadata import (
+    normalize_cover_url,
+    select_creator,
+)
 from media_summarizer.core.media_ingestion.ports import ContentResolverPort
 from media_summarizer.core.media_ingestion.title_derivation import (
     derive_media_title,
@@ -457,6 +461,15 @@ class InstagramApifyResolver(ContentResolverPort):
             source_platform=SourcePlatform.INSTAGRAM.value,
             authors=[item.get("ownerFullName"), item.get("ownerUsername")],
         )
+        # The account the reel belongs to. Same two fields the title rejects --
+        # they are the publisher, which is exactly what the tile's second line
+        # wants (task-304). The Reel Scraper also returns `displayUrl`, which
+        # this branch used to ignore even though the post branch parses it.
+        creator_name = select_creator(
+            [item.get("ownerFullName"), item.get("ownerUsername")],
+            title=title,
+        )
+        cover_url = normalize_cover_url(item.get("displayUrl"))
 
         metadata: dict[str, Any] = {
             "resolver_version": "v4",
@@ -481,6 +494,8 @@ class InstagramApifyResolver(ContentResolverPort):
             resolver_key=self.key,
             audio_url=chosen_url,
             title=title,
+            cover_url=cover_url,
+            creator_name=creator_name,
             metadata=metadata,
         )
 
@@ -537,6 +552,12 @@ class InstagramApifyResolver(ContentResolverPort):
             "caption": caption,
         }
 
+        post_title = derive_media_title(
+            [first_sentence(caption)],
+            media_type=MediaType.IMAGE_POST.value,
+            source_platform=SourcePlatform.INSTAGRAM.value,
+            authors=[item.get("ownerFullName"), item.get("ownerUsername")],
+        )
         resolved = ResolvedMedia(
             media_key=context.media_key,
             normalized_url=context.normalized_url,
@@ -544,11 +565,11 @@ class InstagramApifyResolver(ContentResolverPort):
             media_type=MediaType.IMAGE_POST,
             source_platform=SourcePlatform.INSTAGRAM,
             resolver_key=self.key,
-            title=derive_media_title(
-                [first_sentence(caption)],
-                media_type=MediaType.IMAGE_POST.value,
-                source_platform=SourcePlatform.INSTAGRAM.value,
-                authors=[item.get("ownerFullName"), item.get("ownerUsername")],
+            title=post_title,
+            cover_url=normalize_cover_url(image_urls[0] if image_urls else None),
+            creator_name=select_creator(
+                [item.get("ownerFullName"), item.get("ownerUsername")],
+                title=post_title,
             ),
             metadata=metadata,
         )

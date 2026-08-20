@@ -23,6 +23,10 @@ from typing import Any, Dict, Optional
 import httpx
 import trafilatura
 
+from media_summarizer.core.media_ingestion.media_metadata import (
+    normalize_cover_url,
+    select_creator,
+)
 from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
@@ -246,35 +250,43 @@ def _extract_clean_text(html: str) -> str:
     return text
 
 
-def _extract_article_title(html: str, *, requested_url: str) -> Optional[str]:
-    """Headline of the page, or ``None`` when the page offers no usable one.
+def _extract_article_metadata(
+    html: str, *, requested_url: str
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """``(title, creator_name, cover_url)`` for one page, or ``None`` each.
 
-    trafilatura parses the very HTML we just extracted the body from, so this
-    costs no extra request and no extra euro: `extract_metadata` merges JSON-LD,
-    OpenGraph and the `<title>` tag, which is where a publisher puts its
-    headline. The site name is passed to the rejection rules because a fair
-    number of templates render ``<title>Le Monde</title>`` on article pages, and
-    a library full of publication names is exactly the defect task-266 fixes.
+    One `extract_metadata` call answers all three: trafilatura merges JSON-LD,
+    OpenGraph and the `<title>` tag, and its `Document` exposes `image` (mapped
+    from `og:image`/`twitter:image`), `sitename` and `author` (task-302 §2.3).
+    The site name is the creator, the byline only its fallback -- for an article
+    the publisher is what a reader recognises (task-302 §7.3).
 
-    Any parsing failure is swallowed: a missing headline means a fallback title,
-    never a failed extraction.
+    Any parsing failure is swallowed: a missing headline, creator or cover means
+    a fallback, never a failed extraction.
     """
     try:
         document = trafilatura.extract_metadata(html, default_url=requested_url)
     except Exception:
-        return None
+        return None, None, None
     if document is None:
-        return None
+        return None, None, None
 
-    return select_title(
+    site_name = getattr(document, "sitename", None)
+    title = select_title(
         [getattr(document, "title", None)],
         authors=[getattr(document, "author", None)],
         site_names=[
-            getattr(document, "sitename", None),
+            site_name,
             getattr(document, "hostname", None),
             requested_url,
         ],
     )
+    creator_name = select_creator(
+        [site_name, getattr(document, "author", None)],
+        title=title,
+    )
+    cover_url = normalize_cover_url(getattr(document, "image", None))
+    return title, creator_name, cover_url
 
 
 async def _upload_transcript(job_id: str, text: str) -> str:
@@ -396,7 +408,7 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
 
     fetch_result = await _fetch_article_html(normalized_url)
     clean_text = _extract_clean_text(fetch_result["html"])
-    article_title = _extract_article_title(
+    article_title, article_creator, article_cover = _extract_article_metadata(
         fetch_result["html"],
         requested_url=fetch_result.get("final_url") or normalized_url,
     )
@@ -432,9 +444,17 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
     job.set_transcription_metadata(transcription_metadata)
     job.extraction_metadata = extraction_metadata
     # Before `mark_completed`, so the completion event carries the headline and
-    # the Algolia record is right on the first indexing pass (task-266).
+    # the creator, and the Algolia record is right on the first indexing pass
+    # (task-266, task-304). The `og:image` is hotlinked: a publisher's image URL
+    # is unsigned and stable, and re-hosting the highest-volume source would put
+    # a second-host fetch on the one path that makes no external call today
+    # (task-302 §5.3).
     if article_title:
         job.title = article_title
+    if article_creator:
+        job.creator_name = article_creator
+    if article_cover:
+        job.media_image = article_cover
     job.mark_completed()
     await database_async.update_processing_job(job)
 

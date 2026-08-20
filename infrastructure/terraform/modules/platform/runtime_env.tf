@@ -92,6 +92,7 @@ locals {
     DOCUMENT_BUCKET         = aws_s3_bucket.documents.bucket
     ARCHIVE_BUCKET          = aws_s3_bucket.archives.bucket
     BUG_REPORTS_BUCKET      = aws_s3_bucket.bug_reports.bucket
+    COVERS_BUCKET           = aws_s3_bucket.covers.bucket
   }
 
   # -------------------------------------------------------------------------

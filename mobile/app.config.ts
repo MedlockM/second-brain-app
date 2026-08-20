@@ -153,6 +153,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       "expo-secure-store",
       "expo-apple-authentication",
       "expo-font",
+      // Media covers (task-304). The config plugin is what wires SDWebImage on
+      // iOS and Glide on Android; without it `expo-image` falls back to a
+      // JS-side loader with no disk cache, which is the whole reason it was
+      // chosen over React Native's `Image`.
+      "expo-image",
       [
         "expo-share-intent",
         {

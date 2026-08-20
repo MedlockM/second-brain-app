@@ -134,6 +134,14 @@ export interface MediaItemContract {
    * while the item's metadata has not resolved yet.
    */
   title?: string | null;
+  /**
+   * Cover image, already resolved into a fetchable URL by the API — a re-hosted
+   * cover is stored as an `s3://` locator server-side and signed on read, so a
+   * client never sees one (task-304).
+   */
+  media_image?: string | null;
+  /** Publisher of the media: a channel, a show, a site, an account. */
+  creator_name?: string | null;
   original_url: string;
   normalized_url: string;
   media_type: MediaType;
@@ -181,6 +189,12 @@ export interface MediaStatusResponse {
 export interface MediaListItem {
   media_item_id: string;
   title?: string | null;
+  /**
+   * Publisher of the media — the tile's second line. Null for shared text,
+   * documents and audio files, which have no creator by construction: the line
+   * is then omitted rather than filled with a placeholder (task-304).
+   */
+  creator_name?: string | null;
   source_platform?: SourcePlatform | string | null;
   media_type?: MediaType | string | null;
   status: string;

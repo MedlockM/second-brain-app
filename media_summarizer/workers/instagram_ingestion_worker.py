@@ -45,7 +45,7 @@ from media_summarizer.core.media_ingestion.errors import (
     NonRetryableProviderResolutionError,
     RetryableProviderResolutionError,
 )
-from media_summarizer.core.services import audio_quota_gate
+from media_summarizer.core.services import audio_quota_gate, cover_capture
 from media_summarizer.infrastructure import apify_adapter
 from media_summarizer.infrastructure.apify_adapter import ApifyActorKind
 from media_summarizer.infrastructure.resolvers.instagram_apify_resolver import (
@@ -402,6 +402,19 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
         # Before this, the caption was resolved, logged, and dropped.
         if resolved.title:
             job.title = resolved.title
+        # The account name and the cover exist for the same reason and at the
+        # same moment as the caption: the resolver just ran. Instagram serves
+        # signed `scontent.*.cdninstagram.com` URLs that 403 within days, so the
+        # cover is re-hosted rather than stored as-is (task-302 §5.1). A failure
+        # returns None and the tile falls back to its media-type icon.
+        if resolved.creator_name:
+            job.creator_name = resolved.creator_name
+        cover_locator = await cover_capture.capture_from_url(
+            source_url=resolved.cover_url,
+            media_item_id=job.media_item_id,
+        )
+        if cover_locator:
+            job.media_image = cover_locator
         job.mark_transcribing()
         if message_type == "apify_callback":
             if not await apify_orchestration.complete_callback(job):

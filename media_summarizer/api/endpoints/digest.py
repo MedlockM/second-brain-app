@@ -19,7 +19,8 @@ from pydantic import BaseModel
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.core.services import digest_service
+from media_summarizer.core.models.digest import DigestMediaItem
+from media_summarizer.core.services import cover_capture, digest_service
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
 router = APIRouter()
@@ -32,6 +33,8 @@ logger = logging.getLogger(__name__)
 class DigestMediaItemResponse(BaseModel):
     media_item_id: str
     title: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    creator_name: Optional[str] = None
     media_type: Optional[str] = None
     source_platform: Optional[str] = None
     summary_short_artifact_id: Optional[str] = None
@@ -65,6 +68,32 @@ class DigestSettingsUpdateRequest(BaseModel):
 
 
 # ---------- Endpoints ----------
+
+
+
+async def _digest_items_response(
+    media_items: List[DigestMediaItem],
+) -> List[DigestMediaItemResponse]:
+    """Project digest items, signing any re-hosted cover on the way out.
+
+    Same rule as the list and detail endpoints: a client never sees the
+    ``s3://`` locator a re-hosted cover is stored as, and a hotlinked URL passes
+    through untouched (task-302 §5.5).
+    """
+    return [
+        DigestMediaItemResponse(
+            media_item_id=mi.media_item_id,
+            title=mi.title,
+            thumbnail_url=await cover_capture.resolve_cover_url(mi.thumbnail_url),
+            creator_name=mi.creator_name,
+            media_type=mi.media_type,
+            source_platform=mi.source_platform,
+            summary_short_artifact_id=mi.summary_short_artifact_id,
+            summary_short_status=mi.summary_short_status,
+            added_at=mi.added_at,
+        )
+        for mi in media_items
+    ]
 
 
 @router.get("/digest/daily", response_model=DigestResponse)
@@ -120,18 +149,7 @@ async def get_daily_digest(
             digest_type=digest.digest_type.value,
             period_key=digest.period_key,
             status=digest.status.value,
-            media_items=[
-                DigestMediaItemResponse(
-                    media_item_id=mi.media_item_id,
-                    title=mi.title,
-                    media_type=mi.media_type,
-                    source_platform=mi.source_platform,
-                    summary_short_artifact_id=mi.summary_short_artifact_id,
-                    summary_short_status=mi.summary_short_status,
-                    added_at=mi.added_at,
-                )
-                for mi in digest.media_items
-            ],
+            media_items=await _digest_items_response(digest.media_items),
             item_count=len(digest.media_items),
             created_at=digest.created_at,
             updated_at=digest.updated_at,
@@ -215,18 +233,7 @@ async def get_weekly_digest(
             digest_type=digest.digest_type.value,
             period_key=digest.period_key,
             status=digest.status.value,
-            media_items=[
-                DigestMediaItemResponse(
-                    media_item_id=mi.media_item_id,
-                    title=mi.title,
-                    media_type=mi.media_type,
-                    source_platform=mi.source_platform,
-                    summary_short_artifact_id=mi.summary_short_artifact_id,
-                    summary_short_status=mi.summary_short_status,
-                    added_at=mi.added_at,
-                )
-                for mi in digest.media_items
-            ],
+            media_items=await _digest_items_response(digest.media_items),
             item_count=len(digest.media_items),
             created_at=digest.created_at,
             updated_at=digest.updated_at,

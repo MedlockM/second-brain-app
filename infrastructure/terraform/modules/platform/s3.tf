@@ -1,5 +1,5 @@
 # S3 Buckets for media pipeline storage.
-# All 10 buckets used by workers follow the convention:
+# All 11 buckets used by workers follow the convention:
 #   ${project_name}-${role}-${account_id}-${environment}
 # Bucket names are injected as plain Lambda env vars (NOT via Secrets Manager).
 
@@ -129,6 +129,33 @@ resource "aws_s3_bucket" "documents" {
   }
 }
 
+resource "aws_s3_bucket" "covers" {
+  bucket = "${var.project_name}-covers-${data.aws_caller_identity.current.account_id}-${var.environment}"
+  tags = {
+    Name = "${var.project_name}-covers${local.suffix}"
+  }
+
+  # Re-hosted cover thumbnails for the sources whose CDN URL is signed and
+  # expires (Instagram, TikTok) or private (camera and gallery photos) --
+  # task-302 §5. Unlike the other buckets this one holds no original content:
+  # every object is a 640x360 derivative that a re-ingestion would rebuild.
+  # prevent_destroy is kept anyway, so a wrong -target still fails at plan time.
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# Covers are served through presigned URLs (task-302 §5.5): the bucket stays
+# private, and the user's own photos are never reachable without a signature.
+resource "aws_s3_bucket_public_access_block" "covers" {
+  bucket = aws_s3_bucket.covers.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 # Outputs
 
 output "audio_bucket_name" {
@@ -179,4 +206,9 @@ output "documents_bucket_name" {
 output "archives_bucket_name" {
   description = "Name of the S3 bucket for archives"
   value       = aws_s3_bucket.archives.bucket
+}
+
+output "covers_bucket_name" {
+  description = "Name of the S3 bucket for re-hosted media cover thumbnails"
+  value       = aws_s3_bucket.covers.bucket
 }

@@ -3,9 +3,10 @@ id: task-302
 title: >-
   Benchmark cover-image and creator-name extraction per ingestion source for the
   new media vignettes
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-19 21:08'
+updated_date: '2026-08-20 00:00'
 labels:
   - benchmark
   - ingestion
@@ -51,14 +52,14 @@ This is the same shape of problem as **task-265** (title derivation): per-source
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/research/task-302-<short-description>/README.md exists with owner_decision: pending in its front-matter and an Owner Validation section whose Decision and Validated at fields are empty
-- [ ] #2 A per-source table covers all 11 ingestion paths, each with its image source, its creator source, the file:line where the value is already available (or an explicit statement that it is not), and its fallback
-- [ ] #3 The hotlink-versus-re-host question is answered per source, with URL expiry, image weight, added latency, monthly cost at the pricing-benchmark volumes and hotlink correctness each argued rather than asserted
-- [ ] #4 The README recommends a mobile image component and states the degraded behaviour for a missing, expired or refused image, plus the tile aspect ratio it assumes
-- [ ] #5 The creator field is fully specified: attribute name and type on UserMediaRecord, its write path onto the durable row, an explicit answer on publisher-versus-author, and an explicit decision on Algolia searchability
-- [ ] #6 A cost and effort comparison of the candidate options ends in a single recommendation stated as what the owner would be validating
-- [ ] #7 The README reuses thumbnail_url and the existing mirror_job hook, or states in writing why a different carrier is required
-- [ ] #8 No production code, contract or Terraform file is modified by this task
+- [x] #1 docs/research/task-302-<short-description>/README.md exists with owner_decision: pending in its front-matter and an Owner Validation section whose Decision and Validated at fields are empty
+- [x] #2 A per-source table covers all 11 ingestion paths, each with its image source, its creator source, the file:line where the value is already available (or an explicit statement that it is not), and its fallback
+- [x] #3 The hotlink-versus-re-host question is answered per source, with URL expiry, image weight, added latency, monthly cost at the pricing-benchmark volumes and hotlink correctness each argued rather than asserted
+- [x] #4 The README recommends a mobile image component and states the degraded behaviour for a missing, expired or refused image, plus the tile aspect ratio it assumes
+- [x] #5 The creator field is fully specified: attribute name and type on UserMediaRecord, its write path onto the durable row, an explicit answer on publisher-versus-author, and an explicit decision on Algolia searchability
+- [x] #6 A cost and effort comparison of the candidate options ends in a single recommendation stated as what the owner would be validating
+- [x] #7 The README reuses thumbnail_url and the existing mirror_job hook, or states in writing why a different carrier is required
+- [x] #8 No production code, contract or Terraform file is modified by this task
 <!-- AC:END -->
 
 ## Implementation Notes
