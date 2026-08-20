@@ -157,11 +157,24 @@ async def purge_media_item(
         ):
             counts["media_idempotence_rows_deleted"] = 1
 
-    # A re-hosted cover belongs to this one save, so it goes unconditionally --
-    # unlike the transcript, which other saves of the same content still read.
-    # A hotlinked URL has nothing to delete and `delete_cover` says so (task-304).
-    if await cover_capture.delete_cover(thumbnail_url):
-        counts["cover_objects_deleted"] = 1
+    # A re-hosted cover is shared across every save of the same media_key, so it
+    # is deleted only when no other row still references it -- exactly like the
+    # transcript and job objects already guarded above. A hotlinked URL has
+    # nothing to delete and `delete_cover` says so (task-304).
+    if thumbnail_url and cover_capture.parse_cover_locator(thumbnail_url):
+        # A re-hosted cover (locator parsed successfully): check if any other
+        # row still points to the same thumbnail_url value.
+        cover_still_referenced = any(
+            record.thumbnail_url == thumbnail_url for record in references
+        )
+        if not cover_still_referenced:
+            if await cover_capture.delete_cover(thumbnail_url):
+                counts["cover_objects_deleted"] = 1
+            else:
+                # S3 cover deletion failed (already logged by delete_cover).
+                counts["cover_objects_delete_failed"] = 1
+        else:
+            counts["cover_objects_skipped_shared"] = 1
 
     await asyncio.to_thread(search_indexing.delete_document, user_id, media_item_id)
     counts["search_documents_deleted"] = 1
