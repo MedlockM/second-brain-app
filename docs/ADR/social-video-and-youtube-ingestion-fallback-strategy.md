@@ -24,7 +24,12 @@ Le principe commun est le suivant:
 
 ## Decision par plateforme
 
-### Instagram
+### Instagram (SUPERSEDED -- voir "Instagram extraction (V2, post-task-310)" ci-dessous)
+
+> **NOTE**: la section ci-dessous decrit la strategie telle que decidee apres task-108.
+> Elle reste exacte sur le choix du provider (Apify) mais decrit un chemin yt-dlp
+> primaire introduit ensuite, supprime par task-310 le 2026-08-20.
+
 Strategie retenue (mise a jour task-108, 2026-05-28):
 - utiliser Apify comme provider unique (Instagram Reel Scraper + Post Scraper + Comment Scraper)
 - Reels/videos: recuperer `downloadedVideo` ou `videoUrl` puis transmettre a Deepgram pour transcription
@@ -40,6 +45,58 @@ Rationale:
 - Apify couvre les 4 dimensions de contenu Instagram (video, images, caption, commentaires)
 - le provider precedent ne couvrait que les Reels et ne retournait ni captions ni commentaires ni images
 - un seul provider reduit la surface d'integration et les secrets a gerer en V1
+
+### Instagram extraction (V2, post-task-310) -- STRATÉGIE COURANTE
+
+Date : 2026-08-20
+
+**Stratégie retenue : l'acteur Apify est le chemin unique, pour les reels comme
+pour les posts.** Aucune tentative yt-dlp, aucune cascade, aucun sentinel E2E
+pour forcer une branche de repli — il n'y en a plus.
+
+Mesure sur `dev` le 2026-08-20 qui motive la décision :
+
+| Constat | Valeur |
+| --- | --- |
+| Jobs Instagram dans `processing_jobs-dev` | 10 |
+| Résolus via `apify~instagram-reel-scraper` | **10** |
+| Résolus via yt-dlp | **0** |
+| Tentatives yt-dlp finissant en `instagram.reel.ytdlp_ip_blocked` | **6 / 6** (2026-08-18 → 2026-08-20) |
+
+task-145 avait déjà relevé ce 6/6 le 2026-08-17 et l'owner avait choisi de
+reporter la réponse « proxy résidentiel » à la V2. Trois jours et une nouvelle
+série de sauvegardes plus tard le taux est toujours de 100 % : la branche n'est
+pas un repli qui se déclenche occasionnellement, c'est du code mort que chaque
+ingestion de reel payait avant qu'Apify ne fasse le vrai travail. Le projet
+n'ayant pas de base installée, la branche est **supprimée** et non rétrogradée.
+
+Conséquences :
+
+- `instagram_apify_resolver.py` n'importe plus yt-dlp ; `resolve()` se contente
+  de classifier l'URL et lève systématiquement `InstagramApifyRequired`, de
+  sorte que le worker démarre l'acteur directement
+- `_resolve_reel_via_ytdlp`, l'exception interne `_InstagramYtdlpBlocked`, le
+  détecteur `_looks_like_ig_ip_blocked_error` et l'événement
+  `instagram.reel.ytdlp_ip_blocked` n'existent plus
+- les métadonnées `audio_url_kind: audio_ytdlp` et
+  `resolution_mode: deepgram_via_ytdlp_audio_url` ne sont plus jamais écrites :
+  le chemin Apify écrit `provider: apify`, `audio_url_kind: audio|video` et
+  `resolution_mode: deepgram_via_apify_audio_url`. Aucun consommateur ne
+  branchait sur les valeurs supprimées (le worker ne fait que les journaliser)
+- `media_summarizer/utils/ytdlp_helpers.py` est supprimé : task-309 avait retiré
+  l'importeur YouTube, ce resolver était le dernier
+- un échec de l'acteur est terminal : plus rien d'autre ne résout Instagram
+- le paquet yt-dlp reste dans l'image pour le worker TikTok, son dernier
+  consommateur
+
+**Impact sur task-145 (V2, proxy résidentiel)** : sa moitié Instagram ne consiste
+plus à faire passer une branche existante par un proxy, mais à réintroduire un
+chemin yt-dlp proxifié là où il n'en reste aucun. Sa moitié TikTok est
+inchangée.
+
+Références :
+- `backlog/tasks/task-310 - Delete-the-dead-yt-dlp-branch-from-Instagram-reel-resolution-and-make-Apify-the-primary-path.md`
+- `docs/INGESTION_WORKERS_PROVIDERS.md` (cascade courante, section Instagram Reel)
 
 ### TikTok (superseded -- see V1 below)
 
@@ -180,8 +237,9 @@ Consequences:
   d'exception yt-dlp, sont desormais derives de `error_category` renvoye par l'acteur
   via `_classify_actor_error` (taxonomie `ApifyTranscriptFailure`), de sorte que le
   message utilisateur reste specifique
-- le paquet yt-dlp reste dans l'image: le worker TikTok et le resolver Instagram
-  l'utilisent toujours (TikTok: 2/2 saves via `native_subtitles` le 2026-08-20)
+- le paquet yt-dlp reste dans l'image: le worker TikTok l'utilise toujours
+  (2/2 saves via `native_subtitles` le 2026-08-20). Depuis task-310 il en est le
+  dernier consommateur -- le resolver Instagram a perdu le sien le meme jour
 
 References:
 - `backlog/tasks/task-309 - Delete-the-dead-yt-dlp-branch-from-the-YouTube-ingestion-worker-and-make-Apify-the-primary-path.md`
@@ -196,7 +254,7 @@ References:
 ## Consequences
 - le resolver YouTube doit exposer explicitement la cascade `manual -> auto -> audio`
 - le resolver TikTok doit integrer un fallback `audio_only` sans changer de famille d'outil
-- l'ingestion Instagram depend d'un provider unique (Apify) sans mecanisme de secours additionnel a ce stade
+- l'ingestion Instagram depend d'un provider unique (Apify) sans aucun mecanisme de secours (task-310)
 - l'observabilite doit permettre d'identifier:
   - le niveau de fallback declenche
   - le provider/outillage utilise

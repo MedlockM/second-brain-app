@@ -138,7 +138,7 @@ async def test_tiktok_apify_fallback(
 
 
 # =============================================================================
-# Instagram: yt-dlp IP-blocked -> Apify Reel Scraper fallback
+# Instagram: Apify Reel Scraper -> Deepgram push
 # =============================================================================
 
 
@@ -147,29 +147,26 @@ async def test_instagram_apify_fallback(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
 ) -> None:
-    """yt-dlp IP-block forced -> Apify Reel Scraper fallback succeeds.
+    """Apify Reel Scraper resolves the reel, Deepgram transcribes it in push mode.
 
-    The submitted URL carries the `__e2e_force_ip_block__=1` sentinel that
-    the Instagram resolver strips in-flight and treats as an immediate
-    IP-block signal (see `strip_e2e_force_ip_block_sentinel` in
-    `media_summarizer/infrastructure/resolvers/instagram_apify_resolver.py`).
-    This bypasses yt-dlp entirely and routes the job to the Apify Reel
-    Scraper, which exposes `audioUrl` for downstream Deepgram transcription
-    in `push` mode.
+    Since task-310 Apify is the *only* Instagram resolution path: the yt-dlp
+    attempt that used to run first was IP-blocked 6 times out of 6 on dev and
+    was deleted, along with the `__e2e_force_ip_block__` sentinel that used to
+    force this branch. The plain reel URL now exercises the same chain.
 
-    Since task-274 the sentinel travels through `instagram-ingestion-queue` to
-    the worker instead of being resolved inside the HTTP request, so the wait
-    covers the queue hop plus an Apify run measured at 63-100 s -- hence the
-    budget well above the other chains'.
+    Since task-274 the job travels through `instagram-ingestion-queue` to the
+    worker instead of being resolved inside the HTTP request, so the wait covers
+    the queue hop plus an Apify run measured at 63-100 s -- hence the budget well
+    above the other chains'.
 
     Asserts:
     - Job completes successfully (status == completed)
-    - extraction_metadata.provider == "apify" (proving yt-dlp was NOT used)
+    - resolver_metadata.provider == "apify"
     """
     media_item_id = await _ingest_and_wait(
         http_client,
         auth_headers,
-        "https://www.instagram.com/natgeo/reel/DZaHxtTglqb/?__e2e_force_ip_block__=1",
+        "https://www.instagram.com/natgeo/reel/DZaHxtTglqb/",
         timeout_s=300,
     )
 
@@ -178,7 +175,8 @@ async def test_instagram_apify_fallback(
     resolver_meta = (extraction_meta.get("resolver_metadata") or {})
 
     assert resolver_meta.get("provider") == "apify", (
-        f"Expected Apify fallback to fire (resolver_metadata.provider == 'apify'), "
+        f"Expected the Apify path to resolve the reel "
+        f"(resolver_metadata.provider == 'apify'), "
         f"got: extraction_metadata={extraction_meta}"
     )
 

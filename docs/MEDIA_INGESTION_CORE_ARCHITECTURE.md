@@ -232,14 +232,15 @@ happens in the worker, never in the HTTP request:
 1. URL is classified as `social_video` and routed to `InstagramResolver`, which
    only classifies — it calls no provider. Resolving inline could not work: the
    API request has a hard 30 s ceiling (API Gateway's HTTP API integration
-   timeout, not configurable) while yt-dlp plus an Apify run measured at 63-100 s
-   needs far more, so every Instagram save timed out with nothing persisted.
+   timeout, not configurable) while an Apify run measured at 63-100 s needs far
+   more, so every Instagram save timed out with nothing persisted.
 2. `ProcessingJobSubmissionOrchestrator` marks the job `extracting` and enqueues
    `instagram-ingestion-queue`.
 3. `instagram_ingestion_worker` runs `InstagramApifyResolver`, which detects the
    content type from the URL path (`/reel/` -> reel, `/p/` -> post, `/tv/` -> igtv).
-4. For **Reels/IGTV**: yt-dlp first (free); on an Instagram IP block, the Apify
-   Reel Scraper returns `audioUrl` (preferred) or `videoUrl`. The worker passes
+4. For **Reels/IGTV**: the Apify Reel Scraper returns `audioUrl` (preferred) or
+   `videoUrl` — it is the only path since task-310 deleted a yt-dlp attempt that
+   was IP-blocked 6 times out of 6 on dev. The worker passes
    through `audio_quota_gate` and only then hands the URL to
    `deepgram-transcription-queue` in `push` mode — a reel we transcribe costs the
    minutes it is long, like any other audio.

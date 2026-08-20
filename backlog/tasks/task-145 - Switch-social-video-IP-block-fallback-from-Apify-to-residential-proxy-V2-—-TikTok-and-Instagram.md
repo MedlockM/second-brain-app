@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-06-09 17:48'
-updated_date: '2026-08-17 21:04'
+updated_date: '2026-08-20 22:10'
 labels:
   - backend
   - ingestion
@@ -40,6 +40,14 @@ Consequence for this task's V2 scope: the proxy work now covers **two** platform
 
 Note the two layers do not substitute for each other. This task keeps the *free primary path* working, which reduces how often the fallback is reached. It does not make the fallback able to complete — that is task-276. So landing the proxy is not a reason to remove or neglect the Apify fallback: yt-dlp still fails on private content, geo restrictions and format changes, and the fallback stays on the path for those.
 
+## The Instagram yt-dlp branch no longer exists (updated 2026-08-20 by task-310)
+
+Three days after the measurement above, the block rate was still 6/6 and all 10 Instagram jobs on dev had resolved through `apify~instagram-reel-scraper`. The owner's decision on 2026-08-20 was to **delete** the Instagram yt-dlp attempt rather than keep paying for a dead round-trip on every reel. `_resolve_reel_via_ytdlp`, the internal `_InstagramYtdlpBlocked` signal, the `_looks_like_ig_ip_blocked_error` detector and the `instagram.reel.ytdlp_ip_blocked` event are gone; `InstagramApifyResolver.resolve()` now classifies the URL and hands every content type to Apify.
+
+That does **not** invalidate this task — a proxied yt-dlp path is still the cheap primary it argues for, and Instagram is now the platform paying an Apify run on 100% of saves. It changes the shape of the Instagram half only: from *route the existing IP-block branch through a proxy* to *introduce a proxied yt-dlp path where none remains*. Expect to re-add the extraction call, the audio-stream selection (the shared `utils/ytdlp_helpers.py` was deleted with its last importer) and the metadata the Apify branch writes today, rather than to edit a branch.
+
+**The TikTok half is unaffected.** TikTok still resolves via yt-dlp and works — 2/2 saves in `native_subtitles` and zero IP blocks logged on 2026-08-20 — so §3's TikTok bullet describes code that exists.
+
 ## Trigger criteria (when to start)
 
 Pick this up when **any** of the following holds:
@@ -71,10 +79,17 @@ Do not delete `APIFY_TIKTOK_*` yet — keep them in config until §4 is verified
 
 ### 3. Worker change
 
-In `media_summarizer/workers/tiktok_ingestion_worker.py`, and in the Instagram resolution path, replace the Apify-on-IP-block branch with:
-- On `_is_ip_blocked_error()` / `_InstagramYtdlpBlocked`: retry yt-dlp through the residential proxy. If success → upload + publish.
+**TikTok** — in `media_summarizer/workers/tiktok_ingestion_worker.py`, the branch to change exists:
+- On `_is_ip_blocked_error()`: retry yt-dlp through the residential proxy. If success → upload + publish.
 - On proxied yt-dlp failure: fall back to Apify as today, since a proxy failure is not a reason to lose the save.
-- Add `tiktok_proxy_used_total` / `tiktok_proxy_failure_total` and the Instagram equivalents as CloudWatch metrics.
+- Add `tiktok_proxy_used_total` / `tiktok_proxy_failure_total` as CloudWatch metrics.
+
+**Instagram** — there is nothing to route through a proxy: task-310 removed the yt-dlp call site entirely, so this half *introduces* a path rather than modifying one. In `media_summarizer/infrastructure/resolvers/instagram_apify_resolver.py`:
+- Attempt yt-dlp through the residential proxy **before** raising `InstagramApifyRequired`, for reels and IGTV only. Posts have no yt-dlp path and never did.
+- The audio-stream selection helper it used (`utils/ytdlp_helpers.py::resolve_direct_media_url`) was deleted with its last importer — reinstate what is needed rather than assuming it is still there. The TikTok worker carries its own private copy (`_resolve_direct_media_url`) which is the reference implementation.
+- On success the `ResolvedMedia` must carry the same fields the Apify branch writes today (`title`, `creator_name`, `cover_url`, `caption`, `duration_seconds`), otherwise the library tile regresses — the yt-dlp branch that was deleted never set `cover_url` or `creator_name`.
+- On proxied yt-dlp failure: raise `InstagramApifyRequired` as today, so Apify still carries the save.
+- Add `instagram_proxy_used_total` / `instagram_proxy_failure_total` as CloudWatch metrics.
 
 ### 4. Apify removal — reassess before doing it
 
@@ -85,14 +100,15 @@ If removal is still the call for TikTok specifically: delete `_fetch_apify_tikto
 ### 5. ADR update
 
 Update `docs/ADR/social-video-and-youtube-ingestion-fallback-strategy.md`:
-- Mark the superseded sections as such for both platforms.
-- Add a "social video extraction (V2, post-task-145)" section: yt-dlp primary, residential proxy on IP block, Apify or Deepgram-URL for the remaining failure modes.
+- Mark the superseded sections as such for both platforms. The Instagram V2 section ("Instagram extraction (V2, post-task-310)") is the one to supersede — it records Apify-only as the current strategy.
+- Add a "social video extraction (V3, post-task-145)" section: yt-dlp primary through the residential proxy, Apify for the remaining failure modes.
 
 ## References
 
 - V1: task-144.
 - Benchmark: `docs/research/task-140-tiktok-extraction/README.md` (proxy section §3-§4, cost §6).
 - Instagram incident, root cause and measurements: task-274. Non-blocking fallback: task-275 (benchmark), task-276 (implementation).
+- Deletion of the Instagram yt-dlp branch this task used to modify: task-310 (YouTube counterpart: task-309).
 - Workers: `media_summarizer/workers/tiktok_ingestion_worker.py`, `media_summarizer/workers/instagram_ingestion_worker.py`, `media_summarizer/infrastructure/resolvers/instagram_apify_resolver.py`.
 - ADR: `docs/ADR/social-video-and-youtube-ingestion-fallback-strategy.md`.
 <!-- SECTION:DESCRIPTION:END -->
@@ -102,8 +118,8 @@ Update `docs/ADR/social-video-and-youtube-ingestion-fallback-strategy.md`:
 - [ ] #1 Trigger criterion observed and documented in the task notes before flipping dispatchable: true
 - [ ] #2 Provider selection confirms whether one vendor and one configuration surface serve both TikTok and Instagram, or records why the platforms need different handling
 - [ ] #3 Residential proxy configuration is exposed in .env.example and media_summarizer/core/config.py, with credentials held in the runtime secret and no proxy URL containing user:pass written into any tracked file
-- [ ] #4 The IP-block branch of both the TikTok worker and the Instagram resolution path retries yt-dlp through the residential proxy, with per-platform proxy_used / proxy_failure CloudWatch metrics emitted
-- [ ] #5 A proxy failure still falls through to the existing Apify path rather than losing the save
+- [ ] #4 The TikTok worker's existing IP-block branch retries yt-dlp through the residential proxy, and the Instagram resolver gains a proxied yt-dlp attempt ahead of InstagramApifyRequired where task-310 left none — both emitting per-platform proxy_used / proxy_failure CloudWatch metrics
+- [ ] #5 A proxy failure still falls through to the existing Apify path rather than losing the save, and a proxied Instagram success carries the same title, creator_name, cover_url, caption and duration_seconds the Apify branch writes today
 
 - [ ] #6 The decision on removing the Apify TikTok integration is made explicitly at activation and recorded: either removed in full (code, config keys, secret entries, metrics and alarm) or deliberately kept, with the failure modes a proxy cannot cover as the stated reason
 - [ ] #7 docs/ADR/social-video-and-youtube-ingestion-fallback-strategy.md reflects the V2 strategy for both platforms and marks the superseded sections as such

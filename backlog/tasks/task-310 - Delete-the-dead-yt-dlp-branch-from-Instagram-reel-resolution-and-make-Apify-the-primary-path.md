@@ -3,9 +3,10 @@ id: task-310
 title: >-
   Delete the dead yt-dlp branch from Instagram reel resolution and make Apify
   the primary path
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-20 19:39'
+updated_date: '2026-08-20 22:20'
 labels:
   - backend
   - ingestion
@@ -62,13 +63,39 @@ Confirm after the deploy on `main` by saving a reel and a non-reel Instagram pos
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Instagram resolver no longer imports yt_dlp and contains no yt-dlp resolution attempt, no _InstagramYtdlpBlocked exception and no instagram.reel.ytdlp_ip_blocked event
-- [ ] #2 Reels and non-reel posts both resolve through the Apify path, with the queue worker starting the Apify run directly and no branch left that distinguishes them by extraction strategy
-- [ ] #3 Any consumer that branched on audio_url_kind or resolution_mode values produced only by the yt-dlp path is reconciled with the values the Apify path writes, or the check is removed if no consumer reads them
-- [ ] #4 media_summarizer/utils/ytdlp_helpers.py is deleted and a repo-wide grep confirms no remaining importer
-- [ ] #5 Every Terraform dashboard widget and alarm keyed on the instagram.reel.ytdlp_ip_blocked event or a yt-dlp-specific Instagram metric is removed, and terraform validate is clean
-- [ ] #6 task-145's description and acceptance criteria are updated so its Instagram half describes introducing a proxied yt-dlp path rather than modifying a branch that no longer exists, and its TikTok half is left unchanged
-- [ ] #7 docs/ADR/social-video-and-youtube-ingestion-fallback-strategy.md marks the previous Instagram strategy superseded and records Apify-only as the current one, citing the 2026-08-20 dev measurement (6/6 ytdlp_ip_blocked, 10/10 saves via Apify), with the TikTok section left unchanged
-- [ ] #8 The TikTok worker's yt-dlp path is untouched and the yt_dlp dependency remains declared for it
-- [ ] #9 ruff and mypy are clean on the changed Python files
+- [x] #1 The Instagram resolver no longer imports yt_dlp and contains no yt-dlp resolution attempt, no _InstagramYtdlpBlocked exception and no instagram.reel.ytdlp_ip_blocked event
+- [x] #2 Reels and non-reel posts both resolve through the Apify path, with the queue worker starting the Apify run directly and no branch left that distinguishes them by extraction strategy
+- [x] #3 Any consumer that branched on audio_url_kind or resolution_mode values produced only by the yt-dlp path is reconciled with the values the Apify path writes, or the check is removed if no consumer reads them
+- [x] #4 media_summarizer/utils/ytdlp_helpers.py is deleted and a repo-wide grep confirms no remaining importer
+- [x] #5 Every Terraform dashboard widget and alarm keyed on the instagram.reel.ytdlp_ip_blocked event or a yt-dlp-specific Instagram metric is removed, and terraform validate is clean
+- [x] #6 task-145's description and acceptance criteria are updated so its Instagram half describes introducing a proxied yt-dlp path rather than modifying a branch that no longer exists, and its TikTok half is left unchanged
+- [x] #7 docs/ADR/social-video-and-youtube-ingestion-fallback-strategy.md marks the previous Instagram strategy superseded and records Apify-only as the current one, citing the 2026-08-20 dev measurement (6/6 ytdlp_ip_blocked, 10/10 saves via Apify), with the TikTok section left unchanged
+- [x] #8 The TikTok worker's yt-dlp path is untouched and the yt_dlp dependency remains declared for it
+- [x] #9 ruff and mypy are clean on the changed Python files
 <!-- AC:END -->
+
+
+## Implementation Notes
+<!-- SECTION:NOTES:BEGIN -->
+Apify est désormais le chemin unique de résolution Instagram.
+
+**Resolver** (`instagram_apify_resolver.py`) — suppression de `_resolve_reel_via_ytdlp`, de l'exception interne `_InstagramYtdlpBlocked`, du détecteur `_looks_like_ig_ip_blocked_error`, de l'événement `instagram.reel.ytdlp_ip_blocked`, de la constante `YTDLP_TIMEOUT_SECONDS` et des imports `yt_dlp` / `asyncio` / `os`. `resolve()` classifie l'URL puis lève `InstagramApifyRequired` pour tous les types de contenu ; reels, IGTV et posts empruntent la même route, le worker démarre l'acteur directement.
+
+**Sentinel E2E** — `strip_e2e_force_ip_block_sentinel` a aussi été retiré du resolver : il n'existait que pour forcer la branche Apify tant que yt-dlp était primaire. Sans yt-dlp il n'y a plus rien à forcer, et le laisser aurait signifié soit un booléen mort, soit une URL polluée par `__e2e_force_ip_block__=1` transmise à l'acteur. Le sentinel a donc été retiré de l'URL soumise par `tests/e2e/test_fallback_chains.py::test_instagram_apify_fallback` (qui valide maintenant le chemin primaire Apify → Deepgram push), et TikTok reste son seul consommateur.
+
+**Contrat de métadonnées (AC #3)** — `audio_url_kind: audio_ytdlp` et `resolution_mode: deepgram_via_ytdlp_audio_url` n'étaient lus par personne. Le seul lecteur de `audio_url_kind` est `instagram_ingestion_worker.py:478`, qui le journalise sans brancher dessus. Les occurrences de `resolution_mode` dans `adapters/resolvers.py` appartiennent au resolver podcast et sont sans rapport. Rien à réconcilier, donc, au-delà du fait que le chemin Apify écrit désormais toujours `provider: apify`, `audio_url_kind: audio|video`, `resolution_mode: deepgram_via_apify_audio_url`.
+
+**`utils/ytdlp_helpers.py` supprimé (AC #4)** — le resolver Instagram en était le dernier importeur ; task-309 avait retiré celui de YouTube. Le worker TikTok n'importait pas ce module : il porte ses propres copies privées (`_collect_subtitle_candidates`, `_resolve_direct_media_url`, …), il n'est donc pas affecté. `grep -rn "ytdlp_helpers" --include=*.py` ne renvoie plus rien.
+
+**Terraform (AC #5)** — aucun widget ni alarme n'était indexé sur `instagram.reel.ytdlp_ip_blocked` ni sur une métrique yt-dlp spécifique à Instagram : `grep -rn "ytdlp" infrastructure/terraform/` était déjà vide avant la modification. Rien à supprimer. `terraform validate` sur `envs/dev` : `Success! The configuration is valid.`
+
+**TikTok intact (AC #8)** — aucun fichier TikTok touché hormis deux références de documentation qui pointaient vers le module supprimé : `docs/INGESTION_WORKERS_PROVIDERS.md` renvoyait à `utils/ytdlp_helpers.py::resolve_direct_media_url` pour la cascade TikTok alors que le worker utilise sa propre `_resolve_direct_media_url`. Corrigé. `yt-dlp` reste déclaré dans `pyproject.toml:27`.
+
+**Docs** — ADR : nouvelle section « Instagram extraction (V2, post-task-310) », l'ancienne section Instagram marquée SUPERSEDED, la section TikTok inchangée, et la justification « le paquet yt-dlp reste pour TikTok et Instagram » de la section YouTube corrigée (TikTok est le dernier consommateur). Également mis à jour : `INGESTION_WORKERS_PROVIDERS.md` (chemin primaire, cascade, modes Deepgram, carte des modules, diagramme ASCII de routage — dont la colonne YouTube restée périmée depuis task-309), `MEDIA_INGESTION_CORE_ARCHITECTURE.md` et la ligne du tableau E2E de `V1_LAUNCH_PLAN.md`.
+
+**task-145 (AC #6)** — description et AC mis à jour : sa moitié Instagram décrit maintenant l'introduction d'un chemin yt-dlp proxifié là où il n'en reste aucun (avec l'avertissement que `ytdlp_helpers.py` a disparu et que le `ResolvedMedia` devra porter `cover_url`/`creator_name`, ce que la branche supprimée ne faisait pas), la moitié TikTok est inchangée.
+
+**Vérifications** — `ruff check media_summarizer/ tests/` et `mypy media_summarizer/` (173 fichiers) propres, `terraform validate` OK sur `-dev`.
+
+**Note owner (hors AC)** : après le merge et le push sur `main`, sauvegarder un reel et un post non-reel sur dev, puis vérifier que le worker ne journalise plus `instagram.reel.ytdlp_ip_blocked` et que le transcript Deepgram arrive bien.
+<!-- SECTION:NOTES:END -->

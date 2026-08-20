@@ -620,7 +620,7 @@ livré :
 | Fallback | Statut | Référence |
 |---|---|---|
 | TikTok yt-dlp IP-block → Apify | Test actif avec sentinel per-request `__e2e_force_ip_block__=1`; `task-185` reste à réconcilier dans le backlog car le code/test semblent déjà présents | `tests/e2e/test_fallback_chains.py::test_tiktok_apify_fallback` |
-| Instagram IP-block forcé → Apify Reel Scraper | Test actif avec sentinel per-request | `tests/e2e/test_fallback_chains.py::test_instagram_apify_fallback` |
+| Instagram → Apify Reel Scraper → Deepgram push | Test actif ; depuis `task-310` Apify est le chemin unique, le sentinel per-request a été retiré de l'URL soumise | `tests/e2e/test_fallback_chains.py::test_instagram_apify_fallback` |
 | Document LlamaParse failure → Unstructured | Test actif avec sentinel filename | `tests/e2e/test_fallback_chains.py::test_document_unstructured_fallback` |
 | Deepgram pull→push automatique | Supprimé du scope E2E après `task-158` : les producteurs déclarent explicitement leur mode Deepgram | Commentaire en fin de `tests/e2e/test_fallback_chains.py` |
 

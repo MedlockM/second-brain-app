@@ -301,6 +301,11 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             user_id=user_id or "unknown",
         )
         try:
+            # Always raises `InstagramApifyRequired` since task-310: Apify is
+            # the only Instagram path, so the resolver classifies and hands
+            # over. The assignment satisfies the `ContentResolverPort`
+            # signature; only the callback continuation below produces a
+            # terminal `ResolvedMedia`.
             resolved = await resolver.resolve(context)
         except InstagramApifyRequired as exc:
             kind = ApifyActorKind.INSTAGRAM_POST if exc.content_type == InstagramContentType.POST else ApifyActorKind.INSTAGRAM_REEL
