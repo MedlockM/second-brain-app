@@ -353,19 +353,25 @@ export default function PaywallScreen() {
                 thing — the plans loaded fine — and hiding them helps nobody. */}
             {!canPurchase && (
               <View testID="paywall-store-notice" style={styles.noticeBox}>
-                <Text style={styles.noticeText}>
-                  The {STORE_NAME} is not offering these subscriptions right now,
-                  so prices and purchase are unavailable. What each plan includes
-                  is below.
-                </Text>
-                <TouchableOpacity
-                  testID="paywall-retry-button"
-                  style={styles.retryButton}
-                  onPress={() => setReloadToken((token) => token + 1)}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.retryButtonText}>Try again</Text>
-                </TouchableOpacity>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={20}
+                  color={Colors.textMain}
+                />
+                <View style={styles.noticeBody}>
+                  <Text style={styles.noticeText}>
+                    Prices are unavailable — the {STORE_NAME} is not offering
+                    these subscriptions right now.
+                  </Text>
+                  <TouchableOpacity
+                    testID="paywall-retry-button"
+                    style={styles.noticeRetry}
+                    onPress={() => setReloadToken((token) => token + 1)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.noticeRetryText}>Try again</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
 
@@ -737,18 +743,38 @@ const styles = StyleSheet.create({
   // A degraded state, not a failure: the plans below are real and complete, only
   // the prices are missing. Neutral surface rather than the amber used for a
   // limit the user has hit, which is about them and not about the store.
+  //
+  // Compact on purpose. A centred block with a full-width button underneath cost
+  // ~180pt and pushed the first card to 549pt down a 852pt screen — this notice
+  // was undoing the very thing the screen was rearranged to fix. Icon and text on
+  // one row, retry as a link rather than a button, roughly half the height.
   noticeBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
     marginTop: Spacing.md,
-    padding: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.lg,
     backgroundColor: Colors.surfaceContainerLow,
-    alignItems: "center",
+  },
+  noticeBody: {
+    flex: 1,
   },
   noticeText: {
     ...Typography.small,
     color: Colors.textMain,
-    textAlign: "center",
     lineHeight: 18,
+  },
+  noticeRetry: {
+    minHeight: 40,
+    justifyContent: "center",
+  },
+  noticeRetryText: {
+    ...Typography.small,
+    fontWeight: "600",
+    color: Colors.textMain,
+    textDecorationLine: "underline",
   },
   // The reason the user is here, in the app's own alert tone rather than an
   // error red: nothing has gone wrong, a limit was reached.

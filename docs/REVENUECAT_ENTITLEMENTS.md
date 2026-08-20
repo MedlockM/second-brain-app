@@ -105,9 +105,9 @@ and an EAS cloud build does not; the Maestro job injects the Test Store key
 through the environment and never reads `eas.json` either, building with
 `expo prebuild` + `xcodebuild`. The Android key exists since the Play app was
 created — RevenueCat mints a public SDK key at that moment, whether or not the
-service credentials validate — but `mobile/.env` still holds the
-`.env.example` placeholder for it, so Android configures the SDK with a
-placeholder string today (`task-238`).
+service credentials validate — and it is set in `mobile/.env`, so the SDK is
+configured for real on Android. What it cannot do yet is resolve an offering:
+that waits on the Play products (`task-238`).
 
 ## Adding a store product
 

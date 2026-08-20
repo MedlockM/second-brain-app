@@ -91,7 +91,7 @@ Donc, dès les premières lignes de log du build, contrôler qu'EAS annonce bien
 
 ### Point annexe constaté, à ne pas traiter ici
 
-`EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` vaut encore le placeholder `your_revenucat_google_api_key_here` dans les trois environnements EAS, et `mobile/app.config.ts:117` la cuit dans `extra` exactement comme le Client ID. Cette valeur étant *truthy*, elle franchit le garde `if (!apiKey)` de `mobile/src/services/purchaseService.ts:33` et atteint `Purchases.configure()` avec une clé invalide.
+`EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` valait le placeholder `your_revenucat_google_api_key_here` dans les trois environnements EAS, et `mobile/app.config.ts:117` la cuit dans `extra` exactement comme le Client ID. Cette valeur étant *truthy*, elle franchissait le garde `if (!apiKey)` de `mobile/src/services/purchaseService.ts:33` et atteignait `Purchases.configure()` avec une clé invalide. **Réglé en local le 2026-08-20** : `mobile/.env` porte la vraie clé publique `goog_`, l'app Play Store ayant été créée dans le projet RevenueCat. La propagation aux environnements EAS reste à faire (`task-238`, AC#5), et `mobile/eas.json` ne déclare toujours aucune clé RevenueCat.
 
 Ce n'est **pas** bloquant pour ce build : `mobile/src/contexts/PurchasesContext.tsx:75-77` catche l'erreur et la logge. L'app démarre, seul le paywall est inopérant — ce qui est précisément le périmètre de `task-238`. Le build de dev garde donc toute sa valeur pour ce qu'on lui demande : Google Sign-In et le share intent. À savoir simplement pour ne pas s'alarmer du `[PurchasesContext] Failed to initialize RevenueCat` dans les logs.
 

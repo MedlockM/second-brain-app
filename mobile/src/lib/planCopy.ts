@@ -148,6 +148,14 @@ export function buildPlanCards(pricing: PublicPricing): PlanCard[] {
   return (pricing.tiers ?? []).map((tier) => buildPlanCard(tier, trialTierId));
 }
 
+/**
+ * How much of the current allowance has to be spent before consumption is worth
+ * reasoning from. A quarter: enough that the figure reflects a habit rather than
+ * a first evening with the app, low enough that someone halfway through their
+ * period still gets advice.
+ */
+const USAGE_SIGNAL_RATIO = 0.25;
+
 /** Which plan the screen argues for, why, and what each card is labelled. */
 export interface PlanGuidance {
   /** Tier the screen preselects, or `null` when nothing justifies a choice. */
@@ -194,11 +202,19 @@ export function buildPlanGuidance(
   const isTrial = entitlement?.is_free_trial === true;
   const trialCard = cards.find((card) => card.isTrialTier) ?? null;
   const used = entitlement?.minutes_used ?? 0;
+  const allowance = entitlement?.minutes_included ?? 0;
+  // Consumption only becomes evidence once there is enough of it. Six minutes
+  // spent trying the app out is noise, and the screen used to turn it into a
+  // firm "Reader is the smallest plan that covers that", badge included —
+  // advice built on a sample that says nothing, offered to someone who has not
+  // yet found out what they would use the app for. Below the threshold there is
+  // no line and no badge, and the selection falls back to the neutral default.
+  const hasUsageSignal = allowance > 0 && used >= allowance * USAGE_SIGNAL_RATIO;
 
   let recommended: PlanCard | null = null;
   let recommendationLine: string | null = null;
 
-  if (used > 0 && ranked.length > 0) {
+  if (hasUsageSignal && ranked.length > 0) {
     const covering = ranked.find(
       (card) => (card.minutesPerMonth ?? 0) >= used,
     ) ?? null;

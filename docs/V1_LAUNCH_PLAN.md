@@ -158,7 +158,7 @@ un staging ou une soumission.
 |---|---|---|
 | Branding app | `task-186` | Nom marketing final requis avant App Store Connect / Play Console |
 | App icons | `task-180` | Remplacer les placeholders avant soumission |
-| RevenueCat / IAP | Phase 6 : `task-262` **faite**, `task-261` (iOS) faite côté RevenueCat, reste owner-only côté App Store Connect ; `task-238` (Android) entière | `REVENUCAT_WEBHOOK_SECRET` **renseigné** en local et dans le secret dev (valeurs identiques), et chargé par le Lambda déployé — sonde `401`, pas `500` (2026-08-13). `revenucat_events-dev` = 0 item, normal sans achat sandbox. Reste à confirmer côté dashboard RevenueCat (non exposé par l'API v2). Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent ; l'app iOS porte désormais ses 3 produits App Store rattachés aux entitlements et aux packages, mais **aucune clé App Store Connect** (`app_store_connect_api_key_configured: false`), donc les abonnements n'existent pas encore côté ASC et StoreKit n'en résout aucun. Aucune app Google Play déclarée, et `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` encore un placeholder dans les trois environnements EAS |
+| RevenueCat / IAP | Phase 6 : `task-262` **faite**, `task-261` (iOS) faite côté RevenueCat, reste owner-only côté App Store Connect ; `task-238` (Android) entière | `REVENUCAT_WEBHOOK_SECRET` **renseigné** en local et dans le secret dev (valeurs identiques), et chargé par le Lambda déployé — sonde `401`, pas `500` (2026-08-13). `revenucat_events-dev` = 0 item, normal sans achat sandbox. Reste à confirmer côté dashboard RevenueCat (non exposé par l'API v2). Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent ; l'app iOS porte désormais ses 3 produits App Store rattachés aux entitlements et aux packages, mais **aucune clé App Store Connect** (`app_store_connect_api_key_configured: false`), donc les abonnements n'existent pas encore côté ASC et StoreKit n'en résout aucun. Une app Play Store existe désormais dans le projet (`appb253c0f75a`, package `com.secondbrainlabs.core`, 2026-08-20) mais **sans produit** : ses service credentials ne valident pas tant qu'aucun bundle signé n'a été déposé sur une piste de test Play, un package name n'existant pour l'API Google Play qu'au premier AAB — donc `task-238` attend le build Android de `task-163`. `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` porte la vraie clé `goog_` dans `mobile/.env` ; son état dans les trois environnements EAS n'a pas été revérifié |
 | Domaine production | Phase 10 | Au 2026-08-13 : `secondbrainlabs.com` **résout** mais redirige en `301` vers `sbl.so` ; `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont toujours en `NXDOMAIN`. Le profil EAS production pointe encore vers le second |
 | Store/legal | Phase 10 | Les textes existent au dépôt (`docs/compliance/privacy-policy.md`, `terms-of-service.md`, `apple-app-privacy.md`, `google-play-data-safety.md`, `CHECKLIST.md`) mais **ne sont pas hébergés** : `secondbrainlabs.com/privacy` et `/terms` redirigent vers `sbl.so/...` qui répond **404**. Liens in-app absents, listings/screenshots/review accounts à finaliser |
 
@@ -190,7 +190,7 @@ un staging ou une soumission.
 | **AWS** (2 comptes, Organizations `o-7sf5u7j5hd`) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | Bon : dev dans `125313707865` (déployé sur le HEAD), prod dans `866874944541` (199 ressources, health `200`, **en veille** et secret vide). Aucune alarme active — par conception dans les deux environnements, pas par défaut de provisioning |
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; les quatre vérifications d'éligibilité du compte restent à confirmer par l'owner (identité, profil de paiement, adresse publique, closed testing 12 testeurs / 14 jours) — runbook `task-260`, détail en Phase 2.2. Aucune preuve plus récente dans le repo |
-| **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée, aucune Android. Les trois environnements EAS **sont peuplés** (constaté le 2026-08-13) — `development` porte six variables `EXPO_PUBLIC_*` ; seul `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` reste un placeholder |
+| **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée, aucune Android. Les trois environnements EAS **sont peuplés** (constaté le 2026-08-13) — `development` porte six variables `EXPO_PUBLIC_*` ; `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` y était un placeholder à cette date et n'a pas été revérifié depuis qu'elle est renseignée en local (2026-08-20). À noter : `mobile/eas.json` ne déclare aucune clé RevenueCat, et `mobile/.env` étant gitignoré, un build EAS cloud n'en voit aucune — seuls les builds locaux et la CI Maestro (qui injecte la clé Test Store par l'environnement) en ont une |
 | **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : projet `proj879a771a` avec 3 entitlements de tier, offering courant et 3 packages tiers (`task-262`, 2026-08-13), désormais servis par les produits Test Store **et** les 3 produits App Store de l'app iOS (`task-261`, 2026-08-13). Restent : la clé App Store Connect (`app_store_connect_api_key_configured: false`, donc les 3 abonnements ne sont pas encore créés côté ASC), l'app Play, et le webhook secret vide (`500`). Aucun achat sandbox réel possible en l'état. Disposition détaillée : `docs/REVENUECAT_ENTITLEMENTS.md` |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | Partiel : projet + consent screen Test + OAuth Web backend + OAuth iOS OK ; OAuth Android et publication Production restent à faire |
 | **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (compte créé, clé en local dans `.env`) |
@@ -372,8 +372,20 @@ Côté mobile (`mobile/.env` ou EAS secrets) — naming attendu par `mobile/app.
 
 ```bash
 EXPO_PUBLIC_REVENUCAT_APPLE_KEY=appl_...    # public key iOS (RevenueCat dashboard → Apps → ton app iOS)
-EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY=goog_...   # public key Android (à différer)
+EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY=goog_...   # public key Android (idem, app Play Store)
 ```
+
+Ces deux clés sont **publiques par conception** : elles sont inlinées dans le
+bundle JS (préfixe `EXPO_PUBLIC_`), donc extractibles de n'importe quel binaire,
+et n'autorisent que les opérations client (lire l'offre, acheter, restaurer).
+Elles n'ont rien à faire dans `media-summarizer-runtime-<env>` : le backend ne
+lit que les trois variables serveur ci-dessus, dont la secret key `sk_`. Les deux
+ensembles sont disjoints, et rien n'est à synchroniser de l'un vers l'autre.
+
+Les deux sont renseignées dans `mobile/.env` au 2026-08-20 — la clé Android
+depuis la création de l'app Play Store dans le projet RevenueCat, qui émet une
+clé publique à ce moment-là indépendamment de la validation des service
+credentials.
 
 ### 3.7 Mobile (Expo / EAS)
 
@@ -467,8 +479,10 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    backend/iOS et Apple OAuth sont renseignés localement. Le **3ᵉ Client ID
    Google (Android)** est provisionné depuis le 2026-08-13 (`task-163`).
    Restent à provisionner/valider : publication du consent screen Google en
-   Production, `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` (encore un placeholder),
-   RevenueCat webhook + IAP et secrets runtime staging/prod.
+   Production, la propagation de `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` aux
+   environnements EAS (la clé elle-même est provisionnée et posée dans
+   `mobile/.env` depuis le 2026-08-20), RevenueCat webhook + IAP et secrets
+   runtime staging/prod.
 7. **Google Cloud Console** (console.cloud.google.com) :
    - ~~Créer un projet~~ **Fait** : projet `media-summarizer` créé. Le nom du projet est un identifiant interne, peu visible aux users.
    - ~~**APIs & Services → OAuth consent screen (Audience)**~~ **Fait** : Type **External**, scopes `openid`, `email`, `profile` uniquement.
@@ -732,9 +746,10 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    variables `EXPO_PUBLIC_*` (constaté le 2026-08-13 via `eas env:list`).
    `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` a été ajoutée à l'environnement
    `development` le 2026-08-13, qui porte donc six variables. Reste un trou :
-   `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` vaut encore le placeholder
-   `your_revenucat_google_api_key_here` dans les trois environnements
-   (→ `task-238`). À noter aussi : `EXPO_PUBLIC_API_BASE_URL` n'existe **que**
+   `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` valait encore le placeholder
+   `your_revenucat_google_api_key_here` dans les trois environnements à cette
+   date (→ `task-238`) ; la vraie clé `goog_` est posée dans `mobile/.env`
+   depuis le 2026-08-20, mais EAS n'a pas été revérifié depuis. À noter aussi : `EXPO_PUBLIC_API_BASE_URL` n'existe **que**
    dans le bloc `env` inline de `mobile/eas.json`, pas côté serveur — les deux
    mécanismes coexistent.
 2. `task-163` — **le prérequis OAuth est levé ; reste le build.** Faits le
@@ -956,8 +971,8 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
    `EXPO_TOKEN`, Apple/App Store Connect et le service account Google Play pour
    les workflows de distribution.
 6. ✅ **Variables EAS** : les trois environnements sont peuplés (constaté le
-   2026-08-13). Seul `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` reste un placeholder
-   (`task-238`).
+   2026-08-13). Seul `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` y restait un placeholder
+   (`task-238`) — renseignée en local depuis le 2026-08-20, EAS non revérifié.
 7. **Maestro CI** : **en sommeil depuis le 2026-08-13** (`task-254`). Plus aucun
    déclenchement automatique ; `workflow_dispatch` est le seul point d'entrée.
    Ce n'est plus un gate de release. État des flows et plan de réactivation dans
@@ -1266,7 +1281,8 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   au 2026-07-31, les trois environnements sont peuplés (vérifié le 2026-08-13).
   `development` porte six variables depuis l'ajout du Client ID Android.
   Reste `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY`, encore un placeholder dans les trois
-  environnements (`task-238`)
+  environnements au 2026-08-13 (`task-238`) — la vraie clé est dans
+  `mobile/.env` depuis le 2026-08-20, la propagation EAS reste à faire
 - [ ] Nom marketing final : requis avant `task-186`, App Store Connect, Play Console et Google OAuth Branding
 - [ ] Icônes finales : `task-180`, requis avant soumission stores
 - [ ] Domaines : décider quel domaine porte le produit (`secondbrainlabs.com`

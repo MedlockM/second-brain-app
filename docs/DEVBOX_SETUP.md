@@ -323,8 +323,17 @@ Ce qui reste manuel ou fragile, à connaître avant le prochain déménagement :
   le disque. C'est de la trace d'exécution, sans valeur pour reprendre.
 - **`EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`** est vide : l'OAuth Client ID Android
   attend le SHA-1 du keystore d'upload EAS (task-163).
-- **`EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY`** vaut encore le placeholder du template :
-  RevenueCat Android n'est pas configuré.
+- **`EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY`** est renseignée dans `mobile/.env` depuis
+  le 2026-08-20 (vraie clé publique `goog_`, l'app Play Store existant désormais
+  dans le projet RevenueCat). Le SDK Android est donc configuré pour de vrai,
+  mais il ne résout encore aucune offre : les produits Google Play n'existent pas
+  (`task-238`). L'état de cette variable côté environnements EAS n'a pas été
+  revérifié depuis.
+- **`EXPO_PUBLIC_REVENUCAT_APPLE_KEY`** peut temporairement porter la clé du
+  **Test Store** plutôt que la clé `appl_` de l'App Store : c'est la seule façon
+  de voir le paywall avec de vrais prix tant que les abonnements n'existent pas
+  dans App Store Connect. Bascule locale et volontaire — vérifier laquelle des
+  deux est en place avant de conclure quoi que ce soit sur un build.
 - **Branches locales non poussées** : le dépôt distant ne garde que ce qui a été
   poussé. Avant de débrancher, `git push --all origin` et vérifier que chaque
   branche a un upstream (`git config --global push.autoSetupRemote true` évite le
