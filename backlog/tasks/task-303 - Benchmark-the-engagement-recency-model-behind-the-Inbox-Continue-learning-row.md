@@ -3,9 +3,10 @@ id: task-303
 title: >-
   Benchmark the engagement-recency model behind the Inbox "Continue learning"
   row
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-19 21:08'
+updated_date: '2026-08-20 17:40'
 labels:
   - benchmark
   - backend
