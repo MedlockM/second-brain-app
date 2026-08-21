@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-08-20 16:18'
-updated_date: '2026-08-21 01:10'
+updated_date: '2026-08-21 02:05'
 labels:
   - mobile
   - ui
@@ -35,7 +35,7 @@ Rework the Inbox into the home screen of the owner's reference screenshot: a gre
 
 **Optimistic share items land here.** `useMediaPolling().pendingLocalItems` currently renders as placeholder cards in the vertical list; with that list gone, they belong at the head of Recently added, still showing the shared URL while the backend catches up. This is what keeps a share visible on return from the confirmation screen — and what keeps `03_inbox_visibility.yaml`'s post-share `youtube.com` assertion meaningful.
 
-**The tile.** One shared component for both rows: a large cover image, the title on up to three lines, the creator on one muted line — `media_image` and `creator_name`, both delivered by task-304 and already declared in `mobile/src/types/media.ts`. Render the image with **`expo-image`**, which that task installed (`~55.0.11`, already registered in `app.config.ts:160`) precisely for this screen and which nothing reads yet: `docs/research/task-302-media-cover-and-creator/README.md` §6 specifies the source shape, the `cachePolicy`/`recyclingKey` props a recycled row needs, and the **16:9** tile ratio it assumes. No image available: the media-type icon on `Colors.surfaceContainerLow`, never an empty grey square — the README names the always-null grey box at `digest.tsx:306` as the anti-pattern. A collection tile has no image of its own: use a mosaic of up to four member covers, and when there are none, an accent surface carrying the name and the item count. A media tile opens `/media/<id>`, a collection tile opens `/media/collections/<id>`.
+**The tile.** One shared component for both rows: a large cover image, the title on up to three lines, the creator on one muted line — `media_image` and `creator_name`, both delivered by task-304 and already declared in `mobile/src/types/media.ts`. Render the image with **`expo-image`**, which that task installed (`~55.0.11`, already registered in `app.config.ts:160`) precisely for this screen and which nothing reads yet: `docs/research/task-302-media-cover-and-creator/README.md` §6 specifies the source shape, the `cachePolicy`/`recyclingKey` props a recycled row needs, and the **16:9** tile ratio it assumes. No image available: the media-type icon on `Colors.surfaceContainerLow`, never an empty grey square — the README names the always-null grey box at `digest.tsx:306` as the anti-pattern. A collection tile has no image of its own: use a mosaic of up to four member covers, and when there are none, an accent surface carrying the name and the item count. **Amendé par l'owner le 2026-08-21** : la surface accent affichait le nom et le compte que la vignette porte déjà sur ses deux lignes de texte, donc chacun apparaissait deux fois. Le repli est désormais le glyphe dossier seul, en teinte primaire sur `surfaceContainerLow`. A media tile opens `/media/<id>`, a collection tile opens `/media/collections/<id>`.
 
 **Section headings.** Replace the uppercase muted `YOUR MEDIA` style with the screenshot's shape: Title Case, an icon in the primary tint, one heading per row. Use Ionicons rather than emoji — Ionicons is the app's icon language everywhere else.
 
@@ -70,7 +70,7 @@ The vertical `FlatList` over `unifiedItems`, `UnifiedItemCard`, `BackendItemCard
 - [x] #3 Recently added merges the most recently saved media and the most recently created collections into one newest-first row, capped at a limit stated in the code
 - [x] #4 Pending local share items appear at the head of Recently added showing the shared URL, so a share is visible on return from the confirmation screen
 - [x] #5 One shared tile component renders both rows with a large cover image, a title on up to three lines and the creator on one muted line, reading media_image and creator_name through expo-image with the props and ratio the task-302 README specifies
-- [x] #6 A tile with no available image falls back to the media-type icon on a theme surface, and a collection tile renders a mosaic of up to four member covers or an accent surface with its name and item count
+- [x] #6 A tile with no available image falls back to the media-type icon on a theme surface, and a collection tile renders a mosaic of up to four member covers or, with none, the folder glyph alone (owner amended the accent-surface half on 2026-08-21 — see Implementation Notes)
 - [x] #7 A media tile opens /media/<id> and a collection tile opens /media/collections/<id>
 - [x] #8 The Daily Digest card shows the daily digest count and renders no badge at all when the figure is unavailable, with a failed digest fetch leaving the card usable
 - [x] #9 Each of the three data sources fails independently: one error never blanks the other sections, and no section can be left permanently loading — only the first load may show a full-screen spinner
@@ -118,10 +118,10 @@ Ce que ces nombres donnent au bord droit : la tuile 1 occupe [16, 216], la tuile
 
 **Le `setState` différé d'un tick** dans `useHomeSections` reprend la forme de `useMediaPolling` : la règle `react-hooks/set-state-in-effect` est active dans ce dépôt et refuse un `setState` atteint synchroniquement depuis un effet.
 
-### Deux points pour la relecture owner
+### Relecture owner
 
-1. **La collection sans couverture affiche son nom deux fois** — une fois sur le bloc accent (l'AC #6 demande « an accent surface with its name and item count ») et une fois sur la ligne de titre de la tuile, juste en dessous, puisque le composant est partagé avec les tuiles média. L'AC est satisfaite littéralement ; si la redondance déplaît au simulateur, retirer le `accentName` de `HomeTile.tsx` suffit. C'est exactement la pièce que la note owner signalait comme sans référence dans le screenshot.
-2. **Une couleur littérale subsiste sur cet écran** : `digestIconContainer` porte `"rgba(255, 203, 5, 0.1)"`. C'est du code d'origine, sur la carte que la tâche demandait explicitement de garder telle quelle en n'y ajoutant que le compteur ; `theme.ts` n'expose pas de token « primary à 10 % » et l'exprimer via `opacity` délaverait aussi l'icône. Tout le code neuf (tuile, rangées, badge) n'utilise que des tokens.
+1. **Repli de la collection sans couverture — tranché le 2026-08-21.** La première version suivait l'AC #6 à la lettre : un bloc jaune portant le nom et le nombre d'éléments. Comme toutes les vignettes portent déjà un titre et une ligne grise en dessous, le nom *et* le compte apparaissaient chacun deux fois. L'owner a tranché pour le glyphe dossier seul : `Ionicons name="folder"`, taille 44, `Colors.primary`, sur le même `surfaceContainerLow` que le repli des vignettes média — donc la même silhouette, jamais un rectangle gris vide. Le bloc accent et ses styles (`coverAccent`, `accentName`, `accentCount`) sont supprimés. Le nom reste sur la ligne de titre, le compte sur la ligne grise, une fois chacun.
+2. **Une couleur littérale subsiste sur cet écran** : `digestIconContainer` porte `"rgba(255, 203, 5, 0.1)"`. C'est du code d'origine, sur la carte que la tâche demandait explicitement de garder telle quelle en n'y ajoutant que le compteur ; `theme.ts` n'expose pas de token « primary à 10 % » et l'exprimer via `opacity` délaverait aussi l'icône. Tout le code neuf (tuile, rangées, badge) n'utilise que des tokens. Signalé à l'owner le 2026-08-21, qui a jugé que ce n'était pas prioritaire.
 
 ### Suppressions (AC #10)
 

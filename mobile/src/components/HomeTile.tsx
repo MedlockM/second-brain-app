@@ -177,9 +177,8 @@ function TileCover({ item }: { item: HomeTileItem }): React.JSX.Element {
  *
  * The layout is chosen by how many there are rather than by dropping them into a
  * fixed 2x2 grid: a grid with two pictures and two holes reintroduces the empty
- * rectangle §6.3 forbids. With none at all the tile falls back to an accent
- * surface carrying the name and the item count, which is information rather than
- * decoration.
+ * rectangle §6.3 forbids. With none at all the tile falls back to the folder
+ * glyph alone.
  */
 function CollectionMosaic({
   item,
@@ -189,15 +188,13 @@ function CollectionMosaic({
   const images = item.previewImages.filter(Boolean).slice(0, MAX_MOSAIC_IMAGES);
 
   if (images.length === 0) {
+    // Just the folder. The name and the count are already the tile's two text
+    // lines directly below, so putting them here too printed each of them twice
+    // (owner call, 2026-08-21). Same silhouette as a media tile with no cover:
+    // a tonal surface carrying a single glyph, never an empty grey rectangle.
     return (
-      <View style={[styles.cover, styles.coverAccent]}>
-        <Ionicons name="albums" size={22} color={Colors.onPrimary} />
-        <Text style={styles.accentName} numberOfLines={2}>
-          {item.name}
-        </Text>
-        <Text style={styles.accentCount} numberOfLines={1}>
-          {formatItemCount(item.itemCount)}
-        </Text>
+      <View style={styles.cover}>
+        <Ionicons name="folder" size={44} color={Colors.primary} />
       </View>
     );
   }
@@ -350,22 +347,6 @@ const styles = StyleSheet.create({
   coverImage: {
     width: "100%",
     height: "100%",
-  },
-  coverAccent: {
-    backgroundColor: Colors.primary,
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-  },
-  accentName: {
-    ...Typography.label,
-    color: Colors.onPrimary,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  accentCount: {
-    ...Typography.small,
-    color: Colors.onPrimary,
-    opacity: 0.75,
   },
   mosaicRow: {
     flexDirection: "row",
