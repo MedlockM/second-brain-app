@@ -25,6 +25,14 @@ interface FolderResponse {
   name: string;
   parent_folder_id?: string | null;
   is_default: boolean;
+  /**
+   * Items stored *directly* in this folder, counted server-side from the durable
+   * `user_media` library (task-220) — so an item whose processing job has
+   * expired still counts. `GET /api/folders` has returned it all along; this
+   * interface simply did not declare it, and `toCollection` overwrote it with a
+   * zero, which is why every collection read `0 items` everywhere.
+   */
+  media_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -40,6 +48,9 @@ function toTag(tag: TagListResponse["tags"][number]): Tag {
     color: tag.color ?? null,
     created_at: tag.created_at,
     updated_at: tag.updated_at,
+    // Genuinely zero: `GET /api/tags` exposes no per-tag count, unlike
+    // `/api/folders`. Not the same defect as the folder one fixed above — do not
+    // "fix" this one by symmetry without adding the count server-side first.
     count: 0,
   };
 }
@@ -53,7 +64,7 @@ function toCollection(folder: FolderResponse): Collection {
     is_default: folder.is_default,
     created_at: folder.created_at,
     updated_at: folder.updated_at,
-    media_count: 0,
+    media_count: folder.media_count ?? 0,
   };
 }
 
