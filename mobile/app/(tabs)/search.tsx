@@ -34,6 +34,7 @@ import {
   DEFAULT_COLLECTION_TINT,
   type CollectionNode,
 } from "../../src/lib/collectionTree";
+import { filterCollectionsByName } from "../../src/lib/collectionSearch";
 import { parseHighlightSnippet } from "../../src/lib/highlightSnippet";
 import { MediaListCard } from "../../src/components/MediaListCard";
 import {
@@ -146,13 +147,17 @@ export default function SearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  // Search state
+  // Search state. `settledQuery` is the query the hits on screen answer: it
+  // stays behind what is typed while a request is in flight, which is what
+  // tells the `All media` slot to show its spinner rather than a stale
+  // "no matches".
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchHit[]>([]);
   const [totalResults, setTotalResults] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [settledQuery, setSettledQuery] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchAttempt, setSearchAttempt] = useState(0);
 
   // Library state. The two halves are fetched by two independent requests and
   // carry their own loading and error flags: one failing must leave the other
@@ -160,6 +165,9 @@ export default function SearchScreen() {
   const [collections, setCollections] = useState<CollectionNode[]>([]);
   const [defaultCollection, setDefaultCollection] =
     useState<CollectionNode | null>(null);
+  // Every node of the tree, roots and children alike: the search filter matches
+  // a nested collection like any other, which the roots-only list cannot do.
+  const [allCollections, setAllCollections] = useState<CollectionNode[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(true);
   const [collectionsError, setCollectionsError] = useState<string | null>(null);
   const [media, setMedia] = useState<MediaListItem[]>([]);
@@ -170,13 +178,15 @@ export default function SearchScreen() {
   // Debounce the search query
   const debouncedQuery = useDebounce(query, 300);
 
-  // Execute search when debounced query or filter changes
+  // Execute search when the debounced query changes, and on every retry the
+  // `All media` slot asks for: bumping the attempt replays the effect on the
+  // query already typed, which is the only thing a retry has to do.
   useEffect(() => {
     if (!isAuthenticated) return;
 
     // Algolia requires a non-empty query (min_length=1).
-    // Do not search with only a filter and no text query.
-    if (!debouncedQuery.trim()) {
+    const searchQuery = debouncedQuery.trim();
+    if (!searchQuery) {
       return;
     }
 
@@ -185,25 +195,23 @@ export default function SearchScreen() {
       setError(null);
 
       try {
-        const response = await SearchService.searchTranscripts(debouncedQuery);
+        const response = await SearchService.searchTranscripts(searchQuery);
 
         setResults(response.hits);
         setTotalResults(response.found);
-        setHasSearched(true);
       } catch (err: unknown) {
-        const message =
-          err instanceof Error ? err.message : "Search failed";
+        const message = err instanceof Error ? err.message : "Search failed";
         setError(message);
         setResults([]);
         setTotalResults(0);
-        setHasSearched(true);
       } finally {
+        setSettledQuery(searchQuery);
         setIsLoading(false);
       }
     };
 
     performSearch();
-  }, [debouncedQuery, isAuthenticated]);
+  }, [debouncedQuery, isAuthenticated, searchAttempt]);
 
   // Neither loader throws: each one owns its error state, so the caller can
   // always await both and only has its own spinner to clear.
@@ -215,6 +223,7 @@ export default function SearchScreen() {
       const tree = buildCollectionTree(folders);
       setCollections(tree.roots);
       setDefaultCollection(tree.defaultCollection);
+      setAllCollections(Array.from(tree.nodeById.values()));
       setCollectionsError(null);
     } catch (err) {
       setCollectionsError(
@@ -267,7 +276,7 @@ export default function SearchScreen() {
     setQuery("");
     setResults([]);
     setTotalResults(0);
-    setHasSearched(false);
+    setSettledQuery(null);
     setError(null);
   }, []);
 
@@ -276,7 +285,7 @@ export default function SearchScreen() {
     if (!nextQuery.trim()) {
       setResults([]);
       setTotalResults(0);
-      setHasSearched(false);
+      setSettledQuery(null);
       setError(null);
     }
   }, []);
@@ -312,6 +321,18 @@ export default function SearchScreen() {
     ];
   }, [collections, defaultCollection]);
 
+  // Matched against what is typed, not against the debounced query: the filter
+  // is a pass over a list already in memory, so it has no reason to wait on the
+  // network round-trip the hits need.
+  const matchingCollections = useMemo(
+    () => filterCollectionsByName(allCollections, query),
+    [allCollections, query],
+  );
+
+  const handleRetrySearch = useCallback(() => {
+    setSearchAttempt((attempt) => attempt + 1);
+  }, []);
+
   const handleRetryCollections = useCallback(() => {
     setCollectionsLoading(true);
     void loadCollections().finally(() => setCollectionsLoading(false));
@@ -335,11 +356,7 @@ export default function SearchScreen() {
     <View style={styles.container}>
       {/* Results Area -- scrolls underneath the floating search bar */}
       <SafeAreaView style={styles.resultsArea} edges={["top"]}>
-        {isLoading ? (
-          <LoadingState />
-        ) : error ? (
-          <ErrorState message={error} />
-        ) : !hasSearched ? (
+        {!query.trim() ? (
           <LibraryState
             collections={sortedCollections}
             collectionsLoading={collectionsLoading}
@@ -354,31 +371,20 @@ export default function SearchScreen() {
             isRefreshing={isRefreshing}
             onRefresh={handleRefresh}
           />
-        ) : results.length === 0 ? (
-          <NoResultsState query={debouncedQuery} />
         ) : (
-          <FlatList
-            data={results}
-            keyExtractor={(item) => item.media_item_id}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
-              <ResultCard
-                hit={item}
-                onPress={() => router.push(`/media/${item.media_item_id}`)}
-              />
-            )}
-            contentContainerStyle={styles.resultsList}
-            showsVerticalScrollIndicator={false}
-            ListHeaderComponent={
-              <Text style={styles.resultsCount}>
-                {totalResults} {totalResults === 1 ? "result" : "results"} found
-              </Text>
-            }
-            ListFooterComponent={
-              results.length > 0 ? (
-                <Text style={styles.endOfResults}>End of results</Text>
-              ) : null
-            }
+          <SearchResultsState
+            collections={matchingCollections}
+            collectionsLoading={collectionsLoading}
+            collectionsError={collectionsError}
+            onRetryCollections={handleRetryCollections}
+            onOpenCollection={handleOpenCollection}
+            results={results}
+            totalResults={totalResults}
+            isPending={isLoading || settledQuery !== query.trim()}
+            error={error}
+            onRetrySearch={handleRetrySearch}
+            query={debouncedQuery}
+            onOpenMedia={handleOpenMedia}
           />
         )}
       </SafeAreaView>
@@ -631,6 +637,179 @@ function LibraryHeader({
   );
 }
 
+interface SearchResultsStateProps {
+  collections: CollectionNode[];
+  collectionsLoading: boolean;
+  collectionsError: string | null;
+  onRetryCollections: () => void;
+  onOpenCollection: (collection: CollectionNode) => void;
+  results: SearchHit[];
+  totalResults: number;
+  /** The hits on screen do not answer what is typed yet. */
+  isPending: boolean;
+  error: string | null;
+  onRetrySearch: () => void;
+  /** The debounced query, so the "no matches" line names what was searched. */
+  query: string;
+  onOpenMedia: (mediaItemId: string) => void;
+}
+
+/**
+ * What a typed query shows: the collections whose name matches it, then the
+ * media the search engine returned — the same two headings as the library, in
+ * the same single scroll.
+ *
+ * The two halves are answered by two different things, and that is the whole
+ * point of the shape: the collections are filtered locally and are on screen
+ * before the keystroke is over, while the hits are a debounced network call.
+ * So neither the spinner nor the failure of that call is allowed to take the
+ * screen any more — both are confined to the `All media` slot, and the
+ * collections stay put underneath them. The full-height states are kept for
+ * the one case where there is genuinely nothing else to show.
+ */
+function SearchResultsState({
+  collections,
+  collectionsLoading,
+  collectionsError,
+  onRetryCollections,
+  onOpenCollection,
+  results,
+  totalResults,
+  isPending,
+  error,
+  onRetrySearch,
+  query,
+  onOpenMedia,
+}: SearchResultsStateProps) {
+  // A folder list still loading, or one that failed, is not "zero matches": it
+  // keeps its heading and states its own situation, exactly as in the library.
+  const showCollections =
+    collectionsLoading || collectionsError !== null || collections.length > 0;
+
+  if (!showCollections && !isPending) {
+    if (error) return <ErrorState message={error} />;
+    if (results.length === 0) return <NoResultsState query={query} />;
+  }
+
+  // What stands in for the hits while there are none: the spinner of the
+  // request in flight, the failure of that request with its retry, or the
+  // statement that the search came back empty.
+  const resultsPlaceholder = isPending ? (
+    <View style={styles.sectionLoadingRow}>
+      <ActivityIndicator color={Colors.primary} />
+    </View>
+  ) : error ? (
+    <InlineErrorCard
+      message={error}
+      onRetry={onRetrySearch}
+      retryAccessibilityLabel="Retry the search"
+      style={styles.inlineErrorCardFlush}
+    />
+  ) : (
+    <Text style={styles.slotHint}>
+      No matches for "{query}". Try different keywords.
+    </Text>
+  );
+
+  return (
+    <FlatList
+      testID="search-results-list"
+      data={isPending ? [] : results}
+      keyExtractor={(item) => item.media_item_id}
+      keyboardShouldPersistTaps="handled"
+      renderItem={({ item }) => (
+        <ResultCard
+          hit={item}
+          onPress={() => onOpenMedia(item.media_item_id)}
+        />
+      )}
+      contentContainerStyle={styles.resultsList}
+      showsVerticalScrollIndicator={false}
+      ListHeaderComponent={
+        <SearchResultsHeader
+          collections={collections}
+          collectionsLoading={collectionsLoading}
+          collectionsError={collectionsError}
+          onRetryCollections={onRetryCollections}
+          onOpenCollection={onOpenCollection}
+          showCollections={showCollections}
+          resultCount={!isPending && !error ? totalResults : null}
+        />
+      }
+      ListEmptyComponent={resultsPlaceholder}
+      ListFooterComponent={
+        !isPending && !error && results.length > 0 ? (
+          <Text style={styles.endOfResults}>End of results</Text>
+        ) : null
+      }
+    />
+  );
+}
+
+function SearchResultsHeader({
+  collections,
+  collectionsLoading,
+  collectionsError,
+  onRetryCollections,
+  onOpenCollection,
+  showCollections,
+  resultCount,
+}: {
+  collections: CollectionNode[];
+  collectionsLoading: boolean;
+  collectionsError: string | null;
+  onRetryCollections: () => void;
+  onOpenCollection: (collection: CollectionNode) => void;
+  showCollections: boolean;
+  /** `null` while the count would not describe what is on screen. */
+  resultCount: number | null;
+}) {
+  return (
+    <View>
+      {showCollections ? (
+        <>
+          <Text style={styles.sectionTitle}>Collections</Text>
+
+          {collectionsLoading ? (
+            <View style={styles.sectionLoadingRow}>
+              <ActivityIndicator color={Colors.primary} />
+            </View>
+          ) : collectionsError ? (
+            <InlineErrorCard
+              message={collectionsError}
+              onRetry={onRetryCollections}
+              retryAccessibilityLabel="Retry loading collections"
+              style={styles.inlineErrorCardFlush}
+            />
+          ) : (
+            <View style={styles.collectionsGrid}>
+              {collections.map((collection) => (
+                <CollectionTile
+                  key={collection.id}
+                  collection={collection}
+                  isDefault={collection.is_default === true}
+                  onPress={onOpenCollection}
+                />
+              ))}
+            </View>
+          )}
+        </>
+      ) : null}
+
+      <View style={styles.mediaSectionHeader}>
+        <Text style={[styles.sectionTitle, styles.searchSectionHeading]}>
+          All media
+        </Text>
+        {resultCount !== null && resultCount > 0 ? (
+          <Text style={[styles.mediaSectionCount, styles.searchSectionHeading]}>
+            {resultCount} {resultCount === 1 ? "result" : "results"}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 /**
  * A half that failed, stated where that half would have been. A tonal card, no
  * stroke, so it reads as a slot of the page and not as an alert dialog.
@@ -639,13 +818,16 @@ function InlineErrorCard({
   message,
   onRetry,
   retryAccessibilityLabel,
+  style,
 }: {
   message: string;
   onRetry: () => void;
   retryAccessibilityLabel: string;
+  /** Set by callers whose container already carries the horizontal gutter. */
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <View style={styles.inlineErrorCard}>
+    <View style={[styles.inlineErrorCard, style]}>
       <Ionicons
         name="cloud-offline-outline"
         size={28}
@@ -731,17 +913,6 @@ function NoResultsState({ query }: { query: string }) {
       <Text style={styles.emptyTitle}>No results found</Text>
       <Text style={styles.emptyHint}>
         No matches for "{query}". Try different keywords.
-      </Text>
-    </View>
-  );
-}
-
-function LoadingState() {
-  return (
-    <View style={styles.emptyContainer}>
-      <ActivityIndicator size="large" color={Colors.primary} />
-      <Text style={[styles.emptyHint, { marginTop: Spacing.md }]}>
-        Searching...
       </Text>
     </View>
   );
@@ -874,14 +1045,6 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.xxl,
     gap: Spacing.md,
   },
-  resultsCount: {
-    fontSize: Typography.small.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: Spacing.sm,
-  },
   endOfResults: {
     fontSize: Typography.small.fontSize,
     color: Colors.textMuted,
@@ -920,6 +1083,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
   },
+  // The search body's content container spaces its children itself, so the
+  // heading above the hits drops the bottom margin it carries in the library.
+  searchSectionHeading: {
+    marginBottom: 0,
+  },
+  slotHint: {
+    fontSize: Typography.body.fontSize,
+    color: Colors.textMuted,
+    textAlign: "center",
+    lineHeight: Typography.body.lineHeight,
+    paddingVertical: Spacing.xl,
+  },
   mediaSectionHeader: {
     flexDirection: "row",
     alignItems: "baseline",
@@ -942,6 +1117,11 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     marginHorizontal: Spacing.md,
     marginBottom: Spacing.lg,
+  },
+  // Same card inside a container that is already inset, where the card's own
+  // horizontal margin would double the gutter.
+  inlineErrorCardFlush: {
+    marginHorizontal: 0,
   },
   inlineErrorText: {
     fontSize: Typography.body.fontSize,
