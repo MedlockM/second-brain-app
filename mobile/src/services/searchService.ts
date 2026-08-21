@@ -32,38 +32,12 @@ export interface SearchTranscriptsResponse {
 }
 
 /**
- * Secured Algolia credentials for direct client-side search.
- * Returned by GET /api/search/credentials.
- */
-export interface SearchCredentials {
-  app_id: string;
-  secured_key: string;
-  index_name: string;
-  valid_until: number; // Unix timestamp
-}
-
-/**
  * Search service for full-text transcript search via Algolia.
  *
- * Two modes are available:
- * 1. Backend-proxied: GET /api/search/transcripts (current default)
- * 2. Direct Algolia: fetch secured key from GET /api/search/credentials,
- *    then query Algolia directly using the secured key (future optimization)
+ * Search is backend-proxied: the app calls GET /api/search/transcripts and the
+ * backend queries Algolia, filtering results to the authenticated user.
  */
 export class SearchService {
-  /**
-   * Fetch secured Algolia credentials for direct client-side search.
-   * The returned secured key embeds a tamper-proof user_id filter and has
-   * a short TTL (~1h). Refresh before validUntil or on 403 from Algolia.
-   *
-   * GET /api/search/credentials
-   */
-  static async getSearchCredentials(): Promise<SearchCredentials> {
-    return apiRequest<SearchCredentials>("/api/search/credentials", {
-      method: "GET",
-    });
-  }
-
   /**
    * Full-text transcript search across all source platforms.
    * GET /api/search/transcripts?q=...&page=...&per_page=...

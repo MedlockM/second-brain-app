@@ -71,7 +71,6 @@ class Settings:
         # Algolia Configuration (Search)
         self.ALGOLIA_APP_ID = os.getenv("ALGOLIA_APP_ID", "")
         self.ALGOLIA_API_KEY = os.getenv("ALGOLIA_API_KEY", "")
-        self.ALGOLIA_SEARCH_API_KEY = os.getenv("ALGOLIA_SEARCH_API_KEY", "")
 
         # Pricing Configuration
         self.PRICING_ADMIN_SECRET = os.getenv("PRICING_ADMIN_SECRET", "")

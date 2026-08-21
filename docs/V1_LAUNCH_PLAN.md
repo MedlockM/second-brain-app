@@ -317,12 +317,13 @@ DEEPGRAM_MODEL=nova-3
 ```bash
 ALGOLIA_APP_ID=...
 ALGOLIA_API_KEY=...                  # admin key (côté backend)
-ALGOLIA_SEARCH_API_KEY=...           # search-only key
 ```
 
 Le nom de l'index n'est pas configurable : il vaut `media_items_{ENVIRONMENT}`,
 calculé par `utils/algolia_client.py`. La séparation entre environnements est donc
-structurelle, pas une variable à renseigner.
+structurelle, pas une variable à renseigner. Il n'y a pas non plus de search-only
+key : la recherche passe par le backend, aucune clé Algolia n'atteint le client
+(task-312).
 
 ### 3.5 Sources d'ingestion
 
