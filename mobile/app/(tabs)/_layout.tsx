@@ -8,7 +8,7 @@ import { ActivityIndicator, View, StyleSheet } from "react-native";
 /**
  * Protected tabs layout.
  * Navigation guard: redirects to login if not authenticated.
- * Tab bar follows the mockup navigation pattern (Inbox, Library, Digest, Account).
+ * Tab bar follows the mockup navigation pattern (Home, Search, Digest, Account).
  */
 export default function TabsLayout() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -57,15 +57,16 @@ export default function TabsLayout() {
           ),
         }}
       />
-      {/* The screen file stays `search`, and so does its test id: what changed
-          is what the tab holds. It is the library — every collection and every
-          saved media item — with the search over it in a pill at the top, so it
-          is labelled for the content and not for one of the two ways to reach
-          it (task-306). */}
+      {/* The screen file stays `search`, and so does its test id: only the
+          label has ever moved. task-306 labelled this tab for its content
+          ("Library") because the screen holds every collection and every saved
+          item; task-315 put it back on the action, so the two labels now name
+          what the user does — go Home, or Search — rather than what each screen
+          contains. */}
       <Tabs.Screen
         name="search"
         options={{
-          title: t("tabs.library"),
+          title: t("tabs.search"),
           tabBarButtonTestID: "search-tab-button",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="library-outline" size={size} color={color} />

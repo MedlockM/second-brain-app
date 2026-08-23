@@ -431,8 +431,8 @@ export const en = {
   "search.retryCollectionsA11y": "Retry loading collections",
   "search.retrySearchA11y": "Retry the search",
   // --- Bottom tab bar ---
-  "tabs.home": "Inbox",
-  "tabs.library": "Library",
+  "tabs.home": "Home",
+  "tabs.search": "Search",
   "tabs.digest": "Digest",
   // --- Home tab ---
   "home.loading": "Loading your inbox...",
