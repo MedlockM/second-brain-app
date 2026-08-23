@@ -37,7 +37,13 @@ import {
 import { filterCollectionsByName } from "../../src/lib/collectionSearch";
 import { formatDate, t, tCount, useTranslation } from "../../src/i18n";
 import { parseHighlightSnippet } from "../../src/lib/highlightSnippet";
-import { MediaListCard } from "../../src/components/MediaListCard";
+import {
+  MediaListCard,
+  COVER_WIDTH,
+  COVER_HEIGHT,
+} from "../../src/components/MediaListCard";
+import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
+import { Image } from "expo-image";
 import {
   Colors,
   Typography,
@@ -933,7 +939,31 @@ function ErrorState({ message }: { message: string }) {
   );
 }
 
+/**
+ * One search result.
+ *
+ * The head of the card — cover on the left, meta row, title, creator — is
+ * deliberately the silhouette of a `MediaListCard` row, down to the 112x63
+ * cover it imports from it: the library list and the search results are the
+ * same items, and until task-317 they looked like two different apps. The
+ * matched transcript excerpt then sits *below* that head, full width.
+ *
+ * Cover on the left rather than a banner on top, even though this card carries
+ * more text than a library row: a banner would make each result twice as tall
+ * and put three of them on a screen where the list currently shows six or
+ * seven. Search is a scanning surface, and the excerpt is what the user scans —
+ * making room for it is worth more than a larger picture.
+ *
+ * The excerpt keeps its own highlighting (`parseHighlightSnippet`,
+ * `cardSnippetMatch`): it is the one thing no other tile in the app has, and
+ * the reason this card is allowed to be taller than a library row at all.
+ */
 function ResultCard({ hit, onPress }: { hit: SearchHit; onPress: () => void }) {
+  // Keyed by media id rather than a bare boolean: a `FlatList` cell can be
+  // handed a different hit, and a failure recorded for the previous one must
+  // not hide the new one's cover.
+  const [failedCoverId, setFailedCoverId] = useState<string | null>(null);
+
   // Indexed titles are derived server-side and are never empty (task-266), so
   // the client no longer invents "Untitled" -- a word that told the user nothing
   // and, being the same for every such hit, made results indistinguishable.
@@ -941,6 +971,11 @@ function ResultCard({ hit, onPress }: { hit: SearchHit; onPress: () => void }) {
   const sourceLabel = getSourceLabel(hit.source_platform);
   const sourceIcon = getSourceIcon(hit.source_platform);
   const dateLabel = formatTimestamp(hit.created_at);
+  const creator = hit.creator_name?.trim() ?? "";
+
+  const coverUrl = hit.media_image?.trim() ?? "";
+  const showCover =
+    coverUrl.length > 0 && failedCoverId !== hit.media_item_id;
 
   // Extract the first highlight snippet for preview text, split into plain
   // and matched segments (Algolia returns it as `<mark>`-tagged HTML).
@@ -953,22 +988,66 @@ function ResultCard({ hit, onPress }: { hit: SearchHit; onPress: () => void }) {
       testID="search-result-card"
       style={styles.card}
       onPress={onPress}
-      accessibilityLabel={`${displayTitle}, ${sourceLabel}`}
+      accessibilityLabel={
+        creator
+          ? `${displayTitle}, ${creator}, ${sourceLabel}`
+          : `${displayTitle}, ${sourceLabel}`
+      }
       accessibilityRole="button"
     >
-      {/* Card Header: source icon + label + date */}
-      <View style={styles.cardHeader}>
-        <View style={styles.cardSourceRow}>
-          <Ionicons name={sourceIcon} size={16} color={Colors.primary} />
-          <Text style={styles.cardSourceLabel}>{sourceLabel}</Text>
+      <View style={styles.cardHead}>
+        {/* The container is the fallback surface *and* the frame of the cover:
+            one tonal rectangle either way, so a result with a picture and one
+            without have the same silhouette. Never an empty grey box. */}
+        <View style={styles.cardCoverContainer}>
+          {showCover ? (
+            <Image
+              source={{
+                uri: coverUrl,
+                // The path identifies the picture: a re-hosted cover is signed
+                // on read and its query string rotates on every search.
+                cacheKey: coverUrl.split("?")[0],
+              }}
+              recyclingKey={hit.media_item_id}
+              cachePolicy="memory-disk"
+              contentFit="cover"
+              transition={150}
+              priority="low"
+              style={styles.cardCover}
+              onError={() => setFailedCoverId(hit.media_item_id)}
+              accessible={false}
+            />
+          ) : (
+            <Ionicons
+              name={getMediaTypeIcon(hit.media_type ?? "unknown")}
+              size={24}
+              color={Colors.textMuted}
+            />
+          )}
         </View>
-        {dateLabel ? <Text style={styles.cardDate}>{dateLabel}</Text> : null}
-      </View>
 
-      {/* Title */}
-      <Text style={styles.cardTitle} numberOfLines={2}>
-        {displayTitle}
-      </Text>
+        <View style={styles.cardTextSection}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardSourceRow}>
+              <Ionicons name={sourceIcon} size={14} color={Colors.primary} />
+              <Text style={styles.cardSourceLabel}>{sourceLabel}</Text>
+            </View>
+            {dateLabel ? (
+              <Text style={styles.cardDate}>{dateLabel}</Text>
+            ) : null}
+          </View>
+
+          <Text style={styles.cardTitle} numberOfLines={2}>
+            {displayTitle}
+          </Text>
+
+          {creator ? (
+            <Text style={styles.cardCreator} numberOfLines={1}>
+              {creator}
+            </Text>
+          ) : null}
+        </View>
+      </View>
 
       {/* Highlight snippet (transcript match preview) */}
       {snippetSegments.length > 0 ? (
@@ -1213,11 +1292,34 @@ const styles = StyleSheet.create({
     borderColor: Colors.outlineVariant,
     ...Shadows.soft,
   },
+  // Cover and text sit side by side, exactly as in a library row; the excerpt
+  // is the only thing that hangs below them.
+  cardHead: {
+    flexDirection: "row",
+    gap: Spacing.md,
+  },
+  cardCoverContainer: {
+    width: COVER_WIDTH,
+    height: COVER_HEIGHT,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.surfaceContainerLow,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  cardCover: {
+    width: "100%",
+    height: "100%",
+  },
+  cardTextSection: {
+    flex: 1,
+    gap: 2,
+  },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: Spacing.sm,
+    gap: Spacing.sm,
   },
   cardSourceRow: {
     flexDirection: "row",
@@ -1240,13 +1342,16 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.textMain,
     lineHeight: 22,
-    marginBottom: Spacing.xs,
+  },
+  cardCreator: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textSubtle,
   },
   cardSnippet: {
     fontSize: Typography.small.fontSize,
     color: Colors.textMuted,
     lineHeight: 18,
-    marginTop: Spacing.xs,
+    marginTop: Spacing.sm,
   },
   cardSnippetMatch: {
     backgroundColor: Colors.highlight,

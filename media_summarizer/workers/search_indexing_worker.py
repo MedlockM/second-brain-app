@@ -53,6 +53,8 @@ async def process_indexing_message(message: Dict[str, Any]) -> None:
     title = body.get("title")
     creator_name = body.get("creator_name")
     source_platform = body.get("source_platform")
+    media_type = body.get("media_type")
+    media_image = body.get("media_image")
     created_at = body.get("created_at")
 
     if not all([media_item_id, user_id, transcription_s3_key]):
@@ -93,6 +95,8 @@ async def process_indexing_message(message: Dict[str, Any]) -> None:
             title=title,
             creator_name=creator_name,
             source_platform=source_platform,
+            media_type=media_type,
+            media_image=media_image,
             created_at=created_at,
         )
 

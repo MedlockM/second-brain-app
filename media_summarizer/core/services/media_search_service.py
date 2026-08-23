@@ -141,7 +141,7 @@ async def search_media(
 
     # Serialize items to response dicts
     items = [_record_to_search_result(record) for record in page_items]
-    await _resolve_cover_urls(items)
+    await resolve_cover_urls(items)
 
     return SearchResult(
         items=items,
@@ -226,8 +226,12 @@ def _apply_cursor(
     return []
 
 
-async def _resolve_cover_urls(items: List[Dict[str, Any]]) -> None:
+async def resolve_cover_urls(items: List[Dict[str, Any]]) -> None:
     """Turn stored cover values into something the client can fetch, in place.
+
+    Public because the search endpoint needs the same treatment: a cover is
+    stored once and read from two places, and signing it twice in two ways is
+    how the two surfaces would end up disagreeing about which covers load.
 
     ``thumbnail_url`` holds one of two shapes (task-302 §5): an absolute
     third-party URL, hotlinked as-is, or an ``s3://bucket/key`` locator for a

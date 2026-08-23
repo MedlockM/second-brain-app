@@ -37,9 +37,15 @@ import { getRelativeTime } from "../lib/relativeTime";
  * anti-pattern the benchmark names (§6.3).
  */
 
-/** 112 x 63 is exactly 16:9, wide enough to read a thumbnail on a phone. */
-const COVER_WIDTH = 112;
-const COVER_HEIGHT = 63;
+/**
+ * 112 x 63 is exactly 16:9, wide enough to read a thumbnail on a phone.
+ *
+ * Exported because the search result card carries the same cover: sharing the
+ * numbers is what stops the two surfaces drifting into two slightly different
+ * thumbnails for the same picture.
+ */
+export const COVER_WIDTH = 112;
+export const COVER_HEIGHT = 63;
 
 interface MediaListCardProps {
   item: MediaListItem;

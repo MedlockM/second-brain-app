@@ -1,4 +1,5 @@
 import { apiRequest } from "./apiClient";
+import type { MediaType } from "../types/media";
 
 /**
  * Highlight snippet from a search hit (mirrors backend SearchHitHighlight).
@@ -14,7 +15,18 @@ export interface SearchHitHighlight {
 export interface SearchHit {
   media_item_id: string;
   title: string | null;
+  /** Publisher of the media (channel, show, site), or null. */
+  creator_name: string | null;
   source_platform: string | null;
+  /** Media kind, drawn as a glyph when the hit has no cover. */
+  media_type: MediaType | null;
+  /**
+   * Fetchable cover URL, already signed by the backend for a re-hosted cover.
+   * Null when the item has none — and also for anything indexed before covers
+   * were, which the result card handles the same way: it falls back to the
+   * media-type glyph rather than leaving a hole.
+   */
+  media_image: string | null;
   created_at: number; // Unix timestamp
   text_match_score: number;
   highlights: SearchHitHighlight[];
