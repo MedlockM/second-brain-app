@@ -1,42 +1,46 @@
+import { t, type TranslationKey } from "../i18n";
+
 interface FriendlyErrorRule {
   regex: RegExp;
-  message: string;
+  /**
+   * Catalogue key, resolved at call time. These tables are module constants
+   * evaluated once at import, so holding a resolved sentence would pin every
+   * error message to whatever language the app started in.
+   */
+  messageKey: TranslationKey;
 }
 
-const CRITICAL_ERROR = "Error";
+const CRITICAL_ERROR: TranslationKey = "common.error";
 
 /**
  * Last-resort wording for an exhausted allowance, used when a refusal reaches the
- * app without its typed code and message. Minutes are the only thing a plan
+ * app without its typed code and figures. Minutes are the only thing a plan
  * limits, so there is one sentence and no "credits" vocabulary; the specific
- * version with the figures comes from the backend through `quotaError.ts`.
+ * version with the figures is built by `quotaError.ts` from what the backend
+ * sends.
  */
-const OUT_OF_MINUTES =
-  "You're out of minutes for this period. Upgrade to keep importing audio and video.";
+const OUT_OF_MINUTES: TranslationKey = "error.outOfMinutes";
 
-const ERROR_CODE_MESSAGES: Record<string, string> = {
-  SESSION_EXPIRED: "Your session has expired. Please sign in again.",
-  INVALID_CREDENTIALS: "Invalid email or password. Please try again.",
-  EMAIL_NOT_VERIFIED: "Please verify your email address before signing in.",
-  EMAIL_ALREADY_EXISTS: "An account with this email already exists.",
-  INVALID_VERIFICATION_TOKEN:
-    "Invalid verification link. Please request a new one.",
-  USER_NOT_FOUND:
-    "No account found with this email address. Please check the email or create a new account.",
-  NOT_AUTHORIZED: "You don't have permission to perform this action.",
-  NOT_FOUND: "Content not found. Please try searching for something else.",
-  MEDIA_NOT_FOUND: "This media item was not found or is no longer available.",
-  ARTIFACT_NOT_FOUND: "This artifact was not found or is no longer available.",
-  INVALID_URL: "This link is invalid. Please try another URL.",
-  UNSUPPORTED_URL: "This link is not supported yet. Please try another source.",
-  VALIDATION_ERROR: "Please fill in all required fields.",
+const ERROR_CODE_MESSAGES: Record<string, TranslationKey> = {
+  SESSION_EXPIRED: "error.sessionExpired",
+  INVALID_CREDENTIALS: "error.invalidCredentials",
+  EMAIL_NOT_VERIFIED: "error.emailNotVerified",
+  EMAIL_ALREADY_EXISTS: "error.emailAlreadyExists",
+  INVALID_VERIFICATION_TOKEN: "error.invalidVerificationToken",
+  USER_NOT_FOUND: "error.userNotFound",
+  NOT_AUTHORIZED: "error.notAuthorized",
+  NOT_FOUND: "error.notFound",
+  MEDIA_NOT_FOUND: "error.mediaNotFound",
+  ARTIFACT_NOT_FOUND: "error.artifactNotFound",
+  INVALID_URL: "error.invalidUrl",
+  UNSUPPORTED_URL: "error.unsupportedUrl",
+  VALIDATION_ERROR: "error.validation",
   PAYMENT_REQUIRED: OUT_OF_MINUTES,
   INSUFFICIENT_MINUTES: OUT_OF_MINUTES,
   QUOTA_EXCEEDED: OUT_OF_MINUTES,
-  RATE_LIMITED: "Too many requests. Please wait a moment and try again.",
-  CONFLICT:
-    "This action conflicts with existing data. Please refresh and try again.",
-  BAD_REQUEST: "Please check your input and try again.",
+  RATE_LIMITED: "error.rateLimited",
+  CONFLICT: "error.conflict",
+  BAD_REQUEST: "error.badRequest",
   INTERNAL_ERROR: CRITICAL_ERROR,
   UNKNOWN_ERROR: CRITICAL_ERROR,
 };
@@ -44,66 +48,65 @@ const ERROR_CODE_MESSAGES: Record<string, string> = {
 const DEFAULT_RULES: FriendlyErrorRule[] = [
   {
     regex: /session expired|session has expired|please sign in again/i,
-    message: "Your session has expired. Please sign in again.",
+    messageKey: "error.sessionExpired",
   },
   {
     regex:
       /401|unauthorized|invalid token|expired token|missing token|token expired|authentication token required|not authenticated/i,
-    message: "Your session has expired. Please sign in again.",
+    messageKey: "error.sessionExpired",
   },
   {
     regex:
       /invalid credentials|incorrect email or password|authentication failed/i,
-    message: "Invalid email or password. Please try again.",
+    messageKey: "error.invalidCredentials",
   },
   {
     regex: /email not verified/i,
-    message: "Please verify your email address before signing in.",
+    messageKey: "error.emailNotVerified",
   },
   {
     regex: /account not found|user not found/i,
-    message:
-      "No account found with this email address. Please check the email or create a new account.",
+    messageKey: "error.userNotFound",
   },
   {
     regex: /email already exists/i,
-    message: "An account with this email already exists.",
+    messageKey: "error.emailAlreadyExists",
   },
   {
     regex: /(payment required|402)|out of minutes|insufficient minutes|quota/i,
-    message: OUT_OF_MINUTES,
+    messageKey: OUT_OF_MINUTES,
   },
   {
     regex: /invalid email|email is not valid/i,
-    message: "Please enter a valid email address.",
+    messageKey: "error.invalidEmail",
   },
   {
     regex: /password too short|password must be at least/i,
-    message: "Password must be at least 8 characters long.",
+    messageKey: "error.passwordTooShort",
   },
   {
     regex: /passwords do not match/i,
-    message: "Passwords do not match. Please try again.",
+    messageKey: "error.passwordsDoNotMatch",
   },
   {
     regex: /403|forbidden|not authorized|permission denied/i,
-    message: "You don't have permission to perform this action.",
+    messageKey: "error.notAuthorized",
   },
   {
     regex: /network error|failed to fetch|connection failed/i,
-    message: "Network error. Please check your connection and try again.",
+    messageKey: "error.network",
   },
   {
     regex: /timeout|timed out/i,
-    message: "Request timed out. Please try again.",
+    messageKey: "error.timeout",
   },
   {
     regex: /too many requests|rate limit/i,
-    message: "Too many requests. Please wait a moment and try again.",
+    messageKey: "error.rateLimited",
   },
   {
     regex: /not found(?!.*account)/i,
-    message: "Content not found. Please try searching for something else.",
+    messageKey: "error.notFound",
   },
 ];
 
@@ -127,7 +130,7 @@ export function getFriendlyErrorMessage(
   error: unknown,
   options: { fallback?: string; additionalRules?: FriendlyErrorRule[] } = {},
 ): string {
-  const fallback = options.fallback ?? CRITICAL_ERROR;
+  const fallback = options.fallback ?? t(CRITICAL_ERROR);
 
   if (!error) {
     return fallback;
@@ -137,7 +140,7 @@ export function getFriendlyErrorMessage(
     (error as { code?: string }).code ||
     (error as { error?: { code?: string } }).error?.code;
   if (code && ERROR_CODE_MESSAGES[code]) {
-    return ERROR_CODE_MESSAGES[code];
+    return t(ERROR_CODE_MESSAGES[code]);
   }
 
   let errorMessage = "";
@@ -170,22 +173,22 @@ export function getFriendlyErrorMessage(
   const rules = [...DEFAULT_RULES, ...(options.additionalRules ?? [])];
   for (const rule of rules) {
     if (rule.regex.test(normalized)) {
-      return rule.message;
+      return t(rule.messageKey);
     }
   }
 
   // Status-based fallbacks
   if (status === 401) {
-    return "Your session has expired. Please sign in again.";
+    return t("error.sessionExpired");
   }
   if (status === 403) {
-    return "You don't have permission to perform this action.";
+    return t("error.notAuthorized");
   }
   if (status === 404) {
-    return "Content not found. Please try searching for something else.";
+    return t("error.notFound");
   }
   if (status === 429) {
-    return "Too many requests. Please wait a moment and try again.";
+    return t("error.rateLimited");
   }
 
   return fallback;
@@ -196,5 +199,5 @@ export function getFriendlyErrorMessage(
  */
 export function isActionableError(error: unknown): boolean {
   const friendlyMessage = getFriendlyErrorMessage(error);
-  return friendlyMessage !== CRITICAL_ERROR;
+  return friendlyMessage !== t(CRITICAL_ERROR);
 }

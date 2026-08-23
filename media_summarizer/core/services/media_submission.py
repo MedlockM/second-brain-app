@@ -72,7 +72,7 @@ async def submit_media_for_user(
         return {
             "status": "skipped",
             "reason": quota_result.error_code,
-            "message": quota_result.message,
+            "params": quota_result.params,
         }
 
     # The durable library row comes first and carries the organization. The

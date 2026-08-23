@@ -9,6 +9,7 @@
 
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
+import { t } from "../i18n";
 import {
   UPLOAD_PICKER_MIME_TYPES,
   prepareLocalUploadFile,
@@ -45,8 +46,8 @@ export async function pickFileToImport(): Promise<LocalImportResult> {
   } catch {
     return {
       status: "error",
-      title: "Could not open your files",
-      message: "The file browser could not be opened. Please try again.",
+      title: t("import.filesUnavailable"),
+      message: t("import.filesUnavailableBody"),
     };
   }
 
@@ -67,8 +68,8 @@ export async function pickFileToImport(): Promise<LocalImportResult> {
       status: "error",
       title:
         prepared.rejection.reason === "too_large"
-          ? "File too large"
-          : "Format not supported",
+          ? t("bugReport.fileTooLargeTitle")
+          : t("import.formatNotSupported"),
       message: prepared.rejection.message,
     };
   }
@@ -89,18 +90,18 @@ export async function capturePhotoToImport(): Promise<LocalImportResult> {
   } catch {
     return {
       status: "error",
-      title: "Camera unavailable",
-      message: "The camera could not be started on this device.",
+      title: t("import.cameraUnavailable"),
+      message: t("import.cameraUnavailableBody"),
     };
   }
 
   if (!permission.granted) {
     return {
       status: "error",
-      title: "Camera access needed",
+      title: t("import.cameraPermission"),
       message: permission.canAskAgain
-        ? "Allow camera access to capture a document or a page you want to import."
-        : "Camera access is turned off. Enable it for this app in your device settings to capture a document.",
+        ? t("import.cameraPermissionAsk")
+        : t("import.cameraPermissionSettings"),
     };
   }
 
@@ -116,8 +117,8 @@ export async function capturePhotoToImport(): Promise<LocalImportResult> {
   } catch {
     return {
       status: "error",
-      title: "Camera unavailable",
-      message: "The camera could not be started on this device.",
+      title: t("import.cameraUnavailable"),
+      message: t("import.cameraUnavailableBody"),
     };
   }
 
@@ -142,8 +143,8 @@ export async function pickPhotoFromLibrary(): Promise<LocalImportResult> {
   } catch {
     return {
       status: "error",
-      title: "Gallery unavailable",
-      message: "Your photo gallery could not be opened. Please try again.",
+      title: t("import.galleryUnavailable"),
+      message: t("import.galleryUnavailableBody"),
     };
   }
 
@@ -169,8 +170,8 @@ function toImportResult(result: ImagePicker.ImagePickerResult): LocalImportResul
       status: "error",
       title:
         prepared.rejection.reason === "too_large"
-          ? "Photo too large"
-          : "Photo not supported",
+          ? t("import.photoTooLarge")
+          : t("import.photoNotSupported"),
       message: prepared.rejection.message,
     };
   }

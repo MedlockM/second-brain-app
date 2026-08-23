@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { getDeviceLanguageCode } from "../../src/lib/getDeviceLanguageCode";
+import { resolveDeviceLocale, t } from "../../src/i18n";
 import { useUserPreferences } from "../../src/contexts/UserPreferencesContext";
 import {
   V1_READING_LANGUAGES,
@@ -35,9 +35,12 @@ export default function OnboardingLanguageScreen() {
   const { updateReadingLanguage, isUpdating } = useUserPreferences();
   const [selectedLanguage, setSelectedLanguage] =
     useState<ReadingLanguageCode>(() => {
-      const deviceLang = getDeviceLanguageCode();
+      // The device's own ordered preference list, intersected with what the app
+      // supports — `expo-localization` answers that properly, where the
+      // hand-rolled reader this replaced only ever saw the first entry.
+      const deviceLocale = resolveDeviceLocale();
       return (
-        V1_READING_LANGUAGES.find((language) => language.code === deviceLang)
+        V1_READING_LANGUAGES.find((language) => language.code === deviceLocale)
           ?.code ?? "en"
       );
     });
@@ -64,7 +67,9 @@ export default function OnboardingLanguageScreen() {
       <Pressable
         style={[styles.languageItem, isSelected && styles.languageItemSelected]}
         onPress={() => setSelectedLanguage(item.code)}
-        accessibilityLabel={`Select ${item.label} as reading language`}
+        accessibilityLabel={t("readingLanguage.selectA11y", {
+          language: item.label,
+        })}
         accessibilityRole="button"
         accessibilityState={{ selected: isSelected }}
       >
@@ -91,9 +96,9 @@ export default function OnboardingLanguageScreen() {
       edges={["top", "bottom"]}
     >
       <View style={styles.header}>
-        <Text style={styles.title}>Choose your reading language</Text>
+        <Text style={styles.title}>{t("onboarding.language.title")}</Text>
         <Text style={styles.subtitle}>
-          Content will be translated to this language when needed.
+          {t("onboarding.language.subtitle")}
         </Text>
       </View>
 
@@ -117,13 +122,15 @@ export default function OnboardingLanguageScreen() {
           style={[styles.continueButton, isUpdating && styles.buttonDisabled]}
           onPress={handleContinue}
           disabled={!selectedLanguage || isUpdating}
-          accessibilityLabel="Continue with selected language"
+          accessibilityLabel={t("onboarding.language.continueA11y")}
           accessibilityRole="button"
         >
           {isUpdating ? (
             <ActivityIndicator color={Colors.onPrimary} />
           ) : (
-            <Text style={styles.continueButtonText}>Continue</Text>
+            <Text style={styles.continueButtonText}>
+              {t("common.continue")}
+            </Text>
           )}
         </Pressable>
       </View>
@@ -190,7 +197,7 @@ const styles = StyleSheet.create({
   languageCode: {
     ...Typography.small,
     color: Colors.textMuted,
-    marginRight: Spacing.sm,
+    marginEnd: Spacing.sm,
   },
   footer: {
     paddingHorizontal: Spacing.lg,

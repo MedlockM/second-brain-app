@@ -30,6 +30,7 @@ import {
   TouchTarget,
   Typography,
 } from "../constants/theme";
+import { t, type TranslationKey } from "../i18n";
 import type { ArtifactStatus, ArtifactType } from "../types/media";
 
 /**
@@ -53,17 +54,36 @@ export type ArtifactTileState = {
  */
 export const ARTIFACT_TILES: readonly {
   type: ArtifactType;
-  label: string;
+  /**
+   * The catalogue key of the label, not the label: this array is built once at
+   * import time, so a resolved string would freeze the language the app was
+   * launched in and survive a change in the settings.
+   */
+  labelKey: TranslationKey;
   icon: keyof typeof Ionicons.glyphMap;
 }[] = [
-  { type: "summary_short", label: "Summary", icon: "document-text-outline" },
-  { type: "summary_detailed", label: "Detailed summary", icon: "reader-outline" },
-  { type: "notes", label: "Learning notes", icon: "book-outline" },
-  { type: "flashcards", label: "Flashcards", icon: "card-outline" },
-  { type: "quiz", label: "Quiz", icon: "help-circle-outline" },
+  {
+    type: "summary_short",
+    labelKey: "artifacts.type.summaryShort",
+    icon: "document-text-outline",
+  },
+  {
+    type: "summary_detailed",
+    labelKey: "artifacts.type.summaryDetailed",
+    icon: "reader-outline",
+  },
+  { type: "notes", labelKey: "artifacts.type.notes", icon: "book-outline" },
+  {
+    type: "flashcards",
+    labelKey: "artifacts.type.flashcards",
+    icon: "card-outline",
+  },
+  { type: "quiz", labelKey: "artifacts.type.quiz", icon: "help-circle-outline" },
 ];
 
 interface ArtifactTileProps {
+  /** Identifies the tile in `testID`s, which must not move with the language. */
+  type: ArtifactType;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   state: ArtifactTileState;
@@ -77,6 +97,7 @@ interface ArtifactTileProps {
 }
 
 export function ArtifactTile({
+  type,
   label,
   icon,
   state,
@@ -102,12 +123,16 @@ export function ArtifactTile({
           <View style={styles.progressContainer}>
             <ActivityIndicator size="small" color={Colors.primary} />
             <Text style={styles.progressText}>
-              {state.status === "queued" ? "Queued" : "Generating..."}
+              {state.status === "queued"
+                ? t("artifacts.status.queued")
+                : t("artifacts.status.generating")}
             </Text>
           </View>
         )}
 
-        {isFailed && <Text style={styles.failedText}>Failed</Text>}
+        {isFailed && (
+          <Text style={styles.failedText}>{t("artifacts.status.failed")}</Text>
+        )}
 
         {canGenerate && (
           <Pressable
@@ -117,8 +142,8 @@ export function ArtifactTile({
               pressed && styles.generateButtonPressed,
             ]}
             onPress={onGenerate}
-            testID={`artifact-tile-generate-${label}`}
-            accessibilityLabel={`Generate ${label}`}
+            testID={`artifact-tile-generate-${type}`}
+            accessibilityLabel={t("artifacts.a11yGenerate", { label })}
             accessibilityHint={state.error}
             accessibilityRole="button"
           >
@@ -128,13 +153,13 @@ export function ArtifactTile({
                 isFailed && styles.retryText,
               ]}
             >
-              {isFailed ? "Retry" : "Generate"}
+              {isFailed ? t("common.retry") : t("artifacts.generate")}
             </Text>
           </Pressable>
         )}
 
         {!sourceReady && !isInProgress && (
-          <Text style={styles.waitingText}>Processing...</Text>
+          <Text style={styles.waitingText}>{t("artifacts.processing")}</Text>
         )}
       </View>
     </View>

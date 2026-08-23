@@ -43,14 +43,7 @@ import {
   type ArtifactTileState,
 } from "./ArtifactTile";
 import { ArtifactHistoryRow } from "./ArtifactHistoryRow";
-
-/**
- * The empty history, worded once for every scope. It says what to do next and
- * stays silent about what is being generated over, which is the only part that
- * differed between a media item and a collection.
- */
-const EMPTY_HISTORY_COPY =
-  "Nothing generated yet. Pick a format above to create one.";
+import { t } from "../i18n";
 
 export interface ArtifactsPanelProps {
   /**
@@ -99,12 +92,13 @@ export function ArtifactsPanel({
 }: ArtifactsPanelProps): React.JSX.Element {
   return (
     <View style={styles.panel}>
-      <Text style={styles.heading}>Generate</Text>
+      <Text style={styles.heading}>{t("artifacts.panel.generateHeading")}</Text>
       <View style={styles.tileStack}>
         {ARTIFACT_TILES.map((tile) => (
           <ArtifactTile
             key={tile.type}
-            label={tile.label}
+            type={tile.type}
+            label={t(tile.labelKey)}
             icon={tile.icon}
             state={tileStates[tile.type]}
             sourceReady={sourceReady}
@@ -127,11 +121,13 @@ export function ArtifactsPanel({
       {/* The history is append-only: several entries of the same type coexist,
           a regeneration adds one instead of replacing the previous, and nothing
           here is deduplicated or marked stale. */}
-      <Text style={[styles.heading, styles.historyHeading]}>Generated</Text>
+      <Text style={[styles.heading, styles.historyHeading]}>
+        {t("artifacts.panel.generatedHeading")}
+      </Text>
       {historyLoading ? (
         <View style={styles.inlineState}>
           <ActivityIndicator size="small" color={Colors.primary} />
-          <Text style={styles.inlineStateText}>Loading...</Text>
+          <Text style={styles.inlineStateText}>{t("common.loading")}</Text>
         </View>
       ) : historyError ? (
         <View style={styles.inlineState}>
@@ -139,15 +135,17 @@ export function ArtifactsPanel({
           <Pressable
             style={styles.retryButton}
             onPress={onRetryHistory}
-            accessibilityLabel="Retry loading generated content"
+            accessibilityLabel={t("artifacts.panel.retryA11y")}
             accessibilityRole="button"
           >
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Text style={styles.retryButtonText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
       ) : history.length === 0 ? (
         <View style={styles.inlineState} testID={historyEmptyTestID}>
-          <Text style={styles.inlineStateText}>{EMPTY_HISTORY_COPY}</Text>
+          <Text style={styles.inlineStateText}>
+            {t("artifacts.panel.empty")}
+          </Text>
         </View>
       ) : (
         <View style={styles.historyList}>

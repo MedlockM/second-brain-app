@@ -14,12 +14,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router";
-import { useAuth } from "../../src/contexts/AuthContext";
 import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { usePurchases } from "../../src/contexts/PurchasesContext";
 import { useMediaPolling } from "../../src/hooks/useMediaPolling";
 import type { InboxItem } from "../../src/contexts/InboxContext";
 import { useHomeSections } from "../../src/hooks/useHomeSections";
+import { t, tCount, useTranslation } from "../../src/i18n";
 import { AddSourceSheet } from "../../src/components/AddSourceSheet";
 import { MinutesWarningBanner } from "../../src/components/MinutesWarningBanner";
 import { FreeTrialNotice } from "../../src/components/FreeTrialNotice";
@@ -47,7 +47,7 @@ import type { RecentEngagement } from "../../src/types/engagements";
 import type { Collection } from "../../src/types/organization";
 
 /**
- * Home screen — a greeting, the Daily Digest entry point, and two horizontal
+ * Home screen — the Daily Digest entry point and two horizontal
  * rows of tiles: "Continue learning" and "Recently added" (task-307).
  *
  * The vertical list of every media item that used to live here is gone: task-306
@@ -78,7 +78,8 @@ const RECENTLY_ADDED_LIMIT = 12;
 const MAX_COLLECTION_PREVIEWS = 4;
 
 export default function InboxScreen() {
-  const { user } = useAuth();
+  // The screen's copy is resolved on render, so it redraws with the language.
+  useTranslation();
   const router = useRouter();
   const { startLocalUpload } = useShareIntake();
   const { refreshEntitlements } = usePurchases();
@@ -99,8 +100,6 @@ export default function InboxScreen() {
     digestCount,
     refresh: refreshSections,
   } = useHomeSections();
-
-  const greeting = getGreeting(user?.email?.split("@")[0]);
 
   // Silent refetch when the screen gains focus (multi-device sync). Uses the
   // non-spinner variant so we don't show the pull-to-refresh indicator just
@@ -184,12 +183,9 @@ export default function InboxScreen() {
   if (isLoading) {
     return (
       <SafeAreaView testID="inbox-screen" style={styles.container} edges={["top"]}>
-        <View style={styles.header}>
-          <Text style={styles.greeting}>{greeting}</Text>
-        </View>
         <View style={styles.centeredContainer}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingText}>Loading your inbox...</Text>
+          <Text style={styles.loadingText}>{t("home.loading")}</Text>
         </View>
       </SafeAreaView>
     );
@@ -200,9 +196,6 @@ export default function InboxScreen() {
   if (error && items.length === 0 && pendingLocalItems.length === 0) {
     return (
       <SafeAreaView testID="inbox-screen" style={styles.container} edges={["top"]}>
-        <View style={styles.header}>
-          <Text style={styles.greeting}>{greeting}</Text>
-        </View>
         <View style={styles.centeredContainer}>
           <Ionicons
             name="cloud-offline-outline"
@@ -214,11 +207,11 @@ export default function InboxScreen() {
           <Pressable
             style={styles.retryButton}
             onPress={retry}
-            accessibilityLabel="Retry loading inbox"
+            accessibilityLabel={t("home.retryA11y")}
             accessibilityRole="button"
           >
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Text style={styles.retryButtonText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -241,10 +234,6 @@ export default function InboxScreen() {
           />
         }
       >
-        <View style={styles.header}>
-          <Text style={styles.greeting}>{greeting}</Text>
-        </View>
-
         {/* Both read the entitlement state themselves and render nothing until
             they have something true to say — the trial notice while a trial is
             running, the minutes warning once the allowance is nearly spent. They
@@ -263,7 +252,7 @@ export default function InboxScreen() {
           <TileRow
             testID="home-continue-learning-row"
             icon="play-circle"
-            title="Continue learning"
+            title={t("home.continueLearning")}
             tiles={continueTiles}
             onTilePress={handleTilePress}
           />
@@ -273,7 +262,7 @@ export default function InboxScreen() {
           <TileRow
             testID="home-recently-added-row"
             icon="sparkles"
-            title="Recently added"
+            title={t("home.recentlyAdded")}
             tiles={recentTiles}
             onTilePress={handleTilePress}
           />
@@ -292,7 +281,7 @@ export default function InboxScreen() {
             pressed && styles.addButtonPressed,
           ]}
           onPress={handleTakePhoto}
-          accessibilityLabel="Take a photo"
+          accessibilityLabel={t("home.takePhotoA11y")}
           accessibilityRole="button"
         >
           <Ionicons name="camera" size={24} color={Colors.surface} />
@@ -302,7 +291,7 @@ export default function InboxScreen() {
           testID="inbox-add-button"
           style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
           onPress={() => setSourceSheetVisible(true)}
-          accessibilityLabel="Add to your inbox"
+          accessibilityLabel={t("addSource.title")}
           accessibilityRole="button"
         >
           <Ionicons name="add" size={28} color={Colors.onPrimary} />
@@ -345,15 +334,17 @@ function DigestCard({ count, onPress }: DigestCardProps) {
       onPress={onPress}
       accessibilityLabel={
         showCount
-          ? `Open Daily Digest, ${count} items`
-          : "Open Daily Digest"
+          ? t("home.digestA11yWithCount", {
+              count: tCount("common.itemCount", count),
+            })
+          : t("home.digestA11y")
       }
       accessibilityRole="button"
     >
       <View style={styles.digestIconContainer}>
         <Ionicons name="book-outline" size={22} color={Colors.primary} />
       </View>
-      <Text style={styles.digestButtonLabel}>Daily Digest</Text>
+      <Text style={styles.digestButtonLabel}>{t("home.digest")}</Text>
       <View style={styles.digestButtonRight}>
         {showCount && (
           <View style={styles.digestCountBadge}>
@@ -411,10 +402,8 @@ function EmptyState() {
         color={Colors.textMuted}
         style={styles.emptyIcon}
       />
-      <Text style={styles.emptyTitle}>Your shared media will appear here.</Text>
-      <Text style={styles.emptyHint}>
-        Share a link from any app, or tap + to import a file or take a photo.
-      </Text>
+      <Text style={styles.emptyTitle}>{t("home.empty")}</Text>
+      <Text style={styles.emptyHint}>{t("home.emptyHint")}</Text>
     </View>
   );
 }
@@ -430,7 +419,7 @@ function toEngagementTile(entry: RecentEngagement): HomeTileItem {
     return {
       kind: "collection",
       id: entry.id,
-      name: entry.title?.trim() || "Collection",
+      name: entry.title?.trim() || t("home.untitledCollection"),
       itemCount: entry.item_count ?? 0,
       previewImages: entry.preview_images ?? [],
     };
@@ -543,25 +532,6 @@ function toTimestamp(value?: string | null): number {
 }
 
 
-// --- Helper functions ---
-
-function getGreeting(name?: string | null): string {
-  const hour = new Date().getHours();
-  let timeOfDay: string;
-  if (hour < 12) {
-    timeOfDay = "Morning";
-  } else if (hour < 18) {
-    timeOfDay = "Afternoon";
-  } else {
-    timeOfDay = "Evening";
-  }
-
-  if (name) {
-    return `Good ${timeOfDay}, ${name}`;
-  }
-  return `Good ${timeOfDay}`;
-}
-
 // --- Styles ---
 
 const styles = StyleSheet.create({
@@ -569,17 +539,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  header: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.sm,
-  },
-  greeting: {
-    ...Typography.display,
-    fontSize: 28,
-    color: Colors.textMain,
-  },
   scrollContent: {
+    // Breathing room under the safe area, previously carried by the greeting
+    // header that used to sit here.
+    paddingTop: Spacing.md,
     // Room for the floating buttons so they never cover the last row.
     paddingBottom: TouchTarget.large + Spacing.xl,
   },
@@ -656,7 +619,7 @@ const styles = StyleSheet.create({
     fontSize: Typography.body.fontSize,
     fontWeight: "700",
     color: Colors.textMain,
-    marginLeft: Spacing.md,
+    marginStart: Spacing.md,
   },
   digestButtonRight: {
     flexDirection: "row",

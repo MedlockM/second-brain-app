@@ -14,6 +14,8 @@
  * would only produce a 400 after a pointless upload.
  */
 
+import { t } from "../i18n";
+
 /** Which upload endpoint a file belongs to. */
 export type LocalUploadKind = "document" | "audio";
 
@@ -162,8 +164,13 @@ export function prepareLocalUploadFile(input: {
       rejection: {
         reason: "unsupported_extension",
         message: ext
-          ? `Files with the .${ext} extension cannot be imported. Supported formats: ${getSupportedUploadExtensionsLabel()}.`
-          : `This file has no recognizable extension. Supported formats: ${getSupportedUploadExtensionsLabel()}.`,
+          ? t("upload.reject.extension", {
+              extension: ext,
+              formats: getSupportedUploadExtensionsLabel(),
+            })
+          : t("upload.reject.noExtension", {
+              formats: getSupportedUploadExtensionsLabel(),
+            }),
       },
     };
   }
@@ -173,7 +180,7 @@ export function prepareLocalUploadFile(input: {
     return {
       rejection: {
         reason: "empty",
-        message: "This file is empty, so there is nothing to import.",
+        message: t("upload.reject.empty"),
       },
     };
   }
@@ -181,7 +188,10 @@ export function prepareLocalUploadFile(input: {
     return {
       rejection: {
         reason: "too_large",
-        message: `This file is ${formatUploadSize(size)}, over the ${formatUploadSize(MAX_UPLOAD_SIZE_BYTES)} limit for a single import.`,
+        message: t("upload.reject.tooLarge", {
+          size: formatUploadSize(size),
+          max: formatUploadSize(MAX_UPLOAD_SIZE_BYTES),
+        }),
       },
     };
   }

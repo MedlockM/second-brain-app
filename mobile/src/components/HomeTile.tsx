@@ -11,6 +11,7 @@ import {
 } from "../constants/theme";
 import type { MediaType, SourcePlatform } from "../types/media";
 import { getMediaTypeIcon } from "../lib/mediaTypeDisplay";
+import { t, tCount } from "../i18n";
 
 /**
  * The tile of the Home screen's two horizontal rows (task-307).
@@ -263,19 +264,19 @@ function tileTitle(item: HomeTileItem): string {
   if (item.kind === "pending") return item.url;
   // The backend stores a non-empty, human-readable title (task-266); the guard
   // covers the window before an item's metadata has resolved.
-  return item.title?.trim() || "Untitled";
+  return item.title?.trim() || t("common.untitled");
 }
 
 function tileSubtitle(item: HomeTileItem): string {
   if (item.kind === "collection") return formatItemCount(item.itemCount);
   if (item.kind === "pending") {
-    return item.failed ? "Could not be saved" : "Saving…";
+    return item.failed ? t("home.tile.saveFailed") : t("home.tile.saving");
   }
   return item.creator?.trim() ?? "";
 }
 
 function formatItemCount(count: number): string {
-  return `${count} ${count === 1 ? "item" : "items"}`;
+  return tCount("common.itemCount", count);
 }
 
 /**
@@ -289,16 +290,19 @@ function stableImageIdentity(uri: string): string {
 
 function describeTile(item: HomeTileItem): string {
   if (item.kind === "collection") {
-    return `Collection ${item.name}, ${formatItemCount(item.itemCount)}`;
+    return t("home.tile.a11yCollection", {
+      name: item.name,
+      count: formatItemCount(item.itemCount),
+    });
   }
   if (item.kind === "pending") {
     return item.failed
-      ? `${item.url} could not be saved`
-      : `${item.url}, being saved`;
+      ? t("home.tile.a11ySaveFailed", { url: item.url })
+      : t("home.tile.a11ySaving", { url: item.url });
   }
   const creator = item.creator?.trim();
-  const title = item.title?.trim() || "Untitled";
-  return creator ? `${title} by ${creator}` : title;
+  const title = item.title?.trim() || t("common.untitled");
+  return creator ? t("home.tile.a11yByCreator", { title, creator }) : title;
 }
 
 function getSourcePlatformIcon(

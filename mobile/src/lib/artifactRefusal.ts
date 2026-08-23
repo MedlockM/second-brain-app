@@ -10,6 +10,7 @@
 import { getFriendlyErrorMessage } from "./getFriendlyErrorMessage";
 import type { HttpError } from "./httpError";
 import { getQuotaErrorCode, getQuotaErrorMessage } from "./quotaError";
+import { formatNumber, t, tCount } from "../i18n";
 
 export function describeArtifactRefusal(
   err: unknown,
@@ -32,26 +33,29 @@ export function describeArtifactRefusal(
   switch (code) {
     case "scope_empty":
       return isCollection
-        ? "This collection has no source with a transcript yet. Add media, or wait for the ones you saved to finish processing."
-        : "This item has no transcript yet, so there is nothing to generate from.";
+        ? t("artifacts.refusal.collectionEmpty")
+        : t("artifacts.refusal.mediaEmpty");
     case "scope_too_large": {
       const sourceCount = Number(details.source_count ?? 0);
       const maxSources = Number(details.max_sources ?? 0);
       if (sourceCount > 0 && maxSources > 0 && sourceCount > maxSources) {
-        return `This collection has ${sourceCount} sources, over the ${maxSources} a single generation can read. Generate on a smaller sub-collection instead.`;
+        return t("artifacts.refusal.tooManySources", {
+          count: formatNumber(sourceCount),
+          max: formatNumber(maxSources),
+        });
       }
-      return "There is too much text here for one generation. Generate on a smaller sub-collection instead.";
+      return t("artifacts.refusal.tooMuchText");
     }
     case "sources_not_ready": {
       const pending = Number(details.pending_count ?? 0);
       if (isCollection && pending > 0) {
-        return `${pending} ${pending === 1 ? "source is" : "sources are"} still being prepared. Try again in a moment.`;
+        return tCount("artifacts.refusal.sourcesPending", pending);
       }
-      return "The transcript is still being prepared. Try again in a moment.";
+      return t("artifacts.refusal.transcriptPending");
     }
     default:
       return getFriendlyErrorMessage(err, {
-        fallback: "Unable to start this generation. Please try again.",
+        fallback: t("artifacts.refusal.generic"),
       });
   }
 }

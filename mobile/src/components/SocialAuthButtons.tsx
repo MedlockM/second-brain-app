@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useAuth } from "../contexts/AuthContext";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
+import { t } from "../i18n";
 import { getGoogleIosRedirectUri } from "../lib/googleOAuth";
 import { Config } from "../constants/config";
 import {
@@ -97,7 +98,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
         return;
       }
       if (result.type !== "success") {
-        onError("Google sign-in was not completed. Please try again.");
+        onError(t("auth.google.notCompleted"));
         return;
       }
 
@@ -109,7 +110,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
       // the id_token is minted for, never the web client.
       const code = result.params.code;
       if (!code || !googleRequest) {
-        onError("Google sign-in was not completed. Please try again.");
+        onError(t("auth.google.notCompleted"));
         return;
       }
 
@@ -126,7 +127,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
       );
 
       if (!tokens.idToken) {
-        onError("Failed to obtain Google ID token. Please try again.");
+        onError(t("auth.google.noIdToken"));
         return;
       }
 
@@ -135,7 +136,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
     } catch (err) {
       onError(
         getFriendlyErrorMessage(err, {
-          fallback: "Google sign-in could not be completed. Please try again.",
+          fallback: t("auth.google.failed"),
         }),
       );
     } finally {
@@ -156,7 +157,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
 
       const identityToken = credential.identityToken;
       if (!identityToken) {
-        onError("Failed to obtain Apple identity token. Please try again.");
+        onError(t("auth.apple.noIdentityToken"));
         return;
       }
 
@@ -191,7 +192,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
     <View style={styles.container}>
       <View style={styles.divider}>
         <View style={styles.dividerLine} />
-        <Text style={styles.dividerText}>or</Text>
+        <Text style={styles.dividerText}>{t("auth.or")}</Text>
         <View style={styles.dividerLine} />
       </View>
 
@@ -201,7 +202,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
         onPress={handleGoogleSignIn}
         disabled={disabled || isLoading}
         activeOpacity={0.8}
-        accessibilityLabel="Continue with Google"
+        accessibilityLabel={t("auth.continueWithGoogle")}
         accessibilityRole="button"
       >
         {isGoogleLoading ? (
@@ -209,7 +210,9 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
         ) : (
           <>
             <Ionicons name="logo-google" size={20} color={Colors.textMain} />
-            <Text style={styles.googleButtonText}>Continue with Google</Text>
+            <Text style={styles.googleButtonText}>
+              {t("auth.continueWithGoogle")}
+            </Text>
           </>
         )}
       </TouchableOpacity>
@@ -221,7 +224,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
           onPress={handleAppleSignIn}
           disabled={disabled || isLoading}
           activeOpacity={0.8}
-          accessibilityLabel="Sign in with Apple"
+          accessibilityLabel={t("auth.signInWithApple")}
           accessibilityRole="button"
         >
           {isAppleLoading ? (
@@ -229,7 +232,9 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
           ) : (
             <>
               <Ionicons name="logo-apple" size={20} color={Colors.surface} />
-              <Text style={styles.appleButtonText}>Sign in with Apple</Text>
+              <Text style={styles.appleButtonText}>
+                {t("auth.signInWithApple")}
+              </Text>
             </>
           )}
         </TouchableOpacity>

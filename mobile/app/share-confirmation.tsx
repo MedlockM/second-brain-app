@@ -31,13 +31,14 @@ import {
   Shadows,
   TouchTarget,
 } from "../src/constants/theme";
+import { t, type TranslationKey, useTranslation } from "../src/i18n";
 
-const TOP_BAR_TITLES: Record<ShareContentType, string> = {
-  url: "Save Link",
-  text: "Save Text",
-  audio: "Save Audio",
-  file: "Import File",
-  photo: "Save Photo",
+const TOP_BAR_TITLE_KEYS: Record<ShareContentType, TranslationKey> = {
+  url: "share.title.url",
+  text: "share.title.text",
+  audio: "share.title.audio",
+  file: "share.title.file",
+  photo: "share.title.photo",
 };
 
 /**
@@ -61,6 +62,8 @@ const TOP_BAR_TITLES: Record<ShareContentType, string> = {
  * - Feedback states: submitting, success, error
  */
 export default function ShareConfirmationScreen() {
+  // Copy resolved on render: redraw when the interface language changes.
+  useTranslation();
   const router = useRouter();
   const {
     isAuthenticated,
@@ -187,7 +190,7 @@ export default function ShareConfirmationScreen() {
 
   const canSave = intake.status === "ready" || intake.status === "error";
 
-  const topBarTitle = TOP_BAR_TITLES[intake.contentType];
+  const topBarTitle = t(TOP_BAR_TITLE_KEYS[intake.contentType]);
 
   if (!isSessionReady || isLoading || !isAuthenticated) {
     return (
@@ -206,7 +209,7 @@ export default function ShareConfirmationScreen() {
         <Pressable
           style={styles.closeButton}
           onPress={handleClose}
-          accessibilityLabel="Close"
+          accessibilityLabel={t("common.close")}
           accessibilityRole="button"
         >
           <Ionicons name="close" size={24} color={Colors.textMain} />
@@ -218,13 +221,13 @@ export default function ShareConfirmationScreen() {
           style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
           onPress={handleSave}
           disabled={!canSave}
-          accessibilityLabel="Save"
+          accessibilityLabel={t("common.save")}
           accessibilityRole="button"
         >
           {intake.status === "submitting" ? (
             <ActivityIndicator size="small" color={Colors.textMain} />
           ) : (
-            <Text style={styles.saveButtonText}>Save</Text>
+            <Text style={styles.saveButtonText}>{t("common.save")}</Text>
           )}
         </Pressable>
       </View>
@@ -271,7 +274,7 @@ function ShareContent({
       return (
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.statusText}>Processing shared content...</Text>
+          <Text style={styles.statusText}>{t("share.processing")}</Text>
         </View>
       );
 
@@ -281,7 +284,7 @@ function ShareContent({
           <View style={styles.errorIcon}>
             <Ionicons name="alert-circle" size={48} color={Colors.error} />
           </View>
-          <Text style={styles.errorTitle}>Cannot save this content</Text>
+          <Text style={styles.errorTitle}>{t("share.invalid")}</Text>
           <Text style={styles.errorMessage}>{intake.message}</Text>
         </View>
       );
@@ -422,7 +425,7 @@ function ShareContent({
           <View style={styles.successIcon}>
             <Ionicons name="checkmark-circle" size={48} color={Colors.primary} />
           </View>
-          <Text style={styles.successTitle}>Saved!</Text>
+          <Text style={styles.successTitle}>{t("share.saved")}</Text>
           <Text style={styles.successMessage}>{getSuccessMessage(intake)}</Text>
         </View>
       );
@@ -445,7 +448,9 @@ function ShareContent({
             />
           </View>
           <Text style={styles.errorTitle}>
-            {quotaErrorCode ? getQuotaErrorTitle(quotaErrorCode) : "Save failed"}
+            {quotaErrorCode
+              ? getQuotaErrorTitle(quotaErrorCode)
+              : t("share.saveFailed")}
           </Text>
           <Text testID="share-error-message" style={styles.errorMessage}>
             {intake.message}
@@ -458,11 +463,11 @@ function ShareContent({
                 pressed && styles.upgradeButtonPressed,
               ]}
               onPress={onOpenPaywall}
-              accessibilityLabel="See plans"
+              accessibilityLabel={t("quota.seePlans")}
               accessibilityRole="button"
             >
               <Ionicons name="sparkles" size={18} color={Colors.onPrimary} />
-              <Text style={styles.upgradeButtonText}>See plans</Text>
+              <Text style={styles.upgradeButtonText}>{t("quota.seePlans")}</Text>
             </Pressable>
           )}
           {/* No retry on a limit: the same submission would be refused for the
@@ -472,11 +477,11 @@ function ShareContent({
             <Pressable
               style={styles.retryButton}
               onPress={onRetry}
-              accessibilityLabel="Try again"
+              accessibilityLabel={t("paywall.tryAgain")}
               accessibilityRole="button"
             >
               <Ionicons name="refresh" size={18} color={Colors.textMain} />
-              <Text style={styles.retryButtonText}>Try again</Text>
+              <Text style={styles.retryButtonText}>{t("paywall.tryAgain")}</Text>
             </Pressable>
           )}
         </View>
@@ -494,21 +499,21 @@ function ShareContent({
  */
 function getSuccessMessage(intake: ShareIntakeState): string {
   if (intake.response?.deduplicated) {
-    return "This content was already in your inbox.";
+    return t("share.success.duplicate");
   }
   switch (intake.contentType) {
     case "audio":
-      return "Audio saved. Transcription will begin shortly.";
+      return t("share.success.audio");
     case "text":
-      return "Text saved to your inbox.";
+      return t("share.success.text");
     case "photo":
-      return "Photo imported. Text extraction will begin shortly.";
+      return t("share.success.photo");
     case "file":
       return intake.uploadFile?.kind === "audio"
-        ? "Audio file imported. Transcription will begin shortly."
-        : "File imported. Processing will begin shortly.";
+        ? t("share.success.audioFile")
+        : t("share.success.file");
     case "url":
-      return "Link added to your inbox. Processing will begin shortly.";
+      return t("share.success.url");
   }
 }
 
@@ -566,7 +571,9 @@ function FilePreviewCard({
         <View style={styles.previewSubmitting}>
           <ActivityIndicator size="small" color={Colors.primary} />
           <Text style={styles.previewSubmittingText}>
-            {file.kind === "audio" ? "Uploading audio..." : "Uploading file..."}
+            {file.kind === "audio"
+              ? t("share.uploadingAudio")
+              : t("share.uploadingFile")}
           </Text>
         </View>
       )}
@@ -609,7 +616,7 @@ function UrlPreviewCard({
       {isSubmitting && (
         <View style={styles.previewSubmitting}>
           <ActivityIndicator size="small" color={Colors.primary} />
-          <Text style={styles.previewSubmittingText}>Saving...</Text>
+          <Text style={styles.previewSubmittingText}>{t("share.saving")}</Text>
         </View>
       )}
     </View>
@@ -633,7 +640,7 @@ function TextPreviewCard({
           <Text style={styles.previewUrl} numberOfLines={5}>
             {text}
           </Text>
-          <Text style={styles.previewDomain}>WhatsApp text message</Text>
+          <Text style={styles.previewDomain}>{t("share.whatsappText")}</Text>
         </View>
         <View style={styles.previewIconContainer}>
           <Ionicons name="chatbubble-outline" size={24} color={Colors.textMuted} />
@@ -642,7 +649,7 @@ function TextPreviewCard({
       {isSubmitting && (
         <View style={styles.previewSubmitting}>
           <ActivityIndicator size="small" color={Colors.primary} />
-          <Text style={styles.previewSubmittingText}>Saving...</Text>
+          <Text style={styles.previewSubmittingText}>{t("share.saving")}</Text>
         </View>
       )}
     </View>
@@ -686,7 +693,9 @@ function AudioPreviewCard({
       {isSubmitting && (
         <View style={styles.previewSubmitting}>
           <ActivityIndicator size="small" color={Colors.primary} />
-          <Text style={styles.previewSubmittingText}>Uploading audio...</Text>
+          <Text style={styles.previewSubmittingText}>
+            {t("share.uploadingAudio")}
+          </Text>
         </View>
       )}
     </View>
@@ -709,7 +718,7 @@ function OrganizationControls({
   const tagsLabel =
     selectedTags.length > 0
       ? selectedTags.map((tag) => tag.name).join(", ")
-      : "Tags";
+      : t("share.tags");
 
   return (
     <View style={styles.organizationSection}>
@@ -721,7 +730,7 @@ function OrganizationControls({
         ]}
         onPress={onOpenCollection}
         disabled={disabled}
-        accessibilityLabel="Choose collection"
+        accessibilityLabel={t("share.chooseCollection")}
         accessibilityRole="button"
       >
         <View style={styles.organizationRowLeft}>
@@ -731,7 +740,7 @@ function OrganizationControls({
             color={Colors.textMuted}
           />
           <Text style={styles.organizationRowLabel} numberOfLines={1}>
-            {selectedFolder?.path ?? "Non trié"}
+            {selectedFolder?.path ?? t("collectionPicker.unsorted")}
           </Text>
         </View>
         <Ionicons
@@ -749,7 +758,7 @@ function OrganizationControls({
         ]}
         onPress={onOpenTags}
         disabled={disabled}
-        accessibilityLabel="Choose tags"
+        accessibilityLabel={t("share.chooseTags")}
         accessibilityRole="button"
       >
         <View style={styles.organizationRowLeft}>
@@ -908,7 +917,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
-    marginRight: Spacing.sm,
+    marginEnd: Spacing.sm,
   },
   organizationRowLabel: {
     flex: 1,

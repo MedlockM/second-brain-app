@@ -19,6 +19,7 @@ import {
   BorderRadius,
   Shadows,
 } from "../../src/constants/theme";
+import { t, useTranslation } from "../../src/i18n";
 import { DEFAULT_COLLECTION_TINT } from "../../src/lib/collectionTree";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useShareIntake } from "../../src/contexts/ShareIntentContext";
@@ -78,6 +79,8 @@ function buildCollectionTree(collections: Collection[]): {
  * - "+" button to create new collection
  */
 export default function CollectionScreen() {
+  // Copy resolved on render: redraw when the interface language changes.
+  useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams<{
     mode?: string;
@@ -125,7 +128,7 @@ export default function CollectionScreen() {
         expandWithChildren(buildCollectionTree(data).treeCollections);
         setExpandedIds(expanded);
       } catch {
-        setError("Failed to load collections");
+        setError(t("collectionPicker.loadFailed"));
       } finally {
         setIsLoading(false);
       }
@@ -181,7 +184,7 @@ export default function CollectionScreen() {
       );
       handleBack();
     } catch {
-      setError("Failed to save collection");
+      setError(t("collectionPicker.saveFailed"));
       setIsSaving(false);
     }
   }, [isAuthenticated, params.mediaItemId, selectedId, handleBack]);
@@ -225,7 +228,7 @@ export default function CollectionScreen() {
         router.back();
       }
     } catch {
-      setError("Failed to create collection");
+      setError(t("collectionPicker.createFailed"));
     } finally {
       setIsCreating(false);
       setNewCollectionName("");
@@ -273,7 +276,7 @@ export default function CollectionScreen() {
         <TouchableOpacity
           style={[
             styles.collectionRow,
-            { paddingLeft: Spacing.md + depth * 40 },
+            { paddingStart: Spacing.md + depth * 40 },
             isSelected && styles.collectionRowSelected,
           ]}
           onPress={() => handleSelectCollection(collection)}
@@ -309,7 +312,9 @@ export default function CollectionScreen() {
                 onPress={() => handleToggleExpand(collection.id)}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 accessibilityLabel={
-                  isExpanded ? "Collapse" : "Expand"
+                  isExpanded
+                    ? t("collectionPicker.collapse")
+                    : t("collectionPicker.expand")
                 }
               >
                 <Ionicons
@@ -348,13 +353,13 @@ export default function CollectionScreen() {
         <TouchableOpacity
           style={styles.backButton}
           onPress={handleBack}
-          accessibilityLabel="Go back"
+          accessibilityLabel={t("common.goBack")}
           accessibilityRole="button"
         >
           <Ionicons name="arrow-back" size={22} color={Colors.textMain} />
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>Collection</Text>
+        <Text style={styles.headerTitle}>{t("collectionPicker.title")}</Text>
 
         {isShareMode ? (
           <View style={styles.headerActionPlaceholder} />
@@ -363,13 +368,13 @@ export default function CollectionScreen() {
             style={[styles.saveBtn, isSaving && styles.saveBtnDisabled]}
             onPress={handleSave}
             disabled={isSaving}
-            accessibilityLabel="Save selection"
+            accessibilityLabel={t("collectionPicker.saveA11y")}
             accessibilityRole="button"
           >
             {isSaving ? (
               <ActivityIndicator size="small" color={Colors.primary} />
             ) : (
-              <Text style={styles.saveBtnText}>Save</Text>
+              <Text style={styles.saveBtnText}>{t("common.save")}</Text>
             )}
           </TouchableOpacity>
         )}
@@ -380,7 +385,7 @@ export default function CollectionScreen() {
         <Ionicons name="search" size={20} color={Colors.textMuted} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Rechercher"
+          placeholder={t("collectionPicker.searchPlaceholder")}
           placeholderTextColor={Colors.textMuted}
           value={searchText}
           onChangeText={setSearchText}
@@ -420,7 +425,7 @@ export default function CollectionScreen() {
             activeOpacity={0.7}
             accessibilityRole="radio"
             accessibilityState={{ selected: selectedId === null }}
-            accessibilityLabel="Unsorted"
+            accessibilityLabel={t("collectionPicker.unsorted")}
           >
             <View style={styles.unsortedLeft}>
               <Ionicons
@@ -428,7 +433,9 @@ export default function CollectionScreen() {
                 size={24}
                 color={DEFAULT_COLLECTION_TINT}
               />
-              <Text style={styles.unsortedLabel}>Non trié</Text>
+              <Text style={styles.unsortedLabel}>
+                {t("collectionPicker.unsorted")}
+              </Text>
             </View>
             <View style={styles.unsortedRight}>
               {selectedId === null && (
@@ -443,11 +450,13 @@ export default function CollectionScreen() {
 
           {/* Collections section */}
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>My collections</Text>
+            <Text style={styles.sectionTitle}>
+              {t("collectionPicker.myCollections")}
+            </Text>
             <TouchableOpacity
               style={styles.addButton}
               onPress={handleShowCreateInput}
-              accessibilityLabel="Create new collection"
+              accessibilityLabel={t("collectionPicker.createA11y")}
               accessibilityRole="button"
             >
               <Ionicons name="add" size={22} color={Colors.primary} />
@@ -461,7 +470,7 @@ export default function CollectionScreen() {
               <TextInput
                 ref={createInputRef}
                 style={styles.createInput}
-                placeholder="Collection name"
+                placeholder={t("collectionPicker.namePlaceholder")}
                 placeholderTextColor={Colors.textMuted}
                 value={newCollectionName}
                 onChangeText={setNewCollectionName}
@@ -472,14 +481,14 @@ export default function CollectionScreen() {
               <TouchableOpacity
                 onPress={handleConfirmCreate}
                 style={styles.createConfirmBtn}
-                accessibilityLabel="Confirm"
+                accessibilityLabel={t("collectionPicker.confirm")}
               >
                 <Ionicons name="checkmark" size={20} color={Colors.primary} />
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleCancelCreate}
                 style={styles.createCancelBtn}
-                accessibilityLabel="Cancel"
+                accessibilityLabel={t("common.cancel")}
               >
                 <Ionicons name="close" size={20} color={Colors.textMuted} />
               </TouchableOpacity>
@@ -492,8 +501,8 @@ export default function CollectionScreen() {
               <View style={styles.emptyState}>
                 <Text style={styles.emptyText}>
                   {searchText
-                    ? "No collections match your search"
-                    : "No collections yet"}
+                    ? t("collectionPicker.noMatches")
+                    : t("collections.empty")}
                 </Text>
               </View>
             ) : (
@@ -565,7 +574,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: Typography.body.fontSize,
     color: Colors.textMain,
-    marginLeft: Spacing.md,
+    marginStart: Spacing.md,
     padding: 0,
   },
   errorBanner: {
@@ -656,7 +665,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingRight: Spacing.md,
+    paddingEnd: Spacing.md,
     paddingVertical: 14,
     borderRadius: BorderRadius.xl,
     marginHorizontal: Spacing.sm,

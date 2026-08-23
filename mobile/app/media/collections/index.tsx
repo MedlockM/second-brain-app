@@ -28,6 +28,7 @@ import {
   Shadows,
   TouchTarget,
 } from "../../../src/constants/theme";
+import { t, tCount, useTranslation } from "../../../src/i18n";
 import type { MediaListItem } from "../../../src/types/media";
 
 /**
@@ -41,6 +42,8 @@ import type { MediaListItem } from "../../../src/types/media";
  * Handles loading / error / empty states (AC#5).
  */
 export default function CollectionsExplorerScreen() {
+  // Copy resolved on render: redraw when the interface language changes.
+  useTranslation();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
 
@@ -74,7 +77,7 @@ export default function CollectionsExplorerScreen() {
     } catch (err) {
       setError(
         getFriendlyErrorMessage(err, {
-          fallback: "Unable to load your collections. Please try again.",
+          fallback: t("collections.loadFailed"),
         }),
       );
     }
@@ -124,19 +127,19 @@ export default function CollectionsExplorerScreen() {
         <Pressable
           style={styles.backButton}
           onPress={handleBack}
-          accessibilityLabel="Go back"
+          accessibilityLabel={t("common.goBack")}
           accessibilityRole="button"
         >
           <Ionicons name="arrow-back" size={22} color={Colors.textMain} />
         </Pressable>
-        <Text style={styles.headerTitle}>Collections</Text>
+        <Text style={styles.headerTitle}>{t("search.collections")}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
       {isLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.centeredText}>Loading collections...</Text>
+          <Text style={styles.centeredText}>{t("collections.loading")}</Text>
         </View>
       ) : error ? (
         <View style={styles.centered}>
@@ -150,11 +153,11 @@ export default function CollectionsExplorerScreen() {
           <Pressable
             style={styles.retryButton}
             onPress={handleRetry}
-            accessibilityLabel="Retry loading collections"
+            accessibilityLabel={t("search.retryCollectionsA11y")}
             accessibilityRole="button"
           >
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Text style={styles.retryButtonText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
       ) : (
@@ -190,22 +193,20 @@ function FolderRow({ node, isDefault, onPress }: FolderRowProps) {
   const childCount = node.children.length;
   const subtitleParts: string[] = [];
   if (node.directMediaCount > 0) {
-    subtitleParts.push(
-      `${node.directMediaCount} ${node.directMediaCount === 1 ? "item" : "items"}`,
-    );
+    subtitleParts.push(tCount("common.itemCount", node.directMediaCount));
   }
   if (childCount > 0) {
-    subtitleParts.push(
-      `${childCount} ${childCount === 1 ? "collection" : "collections"}`,
-    );
+    subtitleParts.push(tCount("collections.childCount", childCount));
   }
-  const subtitle = subtitleParts.length ? subtitleParts.join(" · ") : "Empty";
+  const subtitle = subtitleParts.length
+    ? subtitleParts.join(" · ")
+    : t("collections.emptyFolder");
 
   return (
     <Pressable
       style={({ pressed }) => [styles.folderCard, pressed && styles.folderCardPressed]}
       onPress={() => onPress(node)}
-      accessibilityLabel={`Open collection ${node.name}`}
+      accessibilityLabel={t("search.openCollectionA11y", { name: node.name })}
       accessibilityRole="button"
     >
       <View
@@ -240,10 +241,8 @@ function EmptyState() {
         color={Colors.textMuted}
         style={styles.centeredIcon}
       />
-      <Text style={styles.emptyTitle}>No collections yet</Text>
-      <Text style={styles.emptyHint}>
-        Organize media into collections when you save them to find them here.
-      </Text>
+      <Text style={styles.emptyTitle}>{t("collections.empty")}</Text>
+      <Text style={styles.emptyHint}>{t("collections.emptyHint")}</Text>
     </View>
   );
 }

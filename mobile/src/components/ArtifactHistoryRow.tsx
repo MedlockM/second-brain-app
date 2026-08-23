@@ -22,6 +22,7 @@ import {
   Typography,
 } from "../constants/theme";
 import { getRelativeTime } from "../lib/relativeTime";
+import { t, tCount } from "../i18n";
 import type { ArtifactSummary } from "../services/artifactService";
 import { ARTIFACT_TILES } from "./ArtifactTile";
 
@@ -43,18 +44,23 @@ export function ArtifactHistoryRow({
   const failed = artifact.status === "failed";
   // A title only exists once the model has produced one, so an in-flight or
   // failed entry falls back to its type label rather than rendering blank.
-  const title = artifact.title?.trim() || tile?.label || artifact.artifact_type;
+  const title =
+    artifact.title?.trim() ||
+    (tile ? t(tile.labelKey) : "") ||
+    artifact.artifact_type;
 
   const metaParts: string[] = [];
   if (showSourceCount) {
-    metaParts.push(
-      `${artifact.source_count} ${artifact.source_count === 1 ? "source" : "sources"}`,
-    );
+    metaParts.push(tCount("artifacts.sourceCount", artifact.source_count));
   }
   if (inFlight) {
-    metaParts.push(artifact.status === "queued" ? "Queued" : "Generating...");
+    metaParts.push(
+      artifact.status === "queued"
+        ? t("artifacts.status.queued")
+        : t("artifacts.status.generating"),
+    );
   } else if (failed) {
-    metaParts.push("Failed");
+    metaParts.push(t("artifacts.status.failed"));
   } else {
     metaParts.push(getRelativeTime(artifact.created_at));
   }
@@ -65,7 +71,10 @@ export function ArtifactHistoryRow({
       onPress={() => onPress(artifact)}
       disabled={inFlight}
       testID={`artifact-history-row-${artifact.artifact_id}`}
-      accessibilityLabel={`${tile?.label ?? artifact.artifact_type}: ${title}`}
+      accessibilityLabel={t("artifacts.history.a11yRow", {
+        type: tile ? t(tile.labelKey) : artifact.artifact_type,
+        title,
+      })}
       accessibilityRole="button"
       accessibilityState={{ disabled: inFlight }}
     >

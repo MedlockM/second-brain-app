@@ -24,6 +24,7 @@ import {
   Shadows,
   TouchTarget,
 } from "../../src/constants/theme";
+import { t, tCount, useTranslation } from "../../src/i18n";
 import type {
   DailyDigest,
   WeeklyDigest,
@@ -41,6 +42,8 @@ type DigestTab = "daily" | "weekly";
  * Matches the "Your Day in Review" / "Your Week in Review" mockup designs.
  */
 export default function DigestScreen() {
+  // Resolved-on-render copy: the screen has to redraw with the language.
+  useTranslation();
   const { isAuthenticated } = useAuth();
   const router = useRouter();
 
@@ -68,7 +71,7 @@ export default function DigestScreen() {
         }
       } catch (err: unknown) {
         const message =
-          err instanceof Error ? err.message : "Failed to load digest";
+          err instanceof Error ? err.message : t("digest.loadFailed");
         setError(message);
       } finally {
         setIsLoading(false);
@@ -121,12 +124,12 @@ export default function DigestScreen() {
       : weeklyDigest?.top_items ?? [];
 
   const headerTitle =
-    activeTab === "daily" ? "Your Day in Review" : "Your Week in Review";
+    activeTab === "daily" ? t("digest.dailyTitle") : t("digest.weeklyTitle");
 
   const headerSubtitle =
     activeTab === "daily"
-      ? `${items.length} insight${items.length !== 1 ? "s" : ""} from today`
-      : `${items.length} insight${items.length !== 1 ? "s" : ""} ready for review`;
+      ? tCount("digest.dailySubtitle", items.length)
+      : tCount("digest.weeklySubtitle", items.length);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -146,7 +149,7 @@ export default function DigestScreen() {
                 activeTab === "daily" && styles.segmentButtonTextActive,
               ]}
             >
-              Daily
+              {t("digest.daily")}
             </Text>
           </Pressable>
           <Pressable
@@ -162,7 +165,7 @@ export default function DigestScreen() {
                 activeTab === "weekly" && styles.segmentButtonTextActive,
               ]}
             >
-              Weekly
+              {t("digest.weekly")}
             </Text>
           </Pressable>
         </View>
@@ -192,7 +195,7 @@ export default function DigestScreen() {
         >
           <Text style={styles.errorText}>{error}</Text>
           <Pressable style={styles.retryButton} onPress={handleRefresh}>
-            <Text style={styles.retryButtonText}>Try Again</Text>
+            <Text style={styles.retryButtonText}>{t("digest.tryAgain")}</Text>
           </Pressable>
         </ScrollView>
       ) : items.length === 0 ? (
@@ -263,12 +266,12 @@ function EmptyState({ tab }: { tab: DigestTab }) {
   return (
     <View style={styles.emptyState}>
       <Text style={styles.emptyStateTitle}>
-        {tab === "daily" ? "No insights yet today" : "No insights this week"}
+        {tab === "daily" ? t("digest.emptyDaily") : t("digest.emptyWeekly")}
       </Text>
       <Text style={styles.emptyStateHint}>
         {tab === "daily"
-          ? "Share media to your library and check back later for your personalized digest."
-          : "Process some media throughout the week to see your weekly summary here."}
+          ? t("digest.emptyDailyHint")
+          : t("digest.emptyWeeklyHint")}
       </Text>
     </View>
   );
@@ -282,7 +285,7 @@ function InsightCard({
   onPress: () => void;
 }) {
   const readTime = item.read_time_minutes
-    ? `${item.read_time_minutes}m read`
+    ? tCount("digest.readTime", item.read_time_minutes)
     : "";
 
   // Extract a "key quote" from the summary_excerpt (first sentence as emphasis)
@@ -342,12 +345,14 @@ function InsightCard({
 
 function formatMediaType(type: string): string {
   const map: Record<string, string> = {
-    podcast_episode: "Podcast",
-    article: "Article",
-    youtube_video: "YouTube",
-    short_video: "Video",
-    audio_file: "Audio",
-    shared_text: "Text",
+    podcast_episode: t("digest.type.podcast"),
+    article: t("digest.type.article"),
+    // YouTube is a brand, so it is the same word in every catalogue — it still
+    // goes through one so the map has a single shape.
+    youtube_video: t("digest.type.youtube"),
+    short_video: t("digest.type.video"),
+    audio_file: t("digest.type.audio"),
+    shared_text: t("digest.type.text"),
   };
   return map[type] || type.charAt(0).toUpperCase() + type.slice(1);
 }

@@ -35,6 +35,7 @@ import {
   type CollectionNode,
 } from "../../src/lib/collectionTree";
 import { filterCollectionsByName } from "../../src/lib/collectionSearch";
+import { formatDate, t, tCount, useTranslation } from "../../src/i18n";
 import { parseHighlightSnippet } from "../../src/lib/highlightSnippet";
 import { MediaListCard } from "../../src/components/MediaListCard";
 import {
@@ -111,7 +112,7 @@ function getSourceLabel(platform: string | null): string {
     case "direct_url":
       return "Direct URL";
     default:
-      return "Unknown";
+      return t("mediaType.unknownSource");
   }
 }
 
@@ -123,11 +124,13 @@ function formatTimestamp(unixTimestamp: number): string {
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays === 0) return t("time.today");
+  if (diffDays === 1) return t("time.yesterday");
+  if (diffDays < 7) return tCount("time.daysAgo", diffDays);
 
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  // The active UI locale, never a hardcoded language tag: a French reader gets
+  // 12 sept. where an English one gets Sep 12.
+  return formatDate(date, { month: "short", day: "numeric" });
 }
 
 // --- Main Screen Component ---
@@ -144,6 +147,9 @@ function formatTimestamp(unixTimestamp: number): string {
  */
 export default function SearchScreen() {
   const { isAuthenticated } = useAuth();
+  // Subscribes the screen to the interface language: the copy below is resolved
+  // at render time, so the tree has to redraw when the language changes.
+  useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -200,7 +206,8 @@ export default function SearchScreen() {
         setResults(response.hits);
         setTotalResults(response.found);
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Search failed";
+        const message =
+          err instanceof Error ? err.message : t("search.failed");
         setError(message);
         setResults([]);
         setTotalResults(0);
@@ -228,7 +235,7 @@ export default function SearchScreen() {
     } catch (err) {
       setCollectionsError(
         getFriendlyErrorMessage(err, {
-          fallback: "Unable to load your collections.",
+          fallback: t("search.collectionsLoadFailed"),
         }),
       );
     }
@@ -247,7 +254,7 @@ export default function SearchScreen() {
     } catch (err) {
       setMediaError(
         getFriendlyErrorMessage(err, {
-          fallback: "Unable to load your library.",
+          fallback: t("search.libraryLoadFailed"),
         }),
       );
     }
@@ -407,7 +414,7 @@ export default function SearchScreen() {
           <TextInput
             testID="search-input"
             style={styles.searchInput}
-            placeholder="Search your library..."
+            placeholder={t("search.placeholder")}
             placeholderTextColor={Colors.textMuted}
             value={query}
             onChangeText={handleQueryChange}
@@ -420,7 +427,7 @@ export default function SearchScreen() {
               onPress={handleClearQuery}
               style={styles.clearButton}
               hitSlop={8}
-              accessibilityLabel="Clear search query"
+              accessibilityLabel={t("search.clearA11y")}
               accessibilityRole="button"
             >
               <Ionicons name="close" size={18} color={Colors.textMuted} />
@@ -517,7 +524,7 @@ function LibraryState({
     <InlineErrorCard
       message={mediaError}
       onRetry={onRetryMedia}
-      retryAccessibilityLabel="Retry loading your library"
+      retryAccessibilityLabel={t("search.retryLibraryA11y")}
     />
   ) : (
     <EmptyLibraryState />
@@ -568,7 +575,7 @@ function LibraryState({
           <InlineErrorCard
             message={mediaError}
             onRetry={onRetryMedia}
-            retryAccessibilityLabel="Retry loading your library"
+            retryAccessibilityLabel={t("search.retryLibraryA11y")}
           />
         ) : null
       }
@@ -593,7 +600,7 @@ function LibraryHeader({
 }) {
   return (
     <View style={styles.libraryHeader}>
-      <Text style={styles.sectionTitle}>Collections</Text>
+      <Text style={styles.sectionTitle}>{t("search.collections")}</Text>
 
       {collectionsLoading ? (
         <View style={styles.sectionLoadingRow}>
@@ -603,12 +610,10 @@ function LibraryHeader({
         <InlineErrorCard
           message={collectionsError}
           onRetry={onRetryCollections}
-          retryAccessibilityLabel="Retry loading collections"
+          retryAccessibilityLabel={t("search.retryCollectionsA11y")}
         />
       ) : collections.length === 0 ? (
-        <Text style={styles.sectionHint}>
-          No collections yet. Organize media into collections when you save them.
-        </Text>
+        <Text style={styles.sectionHint}>{t("search.noCollections")}</Text>
       ) : (
         // Laid out by wrapping rather than by a nested FlatList: a vertical
         // virtualized list inside another one is unsupported, and the number of
@@ -626,10 +631,10 @@ function LibraryHeader({
       )}
 
       <View style={styles.mediaSectionHeader}>
-        <Text style={styles.sectionTitle}>All media</Text>
+        <Text style={styles.sectionTitle}>{t("search.allMedia")}</Text>
         {mediaCount > 0 ? (
           <Text style={styles.mediaSectionCount}>
-            {mediaCount} {mediaCount === 1 ? "item" : "items"}
+            {tCount("common.itemCount", mediaCount)}
           </Text>
         ) : null}
       </View>
@@ -702,13 +707,11 @@ function SearchResultsState({
     <InlineErrorCard
       message={error}
       onRetry={onRetrySearch}
-      retryAccessibilityLabel="Retry the search"
+      retryAccessibilityLabel={t("search.retrySearchA11y")}
       style={styles.inlineErrorCardFlush}
     />
   ) : (
-    <Text style={styles.slotHint}>
-      No matches for "{query}". Try different keywords.
-    </Text>
+    <Text style={styles.slotHint}>{t("search.noMatches", { query })}</Text>
   );
 
   return (
@@ -739,7 +742,7 @@ function SearchResultsState({
       ListEmptyComponent={resultsPlaceholder}
       ListFooterComponent={
         !isPending && !error && results.length > 0 ? (
-          <Text style={styles.endOfResults}>End of results</Text>
+          <Text style={styles.endOfResults}>{t("search.endOfResults")}</Text>
         ) : null
       }
     />
@@ -768,7 +771,7 @@ function SearchResultsHeader({
     <View>
       {showCollections ? (
         <>
-          <Text style={styles.sectionTitle}>Collections</Text>
+          <Text style={styles.sectionTitle}>{t("search.collections")}</Text>
 
           {collectionsLoading ? (
             <View style={styles.sectionLoadingRow}>
@@ -778,7 +781,7 @@ function SearchResultsHeader({
             <InlineErrorCard
               message={collectionsError}
               onRetry={onRetryCollections}
-              retryAccessibilityLabel="Retry loading collections"
+              retryAccessibilityLabel={t("search.retryCollectionsA11y")}
               style={styles.inlineErrorCardFlush}
             />
           ) : (
@@ -798,11 +801,11 @@ function SearchResultsHeader({
 
       <View style={styles.mediaSectionHeader}>
         <Text style={[styles.sectionTitle, styles.searchSectionHeading]}>
-          All media
+          {t("search.allMedia")}
         </Text>
         {resultCount !== null && resultCount > 0 ? (
           <Text style={[styles.mediaSectionCount, styles.searchSectionHeading]}>
-            {resultCount} {resultCount === 1 ? "result" : "results"}
+            {tCount("search.resultCount", resultCount)}
           </Text>
         ) : null}
       </View>
@@ -841,7 +844,7 @@ function InlineErrorCard({
         accessibilityRole="button"
       >
         <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-        <Text style={styles.retryButtonText}>Retry</Text>
+        <Text style={styles.retryButtonText}>{t("common.retry")}</Text>
       </Pressable>
     </View>
   );
@@ -856,11 +859,8 @@ function EmptyLibraryState() {
         color={Colors.textMuted}
         style={styles.emptyIcon}
       />
-      <Text style={styles.emptyTitle}>Your library is empty</Text>
-      <Text style={styles.emptyHint}>
-        Share a link from any app, or import a file from the Inbox, and it shows
-        up here.
-      </Text>
+      <Text style={styles.emptyTitle}>{t("search.emptyLibrary")}</Text>
+      <Text style={styles.emptyHint}>{t("search.emptyLibraryHint")}</Text>
     </View>
   );
 }
@@ -883,7 +883,9 @@ function CollectionTile({
           pressed && styles.collectionTilePressed,
         ]}
         onPress={() => onPress(collection)}
-        accessibilityLabel={`Open collection ${collection.name}`}
+        accessibilityLabel={t("search.openCollectionA11y", {
+          name: collection.name,
+        })}
         accessibilityRole="button"
       >
         <View style={styles.collectionIcon}>
@@ -910,10 +912,8 @@ function NoResultsState({ query }: { query: string }) {
         color={Colors.textMuted}
         style={styles.emptyIcon}
       />
-      <Text style={styles.emptyTitle}>No results found</Text>
-      <Text style={styles.emptyHint}>
-        No matches for "{query}". Try different keywords.
-      </Text>
+      <Text style={styles.emptyTitle}>{t("search.noResultsTitle")}</Text>
+      <Text style={styles.emptyHint}>{t("search.noMatches", { query })}</Text>
     </View>
   );
 }
@@ -927,7 +927,7 @@ function ErrorState({ message }: { message: string }) {
         color={Colors.error}
         style={styles.emptyIcon}
       />
-      <Text style={styles.emptyTitle}>Something went wrong</Text>
+      <Text style={styles.emptyTitle}>{t("common.somethingWentWrong")}</Text>
       <Text style={styles.emptyHint}>{message}</Text>
     </View>
   );
@@ -1020,7 +1020,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(252, 249, 246, 0.92)",
   },
   searchIcon: {
-    marginRight: Spacing.sm,
+    marginEnd: Spacing.sm,
   },
   searchInput: {
     flex: 1,
@@ -1031,7 +1031,7 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   clearButton: {
-    marginLeft: Spacing.sm,
+    marginStart: Spacing.sm,
     padding: Spacing.xs,
   },
 

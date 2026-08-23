@@ -18,6 +18,7 @@ import {
   getPasswordValidationError,
 } from "../../src/lib/validation";
 import { SocialAuthButtons } from "../../src/components/SocialAuthButtons";
+import { t } from "../../src/i18n";
 import { Colors, Typography, Spacing, BorderRadius } from "../../src/constants/theme";
 
 export default function RegisterScreen() {
@@ -63,10 +64,8 @@ export default function RegisterScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Create account</Text>
-          <Text style={styles.subtitle}>
-            Start building your media knowledge base
-          </Text>
+          <Text style={styles.title}>{t("register.title")}</Text>
+          <Text style={styles.subtitle}>{t("register.subtitle")}</Text>
         </View>
 
         {error && (
@@ -77,7 +76,7 @@ export default function RegisterScreen() {
 
         <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email</Text>
+            <Text style={styles.inputLabel}>{t("auth.email")}</Text>
             <TextInput
               testID="register-email-input"
               style={styles.input}
@@ -86,7 +85,7 @@ export default function RegisterScreen() {
                 setEmail(text);
                 setError(null);
               }}
-              placeholder="you@example.com"
+              placeholder={t("auth.emailPlaceholder")}
               placeholderTextColor={Colors.textMuted}
               keyboardType="email-address"
               autoCapitalize="none"
@@ -97,7 +96,7 @@ export default function RegisterScreen() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Password</Text>
+            <Text style={styles.inputLabel}>{t("auth.password")}</Text>
             <TextInput
               testID="register-password-input"
               style={styles.input}
@@ -106,7 +105,7 @@ export default function RegisterScreen() {
                 setPassword(text);
                 setError(null);
               }}
-              placeholder="At least 6 characters"
+              placeholder={t("register.passwordPlaceholder")}
               placeholderTextColor={Colors.textMuted}
               secureTextEntry={process.env.EXPO_PUBLIC_E2E_MODE !== "true"}
               autoComplete={
@@ -129,13 +128,13 @@ export default function RegisterScreen() {
             onPress={handleRegister}
             disabled={isSubmitting}
             activeOpacity={0.8}
-            accessibilityLabel="Create account with email"
+            accessibilityLabel={t("register.submitA11y")}
             accessibilityRole="button"
           >
             {isSubmitting ? (
               <ActivityIndicator color={Colors.onPrimary} />
             ) : (
-              <Text style={styles.buttonText}>Create Account</Text>
+              <Text style={styles.buttonText}>{t("register.submit")}</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -146,10 +145,10 @@ export default function RegisterScreen() {
         />
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Already have an account? </Text>
+          <Text style={styles.footerText}>{t("register.hasAccount")} </Text>
           <Link href="/(auth)/login" asChild>
             <TouchableOpacity>
-              <Text style={styles.footerLink}>Sign In</Text>
+              <Text style={styles.footerLink}>{t("register.signInLink")}</Text>
             </TouchableOpacity>
           </Link>
         </View>

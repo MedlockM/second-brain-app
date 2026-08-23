@@ -34,6 +34,7 @@ import {
   BorderRadius,
   TouchTarget,
 } from "../../src/constants/theme";
+import { formatDate, t, useTranslation } from "../../src/i18n";
 import type {
   MediaStatusResponse,
   ArtifactType,
@@ -50,8 +51,8 @@ import { mergeArtifactIntoHistory } from "../../src/lib/artifactHistory";
 type MediaDetailTabKey = "reader" | "ai";
 
 const MEDIA_DETAIL_TABS: readonly ScreenTab<MediaDetailTabKey>[] = [
-  { key: "reader", label: "Reader", icon: "book-outline" },
-  { key: "ai", label: "AI", icon: "sparkles-outline" },
+  { key: "reader", labelKey: "media.tab.reader", icon: "book-outline" },
+  { key: "ai", labelKey: "media.tab.ai", icon: "sparkles-outline" },
 ];
 
 /**
@@ -135,6 +136,8 @@ function resolveSourceLink(rawUrl: string): SourceLink | null {
  * - All interactive elements meet 48px minimum touch target
  */
 export default function MediaDetailScreen() {
+  // Copy resolved on render: redraw when the interface language changes.
+  useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
 
@@ -171,15 +174,15 @@ export default function MediaDetailScreen() {
             color={Colors.error}
           />
           <Text style={styles.errorText}>
-            {fetchError || "Unable to load media details."}
+            {fetchError || t("media.loadFailed")}
           </Text>
           <Pressable
             style={styles.retryButton}
             onPress={refresh}
-            accessibilityLabel="Retry loading media details"
+            accessibilityLabel={t("media.retryA11y")}
             accessibilityRole="button"
           >
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Text style={styles.retryButtonText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -197,7 +200,7 @@ export default function MediaDetailScreen() {
           </View>
           <Text style={styles.processingTitle}>{processingMessage}</Text>
           <Text style={styles.processingSubtitle}>
-            This usually takes less than a minute.
+            {t("media.processingHint")}
           </Text>
         </View>
       </SafeAreaView>
@@ -215,20 +218,16 @@ export default function MediaDetailScreen() {
             size={48}
             color={Colors.textMuted}
           />
-          <Text style={styles.timeoutTitle}>
-            This is taking longer than usual.
-          </Text>
-          <Text style={styles.timeoutSubtitle}>
-            Pull down to refresh or come back later.
-          </Text>
+          <Text style={styles.timeoutTitle}>{t("media.timeoutTitle")}</Text>
+          <Text style={styles.timeoutSubtitle}>{t("media.timeoutHint")}</Text>
           <Pressable
             style={styles.refreshButton}
             onPress={refresh}
-            accessibilityLabel="Refresh media status"
+            accessibilityLabel={t("media.refreshA11y")}
             accessibilityRole="button"
           >
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-            <Text style={styles.refreshButtonText}>Refresh</Text>
+            <Text style={styles.refreshButtonText}>{t("media.refresh")}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -246,18 +245,18 @@ export default function MediaDetailScreen() {
             size={48}
             color={Colors.error}
           />
-          <Text style={styles.failedTitle}>Processing failed</Text>
+          <Text style={styles.failedTitle}>{t("media.failedTitle")}</Text>
           <Text style={styles.failedMessage}>
-            {processingError || "An unexpected error occurred."}
+            {processingError || t("media.failedFallback")}
           </Text>
           <Pressable
             style={styles.refreshButton}
             onPress={refresh}
-            accessibilityLabel="Refresh media status"
+            accessibilityLabel={t("media.refreshA11y")}
             accessibilityRole="button"
           >
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-            <Text style={styles.refreshButtonText}>Refresh</Text>
+            <Text style={styles.refreshButtonText}>{t("media.refresh")}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -271,7 +270,7 @@ export default function MediaDetailScreen() {
       <SafeAreaView style={styles.container} edges={["top"]}>
         <Header onBack={() => router.back()} />
         <View style={styles.centered}>
-          <Text style={styles.errorText}>Unable to load media details.</Text>
+          <Text style={styles.errorText}>{t("media.loadFailed")}</Text>
         </View>
       </SafeAreaView>
     );
@@ -358,14 +357,14 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
                 const found = collections.find((c) => c.id === newFolderId);
                 showToast(
                   found
-                    ? `Moved to "${found.name}"`
-                    : "Moved to collection",
+                    ? t("media.movedToNamed", { name: found.name })
+                    : t("media.movedToCollection"),
                 );
               } catch {
-                showToast("Moved to collection");
+                showToast(t("media.movedToCollection"));
               }
             } else {
-              showToast("Removed from collection");
+              showToast(t("media.removedFromCollection"));
             }
             previousFolderIdRef.current = newFolderId;
           }
@@ -445,7 +444,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       if (!mountedRef.current) return;
       setHistoryError(
         getFriendlyErrorMessage(err, {
-          fallback: "Unable to load generated content. Please try again.",
+          fallback: t("collection.artifactsLoadFailed"),
         }),
       );
     }
@@ -593,13 +592,14 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     } catch {
       // No handler, or the OS refused: say so instead of letting the rejection
       // bubble out of the press handler.
-      showToast(`Couldn't open ${sourceLink.host}`, "error");
+      showToast(t("media.openFailed", { host: sourceLink.host }), "error");
     }
   }, [sourceLink, showToast]);
 
   const formattedDate = (() => {
     try {
-      return new Date(media_item.created_at).toLocaleDateString("en-US", {
+      // The active UI locale, never a hardcoded language tag.
+      return formatDate(new Date(media_item.created_at), {
         month: "short",
         day: "numeric",
         year: "numeric",
@@ -730,7 +730,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       setRawContent({
         status: "error",
         message: getFriendlyErrorMessage(err, {
-          fallback: "Unable to load the transcript right now.",
+          fallback: t("media.transcriptLoadFailed"),
         }),
       });
     }
@@ -825,7 +825,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
             tabs={MEDIA_DETAIL_TABS}
             activeKey={activeTab}
             onChange={setActiveTab}
-            accessibilityLabel="Media sections"
+            accessibilityLabel={t("media.sectionsA11y")}
           />
         </View>
 
@@ -884,7 +884,7 @@ function Header({
       <Pressable
         style={styles.headerButton}
         onPress={onBack}
-        accessibilityLabel="Go back"
+        accessibilityLabel={t("common.goBack")}
         accessibilityRole="button"
         hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
       >
@@ -895,7 +895,7 @@ function Header({
           <Pressable
             style={styles.headerButton}
             onPress={onCollectionPress}
-            accessibilityLabel="Move to collection"
+            accessibilityLabel={t("media.moveToCollectionA11y")}
             accessibilityRole="button"
             hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
           >
@@ -908,7 +908,7 @@ function Header({
         )}
         <Pressable
           style={styles.headerButton}
-          accessibilityLabel="Share"
+          accessibilityLabel={t("media.shareA11y")}
           accessibilityRole="button"
           hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
         >

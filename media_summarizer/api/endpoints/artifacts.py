@@ -237,10 +237,7 @@ async def create_artifact(
                 )
                 raise HTTPException(
                     status_code=quota_result.http_status,
-                    detail={
-                        "error_code": quota_result.error_code,
-                        "message": quota_result.message,
-                    },
+                    detail=quota_result.error_body(),
                     headers={"X-Quota-Error-Code": quota_result.error_code or ""},
                 )
 

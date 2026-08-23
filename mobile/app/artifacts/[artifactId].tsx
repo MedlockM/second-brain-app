@@ -23,6 +23,13 @@ import {
   TouchTarget,
   Typography,
 } from "../../src/constants/theme";
+import {
+  LOCALE_ENDONYMS,
+  t,
+  tCount,
+  useTranslation,
+  type TranslationKey,
+} from "../../src/i18n";
 
 /**
  * Artifact detail screen.
@@ -82,33 +89,26 @@ interface TranslationInfo {
 }
 
 /** English display names for the 11 V1 reading languages (task-189). */
-const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
-  fr: "French",
-  en: "English",
-  es: "Spanish",
-  de: "German",
-  it: "Italian",
-  pt: "Portuguese",
-  nl: "Dutch",
-  ja: "Japanese",
-  zh: "Chinese",
-  ar: "Arabic",
-  hi: "Hindi",
-};
+/**
+ * The languages a transcript can be translated from, named in their own script
+ * — `LOCALE_ENDONYMS`, the same map the two language pickers read, rather than
+ * a third list of English exonyms that could drift from them.
+ */
+const LANGUAGE_DISPLAY_NAMES: Record<string, string> = LOCALE_ENDONYMS;
 
 function languageDisplayName(code: string | null): string {
-  if (!code) return "another language";
+  if (!code) return t("artifact.anotherLanguage");
   const normalized = code.trim().toLowerCase();
   return LANGUAGE_DISPLAY_NAMES[normalized] ?? code.toUpperCase();
 }
 
-const KIND_LABEL: Record<ArtifactKind, string> = {
-  summary_short: "Summary",
-  summary_detailed: "Summary",
-  summary: "Summary",
-  notes: "Learning notes",
-  flashcards: "Flashcards",
-  quiz: "Quiz",
+const KIND_LABEL_KEYS: Record<ArtifactKind, TranslationKey> = {
+  summary_short: "artifacts.type.summaryShort",
+  summary_detailed: "artifacts.type.summaryShort",
+  summary: "artifacts.type.summaryShort",
+  notes: "artifacts.type.notes",
+  flashcards: "artifacts.type.flashcards",
+  quiz: "artifacts.type.quiz",
 };
 
 const KIND_ICON: Record<
@@ -124,6 +124,8 @@ const KIND_ICON: Record<
 };
 
 export default function ArtifactDetailScreen() {
+  // Copy resolved on render: redraw when the interface language changes.
+  useTranslation();
   const { artifactId } = useLocalSearchParams<{ artifactId: string }>();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
@@ -183,7 +185,7 @@ export default function ArtifactDetailScreen() {
       setState({
         status: "error",
         message: getFriendlyErrorMessage(err, {
-          fallback: "Unable to load this artifact.",
+          fallback: t("artifact.loadFailed"),
         }),
       });
     }
@@ -222,7 +224,7 @@ export default function ArtifactDetailScreen() {
         <Pressable
           style={styles.headerButton}
           onPress={handleBack}
-          accessibilityLabel="Go back"
+          accessibilityLabel={t("common.goBack")}
           accessibilityRole="button"
           hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
         >
@@ -243,16 +245,16 @@ export default function ArtifactDetailScreen() {
             color={Colors.error}
             style={styles.failedIcon}
           />
-          <Text style={styles.failedTitle}>Unable to load</Text>
+          <Text style={styles.failedTitle}>{t("artifact.failedTitle")}</Text>
           <Text style={styles.failedMessage}>{state.message}</Text>
           <Pressable
             style={styles.refreshButton}
             onPress={handleReload}
-            accessibilityLabel="Retry loading artifact"
+            accessibilityLabel={t("artifact.retryA11y")}
             accessibilityRole="button"
           >
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-            <Text style={styles.refreshButtonText}>Retry</Text>
+            <Text style={styles.refreshButtonText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
       ) : state.status === "not_ready" ? (
@@ -263,16 +265,16 @@ export default function ArtifactDetailScreen() {
             color={Colors.textMuted}
             style={styles.failedIcon}
           />
-          <Text style={styles.failedTitle}>Not ready yet</Text>
+          <Text style={styles.failedTitle}>{t("artifact.notReady")}</Text>
           <Text style={styles.failedMessage}>{state.message}</Text>
           <Pressable
             style={styles.refreshButton}
             onPress={handleReload}
-            accessibilityLabel="Refresh artifact"
+            accessibilityLabel={t("artifact.refreshA11y")}
             accessibilityRole="button"
           >
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-            <Text style={styles.refreshButtonText}>Refresh</Text>
+            <Text style={styles.refreshButtonText}>{t("media.refresh")}</Text>
           </Pressable>
         </View>
       ) : (
@@ -290,7 +292,7 @@ export default function ArtifactDetailScreen() {
                 color={Colors.textMain}
               />
               <Text style={styles.kindChipText}>
-                {KIND_LABEL[state.type].toUpperCase()}
+                {t(KIND_LABEL_KEYS[state.type]).toUpperCase()}
               </Text>
             </View>
             {state.sourceTitle ? (
@@ -332,7 +334,9 @@ function TranslationBadge({
       <View
         style={[styles.translationBadge, styles.translationBadgeFailed]}
         accessibilityRole="text"
-        accessibilityLabel={`Translation unavailable. This content is shown in its original language, ${fromName}.`}
+        accessibilityLabel={t("artifact.translationFailedA11y", {
+          language: fromName,
+        })}
       >
         <Ionicons
           name="alert-circle-outline"
@@ -340,7 +344,7 @@ function TranslationBadge({
           color={Colors.error}
         />
         <Text style={[styles.translationBadgeText, styles.translationBadgeTextFailed]}>
-          Translation unavailable — shown in {fromName}
+          {t("artifact.translationFailed", { language: fromName })}
         </Text>
       </View>
     );
@@ -353,10 +357,12 @@ function TranslationBadge({
     <View
       style={styles.translationBadge}
       accessibilityRole="text"
-      accessibilityLabel={`Translated from ${fromName}`}
+      accessibilityLabel={t("artifact.translatedFrom", { language: fromName })}
     >
       <Ionicons name="language-outline" size={14} color={Colors.textMain} />
-      <Text style={styles.translationBadgeText}>Translated from {fromName}</Text>
+      <Text style={styles.translationBadgeText}>
+        {t("artifact.translatedFrom", { language: fromName })}
+      </Text>
     </View>
   );
 }
@@ -407,12 +413,12 @@ function SummaryShortBody({ content }: { content: Record<string, unknown> }) {
         <Text style={styles.summaryHeadline}>{headline}</Text>
       ) : null}
       {keyPoints && keyPoints.length > 0 ? (
-        <Section title="Key points">
+        <Section title={t("artifact.section.keyPoints")}>
           <Bullets items={keyPoints} />
         </Section>
       ) : null}
       {takeaway ? (
-        <Section title="Takeaway">
+        <Section title={t("artifact.section.takeaway")}>
           <View style={styles.takeawayCard}>
             <Ionicons
               name="bulb-outline"
@@ -447,12 +453,12 @@ function SummaryDetailedBody({
   return (
     <View>
       {context ? (
-        <Section title="Context">
+        <Section title={t("artifact.section.context")}>
           <Text style={styles.body}>{context}</Text>
         </Section>
       ) : null}
       {mainTopics && mainTopics.length > 0 ? (
-        <Section title="Main topics">
+        <Section title={t("artifact.section.mainTopics")}>
           <View style={styles.topicChipsRow}>
             {mainTopics.map((topic, i) => (
               <View key={`topic-${i}`} style={styles.topicChip}>
@@ -463,12 +469,12 @@ function SummaryDetailedBody({
         </Section>
       ) : null}
       {keyPoints && keyPoints.length > 0 ? (
-        <Section title="Key points">
+        <Section title={t("artifact.section.keyPoints")}>
           <Bullets items={keyPoints} />
         </Section>
       ) : null}
       {quotes && quotes.length > 0 ? (
-        <Section title="Notable quotes">
+        <Section title={t("artifact.section.quotes")}>
           {quotes.map((q, i) => (
             <View key={`quote-${i}`} style={styles.quoteCard}>
               <Text style={styles.quoteMark}>“</Text>
@@ -481,7 +487,7 @@ function SummaryDetailedBody({
         </Section>
       ) : null}
       {conclusion ? (
-        <Section title="Conclusion">
+        <Section title={t("artifact.section.conclusion")}>
           <Text style={styles.body}>{conclusion}</Text>
         </Section>
       ) : null}
@@ -501,12 +507,12 @@ function NotesBody({ content }: { content: Record<string, unknown> }) {
   return (
     <View>
       {objectives && objectives.length > 0 ? (
-        <Section title="Objectives">
+        <Section title={t("artifact.section.objectives")}>
           <Bullets items={objectives} />
         </Section>
       ) : null}
       {concepts && concepts.length > 0 ? (
-        <Section title="Concepts">
+        <Section title={t("artifact.section.concepts")}>
           {concepts.map((c, i) => (
             <View key={`concept-${i}`} style={styles.conceptCard}>
               <View style={styles.conceptHeader}>
@@ -539,17 +545,17 @@ function NotesBody({ content }: { content: Record<string, unknown> }) {
         </Section>
       ) : null}
       {keyPoints && keyPoints.length > 0 ? (
-        <Section title="Key points">
+        <Section title={t("artifact.section.keyPoints")}>
           <Bullets items={keyPoints} />
         </Section>
       ) : null}
       {actionItems && actionItems.length > 0 ? (
-        <Section title="Action items">
+        <Section title={t("artifact.section.actionItems")}>
           <Bullets items={actionItems} variant="check" />
         </Section>
       ) : null}
       {glossary && glossary.length > 0 ? (
-        <Section title="Glossary">
+        <Section title={t("artifact.section.glossary")}>
           {glossary.map((g, i) => (
             <View key={`glossary-${i}`} style={styles.glossaryRow}>
               <Text style={styles.glossaryTerm}>{g.term}</Text>
@@ -574,14 +580,14 @@ function FlashcardsBody({ content }: { content: Record<string, unknown> }) {
   if (!cards || cards.length === 0) {
     return (
       <Section>
-        <Text style={styles.emptyText}>No flashcards in this artifact.</Text>
+        <Text style={styles.emptyText}>{t("artifact.noFlashcards")}</Text>
       </Section>
     );
   }
 
   return (
     <Section
-      title={`${cards.length} ${cards.length === 1 ? "card" : "cards"}`}
+      title={tCount("artifact.cardCount", cards.length)}
     >
       {cards.map((card, i) => (
         <FlashcardCard key={`card-${i}`} index={i + 1} card={card} />
@@ -607,7 +613,7 @@ function FlashcardCard({
       onPress={() => setRevealed((v) => !v)}
       accessibilityRole="button"
       accessibilityLabel={
-        revealed ? "Hide answer" : "Tap to reveal the answer"
+        revealed ? t("artifact.hideAnswer") : t("artifact.revealAnswerA11y")
       }
     >
       <View style={styles.flashcardIndexRow}>
@@ -618,14 +624,14 @@ function FlashcardCard({
           color={Colors.textMuted}
         />
       </View>
-      <Text style={styles.flashcardLabel}>QUESTION</Text>
+      <Text style={styles.flashcardLabel}>{t("artifact.question")}</Text>
       <Text style={styles.flashcardQuestion}>{card.question}</Text>
       <View style={styles.flashcardDivider} />
-      <Text style={styles.flashcardLabel}>ANSWER</Text>
+      <Text style={styles.flashcardLabel}>{t("artifact.answer")}</Text>
       {revealed ? (
         <Text style={styles.flashcardAnswer}>{card.answer}</Text>
       ) : (
-        <Text style={styles.flashcardHint}>Tap to reveal</Text>
+        <Text style={styles.flashcardHint}>{t("artifact.tapToReveal")}</Text>
       )}
     </Pressable>
   );
@@ -655,7 +661,7 @@ function QuizBody({
   if (!questions || questions.length === 0) {
     return (
       <Section>
-        <Text style={styles.emptyText}>No questions in this artifact.</Text>
+        <Text style={styles.emptyText}>{t("artifact.noQuestions")}</Text>
       </Section>
     );
   }
@@ -685,12 +691,15 @@ function QuizBody({
       <View
         style={styles.quizProgressTrack}
         accessibilityRole="progressbar"
-        accessibilityLabel="Quiz progress"
+        accessibilityLabel={t("artifact.quizProgress")}
         accessibilityValue={{
           min: 1,
           max: questions.length,
           now: currentIndex + 1,
-          text: `Question ${currentIndex + 1} of ${questions.length}`,
+          text: t("artifact.questionPosition", {
+            index: currentIndex + 1,
+            total: questions.length,
+          }),
         }}
         testID="quiz-progress"
       >
@@ -712,11 +721,13 @@ function QuizBody({
           ]}
           onPress={handleContinue}
           accessibilityRole="button"
-          accessibilityLabel={isLastQuestion ? "Done" : "Continue"}
+          accessibilityLabel={
+            isLastQuestion ? t("common.done") : t("common.continue")
+          }
           testID="quiz-continue-button"
         >
           <Text style={styles.quizContinueButtonText}>
-            {isLastQuestion ? "Done" : "Continue"}
+            {isLastQuestion ? t("common.done") : t("common.continue")}
           </Text>
           {!isLastQuestion ? (
             <Ionicons
@@ -740,7 +751,7 @@ function QuizBody({
             size={Typography.headline.fontSize}
             color={Colors.onPrimary}
           />
-          <Text style={styles.quizCompleteText}>Quiz complete</Text>
+          <Text style={styles.quizCompleteText}>{t("artifact.quizComplete")}</Text>
         </View>
       ) : null}
     </View>
@@ -784,7 +795,11 @@ function QuizQuestionCard({
               onPress={() => !answered && onPick(opt.label)}
               disabled={answered}
               accessibilityRole="button"
-              accessibilityLabel={`Option ${opt.label}: ${opt.text}${answerState}`}
+              accessibilityLabel={t("artifact.optionA11y", {
+                label: opt.label,
+                text: opt.text,
+                state: answerState,
+              })}
               accessibilityState={{ disabled: answered, selected: isPicked }}
               testID={`quiz-option-${opt.label}`}
             >
@@ -822,7 +837,9 @@ function QuizQuestionCard({
       </View>
       {answered ? (
         <View style={styles.quizExplanation}>
-          <Text style={styles.quizExplanationLabel}>EXPLANATION</Text>
+          <Text style={styles.quizExplanationLabel}>
+            {t("artifact.explanation")}
+          </Text>
           <Text style={styles.quizExplanationText}>{question.explanation}</Text>
         </View>
       ) : null}

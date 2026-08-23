@@ -19,6 +19,7 @@ import { usePurchases } from "../../src/contexts/PurchasesContext";
 import { V1_READING_LANGUAGES } from "../../src/services/userPreferencesService";
 import { FeedbackService } from "../../src/services/feedbackService";
 import { SubscriptionStatusCard } from "../../src/components/SubscriptionStatusCard";
+import { LOCALE_ENDONYMS, t, useTranslation } from "../../src/i18n";
 import { fetchPublicPricing } from "../../src/services/pricingService";
 import {
   Colors,
@@ -37,6 +38,9 @@ import {
  */
 export default function AccountScreen() {
   const { user, isAuthenticated, logout } = useAuth();
+  // Subscribes the screen to the interface language, so switching it in the
+  // settings redraws this menu instead of leaving it in the previous one.
+  const { locale } = useTranslation();
   const { readingLanguage } = useUserPreferences();
   const {
     isSubscribed,
@@ -92,19 +96,20 @@ export default function AccountScreen() {
   // the user is not subscribed, and we do not.
   const isSubscriptionStateUnknown = entitlementStatus === null && !isSubscribed;
   const subscriptionLabel = isSubscribed
-    ? "Manage subscription"
+    ? t("account.subscription.manage")
     : isSubscriptionStateUnknown
-      ? "View plans"
-      : "Upgrade";
+      ? t("account.subscription.viewPlans")
+      : t("account.subscription.upgrade");
   const subscriptionSubtitle = isSubscribed
-    ? "Change plan or restore a purchase"
+    ? t("account.subscription.manageHint")
     : isSubscriptionStateUnknown
-      ? "See what each subscription includes"
-      : "Unlock more minutes of audio and video";
+      ? t("account.subscription.viewPlansHint")
+      : t("account.subscription.upgradeHint");
 
   // Get display label for current reading language
   const readingLanguageLabel =
-    V1_READING_LANGUAGES.find((l) => l.code === readingLanguage)?.label ?? "Not set";
+    V1_READING_LANGUAGES.find((l) => l.code === readingLanguage)?.label ??
+    t("account.notSet");
 
   const handleBugReport = () => {
     router.push("/bug-report");
@@ -113,10 +118,10 @@ export default function AccountScreen() {
   const handleLogout = () => {
     // The confirmation label is unique app-wide: "Sign Out" alone also matches
     // the menu item and the alert title, which makes the tap ambiguous on iOS.
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("account.signOut"), t("account.signOutConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Yes, sign out",
+        text: t("account.signOutAction"),
         style: "destructive",
         onPress: () => logout(),
       },
@@ -127,8 +132,8 @@ export default function AccountScreen() {
     const fallbackUrl = FeedbackService.getFallbackUrl();
     if (!fallbackUrl) {
       Alert.alert(
-        "Feedback unavailable",
-        "The feedback board is not configured yet. Please try again later.",
+        t("account.feedbackUnavailable"),
+        t("account.feedbackUnavailableBody"),
       );
       return;
     }
@@ -156,7 +161,7 @@ export default function AccountScreen() {
   return (
     <SafeAreaView testID="account-screen" style={styles.container} edges={["top"]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Account</Text>
+        <Text style={styles.title}>{t("account.title")}</Text>
       </View>
 
       <ScrollView
@@ -215,24 +220,29 @@ export default function AccountScreen() {
         <View style={styles.menuCard}>
           <MenuItem
             icon="language-outline"
-            label="Reading Language"
+            label={t("readingLanguage.title")}
             subtitle={readingLanguageLabel}
             onPress={() => router.push("/settings/reading-language")}
           />
+          {/* The interface language, a separate axis from the reading language
+              above: this one never leaves the device, the other one travels to
+              the backend and decides what the summaries are written in. It took
+              the slot of an inert "Settings" row that navigated nowhere. */}
           <MenuItem
-            icon="settings-outline"
-            label="Settings"
-            onPress={() => {}}
+            icon="globe-outline"
+            label={t("uiLanguage.title")}
+            subtitle={LOCALE_ENDONYMS[locale]}
+            onPress={() => router.push("/settings/interface-language")}
           />
           <MenuItem
             icon="bulb-outline"
-            label="Feature Requests"
+            label={t("account.featureRequests")}
             onPress={handleFeedback}
             isLoading={isFeedbackLoading}
           />
           <MenuItem
             icon="bug-outline"
-            label="Report a Bug"
+            label={t("account.reportBug")}
             onPress={handleBugReport}
           />
           <View style={styles.menuDivider} />
@@ -241,7 +251,7 @@ export default function AccountScreen() {
             style={styles.menuItem}
             onPress={handleLogout}
             activeOpacity={0.7}
-            accessibilityLabel="Sign Out"
+            accessibilityLabel={t("account.signOut")}
             accessibilityRole="button"
           >
             <View style={[styles.menuIcon, styles.menuIconDanger]}>
@@ -250,7 +260,7 @@ export default function AccountScreen() {
             <Text
               style={[styles.menuLabel, styles.menuLabelDanger, { flex: 1 }]}
             >
-              Sign Out
+              {t("account.signOut")}
             </Text>
           </TouchableOpacity>
           {/*
@@ -264,7 +274,7 @@ export default function AccountScreen() {
             style={styles.menuItem}
             onPress={() => router.push("/settings/delete-account")}
             activeOpacity={0.7}
-            accessibilityLabel="Delete Account"
+            accessibilityLabel={t("deleteAccount.title")}
             accessibilityRole="button"
           >
             <View style={[styles.menuIcon, styles.menuIconDanger]}>
@@ -273,7 +283,7 @@ export default function AccountScreen() {
             <Text
               style={[styles.menuLabel, styles.menuLabelDanger, { flex: 1 }]}
             >
-              Delete Account
+              {t("deleteAccount.title")}
             </Text>
             <Ionicons
               name="chevron-forward"
@@ -391,7 +401,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: Spacing.sm + 4,
+    marginEnd: Spacing.sm + 4,
   },
   subscriptionTextContainer: {
     flex: 1,
@@ -427,7 +437,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 203, 5, 0.1)",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: Spacing.sm + 4,
+    marginEnd: Spacing.sm + 4,
   },
   menuIconDanger: {
     backgroundColor: "rgba(186, 26, 26, 0.1)",
@@ -449,7 +459,7 @@ const styles = StyleSheet.create({
     color: Colors.error,
   },
   menuChevron: {
-    marginLeft: Spacing.sm,
+    marginStart: Spacing.sm,
   },
   menuDivider: {
     height: StyleSheet.hairlineWidth,

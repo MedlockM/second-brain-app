@@ -12,6 +12,7 @@ import {
 import { usePurchases } from "../contexts/PurchasesContext";
 import { formatResetDate, getUsageRatio } from "../lib/subscriptionDisplay";
 import { UsageWarningDismissal } from "../lib/usageWarningDismissal";
+import { t } from "../i18n";
 
 /**
  * The one warning the app gives before the wall: an inline notice, at the top of
@@ -74,10 +75,10 @@ export function MinutesWarningBanner(): React.JSX.Element | null {
           testID="minutes-warning-see-plans"
           style={({ pressed }) => [styles.link, pressed && styles.linkPressed]}
           onPress={() => router.push("/paywall?reason=running_low")}
-          accessibilityLabel="See plans"
+          accessibilityLabel={t("quota.seePlans")}
           accessibilityRole="button"
         >
-          <Text style={styles.linkText}>See plans</Text>
+          <Text style={styles.linkText}>{t("quota.seePlans")}</Text>
         </Pressable>
       </View>
 
@@ -85,7 +86,7 @@ export function MinutesWarningBanner(): React.JSX.Element | null {
         testID="minutes-warning-dismiss"
         style={({ pressed }) => [styles.dismiss, pressed && styles.linkPressed]}
         onPress={handleDismiss}
-        accessibilityLabel="Dismiss the minutes warning"
+        accessibilityLabel={t("quota.dismissWarning")}
         accessibilityRole="button"
       >
         <Ionicons name="close" size={20} color={Colors.textMuted} />
@@ -105,13 +106,20 @@ function buildMessage(
   resetDate: string | null,
   isFreeTrial: boolean,
 ): string {
-  const spent = isFreeTrial
-    ? `You've used ${usedPercent}% of your free trial minutes.`
-    : `You've used ${usedPercent}% of this month's minutes.`;
-  if (resetDate === null) return spent;
+  // Each case is one whole sentence in the catalogue rather than a stem the
+  // code glues a clause onto: the two halves do not keep their order, or even
+  // their boundary, once translated.
+  if (resetDate === null) {
+    return isFreeTrial
+      ? t("quota.warning.trial", { percent: usedPercent })
+      : t("quota.warning.monthly", { percent: usedPercent });
+  }
   return isFreeTrial
-    ? `${spent} They do not refill — your trial ends on ${resetDate}.`
-    : `${spent} They reset on ${resetDate}.`;
+    ? t("quota.warning.trialWithDate", { percent: usedPercent, date: resetDate })
+    : t("quota.warning.monthlyWithDate", {
+        percent: usedPercent,
+        date: resetDate,
+      });
 }
 
 const styles = StyleSheet.create({
@@ -122,8 +130,8 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.md,
     marginTop: Spacing.md,
     paddingVertical: Spacing.sm,
-    paddingLeft: Spacing.md,
-    paddingRight: Spacing.xs,
+    paddingStart: Spacing.md,
+    paddingEnd: Spacing.xs,
     borderRadius: BorderRadius.lg,
     backgroundColor: Colors.surfaceContainerHigh,
   },
@@ -141,7 +149,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     justifyContent: "center",
     minHeight: TouchTarget.minimum,
-    paddingRight: Spacing.md,
+    paddingEnd: Spacing.md,
   },
   linkText: {
     ...Typography.label,

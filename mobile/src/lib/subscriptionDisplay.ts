@@ -9,6 +9,7 @@
  * an unknown plan must never be rendered as a known one.
  */
 import type { EntitlementStatus } from "../contexts/PurchasesContext";
+import { formatDate, t } from "../i18n";
 
 export type SubscriptionTier = "S" | "M" | "L";
 
@@ -19,6 +20,11 @@ export type SubscriptionTier = "S" | "M" | "L";
  * which does not carry a label, so the account card needs one here. The paywall
  * does not: it reads the tier names from `GET /api/pricing` along with their
  * figures. If a tier is ever renamed, this map is the one place that follows.
+ *
+ * Deliberately **not** translated: these are the product names the pricing
+ * config, the two store listings and `GET /api/pricing` all carry, and a plan
+ * the user bought as "Reader" has to be called Reader on every screen of every
+ * locale — the way an app's own name is not translated either.
  */
 const TIER_LABELS: Record<SubscriptionTier, string> = {
   S: "Reader",
@@ -44,7 +50,9 @@ export function formatResetDate(isoDate: string | null): string | null {
 
   const date = new Date(timestamp);
   const isCurrentYear = date.getFullYear() === new Date().getFullYear();
-  return date.toLocaleDateString(undefined, {
+  // The active UI locale rather than `undefined`, which resolves to the system
+  // one and would ignore an in-app override.
+  return formatDate(date, {
     month: "short",
     day: "numeric",
     ...(isCurrentYear ? {} : { year: "numeric" }),
@@ -62,10 +70,12 @@ export function formatResetDate(isoDate: string | null): string | null {
  * renewal intent stays neutral rather than promising a refill.
  */
 export function getResetDateLabel(entitlement: EntitlementStatus): string {
-  if (entitlement.is_free_trial) return "FREE TRIAL ENDS";
-  if (entitlement.auto_renew_status === true) return "RESETS";
-  if (entitlement.auto_renew_status === false) return "ENDS";
-  return "PERIOD ENDS";
+  if (entitlement.is_free_trial) return t("subscription.resetLabel.trialEnds");
+  if (entitlement.auto_renew_status === true)
+    return t("subscription.resetLabel.resets");
+  if (entitlement.auto_renew_status === false)
+    return t("subscription.resetLabel.ends");
+  return t("subscription.resetLabel.periodEnds");
 }
 
 /**
@@ -109,9 +119,9 @@ function startOfLocalDay(date: Date): number {
 export function getStatusNote(subscriptionStatus: string | null): string | null {
   switch (subscriptionStatus) {
     case "grace_period":
-      return "Payment issue";
+      return t("subscription.status.paymentIssue");
     case "canceled":
-      return "Cancelled";
+      return t("subscription.status.cancelled");
     default:
       return null;
   }

@@ -20,6 +20,7 @@ import {
   TouchTarget,
   Typography,
 } from "../constants/theme";
+import { t } from "../i18n";
 
 interface AddSourceSheetProps {
   visible: boolean;
@@ -76,7 +77,7 @@ export function AddSourceSheet({
         <Pressable
           style={styles.backdrop}
           onPress={onClose}
-          accessibilityLabel="Dismiss"
+          accessibilityLabel={t("common.dismiss")}
           accessibilityRole="button"
         />
 
@@ -87,18 +88,18 @@ export function AddSourceSheet({
           ]}
         >
           <View style={styles.handle} />
-          <Text style={styles.title}>Add to your inbox</Text>
+          <Text style={styles.title}>{t("addSource.title")}</Text>
 
           <SourceRow
             icon="document-attach-outline"
-            label="Import a file"
-            description="A PDF, an Office document, an image or an audio file from your phone."
+            label={t("addSource.importFile.label")}
+            description={t("addSource.importFile.description")}
             onPress={() => runAfterClose(onImportFile)}
           />
           <SourceRow
             icon="images-outline"
-            label="Import a photo"
-            description="Pick a shot you already have in your gallery."
+            label={t("addSource.importPhoto.label")}
+            description={t("addSource.importPhoto.description")}
             onPress={() => runAfterClose(onImportPhoto)}
           />
         </View>

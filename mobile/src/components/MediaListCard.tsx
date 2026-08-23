@@ -12,6 +12,7 @@ import {
 } from "../constants/theme";
 import type { MediaListItem, MediaType } from "../types/media";
 import { getMediaTypeIcon } from "../lib/mediaTypeDisplay";
+import { t } from "../i18n";
 import { getRelativeTime } from "../lib/relativeTime";
 
 /**
@@ -90,8 +91,16 @@ export function MediaListCard({
       onPress={() => onPress(item.media_item_id)}
       accessibilityLabel={
         creator
-          ? `${displayTitle} by ${creator}, ${mediaTypeLabel}`
-          : `${displayTitle}, ${mediaTypeLabel} from ${displayDomain}`
+          ? t("mediaCard.a11yByCreator", {
+              title: displayTitle ?? "",
+              creator,
+              type: mediaTypeLabel,
+            })
+          : t("mediaCard.a11yFromDomain", {
+              title: displayTitle ?? "",
+              type: mediaTypeLabel,
+              domain: displayDomain,
+            })
       }
       accessibilityRole="button"
     >
@@ -148,22 +157,22 @@ export function MediaListCard({
 function getMediaTypeLabel(type: MediaType): string {
   switch (type) {
     case "podcast_episode":
-      return "PODCAST";
+      return t("mediaType.podcast");
     case "article":
-      return "ARTICLE";
+      return t("mediaType.article");
     case "youtube_video":
-      return "VIDEO";
+      return t("mediaType.video");
     case "short_video":
-      return "SHORT";
+      return t("mediaType.short");
     case "audio_file":
     case "audio":
-      return "AUDIO";
+      return t("mediaType.audio");
     case "shared_text":
-      return "TEXT";
+      return t("mediaType.text");
     case "document":
-      return "DOC";
+      return t("mediaType.document");
     default:
-      return "LINK";
+      return t("mediaType.link");
   }
 }
 

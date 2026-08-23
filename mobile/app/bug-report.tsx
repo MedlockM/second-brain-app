@@ -26,6 +26,7 @@ import {
   Shadows,
   TouchTarget,
 } from "../src/constants/theme";
+import { t, useTranslation } from "../src/i18n";
 import { useAuth } from "../src/contexts/AuthContext";
 import {
   BugReportService,
@@ -53,6 +54,8 @@ interface SelectedFile {
  * Design: Amber Clarity system — warm surfaces, no hard borders, amber accents.
  */
 export default function BugReportScreen() {
+  // Copy resolved on render: redraw when the interface language changes.
+  useTranslation();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
 
@@ -107,8 +110,10 @@ export default function BugReportScreen() {
       // Validate extension
       if (!isAllowedExtension(fileName)) {
         Alert.alert(
-          "File type not allowed",
-          `Accepted file types: ${ALLOWED_EXTENSIONS.join(", ")}`,
+          t("bugReport.fileTypeTitle"),
+          t("bugReport.fileTypeAccepted", {
+            list: ALLOWED_EXTENSIONS.join(", "),
+          }),
         );
         return;
       }
@@ -116,8 +121,8 @@ export default function BugReportScreen() {
       // Validate MIME type
       if (!isAllowedMimeType(mimeType)) {
         Alert.alert(
-          "File type not allowed",
-          `The selected file type (${mimeType}) is not accepted.`,
+          t("bugReport.fileTypeTitle"),
+          t("bugReport.fileTypeRejected", { type: mimeType }),
         );
         return;
       }
@@ -125,8 +130,11 @@ export default function BugReportScreen() {
       // Validate size
       if (!isWithinSizeLimit(size)) {
         Alert.alert(
-          "File too large",
-          `Maximum file size is ${formatFileSize(MAX_FILE_SIZE_BYTES)}. Your file is ${formatFileSize(size)}.`,
+          t("bugReport.fileTooLargeTitle"),
+          t("bugReport.fileTooLarge", {
+            max: formatFileSize(MAX_FILE_SIZE_BYTES),
+            size: formatFileSize(size),
+          }),
         );
         return;
       }
@@ -138,7 +146,7 @@ export default function BugReportScreen() {
         size,
       });
     } catch (error) {
-      Alert.alert("Error", "Failed to select file. Please try again.");
+      Alert.alert(t("common.error"), t("bugReport.pickFileFailed"));
     }
   }, []);
 
@@ -161,8 +169,11 @@ export default function BugReportScreen() {
       // Validate size
       if (size > 0 && !isWithinSizeLimit(size)) {
         Alert.alert(
-          "File too large",
-          `Maximum file size is ${formatFileSize(MAX_FILE_SIZE_BYTES)}. Your file is ${formatFileSize(size)}.`,
+          t("bugReport.fileTooLargeTitle"),
+          t("bugReport.fileTooLarge", {
+            max: formatFileSize(MAX_FILE_SIZE_BYTES),
+            size: formatFileSize(size),
+          }),
         );
         return;
       }
@@ -174,7 +185,7 @@ export default function BugReportScreen() {
         size,
       });
     } catch (error) {
-      Alert.alert("Error", "Failed to select image. Please try again.");
+      Alert.alert(t("common.error"), t("bugReport.pickImageFailed"));
     }
   }, []);
 
@@ -183,10 +194,10 @@ export default function BugReportScreen() {
   }, []);
 
   const handleAttach = useCallback(() => {
-    Alert.alert("Attach File", "Choose a source", [
-      { text: "Photo Library", onPress: handlePickImage },
-      { text: "Files", onPress: handlePickDocument },
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("bugReport.attach"), t("bugReport.attachChoose"), [
+      { text: t("bugReport.photoLibrary"), onPress: handlePickImage },
+      { text: t("bugReport.files"), onPress: handlePickDocument },
+      { text: t("common.cancel"), style: "cancel" },
     ]);
   }, [handlePickImage, handlePickDocument]);
 
@@ -254,7 +265,7 @@ export default function BugReportScreen() {
       const message =
         error instanceof Error
           ? error.message
-          : "Failed to submit bug report. Please try again.";
+          : t("bugReport.submitFailed");
       setErrorMessage(message);
       setSubmitState("error");
     }
@@ -284,24 +295,24 @@ export default function BugReportScreen() {
           <View style={styles.successIconContainer}>
             <Ionicons name="checkmark-circle" size={72} color={Colors.primary} />
           </View>
-          <Text style={styles.successTitle}>Report Submitted</Text>
+          <Text style={styles.successTitle}>{t("bugReport.submitted")}</Text>
           <Text style={styles.successMessage}>
             Thank you for reporting this issue. Our team will investigate it
             shortly.
           </Text>
           {ticketId && (
             <View style={styles.ticketIdContainer}>
-              <Text style={styles.ticketIdLabel}>Ticket ID</Text>
+              <Text style={styles.ticketIdLabel}>{t("bugReport.ticketId")}</Text>
               <Text style={styles.ticketIdValue}>{ticketId}</Text>
             </View>
           )}
           <Pressable
             style={styles.doneButton}
             onPress={handleClose}
-            accessibilityLabel="Done, return to account"
+            accessibilityLabel={t("bugReport.doneA11y")}
             accessibilityRole="button"
           >
-            <Text style={styles.doneButtonText}>Done</Text>
+            <Text style={styles.doneButtonText}>{t("common.done")}</Text>
           </Pressable>
         </Animated.View>
       </SafeAreaView>
@@ -319,13 +330,13 @@ export default function BugReportScreen() {
           <Pressable
             style={styles.closeButton}
             onPress={handleClose}
-            accessibilityLabel="Close bug report form"
+            accessibilityLabel={t("bugReport.closeA11y")}
             accessibilityRole="button"
           >
             <Ionicons name="close" size={22} color={Colors.textMain} />
           </Pressable>
 
-          <Text style={styles.headerTitle}>Report a Bug</Text>
+          <Text style={styles.headerTitle}>{t("account.reportBug")}</Text>
 
           <Pressable
             style={[
@@ -334,13 +345,13 @@ export default function BugReportScreen() {
             ]}
             onPress={handleSubmit}
             disabled={!isFormValid || isSubmitting}
-            accessibilityLabel="Submit bug report"
+            accessibilityLabel={t("bugReport.submitA11y")}
             accessibilityRole="button"
           >
             {isSubmitting ? (
               <ActivityIndicator size="small" color={Colors.onPrimary} />
             ) : (
-              <Text style={styles.submitButtonText}>Submit</Text>
+              <Text style={styles.submitButtonText}>{t("bugReport.submit")}</Text>
             )}
           </Pressable>
         </View>
@@ -353,26 +364,26 @@ export default function BugReportScreen() {
         >
           {/* Subject field */}
           <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Subject</Text>
+            <Text style={styles.fieldLabel}>{t("bugReport.subject")}</Text>
             <TextInput
               style={styles.subjectInput}
-              placeholder="Brief summary of the issue"
+              placeholder={t("bugReport.subjectPlaceholder")}
               placeholderTextColor={Colors.textMuted}
               value={subject}
               onChangeText={setSubject}
               maxLength={200}
               returnKeyType="next"
               editable={!isSubmitting}
-              accessibilityLabel="Bug report subject"
+              accessibilityLabel={t("bugReport.subjectA11y")}
             />
           </View>
 
           {/* Description field */}
           <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Description</Text>
+            <Text style={styles.fieldLabel}>{t("bugReport.description")}</Text>
             <TextInput
               style={styles.descriptionInput}
-              placeholder="Steps to reproduce, what you expected, what happened instead..."
+              placeholder={t("bugReport.descriptionPlaceholder")}
               placeholderTextColor={Colors.textMuted}
               value={description}
               onChangeText={setDescription}
@@ -380,13 +391,13 @@ export default function BugReportScreen() {
               multiline
               textAlignVertical="top"
               editable={!isSubmitting}
-              accessibilityLabel="Bug report description"
+              accessibilityLabel={t("bugReport.descriptionA11y")}
             />
           </View>
 
           {/* Attachment section */}
           <View style={styles.fieldContainer}>
-            <Text style={styles.fieldLabel}>Attachment (optional)</Text>
+            <Text style={styles.fieldLabel}>{t("bugReport.attachment")}</Text>
             <Text style={styles.fieldHint}>
               Image, video, PDF, or ZIP — max {formatFileSize(MAX_FILE_SIZE_BYTES)}
             </Text>
@@ -411,7 +422,7 @@ export default function BugReportScreen() {
                 <Pressable
                   style={styles.removeFileButton}
                   onPress={handleRemoveFile}
-                  accessibilityLabel="Remove attached file"
+                  accessibilityLabel={t("bugReport.removeFileA11y")}
                   accessibilityRole="button"
                 >
                   <Ionicons
@@ -426,7 +437,7 @@ export default function BugReportScreen() {
                 style={styles.attachButton}
                 onPress={handleAttach}
                 disabled={isSubmitting}
-                accessibilityLabel="Attach a file to the bug report"
+                accessibilityLabel={t("bugReport.attachA11y")}
                 accessibilityRole="button"
               >
                 <Ionicons
@@ -434,7 +445,7 @@ export default function BugReportScreen() {
                   size={22}
                   color={Colors.primary}
                 />
-                <Text style={styles.attachButtonText}>Attach File</Text>
+                <Text style={styles.attachButtonText}>{t("bugReport.attach")}</Text>
               </Pressable>
             )}
           </View>
@@ -455,13 +466,13 @@ export default function BugReportScreen() {
           {submitState === "uploading" && (
             <View style={styles.progressBanner}>
               <ActivityIndicator size="small" color={Colors.primary} />
-              <Text style={styles.progressText}>Uploading attachment...</Text>
+              <Text style={styles.progressText}>{t("bugReport.uploading")}</Text>
             </View>
           )}
           {submitState === "submitting" && (
             <View style={styles.progressBanner}>
               <ActivityIndicator size="small" color={Colors.primary} />
-              <Text style={styles.progressText}>Submitting report...</Text>
+              <Text style={styles.progressText}>{t("bugReport.submitting")}</Text>
             </View>
           )}
         </ScrollView>

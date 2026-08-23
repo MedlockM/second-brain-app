@@ -754,7 +754,7 @@ async def ingest_url(
         if not quota_result.allowed:
             raise HTTPException(
                 status_code=quota_result.http_status,
-                detail=quota_result.message,
+                detail=quota_result.error_body(),
                 headers={"X-Quota-Error-Code": quota_result.error_code or ""},
             )
 
@@ -938,7 +938,7 @@ async def upload_document(
         if not quota_result.allowed:
             raise HTTPException(
                 status_code=quota_result.http_status,
-                detail=quota_result.message,
+                detail=quota_result.error_body(),
                 headers={"X-Quota-Error-Code": quota_result.error_code or ""},
             )
 
@@ -1139,7 +1139,7 @@ async def upload_audio(
         if not quota_result.allowed:
             raise HTTPException(
                 status_code=quota_result.http_status,
-                detail=quota_result.message,
+                detail=quota_result.error_body(),
                 headers={"X-Quota-Error-Code": quota_result.error_code or ""},
             )
 
@@ -1457,7 +1457,7 @@ async def ingest_shared_content(
             if not quota_result.allowed:
                 raise HTTPException(
                     status_code=quota_result.http_status,
-                    detail=quota_result.message,
+                    detail=quota_result.error_body(),
                     headers={"X-Quota-Error-Code": quota_result.error_code or ""},
                 )
 

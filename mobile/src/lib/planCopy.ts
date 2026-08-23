@@ -43,6 +43,7 @@ import type {
   PricingUnitConversion,
 } from "../services/pricingService";
 import { formatResetDate } from "./subscriptionDisplay";
+import { formatNumber, getActiveLocale, t, tCount } from "../i18n";
 
 /**
  * Human duration for a minute figure ("45 min", "3 h", "4 h 12 min").
@@ -53,10 +54,15 @@ import { formatResetDate } from "./subscriptionDisplay";
  */
 export function formatMinutes(minutes: number): string {
   const total = Math.max(0, Math.trunc(minutes));
-  if (total < 60) return `${total} min`;
+  if (total < 60) return tCount("duration.minutes", total);
   const hours = Math.floor(total / 60);
   const rest = total % 60;
-  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+  return rest === 0
+    ? tCount("duration.hours", hours)
+    : t("duration.hoursMinutes", {
+        hours: tCount("duration.hours", hours),
+        minutes: tCount("duration.minutes", rest),
+      });
 }
 
 /**
@@ -72,7 +78,10 @@ export function formatMinutes(minutes: number): string {
 function formatCurrency(amount: number, currencyCode: string | null): string | null {
   if (currencyCode === null || currencyCode.length === 0) return null;
   try {
-    return new Intl.NumberFormat(undefined, {
+    // The active UI locale, never `undefined`: that resolves to the *system*
+    // locale, which stops being the right answer the moment the in-app override
+    // exists — a French interface would print a dollar amount US-style.
+    return new Intl.NumberFormat(getActiveLocale(), {
       style: "currency",
       currency: currencyCode,
     }).format(amount);
@@ -100,7 +109,7 @@ export function buildHourlyRate(
   }
   if (minutesPerMonth === null || minutesPerMonth <= 0) return null;
   const formatted = formatCurrency((priceAmount * 60) / minutesPerMonth, currencyCode);
-  return formatted === null ? null : `≈ ${formatted} an hour`;
+  return formatted === null ? null : t("plan.hourlyRate", { price: formatted });
 }
 
 /** What one tier card shows. Every string is derived, none is authored twice. */
@@ -127,14 +136,18 @@ function buildPlanCard(tier: PricingTier, trialTierId: string | null): PlanCard 
     allowance:
       tier.minutes_per_month === null
         ? null
-        : `${formatMinutes(tier.minutes_per_month)} of audio and video`,
+        : t("plan.card.allowance", {
+            duration: formatMinutes(tier.minutes_per_month),
+          }),
     minutesPerMonth: tier.minutes_per_month,
     // Lower case and clause-shaped: it is read inside a "·"-separated meta line
     // under the allowance, never as a sentence of its own.
     perImportLimit:
       tier.max_minutes_per_item === null
         ? null
-        : `up to ${formatMinutes(tier.max_minutes_per_item)} in one import`,
+        : t("plan.card.perImport", {
+            duration: formatMinutes(tier.max_minutes_per_item),
+          }),
     isTrialTier: trialTierId !== null && tier.id === trialTierId,
   };
 }
@@ -231,10 +244,14 @@ export function buildPlanGuidance(
       recommended = nextUp ?? largest;
       recommendationLine =
         nextUp === null
-          ? `You used up all ${formatMinutes(allowance)} this period. ` +
-            `${largest.name} is the largest plan we offer.`
-          : `You used up all ${formatMinutes(allowance)} this period. ` +
-            `${nextUp.name} is the next size up.`;
+          ? t("plan.rec.cappedLargest", {
+              duration: formatMinutes(allowance),
+              plan: largest.name,
+            })
+          : t("plan.rec.cappedNextUp", {
+              duration: formatMinutes(allowance),
+              plan: nextUp.name,
+            });
     } else {
       const covering =
         ranked.find((card) => (card.minutesPerMonth ?? 0) >= used) ?? null;
@@ -244,35 +261,38 @@ export function buildPlanGuidance(
 
       if (covering === null) {
         recommended = largest;
-        recommendationLine =
-          `You've used ${formatMinutes(used)} this period — more than any plan ` +
-          `includes. ${largest.name} is the largest we offer.`;
+        recommendationLine = t("plan.rec.overLargest", {
+          duration: formatMinutes(used),
+          plan: largest.name,
+        });
       } else if ((covering.minutesPerMonth ?? 0) < floorMinutes && floor !== null) {
         recommended = floor;
-        recommendationLine =
-          `You've used ${formatMinutes(used)} of your trial so far. ${floor.name} ` +
-          "keeps you on the plan you're already using.";
+        recommendationLine = t("plan.rec.trialFloor", {
+          duration: formatMinutes(used),
+          plan: floor.name,
+        });
       } else {
         recommended = covering;
-        recommendationLine =
-          `You've used ${formatMinutes(used)} this period. ${covering.name} is the ` +
-          "smallest plan that covers that.";
+        recommendationLine = t("plan.rec.covering", {
+          duration: formatMinutes(used),
+          plan: covering.name,
+        });
       }
     }
   }
 
   if (recommended !== null) {
-    badges[recommended.id] = "RECOMMENDED FOR YOU";
+    badges[recommended.id] = t("plan.badge.recommended");
   }
   // A trial tier is worth naming, but only to someone the backend reports as
   // actually being in the trial — a badge for a trial they never had is a lie.
   if (isTrial && trialCard !== null && badges[trialCard.id] === undefined) {
-    badges[trialCard.id] = "YOUR TRIAL PLAN";
+    badges[trialCard.id] = t("plan.badge.yourTrial");
   }
 
   const cheapestPerMinute = pickBestValue(ranked, priceByTier);
   if (cheapestPerMinute !== null && badges[cheapestPerMinute] === undefined) {
-    badges[cheapestPerMinute] = "BEST VALUE";
+    badges[cheapestPerMinute] = t("plan.badge.bestValue");
   }
 
   return {
@@ -330,23 +350,20 @@ export function buildPaywallReasonLine(
     // "they come back on the 12th" would be false for exactly the people most
     // likely to read this line.
     if (isTrial) {
-      return (
-        "Your trial minutes are spent, and they do not refill. Pick a plan to " +
-        "keep importing audio and video."
-      );
+      return t("paywall.reason.trialOut");
     }
     return resetsOn === null
-      ? "You're out of minutes for this period. A larger plan gives you more now."
-      : `You're out of minutes until ${resetsOn}. A larger plan gives you more now.`;
+      ? t("paywall.reason.outNoDate")
+      : t("paywall.reason.outWithDate", { date: resetsOn });
   }
 
   const left = formatMinutes(entitlement.minutes_remaining);
   if (isTrial) {
-    return `${left} left in your trial, and trial minutes do not refill.`;
+    return t("paywall.reason.trialLow", { left });
   }
   return resetsOn === null
-    ? `${left} left this period.`
-    : `${left} left until ${resetsOn}.`;
+    ? t("paywall.reason.lowNoDate", { left })
+    : t("paywall.reason.lowWithDate", { left, date: resetsOn });
 }
 
 /**
@@ -357,8 +374,9 @@ export function buildPaywallReasonLine(
  * free forever, but *importing* a PDF debits minutes, so the unqualified form
  * would have contradicted the very next sentence.
  */
-export const MINUTES_RULE =
-  "Minutes cover audio and video we transcribe. Reading your library is unlimited.";
+export function minutesRule(): string {
+  return t("plan.minutesRule");
+}
 
 /**
  * What debits a minute and what does not, built from the conversions the
@@ -376,40 +394,28 @@ export function buildMinutesLegend(pricing: PublicPricing): string[] {
   const pagesPerMinute = conversion.document_pages_per_minute ?? null;
   const sourcesPerMinute = conversion.collection_sources_per_minute ?? null;
 
-  const sentences = [
-    MINUTES_RULE,
-    "Audio and video count their real length, minute for minute.",
-  ];
+  const sentences = [minutesRule(), t("plan.legend.realLength")];
 
   // One rule per sentence. Strung together as a comma list they were unreadable
   // to anyone who did not already know the model they describe.
   if (captions !== null) {
     sentences.push(
-      `A video that already has subtitles we can buy costs ${formatMinutes(captions)}, ` +
-        "however long it is.",
+      t("plan.legend.captions", { duration: formatMinutes(captions) }),
     );
   }
   if (pagesPerMinute !== null) {
     sentences.push(
-      "A PDF, an Office document or a photo we read the text off costs 1 min " +
-        `per ${pagesPerMinute} pages.`,
+      t("plan.legend.documents", { pages: formatNumber(pagesPerMinute) }),
     );
   }
   if (sourcesPerMinute !== null) {
     sentences.push(
-      `A generation over a whole collection costs 1 min per ${sourcesPerMinute} ` +
-        "items in it. On a single item it is free.",
+      t("plan.legend.collections", { sources: formatNumber(sourcesPerMinute) }),
     );
   }
 
-  sentences.push(
-    "Articles, web pages, TikToks and Instagram photo posts cost nothing at " +
-      "all: they are not transcribed.",
-  );
-  sentences.push(
-    "Past a plan's single-import maximum, an import is refused rather than " +
-      "billed — split it into shorter parts.",
-  );
+  sentences.push(t("plan.legend.free"));
+  sentences.push(t("plan.legend.overLimit"));
 
   return sentences;
 }
@@ -433,32 +439,24 @@ export interface PlanHighlight {
  */
 export function buildPlanHighlights(): PlanHighlight[] {
   return [
-    {
-      id: "capture",
-      text:
-        "Save from any app: YouTube, podcasts, TikTok, Instagram, X, articles, " +
-        "PDFs, documents, photos and audio files",
-    },
-    {
-      id: "read",
-      text: "Read the full transcript, translated into your reading language",
-    },
+    { id: "capture", text: t("plan.highlight.capture") },
+    { id: "read", text: t("plan.highlight.read") },
     {
       id: "generate",
-      text: `Generate ${listArtifactLabels()} on demand, per item or per collection`,
+      text: t("plan.highlight.generate", { list: listArtifactLabels() }),
     },
-    {
-      id: "organise",
-      text: "Organise in collections and tags, search everything, daily digest",
-    },
+    { id: "organise", text: t("plan.highlight.organise") },
   ];
 }
 
 /** "summaries, notes, flashcards and quizzes", from the tiles themselves. */
 function listArtifactLabels(): string {
-  const labels = ARTIFACT_TILES.map((tile) => tile.label.toLowerCase());
+  const labels = ARTIFACT_TILES.map((tile) => t(tile.labelKey).toLowerCase());
   if (labels.length < 2) return labels.join("");
-  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+  return t("plan.list.lastConjunction", {
+    list: labels.slice(0, -1).join(t("plan.list.separator")),
+    last: labels[labels.length - 1],
+  });
 }
 
 /** A titled group of plain sentences, rendered as one block under the cards. */
@@ -488,62 +486,51 @@ export interface PlanIncludesSection {
  */
 export function buildPlanIncludes(pricing: PublicPricing): PlanIncludesSection[] {
   // Derived, not retyped: the tiles are what the media screen actually offers.
-  const generations = ARTIFACT_TILES.map((tile) => tile.label.toLowerCase()).join(
-    ", ",
-  );
+  const generations = ARTIFACT_TILES.map((tile) =>
+    t(tile.labelKey).toLowerCase(),
+  ).join(t("plan.list.separator"));
   const languageCount = V1_READING_LANGUAGES.length;
 
   return [
     {
       id: "capture",
-      title: "Save anything, from any app",
+      title: t("plan.includes.capture.title"),
       items: [
-        "Share a link from any app, or paste one: YouTube videos, podcast " +
-          "episodes from Apple Podcasts, Spotify, Deezer or any RSS feed, " +
-          "TikToks, Instagram reels and photo posts, X posts, news articles " +
-          "and any web page.",
-        "Send a file from your phone: PDF, Word, PowerPoint and Excel " +
-          "documents, photos and screenshots we read the text off, and audio " +
-          "recordings (MP3, M4A, WAV, FLAC, AAC, OGG, Opus).",
+        t("plan.includes.capture.links"),
+        t("plan.includes.capture.files"),
       ],
     },
     {
       id: "read",
-      title: "Read it, whatever it was",
+      title: t("plan.includes.read.title"),
       items: [
-        "Audio and video come back as full text, transcribed word for word, so " +
-          "an episode you have no time to listen to is one you can read, skim " +
-          "or search instead.",
-        `Transcripts are translated into your reading language, ${languageCount} to choose ` +
-          "from, and you can change it whenever you like.",
+        t("plan.includes.read.transcripts"),
+        t("plan.includes.read.translation", {
+          count: formatNumber(languageCount),
+        }),
       ],
     },
     {
       id: "generate",
-      title: "Turn it into something you keep",
+      title: t("plan.includes.generate.title"),
       items: [
-        `On any item, on demand: ${generations}.`,
-        "Run the same generations across a whole collection to get one " +
-          "synthesis of everything you filed in it.",
-        "Every generation is kept, so you can come back to it or ask for a " +
-          "fresh one later.",
+        t("plan.includes.generate.onDemand", { list: generations }),
+        t("plan.includes.generate.collection"),
+        t("plan.includes.generate.kept"),
       ],
     },
     {
       id: "organise",
-      title: "Find it again months later",
+      title: t("plan.includes.organise.title"),
       items: [
-        "File anything into collections and tags, at the moment you save it " +
-          "or any time after.",
-        "Full-text search across everything you have ever saved, transcripts " +
-          "included.",
-        "A daily and a weekly digest of what came in and what is worth going " +
-          "back to.",
+        t("plan.includes.organise.file"),
+        t("plan.includes.organise.search"),
+        t("plan.includes.organise.digest"),
       ],
     },
     {
       id: "minutes",
-      title: "What the monthly minutes count",
+      title: t("plan.includes.minutes.title"),
       items: buildMinutesLegend(pricing),
     },
   ];
@@ -571,12 +558,25 @@ export function buildFreeTrialLine(
       : (pricing?.tiers.find((tier) => tier.id === trial.tier)?.name ?? null);
   const endsOn = formatResetDate(entitlement.resets_at);
 
-  const opening =
-    trial === null
-      ? "Your free trial is running"
-      : `Your ${trial.duration_days}-day free trial is running`;
-  const access = tierName === null ? "full access" : `${tierName} access`;
-  const until = endsOn === null ? access : `${access} until ${endsOn}`;
+  // The access clause is a noun phrase the sentence embeds, and the sentence
+  // itself is one of four whole strings rather than a stem with clauses bolted
+  // on: neither the order of "until <date>" nor the punctuation around the
+  // colon survives translation intact.
+  const access =
+    tierName === null
+      ? t("plan.trial.accessFull")
+      : t("plan.trial.accessTier", { tier: tierName });
 
-  return `${opening}: ${until}, at no charge and nothing to cancel.`;
+  if (trial === null) {
+    return endsOn === null
+      ? t("plan.trial.generic", { access })
+      : t("plan.trial.genericWithDate", { access, date: endsOn });
+  }
+  return endsOn === null
+    ? t("plan.trial.days", { access, days: formatNumber(trial.duration_days) })
+    : t("plan.trial.daysWithDate", {
+        access,
+        days: formatNumber(trial.duration_days),
+        date: endsOn,
+      });
 }

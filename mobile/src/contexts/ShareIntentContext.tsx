@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 import { Platform } from "react-native";
+import { t } from "../i18n";
 import { useRouter, usePathname } from "expo-router";
 import { useShareIntentContext } from "expo-share-intent";
 import type { ShareIntent } from "expo-share-intent";
@@ -338,7 +339,7 @@ export function ShareIntentProvider({
             status: "invalid",
             url: null,
             rawText: null,
-            message: "This file type is not supported yet.",
+            message: t("share.unsupportedFile"),
             response: null,
             contentType: "url",
             audioFile: null,
@@ -483,7 +484,7 @@ export function ShareIntentProvider({
       setIntake((prev) => ({
         ...prev,
         status: "error",
-        message: "You must be signed in to save links.",
+        message: t("share.signInLinks"),
       }));
       return;
     }
@@ -535,7 +536,7 @@ export function ShareIntentProvider({
       setIntake((prev) => ({
         ...prev,
         status: "error",
-        message: "You must be signed in to save content.",
+        message: t("share.signInContent"),
       }));
       return;
     }
@@ -682,7 +683,7 @@ export function ShareIntentProvider({
       setIntake((prev) => ({
         ...prev,
         status: "error",
-        message: "You must be signed in to import files.",
+        message: t("share.signInFiles"),
       }));
       return;
     }

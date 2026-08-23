@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from "react-native";
 import { Colors, Typography, Spacing, BorderRadius } from "../constants/theme";
 import { usePurchases } from "../contexts/PurchasesContext";
 import { getDaysUntil } from "../lib/subscriptionDisplay";
+import { t, tCount } from "../i18n";
 
 /**
  * The one place the app says a free trial is running: a small centred notice at
@@ -55,10 +56,9 @@ export function FreeTrialNotice(): React.JSX.Element | null {
  */
 function buildTrialMessage(resetsAt: string | null): string {
   const daysLeft = getDaysUntil(resetsAt);
-  if (daysLeft === null) return "Free Trial";
-  if (daysLeft === 0) return "Free Trial - last day";
-  if (daysLeft === 1) return "Free Trial - 1 day left";
-  return `Free Trial - ${daysLeft} days left`;
+  if (daysLeft === null) return t("trial.badge");
+  if (daysLeft === 0) return t("trial.lastDay");
+  return tCount("trial.daysLeft", daysLeft);
 }
 
 const styles = StyleSheet.create({

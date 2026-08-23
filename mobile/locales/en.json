@@ -1,0 +1,5 @@
+{
+  "CFBundleDisplayName": "Media Summarizer",
+  "NSPhotoLibraryUsageDescription": "Used to attach images to media entries.",
+  "NSCameraUsageDescription": "Used to take a photo of a document or a page and import it into your library."
+}

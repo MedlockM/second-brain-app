@@ -2,16 +2,21 @@
  * Client-side reading of the backend consumption contract.
  *
  * A refused submission answers with the `X-Quota-Error-Code` header (see
- * `media_summarizer/core/services/quota_enforcer.py`) plus a detail message that
- * already names the figures behind the refusal. Two codes exist, because there
+ * `media_summarizer/core/services/quota_enforcer.py`) plus a typed body holding
+ * the *figures* behind the refusal — never the sentence. The sentence is built
+ * here, from this app's catalogue, because the server has no idea which of the
+ * eleven interface languages the reader chose. Two codes exist, because there
  * are only two reasons an import can be refused, and the difference between them
  * is whether upgrading fixes it:
  *
- * - `out_of_minutes` — the period's minutes are spent. Upgrading buys more.
+ * - `out_of_minutes` — the period's minutes are spent, or there is no plan at
+ *   all (`has_plan: false`). Upgrading buys more.
  * - `item_too_long` — this single item is longer than one import may use on this
  *   plan. Splitting it fixes it; upgrading is not the answer, so no paywall.
  */
 import type { HttpError } from "./httpError";
+import { formatDate, t, tCount } from "../i18n";
+import { formatMinutes } from "./planCopy";
 
 export type QuotaErrorCode =
   /** No minutes left in the period (or no plan at all): upgrading fixes it. */
@@ -23,18 +28,6 @@ const QUOTA_ERROR_CODES: readonly QuotaErrorCode[] = [
   "out_of_minutes",
   "item_too_long",
 ];
-
-const QUOTA_ERROR_TITLES: Record<QuotaErrorCode, string> = {
-  out_of_minutes: "Out of minutes",
-  item_too_long: "Too long for one import",
-};
-
-const QUOTA_ERROR_FALLBACK_MESSAGES: Record<QuotaErrorCode, string> = {
-  out_of_minutes:
-    "You're out of minutes for this period. Upgrade to keep importing audio and video.",
-  item_too_long:
-    "This is too long for a single import on your plan. Split it into shorter parts.",
-};
 
 function isQuotaErrorCode(value: unknown): value is QuotaErrorCode {
   return (
@@ -65,20 +58,88 @@ export function quotaErrorOffersUpgrade(code: QuotaErrorCode): boolean {
 }
 
 export function getQuotaErrorTitle(code: QuotaErrorCode): string {
-  return QUOTA_ERROR_TITLES[code];
+  return code === "out_of_minutes"
+    ? t("quota.title.outOfMinutes")
+    : t("quota.title.itemTooLong");
+}
+
+/** A figure from the refusal body, or `null` when the body did not carry it. */
+function readNumber(
+  details: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value = details[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** The period boundary, written for the active locale, or `null`. */
+function readPeriodEnd(details: Record<string, unknown>): string | null {
+  const raw = details.period_end;
+  if (typeof raw !== "string") return null;
+  const timestamp = new Date(raw).getTime();
+  if (Number.isNaN(timestamp)) return null;
+  const date = new Date(timestamp);
+  const isCurrentYear = date.getFullYear() === new Date().getFullYear();
+  return formatDate(date, {
+    month: "short",
+    day: "numeric",
+    ...(isCurrentYear ? {} : { year: "numeric" }),
+  });
 }
 
 /**
- * The backend detail is the only place the actual figures live ("That podcast is
- * 45 minutes and you have 12 left this month"), so it is surfaced verbatim. It is
- * deliberately not routed through getFriendlyErrorMessage, whose /quota/ rule
- * would replace it with a generic sentence and drop the numbers.
+ * The refusal, worded from the figures the backend sent.
+ *
+ * Every branch has a shorter form for the figures that did not arrive, so a
+ * refusal reaching the app without its body still says something true rather
+ * than a sentence with a hole in it. Deliberately not routed through
+ * `getFriendlyErrorMessage`, whose /quota/ rule would flatten all of this into
+ * one generic line and drop the numbers.
  */
 export function getQuotaErrorMessage(
   error: unknown,
   code: QuotaErrorCode,
 ): string {
-  const detail =
-    error instanceof Error ? error.message.trim() : String(error ?? "").trim();
-  return detail.length > 0 ? detail : QUOTA_ERROR_FALLBACK_MESSAGES[code];
+  const details =
+    (error as HttpError | undefined)?.details ??
+    ({} as Record<string, unknown>);
+
+  if (code === "item_too_long") {
+    const needed = readNumber(details, "minutes_needed");
+    const max = readNumber(details, "max_minutes_per_item");
+    if (needed === null || max === null) {
+      return t("quota.refusal.itemTooLongGeneric");
+    }
+    return t("quota.refusal.itemTooLong", {
+      duration: formatMinutes(needed),
+      max: formatMinutes(max),
+    });
+  }
+
+  // No plan at all is a different sentence from an allowance run down: there is
+  // no figure to quote and nothing has been spent.
+  if (details.has_plan === false) {
+    return t("quota.refusal.noPlan");
+  }
+
+  const remaining = readNumber(details, "minutes_remaining");
+  const needed = readNumber(details, "minutes_needed");
+  const periodEnd = readPeriodEnd(details);
+
+  if (remaining !== null && remaining > 0 && needed !== null) {
+    return periodEnd === null
+      ? t("quota.refusal.needsMoreNoDate", {
+          needed: tCount("duration.minutes", needed),
+          remaining: tCount("duration.minutes", remaining),
+        })
+      : t("quota.refusal.needsMore", {
+          needed: tCount("duration.minutes", needed),
+          remaining: tCount("duration.minutes", remaining),
+          date: periodEnd,
+        });
+  }
+
+  return periodEnd === null
+    ? t("quota.refusal.outOfMinutes")
+    : t("quota.refusal.outOfMinutesUntil", { date: periodEnd });
 }

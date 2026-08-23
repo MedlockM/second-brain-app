@@ -39,6 +39,7 @@ import {
   Shadows,
   TouchTarget,
 } from "../../../src/constants/theme";
+import { t, useTranslation } from "../../../src/i18n";
 import type { ArtifactType, MediaListItem, MediaType } from "../../../src/types/media";
 
 /**
@@ -64,8 +65,8 @@ const ARTIFACT_POLL_INTERVAL_MS = 3000;
 type CollectionTabKey = "sources" | "ai";
 
 const COLLECTION_TABS: readonly ScreenTab<CollectionTabKey>[] = [
-  { key: "sources", label: "Sources", icon: "documents-outline" },
-  { key: "ai", label: "AI", icon: "sparkles-outline" },
+  { key: "sources", labelKey: "collection.tab.sources", icon: "documents-outline" },
+  { key: "ai", labelKey: "collection.tab.ai", icon: "sparkles-outline" },
 ];
 
 interface FolderListRow {
@@ -91,6 +92,8 @@ function buildInitialArtifactStates(): Record<ArtifactType, ArtifactTileState> {
 }
 
 export default function CollectionDetailScreen() {
+  // Copy resolved on render: redraw when the interface language changes.
+  useTranslation();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const params = useLocalSearchParams<{ id: string; name?: string }>();
@@ -132,7 +135,7 @@ export default function CollectionDetailScreen() {
     } catch (err) {
       setError(
         getFriendlyErrorMessage(err, {
-          fallback: "Unable to load this collection. Please try again.",
+          fallback: t("collection.loadFailed"),
         }),
       );
     }
@@ -190,7 +193,7 @@ export default function CollectionDetailScreen() {
         <Pressable
           style={styles.backButton}
           onPress={handleBack}
-          accessibilityLabel="Go back"
+          accessibilityLabel={t("common.goBack")}
           accessibilityRole="button"
         >
           <Ionicons name="arrow-back" size={22} color={Colors.textMain} />
@@ -206,14 +209,14 @@ export default function CollectionDetailScreen() {
           tabs={COLLECTION_TABS}
           activeKey={activeTab}
           onChange={setActiveTab}
-          accessibilityLabel="Collection sections"
+          accessibilityLabel={t("collection.sectionsA11y")}
         />
       </View>
 
       {isLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.centeredText}>Loading...</Text>
+          <Text style={styles.centeredText}>{t("common.loading")}</Text>
         </View>
       ) : error ? (
         <View style={styles.centered}>
@@ -227,11 +230,11 @@ export default function CollectionDetailScreen() {
           <Pressable
             style={styles.retryButton}
             onPress={handleRetry}
-            accessibilityLabel="Retry loading collection"
+            accessibilityLabel={t("collection.retryA11y")}
             accessibilityRole="button"
           >
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <Text style={styles.retryButtonText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
       ) : activeTab === "sources" ? (
@@ -248,7 +251,11 @@ export default function CollectionDetailScreen() {
             )
           }
           ListHeaderComponent={
-            rows.length > 0 ? <Text style={styles.sectionTitle}>Sources</Text> : null
+            rows.length > 0 ? (
+              <Text style={styles.sectionTitle}>
+                {t("collection.tab.sources")}
+              </Text>
+            ) : null
           }
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -320,7 +327,7 @@ function AiTab({ collectionId }: AiTabProps) {
       if (!mountedRef.current) return;
       setListError(
         getFriendlyErrorMessage(err, {
-          fallback: "Unable to load generated content. Please try again.",
+          fallback: t("collection.artifactsLoadFailed"),
         }),
       );
     }
@@ -525,10 +532,8 @@ function EmptyState() {
         color={Colors.textMuted}
         style={styles.centeredIcon}
       />
-      <Text style={styles.emptyTitle}>This collection is empty</Text>
-      <Text style={styles.emptyHint}>
-        Media you save into this collection will show up here.
-      </Text>
+      <Text style={styles.emptyTitle}>{t("collection.empty")}</Text>
+      <Text style={styles.emptyHint}>{t("collection.emptyHint")}</Text>
     </View>
   );
 }

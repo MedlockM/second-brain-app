@@ -56,11 +56,23 @@ _ENTITLED_STATUSES = frozenset({"active", "grace_period"})
 
 @dataclass
 class QuotaCheckResult:
-    """Result of a consumption check."""
+    """Result of a consumption check.
+
+    Carries the *figures* behind a refusal, never the sentence built from them.
+    The client speaks eleven languages and the server speaks none of them: a
+    refusal assembled here ("This import needs 12 minutes and you have 3 left
+    until Sep 4") would arrive in English on a French phone, and it is the one
+    user-facing string the app cannot translate on its own. So the numbers
+    travel typed, and the app words them from its own catalogue.
+    """
 
     allowed: bool
     error_code: Optional[str] = None  # stable machine-readable code
-    message: Optional[str] = None  # product copy, shown to the user as-is
+    # Figures the client needs to word the refusal. Keys are per error code:
+    # `out_of_minutes` -> has_plan, and when a plan exists minutes_needed,
+    # minutes_remaining and period_end (ISO 8601, or absent);
+    # `item_too_long` -> minutes_needed, max_minutes_per_item.
+    params: Dict[str, Any] = field(default_factory=dict)
     http_status: int = 200
 
     @staticmethod
@@ -70,15 +82,25 @@ class QuotaCheckResult:
     @staticmethod
     def denied(
         error_code: str,
-        message: str,
+        params: Optional[Dict[str, Any]] = None,
         http_status: int = 403,
     ) -> "QuotaCheckResult":
         return QuotaCheckResult(
             allowed=False,
             error_code=error_code,
-            message=message,
+            params=dict(params or {}),
             http_status=http_status,
         )
+
+    def error_body(self) -> Dict[str, Any]:
+        """The refusal as an API error body: the code, then its figures, flat.
+
+        Flat rather than nested under `params` so it reads like every other
+        typed refusal the artifact endpoints already send (`source_count`,
+        `max_sources`, `pending_count`), which the app pulls straight off
+        `HttpError.details`.
+        """
+        return {"error_code": self.error_code or "", **self.params}
 
 
 @dataclass
@@ -392,37 +414,14 @@ def format_minutes(minutes: int) -> str:
     return f"{hours} h" if rest == 0 else f"{hours} h {rest} min"
 
 
-def format_reset_date(resets_at: Optional[datetime]) -> str:
-    """Short reset date ("Sep 12"), or a safe phrase when it is unknown."""
-    if resets_at is None:
-        return "your next renewal"
-    return f"{resets_at.strftime('%b')} {resets_at.day}"
+def _period_end_param(period_end: Optional[datetime]) -> Dict[str, Any]:
+    """The period boundary as ISO 8601, or nothing when it is unknown.
 
-
-def _out_of_minutes_message(snapshot: EntitlementSnapshot, minutes_needed: int) -> str:
-    reset = format_reset_date(snapshot.period_end)
-    remaining = snapshot.minutes_remaining
-    if remaining <= 0:
-        return f"You're out of minutes until {reset}. Upgrade to process this now."
-    return (
-        f"This import needs {minutes_needed} minutes and you have {remaining} left "
-        f"until {reset}. Upgrade to process it now."
-    )
-
-
-def _item_too_long_message(snapshot: EntitlementSnapshot, minutes_needed: int) -> str:
-    return (
-        f"This is {format_minutes(minutes_needed)} long, over the "
-        f"{format_minutes(snapshot.max_minutes_per_item)} a single import can use on "
-        "your plan. Split it into shorter parts."
-    )
-
-
-# Named "audio and video" until task-299: without a plan `evaluate_submission`
-# refuses *every* import, an article included, so singling out the metered paths
-# promised a free tier that has never existed. Reading is unlimited *within* a
-# plan, which is what the paywall says.
-_NO_PLAN_MESSAGE = "Your plan has ended. Subscribe to keep saving to your library."
+    Absent rather than null-and-formatted: the app has a shorter sentence for
+    the case with no date, and rendering the date at all is its decision — it
+    is the side that knows the reader's locale and calendar.
+    """
+    return {} if period_end is None else {"period_end": period_end.isoformat()}
 
 
 # ---------------------------------------------------------------------------
@@ -474,9 +473,12 @@ def evaluate_submission(
 ) -> QuotaCheckResult:
     """Pure decision over a snapshot. No I/O, so every caller reads the same rules."""
     if not snapshot.is_entitled:
+        # No plan at all, not an allowance run down: the app says "your plan has
+        # ended", never a figure. Same code, because upgrading is the answer to
+        # both, and `has_plan` is what separates the two sentences.
         return QuotaCheckResult.denied(
             error_code=ERROR_OUT_OF_MINUTES,
-            message=_NO_PLAN_MESSAGE,
+            params={"has_plan": False},
             http_status=403,
         )
 
@@ -490,14 +492,22 @@ def evaluate_submission(
     ):
         return QuotaCheckResult.denied(
             error_code=ERROR_ITEM_TOO_LONG,
-            message=_item_too_long_message(snapshot, minutes_needed),
+            params={
+                "minutes_needed": minutes_needed,
+                "max_minutes_per_item": snapshot.max_minutes_per_item,
+            },
             http_status=413,
         )
 
     if minutes_needed > snapshot.minutes_remaining:
         return QuotaCheckResult.denied(
             error_code=ERROR_OUT_OF_MINUTES,
-            message=_out_of_minutes_message(snapshot, minutes_needed),
+            params={
+                "has_plan": True,
+                "minutes_needed": minutes_needed,
+                "minutes_remaining": snapshot.minutes_remaining,
+                **_period_end_param(snapshot.period_end),
+            },
             http_status=403,
         )
 
@@ -846,7 +856,7 @@ class TranscriptionGateResult:
     debited_minutes: int = 0
     provisional: bool = False
     error_code: Optional[str] = None
-    message: Optional[str] = None
+    params: Dict[str, Any] = field(default_factory=dict)
     http_status: int = 200
 
 
@@ -879,7 +889,7 @@ async def gate_transcription(
         return TranscriptionGateResult(
             allowed=False,
             error_code=check.error_code,
-            message=check.message,
+            params=check.params,
             http_status=check.http_status,
         )
 

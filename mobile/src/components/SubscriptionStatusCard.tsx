@@ -23,7 +23,8 @@ import {
   getTierLabel,
   getUsageRatio,
 } from "../lib/subscriptionDisplay";
-import { MINUTES_RULE } from "../lib/planCopy";
+import { minutesRule } from "../lib/planCopy";
+import { t } from "../i18n";
 
 /**
  * Read-only summary of the subscription state the backend reports on
@@ -72,7 +73,7 @@ export function SubscriptionStatusCard({
 }: SubscriptionStatusCardProps): React.JSX.Element {
   return (
     <View testID="account-plan-card" style={styles.card}>
-      <Text style={styles.sectionLabel}>YOUR PLAN</Text>
+      <Text style={styles.sectionLabel}>{t("account.plan.heading")}</Text>
       <CardBody
         entitlement={entitlement}
         isLoading={isLoading}
@@ -96,7 +97,7 @@ function CardBody({
     return (
       <View style={styles.inlineRow}>
         <ActivityIndicator size="small" color={Colors.primary} />
-        <Text style={styles.bodyText}>Checking your plan...</Text>
+        <Text style={styles.bodyText}>{t("account.plan.checking")}</Text>
       </View>
     );
   }
@@ -110,12 +111,11 @@ function CardBody({
             size={20}
             color={Colors.textMuted}
           />
-          <Text style={styles.planName}>Plan status unavailable</Text>
+          <Text style={styles.planName}>
+            {t("account.plan.unavailable")}
+          </Text>
         </View>
-        <Text style={styles.bodyText}>
-          We could not load your subscription details. Your plan itself is
-          unaffected.
-        </Text>
+        <Text style={styles.bodyText}>{t("account.plan.unavailableHint")}</Text>
         <Pressable
           testID="account-plan-retry-button"
           style={({ pressed }) => [
@@ -124,7 +124,7 @@ function CardBody({
           ]}
           onPress={onRetry}
           disabled={isLoading}
-          accessibilityLabel="Retry loading plan details"
+          accessibilityLabel={t("account.plan.retryA11y")}
           accessibilityRole="button"
         >
           {isLoading ? (
@@ -132,7 +132,7 @@ function CardBody({
           ) : (
             <>
               <Ionicons name="refresh" size={16} color={Colors.textMain} />
-              <Text style={styles.retryButtonText}>Retry</Text>
+              <Text style={styles.retryButtonText}>{t("common.retry")}</Text>
             </>
           )}
         </Pressable>
@@ -143,10 +143,8 @@ function CardBody({
   if (!entitlement.is_active) {
     return (
       <View testID="account-plan-inactive">
-        <Text style={styles.planName}>No active plan</Text>
-        <Text style={styles.bodyText}>
-          Your minutes and reset date appear here once a subscription is active.
-        </Text>
+        <Text style={styles.planName}>{t("account.plan.none")}</Text>
+        <Text style={styles.bodyText}>{t("account.plan.noneHint")}</Text>
       </View>
     );
   }
@@ -168,7 +166,9 @@ function CardBody({
         {/* A trial names itself; an active subscription on a tier this build does
             not know still says something true rather than nothing. */}
         <Text testID="account-plan-tier" style={styles.planName}>
-          {isTrial ? "Free trial" : (tierLabel ?? "Active plan")}
+          {isTrial
+            ? t("account.plan.freeTrial")
+            : (tierLabel ?? t("account.plan.active"))}
         </Text>
         {chipText !== null && (
           <View style={styles.statusChip}>
@@ -181,17 +181,23 @@ function CardBody({
         <Metric
           testID="account-plan-minutes"
           value={minutesRemaining}
-          label="MINUTES LEFT"
-          accessibilityLabel={`${minutesRemaining} of ${entitlement.minutes_included} minutes left this period`}
+          label={t("account.plan.minutesLeft")}
+          accessibilityLabel={t("account.plan.minutesLeftA11y", {
+            remaining: minutesRemaining,
+            included: entitlement.minutes_included,
+          })}
         />
         <Metric
           testID="account-plan-reset-date"
-          value={resetDate ?? "Unknown"}
+          value={resetDate ?? t("account.plan.unknownDate")}
           label={resetDateLabel}
           accessibilityLabel={
             resetDate
-              ? `${resetDateLabel.toLowerCase()} ${resetDate}`
-              : "Reset date unknown"
+              ? t("account.plan.resetDateA11y", {
+                  label: resetDateLabel.toLowerCase(),
+                  date: resetDate,
+                })
+              : t("account.plan.resetDateUnknownA11y")
           }
         />
       </View>
@@ -204,8 +210,8 @@ function CardBody({
           but the meter rule does not. */}
       <Text style={styles.hintText}>
         {isTrial
-          ? `${MINUTES_RULE} Trial minutes do not refill.`
-          : MINUTES_RULE}
+          ? t("account.plan.minutesRuleTrial", { rule: minutesRule() })
+          : minutesRule()}
       </Text>
     </View>
   );

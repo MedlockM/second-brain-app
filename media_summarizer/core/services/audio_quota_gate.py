@@ -48,7 +48,6 @@ class AudioGateDecision:
     debited_minutes: int = 0
     duration_seconds: int = 0
     error_code: Optional[str] = None
-    message: Optional[str] = None
     # True when the submission was let through without touching the counters
     # because the user already holds this content (task-281). Distinct from
     # `debited_minutes == 0`, which a real debit of zero could also produce, and
@@ -59,12 +58,16 @@ class AudioGateDecision:
     def failure_message(self) -> str:
         """What the user reads on the item that could not be processed.
 
-        Product copy, already carrying the figures that explain the refusal ("You're
-        out of minutes until Sep 12"). It is stored on the job as-is: prefixing it
-        with a machine code, as this used to, put `out_of_minutes:` in front of a
-        sentence shown on a screen.
+        One fixed sentence, with no figures in it. The gate runs in a worker,
+        long after the request that produced the item is over, and what it
+        writes lands in `ProcessingJob.error_message` — a free-text column the
+        app renders as-is, in whatever language it was written in. Since the
+        refusal figures now travel typed on the synchronous path (see
+        `QuotaCheckResult`), spelling them out here would be the one place left
+        putting an English sentence with numbers in front of a reader who asked
+        for another language.
         """
-        return self.message or "This import could not be processed."
+        return "This import could not be processed."
 
 
 async def resolve_audio_duration_seconds(
@@ -235,7 +238,6 @@ async def gate_audio_transcription(
         allowed=False,
         duration_seconds=duration_seconds,
         error_code=gate.error_code,
-        message=gate.message,
     )
 
     log_event(

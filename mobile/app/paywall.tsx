@@ -30,6 +30,7 @@
  */
 import React, { useEffect, useState } from "react";
 import {
+  I18nManager,
   View,
   Text,
   StyleSheet,
@@ -77,8 +78,11 @@ import {
   Shadows,
   TouchTarget,
 } from "../src/constants/theme";
+import { t, useTranslation } from "../src/i18n";
 
 export default function PaywallScreen() {
+  // Copy resolved on render: redraw when the interface language changes.
+  useTranslation();
   const router = useRouter();
   const { refreshEntitlements, entitlementStatus } = usePurchases();
   // Why the caller opened the paywall, when they know. The screen is reached
@@ -186,9 +190,9 @@ export default function PaywallScreen() {
           // Refresh entitlements from backend
           await refreshEntitlements();
           Alert.alert(
-            "Purchase Successful",
-            "Your subscription is now active. Enjoy!",
-            [{ text: "OK", onPress: () => dismiss() }],
+            t("paywall.purchaseSuccess"),
+            t("paywall.purchaseSuccessBody"),
+            [{ text: t("common.ok"), onPress: () => dismiss() }],
           );
           break;
         case "cancelled":
@@ -196,16 +200,16 @@ export default function PaywallScreen() {
           break;
         case "pending":
           Alert.alert(
-            "Purchase Pending",
-            "Your purchase is awaiting approval. You will be notified when it is complete.",
+            t("paywall.purchasePending"),
+            t("paywall.purchasePendingBody"),
           );
           break;
         case "error":
-          Alert.alert("Purchase Failed", result.message);
+          Alert.alert(t("paywall.purchaseFailed"), result.message);
           break;
       }
     } catch {
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+      Alert.alert(t("common.error"), t("paywall.unexpectedError"));
     } finally {
       setIsPurchasing(false);
     }
@@ -224,21 +228,18 @@ export default function PaywallScreen() {
 
       if (hasEntitlement) {
         Alert.alert(
-          "Purchases Restored",
-          "Your previous purchases have been restored.",
-          [{ text: "OK", onPress: () => dismiss() }],
+          t("paywall.restored"),
+          t("paywall.restoredBody"),
+          [{ text: t("common.ok"), onPress: () => dismiss() }],
         );
       } else {
         Alert.alert(
-          "Nothing to Restore",
-          `We found no previous subscription on this ${STORE_NAME} account.`,
+          t("paywall.nothingToRestore"),
+          t("paywall.nothingToRestoreBody", { store: STORE_NAME }),
         );
       }
     } catch {
-      Alert.alert(
-        "Restore Failed",
-        "Could not restore purchases. Please try again later.",
-      );
+      Alert.alert(t("paywall.restoreFailed"), t("paywall.restoreFailedBody"));
     } finally {
       setIsRestoring(false);
     }
@@ -281,8 +282,11 @@ export default function PaywallScreen() {
     selectedCard === null ? undefined : packageByTier[selectedCard.id];
   const ctaLabel =
     selectedCard === null || selectedPackage === undefined
-      ? "Choose a plan"
-      : `Start with ${selectedCard.name} — ${selectedPackage.product.priceString}/mo`;
+      ? t("paywall.ctaChoose")
+      : t("paywall.ctaStart", {
+          plan: selectedCard.name,
+          price: selectedPackage.product.priceString,
+        });
 
   return (
     // The bottom inset comes with the sticky footer: without it the CTA sits
@@ -304,17 +308,17 @@ export default function PaywallScreen() {
           style={styles.closeButton}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           accessibilityRole="button"
-          accessibilityLabel="Close"
+          accessibilityLabel={t("common.close")}
         >
-          <Text style={styles.closeText}>Close</Text>
+          <Text style={styles.closeText}>{t("common.close")}</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Choose Your Plan</Text>
+        <Text style={styles.title}>{t("paywall.title")}</Text>
         <Text style={styles.tagline}>
           Save anything worth coming back to, read it as text, keep what it
           taught you.
         </Text>
         <Text style={styles.subtitle}>
-          Every plan does all of it. Only the monthly transcription time changes.
+          {t("paywall.subtitle")}
         </Text>
       </View>
 
@@ -334,16 +338,14 @@ export default function PaywallScreen() {
           // is nothing to describe. A plan described from numbers baked into the
           // build is exactly the drift this screen was rewritten to end.
           <View testID="paywall-pricing-error" style={styles.errorBox}>
-            <Text style={styles.errorText}>
-              We could not load the plans. Check your connection and try again.
-            </Text>
+            <Text style={styles.errorText}>{t("paywall.plansLoadFailed")}</Text>
             <TouchableOpacity
               testID="paywall-retry-button"
               style={styles.retryButton}
               onPress={() => setReloadToken((token) => token + 1)}
               accessibilityRole="button"
             >
-              <Text style={styles.retryButtonText}>Try again</Text>
+              <Text style={styles.retryButtonText}>{t("paywall.tryAgain")}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -360,8 +362,7 @@ export default function PaywallScreen() {
                 />
                 <View style={styles.noticeBody}>
                   <Text style={styles.noticeText}>
-                    Prices are unavailable — the {STORE_NAME} is not offering
-                    these subscriptions right now.
+                    {t("paywall.pricesUnavailable", { store: STORE_NAME })}
                   </Text>
                   <TouchableOpacity
                     testID="paywall-retry-button"
@@ -369,7 +370,9 @@ export default function PaywallScreen() {
                     onPress={() => setReloadToken((token) => token + 1)}
                     accessibilityRole="button"
                   >
-                    <Text style={styles.noticeRetryText}>Try again</Text>
+                    <Text style={styles.noticeRetryText}>
+                      {t("paywall.tryAgain")}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -403,8 +406,8 @@ export default function PaywallScreen() {
                 nudge; a highlighted card that shows its arithmetic is advice. */}
             <Text style={styles.selectorLabel}>
               {canPurchase
-                ? "Pick your monthly transcription time"
-                : "What each plan gives you"}
+                ? t("paywall.selectorLabel")
+                : t("paywall.selectorLabelReadOnly")}
             </Text>
             {guidance.recommendationLine !== null && (
               <Text
@@ -455,8 +458,10 @@ export default function PaywallScreen() {
                     accessibilityLabel={[
                       card.name,
                       pkg === undefined
-                        ? "price unavailable"
-                        : `${pkg.product.priceString} per month`,
+                        ? t("paywall.priceUnavailableA11y")
+                        : t("paywall.pricePerMonthA11y", {
+                            price: pkg.product.priceString,
+                          }),
                       card.allowance,
                       meta.length > 0 ? meta.replace(" · ", ", ") : null,
                       badge,
@@ -513,7 +518,9 @@ export default function PaywallScreen() {
                 below — put on screen unprompted it is the wall of text every
                 paywall study says nobody reads. */}
             <View testID="paywall-highlights" style={styles.highlightBlock}>
-              <Text style={styles.includesHeading}>Included in every plan</Text>
+              <Text style={styles.includesHeading}>
+                {t("paywall.includedHeading")}
+              </Text>
               {highlights.map((highlight) => (
                 <View
                   key={highlight.id}
@@ -537,7 +544,9 @@ export default function PaywallScreen() {
                 accessibilityState={{ expanded: isDetailOpen }}
               >
                 <Text style={styles.detailToggleText}>
-                  {isDetailOpen ? "Hide the details" : "See exactly what is included"}
+                  {isDetailOpen
+                    ? t("paywall.hideDetails")
+                    : t("paywall.showDetails")}
                 </Text>
                 <Ionicons
                   name={isDetailOpen ? "chevron-up" : "chevron-down"}
@@ -575,12 +584,12 @@ export default function PaywallScreen() {
           onPress={handleRestore}
           disabled={isRestoring}
           accessibilityRole="button"
-          accessibilityLabel="Restore purchases"
+          accessibilityLabel={t("paywall.restoreA11y")}
         >
           {isRestoring ? (
             <ActivityIndicator size="small" color={Colors.textSubtle} />
           ) : (
-            <Text style={styles.restoreText}>Restore Purchases</Text>
+            <Text style={styles.restoreText}>{t("paywall.restore")}</Text>
           )}
         </TouchableOpacity>
 
@@ -592,10 +601,7 @@ export default function PaywallScreen() {
             whatever the store is doing. */}
         {canPurchase && (
           <Text style={styles.legalText}>
-            Payment is charged to your {STORE_NAME} account at confirmation of
-            purchase. The subscription renews monthly unless it is cancelled at
-            least 24 hours before the end of the current period, and your account
-            is charged for the renewal within the 24 hours before it.
+            {t("paywall.renewalTerms", { store: STORE_NAME })}
           </Text>
         )}
         <View style={styles.legalLinks}>
@@ -604,9 +610,9 @@ export default function PaywallScreen() {
             style={styles.legalLinkButton}
             onPress={() => void Linking.openURL(TERMS_URL)}
             accessibilityRole="link"
-            accessibilityLabel="Terms of Use"
+            accessibilityLabel={t("paywall.terms")}
           >
-            <Text style={styles.legalLinkText}>Terms of Use</Text>
+            <Text style={styles.legalLinkText}>{t("paywall.terms")}</Text>
           </TouchableOpacity>
           <Text style={styles.legalLinkSeparator}>·</Text>
           <TouchableOpacity
@@ -614,9 +620,9 @@ export default function PaywallScreen() {
             style={styles.legalLinkButton}
             onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
             accessibilityRole="link"
-            accessibilityLabel="Privacy Policy"
+            accessibilityLabel={t("paywall.privacy")}
           >
-            <Text style={styles.legalLinkText}>Privacy Policy</Text>
+            <Text style={styles.legalLinkText}>{t("paywall.privacy")}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -649,7 +655,7 @@ export default function PaywallScreen() {
             )}
           </TouchableOpacity>
           <Text style={styles.footerNote}>
-            Cancel anytime in your {STORE_NAME} account.
+            {t("paywall.cancelAnytime", { store: STORE_NAME })}
           </Text>
         </View>
       )}
@@ -859,7 +865,9 @@ const styles = StyleSheet.create({
     ...Typography.headline,
     fontWeight: "700",
     color: Colors.textMain,
-    textAlign: "right",
+    // End of the line, not "right": `textAlign` has no logical value in React
+    // Native, so the side is read off the active direction instead.
+    textAlign: I18nManager.isRTL ? "left" : "right",
   },
   tierPricePeriod: {
     ...Typography.small,

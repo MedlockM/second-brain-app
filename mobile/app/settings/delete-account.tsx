@@ -17,6 +17,7 @@ import { useAuth } from "../../src/contexts/AuthContext";
 import { usePurchases } from "../../src/contexts/PurchasesContext";
 import { AccountService } from "../../src/services/accountService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
+import { t, type TranslationKey } from "../../src/i18n";
 import {
   PRIVACY_CONTACT_EMAIL,
   STORE_SUBSCRIPTIONS_URL,
@@ -40,12 +41,17 @@ import {
  * is explicitly acknowledged, and the native alert is the second and final gate.
  */
 
-const ERASED_ITEMS: readonly string[] = [
-  "Your library, folders and tags",
-  "Every transcript, summary, note and flashcard",
-  "Your review schedule and digests",
-  "Your search results across the app",
-  "Your email address and sign-in details",
+/**
+ * What deletion erases, as catalogue keys rather than sentences: the list is a
+ * module constant built once at import, so resolved strings would freeze the
+ * language the app started in.
+ */
+const ERASED_ITEM_KEYS: readonly TranslationKey[] = [
+  "deleteAccount.erased.library",
+  "deleteAccount.erased.artifacts",
+  "deleteAccount.erased.schedule",
+  "deleteAccount.erased.search",
+  "deleteAccount.erased.identity",
 ];
 
 export default function DeleteAccountScreen() {
@@ -58,7 +64,7 @@ export default function DeleteAccountScreen() {
 
   const runDeletion = async (): Promise<void> => {
     if (!isAuthenticated) {
-      setError("Your session has expired. Please sign in again.");
+      setError(t("error.sessionExpired"));
       return;
     }
     setError(null);
@@ -78,12 +84,12 @@ export default function DeleteAccountScreen() {
 
   const handleDeletePress = (): void => {
     Alert.alert(
-      "Delete account?",
-      "This permanently erases your account and everything in it. This cannot be undone.",
+      t("deleteAccount.confirmTitle"),
+      t("deleteAccount.confirmBody"),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
-          text: "Delete forever",
+          text: t("deleteAccount.confirmAction"),
           style: "destructive",
           onPress: () => {
             void runDeletion();
@@ -114,12 +120,12 @@ export default function DeleteAccountScreen() {
           style={styles.backButton}
           onPress={() => router.back()}
           disabled={isDeleting}
-          accessibilityLabel="Go back"
+          accessibilityLabel={t("common.goBack")}
           accessibilityRole="button"
         >
           <Ionicons name="chevron-back" size={24} color={Colors.textMain} />
         </Pressable>
-        <Text style={styles.title}>Delete Account</Text>
+        <Text style={styles.title}>{t("deleteAccount.title")}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -131,69 +137,72 @@ export default function DeleteAccountScreen() {
         <View style={styles.warningCard}>
           <Ionicons name="alert-circle" size={20} color={Colors.error} />
           <View style={styles.warningTextContainer}>
-            <Text style={styles.warningTitle}>This cannot be undone</Text>
+            <Text style={styles.warningTitle}>
+              {t("deleteAccount.warningTitle")}
+            </Text>
             <Text style={styles.warningText}>
-              Deleting your account erases it permanently, along with everything
-              you saved. We cannot restore it afterwards, not even on request.
+              {t("deleteAccount.warningBody")}
             </Text>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>What gets erased</Text>
+        <Text style={styles.sectionTitle}>
+          {t("deleteAccount.erasedHeading")}
+        </Text>
         <View style={styles.card}>
-          {ERASED_ITEMS.map((item) => (
-            <View key={item} style={styles.bulletRow}>
+          {ERASED_ITEM_KEYS.map((key) => (
+            <View key={key} style={styles.bulletRow}>
               <Ionicons
                 name="close-circle-outline"
                 size={16}
                 color={Colors.textMuted}
               />
-              <Text style={styles.bulletText}>{item}</Text>
+              <Text style={styles.bulletText}>{t(key)}</Text>
             </View>
           ))}
         </View>
 
         {isSubscribed && (
           <>
-            <Text style={styles.sectionTitle}>Your subscription</Text>
+            <Text style={styles.sectionTitle}>
+              {t("deleteAccount.subscriptionHeading")}
+            </Text>
             <View style={styles.card}>
               <Text style={styles.cardText}>
-                Deleting your account does not cancel your subscription.
-                {Platform.OS === "ios" ? " Apple" : " Google"} keeps billing you
-                until you cancel it in your store settings, so cancel there
-                first.
+                {Platform.OS === "ios"
+                  ? t("deleteAccount.subscriptionBodyApple")
+                  : t("deleteAccount.subscriptionBodyGoogle")}
               </Text>
               <Pressable
                 style={styles.linkRow}
                 onPress={openStoreSubscriptions}
                 accessibilityLabel={
                   Platform.OS === "ios"
-                    ? "Manage subscription in the App Store"
-                    : "Manage subscription in the Play Store"
+                    ? t("deleteAccount.manageApple")
+                    : t("deleteAccount.manageGoogle")
                 }
                 accessibilityRole="button"
               >
                 <Ionicons name="open-outline" size={16} color={Colors.textMain} />
                 <Text style={styles.linkText}>
                   {Platform.OS === "ios"
-                    ? "Manage subscription in the App Store"
-                    : "Manage subscription in the Play Store"}
+                    ? t("deleteAccount.manageApple")
+                    : t("deleteAccount.manageGoogle")}
                 </Text>
               </Pressable>
             </View>
           </>
         )}
 
-        <Text style={styles.sectionTitle}>Want a copy first?</Text>
+        <Text style={styles.sectionTitle}>{t("deleteAccount.copyHeading")}</Text>
         <View style={styles.card}>
-          <Text style={styles.cardText}>
-            Email us before you delete and we will send you a copy of your data
-            within one month.
-          </Text>
+          <Text style={styles.cardText}>{t("deleteAccount.copyBody")}</Text>
           <Pressable
             style={styles.linkRow}
             onPress={openPrivacyContact}
-            accessibilityLabel={`Email ${PRIVACY_CONTACT_EMAIL}`}
+            accessibilityLabel={t("deleteAccount.emailA11y", {
+              address: PRIVACY_CONTACT_EMAIL,
+            })}
             accessibilityRole="button"
           >
             <Ionicons name="mail-outline" size={16} color={Colors.textMain} />
@@ -206,7 +215,7 @@ export default function DeleteAccountScreen() {
           style={styles.acknowledgeRow}
           onPress={() => setHasAcknowledged((previous) => !previous)}
           disabled={isDeleting}
-          accessibilityLabel="I understand this cannot be undone"
+          accessibilityLabel={t("deleteAccount.acknowledgeA11y")}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: hasAcknowledged }}
         >
@@ -216,7 +225,7 @@ export default function DeleteAccountScreen() {
             color={hasAcknowledged ? Colors.error : Colors.textMuted}
           />
           <Text style={styles.acknowledgeText}>
-            I understand my account and all my data will be erased permanently.
+            {t("deleteAccount.acknowledge")}
           </Text>
         </Pressable>
 
@@ -236,13 +245,13 @@ export default function DeleteAccountScreen() {
           ]}
           onPress={handleDeletePress}
           disabled={!hasAcknowledged || isDeleting}
-          accessibilityLabel="Delete my account"
+          accessibilityLabel={t("deleteAccount.submitA11y")}
           accessibilityRole="button"
         >
           {isDeleting ? (
             <ActivityIndicator color={Colors.onError} />
           ) : (
-            <Text style={styles.deleteButtonText}>Delete My Account</Text>
+            <Text style={styles.deleteButtonText}>{t("deleteAccount.submit")}</Text>
           )}
         </Pressable>
       </View>

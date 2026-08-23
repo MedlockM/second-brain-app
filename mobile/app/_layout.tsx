@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { ShareIntentProvider as ExpoShareIntentProvider } from "expo-share-intent";
+import { I18nProvider } from "../src/i18n";
 import { AuthProvider } from "../src/contexts/AuthContext";
 import { UserPreferencesProvider } from "../src/contexts/UserPreferencesContext";
 import { ShareIntentProvider } from "../src/contexts/ShareIntentContext";
@@ -16,18 +17,23 @@ SplashScreen.preventAutoHideAsync();
  * Root layout - wraps the entire app with providers in this order:
  * 1. ExpoShareIntentProvider (from expo-share-intent package) - handles native
  *    module communication, URL interception, App Groups resolution on iOS.
- * 2. AuthProvider - manages authentication state.
- * 3. UserPreferencesProvider - manages reading language preference.
- * 4. PurchasesProvider - manages IAP state.
- * 5. ShareIntentProvider (our custom) - consumes the package's context, maps
+ * 2. I18nProvider - resolves the interface language (device locale, or the
+ *    in-app override read from the device) before anything renders a word of
+ *    it. Outermost of our own providers because every one of them can end up
+ *    producing user-facing copy.
+ * 3. AuthProvider - manages authentication state.
+ * 4. UserPreferencesProvider - manages reading language preference.
+ * 5. PurchasesProvider - manages IAP state.
+ * 6. ShareIntentProvider (our custom) - consumes the package's context, maps
  *    to our ShareIntakeState, handles auth gating and navigation.
- * 6. InboxProvider - manages inbox state.
+ * 7. InboxProvider - manages inbox state.
  *
  * Expo Router uses this as the entry point for all navigation.
  */
 export default function RootLayout() {
   return (
     <ExpoShareIntentProvider options={{ debug: false, resetOnBackground: true, scheme: "media-summarizer" }}>
+      <I18nProvider>
       <AuthProvider>
         <UserPreferencesProvider>
           <PurchasesProvider>
@@ -115,6 +121,12 @@ export default function RootLayout() {
                     animation: "slide_from_right",
                   }}
                 />
+                <Stack.Screen
+                  name="settings/interface-language"
+                  options={{
+                    animation: "slide_from_right",
+                  }}
+                />
                 {/* Opened from the Account tab and from a quota refusal on the
                     share confirmation screen, so it presents over whatever
                     pushed it and dismisses back to it. */}
@@ -132,6 +144,7 @@ export default function RootLayout() {
         </PurchasesProvider>
       </UserPreferencesProvider>
       </AuthProvider>
+      </I18nProvider>
     </ExpoShareIntentProvider>
   );
 }

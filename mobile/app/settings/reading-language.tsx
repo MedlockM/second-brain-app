@@ -17,6 +17,7 @@ import {
   ReadingLanguageCode,
 } from "../../src/services/userPreferencesService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
+import { t } from "../../src/i18n";
 import {
   Colors,
   Typography,
@@ -68,7 +69,9 @@ export default function ReadingLanguageSettingsScreen() {
           setSelectedLanguage(item.code);
           setSuccess(false);
         }}
-        accessibilityLabel={`Select ${item.label} as reading language`}
+        accessibilityLabel={t("readingLanguage.selectA11y", {
+          language: item.label,
+        })}
         accessibilityRole="button"
         accessibilityState={{ selected: isSelected }}
       >
@@ -95,7 +98,7 @@ export default function ReadingLanguageSettingsScreen() {
         <Pressable
           style={styles.backButton}
           onPress={() => router.back()}
-          accessibilityLabel="Go back"
+          accessibilityLabel={t("common.goBack")}
           accessibilityRole="button"
         >
           <Ionicons
@@ -104,7 +107,7 @@ export default function ReadingLanguageSettingsScreen() {
             color={Colors.textMain}
           />
         </Pressable>
-        <Text style={styles.title}>Reading Language</Text>
+        <Text style={styles.title}>{t("readingLanguage.title")}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -116,8 +119,7 @@ export default function ReadingLanguageSettingsScreen() {
           color={Colors.textMuted}
         />
         <Text style={styles.disclaimerText}>
-          Changing this setting affects future content only. Existing summaries
-          and translations will not be re-processed.
+          {t("readingLanguage.disclaimer")}
         </Text>
       </View>
 
@@ -130,7 +132,7 @@ export default function ReadingLanguageSettingsScreen() {
       {success && (
         <View style={styles.successContainer}>
           <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
-          <Text style={styles.successText}>Language updated successfully</Text>
+          <Text style={styles.successText}>{t("readingLanguage.saved")}</Text>
         </View>
       )}
 
@@ -150,13 +152,13 @@ export default function ReadingLanguageSettingsScreen() {
           ]}
           onPress={handleSave}
           disabled={!hasChanged || isUpdating}
-          accessibilityLabel="Save reading language"
+          accessibilityLabel={t("readingLanguage.saveA11y")}
           accessibilityRole="button"
         >
           {isUpdating ? (
             <ActivityIndicator color={Colors.onPrimary} />
           ) : (
-            <Text style={styles.saveButtonText}>Save</Text>
+            <Text style={styles.saveButtonText}>{t("common.save")}</Text>
           )}
         </Pressable>
       </View>
@@ -259,7 +261,7 @@ const styles = StyleSheet.create({
   languageCode: {
     ...Typography.small,
     color: Colors.textMuted,
-    marginRight: Spacing.sm,
+    marginEnd: Spacing.sm,
   },
   footer: {
     paddingHorizontal: Spacing.lg,

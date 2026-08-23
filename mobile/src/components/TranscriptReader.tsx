@@ -17,6 +17,7 @@ import {
   TouchTarget,
   Typography,
 } from "../constants/theme";
+import { t, tCount } from "../i18n";
 import { formatDuration } from "../lib/formatDuration";
 import type {
   MediaStatusResponse,
@@ -90,24 +91,22 @@ export function TranscriptReader({
           size={32}
           color={Colors.textMuted}
         />
-        <Text style={styles.emptyText}>No transcript available yet.</Text>
+        <Text style={styles.emptyText}>{t("transcript.empty")}</Text>
         {processingStatus !== "completed" &&
           processingStatus !== "failed" &&
           processingStatus !== "cancelled" && (
-            <Text style={styles.emptyHint}>
-              Transcript will appear once processing completes.
-            </Text>
+            <Text style={styles.emptyHint}>{t("transcript.emptyHint")}</Text>
           )}
       </View>
     );
   }
 
   const statusMessages: Record<string, string> = {
-    pending: "Transcript processing will start soon.",
-    extracting: "Extracting audio content...",
-    transcribing: "Transcribing audio to text...",
-    ready: "Transcript is ready.",
-    failed: "Transcript processing failed.",
+    pending: t("transcript.status.pending"),
+    extracting: t("transcript.status.extracting"),
+    transcribing: t("transcript.status.transcribing"),
+    ready: t("transcript.status.ready"),
+    failed: t("transcript.status.failed"),
   };
 
   const isReady = transcript.status === "ready";
@@ -116,7 +115,7 @@ export function TranscriptReader({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionTitle}>Transcript</Text>
+      <Text style={styles.sectionTitle}>{t("transcript.heading")}</Text>
 
       {/* Transcript metadata */}
       <View style={styles.meta}>
@@ -144,9 +143,7 @@ export function TranscriptReader({
           <View style={styles.metaItem}>
             <Ionicons name="list-outline" size={14} color={Colors.textMuted} />
             <Text style={styles.metaText}>
-              {transcript.segments_count === 1
-                ? "1 paragraph"
-                : `${transcript.segments_count} paragraphs`}
+              {tCount("transcript.paragraphCount", transcript.segments_count)}
             </Text>
           </View>
         )}
@@ -177,7 +174,7 @@ export function TranscriptReader({
           <Text
             style={[styles.statusText, isFailed && styles.statusTextFailed]}
           >
-            {statusMessages[transcript.status] || "Processing..."}
+            {statusMessages[transcript.status] || t("artifacts.processing")}
           </Text>
         </View>
       )}
@@ -249,7 +246,7 @@ function TranscriptContent({
             style={styles.statusGlyph}
           />
           <Text style={styles.translationPendingText}>
-            Translating transcript...
+            {t("transcript.translating")}
           </Text>
         </View>
         <TranscriptBody content={state.content} />
@@ -268,7 +265,7 @@ function TranscriptContent({
             style={styles.statusGlyph}
           />
           <Text style={styles.translationFailedText}>
-            Translation failed. Showing original transcript.
+            {t("transcript.translationFailed")}
           </Text>
         </View>
         <TranscriptBody content={state.content} />
@@ -284,7 +281,7 @@ function TranscriptContent({
           color={Colors.primary}
           style={styles.statusGlyph}
         />
-        <Text style={styles.statusText}>Loading transcript…</Text>
+        <Text style={styles.statusText}>{t("transcript.loading")}</Text>
       </View>
     );
   }
@@ -298,9 +295,7 @@ function TranscriptContent({
           color={Colors.textMuted}
           style={styles.statusGlyph}
         />
-        <Text style={styles.statusText}>
-          Transcript content is not available for this item.
-        </Text>
+        <Text style={styles.statusText}>{t("transcript.notAvailable")}</Text>
       </View>
     );
   }
@@ -321,11 +316,11 @@ function TranscriptContent({
       <Pressable
         style={styles.retryButton}
         onPress={onRetry}
-        accessibilityLabel="Retry loading transcript"
+        accessibilityLabel={t("transcript.retryA11y")}
         accessibilityRole="button"
       >
         <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
-        <Text style={styles.retryButtonText}>Retry</Text>
+        <Text style={styles.retryButtonText}>{t("common.retry")}</Text>
       </Pressable>
     </View>
   );
@@ -362,7 +357,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
   },
   statusGlyph: {
-    marginRight: Spacing.sm,
+    marginEnd: Spacing.sm,
   },
   statusText: {
     fontSize: Typography.body.fontSize,

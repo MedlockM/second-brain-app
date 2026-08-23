@@ -22,12 +22,17 @@ import {
   TouchTarget,
   Typography,
 } from "../constants/theme";
+import { t, type TranslationKey } from "../i18n";
 
 export interface ScreenTab<K extends string = string> {
   /** Stable identifier handed back to `onChange`. */
   key: K;
-  /** Visible, human-readable label. */
-  label: string;
+  /**
+   * Catalogue key of the visible label. A key rather than the label itself
+   * because callers declare their tabs as module constants, and a string
+   * resolved at import time would keep the language the app was launched in.
+   */
+  labelKey: TranslationKey;
   /** Optional glyph rendered before the label. */
   icon?: keyof typeof Ionicons.glyphMap;
 }
@@ -54,13 +59,14 @@ export function ScreenTabs<K extends string>({
     >
       {tabs.map((tab) => {
         const selected = tab.key === activeKey;
+        const label = t(tab.labelKey);
         return (
           <Pressable
             key={tab.key}
             style={[styles.tab, selected && styles.tabSelected]}
             onPress={() => onChange(tab.key)}
             accessibilityRole="tab"
-            accessibilityLabel={tab.label}
+            accessibilityLabel={label}
             accessibilityState={{ selected }}
           >
             {tab.icon ? (
@@ -71,7 +77,7 @@ export function ScreenTabs<K extends string>({
               />
             ) : null}
             <Text style={[styles.tabLabel, selected && styles.tabLabelSelected]}>
-              {tab.label}
+              {label}
             </Text>
           </Pressable>
         );

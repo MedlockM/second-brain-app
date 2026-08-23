@@ -88,6 +88,32 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     icon: "./assets/icon.png",
     userInterfaceStyle: "light",
     scheme: "media-summarizer",
+    // The eleven V1 locales, declared at the *native* level.
+    //
+    // This is what makes the OS treat the app as multilingual: the picker
+    // intersects the locales the binary declares (`CFBundleLocalizations` on
+    // iOS, `res/values-<lang>/` on Android) with the user's ordered preferred
+    // languages. Without it the app is English-only to the system whatever the
+    // JS bundle contains — the app name and the two permission prompts would
+    // stay English on a French phone, and iOS would not offer the per-app
+    // language control at all.
+    //
+    // The files carry the app name (a brand, identical in every locale) and the
+    // two `infoPlist` permission strings, which is everything the OS renders
+    // outside the JS bundle.
+    locales: {
+      en: "./locales/en.json",
+      fr: "./locales/fr.json",
+      es: "./locales/es.json",
+      de: "./locales/de.json",
+      it: "./locales/it.json",
+      pt: "./locales/pt.json",
+      nl: "./locales/nl.json",
+      ja: "./locales/ja.json",
+      zh: "./locales/zh.json",
+      ar: "./locales/ar.json",
+      hi: "./locales/hi.json",
+    },
     splash: {
       image: "./assets/splash.png",
       resizeMode: "contain",
@@ -151,6 +177,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     plugins: [
       "expo-router",
       "expo-secure-store",
+      "expo-localization",
       "expo-apple-authentication",
       "expo-font",
       // Media covers (task-304). The config plugin is what wires SDWebImage on

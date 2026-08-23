@@ -19,6 +19,7 @@ import {
   BorderRadius,
   Shadows,
 } from "../../src/constants/theme";
+import { t, tCount, useTranslation } from "../../src/i18n";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { OrganizationService } from "../../src/services/organizationService";
@@ -47,6 +48,8 @@ function parseInitialTagIds(value?: string): string[] {
  * Design ref: mobile-design-mockups/gestion_des_tags_no_keyboard_space/
  */
 export default function TagsScreen() {
+  // Copy resolved on render: redraw when the interface language changes.
+  useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams<{
     mode?: string;
@@ -80,7 +83,7 @@ export default function TagsScreen() {
         const tags = await OrganizationService.getUserTags();
         setAllTags(tags);
       } catch {
-        setError("Failed to load tags");
+        setError(t("tags.loadFailed"));
       } finally {
         setIsLoading(false);
       }
@@ -165,7 +168,7 @@ export default function TagsScreen() {
       setSearchText("");
       Keyboard.dismiss();
     } catch {
-      setError("Failed to create tag");
+      setError(t("tags.createFailed"));
     }
   }, [allTags, isAuthenticated, searchText, syncShareTags]);
 
@@ -217,7 +220,7 @@ export default function TagsScreen() {
       );
       handleBack();
     } catch {
-      setError("Failed to save tags");
+      setError(t("tags.saveFailed"));
       setIsSaving(false);
     }
   }, [
@@ -273,27 +276,27 @@ export default function TagsScreen() {
         <TouchableOpacity
           style={styles.backButton}
           onPress={handleBack}
-          accessibilityLabel="Go back"
+          accessibilityLabel={t("common.goBack")}
           accessibilityRole="button"
         >
           <Ionicons name="arrow-back" size={22} color={Colors.textMain} />
         </TouchableOpacity>
 
         <Text style={styles.headerTitle}>
-          {selectedTagIds.length} tag{selectedTagIds.length !== 1 ? "s" : ""}
+          {tCount("tags.selectedCount", selectedTagIds.length)}
         </Text>
 
         <TouchableOpacity
           style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
           onPress={handleSave}
           disabled={isSaving}
-          accessibilityLabel="Save tags"
+          accessibilityLabel={t("tags.saveA11y")}
           accessibilityRole="button"
         >
           {isSaving ? (
             <ActivityIndicator size="small" color={Colors.primary} />
           ) : (
-            <Text style={styles.saveButtonText}>Done</Text>
+            <Text style={styles.saveButtonText}>{t("common.done")}</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -307,7 +310,7 @@ export default function TagsScreen() {
               <TouchableOpacity
                 onPress={() => handleRemoveSelectedTag(tag.id)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityLabel={`Remove ${tag.name}`}
+                accessibilityLabel={t("tags.removeA11y", { name: tag.name })}
               >
                 <Ionicons
                   name="close-circle"
@@ -326,7 +329,7 @@ export default function TagsScreen() {
         <TextInput
           ref={inputRef}
           style={styles.input}
-          placeholder="Ajouter un tag"
+          placeholder={t("tags.addPlaceholder")}
           placeholderTextColor={Colors.outlineVariant}
           value={searchText}
           onChangeText={setSearchText}
@@ -340,7 +343,7 @@ export default function TagsScreen() {
           <TouchableOpacity
             style={styles.createButton}
             onPress={handleCreateAndAddTag}
-            accessibilityLabel={`Create tag "${searchText}"`}
+            accessibilityLabel={t("tags.createA11y", { name: searchText })}
           >
             <Ionicons name="add-circle" size={24} color={Colors.primary} />
           </TouchableOpacity>
@@ -363,7 +366,7 @@ export default function TagsScreen() {
       ) : (
         <>
           {filteredTags.length > 0 && (
-            <Text style={styles.sectionLabel}>AUTRES</Text>
+            <Text style={styles.sectionLabel}>{t("tags.otherHeading")}</Text>
           )}
           <View style={styles.listContainer}>
             <FlatList
@@ -467,8 +470,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceContainerLow,
     borderRadius: BorderRadius.xl,
     paddingVertical: Spacing.md,
-    paddingLeft: Spacing.md,
-    paddingRight: Spacing.md,
+    paddingStart: Spacing.md,
+    paddingEnd: Spacing.md,
     ...Shadows.soft,
     borderWidth: 2,
     borderColor: Colors.primary,
@@ -478,7 +481,7 @@ const styles = StyleSheet.create({
     height: 20,
     backgroundColor: Colors.primary,
     borderRadius: BorderRadius.full,
-    marginRight: Spacing.sm,
+    marginEnd: Spacing.sm,
   },
   input: {
     flex: 1,
@@ -487,7 +490,7 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   createButton: {
-    marginLeft: Spacing.sm,
+    marginStart: Spacing.sm,
   },
   errorBanner: {
     flexDirection: "row",

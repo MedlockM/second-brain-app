@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { MediaService } from "../services/mediaService";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
+import { t } from "../i18n";
 import type {
   MediaStatusResponse,
   SourcePlatform,
@@ -20,15 +21,15 @@ function getProcessingMessage(sourcePlatform?: SourcePlatform): string {
     case "deezer":
     case "rss":
     case "podcast_index":
-      return "Transcribing audio...";
+      return t("media.processing.audio");
     case "youtube":
-      return "Transcribing video...";
+      return t("media.processing.video");
     case "instagram":
     case "tiktok":
     case "x":
-      return "Extracting content...";
+      return t("media.processing.extracting");
     default:
-      return "Generating text...";
+      return t("media.processing.generating");
   }
 }
 
@@ -114,7 +115,7 @@ export function useMediaDetailPolling(
         setState("failed");
         setProcessingError(
           response.processing_job.error_message ||
-            "Processing failed. Please try again later.",
+            t("media.processingFailed"),
         );
         stopPolling();
       } else {

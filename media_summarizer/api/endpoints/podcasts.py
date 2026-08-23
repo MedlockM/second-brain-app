@@ -221,7 +221,7 @@ async def submit_podcast_for_processing(
         if not quota_result.allowed:
             raise HTTPException(
                 status_code=quota_result.http_status,
-                detail=quota_result.message,
+                detail=quota_result.error_body(),
                 headers={"X-Quota-Error-Code": quota_result.error_code or ""},
             )
 

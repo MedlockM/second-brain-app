@@ -18,6 +18,7 @@ import {
   getPasswordValidationError,
 } from "../../src/lib/validation";
 import { SocialAuthButtons } from "../../src/components/SocialAuthButtons";
+import { t } from "../../src/i18n";
 import { Colors, Typography, Spacing, BorderRadius } from "../../src/constants/theme";
 
 export default function LoginScreen() {
@@ -65,10 +66,8 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.subtitle}>
-            Sign in to access your media library
-          </Text>
+          <Text style={styles.title}>{t("login.title")}</Text>
+          <Text style={styles.subtitle}>{t("login.subtitle")}</Text>
         </View>
 
         {displayError && (
@@ -79,7 +78,7 @@ export default function LoginScreen() {
 
         <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email</Text>
+            <Text style={styles.inputLabel}>{t("auth.email")}</Text>
             <TextInput
               testID="login-email-input"
               style={styles.input}
@@ -89,7 +88,7 @@ export default function LoginScreen() {
                 setError(null);
                 if (sessionError) clearSessionError();
               }}
-              placeholder="you@example.com"
+              placeholder={t("auth.emailPlaceholder")}
               placeholderTextColor={Colors.textMuted}
               keyboardType="email-address"
               autoCapitalize="none"
@@ -100,7 +99,7 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Password</Text>
+            <Text style={styles.inputLabel}>{t("auth.password")}</Text>
             <TextInput
               testID="login-password-input"
               style={styles.input}
@@ -109,7 +108,7 @@ export default function LoginScreen() {
                 setPassword(text);
                 setError(null);
               }}
-              placeholder="Your password"
+              placeholder={t("login.passwordPlaceholder")}
               placeholderTextColor={Colors.textMuted}
               secureTextEntry={process.env.EXPO_PUBLIC_E2E_MODE !== "true"}
               autoComplete={
@@ -130,13 +129,13 @@ export default function LoginScreen() {
             onPress={handleLogin}
             disabled={isSubmitting}
             activeOpacity={0.8}
-            accessibilityLabel="Sign in with email"
+            accessibilityLabel={t("login.submitA11y")}
             accessibilityRole="button"
           >
             {isSubmitting ? (
               <ActivityIndicator color={Colors.onPrimary} />
             ) : (
-              <Text style={styles.buttonText}>Sign In</Text>
+              <Text style={styles.buttonText}>{t("login.submit")}</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -147,10 +146,10 @@ export default function LoginScreen() {
         />
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Don't have an account? </Text>
+          <Text style={styles.footerText}>{t("login.noAccount")} </Text>
           <Link href="/(auth)/register" asChild>
             <TouchableOpacity testID="login-sign-up-button">
-              <Text style={styles.footerLink}>Sign Up</Text>
+              <Text style={styles.footerLink}>{t("login.signUpLink")}</Text>
             </TouchableOpacity>
           </Link>
         </View>

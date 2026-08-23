@@ -3,6 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useInbox, InboxItem } from "../contexts/InboxContext";
 import { MediaService } from "../services/mediaService";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
+import { t } from "../i18n";
 import type { MediaListItem } from "../types/media";
 
 export interface UseMediaPollingResult {
@@ -58,7 +59,7 @@ export function useMediaPolling(): UseMediaPollingResult {
     } catch (err) {
       if (isMountedRef.current) {
         const message = getFriendlyErrorMessage(err, {
-          fallback: "Unable to load your inbox. Please try again.",
+          fallback: t("home.loadFailed"),
         });
         setError(message);
       }
