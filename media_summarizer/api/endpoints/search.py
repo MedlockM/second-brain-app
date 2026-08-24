@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.services import search_indexing
-from media_summarizer.core.services.media_search_service import resolve_cover_urls
+from media_summarizer.core.services.media_search_service import load_display_details
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -49,8 +49,9 @@ class SearchHit(BaseModel):
     media_image: Optional[str] = Field(
         None,
         description=(
-            "Fetchable cover URL, signed on read for a re-hosted cover. Null "
-            "when the item has none, or when it was indexed before covers were."
+            "Fetchable cover URL, signed on read for a re-hosted cover. Read "
+            "from the library row, so it is the same picture the library list "
+            "shows. Null when the item has none."
         ),
     )
     created_at: int = Field(..., description="Creation timestamp (Unix)")
@@ -105,9 +106,20 @@ async def search_transcripts(
             filter_by_platform=source_platform,
         )
 
+        # What each hit *looks* like comes from the library row, not from the
+        # index: the index is a search index, and a cover denormalised into it
+        # would be missing on everything indexed earlier and stale on every
+        # cover replaced later. Reading the row is what makes a search result
+        # and a library row show the same picture by construction.
+        raw_hits = result.get("hits", [])
+        details = await load_display_details(
+            current_user.id,
+            [hit["media_item_id"] for hit in raw_hits if hit.get("media_item_id")],
+        )
+
         # Transform Algolia response into our API response model
         hits = []
-        for hit_data in result.get("hits", []):
+        for hit_data in raw_hits:
             # Build highlight snippets
             highlights = []
             for hl in hit_data.get("highlights", []):
@@ -120,33 +132,24 @@ async def search_transcripts(
                         )
                     )
 
+            # The row wins on everything it carries; the index is the fallback
+            # for an item whose library row is gone, which stays findable today
+            # because deleting a media does not unindex it.
+            detail = details.get(hit_data.get("media_item_id", ""), {})
+
             hits.append(
                 SearchHit(
                     media_item_id=hit_data.get("media_item_id", ""),
-                    title=hit_data.get("title") or None,
-                    creator_name=hit_data.get("creator_name") or None,
+                    title=detail.get("title") or hit_data.get("title") or None,
+                    creator_name=detail.get("creator_name") or None,
                     source_platform=hit_data.get("source_platform") or None,
-                    media_type=hit_data.get("media_type") or None,
-                    media_image=hit_data.get("media_image") or None,
+                    media_type=detail.get("media_type") or None,
+                    media_image=detail.get("media_image") or None,
                     created_at=hit_data.get("created_at", 0),
                     text_match_score=hit_data.get("text_match_score", 0),
                     highlights=highlights,
                 )
             )
-
-        # The index stores the cover *locator*, never a signed URL: a signature
-        # outlives nothing, and an index is read long after it is written. So
-        # the same resolver the library list uses runs here, which is what keeps
-        # the two surfaces from disagreeing about which covers load.
-        cover_items = [
-            {"media_image": hit.media_image} for hit in hits if hit.media_image
-        ]
-        if cover_items:
-            await resolve_cover_urls(cover_items)
-            resolved = iter(cover_items)
-            for hit in hits:
-                if hit.media_image:
-                    hit.media_image = next(resolved)["media_image"]
 
         return SearchResponse(
             query=q,

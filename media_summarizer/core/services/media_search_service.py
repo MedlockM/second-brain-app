@@ -13,6 +13,7 @@ an operational row, so there is nothing to lose when one disappears.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -224,6 +225,53 @@ def _apply_cursor(
 
     # Cursor is past all items
     return []
+
+
+async def load_display_details(
+    user_id: str,
+    media_item_ids: List[str],
+) -> Dict[str, Dict[str, Any]]:
+    """What a media item *looks* like, read from the library row itself.
+
+    The transcript index is a search index: it answers which items match, and
+    where in their text. It is a poor place to also keep what those items look
+    like — a cover denormalised into it would be written once, at indexing time,
+    and would then be wrong for every item indexed before covers existed, stale
+    for every cover replaced afterwards, and impossible to reconcile without a
+    reindex. The library row is the single source of truth for all of that, and
+    reading it here is what makes a search result and a library row show the
+    same picture *by construction*.
+
+    One `get_item` per hit, by primary key, capped by the page size the endpoint
+    already enforces. Covers are signed by the same resolver the library list
+    uses, so a signing failure blanks one cover rather than failing the search.
+
+    A missing id maps to nothing: the row is gone (deleted, or never mirrored)
+    and the caller falls back to what the index knows.
+    """
+    if not media_item_ids:
+        return {}
+
+    records = await asyncio.gather(
+        *(
+            user_media_store.get_user_media(user_id, media_item_id)
+            for media_item_id in media_item_ids
+        )
+    )
+
+    details: Dict[str, Dict[str, Any]] = {}
+    for media_item_id, record in zip(media_item_ids, records):
+        if record is None:
+            continue
+        details[media_item_id] = {
+            "title": record.title,
+            "creator_name": record.creator_name,
+            "media_type": record.media_type,
+            "media_image": record.thumbnail_url,
+        }
+
+    await resolve_cover_urls(list(details.values()))
+    return details
 
 
 async def resolve_cover_urls(items: List[Dict[str, Any]]) -> None:

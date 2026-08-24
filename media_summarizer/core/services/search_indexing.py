@@ -116,8 +116,6 @@ def index_transcript(
     title: Optional[str] = None,
     creator_name: Optional[str] = None,
     source_platform: Optional[str] = None,
-    media_type: Optional[str] = None,
-    media_image: Optional[str] = None,
     created_at: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
@@ -134,12 +132,6 @@ def index_transcript(
         title: Optional title/description of the media.
         creator_name: Optional publisher of the media (channel, show, site).
         source_platform: Optional platform source (youtube, audio, web, etc.).
-        media_type: Optional media kind (podcast_episode, article, ...), which
-            is what the client draws when an item has no cover.
-        media_image: Optional cover, stored **as it is stored on the library row**
-            -- an absolute third-party URL, or an ``s3://bucket/key`` locator for
-            a re-hosted cover. Never a signed URL: a signature expires, and an
-            index is read long after it is written.
         created_at: Unix timestamp of creation. Defaults to current time.
 
     Returns:
@@ -166,8 +158,6 @@ def index_transcript(
             "title": title or "",
             "creator_name": creator_name or "",
             "source_platform": source_platform or "",
-            "media_type": media_type or "",
-            "media_image": media_image or "",
             "created_at": timestamp,
             "chunk_index": i,
             "transcript": chunk_text,
@@ -323,10 +313,7 @@ def search_transcripts(
         "attributesToRetrieve": [
             "media_item_id",
             "title",
-            "creator_name",
             "source_platform",
-            "media_type",
-            "media_image",
             "created_at",
             "chunk_index",
             "transcript",
@@ -443,10 +430,7 @@ def _extract_hit_data(hit: Any) -> Dict[str, Any]:
     return {
         "media_item_id": raw.get("media_item_id", ""),
         "title": raw.get("title", ""),
-        "creator_name": raw.get("creator_name", ""),
         "source_platform": raw.get("source_platform", ""),
-        "media_type": raw.get("media_type", ""),
-        "media_image": raw.get("media_image", ""),
         "created_at": raw.get("created_at", 0),
         "text_match_score": 0,  # Algolia does not expose a numeric score by default
         "highlights": highlights,

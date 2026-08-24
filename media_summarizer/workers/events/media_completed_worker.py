@@ -50,8 +50,6 @@ async def _enqueue_search_indexing(
     title: Optional[str],
     creator_name: Optional[str],
     source_platform: Optional[str],
-    media_type: Optional[str],
-    media_image: Optional[str],
 ) -> None:
     """
     Best-effort enqueue of a search indexing message so the transcript becomes
@@ -94,8 +92,6 @@ async def _enqueue_search_indexing(
                 "title": title,
                 "creator_name": creator_name,
                 "source_platform": source_platform,
-                "media_type": media_type,
-                "media_image": media_image,
                 "created_at": int(time.time()),
             },
         )
@@ -190,8 +186,6 @@ async def process_event(message: Dict[str, Any]) -> None:
             title=canonical_job.title or media_title,
             creator_name=canonical_job.creator_name,
             source_platform=canonical_job.source_platform,
-            media_type=canonical_job.media_type,
-            media_image=canonical_job.media_image,
         )
         indexed_user_ids.add(canonical_job.user_id)
     elif not canonical_job_id:
@@ -261,8 +255,6 @@ async def process_event(message: Dict[str, Any]) -> None:
                         getattr(job, "creator_name", None) if job else None
                     ),
                     source_platform=(getattr(job, "source_platform", None) if job else None),
-                    media_type=(getattr(job, "media_type", None) if job else None),
-                    media_image=(getattr(job, "media_image", None) if job else None),
                 )
                 indexed_user_ids.add(watcher_user_id)
 

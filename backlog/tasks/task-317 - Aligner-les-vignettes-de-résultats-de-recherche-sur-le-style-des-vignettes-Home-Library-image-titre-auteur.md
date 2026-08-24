@@ -74,23 +74,27 @@ Laissée à l'appréciation de l'implémenteur (pas d'idée arrêtée côté own
 
 Non. **Rien de tout cela n'était indexé.** `index_transcript` n'écrivait que `title`, `creator_name`, `source_platform`, `created_at`, `chunk_index`, `transcript` — et `creator_name`, bien qu'écrit, n'était ni dans `attributesToRetrieve`, ni dans le mapping du hit, ni sur le modèle `SearchHit` de l'API. Il n'y avait donc **ni cover, ni auteur, ni type de média** à afficher, quel que soit le travail fait côté app.
 
-La description prévoyait le cas (« si le champ n'est pas indexé/retourné aujourd'hui, l'ajouter côté client de lecture uniquement, pas de nouveau endpoint attendu »). C'est ce qui a été fait : aucun endpoint créé, `GET /api/search/transcripts` étendu.
+La description prévoyait le cas (« si le champ n'est pas indexé/retourné aujourd'hui, l'ajouter côté client de lecture uniquement, pas de nouveau endpoint attendu »). Aucun endpoint n'a été créé : `GET /api/search/transcripts` est étendu.
 
-## La chaîne d'indexation, de bout en bout
+## D'où vient la cover : de la ligne de bibliothèque, pas de l'index
 
-Trois champs voyagent désormais jusqu'à Algolia et reviennent : `media_image`, `media_type`, `creator_name`.
+**Première approche, écartée** : dénormaliser `media_image` / `media_type` dans les documents Algolia. Elle a été implémentée puis retirée, parce qu'elle est fausse sur trois plans :
 
-1. `media_completed_worker._enqueue_search_indexing` les met sur le message SQS (depuis `canonical_job` ou le job du watcher).
-2. `search_indexing_worker` les relaie.
-3. `index_transcript` les écrit sur chaque chunk.
-4. `search_transcripts` les demande dans `attributesToRetrieve`, `_map_hit` les rend.
-5. `SearchHit` (API) et `SearchHit` (mobile) les portent.
+- **Elle ne marche pas sur l'existant.** Tout ce qui est déjà indexé a été écrit sans ces champs et resterait sans cover jusqu'à une réingestion — ce qui obligeait à demander à l'owner de re-sauvegarder des médias juste pour voir le résultat. C'est ce qui a mis la puce à l'oreille.
+- **Elle périme.** Une cover ré-hébergée ou remplacée après l'indexation laisse l'index sur l'ancienne valeur, sans rien pour les réconcilier hors réindexation.
+- **Elle crée une deuxième vérité.** La ligne `user_media` est déjà la source de la cover pour l'Inbox et pour « All media ». Une copie dans l'index est une seconde valeur qui peut en diverger.
 
-### Ce qui est indexé n'est pas ce qui est affiché
+**Approche retenue** : l'index reste un index de *recherche* — il répond quels items correspondent et où dans leur texte. Ce à quoi ces items *ressemblent* est lu sur la ligne de bibliothèque, au moment de la lecture, par `load_display_details(user_id, media_item_ids)` dans `media_search_service` : un `get_item` par hit, par clé primaire, borné par la pagination que l'endpoint applique déjà (au plus `per_page`, 10 par défaut — `search_transcripts` pagine avant de rendre ses hits).
 
-`media_image` est indexé **tel qu'il est stocké sur la ligne de bibliothèque** : soit une URL tierce absolue, soit un locator `s3://bucket/key` pour une cover ré-hébergée. **Jamais une URL signée** — une signature expire, et un index est lu longtemps après avoir été écrit.
+Conséquence directe : **la recherche affiche exactement la même image que l'Inbox et que « All media », par construction, et sans rien réindexer.** Elle marche immédiatement sur les données existantes.
 
-La signature se fait donc à la lecture, dans l'endpoint, avec **le même résolveur que la liste de bibliothèque** : `_resolve_cover_urls` de `media_search_service` devient `resolve_cover_urls` (publique) et `search.py` l'appelle sur les hits. Une seconde implémentation de la signature aurait été exactement le moyen pour les deux surfaces de finir par ne pas s'accorder sur les covers qui chargent.
+Les covers passent par `resolve_cover_urls`, le résolveur que la liste de bibliothèque utilise déjà, rendu public pour l'occasion — une seconde implémentation de la signature aurait été le moyen pour les deux surfaces de finir par ne pas s'accorder sur les covers qui chargent.
+
+`title` reste indexé (il est recherché et surligné) mais l'affichage préfère la valeur de la ligne, avec l'index en repli.
+
+## Un manque constaté au passage
+
+**Supprimer un média ne le retire pas de l'index Algolia** : le seul `_delete_chunks_for_media` du code est celui qui précède une réindexation. Un média supprimé reste donc trouvable — c'était déjà vrai avant cette tâche, et ça le reste : ces hits ont désormais une ligne de bibliothèque absente et retombent sur ce que l'index sait. Les filtrer changerait le total `found` renvoyé et sort du périmètre ; c'est signalé ici comme une tâche à part.
 
 ## La disposition retenue (AC #7)
 
@@ -121,16 +125,15 @@ Il ne surcharge pas : la ligne meta porte la plateforme et la date, le titre por
 
 **Pas de repli sur le domaine**, contrairement à `MediaListCard` : le hit Algolia ne porte pas `source_url`, et l'indexer pour n'en extraire qu'un nom d'hôte aurait ajouté un champ à toute la chaîne pour une redondance — le libellé de plateforme est déjà sur la ligne meta juste au-dessus. Sans auteur, la ligne disparaît simplement.
 
-## Note à l'owner : réindexation nécessaire
+## Rien à réindexer
 
-Les documents **déjà** dans l'index Algolia de dev n'ont ni `media_image`, ni `media_type`, ni `creator_name` : ils ont été écrits avant. Leurs résultats tomberont sur le glyphe de type de média — ce qui est le comportement correct (AC #2), mais ce n'est pas ce qu'on veut voir en vérification visuelle.
-
-Pour voir les covers : **réingérer quelques médias sur dev après déploiement**, ce qui republie le message d'indexation avec les nouveaux champs. Rien à migrer par ailleurs — l'index dev ne contient que des fixtures.
+Les covers étant lues sur la ligne de bibliothèque, tout média déjà indexé **et** toujours présent dans la bibliothèque affiche sa cover dès le déploiement. Aucune réingestion, aucune migration.
 
 ## Vérifications
 
 - `npm run typecheck` clean ; `npm run lint` 0 erreur, 2 warnings préexistants sans rapport (AC #8).
 - `make lint` : `ruff` clean, `mypy` — 173 fichiers, aucun problème.
+- L'indexation Algolia est **inchangée** par rapport à avant cette tâche (`git diff` vide sur `search_indexing.py` et les deux workers) : seule la lecture est étendue.
 - `testID="search-result-card"` toujours sur le `Pressable` racine, ancrage de `.maestro/06_search.yaml` (lignes 34 et 38) préservé (AC #6).
 - Le diff de `search.tsx` n'introduit **aucune** couleur littérale, `rgba()`, `shadowColor`, `shadowOffset` ni `elevation` : uniquement des tokens de `theme.ts` (AC #5).
 - `parseHighlightSnippet` et `cardSnippetMatch` sont inchangés et toujours rendus (AC #3).
