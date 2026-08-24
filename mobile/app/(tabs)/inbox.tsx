@@ -48,12 +48,12 @@ import type { Collection } from "../../src/types/organization";
 
 /**
  * Home screen — the Daily Digest entry point and two horizontal
- * rows of tiles: "Continue learning" and "Recently added" (task-307).
+ * rows of tiles: "Recently added" and "Continue learning" (task-307).
  *
  * The vertical list of every media item that used to live here is gone: task-306
  * moved the full library to the Search tab, which is where a list of everything
- * belongs. What is left is a landing screen — what you were in the middle of,
- * and what just arrived — and it is deliberately short.
+ * belongs. What is left is a landing screen — what just arrived, and what you
+ * were in the middle of — and it is deliberately short.
  *
  * Three sources feed it, plus the digest count, and each fails alone: the media
  * list comes from `useMediaPolling`, the engagement row and the collections from
@@ -245,6 +245,16 @@ export default function InboxScreen() {
 
         <DigestCard count={digestCount} onPress={handleDigestPress} />
 
+        {recentTiles.length > 0 && (
+          <TileRow
+            testID="home-recently-added-row"
+            icon="sparkles"
+            title={t("home.recentlyAdded")}
+            tiles={recentTiles}
+            onTilePress={handleTilePress}
+          />
+        )}
+
         {/* Absent entirely when there is nothing to continue: no heading, no
             empty box, no placeholder tiles. A brand-new account has engaged with
             nothing, and entries age out of the server's window on their own. */}
@@ -254,16 +264,6 @@ export default function InboxScreen() {
             icon="play-circle"
             title={t("home.continueLearning")}
             tiles={continueTiles}
-            onTilePress={handleTilePress}
-          />
-        )}
-
-        {recentTiles.length > 0 && (
-          <TileRow
-            testID="home-recently-added-row"
-            icon="sparkles"
-            title={t("home.recentlyAdded")}
-            tiles={recentTiles}
             onTilePress={handleTilePress}
           />
         )}
