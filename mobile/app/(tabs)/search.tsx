@@ -475,6 +475,22 @@ function GlassSurface({
   );
 }
 
+/**
+ * Dismiss the keyboard as soon as either list is dragged.
+ *
+ * `on-drag` rather than `interactive`, and the same on both platforms: React
+ * Native only implements `interactive` on iOS — on Android it degrades to
+ * `none` — so picking it would leave Android with the very behaviour this
+ * fixes, on the gesture that *is* this screen. `on-drag` also stays out of the
+ * way of the library list's pull-to-refresh: the keyboard leaves on the first
+ * movement and the gesture then belongs entirely to the `RefreshControl`,
+ * where `interactive` would spend a downward drag re-raising the keyboard.
+ *
+ * Nothing is lost by closing it: the search field is a floating pill that stays
+ * on screen, so one tap brings it back.
+ */
+const KEYBOARD_DISMISS_MODE = "on-drag" as const;
+
 interface LibraryStateProps {
   collections: CollectionNode[];
   collectionsLoading: boolean;
@@ -542,6 +558,7 @@ function LibraryState({
       data={media}
       keyExtractor={(item) => item.media_item_id}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={KEYBOARD_DISMISS_MODE}
       renderItem={({ item }) => (
         <MediaListCard
           item={item}
@@ -726,6 +743,7 @@ function SearchResultsState({
       data={isPending ? [] : results}
       keyExtractor={(item) => item.media_item_id}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={KEYBOARD_DISMISS_MODE}
       renderItem={({ item }) => (
         <ResultCard
           hit={item}
