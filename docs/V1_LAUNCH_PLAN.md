@@ -1,24 +1,29 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : **2026-08-13**
-> (réconciliation avec le worktree, le backlog, AWS, GitHub Actions, les
-> domaines et EAS). Les gates techniques backend qui bloquaient le plan au
-> 2026-07-31 sont **fermés** : source synchronisée, CI verte, HEAD déployé,
-> runtime API isolé, dev et prod dans deux comptes AWS séparés. Ce qui reste est
-> désormais concentré sur **le mobile, le billing, les stores et le légal** —
-> plus sur l'infrastructure.
+> Date de rédaction : 2026-05-19. Dernière mise à jour : **2026-08-21**
+> (réconciliation avec le worktree, le backlog, la CI et le code après les
+> 177 commits qui ont suivi la réconciliation du 2026-08-13). Les gates
+> techniques backend qui bloquaient le plan au 2026-07-31 restent **fermés** :
+> source synchronisée, CI verte, HEAD déployé, runtime API isolé, dev et prod
+> dans deux comptes AWS séparés. Ce qui reste est concentré sur **le mobile, le
+> billing, les stores et le légal** — plus sur l'infrastructure. Le chemin
+> critique n'a pas bougé depuis le 2026-08-13 ; ce qui a bougé, c'est la
+> **surface produit** (cf. § 0), retravaillée en profondeur du 2026-08-14 au
+> 2026-08-21.
 
-### État de vérité au 2026-08-13
+### État de vérité au 2026-08-21
 
-- **Source synchronisée et CI verte** : `main` local et `origin/main` sont au
-  même commit (`6b22542`). `Main Branch Checks` **passe** sur ce SHA
-  (`task-223` : config ESLint ajoutée + gates Ruff/Mypy résolus ; `task-227` :
-  20 violations react-hooks corrigées ; `task-228` : venv local réparé).
-  `ruff check .` local → `All checks passed!`.
-- **HEAD réellement déployé** : `Deploy Lambda Functions` est vert sur `6b22542`
-  et les 16 fonctions dev portent `LastModified = 2026-08-13T18:02`. Le runtime
-  AWS n'est plus celui du 2026-06-15.
+- **Source et CI vertes** : `Main Branch Checks` et `Deploy Lambda Functions`
+  sont `success` sur tous les push récents, dont `130fb38` (2026-08-21T02:58,
+  dernier commit touchant le backend) et `a2dafa5` (2026-08-21T03:17,
+  mobile-only, donc sans deploy — c'est le comportement attendu du filtre
+  `paths`).
+- **Un commit local non poussé** : `main` local est sur `65d578e`
+  (`chore(task-312)`), `origin/main` sur `a2dafa5`. `65d578e` touche le backend
+  (`api/endpoints/search.py`, `utils/algolia_client.py`, `core/config.py`) :
+  **il n'est donc ni sur `origin` ni déployé**. Le runtime dev correspond à
+  `130fb38`. À pousser.
 - **Runtime API isolé (`task-217`, Done le 2026-08-06)** : image API dédiée,
   reserved concurrency configurable, warm-up EventBridge, health gate de release,
   logs API Gateway enrichis, documenté dans `docs/API_LAMBDA_RUNTIME.md`. Mesure
@@ -33,9 +38,11 @@
   (`task-249`) : dev ne porte plus que 26 tables, toutes `-dev`.
 - **Prod est une coquille en veille, volontairement** : `enable_alarms`,
   `enable_dashboard` et `enable_worker_polling` à `false`, et son secret runtime
-  contient **0 clé** sur 37 (`task-252`, owner-only). Le health check répond `200`
-  parce qu'il ne teste que DynamoDB via le rôle IAM — aucune intégration tierce
-  ne fonctionne.
+  contient **0 clé**, contre **40 clés dont 37 vivantes** côté dev (recomptées
+  clé par clé le 2026-08-21 par `task-312` ; le « 37 » que ce plan répétait
+  confondait le total et les clés réellement lues). C'est l'objet de `task-252`,
+  owner-only. Le health check répond `200` parce qu'il ne teste que DynamoDB via
+  le rôle IAM — aucune intégration tierce ne fonctionne.
 - **Repo passé PUBLIC** : vérifié le 2026-08-13. Conséquences directes — la
   branch protection n'est plus bloquée par le plan GitHub et est **désormais
   configurée** (`task-257`, régime léger : force-push et suppression refusés,
@@ -49,12 +56,28 @@
 - **Production release** : `docs/RELEASE_LOG.md` reste la source de vérité :
   v1.0.0 `Pre-release`, aucun tag (`git tag -l` vide), aucun build production,
   aucune soumission.
-- **Backlog quasi vidé** : 243 tâches, dont **16 non-`Done`** (62, 118, 145, 163,
-  164, 165, 166, 172, 180, 186, 229, 238, 252, 260, 261, 262). `task-212`/`task-213`
-  (architecture LLM) sont **archivées** sur `owner_decision: abandoned`.
-  `task-162` a été passée à `Done` le 2026-08-13 : ses 3 ACs étaient cochés et son
-  SHA-1 consigné, seul le statut était resté en retard. `task-261` et `task-262`
-  ont été créées le 2026-08-13 en découpant le reste de la Phase 6.
+- **Backlog** : 288 tâches (+ 19 archivées), dont **15 non-`Done`** — 62, 118,
+  145, 163, 164, 165, 166, 172, 180, 186, 229, 238, 252, 260, 261. `task-262`
+  est passée `Done`, et les 26 tâches ouvertes entre le 2026-08-14 et le
+  2026-08-21 (287, 289 à 312) sont toutes closes. `task-212`/`task-213`
+  (architecture LLM) restent **archivées** sur `owner_decision: abandoned`.
+  Aucune des 15 restantes n'est un gate technique : 4 tâches produit V2 / support
+  (62, 118, 145, 229), 4 tâches mobile/device (163 à 166), 1 tâche CI en sommeil
+  (172), et 6 tâches owner-only stores/branding/prod (180, 186, 238, 252, 260,
+  261). **14 des 15 portent `dispatchable: false`** — seule `task-238` peut être
+  confiée à un agent, et elle attend le build Android de `task-163`. Le backlog
+  n'a donc plus de travail à distribuer : ce qui reste est de la main d'œuvre
+  owner (devices physiques, dashboards stores, credentials).
+- **La surface produit a beaucoup bougé depuis le 2026-08-13** — 12 tâches
+  livrées qui changent ce que l'utilisateur voit, donc ce que les screenshots
+  stores devront montrer (cf. § 0, « Surface produit V1 ») : consommation
+  facturée **en minutes uniquement** (`task-287`), essai gratuit en **fenêtre
+  unique de 30 jours** au lieu du mois calendaire (`task-300`/`301`), paywall
+  refondu (`task-299`), **cover image + nom du créateur** sur chaque média
+  (`task-302`/`304`/`308`), **signal d'engagement** « Continue learning »
+  (`task-303`/`305`/`311`), onglet **Library** listant tous les médias
+  (`task-306`), et **Inbox reconstruite en écran Home** de rangées de tuiles
+  (`task-307`).
 - **Rien n'est déployé sur les stores, et ça change la façon d'écrire les tâches** :
   ni App Store, ni Play Store, ni TestFlight, ni Internal Testing ; zéro
   utilisateur hors owner, zéro donnée de production, zéro abonnement actif. Aucune
@@ -83,16 +106,20 @@ bloquant au moins bloquant :
    `revenucat_events-dev` = 0 item, ce qui est normal — aucun achat sandbox n'a
    encore eu lieu, donc aucun événement à recevoir. Reste à confirmer par l'owner :
    que la même valeur est collée dans RevenueCat → Integrations → Webhooks.
-4. **Owner-only, sans substitut possible** — les 37 credentials du secret prod
-   (`task-252`), le quota Lambda prod, les vérifications d'éligibilité du compte
-   Google Play — dont un éventuel closed testing de 14 jours qui, s'il
-   s'applique, borne par le bas la date de publication Android.
+4. **Owner-only, sans substitut possible** — les credentials du secret prod
+   (`task-252` : 37 clés vivantes à pousser dans une coquille vide), le quota
+   Lambda prod, les vérifications d'éligibilité du compte Google Play — dont un
+   éventuel closed testing de 14 jours qui, s'il s'applique, borne par le bas la
+   date de publication Android.
 5. **Stores et légal** — nom marketing (`task-186`), icônes (`task-180`), domaine
    tranché puis API/privacy/terms réellement hébergés, listings et review accounts.
-6. **Hygiène, rapide** — committer les 5 fichiers du worktree, configurer la branch
-   protection (`task-257`), désarmer le workflow de build mobile et renseigner
-   `EXPO_TOKEN` (`task-258`), purger les 2 comptes E2E résiduels de `users-dev`
-   (`task-259`).
+   **Les screenshots devront montrer l'UI d'après `task-306`/`307`**, pas l'Inbox
+   verticale d'avant le 2026-08-21.
+6. **Hygiène, rapide** — pousser le commit local `65d578e`, puis renseigner
+   `EXPO_TOKEN` (dernier reste de `task-258`). Le reste de cette ligne est fait :
+   les 5 fichiers `uv.lock` du worktree sont commités (`c05df88`), la branch
+   protection est configurée (`task-257`), le workflow de build mobile est
+   désarmé (`task-258`) et les comptes E2E résiduels sont purgés (`task-259`).
 
 ---
 
@@ -103,14 +130,17 @@ bloquant au moins bloquant :
 | Source | Statut code | Bloquant V1 |
 |---|---|---|
 | Articles web (lecture/extraction) | OK | — |
-| YouTube (transcript natif + fallback Deepgram) | OK | — |
+| **YouTube** | OK — **Apify seul** depuis `task-309` (2026-08-20). La branche yt-dlp est supprimée, pas démotée : mesurée morte depuis Lambda (0 succès sur 12 jobs, `Sign in to confirm you're not a bot` à chaque tentative, ~6,4 s perdues par invocation). **Il n'y a pas de fallback audio** — aucun actor supporté n'expose l'URL audio brute, donc un échec actor marque le job `failed` | — |
 | Podcasts (PodcastIndex resolver) | OK | — |
 | Audio file (upload direct) | OK | — |
 | **X (Twitter)** | OK — worker, resolver, classifier, orchestrator câblés | — |
-| **TikTok** | OK — worker dédié + 2-tier rate limiter (pacing + quota horaire) | — |
-| **Instagram** | OK — Apify resolver Reel/IGTV + Post image/carousel ; Comment Scraper et legacy video-post branch supprimés (`task-173`) | — |
+| **TikTok** | OK — worker dédié + 2-tier rate limiter (pacing + quota horaire). **Seul consommateur restant de yt-dlp**, avec fallback Apify sur IP-block | — |
+| **Instagram** | OK — **Apify seul** depuis `task-310` (2026-08-20), résolu dans le worker et non dans la requête API (`task-274`) : Reel/IGTV + Post image/carousel. Comment Scraper et legacy video-post branch supprimés (`task-173`), branche yt-dlp supprimée à son tour | — |
 | Shared text | OK | — |
 | **Documents (PDF/DOCX/PPTX)** | OK — LlamaParse resolver (primary) + Unstructured resolver (fallback) + document_parsing worker câblés | — |
+
+> Conséquence pour `task-145` (proxy résidentiel V2) : son périmètre se réduit à
+> TikTok. Instagram et YouTube ne dépendent plus d'une IP Lambda non bloquée.
 
 ### Méthodes d'authentification V1
 
@@ -119,6 +149,32 @@ bloquant au moins bloquant :
 | Email + password | OK (backend + mobile) | — |
 | **Sign in with Apple** | Code OK — backend + mobile câblés. Obligatoire App Store car Google login présent | OK (chaîne Apple Developer complète provisionnée 2026-06-08 : Service ID, Sign in with Apple Key `.p8`, Team ID, Key ID, Return URL prod renseignés dans `.env`) |
 | **Continue with Google** | Code OK — backend + mobile câblés. Backend Web client ID + secret OK dans `.env`. OAuth Web + iOS provisionnés côté Google Cloud | OAuth Client ID Android créé le 2026-08-13 sur le SHA-1 du keystore EAS (`task-162`, sans build) et variable déclarée côté EAS ; restent le build Android unique et l'écran de consentement Google à publier en Production en Phase 10 |
+
+Sur l'`aud` des id_tokens mobiles et pourquoi le backend a besoin de
+`GOOGLE_NATIVE_AUDIENCE_IOS`/`_ANDROID` en plus du client Web (`task-298`),
+voir § 3.2. Le refresh token voyage en JSON, pas en cookie (`task-293`), et la
+session d'un utilisateur actif ne s'éteint plus (`task-294`/`295`).
+
+### Surface produit V1
+
+Ce que l'app fait, au-delà de l'ingestion — refondu entre le 2026-08-14 et le
+2026-08-21, et **c'est cette UI que les screenshots stores doivent montrer**.
+
+| Domaine | État | Référence |
+|---|---|---|
+| **Modèle de consommation** | Facturé **en minutes uniquement**, plus en items — un seul compteur lisible par l'utilisateur (`minutes_remaining`). Les minutes audio ne sont comptées qu'une fois par user et par média | `task-250`/`251`/`287`, `core/services/quota_enforcer.py` |
+| **Essai gratuit** | **Fenêtre unique de 30 jours** ouverte à `created_at`, une seule allocation (300 min, tier `mix`), fermée à `created_at + duration_days`. Avant `task-300` le compteur se réinitialisait le 1er du mois et distribuait donc deux allocations. Annoncé dans l'app (Account + Home) | `task-300`/`301`, `pricing_config_service.DEFAULT_PRICING_CONFIG.free_trial` |
+| **Paywall** | 3 tiers servis depuis la config de pricing, aucune figure en dur, recommandation d'un plan à la hauteur de l'usage, refus nommé explicitement, liens légaux exigés par les stores | `task-299`, `mobile/app/paywall.tsx` |
+| **Vignettes média** | Chaque média porte une **cover image** et un **nom de créateur**, extraits par source. Une cover partagée n'est purgée que si plus aucun save ne la référence | `task-302`/`304`/`308`, `core/services/cover_capture.py` |
+| **Home** | L'Inbox verticale est remplacée par un écran d'accueil en **rangées de tuiles** : « Continue learning » (piloté par un signal d'engagement récent, purgé au-delà de 90 j) et « Recently added » | `task-303`/`305`/`307`/`311`, `mobile/app/(tabs)/inbox.tsx`, `core/services/engagement_service.py` |
+| **Library** | L'onglet recherche est devenu le point d'entrée bibliothèque : il liste **tous** les médias sauvegardés, plus seulement les collections | `task-306`, `mobile/app/(tabs)/search.tsx` (titre d'onglet « Library ») |
+| **Collections / AI** | Écran média scindé en onglets **Reader / AI**, écran collection en **Sources / AI** ; artifacts en historique horodaté append-only, y compris au niveau collection | `task-269` à `273`, `290`, `291` |
+| **API** | Toutes les routes sont sous `/api/`, le préfixe `/api/v1/` est supprimé | `task-289` |
+
+> À noter : le fichier de l'onglet Home s'appelle toujours `inbox.tsx` et son
+> titre d'onglet est toujours « Inbox » ; l'onglet Library est servi par
+> `search.tsx`. Les noms de fichiers sont en retard sur les écrans, ce n'est pas
+> un bug — juste un piège à la lecture.
 
 ---
 
@@ -136,18 +192,18 @@ un staging ou une soumission.
 | Isolation API Lambda | `task-217` | **Fait (2026-08-06)** — image API ARM64 dédiée (`infrastructure/docker/lambda-api.Dockerfile`), image workers séparée, reserved concurrency configurable, warm-up EventBridge, health gate de release, logs API Gateway enrichis, `docs/API_LAMBDA_RUNTIME.md`. Mesuré le 2026-08-13 : cold 5,2 s / warm 1,0 s |
 | Isolation dev/prod | `task-221` (benchmark, `owner_decision: ok`, option B) → `task-237` → `task-248` | **Fait (2026-08-13)** — `envs/{dev,staging,prod}` sur `modules/platform`, un state par env, 100 % des noms suffixés, `scripts/tf_plan_guard.sh`. Dev reste dans `125313707865`, **prod dans le compte dédié `866874944541`** (organisation `o-7sf5u7j5hd`). `staging` détruit, son répertoire conservé comme référentiel jetable |
 | Nettoyage legacy AWS | `task-249` | **Fait** — 21 tables DynamoDB non suffixées supprimées ; il ne reste que 26 tables `-dev` + la table de lock du state |
-| Sécurité users legacy | `task-222`, `task-224`, `task-253` | **Corrigé et déployé** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email`, `update_user` et `POST /api/v1/auth/verify-email` supprimés. 2026-08-12 (`task-224`) : `endpoints/users.py` et `DELETE /api/v1/users/{user_id}` supprimés au profit de `DELETE /api/account`, qui déduit le compte du token. 2026-08-13 (`task-253`) : le 404 de `DELETE /api/account` en dev est corrigé et un **startup guard** échoue au boot si une route critique n'est pas montée. Le code est déployé depuis le 2026-08-13T18:02. **Reste** : le run E2E complet (Phase 4) |
-| Dérive de dépendances Lambda | `6b22542` | **Corrigé le 2026-08-13, après incident** — l'API dev a répondu 500 sur toutes les routes pendant ~2 h 20 : le startup guard de `task-253` lisait mal `app.routes` sur FastAPI 0.13x, et les Dockerfiles résolvaient `fastapi>=0.104.0` au build (0.141.1 dans l'image contre 0.116.1 dans `uv.lock` et le venv local) — donc irreproductible localement. Les images installent désormais depuis `uv export --frozen`. **Non commité au 2026-08-13** : la même bascule sur `uv.lock` pour `api.Dockerfile`, `worker.Dockerfile`, `test-orchestrator.Dockerfile`, `pr.yml` et `main.yml` (5 fichiers modifiés dans le worktree) |
+| Sécurité users legacy | `task-222`, `task-224`, `task-253` | **Corrigé et déployé** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email`, `update_user` et `POST /api/v1/auth/verify-email` supprimés. 2026-08-12 (`task-224`) : `endpoints/users.py` et `DELETE /api/v1/users/{user_id}` supprimés au profit de `DELETE /api/account`, qui déduit le compte du token. 2026-08-13 (`task-253`) : le 404 de `DELETE /api/account` en dev est corrigé et un **startup guard** échoue au boot si une route critique n'est pas montée. Le code est déployé (dernier deploy backend vert : `130fb38`, 2026-08-21T02:58). Les routes citées ici portaient encore le préfixe `/api/v1/`, supprimé depuis par `task-289`. **Reste** : le run E2E complet (Phase 4) |
+| Dérive de dépendances Lambda | `6b22542` | **Corrigé le 2026-08-13, après incident** — l'API dev a répondu 500 sur toutes les routes pendant ~2 h 20 : le startup guard de `task-253` lisait mal `app.routes` sur FastAPI 0.13x, et les Dockerfiles résolvaient `fastapi>=0.104.0` au build (0.141.1 dans l'image contre 0.116.1 dans `uv.lock` et le venv local) — donc irreproductible localement. Les images installent désormais depuis `uv export --frozen`. **Clos le 2026-08-13 par `c05df88`** : la même bascule sur `uv.lock` a été étendue à `api.Dockerfile`, `worker.Dockerfile`, `test-orchestrator.Dockerfile`, `pr.yml` et `main.yml`. Rechute connue depuis : `f06bd62` a dû plafonner `pillow` sous 12.3 pour que l'image worker se construise à nouveau |
 | Suppression/export de compte | `mobile/app/settings/delete-account.tsx`, `media_summarizer/core/services/account_deletion_service.py`, `task-224` | **Fait en code (2026-08-12)** — suppression de compte in-app (Account > Delete Account) branchée sur `DELETE /api/account`, qui purge DynamoDB + S3 + Algolia. Le bouton `Export Data` mort est retiré : l'accès et la portabilité passent par `privacy@mediasummarizer.com` sous un mois, documenté dans la privacy policy. Le bouton `Settings` mort reste à traiter hors `task-224` |
-| Source + CI | `task-223`, `task-227`, `task-228` | **Fait** — `main` = `origin/main` = `6b22542` ; `Main Branch Checks` **vert** sur ce SHA ; `Deploy Lambda Functions` vert sur ce même SHA. Reste hors P0 : `Mobile Build & Distribute` (cf. Phase 7) |
+| Source + CI | `task-223`, `task-227`, `task-228` | **Fait** — `Main Branch Checks` et `Deploy Lambda Functions` verts sur les push récents (2026-08-21). Reste hors P0 : `Mobile Build & Distribute` (cf. Phase 7), et un commit local `65d578e` non poussé |
 
 ### Bloquants release immédiats
 
 | Zone | Tâches | Statut |
 |---|---|---|
-| Re-run E2E AWS dev | Phase 4 | **Seul gate backend encore ouvert.** Le HEAD est déployé depuis le 2026-08-13T18:02 ; aucune preuve de `pytest -m e2e` complet contre ce runtime. À lancer, d'autant que l'incident du jour a montré qu'une image peut différer du lock |
+| Re-run E2E AWS dev | Phase 4 | **Seul gate backend encore ouvert.** Dernier deploy vert : `130fb38` (2026-08-21T02:58), mais un commit backend local n'est pas poussé (`65d578e`). Aucune preuve de `pytest -m e2e` complet depuis le 2026-06-12, alors que `/api/v1/` a disparu, que YouTube et Instagram sont passés en Apify-only et que le contrat média porte désormais cover et créateur. Pousser, puis lancer |
 | Mobile dev builds | `task-161`, `task-162`, `task-163` | iOS : `task-161` est `Done`, mais sur une build du 2026-06-11 expirée le 2026-06-25 — le development client reste installé sur l'iPhone owner. Android : keystore (`task-162`) et Client ID en place, **le build unique reste à lancer** (`task-163` ACs #6-#8) |
-| Google OAuth Android | `task-163` | **Fait le 2026-08-13** : Client ID Android créé sur le SHA-1 du keystore `task-162`, et `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` déclarée dans l'environnement EAS `development` — donc en place **avant** le build, l'APK ne pourra pas embarquer `""`. Reste le build Android unique et sa validation sur device |
+| Google OAuth Android | `task-163` (ACs #1-#5) | **Fait le 2026-08-13** : Client ID Android créé sur le SHA-1 du keystore `task-162`, et `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` déclarée dans l'environnement EAS `development` — donc en place **avant** le build, l'APK ne pourra pas embarquer `""`. Reste le build Android unique et sa validation sur device |
 | Validation device non automatisable | `task-164`, `task-165` | À faire sur devices physiques : Apple Sign-In, Google sheet, Safari/Chrome share |
 | Maestro V1 | `task-168`, `task-169`, `task-170`, `task-171`, `task-172` | **Plus un bloquant release** — CI en sommeil depuis le 2026-08-13 (`task-254`) le temps que l'UI soit figée ; 168/169/170/171 closes, 172 verrouillée. Cf. Phase 7, section « Maestro E2E CI — en sommeil depuis le 2026-08-13 » |
 | Clôture Phase 5 | `task-166` | Mettre ce plan à jour une fois `task-163/164/165` terminées ; la couverture Maestro n'en est plus un prérequis |
@@ -158,15 +214,15 @@ un staging ou une soumission.
 |---|---|---|
 | Branding app | `task-186` | Nom marketing final requis avant App Store Connect / Play Console |
 | App icons | `task-180` | Remplacer les placeholders avant soumission |
-| RevenueCat / IAP | Phase 6 : `task-262` **faite**, `task-261` (iOS) faite côté RevenueCat, reste owner-only côté App Store Connect ; `task-238` (Android) entière | `REVENUCAT_WEBHOOK_SECRET` **renseigné** en local et dans le secret dev (valeurs identiques), et chargé par le Lambda déployé — sonde `401`, pas `500` (2026-08-13). `revenucat_events-dev` = 0 item, normal sans achat sandbox. Reste à confirmer côté dashboard RevenueCat (non exposé par l'API v2). Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent ; l'app iOS porte désormais ses 3 produits App Store rattachés aux entitlements et aux packages, mais **aucune clé App Store Connect** (`app_store_connect_api_key_configured: false`), donc les abonnements n'existent pas encore côté ASC et StoreKit n'en résout aucun. Une app Play Store existe désormais dans le projet (`appb253c0f75a`, package `com.secondbrainlabs.core`, 2026-08-20) mais **sans produit** : ses service credentials ne valident pas tant qu'aucun bundle signé n'a été déposé sur une piste de test Play, un package name n'existant pour l'API Google Play qu'au premier AAB — donc `task-238` attend le build Android de `task-163`. `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` porte la vraie clé `goog_` dans `mobile/.env` ; son état dans les trois environnements EAS n'a pas été revérifié |
-| Domaine production | Phase 10 | Au 2026-08-13 : `secondbrainlabs.com` **résout** mais redirige en `301` vers `sbl.so` ; `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont toujours en `NXDOMAIN`. Le profil EAS production pointe encore vers le second |
-| Store/legal | Phase 10 | Les textes existent au dépôt (`docs/compliance/privacy-policy.md`, `terms-of-service.md`, `apple-app-privacy.md`, `google-play-data-safety.md`, `CHECKLIST.md`) mais **ne sont pas hébergés** : `secondbrainlabs.com/privacy` et `/terms` redirigent vers `sbl.so/...` qui répond **404**. Liens in-app absents, listings/screenshots/review accounts à finaliser |
+| RevenueCat / IAP | Phase 6 : `task-262` **faite**, `task-261` (iOS) faite côté RevenueCat, reste owner-only côté App Store Connect ; `task-238` (Android) entière | `REVENUCAT_WEBHOOK_SECRET` **renseigné** en local et dans le secret dev (valeurs identiques), et chargé par le Lambda déployé — sonde `401`, pas `500` (2026-08-13). `revenucat_events-dev` = 0 item, normal sans achat sandbox. Reste à confirmer côté dashboard RevenueCat (non exposé par l'API v2). Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent ; l'app iOS porte désormais ses 3 produits App Store rattachés aux entitlements et aux packages, mais **aucune clé App Store Connect** (`app_store_connect_api_key_configured: false`), donc les abonnements n'existent pas encore côté ASC et StoreKit n'en résout aucun. Une app Play Store existe désormais dans le projet (`appb253c0f75a`, package `com.secondbrainlabs.core`, 2026-08-20) mais **sans produit** : ses service credentials ne valident pas tant qu'aucun bundle signé n'a été déposé sur une piste de test Play, un package name n'existant pour l'API Google Play qu'au premier AAB — donc `task-238` attend le build Android de `task-163`. `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` porte la vraie clé `goog_` dans `mobile/.env`, mais l'AC #5 de `task-238` reste décochée : la clé n'est pas propagée aux profils EAS development/preview/CI/production, et `mobile/.env` étant gitignoré, aucun build cloud ne la voit |
+| Domaine production | Phase 10 | Revérifié le 2026-08-21, inchangé : `secondbrainlabs.com` **résout** mais redirige en `301` vers `sbl.so` ; `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont toujours en `NXDOMAIN`. Le profil EAS production pointe encore vers le second |
+| Store/legal | Phase 10 | Les textes existent au dépôt (`docs/compliance/privacy-policy.md`, `terms-of-service.md`, `apple-app-privacy.md`, `google-play-data-safety.md`, `CHECKLIST.md`) mais **ne sont pas hébergés** : `secondbrainlabs.com/privacy` et `/terms` redirigent vers `sbl.so/...` qui répond **404** (revérifié le 2026-08-21). Liens in-app absents, listings/screenshots/review accounts à finaliser |
 
 ### Prérequis de lancement propres au compte prod (issus de `task-248`)
 
 | Zone | Preuve | Statut |
 |---|---|---|
-| Credentials runtime prod | `task-252` (`dispatchable: false`, owner-only) | **Bloquant dur.** Le secret `media-summarizer-runtime-prod` contient 0 clé sur 37 : sans lui, aucune transcription, résumé, résolution, recherche, achat, ni même session utilisateur valide (`JWT_SECRET_KEY`) |
+| Credentials runtime prod | `task-252` (`dispatchable: false`, owner-only) | **Bloquant dur.** Le secret `media-summarizer-runtime-prod` contient **0 clé**, quand dev en porte 40 dont 37 vivantes (recomptées le 2026-08-21, `task-312`) : sans lui, aucune transcription, résumé, résolution, recherche, achat, ni même session utilisateur valide (`JWT_SECRET_KEY`) |
 | Quota Lambda concurrence prod | demande `L-B99A9384`, 10 → 1000 | **PENDING** côté AWS. Un compte neuf plafonne à 10 exécutions concurrentes. Tant que c'est le cas, `envs/prod/main.tf` porte `api_reserved_concurrency = -1` ; **retirer cette ligne** puis plan + apply dès que le quota passe, sinon l'API se dispute 10 exécutions avec 14 workers |
 | Réveil de prod | `envs/prod/main.tf` | Trois booléens à passer à `true` (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) — ~7,20 $/mois. Une prod qui sert de vrais utilisateurs sans alarmes est une faute ; la veille n'est valide qu'avant lancement |
 
@@ -177,7 +233,7 @@ un staging ou une soumission.
 | ~~Architecture LLM production~~ | ~~`task-212`, `task-213`~~ | **Tranché** : `owner_decision: abandoned` sur le benchmark ; les deux tâches sont archivées. La recommandation (Azure OpenAI multi-région) n'est pas retenue pour V1 — le statu quo OpenAI direct est assumé. À rouvrir seulement si le chatbot entre au scope et que le TPM devient contraignant |
 | ~~Langue YouTube Apify~~ | ~~`task-216`~~ | **Fait** (`Done`) — la langue du transcript Apify suit la préférence `reading_language` de l'utilisateur |
 | Discord community/support | `task-118` | Utile pour soft launch, non bloquant code. |
-| TikTok proxy résidentiel | `task-145` | V2, explicitement non bloquant V1. |
+| TikTok proxy résidentiel | `task-145` | V2, explicitement non bloquant V1. **Périmètre réduit à TikTok** : Instagram n'utilise plus yt-dlp depuis `task-310`, donc plus d'IP-block à contourner de ce côté. |
 | Fenêtre TTL `processing_jobs` | `task-242` AC #3 | Implémenté en variable `processing_jobs_ttl_days`, défaut **90 j** (recommandation du benchmark). L'AC reste décochée jusqu'à ce que l'owner tranche entre 30/60/90 |
 
 ---
@@ -191,7 +247,7 @@ un staging ou une soumission.
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; les quatre vérifications d'éligibilité du compte restent à confirmer par l'owner (identité, profil de paiement, adresse publique, closed testing 12 testeurs / 14 jours) — runbook `task-260`, détail en Phase 2.2. Aucune preuve plus récente dans le repo |
 | **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée, aucune Android. Les trois environnements EAS **sont peuplés** (constaté le 2026-08-13) — `development` porte six variables `EXPO_PUBLIC_*` ; `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` y était un placeholder à cette date et n'a pas été revérifié depuis qu'elle est renseignée en local (2026-08-20). À noter : `mobile/eas.json` ne déclare aucune clé RevenueCat, et `mobile/.env` étant gitignoré, un build EAS cloud n'en voit aucune — seuls les builds locaux et la CI Maestro (qui injecte la clé Test Store par l'environnement) en ont une |
-| **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : projet `proj879a771a` avec 3 entitlements de tier, offering courant et 3 packages tiers (`task-262`, 2026-08-13), désormais servis par les produits Test Store **et** les 3 produits App Store de l'app iOS (`task-261`, 2026-08-13). Restent : la clé App Store Connect (`app_store_connect_api_key_configured: false`, donc les 3 abonnements ne sont pas encore créés côté ASC), l'app Play, et le webhook secret vide (`500`). Aucun achat sandbox réel possible en l'état. Disposition détaillée : `docs/REVENUECAT_ENTITLEMENTS.md` |
+| **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : projet `proj879a771a` avec 3 entitlements de tier, offering courant et 3 packages tiers (`task-262`, 2026-08-13), désormais servis par les produits Test Store **et** les 3 produits App Store de l'app iOS (`task-261`, 2026-08-13). Une app Play (`appb253c0f75a`) existe depuis le 2026-08-20, avec sa vraie clé `goog_` dans `mobile/.env`, mais sans aucun produit. Restent : la clé App Store Connect (`app_store_connect_api_key_configured: false`, donc les 3 abonnements ne sont pas encore créés côté ASC), les produits Play, et la propagation de la clé `goog_` aux environnements EAS. Le `REVENUCAT_WEBHOOK_SECRET` **est renseigné** (sonde `401`, pas `500`). Aucun achat sandbox réel possible en l'état. Disposition détaillée : `docs/REVENUECAT_ENTITLEMENTS.md` |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | Partiel : projet + consent screen Test + OAuth Web backend + OAuth iOS OK ; OAuth Android et publication Production restent à faire |
 | **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (compte créé, clé en local dans `.env`) |
 | **Deepgram** | usage-based | Transcription audio | OK (compte créé, clé en local dans `.env`) |
@@ -215,9 +271,11 @@ le code lit toujours via `os.getenv(...)` sans changement.
 
 **État réel au 2026-08-13** : l'isolation Terraform est faite (`task-237`) et le
 secret prod **existe** en tant que coquille dans le compte `866874944541`, mais
-il contient **0 clé sur 37** — c'est l'objet de `task-252` (owner uniquement,
+il contient **0 clé** — c'est l'objet de `task-252` (owner uniquement,
 `dispatchable: false`). Dans le compte dev, `aws secretsmanager list-secrets` ne
-renvoie que `media-summarizer-runtime-dev` (37 clés) et
+renvoie que `media-summarizer-runtime-dev` (**40 clés, dont 37 vivantes** —
+recomptées clé par clé le 2026-08-21 par `task-312`, qui a corrigé le « 37 »
+répété jusque-là ici et dans `docs/DEVBOX_SETUP.md`) et
 `media-summarizer-devbox-mobile-env`. `media-summarizer-runtime-staging` a été
 supprimé sans fenêtre de récupération par `task-248`, donc son nom est libre si un
 staging jetable doit être remonté un jour.
@@ -257,8 +315,9 @@ JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 REFRESH_TOKEN_EXPIRE_DAYS=365     # fenêtre glissante, reposée à chaque /refresh (task-294)
 # Aucune variable COOKIE_* : le refresh token voyage dans le corps JSON de
-# register/login/refresh (task-293). Les quatre clés COOKIE_* qui subsistent dans
-# le secret runtime sont mortes, aucun code ne les lit.
+# register/login/refresh (task-293). Il ne subsiste plus qu'une clé COOKIE_* morte
+# dans le secret runtime (COOKIE_DOMAIN) — les trois autres ont été retirées ;
+# aucun code ne la lit. Détail dans docs/DEVBOX_SETUP.md § 6.
 
 # Google OAuth (Sign in with Google)
 GOOGLE_CLIENT_ID=...                   # Web client ID — audience du flow web /google/callback uniquement
@@ -402,13 +461,15 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 
 1. ~~Créer un repo GitHub.~~ **Fait** : `MedlockM/second-brain-app`, branche par défaut `main`. Historique purgé des secrets, `.venv-311/` et scratchpads ; `.gitignore` durci. Premier push : 2026-05-27 (HEAD `eb22f0e`, 174 commits, 553 fichiers). **Le repo est passé public** : vérifié le 2026-08-13 (`visibility: PUBLIC`). C'est ce qui motive `task-255` et `de3ac86` (purge de l'email de login et de l'identité de compte des fichiers suivis) — désormais, tout identifiant écrit dans un fichier suivi est public.
 2. **GitHub Actions versionnés** : `.github/workflows/pr.yml`, `main.yml`, `deploy-lambda.yml`, `deploy-lambda-env.yml`, `mobile-build-distribute.yml`, `mobile-store-promote.yml`, `mobile-e2e-maestro.yml`.
-3. ✅ **Source synchronisée au 2026-08-13** : `main` local et `origin/main` sont
-   tous deux sur `6b22542`. Le worktree porte encore **5 fichiers modifiés non
-   commités** (`pr.yml`, `main.yml`, `api.Dockerfile`, `worker.Dockerfile`,
-   `test-orchestrator.Dockerfile`) : c'est l'extension du fix `uv.lock` de
-   `6b22542` aux images et à la CI restantes — à committer.
+3. ⚠️ **Source presque synchronisée au 2026-08-21** : les 5 fichiers du fix
+   `uv.lock` (`pr.yml`, `main.yml`, `api.Dockerfile`, `worker.Dockerfile`,
+   `test-orchestrator.Dockerfile`) sont commités depuis `c05df88` — ce point est
+   clos. Mais `main` local porte **un commit d'avance non poussé**, `65d578e`
+   (`task-312`), et il touche le backend : `origin/main` est sur `a2dafa5` et
+   c'est `130fb38` qui est déployé. À pousser.
 4. ✅ **CI verte** (`task-223`, `task-227`, `task-228`) :
-   - `Main Branch Checks` **success** sur `6b22542` (2026-08-13T18:00) ;
+   - `Main Branch Checks` **success** sur tous les push récents, dont
+     `130fb38` et `a2dafa5` (2026-08-21) ;
    - `ruff check .` en local → `All checks passed!` ;
    - la config ESLint manquante a été ajoutée et les 20 violations react-hooks
      corrigées, `rules` remises en `error` ;
@@ -428,7 +489,8 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    pull-request reviews — le flow reste un merge local suivi d'un push direct sur
    `main`, que des required checks rejetteraient. Aucun ruleset (`rulesets` →
    `[]`). Rollback : `gh api -X DELETE repos/:owner/:repo/branches/main/protection`.
-7. **Reste à faire** : committer les 5 fichiers ci-dessus.
+7. **Reste à faire** : pousser `65d578e` sur `origin/main`, et renseigner
+   `EXPO_TOKEN` (point 5).
 
 ### Phase 2 — Comptes externes (jour 1-2)
 
@@ -541,7 +603,7 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
   bien déployé ;
 - dev ne porte plus que **26 tables DynamoDB**, toutes suffixées `-dev`, plus la
   table de lock du state — les 21 tables legacy sont supprimées (`task-249`) ;
-- secrets dev : `media-summarizer-runtime-dev` (37 clés) et
+- secrets dev : `media-summarizer-runtime-dev` (40 clés, dont 37 vivantes) et
   `media-summarizer-devbox-mobile-env` ;
 - **0 alarme CloudWatch active**, mais c'est désormais **voulu** :
   `enable_alarms = false` dans `envs/dev/main.tf` (économie assumée en dev) et les
@@ -585,7 +647,7 @@ livré :
 - `database: connected` alors que le secret runtime est **vide** — la route de
   santé ne teste que DynamoDB via les noms de tables injectés par Terraform, pas
   les credentials tiers. Ne jamais lire ce `200` comme « prod fonctionne ».
-- Deux prérequis de lancement en découlent : `task-252` (37 credentials) et la
+- Deux prérequis de lancement en découlent : `task-252` (37 credentials vivants) et la
   demande de quota Lambda `L-B99A9384` (10 → 1000), toujours `PENDING`.
 
 ### Phase 4 — Tests d'intégration contre AWS dev (jour 3-4) — **NON VALIDÉE, RE-RUN COMPLET REQUIS**
@@ -601,22 +663,27 @@ livré :
 - Marqueur `@pytest.mark.e2e` ; suite skipped par défaut (`pytest` sans `-m` lance uniquement les unit tests).
 - Détails et runbook : `tests/e2e/README.md`.
 
-#### Statut par source au 2026-06-12
+#### Statut par source (dernier run complet : 2026-06-12)
+
+> ⚠️ Ce tableau date du dernier run vert. Il ne reflète **pas** le runtime
+> courant : depuis, `task-309` et `task-310` ont supprimé les branches yt-dlp
+> de YouTube et d'Instagram, et `task-289` a déplacé toutes les routes de
+> `/api/v1/` vers `/api/`. C'est exactement ce que le re-run doit revalider.
 
 | Source | Statut E2E | Référence |
 |---|---|---|
 | Health check API | ✅ passing | `tests/e2e/test_health.py` |
 | **Article web** (Wikipedia) | ✅ passing en 15s | `test_phase4_ingestion.py::test_article_reaches_completed` |
 | **Artifacts on-demand** : summary, notes, flashcards, quiz | ✅ tous les 4 passing en ~5s chacun | `test_phase4_ingestion.py::test_artifact_*_e2e` |
-| **YouTube** (Apify) | ✅ passing depuis task-132 (2026-06-09) | `test_phase4_other_sources.py::test_youtube_ingestion` |
+| **YouTube** (Apify) | ✅ passing depuis task-132 (2026-06-09) ; **chemin unique Apify** depuis `task-309`, sans fallback audio | `test_phase4_other_sources.py::test_youtube_ingestion` |
 | Podcast direct audio URL | Test actif, non skipped ; re-run complet requis après derniers changements locaux | `test_phase4_other_sources.py::test_podcast_via_direct_audio_url` |
 | Podcast via PodcastIndex / Apple Podcasts URL | Test actif, non skipped ; fixes `task-138`, `task-148`, `task-155`, `task-157` terminés | `test_phase4_other_sources.py::test_podcast_via_podcastindex` |
 | X (Twitter) | Test actif, non skipped ; worker/API token configurés | `test_phase4_other_sources.py::test_x_ingestion` |
 | TikTok happy path | Test actif, non skipped ; yt-dlp captions + fallback Apify V1 en place | `test_phase4_other_sources.py::test_tiktok_ingestion` |
-| Instagram | Test actif, non skipped ; Apify resolver migré et corrigé | `test_phase4_other_sources.py::test_instagram_ingestion` |
+| Instagram | Test actif, non skipped ; Apify resolver migré et corrigé, **chemin unique Apify** depuis `task-310` | `test_phase4_other_sources.py::test_instagram_ingestion` |
 | Document upload (PDF/DOCX/PPTX) | Test actif, non skipped ; endpoint multipart `/api/media/upload` + LlamaParse primary | `test_phase4_other_sources.py::test_document_upload` |
 
-#### Fallback chains E2E au 2026-06-12
+#### Fallback chains E2E (état du code au 2026-08-21)
 
 | Fallback | Statut | Référence |
 |---|---|---|
@@ -671,24 +738,28 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 - **task-167** — Mise à jour des fallback-chain E2E après refactor Deepgram mode ✅
 - **task-173** — Simplification Instagram : suppression Comment Scraper + legacy video-post branch ✅
 - **task-176** — Podcasting 2.0 transcript short-circuit reconnecté ✅
-- **task-177** — YouTube fallback chain alignée sur TikTok : yt-dlp → Apify → Deepgram ✅
+- **task-177** — YouTube fallback chain alignée sur TikTok : yt-dlp → Apify → Deepgram ✅ *(annulée depuis par `task-309` : Apify est le chemin unique, il n'y a plus de chaîne)*
 - **task-178** — Fallback Deepgram sur media URL résolue par Apify pour TikTok ✅
 - **task-179** — Documentation providers/fallback chains mise à jour ✅
 
 #### Reste à faire
 
-1. ✅ **Synchroniser et déployer le code courant** — fait le 2026-08-13 : `main` =
-   `origin/main` = `6b22542`, `Deploy Lambda Functions` vert, 16 fonctions dev
-   redéployées à 18:02.
+1. ⚠️ **Synchroniser et déployer le code courant** — `Deploy Lambda Functions`
+   est vert sur `130fb38` (2026-08-21T02:58), mais `main` local porte un commit
+   backend non poussé (`65d578e`, `task-312`). À pousser **avant** le re-run,
+   sinon la suite s'exécute contre un runtime qui n'est pas le HEAD.
 2. ✅ **Fermer `task-217` et revalider le cold start API** — `Done` le
    2026-08-06 ; cold 5,2 s / warm 1,0 s mesurés le 2026-08-13. Le health check
    est utilisable comme gate de release (`task-217` AC #7).
 3. **Re-run complet AWS dev — SEUL GATE BACKEND ENCORE OUVERT** : `pytest -m e2e`
    contre `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com`. Aucune preuve
-   d'un run complet contre le runtime du 2026-08-13. Ne pas marquer Phase 4 DONE
-   tant que ce run n'est pas vert. L'incident du jour (dérive `fastapi` entre
-   l'image et `uv.lock`, invisible en local) est l'argument le plus fort en faveur
-   d'un run contre le runtime déployé plutôt que d'une validation locale.
+   d'un run complet depuis le 2026-06-12. Ne pas marquer Phase 4 DONE tant que ce
+   run n'est pas vert. Deux arguments s'additionnent : l'incident du 2026-08-13
+   (dérive `fastapi` entre l'image et `uv.lock`, invisible en local) montre qu'une
+   image peut différer du lock, et **le surface d'API a entièrement bougé depuis
+   le dernier run** — `/api/v1/` supprimé (`task-289`), YouTube et Instagram
+   passés en Apify-only (`task-309`/`310`), quota en minutes (`task-287`),
+   covers et créateurs ajoutés au contrat média (`task-304`).
 4. **Tester le digest journalier** (EventBridge rule). Pas couvert par l'E2E actuelle.
 5. ✅ **Purge des comptes/artifacts E2E orphelins** — `task-246` (purge
    rétrospective) et `task-247` (teardown réellement effectif) sont `Done` :
@@ -696,19 +767,18 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    teardown pytest exporte désormais les variables de tables avant tout import
    `media_summarizer` (sans quoi il échouait en silence), et les jobs Maestro
    appellent la suppression en `if: always()` / `continue-on-error`.
-   **Résidu constaté le 2026-08-13** (`task-259`) : `users-dev` contient 4 lignes,
-   dont 2 à purger — `e2e-task249-1786605697` (créé à 07:21) et
-   `e2e-register-31712425508-1-android` (créé à 15:04). Les deux autres restent :
-   le compte owner et `e2e-maestro-20260809200952`, **compte permanent du secret
-   `E2E_TEST_USER_EMAIL`, protégé par design** via `PROTECTED_EMAILS`. Les deux
-   résidus n'ont pas la même cause : le premier échappe structurellement à
-   `E2E_EMAIL_PREFIXES` (préfixe ad hoc jamais énuméré), le second est simplement
-   postérieur à la purge du 2026-08-12.
-6. ✅ **Backlog réconcilié** : 237 tâches, 14 non-`Done`. Reste une incohérence
-   ponctuelle — `task-162` a ses 3 ACs cochés et son travail consigné mais son
-   statut est encore `To Do`.
+   **Résidus du 2026-08-13 purgés** : `task-259` est `Done` — les deux comptes
+   restants (`e2e-task249-1786605697`, `e2e-register-31712425508-1-android`) ont
+   été supprimés, et la sélection est passée de préfixes énumérés à un wildcard
+   `e2e-*` (`0898b13`) pour fermer l'angle mort qui laissait échapper les
+   préfixes ad hoc. Restent par conception dans `users-dev` : le compte owner et
+   `e2e-maestro-20260809200952`, compte permanent du secret
+   `E2E_TEST_USER_EMAIL`, protégé via `PROTECTED_EMAILS`.
+6. ✅ **Backlog réconcilié** au 2026-08-21 : 288 tâches (+ 19 archivées),
+   **15 non-`Done`**, aucune incohérence de statut résiduelle — `task-162` et
+   `task-262` sont passées `Done`. Liste et lecture : § « État de vérité ».
 
-### Phase 5 — Mobile dev build (jour 4-5) — **EN COURS, NON VALIDÉE AU 2026-08-13 — CHEMIN CRITIQUE**
+### Phase 5 — Mobile dev build (jour 4-5) — **EN COURS, NON VALIDÉE AU 2026-08-21 — CHEMIN CRITIQUE**
 
 > Les gates backend étant fermés, cette phase est désormais **ce qui bloque le
 > plan**. Elle tient à trois choses : un build Android unique, et deux validations
@@ -799,7 +869,8 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 > `task-244` et `task-245`) : SDK mobile, paywall 3 tiers, `restorePurchases`,
 > endpoint `POST /api/webhooks/revenucat` (6 event types, idempotence par
 > `event_id` + TTL 30 j), table `revenucat_events`, `GET /api/entitlements/status`.
-> Les routes sont montées (`api/main.py:158,160`) et déployées. Ce qui reste est
+> Les routes sont montées (`api/main.py:160,162`, décalées par le sweep
+> `/api/v1` → `/api` de `task-289`) et déployées. Ce qui reste est
 > le setup stores et la validation sandbox réelle.
 
 **État vérifié au 2026-08-13** (API RevenueCat v2, AWS dev, `eas env:list`) :
@@ -849,14 +920,23 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
   dont les packages n'ont aucun produit achetable. Le câblage RevenueCat, lui,
   n'a plus rien à faire : il ne reste que du travail owner dans ASC (point 3
   ci-dessous).
-- **Aucune app Google Play** dans le projet RevenueCat, et
-  `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` vaut littéralement
-  `your_revenucat_google_api_key_here` dans les **trois** environnements EAS —
-  donc `initializePurchases()` sort sur son `console.warn` sans configurer le SDK
-  sur Android.
+- **Une app Google Play existe depuis le 2026-08-20** (session owner,
+  `task-238`) : `appb253c0f75a`, package `com.secondbrainlabs.core`, service
+  account JSON uploadé. RevenueCat frappe une clé SDK publique à la création de
+  l'app, donc la **vraie clé `goog_`** existe indépendamment du reste et est
+  posée dans `mobile/.env` — le placeholder
+  `your_revenucat_google_api_key_here` a disparu, et `initializePurchases()`
+  configure désormais le SDK pour de bon sur Android. Deux limites subsistent :
+  (a) l'app **n'a aucun produit**, donc le SDK ne résout aucun offering, et ses
+  service credentials ne valideront pas tant qu'aucun bundle signé n'aura été
+  déposé sur une piste de test Play — un package name n'existe pour l'API Google
+  Play qu'au premier AAB, donc `task-238` attend le build Android de `task-163` ;
+  (b) la clé n'est que dans `mobile/.env`, qui est gitignoré : **aucun build EAS
+  cloud ne la voit**, et l'AC #5 de `task-238` (clé présente dans les profils
+  development, preview, CI et production) reste décochée.
 - L'unique ligne de `subscriptions-dev` (tier `L`, `period_end` 2029) est une
   **fixture manuelle** du 2026-08-02 pour tester l'UI, pas la trace d'un achat.
-- **`mobile/ios/StoreKit.storekit` est retiré du périmètre** : ce fichier ne sert
+- **Un fichier `mobile/ios/StoreKit.storekit` est hors périmètre** — il n'existe pas au dépôt et n'a pas à y être créé : il ne servirait
   qu'au test StoreKit dans le simulateur Xcode, et l'owner n'a pas de Mac
   (cf. Phase 7, contrainte de budget CI). La validation iOS passe par TestFlight +
   compte sandbox. Ce n'est pas un reste à faire, c'est un hors-sujet.
@@ -865,7 +945,7 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 faite :
 
 1. ✅ **`REVENUCAT_WEBHOOK_SECRET`** (owner, fait — constaté le 2026-08-13) : la
-   valeur est en place dans `.env` et dans `media-summarizer-runtime-dev` (37 clés
+   valeur est en place dans `.env` et dans `media-summarizer-runtime-dev` (40 clés
    intactes), les deux identiques, et le Lambda déployé la charge. Le gate est
    franchi : le webhook répond `401` sur un token invalide, plus `500`. **Seul
    reste à confirmer visuellement** que la même valeur figure dans RevenueCat →
@@ -873,7 +953,7 @@ faite :
    lisant pas les webhooks (`404`), aucun agent ne peut le vérifier.
    Pour mémoire, si cette valeur doit être changée un jour : `put-secret-value`
    remplace tout le JSON, donc passer par `jq` sur la valeur courante et vérifier
-   `jq 'length'` = 37 avant push, puis forcer un cold start de
+   `jq 'length'` = 40 avant push, puis forcer un cold start de
    `media-summarizer-api-dev` (le secret n'est lu qu'à l'init du conteneur et le
    warm-up EventBridge empêche le recyclage spontané ; ré-appliquer la même
    `image_uri` suffit, elle est sous `ignore_changes`).
@@ -944,14 +1024,14 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
    - `.github/workflows/mobile-build-distribute.yml` — EAS build/submit.
    - `.github/workflows/mobile-store-promote.yml` — promotion stores.
    - `.github/workflows/mobile-e2e-maestro.yml` — Maestro Android/iOS.
-2. ✅ **État source** : `main` = `origin/main` = `6b22542` ; les runs GitHub
-   portent donc bien sur l'état courant. Reste 5 fichiers non commités (fix
-   `uv.lock` des images et de la CI, cf. Phase 1).
+2. ⚠️ **État source** : `origin/main` est sur `a2dafa5`, `main` local sur
+   `65d578e` — **un commit backend d'avance non poussé** (cf. Phase 1). Les runs
+   GitHub portent donc sur l'avant-dernier état.
 3. ✅ **Main checks verts** (`task-223`, `task-227`, `task-228`) : `Main Branch
-   Checks` est `success` sur `6b22542`. Le pin sur `uv.lock` en cours de commit
-   ferme la dernière faille de ce gate — jusqu'à présent la CI installait depuis
-   les intervalles de `pyproject.toml` et pouvait donc linter avec un `ruff`/`mypy`
-   différent de celui du lock et du poste owner.
+   Checks` est `success` sur tous les push récents. Le pin sur `uv.lock`
+   (`c05df88`) a fermé la dernière faille de ce gate — jusque-là la CI installait
+   depuis les intervalles de `pyproject.toml` et pouvait donc linter avec un
+   `ruff`/`mypy` différent de celui du lock et du poste owner.
 4. **Mobile build workflow — désarmé le 2026-08-13** (`task-258`) :
    `.github/workflows/mobile-build-distribute.yml` ne se déclenche plus que sur
    tag `mobile-v*` (build `production` + `eas submit`) ou `workflow_dispatch`
@@ -1212,9 +1292,9 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
      une capture d'écran reçoit un 500 au lieu d'une suppression. En dev, le code
      est déployé depuis le 2026-08-13 et `task-253` a corrigé le 404 de la route ;
      à revérifier lors du réveil de prod.
-   - **État 2026-08-13** : `secondbrainlabs.com/privacy` et `/terms` renvoient un
-     `301` vers `sbl.so/...`, qui répond **404**. `mediasummarizer.com` ne résout
-     toujours pas.
+   - **État 2026-08-21, inchangé** : `secondbrainlabs.com/privacy` et `/terms`
+     renvoient un `301` vers `sbl.so/...`, qui répond **404**.
+     `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont en `NXDOMAIN`.
 5. **Site landing minimal** (optionnel) : `<your-domain>` avec CTA App Store / Play Store.
 6. **Soft launch** : un seul pays, 100 users, observer 1 semaine avant rollout global.
 
@@ -1230,7 +1310,7 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   `~/.aws/config`. **Irréversibles** : une organisation ne se supprime qu'après
   sortie de tous ses comptes membres, et un compte AWS ne se supprime pas avant
   90 jours de fermeture
-- [ ] **Les 37 credentials runtime du secret prod** (`task-252`, owner uniquement,
+- [ ] **Les 37 credentials runtime vivants du secret prod** (`task-252`, owner uniquement,
   `dispatchable: false`) — prod est une coquille vide sans eux : ni transcription,
   ni résumé, ni résolution, ni recherche, ni achat, ni session utilisateur valide
 - [ ] **Quota Lambda concurrence du compte prod** : demande `L-B99A9384` (10 → 1000)
@@ -1258,7 +1338,10 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 - [x] PodcastIndex API key + secret obtenus (en local dans `.env`)
 - [x] OpenAI API key + budget configuré (en local dans `.env`)
 - [x] Deepgram API key + budget configuré (en local dans `.env`)
-- [x] Algolia App créée + index configuré (App ID + Admin API key + index name en local dans `.env`)
+- [x] Algolia App créée (App ID + Admin API key en local dans `.env`). **Pas de
+  variable de nom d'index ni de search-only key** : l'index vaut
+  `media_items_{ENVIRONMENT}`, calculé par `utils/algolia_client.py`, et la
+  recherche est proxifiée par le backend (`task-312`)
 - [~] RevenueCat — clés backend et mobiles présentes localement,
   `REVENUCAT_WEBHOOK_SECRET` **renseigné** en local et dans le secret dev (mêmes
   valeurs) et chargé par le Lambda déployé : le webhook répond `401` sur token
@@ -1266,9 +1349,11 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   faute de configuration. L'offering `default`, ses 3 packages de tier et les 3
   entitlements de tier existent (`task-262`), et les 3 produits App Store leur sont rattachés
   (`task-261`) — mais aucun n'existe encore côté App Store Connect, donc seuls les
-  produits **Test Store** sont réellement achetables. Restent à faire : le webhook
-  secret (owner, ~15 min), les 3 abonnements ASC + la clé App Store Connect
-  (owner, `task-261`), l'app Play et ses 3 produits (`task-238`), comptes
+  produits **Test Store** sont réellement achetables. Le webhook secret, lui, est
+  renseigné — ne pas le recompter comme un reste à faire. Restent : les
+  3 abonnements ASC + la clé App Store Connect (owner, `task-261`), les
+  3 produits Play sur l'app `appb253c0f75a` créée le 2026-08-20 (`task-238`), la
+  propagation de la clé `goog_` aux environnements EAS, les comptes
   sandbox/license testers, achat/restore et propagation vers les quotas. Côté app,
   les entrées UI existent déjà (`task-244` : CTA d'upgrade dans Account +
   déclenchement sur refus de quota ; `task-245` : l'état d'abonnement est
@@ -1306,19 +1391,19 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 | Risque | Mitigation |
 |---|---|
 | Apple rejette l'app car Google login présent sans Sign in with Apple | Sign in with Apple câblé côté mobile. À vérifier sur build TestFlight avant soumission. |
-| Quota Deepgram explosé par un user TikTok abusif | Rate limiter TikTok 2-tier déjà en place + quotas par user dans `minute_buckets`. |
-| Apify API down | Instagram fail visible (status `failed`), pas de cascade. Surveiller en CloudWatch. Apify team fixes scrapers within 24-72h typically. |
+| Quota Deepgram explosé par un user TikTok abusif | Rate limiter TikTok 2-tier déjà en place + quota par user **compté en minutes réelles** (`task-251`, `task-287`), les minutes audio n'étant facturées qu'une fois par user et par média. |
+| Apify API down | **Risque nettement plus lourd depuis `task-309`/`310`** : Apify est le chemin **unique** de YouTube et d'Instagram, et le fallback IP-block de TikTok. Une panne Apify met donc trois sources sur quatre à `failed` (visible, sans cascade). Surveiller en CloudWatch ; Apify corrige ses scrapers en 24-72 h en général. |
 | Quota LlamaParse free tier (1000 pages/jour) dépassé | Fallback Unstructured automatique dans le worker `document_parsing`. Si Unstructured aussi épuisé : job `failed` avec message clair, surveiller en CloudWatch. |
 | RevenueCat webhook drop | Réconciliation possible via `GET /api/entitlements/status` qui requête RevenueCat directement. Le drop *silencieux* aujourd'hui possible (tier non résolu → `warning` puis `return`, sans alarme) est traité par `task-262` : résolution par entitlement, et log `error` explicite quand elle échoue. |
 | URL X privée / supprimée | Worker X retourne `failed` proprement, message d'erreur à l'utilisateur. |
 | ~~API interactive indisponible après longue inactivité~~ | **Traité** (`task-217`, 2026-08-06) : image API minimale, reserved concurrency configurable, warm-up EventBridge, health gate de release. Cold 5,2 s / warm 1,0 s au 2026-08-13. |
 | ~~Collision/destruction entre dev/staging/prod~~ | **Traité** (`task-237`, `task-248`) : une racine Terraform par environnement, 100 % des noms suffixés, et surtout **une frontière de compte AWS** entre dev et prod — un plan lancé avec les identifiants de prod ne peut rien toucher dans dev. |
 | ~~CRUD users legacy non authentifié~~ | **Traité** (`task-222`, `task-224`, `task-253`) : surface legacy supprimée, `DELETE /api/account` déduit le compte du token et purge DynamoDB + S3 + Algolia, startup guard contre les routes silencieusement absentes. |
-| ~~État local non poussé sur GitHub~~ | **Traité** : `main` = `origin/main` = `6b22542`, et le SHA déployé est celui qui a passé les gates. |
-| Dérive silencieuse entre l'image Lambda et le lockfile | **Cause de l'incident du 2026-08-13** (API dev 500 sur toutes les routes, ~2 h 20) : les Dockerfiles résolvaient les intervalles de `pyproject.toml` au build, donc chaque build produisait une image différente et aucune exécution locale ne pouvait reproduire le bug. Mitigation : installer depuis `uv export --frozen` — fait pour les deux images Lambda, **à committer pour les trois images et les deux workflows restants**. |
+| État local non poussé sur GitHub | **Récidive au 2026-08-21** : `main` local est sur `65d578e`, `origin/main` sur `a2dafa5`. Le commit non poussé touche le backend, donc le runtime dev n'est pas le HEAD. À pousser avant tout run E2E. |
+| Dérive silencieuse entre l'image Lambda et le lockfile | **Cause de l'incident du 2026-08-13** (API dev 500 sur toutes les routes, ~2 h 20) : les Dockerfiles résolvaient les intervalles de `pyproject.toml` au build, donc chaque build produisait une image différente et aucune exécution locale ne pouvait reproduire le bug. Mitigation : installer depuis `uv export --frozen` — **fait partout depuis `c05df88`** (les trois images et les deux workflows). Le risque n'est pas éteint pour autant : `f06bd62` a dû plafonner `pillow` sous 12.3 pour que l'image worker se construise à nouveau. |
 | Un health check vert lu comme « l'environnement fonctionne » | `GET /api/health/` ne teste que DynamoDB via le rôle IAM. Prod répond `200` avec un secret runtime **vide**. Ne jamais s'en servir comme preuve qu'un environnement est opérationnel — seul un E2E complet l'établit. |
 | Prod ouverte alors qu'elle est en veille | Trois booléens (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) à repasser à `true`, plus le quota de concurrence et le secret runtime. Une prod servant de vrais utilisateurs sans alarmes est une faute ; la veille n'est acceptable qu'avant lancement. |
-| CI donnant un faux sentiment de sécurité | Gates verts au 2026-08-13. Rester vigilant sur trois points : ne pas remettre de `|| true`, ne pas mettre le workflow Maestro en sommeil dans les required checks, et pin les outils via `uv.lock` pour que la CI lint avec les mêmes versions que le poste owner. |
+| CI donnant un faux sentiment de sécurité | Gates verts au 2026-08-21. Rester vigilant sur trois points : ne pas remettre de `|| true`, ne pas mettre le workflow Maestro en sommeil dans les required checks, et pin les outils via `uv.lock` pour que la CI lint avec les mêmes versions que le poste owner. |
 | Build mobile sans secrets runtime | Les trois environnements EAS sont peuplés ; reste `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` (`task-238`) et `EXPO_TOKEN` côté GitHub Actions. `mobile/.env` gitignored ne constitue pas une configuration de build distante. |
 | Domaine/légal indisponible | Textes légaux rédigés (`docs/compliance/`) mais **non hébergés** : `/privacy` et `/terms` répondent 404 derrière une redirection vers `sbl.so`. Trancher le domaine, héberger, puis vérifier les URLs depuis un réseau externe avant soumission. |
 | ~~Branch protection indisponible~~ | **Traité** (`task-257`, 2026-08-13) : `main` refuse le force-push et la suppression. Régime léger assumé — pas de required check, parce qu'un required check s'applique aussi aux pushes directs et que `Main Branch Checks` ne tourne jamais sur une PR. Rollback : `gh api -X DELETE repos/:owner/:repo/branches/main/protection`. |
@@ -1375,6 +1460,8 @@ python scripts/delete_e2e_account.py <email>
 - `infrastructure/terraform/modules/platform/secrets.tf` — coquille du secret consolidé `media-summarizer-runtime-<env>` (valeurs poussées hors-bande)
 - `docs/API_LAMBDA_RUNTIME.md` — runtime API isolé, warm-up, seuil et procédure d'activation de la provisioned concurrency (`task-217`)
 - `docs/DATA_RETENTION.md` — les deux horloges de rétention (`task-243`)
+- `docs/REVENUECAT_ENTITLEMENTS.md` — disposition entitlements / offering / packages (`task-262`)
+- `docs/INGESTION_WORKERS_PROVIDERS.md` — providers et chaînes de fallback par source
 - `docs/compliance/` — privacy policy, terms of service, réponses App Privacy (Apple) et Data Safety (Google Play), checklist
 - `docs/research/task-221-terraform-multi-env-isolation/README.md` — architecture d'isolation validée (option B)
 - `docs/DEVBOX_SETUP.md` — reconstruire un poste de dev complet
