@@ -603,3 +603,4 @@ réévaluer une fois P0 et P1 appliqués, sur la base des coûts réellement obs
    `generators/` plus deux fragments de `corpus.py`, sans changement de contrat ni de rendu
    mobile. P2-1 (Structured Outputs) et P0-2 (sections vides) doivent en revanche être livrés
    ensemble.
+
