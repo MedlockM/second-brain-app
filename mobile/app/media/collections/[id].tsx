@@ -22,7 +22,9 @@ import {
   type ArtifactTileState,
 } from "../../../src/components/ArtifactTile";
 import { ArtifactsPanel } from "../../../src/components/ArtifactsPanel";
+import { MediaActionsSheet } from "../../../src/components/MediaActionsSheet";
 import { ScreenTabs, type ScreenTab } from "../../../src/components/ScreenTabs";
+import { useMediaActions } from "../../../src/hooks/useMediaActions";
 import { describeArtifactRefusal } from "../../../src/lib/artifactRefusal";
 import { mergeArtifactIntoHistory } from "../../../src/lib/artifactHistory";
 import { getFriendlyErrorMessage } from "../../../src/lib/getFriendlyErrorMessage";
@@ -180,6 +182,17 @@ export default function CollectionDetailScreen() {
     load().finally(() => setIsLoading(false));
   }, [load]);
 
+  const handleMediaDeleted = useCallback((mediaItemId: string) => {
+    setMedia((current) =>
+      current.filter((item) => item.media_item_id !== mediaItemId),
+    );
+  }, []);
+
+  // The long-press menu of a source row. A move out of this collection needs no
+  // handling here: the focus refetch above runs when the picker is popped, and
+  // the row is gone because the collection no longer holds that media.
+  const mediaActions = useMediaActions({ onDeleted: handleMediaDeleted });
+
   const rows = useMemo<Row[]>(() => {
     return [
       ...childFolders.map((node): Row => ({ kind: "folder", node })),
@@ -247,7 +260,11 @@ export default function CollectionDetailScreen() {
             item.kind === "folder" ? (
               <FolderRow node={item.node} onPress={handleOpenFolder} />
             ) : (
-              <SourceRow media={item.media} onPress={handleOpenMedia} />
+              <SourceRow
+                media={item.media}
+                onPress={handleOpenMedia}
+                onLongPress={mediaActions.open}
+              />
             )
           }
           ListHeaderComponent={
@@ -265,6 +282,11 @@ export default function CollectionDetailScreen() {
       ) : (
         <AiTab collectionId={collectionId} />
       )}
+
+      {/* Screen level, outside the list: the sheet belongs to the screen's
+          state, and mounting it inside a row would tie a modal to a cell the
+          virtualizer is free to recycle. */}
+      <MediaActionsSheet {...mediaActions.sheetProps} />
     </SafeAreaView>
   );
 }
@@ -497,16 +519,23 @@ function FolderRow({ node, onPress }: FolderRowProps) {
 interface SourceRowProps {
   media: MediaListItem;
   onPress: (mediaItemId: string) => void;
+  /** Opens the row's actions menu — move the source, or delete it. */
+  onLongPress: (media: MediaListItem) => void;
 }
 
-function SourceRow({ media, onPress }: SourceRowProps) {
+function SourceRow({ media, onPress, onLongPress }: SourceRowProps) {
   const mediaType = (media.media_type ?? "unknown") as MediaType;
   return (
     <Pressable
       style={({ pressed }) => [styles.sourceRow, pressed && styles.sourceRowPressed]}
       onPress={() => onPress(media.media_item_id)}
+      onLongPress={() => onLongPress(media)}
       testID={`collection-source-media-${media.media_item_id}`}
       accessibilityLabel={`Open ${media.title ?? "source"}`}
+      // The gesture is invisible, so a screen reader is told about it.
+      // `Pressable` keeps the tap and the long press exclusive, so opening the
+      // menu never also opens the media.
+      accessibilityHint={t("mediaCard.longPressHint")}
       accessibilityRole="button"
     >
       <View style={styles.sourceIconContainer}>

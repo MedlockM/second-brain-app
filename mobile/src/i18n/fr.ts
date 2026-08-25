@@ -61,6 +61,20 @@ export const fr: Catalog = {
   "mediaType.link": "LIEN",
   "mediaCard.a11yByCreator": "{title} par {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} de {domain}",
+  "mediaCard.longPressHint":
+    "Appuyez deux fois et maintenez pour déplacer ou supprimer cette source",
+  "mediaActions.eyebrow": "Gérer la source",
+  "mediaActions.move.label": "Déplacer",
+  "mediaActions.move.description":
+    "Placer cette source dans une autre collection.",
+  "mediaActions.delete.label": "Supprimer",
+  "mediaActions.delete.description":
+    "Retirer cette source de votre bibliothèque.",
+  "mediaActions.deleteTitle": "Supprimer cette source ?",
+  "mediaActions.deleteBody":
+    "« {title} » sera retirée de votre bibliothèque. Cette action est irréversible.",
+  "mediaActions.deleteFailed":
+    "Cette source n'a pas pu être supprimée. Elle est toujours dans votre bibliothèque.",
   "addSource.title": "Ajouter à votre boîte de réception",
   "addSource.importFile.label": "Importer un fichier",
   "addSource.importFile.description":

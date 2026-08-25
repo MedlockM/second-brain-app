@@ -50,6 +50,18 @@ export const ja: Catalog = {
   "mediaType.link": "リンク",
   "mediaCard.a11yByCreator": "{title}（{creator}）、{type}",
   "mediaCard.a11yFromDomain": "{title}、{domain} の {type}",
+  "mediaCard.longPressHint":
+    "ダブルタップして長押しすると、このソースを移動または削除できます",
+  "mediaActions.eyebrow": "ソースの管理",
+  "mediaActions.move.label": "移動",
+  "mediaActions.move.description": "このソースを別のコレクションに入れます。",
+  "mediaActions.delete.label": "削除",
+  "mediaActions.delete.description": "このソースをライブラリから削除します。",
+  "mediaActions.deleteTitle": "このソースを削除しますか？",
+  "mediaActions.deleteBody":
+    "「{title}」をライブラリから削除します。この操作は取り消せません。",
+  "mediaActions.deleteFailed":
+    "このソースを削除できませんでした。まだライブラリに残っています。",
   "addSource.title": "受信箱に追加",
   "addSource.importFile.label": "ファイルを読み込む",
   "addSource.importFile.description": "スマートフォンの PDF、Office 文書、画像、音声ファイル。",

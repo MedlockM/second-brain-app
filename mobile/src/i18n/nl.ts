@@ -50,6 +50,18 @@ export const nl: Catalog = {
   "mediaType.link": "LINK",
   "mediaCard.a11yByCreator": "{title} van {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} van {domain}",
+  "mediaCard.longPressHint":
+    "Dubbeltik en houd vast om deze bron te verplaatsen of te verwijderen",
+  "mediaActions.eyebrow": "Bron beheren",
+  "mediaActions.move.label": "Verplaatsen",
+  "mediaActions.move.description": "Zet deze bron in een andere collectie.",
+  "mediaActions.delete.label": "Verwijderen",
+  "mediaActions.delete.description": "Haal deze bron uit je bibliotheek.",
+  "mediaActions.deleteTitle": "Deze bron verwijderen?",
+  "mediaActions.deleteBody":
+    "‘{title}’ wordt uit je bibliotheek gehaald. Dit kan niet ongedaan worden gemaakt.",
+  "mediaActions.deleteFailed":
+    "Deze bron kon niet worden verwijderd. Ze staat nog in je bibliotheek.",
   "addSource.title": "Toevoegen aan je postvak",
   "addSource.importFile.label": "Een bestand importeren",
   "addSource.importFile.description": "Een PDF, een Office-document, een afbeelding of een audiobestand van je telefoon.",

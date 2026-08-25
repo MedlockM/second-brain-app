@@ -54,6 +54,20 @@ export const de: Catalog = {
   "mediaType.link": "LINK",
   "mediaCard.a11yByCreator": "{title} von {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} von {domain}",
+  "mediaCard.longPressHint":
+    "Zweimal tippen und halten, um diese Quelle zu verschieben oder zu löschen",
+  "mediaActions.eyebrow": "Quelle verwalten",
+  "mediaActions.move.label": "Verschieben",
+  "mediaActions.move.description":
+    "Diese Quelle in eine andere Sammlung legen.",
+  "mediaActions.delete.label": "Löschen",
+  "mediaActions.delete.description":
+    "Diese Quelle aus deiner Bibliothek entfernen.",
+  "mediaActions.deleteTitle": "Diese Quelle löschen?",
+  "mediaActions.deleteBody":
+    "„{title}“ wird aus deiner Bibliothek entfernt. Das lässt sich nicht rückgängig machen.",
+  "mediaActions.deleteFailed":
+    "Diese Quelle konnte nicht gelöscht werden. Sie ist weiterhin in deiner Bibliothek.",
   "addSource.title": "Zu deinem Posteingang hinzufügen",
   "addSource.importFile.label": "Datei importieren",
   "addSource.importFile.description":

@@ -50,6 +50,18 @@ export const hi: Catalog = {
   "mediaType.link": "लिंक",
   "mediaCard.a11yByCreator": "{title}, {creator} द्वारा, {type}",
   "mediaCard.a11yFromDomain": "{title}, {domain} से {type}",
+  "mediaCard.longPressHint":
+    "इस स्रोत को हटाने या दूसरी संग्रह में ले जाने के लिए दो बार टैप करके दबाए रखें",
+  "mediaActions.eyebrow": "स्रोत प्रबंधित करें",
+  "mediaActions.move.label": "ले जाएँ",
+  "mediaActions.move.description": "इस स्रोत को दूसरी संग्रह में रखें।",
+  "mediaActions.delete.label": "हटाएँ",
+  "mediaActions.delete.description": "इस स्रोत को अपनी लाइब्रेरी से हटा दें।",
+  "mediaActions.deleteTitle": "यह स्रोत हटाएँ?",
+  "mediaActions.deleteBody":
+    "“{title}” आपकी लाइब्रेरी से हटा दिया जाएगा। इसे पहले जैसा नहीं किया जा सकता।",
+  "mediaActions.deleteFailed":
+    "यह स्रोत हटाया नहीं जा सका। यह अब भी आपकी लाइब्रेरी में है।",
   "addSource.title": "अपने इनबॉक्स में जोड़ें",
   "addSource.importFile.label": "फ़ाइल इम्पोर्ट करें",
   "addSource.importFile.description": "आपके फ़ोन से कोई PDF, Office दस्तावेज़, तस्वीर या ऑडियो फ़ाइल।",

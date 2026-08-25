@@ -50,6 +50,18 @@ export const pt: Catalog = {
   "mediaType.link": "LIGAÇÃO",
   "mediaCard.a11yByCreator": "{title} de {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} de {domain}",
+  "mediaCard.longPressHint":
+    "Toque duas vezes e mantenha para mover ou eliminar esta fonte",
+  "mediaActions.eyebrow": "Gerir fonte",
+  "mediaActions.move.label": "Mover",
+  "mediaActions.move.description": "Colocar esta fonte noutra coleção.",
+  "mediaActions.delete.label": "Eliminar",
+  "mediaActions.delete.description": "Remover esta fonte da sua biblioteca.",
+  "mediaActions.deleteTitle": "Eliminar esta fonte?",
+  "mediaActions.deleteBody":
+    "«{title}» será removida da sua biblioteca. Não é possível anular esta ação.",
+  "mediaActions.deleteFailed":
+    "Não foi possível eliminar esta fonte. Continua na sua biblioteca.",
   "addSource.title": "Adicionar à sua caixa de entrada",
   "addSource.importFile.label": "Importar um ficheiro",
   "addSource.importFile.description": "Um PDF, um documento Office, uma imagem ou um ficheiro de áudio do seu telemóvel.",

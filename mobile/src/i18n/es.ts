@@ -53,6 +53,18 @@ export const es: Catalog = {
   "mediaType.link": "ENLACE",
   "mediaCard.a11yByCreator": "{title} de {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} de {domain}",
+  "mediaCard.longPressHint":
+    "Toca dos veces y mantén para mover o eliminar esta fuente",
+  "mediaActions.eyebrow": "Gestionar fuente",
+  "mediaActions.move.label": "Mover",
+  "mediaActions.move.description": "Poner esta fuente en otra colección.",
+  "mediaActions.delete.label": "Eliminar",
+  "mediaActions.delete.description": "Quitar esta fuente de tu biblioteca.",
+  "mediaActions.deleteTitle": "¿Eliminar esta fuente?",
+  "mediaActions.deleteBody":
+    "«{title}» se quitará de tu biblioteca. Esta acción no se puede deshacer.",
+  "mediaActions.deleteFailed":
+    "No se pudo eliminar esta fuente. Sigue en tu biblioteca.",
   "addSource.title": "Añadir a tu bandeja",
   "addSource.importFile.label": "Importar un archivo",
   "addSource.importFile.description":

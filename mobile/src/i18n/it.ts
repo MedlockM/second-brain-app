@@ -50,6 +50,18 @@ export const it: Catalog = {
   "mediaType.link": "LINK",
   "mediaCard.a11yByCreator": "{title} di {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} da {domain}",
+  "mediaCard.longPressHint":
+    "Tocca due volte e tieni premuto per spostare o eliminare questa fonte",
+  "mediaActions.eyebrow": "Gestisci fonte",
+  "mediaActions.move.label": "Sposta",
+  "mediaActions.move.description": "Metti questa fonte in un'altra raccolta.",
+  "mediaActions.delete.label": "Elimina",
+  "mediaActions.delete.description": "Rimuovi questa fonte dalla tua libreria.",
+  "mediaActions.deleteTitle": "Eliminare questa fonte?",
+  "mediaActions.deleteBody":
+    "«{title}» verrà rimossa dalla tua libreria. L'operazione non può essere annullata.",
+  "mediaActions.deleteFailed":
+    "Non è stato possibile eliminare questa fonte. È ancora nella tua libreria.",
   "addSource.title": "Aggiungi alla tua posta in arrivo",
   "addSource.importFile.label": "Importa un file",
   "addSource.importFile.description": "Un PDF, un documento Office, un'immagine o un file audio dal tuo telefono.",

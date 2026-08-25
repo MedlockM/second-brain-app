@@ -50,6 +50,18 @@ export const ar: Catalog = {
   "mediaType.link": "رابط",
   "mediaCard.a11yByCreator": "{title} بواسطة {creator}، {type}",
   "mediaCard.a11yFromDomain": "{title}، {type} من {domain}",
+  "mediaCard.longPressHint":
+    "انقر نقرًا مزدوجًا مع الاستمرار لنقل هذا المصدر أو حذفه",
+  "mediaActions.eyebrow": "إدارة المصدر",
+  "mediaActions.move.label": "نقل",
+  "mediaActions.move.description": "ضع هذا المصدر في مجموعة أخرى.",
+  "mediaActions.delete.label": "حذف",
+  "mediaActions.delete.description": "أزل هذا المصدر من مكتبتك.",
+  "mediaActions.deleteTitle": "حذف هذا المصدر؟",
+  "mediaActions.deleteBody":
+    "سيُزال «{title}» من مكتبتك، ولا يمكن التراجع عن ذلك.",
+  "mediaActions.deleteFailed":
+    "لم يتم حذف هذا المصدر. ما زال موجودًا في مكتبتك.",
   "addSource.title": "إضافة إلى صندوق الوارد",
   "addSource.importFile.label": "استيراد ملف",
   "addSource.importFile.description": "ملف PDF أو مستند Office أو صورة أو ملف صوتي من هاتفك.",

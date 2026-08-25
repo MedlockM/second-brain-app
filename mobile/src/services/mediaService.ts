@@ -62,6 +62,24 @@ export interface RawContentResponse {
 }
 
 /**
+ * Response shape for DELETE /api/media/:mediaItemId.
+ * Matches `DeleteMediaResponse` on the backend.
+ *
+ * The item leaves every read surface immediately; `purge_at` is when it and
+ * everything it owns are destroyed for good (see `docs/DATA_RETENTION.md`). The
+ * grace window is not surfaced in the UI yet, so nothing reads these fields —
+ * they are declared because the endpoint answers them.
+ */
+export interface DeleteMediaResponse {
+  status: string;
+  media_item_id: string;
+  deleted_at?: string | null;
+  /** Epoch seconds after which the deletion becomes irreversible. */
+  purge_at: number;
+  grace_days: number;
+}
+
+/**
  * Media ingestion service for mobile.
  * Uses the canonical /api/media/* endpoints.
  * Shared by both Android share intent and iOS share extension flows.
@@ -113,6 +131,22 @@ export class MediaService {
     return apiRequest<RawContentResponse>(
       `/api/media/${encodeURIComponent(mediaItemId)}/raw-content`,
       { method: "GET" },
+    );
+  }
+
+  /**
+   * Remove one media item from the user's library.
+   *
+   * Idempotent server-side: deleting an already-deleted item answers 200 with
+   * the original `purge_at` rather than 404, so a retry on a flaky network
+   * cannot turn a successful deletion into an error the user has to interpret.
+   *
+   * DELETE /api/media/:mediaItemId
+   */
+  static async deleteMedia(mediaItemId: string): Promise<DeleteMediaResponse> {
+    return apiRequest<DeleteMediaResponse>(
+      `/api/media/${encodeURIComponent(mediaItemId)}`,
+      { method: "DELETE" },
     );
   }
 }

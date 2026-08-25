@@ -42,6 +42,8 @@ import {
   COVER_WIDTH,
   COVER_HEIGHT,
 } from "../../src/components/MediaListCard";
+import { MediaActionsSheet } from "../../src/components/MediaActionsSheet";
+import { useMediaActions } from "../../src/hooks/useMediaActions";
 import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
 import { Image } from "expo-image";
 import {
@@ -320,6 +322,17 @@ export default function SearchScreen() {
     [router],
   );
 
+  const handleMediaDeleted = useCallback((mediaItemId: string) => {
+    setMedia((current) =>
+      current.filter((item) => item.media_item_id !== mediaItemId),
+    );
+  }, []);
+
+  // The long-press menu of a library row. Only the deletion has to be reflected
+  // here: a moved media stays in `All media` whatever collection it lands in,
+  // and the focus refetch above already brings its new folder back.
+  const mediaActions = useMediaActions({ onDeleted: handleMediaDeleted });
+
   // The default folder holds every media saved without an explicit collection.
   // It is excluded from `roots` by `buildCollectionTree`, so pin it in front
   // under its display label -- same pattern as the collections explorer.
@@ -381,6 +394,7 @@ export default function SearchScreen() {
             mediaError={mediaError}
             onRetryMedia={handleRetryMedia}
             onOpenMedia={handleOpenMedia}
+            onLongPressMedia={mediaActions.open}
             isRefreshing={isRefreshing}
             onRefresh={handleRefresh}
           />
@@ -441,6 +455,11 @@ export default function SearchScreen() {
           )}
         </GlassSurface>
       </View>
+
+      {/* Rendered at screen level, outside either body: the sheet belongs to the
+          screen's state, and mounting it inside a `FlatList` row would tie a
+          modal to a cell the virtualizer is free to recycle. */}
+      <MediaActionsSheet {...mediaActions.sheetProps} />
     </View>
   );
 }
@@ -502,6 +521,8 @@ interface LibraryStateProps {
   mediaError: string | null;
   onRetryMedia: () => void;
   onOpenMedia: (mediaItemId: string) => void;
+  /** Opens the row's actions menu. Library only — search results have none. */
+  onLongPressMedia: (item: MediaListItem) => void;
   isRefreshing: boolean;
   onRefresh: () => void;
 }
@@ -533,6 +554,7 @@ function LibraryState({
   mediaError,
   onRetryMedia,
   onOpenMedia,
+  onLongPressMedia,
   isRefreshing,
   onRefresh,
 }: LibraryStateProps) {
@@ -563,6 +585,7 @@ function LibraryState({
         <MediaListCard
           item={item}
           onPress={onOpenMedia}
+          onLongPress={onLongPressMedia}
           testID="library-media-card"
         />
       )}

@@ -50,6 +50,15 @@ export const COVER_HEIGHT = 63;
 interface MediaListCardProps {
   item: MediaListItem;
   onPress: (mediaItemId: string) => void;
+  /**
+   * Long press on the row, when the surface has something to offer for it.
+   *
+   * Optional, and deliberately not wired inside the component: the search
+   * results share this card, and a media there is a *match* being read, not an
+   * item being filed — only the Library surfaces pass a handler. A row without
+   * one keeps a bare tap and says nothing about a gesture it does not answer.
+   */
+  onLongPress?: (item: MediaListItem) => void;
   /** Set by the list rendering the row so a flow can address it. */
   testID?: string;
 }
@@ -57,6 +66,7 @@ interface MediaListCardProps {
 export function MediaListCard({
   item,
   onPress,
+  onLongPress,
   testID,
 }: MediaListCardProps): React.JSX.Element {
   // Keyed by media id rather than a bare boolean: a `FlatList` cell can be
@@ -95,6 +105,11 @@ export function MediaListCard({
       testID={testID}
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={() => onPress(item.media_item_id)}
+      onLongPress={onLongPress ? () => onLongPress(item) : undefined}
+      // The gesture is invisible, so a screen reader is told about it — and only
+      // where it exists. `Pressable` keeps the tap and the long press exclusive,
+      // so opening the menu never also opens the media.
+      accessibilityHint={onLongPress ? t("mediaCard.longPressHint") : undefined}
       accessibilityLabel={
         creator
           ? t("mediaCard.a11yByCreator", {

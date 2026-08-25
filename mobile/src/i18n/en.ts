@@ -74,6 +74,19 @@ export const en = {
   "mediaType.link": "LINK",
   "mediaCard.a11yByCreator": "{title} by {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} from {domain}",
+  "mediaCard.longPressHint": "Double tap and hold to move or delete this source",
+
+  // --- Long-press actions on a media vignette in Library ---
+  "mediaActions.eyebrow": "Manage source",
+  "mediaActions.move.label": "Move",
+  "mediaActions.move.description": "Put this source in another collection.",
+  "mediaActions.delete.label": "Delete",
+  "mediaActions.delete.description": "Remove this source from your library.",
+  "mediaActions.deleteTitle": "Delete this source?",
+  "mediaActions.deleteBody":
+    "“{title}” will be removed from your library. This cannot be undone.",
+  "mediaActions.deleteFailed":
+    "This source could not be deleted. It is still in your library.",
 
   // --- Add-source sheet ---
   "addSource.title": "Add to your inbox",
