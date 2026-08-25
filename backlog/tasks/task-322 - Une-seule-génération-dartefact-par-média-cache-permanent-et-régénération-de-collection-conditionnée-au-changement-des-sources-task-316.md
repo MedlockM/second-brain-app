@@ -3,9 +3,10 @@ id: task-322
 title: >-
   Une seule génération d'artefact par média, cache permanent, et régénération de
   collection conditionnée au changement des sources (task-316)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-25 11:44'
+updated_date: '2026-08-25 12:58'
 labels:
   - artifacts
   - backend

@@ -1,9 +1,10 @@
 ---
 id: task-319
 title: 'Menu long-press sur une vignette média dans Library : Déplacer et Supprimer'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-24 16:09'
+updated_date: '2026-08-25 12:58'
 labels:
   - mobile
   - ui

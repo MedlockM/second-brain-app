@@ -3,10 +3,10 @@ id: task-320
 title: >-
   Appliquer les corrections P0 aux cinq prompts d'artefacts (task-316) —
   quantité, sections vides, style, distracteurs
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-25 11:42'
-updated_date: '2026-08-25 11:44'
+updated_date: '2026-08-25 12:58'
 labels:
   - artifacts
   - prompt-engineering
