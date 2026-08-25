@@ -86,28 +86,37 @@ class SummaryDetailedGenerator:
         *,
         language: Optional[str] = None,
     ) -> str:
+        optional_quotes = corpus.empty_section_instruction(
+            '"notable_quotes" is optional: leave it empty when no passage is worth '
+            "quoting rather than quoting for the sake of it."
+        )
         instructions = f"""You produce a comprehensive, structured summary of everything above.
 It is meant for deep learning and reference.
 
 Rules:
 - {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
-- Be EXHAUSTIVE and THOROUGH - this summary is for learning, not quick reading.
+- This summary is for learning, not quick reading: it must cover the material,
+  which means being as long as the material is and no longer.
 - Treat the sources as one body of material: synthesise across them rather than
   describing each one in turn.
 - Context should set the stage (who, what, why) in 2-3 sentences.
-- Main topics should list 3-7 major themes discussed.
-- Key points should be 7-15 detailed bullet points covering important information.
-- Notable quotes should include 2-5 memorable or important quotes, each copied verbatim.
+- "main_topics": one entry per major theme the sources actually develop — a short
+  source legitimately carries a single theme.
+{corpus.coverage_instruction("bullet point", "bullet points", fields='"key_points"')}
+- "notable_quotes": copy verbatim only the passages that carry the material
+  themselves, and never quote a passage that a bullet point already states.
+{optional_quotes}
 {corpus.source_ref_instruction(required=True)}
 - Conclusion should synthesize the main message in 2-3 sentences.
+{corpus.subject_matter_instruction(verbatim_exception=True)}
 {corpus.title_instruction("summary")}
 
 Return JSON with this exact schema:
 {{
   "title": "A short specific title",
   "context": "2-3 sentences setting the stage",
-  "main_topics": ["Topic 1", "Topic 2", "Topic 3"],
+  "main_topics": ["Topic 1", "Topic 2"],
   "key_points": ["Detailed point 1", "Detailed point 2"],
   "notable_quotes": [{{"text": "Quote copied verbatim", "source_ref": "[S1]"}}],
   "conclusion": "2-3 sentences synthesizing the main message"

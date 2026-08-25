@@ -103,6 +103,12 @@ class NotesGenerator:
         *,
         language: Optional[str] = None,
     ) -> str:
+        optional_sections = corpus.empty_section_instruction(
+            'Every section is optional: leave "objectives" empty when the sources '
+            'do not teach anything to achieve, "concepts" empty when they explain '
+            'no notion, "action_items" empty when they prescribe nothing, and '
+            '"glossary" empty when they introduce no term.'
+        )
         instructions = f"""You produce a structured study/review notes artifact from everything above.
 
 Rules:
@@ -112,8 +118,11 @@ Rules:
 - Focus on learning/review value, not a generic summary.
 - Build one set of notes across all the sources, not one section per source.
 - Avoid sponsor/ad content unless it is central to the source material.
+{corpus.coverage_instruction("entry", "entries", fields='"concepts" and "key_points"')}
+{optional_sections}
 - Every string must be concise and useful.
 - `importance` must be either `core` or `supporting`.
+{corpus.subject_matter_instruction()}
 {corpus.title_instruction("set of notes")}
 
 Return JSON with this exact schema:

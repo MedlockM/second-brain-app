@@ -91,6 +91,68 @@ def title_instruction(kind: str) -> str:
     )
 
 
+def coverage_instruction(unit: str, unit_plural: str, *, fields: str) -> str:
+    """Quantity is a function of the material — no floor, no ceiling.
+
+    The fixed ranges this replaces ("between 5 and 15 depending on content
+    density") were measured doing the opposite of what they say: a 414-byte
+    sketch yielded ten flashcards and twelve "detailed key points", while a
+    28 kB video yielded seven quiz questions (task-316 §2.1, §2.2). A count the
+    model must reach is padding on a thin source; a count it must not exceed is
+    truncation on a dense one. An artifact is generated once per media item, so a
+    partial pass is never made up for later: the material is stated as the only
+    bound, in both directions.
+    """
+    return (
+        f"- Let the sources set how many {unit_plural} you write in {fields}: one "
+        f"{unit} per distinct point the sources actually teach, and cover every "
+        f"one of those points. There is no target count and no maximum — a dense "
+        f"source yields many {unit_plural}, a source that teaches almost nothing "
+        f"yields one or two.\n"
+        f"- Never pad: do not restate one point in two {unit_plural}, do not split "
+        f"a point in two to raise the count, and do not invent material the "
+        f"sources do not carry. Stopping once the material is covered is the "
+        f"correct behaviour."
+    )
+
+
+def empty_section_instruction(detail: str) -> str:
+    """An empty section is a valid answer.
+
+    Every section being mandatory is what produced learning objectives for a
+    weather bulletin and an "actionable insight" addressed to nobody on a TikTok
+    clip (task-316 §2.3). The mobile screen already renders each section
+    conditionally, so an empty list or string displays correctly — only the
+    prompt forbade it.
+    """
+    return (
+        f"- {detail} Leaving a section empty is a correct answer when the sources "
+        f"carry nothing for it; filling it with something invented is not."
+    )
+
+
+def subject_matter_instruction(*, verbatim_exception: bool = False) -> str:
+    """Write about the subject, not about the document.
+
+    39 % of the quiz questions in dev tested the memory of the document rather
+    than the subject ("Selon la source, pourquoi…"), and the detailed summaries
+    described their source instead of restating it ("Le texte présente un court
+    sketch") — task-316 §2.5.
+    """
+    text = (
+        "- Write about the subject matter, never about the document. Do not write "
+        '"the source says", "according to the text", "the video explains", "the '
+        'narrator mentions", "this passage opens on". State the fact itself, the '
+        "way someone who knows the subject would state it."
+    )
+    if verbatim_exception:
+        text += (
+            ' The one exception is "notable_quotes", which is verbatim by '
+            "construction: copy the words as they appear."
+        )
+    return text
+
+
 def source_ref_instruction(*, required: bool) -> str:
     if required:
         return (

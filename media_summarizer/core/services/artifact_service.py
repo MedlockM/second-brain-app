@@ -204,23 +204,23 @@ def get_generator_version(artifact_type: MediaArtifactType) -> str:
     versions = {
         MediaArtifactType.SUMMARY_SHORT: os.environ.get(
             "SUMMARY_SHORT_ARTIFACT_GENERATOR_VERSION",
-            f"summary_short:{SUMMARY_SHORT_MODEL}:prompt-v2",
+            f"summary_short:{SUMMARY_SHORT_MODEL}:prompt-v3",
         ),
         MediaArtifactType.SUMMARY_DETAILED: os.environ.get(
             "SUMMARY_DETAILED_ARTIFACT_GENERATOR_VERSION",
-            f"summary_detailed:{SUMMARY_DETAILED_MODEL}:prompt-v2",
+            f"summary_detailed:{SUMMARY_DETAILED_MODEL}:prompt-v3",
         ),
         MediaArtifactType.QUIZ: os.environ.get(
             "QUIZ_ARTIFACT_GENERATOR_VERSION",
-            f"quiz:{OPENAI_MODEL}:prompt-v2",
+            f"quiz:{OPENAI_MODEL}:prompt-v3",
         ),
         MediaArtifactType.NOTES: os.environ.get(
             "NOTES_ARTIFACT_GENERATOR_VERSION",
-            f"notes:{NOTES_MODEL}:prompt-v2",
+            f"notes:{NOTES_MODEL}:prompt-v3",
         ),
         MediaArtifactType.FLASHCARDS: os.environ.get(
             "FLASHCARDS_ARTIFACT_GENERATOR_VERSION",
-            f"flashcards:{FLASHCARDS_MODEL}:prompt-v2",
+            f"flashcards:{FLASHCARDS_MODEL}:prompt-v3",
         ),
     }
     return versions[artifact_type]
