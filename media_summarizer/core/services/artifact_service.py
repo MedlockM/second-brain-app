@@ -1,18 +1,26 @@
 """
-Artifact generation: scope resolution, short-window deduplication, storage.
+Artifact generation: scope resolution, reuse of what already exists, storage.
 
 Both scopes go through one mechanism (task-269 decision, strategy S1): a media
 artifact is a collection artifact whose ``sources`` has one element. A request
 resolves the scope's sources, checks the ceilings, writes **one immutable history
-entry** and enqueues **one** SQS message per artifact type. Nothing is ever
-overwritten, nothing is invalidated, and no code asks "does an artifact of this
-type already exist?".
+entry** and enqueues **one** SQS message per artifact type.
 
-Deduplication is short-window only, and it needs no lock table: the
-``artifact_id`` is a hash of (user, scope, type, parameters, generator version,
-source ids, current 120 s window), so a double tap computes the same id twice and
-the conditional write rejects the second. At 121 s the same request is a
-*regeneration*, which is exactly what the append-only model is for.
+One rule decides whether anything is generated at all (task-316 owner decision):
+**an existing artifact is reused as soon as the set of sources behind it is
+identical, and a generation only happens when that set differs.** The
+``artifact_id`` is a hash of (user, scope, scope_id, type, parameters, sorted
+source ids) with no time component, so finding the artifact that already answers a
+request is a single ``GetItem`` with no time bound and no lock table. A media item
+is a collection of one source whose set never changes, so "one generation per type
+per media" follows from the same rule with no special case; a collection can
+legitimately produce a new entry, and only once its sources have changed.
+
+The history stays append-only: a different source set writes a new entry next to
+the older ones, and nothing is ever overwritten or invalidated. The single
+exception is an entry that *failed* — it holds no artifact to reuse, so a request
+for the same key reclaims it and generates again rather than being barred forever
+by one transient provider error.
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -80,10 +89,6 @@ MAX_COLLECTION_CORPUS_TOKENS = 120_000
 # and converted. ±10%, which the 2.3x margin to the model's window absorbs.
 BYTES_PER_TOKEN = 3.4
 
-# Two identical requests less than this apart are the same tap, not a
-# regeneration. This carries no expiry semantics: it never says an artifact stays
-# valid for 120 s, only that a click is not two clicks.
-DEDUP_WINDOW_SECONDS = 120
 # Matches the artifact_generator Lambda's 300 s timeout, so a worker killed
 # mid-generation leaves an entry another invocation can reclaim.
 GENERATION_LEASE_SECONDS = 300
@@ -278,16 +283,28 @@ def build_artifact_id(
     scope_id: str,
     artifact_type: MediaArtifactType,
     parameters: Dict[str, Any],
-    generator_version: str,
     source_media_item_ids: List[str],
-    window_index: int,
 ) -> str:
-    """Deterministic id — the whole of the deduplication mechanism.
+    """Deterministic id — the whole of the reuse mechanism.
 
-    Everything that changes the output is in the hash, so two requests collide
-    only when they would produce the same artifact from the same sources within
-    the same window. Two reading languages give different ``parameters``, hence
-    different ids, hence two legitimate entries.
+    The key is **what the user asked for**: owner, scope, artifact type,
+    parameters, and the sorted set of sources behind it. Two requests collide
+    exactly when an existing artifact already answers the second one, and that
+    collision is what makes reuse a single ``GetItem``.
+
+    Deliberately *not* in the hash:
+
+    - **Time.** There is no window and no expiry. The same request an hour or a
+      month later resolves to the same id, which is what "generate once per media"
+      means concretely.
+    - **``generator_version``.** It is recorded on the entry for traceability, but
+      keying on it would hand out one fresh generation per prompt bump — the exact
+      thing the owner's decision rules out. The corollary is deliberate: bumping a
+      prompt does **not** invalidate anything already generated.
+
+    ``parameters`` carries the reading language, so two reading languages are two
+    different ids and therefore two legitimate entries. The decision is about
+    regenerating, not about translating.
     """
     material = "|".join(
         [
@@ -296,16 +313,10 @@ def build_artifact_id(
             scope_id,
             artifact_type.value,
             _stable_json(parameters),
-            generator_version,
             ",".join(sorted(source_media_item_ids)),
-            str(window_index),
         ]
     )
     return f"art_{_sha256_text(material)[:32]}"
-
-
-def _window_index(moment: datetime) -> int:
-    return int(moment.timestamp() // DEDUP_WINDOW_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -599,29 +610,54 @@ async def get_media_artifact_record(
 # ---------------------------------------------------------------------------
 
 
+class ArtifactGenerationOutcome(str, Enum):
+    """What a committed request actually did. Four cases, never conflated.
+
+    ``REUSED`` and ``COLLAPSED`` both mean "no generation was started, and no
+    counter moves", but they are not the same fact and the caller must be able to
+    tell them apart: one is an artifact that already existed over the same
+    sources, the other is the second of two taps racing on the same write.
+    """
+
+    #: A new entry was written and enqueued.
+    CREATED = "created"
+    #: A previously failed entry for the same key was reclaimed and re-enqueued.
+    RETRIED = "retried"
+    #: An artifact already covering these sources answered the request.
+    REUSED = "reused"
+    #: A concurrent identical request won the conditional write; this one lost.
+    COLLAPSED = "collapsed"
+
+
 class ArtifactGenerationPlan:
     """Everything decided before anything is written.
 
-    Split in two on purpose: the quota must be checked *after* the deduplication
-    verdict (a repeated tap consumes nothing) and *before* the write (a denied
-    request leaves no entry). Planning and committing as separate steps is what
-    lets the endpoint express that order without an extra read (task-269 §10.3).
+    Split in two on purpose: the quota must be checked *after* the reuse verdict
+    (a request answered by an existing artifact consumes nothing) and *before* the
+    write (a denied request leaves no entry). Planning and committing as separate
+    steps is what lets the endpoint express that order without an extra read
+    (task-269 §10.3).
     """
 
     def __init__(
         self,
         *,
-        existing: Optional[MediaArtifactRecord],
+        reused: Optional[MediaArtifactRecord],
         record: Optional[MediaArtifactRecord],
         message: Optional[Dict[str, Any]],
+        reclaims_failed: bool = False,
     ) -> None:
-        self.existing = existing
+        self.reused = reused
         self.record = record
         self.message = message
+        #: ``record`` carries the id of a failed entry to overwrite in place,
+        #: rather than an id nothing is stored under yet.
+        self.reclaims_failed = reclaims_failed
 
     @property
-    def deduplicated(self) -> bool:
-        return self.existing is not None
+    def reuses_existing(self) -> bool:
+        """True when an existing artifact answers the request, so nothing runs."""
+        return self.reused is not None
 
 
 async def plan_artifact_generation(
@@ -634,7 +670,13 @@ async def plan_artifact_generation(
     resolution: ScopeResolution,
     parameters: Optional[Dict[str, Any]] = None,
 ) -> ArtifactGenerationPlan:
-    """Decide what would be written, and whether this is just the same tap again."""
+    """Decide whether an artifact already answers this request, or what to write.
+
+    The lookup has **no time bound**: the id is derived from the sources alone, so
+    an entry found here is an artifact generated over exactly these sources,
+    whenever that happened. Reusing it is the answer — no generation, no debit.
+    Only a *failed* entry is not an answer, and it is reclaimed instead.
+    """
     if not ARTIFACT_GENERATION_ENABLED:
         raise ArtifactGenerationDisabledError("Artifact generation is disabled.")
 
@@ -659,41 +701,33 @@ async def plan_artifact_generation(
     source_ids = [source.content_id for source in resolution.sources]
     now = _now_utc()
 
-    def artifact_id_for(window_index: int) -> str:
-        return build_artifact_id(
-            user_id=user_id,
-            scope=resolved_scope,
-            scope_id=effective_scope_id,
-            artifact_type=resolved_type,
-            parameters=normalized_parameters,
-            generator_version=generator_version,
-            source_media_item_ids=source_ids,
-            window_index=window_index,
-        )
-
-    current_window = _window_index(now)
-    # The previous window is checked too: a double tap straddling a window
-    # boundary would otherwise slip through a purely time-sliced key.
-    previous = await media_artifacts.get_media_artifact_by_id(
-        artifact_id_for(current_window - 1)
+    artifact_id = build_artifact_id(
+        user_id=user_id,
+        scope=resolved_scope,
+        scope_id=effective_scope_id,
+        artifact_type=resolved_type,
+        parameters=normalized_parameters,
+        source_media_item_ids=source_ids,
     )
-    if previous is not None and (
-        now - previous.created_at
-    ) <= timedelta(seconds=DEDUP_WINDOW_SECONDS):
+
+    existing = await media_artifacts.get_media_artifact_by_id(artifact_id)
+    if existing is not None and existing.status != MediaArtifactStatus.FAILED:
         log_event(
             logger,
             logging.INFO,
-            "artifact.deduplicated",
-            "Artifact request deduplicated inside the dedup window",
-            artifact_id=previous.artifact_id,
-            artifact_type=previous.artifact_type.value,
+            "artifact.reused",
+            "Existing artifact reused: the sources behind it are unchanged",
+            artifact_id=existing.artifact_id,
+            artifact_type=existing.artifact_type.value,
+            artifact_status=existing.status.value,
             scope=resolved_scope.value,
             scope_id=scope_id,
+            source_count=existing.source_count,
         )
-        return ArtifactGenerationPlan(existing=previous, record=None, message=None)
+        return ArtifactGenerationPlan(reused=existing, record=None, message=None)
 
     record = MediaArtifactRecord(
-        artifact_id=artifact_id_for(current_window),
+        artifact_id=artifact_id,
         user_id=user_id,
         scope=resolved_scope,
         scope_id=scope_id,
@@ -703,10 +737,15 @@ async def plan_artifact_generation(
         artifact_type=resolved_type,
         status=MediaArtifactStatus.QUEUED,
         parameters=normalized_parameters,
+        # Recorded, never keyed on: this is what says which prompt produced which
+        # artifact, and a retry below stamps the version that actually reran.
         generator_version=generator_version,
         source_count=len(resolution.sources),
         sources=resolution.snapshot(),
-        created_at=now,
+        # A reclaimed entry keeps its original position in the history: the GSI
+        # sorts on `created_at`, and a retry is the same generation attempted
+        # again, not a later one.
+        created_at=existing.created_at if existing is not None else now,
         updated_at=now,
     )
 
@@ -744,42 +783,43 @@ async def plan_artifact_generation(
             resolution.sources[0].translation_metadata if resolution.sources else {}
         ),
     }
-    return ArtifactGenerationPlan(existing=None, record=record, message=message)
+    return ArtifactGenerationPlan(
+        reused=None,
+        record=record,
+        message=message,
+        reclaims_failed=existing is not None,
+    )
 
 
 async def commit_artifact_generation(
     plan: ArtifactGenerationPlan,
-) -> Tuple[MediaArtifactRecord, bool]:
-    """Write the entry and enqueue it, or return the winner of a concurrent tap.
+) -> Tuple[MediaArtifactRecord, ArtifactGenerationOutcome]:
+    """Write the entry and enqueue it, or hand back what already answers the request.
 
-    ``deduplicated`` means "this was the same tap" — never "we reused an older
-    artifact". The caller must not debit any counter when it is true.
+    The outcome is the caller's contract. ``REUSED`` and ``COLLAPSED`` both forbid
+    debiting any counter, and they say different things: the first is a cache hit
+    on identical sources, the second is one of two concurrent taps losing the
+    conditional write. ``RETRIED`` reruns a failed entry under its own id, so a
+    caller keying its debit on ``artifact_id`` charges the generation once, not
+    once per attempt.
     """
-    if plan.existing is not None:
-        return plan.existing, True
+    if plan.reused is not None:
+        return plan.reused, ArtifactGenerationOutcome.REUSED
     if plan.record is None or plan.message is None:
         raise ArtifactServiceError("Artifact generation plan is empty.")
 
     record = plan.record
-    try:
-        await media_artifacts.create_media_artifact(record)
-    except media_artifacts.ArtifactAlreadyExistsError:
-        existing = await media_artifacts.get_media_artifact_by_id(record.artifact_id)
-        if existing is None:
-            raise ArtifactServiceError(
-                "Artifact id was claimed concurrently but cannot be read back."
-            )
-        log_event(
-            logger,
-            logging.INFO,
-            "artifact.deduplicated",
-            "Concurrent identical artifact request collapsed",
-            artifact_id=existing.artifact_id,
-            artifact_type=existing.artifact_type.value,
-            scope=existing.scope.value,
-            scope_id=existing.scope_id,
-        )
-        return existing, True
+    if plan.reclaims_failed:
+        # Conditional on the row still being `failed`: if a concurrent request
+        # already reclaimed it, that request owns the generation and this one has
+        # nothing left to do.
+        if not await media_artifacts.reclaim_failed_artifact(record):
+            return await _collapsed_onto_existing(record.artifact_id)
+    else:
+        try:
+            await media_artifacts.create_media_artifact(record)
+        except media_artifacts.ArtifactAlreadyExistsError:
+            return await _collapsed_onto_existing(record.artifact_id)
 
     try:
         await sqs.send_message(
@@ -794,6 +834,11 @@ async def commit_artifact_generation(
         )
         raise
 
+    outcome = (
+        ArtifactGenerationOutcome.RETRIED
+        if plan.reclaims_failed
+        else ArtifactGenerationOutcome.CREATED
+    )
     log_event(
         logger,
         logging.INFO,
@@ -805,8 +850,31 @@ async def commit_artifact_generation(
         scope_id=record.scope_id,
         source_count=record.source_count,
         queue=get_artifact_queue(record.artifact_type),
+        outcome=outcome.value,
     )
-    return record, False
+    return record, outcome
+
+
+async def _collapsed_onto_existing(
+    artifact_id: str,
+) -> Tuple[MediaArtifactRecord, ArtifactGenerationOutcome]:
+    """Read back the entry a concurrent identical request wrote first."""
+    existing = await media_artifacts.get_media_artifact_by_id(artifact_id)
+    if existing is None:
+        raise ArtifactServiceError(
+            "Artifact id was claimed concurrently but cannot be read back."
+        )
+    log_event(
+        logger,
+        logging.INFO,
+        "artifact.collapsed",
+        "Concurrent identical artifact request collapsed onto the one in flight",
+        artifact_id=existing.artifact_id,
+        artifact_type=existing.artifact_type.value,
+        scope=existing.scope.value,
+        scope_id=existing.scope_id,
+    )
+    return existing, ArtifactGenerationOutcome.COLLAPSED
 
 
 def _prompt_cache_key(

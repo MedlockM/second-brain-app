@@ -56,7 +56,7 @@ Operational behavior now implemented in runtime:
 - one set of routes under `/api/artifacts` serves a single media (`scope="media"`) and a collection (`scope="folder"`); the per-media routes are gone, with no alias
 - a collection covers the folder **and all its descendants**, exactly like `GET /api/media?folder_id=`
 - every generation writes a **new immutable entry** carrying a snapshot of the sources it read; nothing is overwritten, nothing is invalidated, and adding or removing a media from a collection changes no existing entry
-- deduplication is short-window only: the `artifact_id` is a hash of (user, scope, type, parameters, generator version, source ids, current 120 s window), so a double tap or an SQS redelivery collapses into one generation while a later identical request legitimately regenerates
+- an existing entry is reused **permanently** (task-322): the `artifact_id` is a hash of (user, scope, scope_id, type, parameters, sorted source ids) with no time component, so a request whose source set already produced an artifact returns that artifact, whatever the delay, without a second generation and without debiting quota. A media therefore gets one artifact per type and per `parameters`; a collection regenerates only when its contents changed. The generator version is recorded on the entry but excluded from the key, so bumping a prompt does not reopen a right to regenerate
 - ownership is checked by comparing the entry's `user_id`, not by resolving a media item — a collection artifact has none
 - a media-scoped request still accepts a user-owned `media_item_id`, but storage and
   history use `(user_id, media_key)` internally, so the same user's saves of one
@@ -203,9 +203,22 @@ Request:
 }
 ```
 
-`202` when the entry was created and queued, `200` when the request was
-deduplicated as the same tap (the body is the entry already queued, and no quota
-counter moves). Response is the same shape as `GET /api/artifacts/{artifact_id}`.
+`202` when a generation was queued, `200` when the response is an entry that
+already existed. Response is the shape of `GET /api/artifacts/{artifact_id}` plus
+`generation_outcome`, which names the four cases the caller must be able to tell
+apart:
+
+| `generation_outcome` | Status | Meaning | Quota |
+|---|---|---|---|
+| `created` | `202` | First request for this source set: entry written and queued | debited |
+| `retried` | `202` | The entry for this key had `failed`, so it is reclaimed and queued again | debited (idempotent on `artifact_id`, so a retry of the same id charges nothing extra) |
+| `reused` | `200` | An artifact already covers this source set; nothing is queued | untouched |
+| `collapsed` | `200` | A concurrent identical request won the conditional write; this one hands back the winner | untouched |
+
+`reused` and `collapsed` are deliberately distinct: the first says "this content
+was already generated, possibly days ago", the second says "this was the same
+tap". Both leave every quota counter untouched, and both are logged under their
+own event (`artifact.reused`, `artifact.collapsed`).
 
 Typed refusals:
 
@@ -583,7 +596,7 @@ HTTP mapping rules:
 - `media_key` must be deterministic from canonical URL normalization.
 - Processing is idempotent for equivalent normalized URLs; saving is intentionally
   non-idempotent and creates a fresh library row on every successful request.
-- Artifact creation collapses **only** requests identical in `(user, scope, scope_id, artifact_type, parameters, generator version, source ids)` **and** less than 120 s apart. Past that window the same request is a regeneration and creates a new entry: the storage is an append-only history, so nothing is ever overwritten and no request is ever refused for already existing.
+- Artifact creation generates **only** when `(user, scope, scope_id, artifact_type, parameters, sorted source ids)` has no entry yet, or when the entry it has is `failed`. Any other identical request — a double tap or one months later — returns the stored entry, with no new generation and no quota movement. The storage stays an append-only history: a *different* source set writes a new entry next to the older ones, and no request is ever refused for already existing.
 - Timestamps use ISO-8601 UTC strings.
 - `request_id` must be returned in error payload and response header.
 

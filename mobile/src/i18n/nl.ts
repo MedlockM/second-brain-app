@@ -39,6 +39,7 @@ export const nl: Catalog = {
   "artifacts.status.queued": "In de wachtrij",
   "artifacts.status.generating": "Genereren…",
   "artifacts.status.failed": "Mislukt",
+  "artifacts.status.generated": "Gegenereerd",
   "artifacts.history.a11yRow": "{type}: {title}",
   "mediaType.podcast": "PODCAST",
   "mediaType.article": "ARTIKEL",

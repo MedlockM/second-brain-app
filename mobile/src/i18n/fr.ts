@@ -50,6 +50,7 @@ export const fr: Catalog = {
   "artifacts.status.queued": "En file d'attente",
   "artifacts.status.generating": "Génération…",
   "artifacts.status.failed": "Échec",
+  "artifacts.status.generated": "Généré",
   "artifacts.history.a11yRow": "{type} : {title}",
   "mediaType.podcast": "PODCAST",
   "mediaType.article": "ARTICLE",

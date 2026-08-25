@@ -9,8 +9,9 @@ store, and therefore nothing that can hold a pointer to destroyed content.
 What counts as an engagement (§2.2), and nothing else:
 
     E1  a generation was launched -- ``POST /api/artifacts`` accepted a request for
-        this scope, including the deduplicated ``200`` path. The user asked; that
-        the answer already existed is an implementation detail they never see.
+        this scope, including the ``200`` paths that hand back an artifact which
+        already existed. The user asked; that the answer was already generated is
+        an implementation detail they never see.
     E2  an artifact was opened and rendered -- the viewer reports it once per
         mount, through ``POST /api/engagements``.
 

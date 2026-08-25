@@ -4,10 +4,15 @@ Canonical internal model for AI artifacts.
 One record type serves both scopes (task-269/270): a media artifact is a
 collection artifact with a single source. The record is an **append-only history
 entry** — once it reaches ``ready`` it is never modified again. There is no
-staleness flag, no expiry, no automatic regeneration: adding a media to a
-collection creates a gap between an entry's ``sources`` snapshot and the
-collection's current contents, and that gap *is* the history rather than a defect
-to repair.
+staleness flag, no expiry, no automatic regeneration.
+
+An entry is also the permanent answer for its source set: ``artifact_id`` is
+derived from the sources, so asking again for the same type over the same set
+returns this very record instead of generating a second one. A media therefore
+gets one artifact per type and per ``parameters`` — its source set never changes.
+A collection gets a new entry only when its contents changed, which is why the
+gap between an entry's ``sources`` snapshot and the collection's current contents
+*is* the history rather than a defect to repair.
 """
 
 from __future__ import annotations
@@ -96,8 +101,9 @@ class ArtifactLlmUsage(BaseModel):
 
 
 class MediaArtifactRecord(BaseModel):
-    # Deterministic, derived from (user, scope, type, parameters, sources, dedup
-    # window) by ``artifact_service.build_artifact_id`` — never random.
+    # Deterministic, derived from (user, scope, scope_id, type, parameters,
+    # sorted source ids) by ``artifact_service.build_artifact_id`` — never random,
+    # and carrying no time component: the same request always lands on this id.
     artifact_id: str
     user_id: str
     scope: ArtifactScope
@@ -106,6 +112,9 @@ class MediaArtifactRecord(BaseModel):
     artifact_type: MediaArtifactType
     status: MediaArtifactStatus = MediaArtifactStatus.QUEUED
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    # Traceability only — which prompt produced this content. Deliberately absent
+    # from ``artifact_id``, so bumping a prompt does not hand back a right to
+    # regenerate what is already generated.
     generator_version: str
     title: Optional[str] = None
     source_count: int = 0

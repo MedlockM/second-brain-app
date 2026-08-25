@@ -312,7 +312,10 @@ async def trigger_summary_short_generation(
             artifact_type=MediaArtifactType.SUMMARY_SHORT,
             resolution=resolution,
         )
-        record, _deduplicated = await commit_artifact_generation(plan)
+        # The outcome is not acted on here: whether the generation was queued or
+        # an existing artifact already covered this item, the digest wants the id
+        # of the artifact that answers it.
+        record, _outcome = await commit_artifact_generation(plan)
         return record.artifact_id
     except (
         ArtifactScopeEmptyError,

@@ -62,6 +62,9 @@ export const en = {
   "artifacts.status.queued": "Queued",
   "artifacts.status.generating": "Generating...",
   "artifacts.status.failed": "Failed",
+  // Shown where the "Generate" button was, once an artifact covers the current
+  // sources: there is nothing left to ask for on this type.
+  "artifacts.status.generated": "Generated",
   "artifacts.history.a11yRow": "{type}: {title}",
   // --- Media type badges ---
   "mediaType.podcast": "PODCAST",

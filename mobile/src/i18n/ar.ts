@@ -39,6 +39,7 @@ export const ar: Catalog = {
   "artifacts.status.queued": "في قائمة الانتظار",
   "artifacts.status.generating": "جارٍ الإنشاء…",
   "artifacts.status.failed": "فشل",
+  "artifacts.status.generated": "تم الإنشاء",
   "artifacts.history.a11yRow": "{type}: {title}",
   "mediaType.podcast": "بودكاست",
   "mediaType.article": "مقال",

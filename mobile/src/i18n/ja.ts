@@ -39,6 +39,7 @@ export const ja: Catalog = {
   "artifacts.status.queued": "待機中",
   "artifacts.status.generating": "生成中…",
   "artifacts.status.failed": "失敗",
+  "artifacts.status.generated": "生成済み",
   "artifacts.history.a11yRow": "{type}：{title}",
   "mediaType.podcast": "ポッドキャスト",
   "mediaType.article": "記事",
