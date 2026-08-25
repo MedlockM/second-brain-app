@@ -5,6 +5,12 @@
  * of the same type, each carrying the snapshot of the sources it was generated
  * over. There is no "current artifact of type X" anywhere in these shapes, which
  * is the whole point — the concept stopped existing backend-side too.
+ *
+ * A new entry only appears when the set of sources differs from every entry
+ * already stored (task-322): a media item therefore holds one entry per type for
+ * good, and a collection gains one each time its contents change. The `sources`
+ * snapshot of an entry is what a screen compares against the collection's
+ * current contents to know whether generating again would produce anything.
  */
 
 import type { ArtifactStatus, ArtifactType } from "./media";
@@ -50,6 +56,28 @@ export interface ArtifactDetail extends ArtifactSummary {
   scope_id: string;
   sources: ArtifactSource[];
   s3_key?: string | null;
+}
+
+/**
+ * What a generation request actually did, as the API names it.
+ *
+ * - `created`: a generation was queued over these sources.
+ * - `retried`: an entry that had failed over these sources was rerun.
+ * - `reused`: an artifact already covered these sources; nothing was queued and
+ *   no minute was charged. This is the normal answer to a second request on a
+ *   media item, and to a collection whose sources have not changed.
+ * - `collapsed`: two concurrent taps, and this one lost the race; the entry
+ *   returned is the one already in flight.
+ */
+export type ArtifactGenerationOutcome =
+  | "created"
+  | "retried"
+  | "reused"
+  | "collapsed";
+
+/** The answer to `POST /api/artifacts`: the entry, plus what the call did. */
+export interface ArtifactCreateResult extends ArtifactDetail {
+  generation_outcome: ArtifactGenerationOutcome;
 }
 
 export interface ArtifactListResponse {

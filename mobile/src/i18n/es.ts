@@ -42,6 +42,7 @@ export const es: Catalog = {
   "artifacts.status.queued": "En cola",
   "artifacts.status.generating": "Generando…",
   "artifacts.status.failed": "Error",
+  "artifacts.status.generated": "Generado",
   "artifacts.history.a11yRow": "{type}: {title}",
   "mediaType.podcast": "PÓDCAST",
   "mediaType.article": "ARTÍCULO",

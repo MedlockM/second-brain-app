@@ -8,11 +8,11 @@
  * *without* the new entry — the tile would fall back to "Generate" while a
  * generation is actually running.
  *
- * The POST is also deduplicated backend-side over a short window: it then
- * answers an entry that already exists in the history and may already be
- * `ready` or `failed`. So the merge is keyed on `artifact_id` and replaces in
- * place; only a genuinely new entry is prepended, which keeps the list
- * newest-first the way the API returns it and the way the tiles read it.
+ * The POST does not always create, either: a request whose sources already
+ * produced an artifact answers that artifact, which may already be `ready` or
+ * `failed` and is already in the history. So the merge is keyed on `artifact_id`
+ * and replaces in place; only a genuinely new entry is prepended, which keeps the
+ * list newest-first the way the API returns it and the way the tiles read it.
  */
 
 import type { ArtifactSummary } from "../types/artifacts";

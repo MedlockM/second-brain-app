@@ -43,6 +43,7 @@ export const de: Catalog = {
   "artifacts.status.queued": "In der Warteschlange",
   "artifacts.status.generating": "Wird erstellt …",
   "artifacts.status.failed": "Fehlgeschlagen",
+  "artifacts.status.generated": "Erstellt",
   "artifacts.history.a11yRow": "{type}: {title}",
   "mediaType.podcast": "PODCAST",
   "mediaType.article": "ARTIKEL",

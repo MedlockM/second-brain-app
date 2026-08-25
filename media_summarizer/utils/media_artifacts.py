@@ -41,10 +41,11 @@ class ArtifactAlreadyExistsError(Exception):
 async def create_media_artifact(record: MediaArtifactRecord) -> MediaArtifactRecord:
     """Write a new history entry, refusing to overwrite an existing one.
 
-    The conditional write *is* the short-window deduplication: two concurrent
-    requests from the same tap compute the same ``artifact_id``, so the loser
-    raises :class:`ArtifactAlreadyExistsError` and the caller returns the winner
-    instead of queueing a second generation.
+    The conditional write is what makes two concurrent taps one generation: they
+    compute the same ``artifact_id``, so the loser raises
+    :class:`ArtifactAlreadyExistsError` and the caller hands back the winner. It is
+    also the guard behind permanent reuse — an id that already exists is never
+    written a second time from this path.
     """
     session = database_async.get_session()
     try:
@@ -61,6 +62,38 @@ async def create_media_artifact(record: MediaArtifactRecord) -> MediaArtifactRec
     except ClientError as exc:
         if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
             raise ArtifactAlreadyExistsError(record.artifact_id) from exc
+        raise
+
+
+async def reclaim_failed_artifact(record: MediaArtifactRecord) -> bool:
+    """Rerun a failed entry in place, or refuse.
+
+    The ``artifact_id`` no longer carries a time component, so a failed entry
+    would otherwise bar its key forever: one transient provider error and that
+    artifact type could never be generated again over those sources. Reclaiming
+    replaces the row with a fresh ``queued`` one under the same id — the history
+    keeps one entry per (sources, type) rather than a trail of failures.
+
+    Returns ``False`` when the row is no longer ``failed``, which means a
+    concurrent request already reclaimed it and owns the generation.
+    """
+    session = database_async.get_session()
+    try:
+        async with session.resource(
+            "dynamodb",
+            region_name=database_async.AWS_REGION,
+        ) as dynamodb:
+            table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
+            await table.put_item(
+                Item=record.to_dynamodb_item(),
+                ConditionExpression="attribute_exists(artifact_id) AND #st = :failed",
+                ExpressionAttributeNames={"#st": "status"},
+                ExpressionAttributeValues={":failed": "failed"},
+            )
+            return True
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
         raise
 
 

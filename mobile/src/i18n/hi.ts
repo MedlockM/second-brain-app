@@ -39,6 +39,7 @@ export const hi: Catalog = {
   "artifacts.status.queued": "क़तार में",
   "artifacts.status.generating": "बन रहा है…",
   "artifacts.status.failed": "विफल",
+  "artifacts.status.generated": "तैयार है",
   "artifacts.history.a11yRow": "{type}: {title}",
   "mediaType.podcast": "पॉडकास्ट",
   "mediaType.article": "लेख",

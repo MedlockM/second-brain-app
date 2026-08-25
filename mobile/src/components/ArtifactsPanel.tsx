@@ -14,6 +14,9 @@
  * generation handler and the refusal message are all passed in. `sourceReady` is
  * part of that data, not a style knob: a media item still being transcribed
  * cannot be generated from yet, whereas a collection's sources always can.
+ * Whether a *given type* can still be generated lives in the tile state for the
+ * same reason — a media item is generated once per type, a collection only after
+ * its sources change, and only the screens know their scope's sources.
  *
  * The single scope-dependent piece of rendering is `showSourceCount`: an
  * artifact generated over one media item has no source count worth saying.
@@ -118,9 +121,10 @@ export function ArtifactsPanel({
         </View>
       ) : null}
 
-      {/* The history is append-only: several entries of the same type coexist,
-          a regeneration adds one instead of replacing the previous, and nothing
-          here is deduplicated or marked stale. */}
+      {/* The history is append-only and permanent: an entry is never replaced
+          and never expires. Several entries of the same type coexist only where
+          the sources differ between them — a collection that changed — so on a
+          media item this list holds at most one line per type. */}
       <Text style={[styles.heading, styles.historyHeading]}>
         {t("artifacts.panel.generatedHeading")}
       </Text>

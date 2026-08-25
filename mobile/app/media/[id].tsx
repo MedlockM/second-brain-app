@@ -62,12 +62,12 @@ const MEDIA_DETAIL_TABS: readonly ScreenTab<MediaDetailTabKey>[] = [
  */
 function buildInitialArtifactStates(): Record<ArtifactType, ArtifactTileState> {
   return {
-    summary: { status: "idle" },
-    summary_short: { status: "idle" },
-    summary_detailed: { status: "idle" },
-    notes: { status: "idle" },
-    flashcards: { status: "idle" },
-    quiz: { status: "idle" },
+    summary: { status: "idle", generationAvailable: true },
+    summary_short: { status: "idle", generationAvailable: true },
+    summary_detailed: { status: "idle", generationAvailable: true },
+    notes: { status: "idle", generationAvailable: true },
+    flashcards: { status: "idle", generationAvailable: true },
+    quiz: { status: "idle", generationAvailable: true },
   };
 }
 
@@ -487,6 +487,11 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
       states[type] = {
         status: artifact.status,
         error: artifact.error_code ?? undefined,
+        // A media item's sources never change, so one entry closes the type for
+        // good (task-322): asking again would answer this very artifact. Only a
+        // failure leaves the door open — it holds nothing to read, and the
+        // backend reruns it under the same id.
+        generationAvailable: artifact.status === "failed",
       };
     }
     // A request still in flight wins over whatever the history says about that
@@ -497,7 +502,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     // takes the button out of the tile, which is what stops a second tap from
     // firing a second POST.
     for (const type of requestsInFlight) {
-      states[type] = { status: "queued" };
+      states[type] = { status: "queued", generationAvailable: false };
     }
     return states;
   }, [artifactHistory, requestsInFlight]);

@@ -2,6 +2,7 @@ import { apiRequest } from "./apiClient";
 import type { ArtifactType } from "../types/media";
 import type {
   ArtifactContentResponse,
+  ArtifactCreateResult,
   ArtifactDetail,
   ArtifactListResponse,
   ArtifactScope,
@@ -10,7 +11,9 @@ import type {
 
 export type {
   ArtifactContentResponse,
+  ArtifactCreateResult,
   ArtifactDetail,
+  ArtifactGenerationOutcome,
   ArtifactListResponse,
   ArtifactScope,
   ArtifactSource,
@@ -31,13 +34,17 @@ export class ArtifactService {
   /**
    * Request a generation over a scope.
    * POST /api/artifacts
+   *
+   * A request whose sources already produced an artifact answers that artifact
+   * instead of generating a second one, so this call is safe to fire twice: it
+   * comes back with `generation_outcome: "reused"` and no minute is charged.
    */
   static async generateArtifact(
     scope: ArtifactScope,
     scopeId: string,
     artifactType: ArtifactType,
-  ): Promise<ArtifactDetail> {
-    return apiRequest<ArtifactDetail>(`/api/artifacts`, {
+  ): Promise<ArtifactCreateResult> {
+    return apiRequest<ArtifactCreateResult>(`/api/artifacts`, {
       method: "POST",
       body: {
         scope,

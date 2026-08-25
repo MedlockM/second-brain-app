@@ -39,6 +39,7 @@ export const zh: Catalog = {
   "artifacts.status.queued": "排队中",
   "artifacts.status.generating": "生成中…",
   "artifacts.status.failed": "失败",
+  "artifacts.status.generated": "已生成",
   "artifacts.history.a11yRow": "{type}：{title}",
   "mediaType.podcast": "播客",
   "mediaType.article": "文章",

@@ -39,6 +39,7 @@ export const pt: Catalog = {
   "artifacts.status.queued": "Em fila",
   "artifacts.status.generating": "A gerar…",
   "artifacts.status.failed": "Falhou",
+  "artifacts.status.generated": "Gerado",
   "artifacts.history.a11yRow": "{type}: {title}",
   "mediaType.podcast": "PODCAST",
   "mediaType.article": "ARTIGO",

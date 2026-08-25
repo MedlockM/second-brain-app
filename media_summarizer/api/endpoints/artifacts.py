@@ -24,6 +24,7 @@ from media_summarizer.core.models.media_artifact import ArtifactScope
 from media_summarizer.core.services import engagement_service, quota_enforcer
 from media_summarizer.core.services.artifact_service import (
     ArtifactGenerationDisabledError,
+    ArtifactGenerationOutcome,
     ArtifactScopeEmptyError,
     ArtifactScopeTooLargeError,
     ArtifactTranscriptNotReadyError,
@@ -43,6 +44,15 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LIST_LIMIT = 50
 MAX_LIST_LIMIT = 100
+
+# One message per outcome: a log line that says "queued" for a reuse would hide
+# exactly the fact this endpoint is now built around.
+_CREATE_LOG_MESSAGES = {
+    ArtifactGenerationOutcome.CREATED: "Artifact generation queued",
+    ArtifactGenerationOutcome.RETRIED: "Failed artifact reclaimed and requeued",
+    ArtifactGenerationOutcome.REUSED: "Existing artifact reused, nothing queued",
+    ArtifactGenerationOutcome.COLLAPSED: "Concurrent identical request collapsed",
+}
 
 
 class ArtifactCreateRequest(BaseModel):
@@ -83,6 +93,24 @@ class ArtifactDetailResponse(ArtifactSummaryResponse):
     scope_id: str
     sources: List[ArtifactSourceResponse] = Field(default_factory=list)
     s3_key: Optional[str] = None
+
+
+class ArtifactCreateResponse(ArtifactDetailResponse):
+    """The answer to a generation request, plus what the request actually did.
+
+    ``generation_outcome`` exists because the four cases are not interchangeable
+    and a client that only saw the entry could not tell them apart:
+
+    - ``created`` — a generation was queued for these sources.
+    - ``retried`` — a previously failed entry for the same sources was rerun.
+    - ``reused`` — an artifact already covered these sources; nothing was queued
+      and no counter moved. This is the normal answer for a second request on a
+      media item, and for a collection whose sources have not changed.
+    - ``collapsed`` — two concurrent taps, and this one lost the write; the entry
+      returned is the one already in flight.
+    """
+
+    generation_outcome: str
 
 
 class ArtifactListResponse(BaseModel):
@@ -172,7 +200,7 @@ async def _assert_scope_owned(
 
 @router.post(
     "/artifacts",
-    response_model=ArtifactDetailResponse,
+    response_model=ArtifactCreateResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def create_artifact(
@@ -183,9 +211,14 @@ async def create_artifact(
 ):
     """Request a generation over a scope.
 
-    The order of the checks matters: a deduplicated request must consume nothing,
-    so the quota is debited *after* the dedup verdict is known and never before
-    (task-269 §10.3).
+    Not every request generates: an artifact already covering the same set of
+    sources answers as-is (task-316 owner decision), which is why a media item
+    yields one artifact per type for good and a collection only regenerates once
+    its sources have changed.
+
+    The order of the checks matters: a request nothing runs for must consume
+    nothing, so the quota is debited *after* the reuse verdict is known and never
+    before (task-269 §10.3).
     """
     scope = _parse_scope((payload.scope or "").strip().lower())
     artifact_type = (payload.artifact_type or "").strip().lower()
@@ -219,9 +252,10 @@ async def create_artifact(
             parameters=payload.parameters,
         )
 
-        # Quota comes after the dedup verdict and before the write: the same tap
-        # twice must consume nothing, and a denied request must leave no entry.
-        if not plan.deduplicated:
+        # Quota comes after the reuse verdict and before the write: a request an
+        # existing artifact answers must consume nothing, and a denied request
+        # must leave no entry.
+        if not plan.reuses_existing:
             quota_result = await quota_enforcer.check_generation_allowed(
                 current_user.id,
                 scope=scope.value,
@@ -241,11 +275,19 @@ async def create_artifact(
                     headers={"X-Quota-Error-Code": quota_result.error_code or ""},
                 )
 
-        record, deduplicated = await commit_artifact_generation(plan)
+        record, outcome = await commit_artifact_generation(plan)
 
-        if deduplicated:
+        if outcome in (
+            ArtifactGenerationOutcome.REUSED,
+            ArtifactGenerationOutcome.COLLAPSED,
+        ):
+            # Nothing was queued, so nothing is charged — for a reuse because the
+            # artifact was already paid for, for a collapse because the request
+            # that won the write is the one being charged.
             response.status_code = status.HTTP_200_OK
         else:
+            # `retried` lands here too, and charges nothing extra: the token is the
+            # artifact id, which the failed first attempt already debited.
             await quota_enforcer.record_generation(
                 current_user.id,
                 scope=scope.value,
@@ -255,10 +297,10 @@ async def create_artifact(
 
         # E1 of task-303: launching a generation is the strongest intent signal the
         # app has, and the wait is precisely when the user needs a way back — so the
-        # scope enters "Continue learning" here, deduplicated path included. The
-        # ownership assertion above is what lets this skip its own check. Swallows
-        # everything by contract: a recency stamp must never fail a generation the
-        # user asked for.
+        # scope enters "Continue learning" here, reuse included (the user asked, and
+        # that is what the signal measures). The ownership assertion above is what
+        # lets this skip its own check. Swallows everything by contract: a recency
+        # stamp must never fail a generation the user asked for.
         await engagement_service.stamp(
             user_id=current_user.id,
             kind=(
@@ -273,15 +315,16 @@ async def create_artifact(
             logger,
             logging.INFO,
             "artifact.create.requested",
-            "Artifact generation queued"
-            if not deduplicated
-            else "Artifact request deduplicated",
+            _CREATE_LOG_MESSAGES[outcome],
             artifact_id=record.artifact_id,
             artifact_type=artifact_type,
             source_count=record.source_count,
-            deduplicated=deduplicated,
+            generation_outcome=outcome.value,
         )
-        return _detail(record)
+        return ArtifactCreateResponse(
+            **_detail(record).model_dump(),
+            generation_outcome=outcome.value,
+        )
 
     except ArtifactTypeNotEnabledError as exc:
         log_event(

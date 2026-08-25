@@ -27,6 +27,7 @@ import { ScreenTabs, type ScreenTab } from "../../../src/components/ScreenTabs";
 import { useMediaActions } from "../../../src/hooks/useMediaActions";
 import { describeArtifactRefusal } from "../../../src/lib/artifactRefusal";
 import { mergeArtifactIntoHistory } from "../../../src/lib/artifactHistory";
+import { sameSourceSet } from "../../../src/lib/artifactSources";
 import { getFriendlyErrorMessage } from "../../../src/lib/getFriendlyErrorMessage";
 import { getMediaTypeIcon } from "../../../src/lib/mediaTypeDisplay";
 import {
@@ -57,9 +58,16 @@ import type { ArtifactType, MediaListItem, MediaType } from "../../../src/types/
  * **AI** generates artifacts over the **whole collection** (sub-collections
  * included, as the backend resolves the folder and all its descendants), then
  * lists what has already been produced. That list is an append-only history:
- * several entries of the same type coexist, each keeping the source count it was
+ * several entries of the same type coexist, each keeping the sources it was
  * generated over even after the collection has changed. Nothing here expires,
  * and nothing is regenerated automatically.
+ *
+ * A new entry only exists when the sources differ (task-322): an artifact is
+ * keyed on the set of sources behind it, so asking again over an unchanged
+ * collection answers the entry already stored. That is why the tab compares the
+ * collection's current sources with the snapshot of the last artifact of each
+ * type and only then offers to generate — a button that could not produce
+ * anything would promise what no request delivers.
  */
 
 const ARTIFACT_POLL_INTERVAL_MS = 3000;
@@ -86,7 +94,7 @@ type Row = FolderListRow | MediaListRow;
 function buildInitialArtifactStates(): Record<ArtifactType, ArtifactTileState> {
   return ARTIFACT_TILES.reduce(
     (acc, tile) => {
-      acc[tile.type] = { status: "idle" };
+      acc[tile.type] = { status: "idle", generationAvailable: true };
       return acc;
     },
     {} as Record<ArtifactType, ArtifactTileState>,
@@ -104,6 +112,10 @@ export default function CollectionDetailScreen() {
   const [activeTab, setActiveTab] = useState<CollectionTabKey>("sources");
   const [childFolders, setChildFolders] = useState<CollectionNode[]>([]);
   const [media, setMedia] = useState<MediaListItem[]>([]);
+  // Every media a generation over this collection would read: descendants
+  // included, which is exactly the scope the backend resolves. The Sources list
+  // below shows only the direct children, so the two cannot share one state.
+  const [scopeMediaIds, setScopeMediaIds] = useState<readonly string[]>([]);
   const [title, setTitle] = useState<string>(params.name ?? "Collection");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +146,7 @@ export default function CollectionDetailScreen() {
       setMedia(
         folderMedia.filter((item) => item.folder_id === collectionId),
       );
+      setScopeMediaIds(folderMedia.map((item) => item.media_item_id));
     } catch (err) {
       setError(
         getFriendlyErrorMessage(err, {
@@ -280,7 +293,7 @@ export default function CollectionDetailScreen() {
           testID="collection-sources-list"
         />
       ) : (
-        <AiTab collectionId={collectionId} />
+        <AiTab collectionId={collectionId} scopeMediaIds={scopeMediaIds} />
       )}
 
       {/* Screen level, outside the list: the sheet belongs to the screen's
@@ -295,6 +308,8 @@ export default function CollectionDetailScreen() {
 
 interface AiTabProps {
   collectionId: string;
+  /** Every media the generation would read, descendants included. */
+  scopeMediaIds: readonly string[];
 }
 
 /**
@@ -306,8 +321,13 @@ interface AiTabProps {
  * `GET /api/artifacts?scope=folder` returns the history *and* the entries still
  * queued or generating, so the poll is a single call whatever the number of
  * artifact types in flight.
+ *
+ * That listing carries no `sources`, though — the index it reads does not project
+ * them — so the snapshot each tile is compared against is fetched once per entry
+ * from the detail route and kept: an entry is immutable, so one read per artifact
+ * is all this ever costs.
  */
-function AiTab({ collectionId }: AiTabProps) {
+function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
 
@@ -322,8 +342,18 @@ function AiTab({ collectionId }: AiTabProps) {
   const [requestsInFlight, setRequestsInFlight] = useState<readonly ArtifactType[]>(
     [],
   );
+  // The sources an entry was generated over, by `artifact_id`. `null` records a
+  // read that failed: it is not retried, and an unknown snapshot leaves the
+  // generation offered — the backend is the authority and answers the stored
+  // artifact anyway, so the worst case is a request that changes nothing.
+  const [sourceSnapshots, setSourceSnapshots] = useState<
+    Record<string, readonly string[] | null>
+  >({});
   const mountedRef = useRef(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Snapshot reads already in flight, so the poll cannot fire a second read of
+  // the same entry while the first is still travelling.
+  const snapshotsInFlightRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     mountedRef.current = true;
@@ -394,18 +424,81 @@ function AiTab({ collectionId }: AiTabProps) {
     }, ARTIFACT_POLL_INTERVAL_MS);
   }, [hasInFlight, refresh]);
 
-  // The tiles show the newest entry per type. The list comes back newest-first,
-  // so the first entry seen for a type wins.
+  // The newest entry per type. The list comes back newest-first, so the first
+  // entry seen for a type wins.
+  const newestByType = useMemo(() => {
+    const newest = new Map<ArtifactType, ArtifactSummary>();
+    for (const artifact of history) {
+      if (!newest.has(artifact.artifact_type)) {
+        newest.set(artifact.artifact_type, artifact);
+      }
+    }
+    return newest;
+  }, [history]);
+
+  // One detail read per entry the tiles depend on, and only for entries whose
+  // snapshot is still unknown: an artifact is immutable, so a snapshot read once
+  // stays valid for as long as the screen lives.
+  useEffect(() => {
+    const missing = [...newestByType.values()].filter(
+      (artifact) =>
+        !(artifact.artifact_id in sourceSnapshots) &&
+        !snapshotsInFlightRef.current.has(artifact.artifact_id),
+    );
+    if (missing.length === 0) return;
+    for (const artifact of missing) {
+      snapshotsInFlightRef.current.add(artifact.artifact_id);
+    }
+    void (async () => {
+      const read = await Promise.all(
+        missing.map(async (artifact) => {
+          try {
+            const detail = await ArtifactService.getArtifact(
+              artifact.artifact_id,
+            );
+            return [
+              artifact.artifact_id,
+              detail.sources.map((source) => source.media_item_id),
+            ] as const;
+          } catch {
+            // Recorded as unknown rather than retried: the tile then keeps
+            // offering the generation, which is the harmless direction.
+            return [artifact.artifact_id, null] as const;
+          }
+        }),
+      );
+      for (const [artifactId] of read) {
+        snapshotsInFlightRef.current.delete(artifactId);
+      }
+      if (!mountedRef.current) return;
+      setSourceSnapshots((current) => {
+        const next = { ...current };
+        for (const [artifactId, sources] of read) next[artifactId] = sources;
+        return next;
+      });
+    })();
+  }, [newestByType, sourceSnapshots]);
+
+  // The tiles show the newest entry per type, and whether generating that type
+  // again would produce anything.
   const tileStates = useMemo(() => {
     const states = buildInitialArtifactStates();
-    const seen = new Set<ArtifactType>();
-    for (const artifact of history) {
-      const type = artifact.artifact_type;
-      if (seen.has(type) || !(type in states)) continue;
-      seen.add(type);
+    for (const [type, artifact] of newestByType) {
+      if (!(type in states)) continue;
+      const snapshot = sourceSnapshots[artifact.artifact_id];
       states[type] = {
         status: artifact.status,
         error: artifact.error_code ?? undefined,
+        // The collection can legitimately be generated again, but only over a
+        // different set of sources (task-322): the same set answers this very
+        // entry. A failed entry is generated again as-is, and a snapshot not
+        // read yet counts as different — the button then does no harm, whereas
+        // hiding it on a failed read would lock a real regeneration out.
+        generationAvailable:
+          artifact.status === "failed" ||
+          snapshot === undefined ||
+          snapshot === null ||
+          !sameSourceSet(snapshot, scopeMediaIds),
       };
     }
     // A request still in flight wins over whatever the history says about that
@@ -416,10 +509,10 @@ function AiTab({ collectionId }: AiTabProps) {
     // takes the button out of the tile, which is what stops a second tap from
     // firing a second POST.
     for (const type of requestsInFlight) {
-      states[type] = { status: "queued" };
+      states[type] = { status: "queued", generationAvailable: false };
     }
     return states;
-  }, [history, requestsInFlight]);
+  }, [newestByType, sourceSnapshots, scopeMediaIds, requestsInFlight]);
 
   const handleGenerate = useCallback(
     async (artifactType: ArtifactType) => {
@@ -443,6 +536,15 @@ function AiTab({ collectionId }: AiTabProps) {
         // could come back without it and hide a running generation. It also
         // arms the poll immediately, from the returned status.
         setHistory((current) => mergeArtifactIntoHistory(current, created));
+        // The answer carries its own source snapshot, so the tile settles
+        // without a detail read — the reuse path included, where the entry
+        // handed back is precisely the one covering these sources.
+        setSourceSnapshots((current) => ({
+          ...current,
+          [created.artifact_id]: created.sources.map(
+            (source) => source.media_item_id,
+          ),
+        }));
       } catch (err) {
         if (!mountedRef.current) return;
         setRefusal(describeArtifactRefusal(err, { scope: "folder" }));

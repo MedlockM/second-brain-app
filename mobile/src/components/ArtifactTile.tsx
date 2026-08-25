@@ -9,14 +9,18 @@
  * The label sits in its own column so a secondary metadata line (generation
  * date, number of sources) can be added later without reshaping the tile.
  *
- * Generating is always offered when the source is ready, whatever already
- * exists: artifacts are an append-only history, so a second tap adds an entry
- * rather than a request the API would refuse. The button therefore keeps saying
- * "Generate" once something exists, instead of switching to a second wording,
- * and the tile carries no "View" action either: opening a generated artifact is
- * the job of the history list below it, which routes to `/artifacts/<id>`.
- * Keeping the action column to a single button is what lets the label breathe;
- * two buttons side by side squeezed long labels like "Detailed summary" into a
+ * Generating is offered only when it would produce something: the backend keys
+ * an artifact on the set of sources behind it, so asking again over an unchanged
+ * set hands back the stored entry instead of generating (task-322). The host
+ * screen answers that question — `state.generationAvailable` — because only it
+ * knows the scope's current sources; the tile then shows a muted "Generated"
+ * note where the button was, which is what tells the user the work is done
+ * rather than leaving a button that changes nothing.
+ *
+ * The tile carries no "View" action either: opening a generated artifact is the
+ * job of the history list below it, which routes to `/artifacts/<id>`. Keeping
+ * the action column to a single control is what lets the label breathe; two
+ * buttons side by side squeezed long labels like "Detailed summary" into a
  * mid-word wrap.
  */
 
@@ -46,6 +50,13 @@ import type { ArtifactStatus, ArtifactType } from "../types/media";
 export type ArtifactTileState = {
   status: ArtifactStatus | "idle";
   error?: string;
+  /**
+   * Whether a generation of this type would produce anything. False once an
+   * artifact already covers the scope's current sources — one per type for a
+   * media item, and for a collection until its contents change. A failed entry
+   * leaves it true: there is nothing to reuse, and the backend reruns it.
+   */
+  generationAvailable: boolean;
 };
 
 /**
@@ -107,7 +118,11 @@ export function ArtifactTile({
   const isInProgress =
     state.status === "queued" || state.status === "generating";
   const isFailed = state.status === "failed";
-  const canGenerate = !isInProgress && sourceReady;
+  const canGenerate = state.generationAvailable && !isInProgress && sourceReady;
+  // Nothing left to ask for: the artifact exists over exactly these sources.
+  // Said out loud, rather than by an absent button the user would read as a bug.
+  const isCovered =
+    !state.generationAvailable && !isInProgress && !isFailed && sourceReady;
 
   return (
     <View style={styles.tile}>
@@ -156,6 +171,15 @@ export function ArtifactTile({
               {isFailed ? t("common.retry") : t("artifacts.generate")}
             </Text>
           </Pressable>
+        )}
+
+        {isCovered && (
+          <Text
+            style={styles.generatedText}
+            testID={`artifact-tile-generated-${type}`}
+          >
+            {t("artifacts.status.generated")}
+          </Text>
         )}
 
         {!sourceReady && !isInProgress && (
@@ -232,6 +256,12 @@ const styles = StyleSheet.create({
     fontSize: Typography.small.fontSize,
     color: Colors.textMuted,
     fontStyle: "italic",
+  },
+  // A note, not a state: it sits where the button was and must not read as
+  // something to tap, hence the muted colour and no container.
+  generatedText: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textMuted,
   },
   generateButton: {
     paddingHorizontal: Spacing.md,
