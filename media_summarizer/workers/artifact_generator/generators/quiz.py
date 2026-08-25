@@ -16,8 +16,13 @@ from pydantic import BaseModel, ValidationError, field_validator
 
 from media_summarizer.workers.artifact_generator.generators import corpus
 
-MIN_QUESTIONS = 5
-MAX_QUESTIONS = 10
+# One question is a valid quiz: the material decides how many questions there
+# are, and the old floor of five is what forced trivial and hedged questions out
+# of a 414-byte source (task-316 §2.2, §2.3). Zero stays a hard reject — a quiz
+# with no question at all is a failed generation. There is deliberately no
+# ceiling: an artifact is generated once per media item, so the quiz has to be
+# able to cover every point a dense source teaches instead of being truncated.
+MIN_QUESTIONS = 1
 OPTIONS_PER_QUESTION = 4
 LABELS = ("A", "B", "C", "D")
 
@@ -105,17 +110,27 @@ class QuizGenerator:
 Rules:
 - {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
-- Generate between {MIN_QUESTIONS} and {MAX_QUESTIONS} questions depending on content density.
+{corpus.coverage_instruction("question", "questions", fields='"questions"')}
 - Spread the questions across the sources rather than covering only the first one.
 - Each question must have exactly {OPTIONS_PER_QUESTION} options labeled A, B, C, D.
 - Exactly one option is correct per question.
+- Write the three distractors first, then write the correct option to match their
+  calibre.
+- All four options must be of comparable length and specificity — within roughly
+  ten words of each other. A reader who has not read the sources must not be able
+  to spot the correct option by its length, its extra detail or its hedging.
+- Make incorrect options plausible but clearly wrong to someone who understood the content.
 - "correct_answer" must be the label of the correct option. Vary which label holds it
   across questions — do not systematically put the correct option first.
 - Questions should test comprehension of key concepts, not trivial details.
 - Do NOT generate questions about ads/sponsors unless central to the content.
 - Include a brief explanation for why the correct answer is right.
-- Make incorrect options plausible but clearly wrong to someone who understood the content.
+- A quiz of one question is a valid quiz. The quiz must hold at least one
+  question, so when the sources barely teach anything, ask the one or two
+  questions they do support and stop there — never invent one to reach a length.
+{corpus.empty_section_instruction('Anything the sources do not fill stays empty: "source_ref" is null rather than guessed.')}
 {corpus.source_ref_instruction(required=False)}
+{corpus.subject_matter_instruction()}
 {corpus.title_instruction("quiz")}
 
 Return JSON with this exact schema:
@@ -224,9 +239,6 @@ Return JSON with this exact schema:
             raise QuizValidationError(
                 f"quiz output must contain at least {MIN_QUESTIONS} questions, got {len(raw_questions)}"
             )
-
-        if len(raw_questions) > MAX_QUESTIONS:
-            raw_questions = raw_questions[:MAX_QUESTIONS]
 
         questions: List[Dict[str, Any]] = []
         for idx, item in enumerate(raw_questions):

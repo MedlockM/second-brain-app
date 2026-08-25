@@ -14,8 +14,13 @@ from pydantic import BaseModel, ValidationError, field_validator
 
 from media_summarizer.workers.artifact_generator.generators import corpus
 
-MIN_FLASHCARDS = 5
-MAX_FLASHCARDS = 15
+# One card is a valid deck: the material decides how many cards there are, and a
+# source that teaches one thing must be allowed to yield one card instead of the
+# four padded ones the old floor of five forced (task-316 §2.2, §2.3). Zero stays
+# a hard reject — an artifact with no card at all is a failed generation, not a
+# deck. There is deliberately no ceiling: an artifact is generated once per media
+# item, so truncating a dense source would drop material for good.
+MIN_FLASHCARDS = 1
 
 
 class FlashcardsValidationError(Exception):
@@ -71,7 +76,7 @@ class FlashcardsGenerator:
 Rules:
 - {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
-- Generate between {MIN_FLASHCARDS} and {MAX_FLASHCARDS} flashcards depending on content density.
+{corpus.coverage_instruction("card", "cards", fields='"cards"')}
 - Spread the cards across the sources rather than covering only the first one.
 - Follow the minimum information principle: one concept per card.
 - Do NOT generate trivial cards (e.g. "What is the title of this episode?").
@@ -79,7 +84,12 @@ Rules:
 - Keep questions clear and concise.
 - Keep answers factual and brief (1-3 sentences max).
 - Avoid sponsor/ad content unless it is central to the source material.
+- A deck of one card is a valid deck. The deck must hold at least one card, so
+  when the sources barely teach anything, card the one or two facts they do
+  establish and stop there — one solid card beats five padded ones.
+{corpus.empty_section_instruction('Anything the sources do not fill stays empty: "source_ref" is null rather than guessed.')}
 {corpus.source_ref_instruction(required=False)}
+{corpus.subject_matter_instruction()}
 {corpus.title_instruction("card deck")}
 
 Return JSON with this exact schema:
@@ -156,9 +166,6 @@ Return JSON with this exact schema:
             raise FlashcardsValidationError(
                 f"flashcards output must contain at least {MIN_FLASHCARDS} items, got {len(raw_cards)}"
             )
-
-        if len(raw_cards) > MAX_FLASHCARDS:
-            raw_cards = raw_cards[:MAX_FLASHCARDS]
 
         cards: List[Dict[str, Any]] = []
         for idx, item in enumerate(raw_cards):

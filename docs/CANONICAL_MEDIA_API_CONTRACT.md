@@ -333,7 +333,7 @@ The stored JSON payload, inlined. `409` while the entry is not `ready`.
         "transcript_s3_key": "job_01JQ8X8J5T9Q5V7Q4TW4N1HY03.txt"
       }
     ],
-    "generator_version": "notes:gpt-5.4-nano-2026-03-17:prompt-v2",
+    "generator_version": "notes:gpt-5.4-nano-2026-03-17:prompt-v3",
     "llm_usage": {
       "prompt_tokens": 4622,
       "cached_tokens": 0,
