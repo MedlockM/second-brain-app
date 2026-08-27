@@ -3,9 +3,10 @@ id: task-323
 title: >-
   Nouveau type d'artefact review_blurb : résumé court en prose généré à
   l'ingestion, et tri chronologique croissant de la bibliothèque
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-25 12:15'
+updated_date: '2026-08-27 10:31'
 labels:
   - backend
   - artifacts
