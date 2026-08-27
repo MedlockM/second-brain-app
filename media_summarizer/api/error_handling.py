@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, Dict, List, Sequence
 
 from fastapi import Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -31,6 +33,28 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     )
 
 
+def _renderable_errors(errors: Sequence[Any]) -> Any:
+    """Make a Pydantic error list renderable as JSON.
+
+    When a ``field_validator`` rejects a value by raising ``ValueError``, Pydantic
+    keeps the exception *object* in ``ctx["error"]``. ``json.dumps`` cannot render
+    it, so serialising the list raw turns a 422 into a 500 inside the handler that
+    was supposed to answer 422 — which is exactly what the internal-artifact-type
+    validator hit on ``POST /api/artifacts``.
+    """
+    cleaned: List[Dict[str, Any]] = []
+    for error in errors:
+        item = dict(error)
+        ctx = item.get("ctx")
+        if isinstance(ctx, dict):
+            item["ctx"] = {
+                key: str(value) if isinstance(value, BaseException) else value
+                for key, value in ctx.items()
+            }
+        cleaned.append(item)
+    return jsonable_encoder(cleaned)
+
+
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     errors = exc.errors()
     log_event(
@@ -47,7 +71,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": errors},
+        content={"detail": _renderable_errors(errors)},
     )
 
 
