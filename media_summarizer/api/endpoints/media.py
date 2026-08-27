@@ -73,7 +73,11 @@ from media_summarizer.core.services.durable_media_service import (
     save_media_for_user,
     user_holds_media,
 )
-from media_summarizer.core.services.media_search_service import SearchFilters
+from media_summarizer.core.services.media_search_service import (
+    DEFAULT_SORT_DIRECTION,
+    SearchFilters,
+    SortDirection,
+)
 from media_summarizer.core.services.quota_enforcer import check_submission_allowed
 from media_summarizer.core.services.raw_content_service import (
     RawContentNotAvailableError,
@@ -328,6 +332,10 @@ class MediaSearchItem(BaseModel):
 
     media_item_id: str
     title: Optional[str] = None
+    # The short prose blurb mirrored from the ``review_blurb`` artifact (task-323).
+    # Null until that artifact completes, and null forever on an item whose
+    # generation failed -- a row without a blurb is a normal row.
+    review_blurb: Optional[str] = None
     # Publisher of the media -- channel, show, site, account (task-304). Nullable
     # by contract: shared text, documents and audio files have none, and the tile
     # simply omits its second line.
@@ -612,19 +620,6 @@ def _build_processing_job_contract(
     )
 
 
-# Internal MediaArtifactType values that are surfaced via the public contract.
-# Anything outside this set is filtered out of the response (e.g. legacy types
-# the contract enum hasn't been extended for yet).
-_PUBLIC_ARTIFACT_TYPES = {
-    "summary",
-    "summary_short",
-    "summary_detailed",
-    "quiz",
-    "notes",
-    "flashcards",
-}
-
-
 # ---------- Endpoints ----------
 
 @router.get("", response_model=MediaSearchResponse)
@@ -637,6 +632,7 @@ async def search_media(
     status_filter: Optional[str] = None,
     cursor: Optional[str] = None,
     limit: int = 20,
+    sort: SortDirection = DEFAULT_SORT_DIRECTION,
     current_user: AuthUser = Depends(get_current_user),
 ) -> MediaSearchResponse:
     """Search and list user's media items with metadata filters.
@@ -650,6 +646,10 @@ async def search_media(
         status_filter: Filter by job status (pending, completed, failed, etc.)
         cursor: Pagination cursor from previous response
         limit: Page size (1-100, default 20)
+        sort: Chronological direction -- "desc" (default, newest first) or "asc"
+            (oldest first, for a triage pass through the backlog). Typed as a
+            Literal, so any other value is a 422 rather than a silent fallback to
+            the default.
     """
     try:
         # Parse comma-separated tags
@@ -671,6 +671,7 @@ async def search_media(
             filters=filters,
             cursor=cursor,
             limit=limit,
+            sort_direction=sort,
         )
 
         items = [MediaSearchItem(**item) for item in result.items]

@@ -89,6 +89,7 @@ locals {
     NOTES_BUCKET            = aws_s3_bucket.notes.bucket
     FLASHCARDS_BUCKET       = aws_s3_bucket.flashcards.bucket
     QUIZ_BUCKET             = aws_s3_bucket.quiz.bucket
+    REVIEW_BLURB_BUCKET     = aws_s3_bucket.review_blurb.bucket
     DOCUMENT_BUCKET         = aws_s3_bucket.documents.bucket
     ARCHIVE_BUCKET          = aws_s3_bucket.archives.bucket
     BUG_REPORTS_BUCKET      = aws_s3_bucket.bug_reports.bucket

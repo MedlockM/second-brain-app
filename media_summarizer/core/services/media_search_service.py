@@ -3,7 +3,11 @@ Media search service: metadata-based search and filtering for user media items.
 
 Provides text search on title (case-insensitive substring match), filtering by
 tags, folder (including sub-folders), source platform, and media type.
-Results are sorted by saved_at DESC with cursor-based pagination.
+Results are sorted by saved_at, newest first by default, with cursor-based
+pagination. A caller can ask for oldest first instead (``sort_direction="asc"``,
+task-323): a triage pass works through the backlog in the order it accumulated,
+so it needs the tail of the library, and reversing a page client-side would only
+reverse *that page* — the oldest item would still be on the last page.
 
 Source of truth is the durable ``user_media`` table, never ``processing_jobs``
 (task-220, §4.4 of the task-218 benchmark). This is what makes the library and
@@ -16,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from media_summarizer.core.media_ingestion.media_metadata import parse_cover_locator
 from media_summarizer.core.models.user_media import UserMediaRecord
@@ -35,6 +39,12 @@ MAX_PAGE_SIZE = 100
 # across a session. The client caches across rotations through `expo-image`'s
 # `cacheKey` (task-302 §6.2), so a changing signature costs no re-download.
 COVER_URL_EXPIRATION_SECONDS = 86400
+
+#: Chronological direction of the page. Declared here rather than in the endpoint
+#: so the query parameter that produces the 422 and the sort that honours it are
+#: the same two values.
+SortDirection = Literal["asc", "desc"]
+DEFAULT_SORT_DIRECTION: SortDirection = "desc"
 
 
 @dataclass
@@ -84,6 +94,7 @@ async def search_media(
     filters: SearchFilters,
     cursor: Optional[str] = None,
     limit: int = DEFAULT_PAGE_SIZE,
+    sort_direction: SortDirection = DEFAULT_SORT_DIRECTION,
 ) -> SearchResult:
     """Search user's media items with metadata filters and pagination.
 
@@ -92,6 +103,10 @@ async def search_media(
         filters: Search and filter parameters.
         cursor: Pagination cursor (opaque string from previous response).
         limit: Maximum number of items to return per page.
+        sort_direction: ``"desc"`` (default, newest first) or ``"asc"`` (oldest
+            first). The cursor is applied in the same direction, so paginating an
+            ascending list walks forward through time instead of skipping the
+            whole library on the second page.
 
     Returns:
         SearchResult with filtered, sorted, paginated items.
@@ -112,8 +127,11 @@ async def search_media(
     # Apply filters
     filtered = _apply_filters(all_records, filters, folder_ids_to_match)
 
-    # Sort by saved_at DESC, then by id DESC for stable ordering
-    filtered.sort(key=_sort_key, reverse=True)
+    # Sort by (saved_at, id) in the requested direction. The id is part of the key
+    # so two items saved in the same millisecond keep a stable relative order --
+    # without it the cursor could skip or repeat one of them.
+    ascending = sort_direction == "asc"
+    filtered.sort(key=_sort_key, reverse=not ascending)
 
     total_filtered = len(filtered)
 
@@ -121,7 +139,7 @@ async def search_media(
     if cursor:
         try:
             parsed_cursor = PaginationCursor.from_string(cursor)
-            filtered = _apply_cursor(filtered, parsed_cursor)
+            filtered = _apply_cursor(filtered, parsed_cursor, ascending=ascending)
         except ValueError:
             # Invalid cursor, start from beginning
             pass
@@ -209,18 +227,24 @@ def _apply_filters(
 
 
 def _apply_cursor(
-    records: List[UserMediaRecord], cursor: PaginationCursor
+    records: List[UserMediaRecord],
+    cursor: PaginationCursor,
+    *,
+    ascending: bool = False,
 ) -> List[UserMediaRecord]:
     """Skip items up to and including the cursor position.
 
-    Since items are sorted DESC by (saved_at, id), we skip all items
-    that come before or at the cursor position.
+    "After the cursor" is direction-dependent, which is the whole reason this
+    takes ``ascending``: comparing with ``<`` on an ascending page would treat the
+    first item past the cursor as already consumed and return the empty list, so
+    an ascending listing would stop after one page.
     """
     cursor_key = (cursor.created_at_iso, cursor.item_id)
 
     for i, record in enumerate(records):
-        if _sort_key(record) < cursor_key:
-            # This item comes after the cursor in DESC order
+        record_key = _sort_key(record)
+        past_cursor = record_key > cursor_key if ascending else record_key < cursor_key
+        if past_cursor:
             return records[i:]
 
     # Cursor is past all items
@@ -310,10 +334,15 @@ def _record_to_search_result(record: UserMediaRecord) -> Dict[str, Any]:
     exists whether or not anything is known about its processing. ``completed_at``
     and ``error_message`` are gone from this payload -- they were job attributes,
     and a list read no longer touches jobs.
+
+    ``review_blurb`` is the mirrored prose (task-323). It has to be listed here
+    *and* declared on the endpoint's response model: this dict is validated into
+    that model, and Pydantic drops an undeclared key without a word.
     """
     return {
         "media_item_id": record.media_item_id,
         "title": record.title,
+        "review_blurb": record.review_blurb,
         "creator_name": record.creator_name,
         "source_platform": record.source_platform,
         "media_type": record.media_type,

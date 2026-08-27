@@ -107,6 +107,41 @@ async def _enqueue_search_indexing(
         )
 
 
+async def _trigger_review_blurb(
+    *,
+    media_item_id: Optional[str],
+    user_id: Optional[str],
+) -> None:
+    """Best-effort queueing of the internal ``review_blurb`` artifact (task-323).
+
+    Called at the same two points as search indexing, for the same reason: this is
+    where a media item is known to be readable, and both the submitting user and
+    each watcher own a distinct library row that needs its own blurb.
+
+    Swallows everything. The blurb is a convenience on the triage screen; a failure
+    here must not stop the SQS message from being deleted and replay the whole
+    completion event. The backfill CLI picks up whatever this missed.
+    """
+    if not media_item_id or not user_id:
+        return
+    try:
+        from media_summarizer.core.services.review_blurb_service import (
+            trigger_review_blurb_generation,
+        )
+
+        await trigger_review_blurb_generation(user_id, media_item_id)
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "review_blurb.trigger_failed",
+            "Failed to trigger review_blurb generation (non-fatal)",
+            media_item_id=media_item_id,
+            user_id=user_id,
+            error=str(exc),
+        )
+
+
 async def _load_summary_content(summary_s3_key: Optional[str]) -> Optional[Dict[str, Any]]:
     if not summary_s3_key:
         return None
@@ -187,6 +222,13 @@ async def process_event(message: Dict[str, Any]) -> None:
             creator_name=canonical_job.creator_name,
             source_platform=canonical_job.source_platform,
         )
+        # Only the durable library id will do here: the blurb is written onto the
+        # user_media row, and the job id fallback used for Algolia is not a library
+        # key.
+        await _trigger_review_blurb(
+            media_item_id=canonical_job.media_item_id,
+            user_id=canonical_job.user_id,
+        )
         indexed_user_ids.add(canonical_job.user_id)
     elif not canonical_job_id:
         log_event(
@@ -255,6 +297,15 @@ async def process_event(message: Dict[str, Any]) -> None:
                         getattr(job, "creator_name", None) if job else None
                     ),
                     source_platform=(getattr(job, "source_platform", None) if job else None),
+                )
+                # Not a retry of the call above: this is the fan-out over the other
+                # users watching the same content, and each of them owns a separate
+                # library row with its own blurb to write.
+                await _trigger_review_blurb(
+                    media_item_id=(
+                        getattr(job, "media_item_id", None) if job else None
+                    ),
+                    user_id=watcher_user_id,
                 )
                 indexed_user_ids.add(watcher_user_id)
 

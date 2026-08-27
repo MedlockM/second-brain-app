@@ -351,6 +351,9 @@ async def process_message(message: Dict[str, Any]) -> None:
         from media_summarizer.workers.artifact_generator.generators.flashcards import FlashcardsValidationError
         from media_summarizer.workers.artifact_generator.generators.notes import NotesValidationError
         from media_summarizer.workers.artifact_generator.generators.quiz import QuizValidationError
+        from media_summarizer.workers.artifact_generator.generators.review_blurb import (
+            ReviewBlurbValidationError,
+        )
         from media_summarizer.workers.artifact_generator.generators.summary_detailed import (
             SummaryDetailedValidationError,
         )
@@ -360,6 +363,7 @@ async def process_message(message: Dict[str, Any]) -> None:
             FlashcardsValidationError,
             NotesValidationError,
             QuizValidationError,
+            ReviewBlurbValidationError,
             SummaryShortValidationError,
             SummaryDetailedValidationError,
         )):

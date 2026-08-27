@@ -1,5 +1,5 @@
 # S3 Buckets for media pipeline storage.
-# All 11 buckets used by workers follow the convention:
+# Every bucket used by the workers follows the convention:
 #   ${project_name}-${role}-${account_id}-${environment}
 # Bucket names are injected as plain Lambda env vars (NOT via Secrets Manager).
 
@@ -115,6 +115,24 @@ resource "aws_s3_bucket" "quiz" {
   }
 }
 
+resource "aws_s3_bucket" "review_blurb" {
+  bucket = "${var.project_name}-review-blurb-${data.aws_caller_identity.current.account_id}-${var.environment}"
+  tags = {
+    Name = "${var.project_name}-review-blurb${local.suffix}"
+  }
+
+  # Internal artifact type (task-323), stored in its own bucket like the five
+  # requestable ones: the artifact layout is one bucket per type, and sharing one
+  # would make a per-type lifecycle rule or a per-type restore impossible.
+  #
+  # Buckets hold the only copy of every transcript, summary and uploaded
+  # document. prevent_destroy errors at PLAN time, so "I destroyed the
+  # wrong environment" becomes "the plan refused to run".
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 resource "aws_s3_bucket" "documents" {
   bucket = "${var.project_name}-documents-${data.aws_caller_identity.current.account_id}-${var.environment}"
   tags = {
@@ -196,6 +214,11 @@ output "flashcards_bucket_name" {
 output "quiz_bucket_name" {
   description = "Name of the S3 bucket for quizzes"
   value       = aws_s3_bucket.quiz.bucket
+}
+
+output "review_blurb_bucket_name" {
+  description = "Name of the S3 bucket for review blurbs (internal artifact type)"
+  value       = aws_s3_bucket.review_blurb.bucket
 }
 
 output "documents_bucket_name" {
