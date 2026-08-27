@@ -3,10 +3,10 @@ id: task-321
 title: >-
   Appliquer les améliorations P1 aux prompts d'artefacts (task-316) — corpus
   hétérogène, couverture, importance, faits datés, transcription, langue
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-25 11:42'
-updated_date: '2026-08-27 00:00'
+updated_date: '2026-08-27 10:16'
 labels:
   - artifacts
   - prompt-engineering
