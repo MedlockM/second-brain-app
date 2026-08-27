@@ -99,6 +99,19 @@ class UserMediaRecord(BaseModel):
     thumbnail_url: Optional[str] = None
     language: Optional[str] = None
 
+    # --- mirrored generated content (task-323) --------------------------------
+    # The short prose blurb of the ``review_blurb`` artifact, copied here when that
+    # artifact completes so the library list renders it without one artifact lookup
+    # and one S3 download per row. The artifact stays the source of truth; this is a
+    # read cache, always nullable (an item whose blurb has not been generated, or
+    # whose generation failed, is a normal library row).
+    #
+    # Absent from ``to_dynamodb_item``: nothing can have generated a blurb for a
+    # media the user is saving right now, so the attribute only ever appears through
+    # the ``update_attributes`` copy. That is also why adding it is not a schema
+    # change readers must know about — hence no ``USER_MEDIA_SCHEMA_VERSION`` bump.
+    review_blurb: Optional[str] = None
+
     # --- organization (user-authored: never clobbered by the pipeline) -------
     # Exactly one folder, defaulting to the user's "Uncategorized" folder so an
     # entry is always reachable through folder navigation.

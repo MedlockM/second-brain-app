@@ -35,6 +35,22 @@ class MediaArtifactType(str, Enum):
     QUIZ = "quiz"
     NOTES = "notes"
     FLASHCARDS = "flashcards"
+    #: Internal, media-scoped only (task-323): the short prose blurb the triage
+    #: screen reads off the library row. The user never requests it — it is
+    #: generated in the background at the end of ingestion, and
+    #: ``artifact_service.INTERNAL_ARTIFACT_TYPES`` is what keeps it out of the
+    #: requestable surface and out of the artifact history listing.
+    REVIEW_BLURB = "review_blurb"
+
+
+# Default value of ``ARTIFACT_TYPES_ALLOWED``, derived from the enum so the three
+# sites that read that variable (``core/config.py``,
+# ``core/services/artifact_service.py``, ``utils/infra_check.py``) cannot drift
+# apart again: ``infra_check`` still defaulted to the ``summary`` type that stopped
+# existing several tasks ago.
+DEFAULT_ARTIFACT_TYPES_ALLOWED = ",".join(
+    artifact_type.value for artifact_type in MediaArtifactType
+)
 
 
 class MediaArtifactStatus(str, Enum):

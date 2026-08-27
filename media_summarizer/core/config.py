@@ -12,6 +12,8 @@ environment writing into another's data (task-237).
 
 import os
 
+from media_summarizer.core.models.media_artifact import DEFAULT_ARTIFACT_TYPES_ALLOWED
+
 
 class Settings:
     """Application settings."""
@@ -24,8 +26,11 @@ class Settings:
         # AWS Configuration
         self.AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "eu-west-3")
 
+        # Default derived from MediaArtifactType, shared with artifact_service and
+        # infra_check: three hand-written copies of this list is how infra_check
+        # ended up still defaulting to the long-gone "summary" type.
         self.ARTIFACT_TYPES_ALLOWED = os.getenv(
-            "ARTIFACT_TYPES_ALLOWED", "summary_short,summary_detailed,quiz,notes,flashcards"
+            "ARTIFACT_TYPES_ALLOWED", DEFAULT_ARTIFACT_TYPES_ALLOWED
         )
 
 

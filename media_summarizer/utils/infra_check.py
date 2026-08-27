@@ -12,6 +12,7 @@ from typing import List
 
 from aiobotocore.session import get_session
 
+from media_summarizer.core.models.media_artifact import DEFAULT_ARTIFACT_TYPES_ALLOWED
 from media_summarizer.utils.database_async import AWS_REGION
 from media_summarizer.utils.env import required_env
 
@@ -22,7 +23,9 @@ def required_s3_buckets_from_env() -> List[str]:
     """Return the list of required S3 bucket names from environment variables."""
     allowed_artifact_types = {
         chunk.strip().lower()
-        for chunk in os.environ.get("ARTIFACT_TYPES_ALLOWED", "summary,quiz,notes").split(",")
+        for chunk in os.environ.get(
+            "ARTIFACT_TYPES_ALLOWED", DEFAULT_ARTIFACT_TYPES_ALLOWED
+        ).split(",")
         if chunk.strip()
     }
     buckets = [

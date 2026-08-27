@@ -41,7 +41,13 @@ class ArtifactGenerator(Protocol):
         ...
 
     def validate(self, content: str) -> Dict[str, Any]:
-        """Validate and parse the LLM output. Always returns a dict carrying ``title``."""
+        """Validate and parse the LLM output.
+
+        The dict carries ``title`` for every type listed in the artifact history,
+        since that is what tells two entries of the same type apart. An internal
+        type filtered out of the listing (``review_blurb``) has nothing to tell
+        apart and omits it; the worker reads the title with ``.get``.
+        """
         ...
 
     def build_artifact_content(
