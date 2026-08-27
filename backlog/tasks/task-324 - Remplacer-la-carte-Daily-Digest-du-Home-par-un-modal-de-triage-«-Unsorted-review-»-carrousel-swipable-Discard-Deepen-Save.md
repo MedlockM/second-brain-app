@@ -3,9 +3,10 @@ id: task-324
 title: >-
   Remplacer la carte Daily Digest du Home par un modal de triage « Unsorted
   review » : carrousel swipable, Discard / Deepen / Save
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-25 12:24'
+updated_date: '2026-08-27 12:32'
 labels:
   - mobile
   - ui
