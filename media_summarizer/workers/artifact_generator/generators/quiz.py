@@ -111,7 +111,7 @@ Rules:
 - {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
 {corpus.coverage_instruction("question", "questions", fields='"questions"')}
-- Spread the questions across the sources rather than covering only the first one.
+{corpus.source_balance_instruction("question", "questions")}
 - Each question must have exactly {OPTIONS_PER_QUESTION} options labeled A, B, C, D.
 - Exactly one option is correct per question.
 - Write the three distractors first, then write the correct option to match their
@@ -130,6 +130,8 @@ Rules:
   questions they do support and stop there — never invent one to reach a length.
 {corpus.empty_section_instruction('Anything the sources do not fill stays empty: "source_ref" is null rather than guessed.')}
 {corpus.source_ref_instruction(required=False)}
+{corpus.transcript_markers_instruction()}
+{corpus.dated_facts_instruction(review_item="quiz question")}
 {corpus.subject_matter_instruction()}
 {corpus.title_instruction("quiz")}
 

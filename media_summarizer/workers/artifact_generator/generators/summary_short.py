@@ -85,11 +85,13 @@ Rules:
 - {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
 - Keep each key point to one sentence, and keep the whole summary quick to read.
-- Cover the sources as a whole; do not summarise them one by one.
+{corpus.corpus_shape_instruction()}
 {corpus.coverage_instruction("key point", "key points", fields='"key_points"')}
 - Never write more than the sources say. If one sentence covers everything they
   carry, write one key point.
 {optional_takeaway}
+{corpus.transcript_markers_instruction()}
+{corpus.dated_facts_instruction()}
 {corpus.subject_matter_instruction()}
 {corpus.title_instruction("summary")}
 

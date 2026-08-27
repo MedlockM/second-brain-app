@@ -98,17 +98,19 @@ Rules:
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
 - This summary is for learning, not quick reading: it must cover the material,
   which means being as long as the material is and no longer.
-- Treat the sources as one body of material: synthesise across them rather than
-  describing each one in turn.
+{corpus.corpus_shape_instruction()}
 - Context should set the stage (who, what, why) in 2-3 sentences.
 - "main_topics": one entry per major theme the sources actually develop — a short
   source legitimately carries a single theme.
 {corpus.coverage_instruction("bullet point", "bullet points", fields='"key_points"')}
+{corpus.source_balance_instruction("bullet point", "bullet points")}
 - "notable_quotes": copy verbatim only the passages that carry the material
   themselves, and never quote a passage that a bullet point already states.
 {optional_quotes}
 {corpus.source_ref_instruction(required=True)}
 - Conclusion should synthesize the main message in 2-3 sentences.
+{corpus.transcript_markers_instruction()}
+{corpus.dated_facts_instruction()}
 {corpus.subject_matter_instruction(verbatim_exception=True)}
 {corpus.title_instruction("summary")}
 

@@ -92,6 +92,10 @@ async def _download_transcripts(
             "media_item_id": source.get("media_item_id"),
             "title": source.get("title"),
             "language": source.get("language"),
+            # Dates of the corpus header: the model needs them to resolve the
+            # "today" a transcript is full of (task-316 §2.7).
+            "published": source.get("published"),
+            "captured": source.get("captured"),
             "text": content.decode("utf-8", errors="ignore"),
         }
 

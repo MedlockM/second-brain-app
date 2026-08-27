@@ -77,7 +77,7 @@ Rules:
 - {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
 {corpus.coverage_instruction("card", "cards", fields='"cards"')}
-- Spread the cards across the sources rather than covering only the first one.
+{corpus.source_balance_instruction("card", "cards")}
 - Follow the minimum information principle: one concept per card.
 - Do NOT generate trivial cards (e.g. "What is the title of this episode?").
 - Do NOT generate ambiguous cards: each question must have a single, verifiable answer.
@@ -89,6 +89,8 @@ Rules:
   establish and stop there — one solid card beats five padded ones.
 {corpus.empty_section_instruction('Anything the sources do not fill stays empty: "source_ref" is null rather than guessed.')}
 {corpus.source_ref_instruction(required=False)}
+{corpus.transcript_markers_instruction()}
+{corpus.dated_facts_instruction(review_item="flashcard")}
 {corpus.subject_matter_instruction()}
 {corpus.title_instruction("card deck")}
 

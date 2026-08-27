@@ -21,6 +21,11 @@ class NotesValidationError(Exception):
 class NotesConcept(BaseModel):
     term: str
     explanation: str
+    # Kept, and framed in the prompt instead of dropped. The measurement that put
+    # it in question — 8 concepts out of 8 marked `core` on the surf course
+    # (task-316 §3.3) — is a calibration failure, not a design failure: the prompt
+    # asked for one of two words without ever saying what separates them. The
+    # mobile badge that renders it stays as it is.
     importance: str
 
     @field_validator("term", "explanation", "importance")
@@ -109,6 +114,15 @@ class NotesGenerator:
             'no notion, "action_items" empty when they prescribe nothing, and '
             '"glossary" empty when they introduce no term.'
         )
+        importance_rule = (
+            "- `importance` is either `core` or `supporting`, and the two are not "
+            "interchangeable: mark a concept `core` when a reader cannot use the "
+            "material at all without it, and `supporting` when it is context, a "
+            "refinement, an example or a name worth recognising. Expect a minority "
+            "of `core` — on most sources one or two concepts out of five. If "
+            "everything is `core`, nothing is, and the distinction has told the "
+            "reader nothing."
+        )
         instructions = f"""You produce a structured study/review notes artifact from everything above.
 
 Rules:
@@ -121,7 +135,9 @@ Rules:
 {corpus.coverage_instruction("entry", "entries", fields='"concepts" and "key_points"')}
 {optional_sections}
 - Every string must be concise and useful.
-- `importance` must be either `core` or `supporting`.
+{importance_rule}
+{corpus.transcript_markers_instruction()}
+{corpus.dated_facts_instruction()}
 {corpus.subject_matter_instruction()}
 {corpus.title_instruction("set of notes")}
 

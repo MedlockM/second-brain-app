@@ -209,23 +209,23 @@ def get_generator_version(artifact_type: MediaArtifactType) -> str:
     versions = {
         MediaArtifactType.SUMMARY_SHORT: os.environ.get(
             "SUMMARY_SHORT_ARTIFACT_GENERATOR_VERSION",
-            f"summary_short:{SUMMARY_SHORT_MODEL}:prompt-v3",
+            f"summary_short:{SUMMARY_SHORT_MODEL}:prompt-v4",
         ),
         MediaArtifactType.SUMMARY_DETAILED: os.environ.get(
             "SUMMARY_DETAILED_ARTIFACT_GENERATOR_VERSION",
-            f"summary_detailed:{SUMMARY_DETAILED_MODEL}:prompt-v3",
+            f"summary_detailed:{SUMMARY_DETAILED_MODEL}:prompt-v4",
         ),
         MediaArtifactType.QUIZ: os.environ.get(
             "QUIZ_ARTIFACT_GENERATOR_VERSION",
-            f"quiz:{OPENAI_MODEL}:prompt-v3",
+            f"quiz:{OPENAI_MODEL}:prompt-v4",
         ),
         MediaArtifactType.NOTES: os.environ.get(
             "NOTES_ARTIFACT_GENERATOR_VERSION",
-            f"notes:{NOTES_MODEL}:prompt-v3",
+            f"notes:{NOTES_MODEL}:prompt-v4",
         ),
         MediaArtifactType.FLASHCARDS: os.environ.get(
             "FLASHCARDS_ARTIFACT_GENERATOR_VERSION",
-            f"flashcards:{FLASHCARDS_MODEL}:prompt-v3",
+            f"flashcards:{FLASHCARDS_MODEL}:prompt-v4",
         ),
     }
     return versions[artifact_type]
@@ -337,6 +337,8 @@ class ResolvedSource:
         language: Optional[str],
         byte_length: int,
         translation_metadata: Dict[str, Any],
+        published: Optional[str] = None,
+        captured: Optional[str] = None,
     ) -> None:
         self.media_item_id = media_item_id
         self.content_id = content_id
@@ -345,6 +347,14 @@ class ResolvedSource:
         self.language = language
         self.byte_length = byte_length
         self.translation_metadata = translation_metadata
+        #: ``YYYY-MM-DD`` publication date, when the pipeline resolved a real one.
+        #: Only the podcast path does today, so it is usually None.
+        self.published = published
+        #: ``YYYY-MM-DD`` day the text entered the library. Always known, and the
+        #: date a scraped bulletin's "today" actually refers to. Both go in the
+        #: corpus header so the model can anchor point-in-time facts instead of
+        #: freezing "today" into a permanent artifact (task-316 §2.7).
+        self.captured = captured
 
     def snapshot(self) -> ArtifactSource:
         return ArtifactSource(
@@ -396,6 +406,20 @@ async def _load_transcript_bytes(job: ProcessingJob) -> Tuple[str, bytes]:
     return transcript_s3_key, transcript_bytes
 
 
+def _iso_date(value: Any) -> Optional[str]:
+    """``YYYY-MM-DD`` from a datetime or a Unix timestamp, or None.
+
+    Only the date survives: the corpus header exists to let the model anchor a
+    point-in-time fact to a day, and an hour would be noise the model has to read
+    on every source.
+    """
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, (int, float)) and value > 0:
+        return datetime.fromtimestamp(float(value), tz=timezone.utc).date().isoformat()
+    return None
+
+
 async def resolve_source(
     *,
     job: ProcessingJob,
@@ -403,6 +427,7 @@ async def resolve_source(
     content_id: str,
     title: Optional[str],
     reading_language: Optional[str],
+    captured: Optional[str] = None,
 ) -> ResolvedSource:
     """Resolve one source to the exact text the model will read.
 
@@ -410,6 +435,10 @@ async def resolve_source(
     locally, reuse the cached translation in S3 when there is one, enqueue the
     translation worker otherwise. So the corpus the model sees is monolingual and
     a collection of already-read media costs nothing extra.
+
+    ``captured`` comes from the caller because it lives on the durable library row
+    while the publication date lives on the job, and the job is what this function
+    already holds.
     """
     transcript_s3_key, transcript_bytes = await _load_transcript_bytes(job)
     transcript_text = transcript_bytes.decode("utf-8", errors="ignore")
@@ -442,6 +471,8 @@ async def resolve_source(
         language=metadata.get("target_language") or outcome.detected_language,
         byte_length=len(effective_bytes),
         translation_metadata=metadata,
+        published=_iso_date(getattr(job, "media_date_published", None)),
+        captured=captured,
     )
 
 
@@ -493,6 +524,7 @@ async def resolve_scope_sources(
                 content_id=content_id,
                 title=title,
                 reading_language=reading_language,
+                captured=_iso_date(getattr(record, "saved_at", None)),
             )
         except TranslationInProgressError:
             return record, "pending"
@@ -774,6 +806,11 @@ async def plan_artifact_generation(
                 "transcript_bucket": TRANSCRIPT_BUCKET,
                 "transcript_s3_key": source.transcript_s3_key,
                 "language": source.language,
+                # Dates the worker puts in the corpus header, so the model can
+                # anchor a fact that is only true at one instant instead of
+                # writing "today" into a permanent artifact (task-316 §2.7).
+                "published": source.published,
+                "captured": source.captured,
             }
             for source in resolution.sources
         ],
