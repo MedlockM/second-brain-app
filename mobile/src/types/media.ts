@@ -71,6 +71,14 @@ export type ArtifactType =
   | "quiz"
   | "flashcards";
 
+/**
+ * Chronological direction of a `GET /api/media` page (task-323).
+ *
+ * Mirrors the backend `SortDirection` literal: anything else is a 422 there, so
+ * the two values are spelled out here rather than typed as a bare string.
+ */
+export type MediaSortDirection = "asc" | "desc";
+
 export type TranscriptStatus =
   | "pending"
   | "extracting"
@@ -189,6 +197,15 @@ export interface MediaStatusResponse {
 export interface MediaListItem {
   media_item_id: string;
   title?: string | null;
+  /**
+   * Short prose blurb mirrored from the `review_blurb` artifact (task-323), for
+   * a surface that has to say what a source is about without opening it.
+   *
+   * Nullable by contract and forever null on an item ingested before that task
+   * or whose generation failed — a row without a blurb is a normal row, and the
+   * only surface that reads it (the unsorted review) prints a fallback line.
+   */
+  review_blurb?: string | null;
   /**
    * Publisher of the media — the tile's second line. Null for shared text,
    * documents and audio files, which have no creator by construction: the line

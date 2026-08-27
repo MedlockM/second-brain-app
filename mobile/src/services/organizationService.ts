@@ -1,6 +1,6 @@
 import { apiRequest } from "./apiClient";
 import type { Tag, Collection } from "../types/organization";
-import type { MediaListItem } from "../types/media";
+import type { MediaListItem, MediaSortDirection } from "../types/media";
 
 interface MediaListResponse {
   status: string;
@@ -135,15 +135,23 @@ export class OrganizationService {
    * behaviour, where sub-collections are surfaced as folders) should keep the
    * rows whose `folder_id` equals the requested collection id.
    *
-   * GET /api/media?folder_id=:collectionId&limit=:limit
+   * `sort` is the chronological direction of the page (task-323). It defaults to
+   * the server's own default — newest first — and `"asc"` is what a triage pass
+   * through the unsorted backlog asks for: reversing a page client-side would
+   * only reverse *that page*, leaving the oldest item on the last one.
+   *
+   * GET /api/media?folder_id=:collectionId&limit=:limit&sort=:sort
    */
   static async getCollectionMedia(
     collectionId: string,
-    limit = 100,
+    options: { limit?: number; sort?: MediaSortDirection } = {},
   ): Promise<MediaListItem[]> {
     const params = new URLSearchParams();
     params.set("folder_id", collectionId);
-    params.set("limit", String(limit));
+    params.set("limit", String(options.limit ?? 100));
+    if (options.sort) {
+      params.set("sort", options.sort);
+    }
     const response = await apiRequest<MediaListResponse>(
       `/api/media?${params.toString()}`,
       { method: "GET" },

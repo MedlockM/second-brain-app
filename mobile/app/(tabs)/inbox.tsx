@@ -28,6 +28,7 @@ import {
   TILE_GAP,
   type HomeTileItem,
 } from "../../src/components/HomeTile";
+import { buildCollectionTree } from "../../src/lib/collectionTree";
 import {
   capturePhotoToImport,
   pickFileToImport,
@@ -47,7 +48,7 @@ import type { RecentEngagement } from "../../src/types/engagements";
 import type { Collection } from "../../src/types/organization";
 
 /**
- * Home screen — the Daily Digest entry point and two horizontal
+ * Home screen — the unsorted review entry point and two horizontal
  * rows of tiles: "Recently added" and "Continue learning" (task-307).
  *
  * The vertical list of every media item that used to live here is gone: task-306
@@ -55,8 +56,13 @@ import type { Collection } from "../../src/types/organization";
  * belongs. What is left is a landing screen — what just arrived, and what you
  * were in the middle of — and it is deliberately short.
  *
- * Three sources feed it, plus the digest count, and each fails alone: the media
- * list comes from `useMediaPolling`, the engagement row and the collections from
+ * The Daily Digest card that used to sit at the top is gone too (task-324): it
+ * pushed the Digest tab, which is one tap away in the tab bar. Its place is now
+ * held by the entry into the triage of the default collection, which is the one
+ * thing on this screen with a backlog behind it.
+ *
+ * Two sources feed it and each fails alone: the media list comes from
+ * `useMediaPolling`, the engagement row and the collections from
  * `useHomeSections`. Only the very first media fetch may show a full-screen
  * spinner; no row ever shows one, because a row with nothing to say is simply
  * absent.
@@ -94,12 +100,8 @@ export default function InboxScreen() {
     refetch,
     retry,
   } = useMediaPolling();
-  const {
-    continueLearning,
-    collections,
-    digestCount,
-    refresh: refreshSections,
-  } = useHomeSections();
+  const { continueLearning, collections, refresh: refreshSections } =
+    useHomeSections();
 
   // Silent refetch when the screen gains focus (multi-device sync). Uses the
   // non-spinner variant so we don't show the pull-to-refresh indicator just
@@ -121,8 +123,8 @@ export default function InboxScreen() {
     await Promise.all([refresh(), refreshSections()]);
   }, [refresh, refreshSections]);
 
-  const handleDigestPress = useCallback(() => {
-    router.push("/(tabs)/digest");
+  const handleUnsortedReviewPress = useCallback(() => {
+    router.push("/media/unsorted-review");
   }, [router]);
 
   const handleTilePress = useCallback(
@@ -176,6 +178,20 @@ export default function InboxScreen() {
   const recentTiles = useMemo(
     () => buildRecentlyAdded(items, collections, pendingLocalItems),
     [items, collections, pendingLocalItems],
+  );
+
+  /**
+   * How many media are waiting in the default collection.
+   *
+   * Read off the collections `useHomeSections` already fetched, so the figure
+   * costs no request of its own. `buildCollectionTree` is what identifies the
+   * folder — by its `is_default` flag, never by its label: the stored name is
+   * `Uncategorized`, the UI says "Unsorted", and matching on either is what
+   * task-297 ruled out.
+   */
+  const unsortedCount = useMemo(
+    () => buildCollectionTree(collections).defaultCollection?.media_count ?? 0,
+    [collections],
   );
 
   // Loading state — the only spinner on this screen, and only on the very first
@@ -243,7 +259,10 @@ export default function InboxScreen() {
         <FreeTrialNotice />
         <MinutesWarningBanner />
 
-        <DigestCard count={digestCount} onPress={handleDigestPress} />
+        <UnsortedReviewButton
+          count={unsortedCount}
+          onPress={handleUnsortedReviewPress}
+        />
 
         {recentTiles.length > 0 && (
           <TileRow
@@ -310,47 +329,47 @@ export default function InboxScreen() {
 
 // --- Sub-components ---
 
-interface DigestCardProps {
-  count: number | null;
+interface UnsortedReviewButtonProps {
+  count: number;
   onPress: () => void;
 }
 
 /**
- * The Daily Digest entry point, with today's count on its right.
+ * The entry into the triage of the default collection, with the size of the
+ * backlog on its right.
  *
- * The badge is rendered only when there is a real figure to show: no zero, no
- * dash, no spinner. A digest fetch that failed leaves `count` null and the card
- * keeps working as the plain entry point it was before task-307.
+ * Nothing waiting, nothing to show: at zero the button is absent from the screen
+ * altogether rather than sitting there inert with a `0` on it. A card offering
+ * to sort an empty queue is one more thing to read on a landing screen that is
+ * deliberately short.
+ *
+ * Same silhouette, card, badge and chevron as the Daily Digest card it replaces —
+ * the style block was renamed, not redrawn, so the top of the Home did not move.
  */
-function DigestCard({ count, onPress }: DigestCardProps) {
-  const showCount = typeof count === "number" && count > 0;
+function UnsortedReviewButton({ count, onPress }: UnsortedReviewButtonProps) {
+  if (count <= 0) return null;
 
   return (
     <Pressable
+      testID="home-unsorted-review-button"
       style={({ pressed }) => [
-        styles.digestButton,
-        pressed && styles.digestButtonPressed,
+        styles.reviewButton,
+        pressed && styles.reviewButtonPressed,
       ]}
       onPress={onPress}
-      accessibilityLabel={
-        showCount
-          ? t("home.digestA11yWithCount", {
-              count: tCount("common.itemCount", count),
-            })
-          : t("home.digestA11y")
-      }
+      accessibilityLabel={t("home.unsortedReviewA11y", {
+        count: tCount("common.itemCount", count),
+      })}
       accessibilityRole="button"
     >
-      <View style={styles.digestIconContainer}>
-        <Ionicons name="book-outline" size={22} color={Colors.primary} />
+      <View style={styles.reviewIconContainer}>
+        <Ionicons name="file-tray-outline" size={22} color={Colors.primary} />
       </View>
-      <Text style={styles.digestButtonLabel}>{t("home.digest")}</Text>
-      <View style={styles.digestButtonRight}>
-        {showCount && (
-          <View style={styles.digestCountBadge}>
-            <Text style={styles.digestCountText}>{count}</Text>
-          </View>
-        )}
+      <Text style={styles.reviewButtonLabel}>{t("home.unsortedReview")}</Text>
+      <View style={styles.reviewButtonRight}>
+        <View style={styles.reviewCountBadge}>
+          <Text style={styles.reviewCountText}>{count}</Text>
+        </View>
         <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
       </View>
     </Pressable>
@@ -587,8 +606,8 @@ const styles = StyleSheet.create({
     color: Colors.onPrimary,
   },
 
-  // Daily Digest button
-  digestButton: {
+  // Unsorted review button (the Daily Digest card's block, renamed)
+  reviewButton: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: Colors.surface,
@@ -602,11 +621,11 @@ const styles = StyleSheet.create({
     minHeight: TouchTarget.comfortable,
     ...Shadows.soft,
   },
-  digestButtonPressed: {
+  reviewButtonPressed: {
     transform: [{ scale: 0.98 }],
     opacity: 0.9,
   },
-  digestIconContainer: {
+  reviewIconContainer: {
     width: 40,
     height: 40,
     borderRadius: BorderRadius.lg,
@@ -614,19 +633,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  digestButtonLabel: {
+  reviewButtonLabel: {
     flex: 1,
     fontSize: Typography.body.fontSize,
     fontWeight: "700",
     color: Colors.textMain,
     marginStart: Spacing.md,
   },
-  digestButtonRight: {
+  reviewButtonRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
   },
-  digestCountBadge: {
+  reviewCountBadge: {
     minWidth: 24,
     paddingHorizontal: Spacing.xs + 2,
     paddingVertical: 2,
@@ -635,7 +654,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  digestCountText: {
+  reviewCountText: {
     fontSize: Typography.small.fontSize,
     fontWeight: "700",
     color: Colors.textMain,

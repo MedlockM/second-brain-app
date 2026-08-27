@@ -99,34 +99,63 @@ task-319 ajoute un menu long-press Déplacer/Supprimer dans Library. Deux points
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Un nouvel écran modal de triage existe sous `mobile/app/media/`, enregistré dans `mobile/app/_layout.tsx` en présentation plein écran, avec le geste de dismiss désactivé et une animation d'entrée par le bas
-- [ ] #2 Le Home rend un bouton « Unsorted review » là où était la carte Daily Digest, qui pousse le nouvel écran, en réutilisant le bloc de styles de l'ancienne carte renommé plutôt qu'un nouveau design
-- [ ] #3 Le compteur du bouton vient du `media_count` du dossier `is_default` obtenu via `buildCollectionTree` sur les collections déjà chargées par `useHomeSections`, sans requête supplémentaire, et le bouton ne s'affiche pas du tout quand ce compte est nul
-- [ ] #4 Le composant de carte digest, son handler et toute la plomberie `digestCount` ont disparu d'`inbox.tsx` et d'`useHomeSections.ts`, branche `getDailyDigest()` comprise, et `grep -rn "digestCount" mobile/` ne renvoie rien
-- [ ] #5 `app/(tabs)/digest.tsx`, `digestService.ts`, `types/digest.ts`, l'entrée `tabs.digest` et les clés `digest.*` sont toujours présents et référencés
-- [ ] #6 Les trois clés `home.digest*` sont absentes des 11 catalogues i18n, et toutes les nouvelles clés sont présentes dans les 11
-- [ ] #7 La file est chargée en une seule requête sur l'endpoint canonique des médias, filtrée sur le dossier par défaut et triée du plus ancien au plus récent via le paramètre de sens de tri livré par task-323, avec un re-filtrage client sur l'identifiant exact du dossier
-- [ ] #8 La file est chargée une seule fois au montage : aucun rafraîchissement au retour de focus ne peut rebattre les index pendant que l'utilisateur trie
-- [ ] #9 Chaque carte affiche, dans cet ordre, la vignette en petit en haut à gauche, le titre à côté d'elle, le nom de l'auteur sous le titre, puis le résumé en prose sous ce bloc dans un `ScrollView` vertical imbriqué
-- [ ] #10 La vignette réutilise les dimensions exportées par `MediaListCard` avec sa politique de cache disque-mémoire, une clé de cache dérivée de l'identifiant et de la date de mise à jour, une clé de recyclage, et un repli glyphe sur erreur
-- [ ] #11 Quand le résumé est absent, la carte affiche un texte de repli discret et traduit, et les trois actions restent actives
-- [ ] #12 Le carrousel est un `ScrollView horizontal pagingEnabled` du core React Native, une page par média en largeur d'écran, index dérivé de l'offset de défilement
-- [ ] #13 La barre d'action place Deepen au centre horizontal de l'écran grâce à deux gouttières `flex: 1`, Discard aligné à gauche dans la première et Save à droite dans la seconde
-- [ ] #14 Discard est une croix avec le libellé « Discard » dessous, en bas à gauche ; Save porte un grand icône de collection et est le seul contrôle rempli de l'écran, avec la plus grande cible tactile des trois
-- [ ] #15 Discard appelle immédiatement la suppression du média, sans dialogue de confirmation, puis retire la carte de la file
-- [ ] #16 La méthode de suppression vit sur `MediaService` et émet `DELETE` sur l'endpoint média canonique : ajoutée ici si task-319 ne l'a pas déjà posée, réutilisée telle quelle sinon, jamais dupliquée
-- [ ] #17 Deepen ouvre la page de détail du média et le retour retrouve la même carte avec la file et l'index intacts, le média restant dans la file
-- [ ] #18 Save ouvre un bottom sheet rendu par-dessus le modal via un `Modal` transparent React Native, sur le patron d'`AddSourceSheet.tsx`, sans aucune librairie de bottom sheet ajoutée
-- [ ] #19 Le sheet liste à plat les collections non-défaut sous forme de chemins fil d'Ariane, permet de créer une collection en ligne puis de la sélectionner immédiatement, et assigne via `OrganizationService.setMediaCollection`
-- [ ] #20 Une assignation réussie ferme le sheet et retire le média de la file ; un échec laisse le sheet ouvert avec un message lisible et ne retire rien
-- [ ] #21 Un composant de points de pagination réutilisable existe dans `mobile/src/components/`, n'utilise que des primitives du core React Native, et rend au plus sept points
-- [ ] #22 La fenêtre de points est calculée en clampant `activeIndex - 3` entre 0 et `count - 7`, de sorte que le point actif reste centré au milieu de la liste et que la fenêtre s'épingle aux extrémités
-- [ ] #23 Le decrescendo de taille est indexé sur la troncature et non sur la position dans la fenêtre : un point n'est rétréci que s'il existe des médias au-delà de ce côté, et le point actif garde toujours la taille de base
-- [ ] #24 Les points rendent `null` pour une file vide, un seul point pour un unique média, et la hauteur du conteneur est fixe pour que la rangée ne tremble pas au changement de carte
-- [ ] #25 Les points sont placés au-dessus du bouton Deepen et masqués de l'arbre d'accessibilité, l'information de position étant portée par un élément textuel de l'en-tête
-- [ ] #26 Toute mutation de la file se termine par un ré-ancrage explicite du pager par `scrollTo` non animé sur l'index suivant, après la mise à jour d'état, avec un commentaire expliquant pourquoi
-- [ ] #27 Quand la file est vide, un état de complétion remplace le carrousel et propose une action explicite de fermeture, sans fermeture automatique
-- [ ] #28 Le type d'item de bibliothèque côté mobile porte le champ de résumé optionnel exposé par task-323, et l'énumération des types d'artefacts mobiles est inchangée
-- [ ] #29 `grep -rn "reanimated\|gesture-handler\|pager-view\|FlashList\|bottom-sheet"` sur les fichiers ajoutés ou modifiés ne renvoie rien, et `mobile/package.json` n'a aucune dépendance ajoutée
-- [ ] #30 `cd mobile && npm run lint && npm run typecheck` sont propres
+- [x] #1 Un nouvel écran modal de triage existe sous `mobile/app/media/`, enregistré dans `mobile/app/_layout.tsx` en présentation plein écran, avec le geste de dismiss désactivé et une animation d'entrée par le bas
+- [x] #2 Le Home rend un bouton « Unsorted review » là où était la carte Daily Digest, qui pousse le nouvel écran, en réutilisant le bloc de styles de l'ancienne carte renommé plutôt qu'un nouveau design
+- [x] #3 Le compteur du bouton vient du `media_count` du dossier `is_default` obtenu via `buildCollectionTree` sur les collections déjà chargées par `useHomeSections`, sans requête supplémentaire, et le bouton ne s'affiche pas du tout quand ce compte est nul
+- [x] #4 Le composant de carte digest, son handler et toute la plomberie `digestCount` ont disparu d'`inbox.tsx` et d'`useHomeSections.ts`, branche `getDailyDigest()` comprise, et `grep -rn "digestCount" mobile/` ne renvoie rien
+- [x] #5 `app/(tabs)/digest.tsx`, `digestService.ts`, `types/digest.ts`, l'entrée `tabs.digest` et les clés `digest.*` sont toujours présents et référencés
+- [x] #6 Les trois clés `home.digest*` sont absentes des 11 catalogues i18n, et toutes les nouvelles clés sont présentes dans les 11
+- [x] #7 La file est chargée en une seule requête sur l'endpoint canonique des médias, filtrée sur le dossier par défaut et triée du plus ancien au plus récent via le paramètre de sens de tri livré par task-323, avec un re-filtrage client sur l'identifiant exact du dossier
+- [x] #8 La file est chargée une seule fois au montage : aucun rafraîchissement au retour de focus ne peut rebattre les index pendant que l'utilisateur trie
+- [x] #9 Chaque carte affiche, dans cet ordre, la vignette en petit en haut à gauche, le titre à côté d'elle, le nom de l'auteur sous le titre, puis le résumé en prose sous ce bloc dans un `ScrollView` vertical imbriqué
+- [x] #10 La vignette réutilise les dimensions exportées par `MediaListCard` avec sa politique de cache disque-mémoire, une clé de cache dérivée de l'identifiant et de la date de mise à jour, une clé de recyclage, et un repli glyphe sur erreur
+- [x] #11 Quand le résumé est absent, la carte affiche un texte de repli discret et traduit, et les trois actions restent actives
+- [x] #12 Le carrousel est un `ScrollView horizontal pagingEnabled` du core React Native, une page par média en largeur d'écran, index dérivé de l'offset de défilement
+- [x] #13 La barre d'action place Deepen au centre horizontal de l'écran grâce à deux gouttières `flex: 1`, Discard aligné à gauche dans la première et Save à droite dans la seconde
+- [x] #14 Discard est une croix avec le libellé « Discard » dessous, en bas à gauche ; Save porte un grand icône de collection et est le seul contrôle rempli de l'écran, avec la plus grande cible tactile des trois
+- [x] #15 Discard appelle immédiatement la suppression du média, sans dialogue de confirmation, puis retire la carte de la file
+- [x] #16 La méthode de suppression vit sur `MediaService` et émet `DELETE` sur l'endpoint média canonique : ajoutée ici si task-319 ne l'a pas déjà posée, réutilisée telle quelle sinon, jamais dupliquée
+- [x] #17 Deepen ouvre la page de détail du média et le retour retrouve la même carte avec la file et l'index intacts, le média restant dans la file
+- [x] #18 Save ouvre un bottom sheet rendu par-dessus le modal via un `Modal` transparent React Native, sur le patron d'`AddSourceSheet.tsx`, sans aucune librairie de bottom sheet ajoutée
+- [x] #19 Le sheet liste à plat les collections non-défaut sous forme de chemins fil d'Ariane, permet de créer une collection en ligne puis de la sélectionner immédiatement, et assigne via `OrganizationService.setMediaCollection`
+- [x] #20 Une assignation réussie ferme le sheet et retire le média de la file ; un échec laisse le sheet ouvert avec un message lisible et ne retire rien
+- [x] #21 Un composant de points de pagination réutilisable existe dans `mobile/src/components/`, n'utilise que des primitives du core React Native, et rend au plus sept points
+- [x] #22 La fenêtre de points est calculée en clampant `activeIndex - 3` entre 0 et `count - 7`, de sorte que le point actif reste centré au milieu de la liste et que la fenêtre s'épingle aux extrémités
+- [x] #23 Le decrescendo de taille est indexé sur la troncature et non sur la position dans la fenêtre : un point n'est rétréci que s'il existe des médias au-delà de ce côté, et le point actif garde toujours la taille de base
+- [x] #24 Les points rendent `null` pour une file vide, un seul point pour un unique média, et la hauteur du conteneur est fixe pour que la rangée ne tremble pas au changement de carte
+- [x] #25 Les points sont placés au-dessus du bouton Deepen et masqués de l'arbre d'accessibilité, l'information de position étant portée par un élément textuel de l'en-tête
+- [x] #26 Toute mutation de la file se termine par un ré-ancrage explicite du pager par `scrollTo` non animé sur l'index suivant, après la mise à jour d'état, avec un commentaire expliquant pourquoi
+- [x] #27 Quand la file est vide, un état de complétion remplace le carrousel et propose une action explicite de fermeture, sans fermeture automatique
+- [x] #28 Le type d'item de bibliothèque côté mobile porte le champ de résumé optionnel exposé par task-323, et l'énumération des types d'artefacts mobiles est inchangée
+- [x] #29 `grep -rn "reanimated\|gesture-handler\|pager-view\|FlashList\|bottom-sheet"` sur les fichiers ajoutés ou modifiés ne renvoie rien, et `mobile/package.json` n'a aucune dépendance ajoutée
+- [x] #30 `cd mobile && npm run lint && npm run typecheck` sont propres
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### Ce qui a été écrit
+
+- `mobile/app/media/unsorted-review.tsx` — l'écran. Pager `ScrollView horizontal pagingEnabled`, une page par média en `SCREEN_WIDTH`, index par `Math.round(offsetX / SCREEN_WIDTH)` clampé. Sous-composant `ReviewCard` (vignette + titre + auteur, puis le blurb dans un `ScrollView` vertical imbriqué). Enregistré dans `mobile/app/_layout.tsx` en `presentation: "fullScreenModal"`, `animation: "slide_from_bottom"`, `gestureEnabled: false`, les deux écarts commentés sur place.
+- `mobile/src/components/PaginationDots.tsx` — points de pagination, core RN seul (`View` + `StyleSheet`), sept points au maximum, fenêtre `clamp(activeIndex - 3, 0, count - 7)`, decrescendo indexé sur la troncature (`hasBefore` / `hasAfter`), hauteur de conteneur fixe, `null` à zéro média, masqué de l'arbre d'accessibilité.
+- `mobile/src/components/CollectionSaveSheet.tsx` — la sheet de sauvegarde, `<Modal transparent animationType="slide">` sur le patron d'`AddSourceSheet` (scrim, insets, `runAfterClose` déféré par `onDismiss` sur iOS). Liste plate en fils d'Ariane, création en ligne puis sélection immédiate, assignation par `OrganizationService.setMediaCollection`.
+- `mobile/src/lib/collectionTree.ts` — ajout de `flattenCollectionPaths()`, construit sur le `buildCollectionTree` existant (qui exclut déjà le dossier par défaut et trie par nom). Choisi plutôt que de recopier le constructeur d'arbre local de `mobile/app/media/collection.tsx` : même format de chemin (`" / "`), une seule implémentation d'arbre dans l'app, et zéro churn sur un écran hors périmètre.
+- `mobile/src/services/organizationService.ts` — `getCollectionMedia(collectionId, { limit, sort })`. Le paramètre de tri de task-323 est passé sur le seul appelant existant de `GET /api/media?folder_id=`, plutôt que d'ouvrir une deuxième méthode de listing sur `MediaService` pour le même endpoint.
+- `mobile/src/types/media.ts` — `review_blurb?: string | null` sur `MediaListItem`, et le littéral `MediaSortDirection = "asc" | "desc"` qui reflète le `SortDirection` du backend. `ArtifactType` inchangé (AC#28).
+- `mobile/app/(tabs)/inbox.tsx` + `mobile/src/hooks/useHomeSections.ts` — carte Digest, handler et plomberie `digestCount` supprimés, branche `getDailyDigest()` du `Promise.allSettled` comprise (une requête réseau en moins par chargement du Home). Le bloc de styles de l'ancienne carte a été **renommé** (`digestButton` → `reviewButton`, etc.), pas redessiné.
+- Les 11 catalogues i18n : les trois clés `home.digest*` retirées, `home.unsortedReview` + `home.unsortedReviewA11y` et un bloc `unsortedReview.*` de 17 clés ajoutés partout.
+
+### Décisions prises
+
+- **`MediaService.deleteMedia` existait déjà** (posée par task-319, mergée sur `main`) : réutilisée telle quelle, rien de dupliqué. Les deux surfaces restent volontairement divergentes — la confirmation destructive de 319 n'a pas été portée ici, et le commentaire de `handleDiscard` dit pourquoi pour que personne ne les « harmonise » plus tard.
+- **Compteur « 3 / 12 » dans l'en-tête : conservé** (point laissé au jugement de l'implémenteur). Rendu via `unsortedReview.position`, avec un `accessibilityLabel` issu de `unsortedReview.positionA11y` (« Source 3 of 12 ») puisque « 3 / 12 » se lit mal à voix haute. C'est ce qui satisfait AC#25, les points plafonnant à sept ne pouvant pas porter la position réelle.
+- **Discard est teinté `Colors.error`** (glyphe et libellé) : c'est le seul avertissement que reçoit l'utilisateur avant une suppression immédiate et irréversible sans dialogue. Save reste malgré tout le seul contrôle *rempli* et la plus grande cible de la barre (AC#14).
+- **La sheet signale ses échecs par une bannière en ligne**, pas par un `Alert` : sur iOS une alerte présentée par-dessus un modal en train de se fermer part avec lui, non lue.
+- **Le point actif garde toujours la taille de base** dans `PaginationDots` : avec le clamp d'AC#22 il ne peut jamais tomber sur un bord tronqué, donc la garde est un invariant explicite plutôt qu'une branche qui se déclenche. Elle est commentée comme telle, pour qu'une future retouche de la fenêtre ne puisse pas rétrécir en silence le point que l'utilisateur regarde.
+- **`mobile/.maestro/03_inbox_visibility.yaml` laissé tel quel** : les flows Maestro sont legacy et ne contraignent pas le code (note de l'owner), et celui-là est déjà périmé puisqu'il asserte une salutation retirée par task-307.
+- **Aucun test automatisé ajouté** — interdit par les règles du projet, et aucun AC n'en demandait.
+
+### Non vérifié ici
+
+Le rendu visuel, le ressenti du swipe/snap, le decrescendo face aux captures de référence et le cycle complet « swipe → Save dans une collection créée à la volée → Discard → retour de Deepen » relèvent d'une passe sur simulateur iOS et émulateur Android, hors de portée d'un worktree. Les blurbs resteront le texte de repli jusqu'au déploiement de task-323 et au passage de son backfill.
+<!-- SECTION:NOTES:END -->

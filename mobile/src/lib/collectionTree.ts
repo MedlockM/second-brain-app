@@ -80,3 +80,42 @@ export function buildCollectionTree(
 
   return { roots, defaultCollection, nodeById };
 }
+
+/** One user collection, named by the full trail down to it. */
+export interface CollectionPath {
+  id: string;
+  /** Leaf name, for a surface that only has room for one word. */
+  name: string;
+  /** `Parent / Child / Leaf`, the breadcrumb the collection picker shows. */
+  path: string;
+}
+
+/** Separator of a collection breadcrumb, shared with the collection picker. */
+const PATH_SEPARATOR = " / ";
+
+/**
+ * Every non-default collection as a flat, depth-first list of breadcrumbs.
+ *
+ * For the surfaces that ask "which collection?" and nothing else: a flat list is
+ * answered in one glance where a tree has to be navigated, and the trail is what
+ * separates two leaves that happen to share a name. Built on `buildCollectionTree`
+ * so the ordering (alphabetical, parents before their children) and the exclusion
+ * of the default folder come from one place.
+ */
+export function flattenCollectionPaths(
+  collections: Collection[],
+): CollectionPath[] {
+  const { roots } = buildCollectionTree(collections);
+  const flat: CollectionPath[] = [];
+
+  const walk = (nodes: CollectionNode[], prefix: string) => {
+    for (const node of nodes) {
+      const path = prefix ? `${prefix}${PATH_SEPARATOR}${node.name}` : node.name;
+      flat.push({ id: node.id, name: node.name, path });
+      if (node.children.length) walk(node.children, path);
+    }
+  };
+  walk(roots, "");
+
+  return flat;
+}
