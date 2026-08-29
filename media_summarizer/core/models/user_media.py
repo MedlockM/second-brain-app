@@ -76,6 +76,21 @@ def build_folder_sort_key(folder_id: Optional[str], saved_at: datetime) -> str:
     return f"{folder_id or NO_FOLDER_SEGMENT}#{saved_at.isoformat()}"
 
 
+class ReviewBlurb(BaseModel):
+    """The triage card: what this is, what is in it, who it is for.
+
+    Three fields rather than one paragraph because the triage screen is scanned,
+    not read: the user has three seconds and three buttons. ``hook`` is the
+    headline, ``points`` the bullets, ``audience`` the footer line — and the last
+    one is optional by construction, a source that is for no one in particular
+    simply hides it.
+    """
+
+    hook: str
+    points: List[str] = Field(default_factory=list)
+    audience: str = ""
+
+
 class UserMediaRecord(BaseModel):
     """One saved media item, owned by exactly one user."""
 
@@ -100,7 +115,7 @@ class UserMediaRecord(BaseModel):
     language: Optional[str] = None
 
     # --- mirrored generated content (task-323) --------------------------------
-    # The short prose blurb of the ``review_blurb`` artifact, copied here when that
+    # The triage card of the ``review_blurb`` artifact, copied here when that
     # artifact completes so the library list renders it without one artifact lookup
     # and one S3 download per row. The artifact stays the source of truth; this is a
     # read cache, always nullable (an item whose blurb has not been generated, or
@@ -109,8 +124,9 @@ class UserMediaRecord(BaseModel):
     # Absent from ``to_dynamodb_item``: nothing can have generated a blurb for a
     # media the user is saving right now, so the attribute only ever appears through
     # the ``update_attributes`` copy. That is also why adding it is not a schema
-    # change readers must know about — hence no ``USER_MEDIA_SCHEMA_VERSION`` bump.
-    review_blurb: Optional[str] = None
+    # change readers must know about — hence no ``USER_MEDIA_SCHEMA_VERSION`` bump,
+    # and none either when it went from prose to the three structured fields.
+    review_blurb: Optional[ReviewBlurb] = None
 
     # --- organization (user-authored: never clobbered by the pipeline) -------
     # Exactly one folder, defaulting to the user's "Uncategorized" folder so an
@@ -232,5 +248,12 @@ class UserMediaRecord(BaseModel):
 
         tag_ids = payload.get("tag_ids")
         payload["tag_ids"] = [str(t) for t in tag_ids] if tag_ids else []
+
+        # Same policy as ``processing_status`` above: a blurb written in a shape this
+        # reader does not know — the v1 prose, a half-purged row — must not make the
+        # whole library row unreadable. Drop the attribute and keep the row.
+        blurb = payload.get("review_blurb")
+        if blurb is not None and not isinstance(blurb, dict):
+            payload.pop("review_blurb", None)
 
         return cls(**payload)

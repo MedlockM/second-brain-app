@@ -50,6 +50,7 @@ import {
   COVER_HEIGHT,
   COVER_WIDTH,
 } from "../../src/components/MediaListCard";
+import { Bullets } from "../../src/components/Bullets";
 import { PaginationDots } from "../../src/components/PaginationDots";
 import { CollectionSaveSheet } from "../../src/components/CollectionSaveSheet";
 import { buildCollectionTree } from "../../src/lib/collectionTree";
@@ -530,11 +531,14 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
 
 /**
  * One page of the pager: the cover small and top-left, the title beside it, the
- * creator under the title, then the blurb below the whole block.
+ * creator under the title, then the triage card below the whole block.
  *
- * The blurb gets its own vertical `ScrollView` so that a long one scrolls inside
- * the card instead of growing it and pushing the action bar off the screen —
- * which would leave the user swiping with nothing to decide with.
+ * The card never scrolls. Its first shape wrapped a prose paragraph in a nested
+ * vertical `ScrollView`, which failed at the one job of this screen: a summary you
+ * have to scroll is not a summary you can decide on, and the nested scroller stole
+ * swipes meant for the pager. The blurb is now three bounded fields — a hook, a
+ * few bullets, a line saying who it is for — and `numberOfLines` caps each one, so
+ * the card fits whatever the model wrote and the action bar stays put.
  */
 function ReviewCard({ item }: { item: MediaListItem }): React.JSX.Element {
   // Kept per card rather than per screen: a cover that failed on one media says
@@ -559,7 +563,10 @@ function ReviewCard({ item }: { item: MediaListItem }): React.JSX.Element {
     }
   }
 
-  const blurb = item.review_blurb?.trim() ?? "";
+  const blurb = item.review_blurb ?? null;
+  const hook = blurb?.hook?.trim() ?? "";
+  const points = (blurb?.points ?? []).map((p) => p.trim()).filter(Boolean);
+  const audience = blurb?.audience?.trim() ?? "";
 
   return (
     <View style={styles.page}>
@@ -605,20 +612,38 @@ function ReviewCard({ item }: { item: MediaListItem }): React.JSX.Element {
           </View>
         </View>
 
-        <ScrollView
-          style={styles.blurbScroll}
-          contentContainerStyle={styles.blurbContent}
-          showsVerticalScrollIndicator={false}
-          nestedScrollEnabled
-        >
-          {/* No blurb yet — generation in flight, failed, or an item ingested
-              before the artifact existed. A quiet line, and the three actions
-              stay live: a decision does not need the summary. No spinner and no
-              polling either; the blurb is not what the user is waiting for. */}
-          <Text style={blurb ? styles.blurb : styles.blurbMissing}>
-            {blurb || t("unsortedReview.noBlurb")}
-          </Text>
-        </ScrollView>
+        <View style={styles.blurbCard}>
+          {hook ? (
+            <>
+              <Text style={styles.blurbHook} numberOfLines={3}>
+                {hook}
+              </Text>
+              {points.length > 0 ? (
+                <Bullets items={points} numberOfLines={2} />
+              ) : null}
+              {/* Hidden rather than filled when the sources are for no one in
+                  particular — the prompt returns an empty string there. */}
+              {audience ? (
+                <View style={styles.blurbAudience}>
+                  <Ionicons
+                    name="person-outline"
+                    size={14}
+                    color={Colors.textSubtle}
+                  />
+                  <Text style={styles.blurbAudienceText} numberOfLines={2}>
+                    {audience}
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          ) : (
+            /* No blurb yet — generation in flight, failed, or an item ingested
+               before the artifact existed. A quiet line, and the three actions
+               stay live: a decision does not need the summary. No spinner and no
+               polling either; the blurb is not what the user is waiting for. */
+            <Text style={styles.blurbMissing}>{t("unsortedReview.noBlurb")}</Text>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -762,18 +787,33 @@ const styles = StyleSheet.create({
     fontSize: Typography.small.fontSize,
     color: Colors.textSubtle,
   },
-  blurbScroll: {
+  blurbCard: {
     flex: 1,
     backgroundColor: Colors.surfaceContainerLow,
     borderRadius: BorderRadius.lg,
-  },
-  blurbContent: {
     padding: Spacing.md,
+    gap: Spacing.sm,
   },
-  blurb: {
+  blurbHook: {
     fontSize: Typography.body.fontSize,
+    fontWeight: "600",
     color: Colors.textMain,
     lineHeight: Typography.body.lineHeight,
+  },
+  blurbAudience: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs + 2,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.outlineVariant,
+  },
+  // `textSubtle` and not `textMuted`: this line is meant to be read, and
+  // `textMuted` misses AA contrast below 18.66px (see the token's own comment).
+  blurbAudienceText: {
+    flex: 1,
+    fontSize: Typography.small.fontSize,
+    color: Colors.textSubtle,
   },
   blurbMissing: {
     fontSize: Typography.body.fontSize,

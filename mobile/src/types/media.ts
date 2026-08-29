@@ -190,6 +190,22 @@ export interface MediaStatusResponse {
 }
 
 /**
+ * The triage card mirrored from the `review_blurb` artifact (task-323).
+ * Mirrors `ReviewBlurb` in `media_summarizer/core/models/user_media.py`.
+ *
+ * Three fields rather than one paragraph because the triage screen is scanned in
+ * about three seconds, not read: `hook` is the headline, `points` the bullets,
+ * `audience` the footer line. `audience` is empty when the sources are for no one
+ * in particular, and the card then hides its last line rather than inventing a
+ * reader.
+ */
+export interface ReviewBlurb {
+  hook: string;
+  points: string[];
+  audience?: string | null;
+}
+
+/**
  * Flat list-row shape returned by `GET /api/media`.
  * Mirrors `MediaSearchItem` in `media_summarizer/api/endpoints/media.py`.
  * Distinct from `MediaStatusResponse` (which is the per-item detail shape).
@@ -198,14 +214,14 @@ export interface MediaListItem {
   media_item_id: string;
   title?: string | null;
   /**
-   * Short prose blurb mirrored from the `review_blurb` artifact (task-323), for
-   * a surface that has to say what a source is about without opening it.
+   * Triage card mirrored from the `review_blurb` artifact (task-323), for a
+   * surface that has to say what a source is about without opening it.
    *
    * Nullable by contract and forever null on an item ingested before that task
    * or whose generation failed — a row without a blurb is a normal row, and the
    * only surface that reads it (the unsorted review) prints a fallback line.
    */
-  review_blurb?: string | null;
+  review_blurb?: ReviewBlurb | null;
   /**
    * Publisher of the media — the tile's second line. Null for shared text,
    * documents and audio files, which have no creator by construction: the line

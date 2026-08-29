@@ -79,7 +79,7 @@ async def backfill() -> tuple[int, int]:
 
     for user_id in await _all_user_ids():
         for record in await user_media_store.list_library_for_user(user_id):
-            if (record.review_blurb or "").strip():
+            if record.review_blurb is not None and record.review_blurb.hook.strip():
                 skipped += 1
                 continue
             if triggered >= MAX_TRIGGERED:

@@ -35,6 +35,8 @@ from enum import Enum
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Tuple
 
+from pydantic import ValidationError
+
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.media_artifact import (
     DEFAULT_ARTIFACT_TYPES_ALLOWED,
@@ -47,6 +49,7 @@ from media_summarizer.core.models.media_artifact import (
     MediaArtifactType,
     build_scope_key,
 )
+from media_summarizer.core.models.user_media import ReviewBlurb
 from media_summarizer.core.services.transcript_translation import (
     TranslationInProgressError,
     job_source_language_hint,
@@ -245,12 +248,14 @@ def get_generator_version(artifact_type: MediaArtifactType) -> str:
             "FLASHCARDS_ARTIFACT_GENERATOR_VERSION",
             f"flashcards:{FLASHCARDS_MODEL}:prompt-v4",
         ),
-        # v1: this prompt has never shipped, so it starts at 1 rather than
-        # inheriting the v3 the five requestable prompts reached through task-316
-        # and task-320.
+        # v2: the prose paragraph v1 asked for was unreadable on the triage card
+        # -- it overflowed, scrolled, and had to be read linearly to yield anything.
+        # v2 is the structured card (hook / points / audience). Note that this bump
+        # regenerates nothing on its own: `build_artifact_id` deliberately excludes
+        # the generator version, so the v1 blurbs had to be purged explicitly.
         MediaArtifactType.REVIEW_BLURB: os.environ.get(
             "REVIEW_BLURB_ARTIFACT_GENERATOR_VERSION",
-            f"review_blurb:{OPENAI_MODEL}:prompt-v1",
+            f"review_blurb:{OPENAI_MODEL}:prompt-v2",
         ),
     }
     return versions[artifact_type]
@@ -1116,32 +1121,44 @@ async def complete_artifact_generation(
     return record
 
 
-def _read_blurb(content: Dict[str, Any]) -> str:
-    """Pull the prose out of a stored ``review_blurb`` envelope."""
-    return ((content.get("content") or {}).get("blurb") or "").strip()
+def _read_blurb(content: Dict[str, Any]) -> Optional[ReviewBlurb]:
+    """Pull the triage card out of a stored ``review_blurb`` envelope.
+
+    Validated rather than passed through: what goes onto the library row is read
+    back by every list request, and an envelope in an older shape (the v1 prose)
+    would otherwise travel all the way to the mobile client as a malformed card.
+    """
+    payload = content.get("content")
+    if not isinstance(payload, dict):
+        return None
+    try:
+        blurb = ReviewBlurb.model_validate(payload)
+    except ValidationError:
+        return None
+    return blurb if blurb.hook.strip() else None
 
 
 async def _mirror_review_blurb_onto_library_row(
     *,
     user_id: str,
     media_item_id: str,
-    blurb: str,
+    blurb: Optional[ReviewBlurb],
     artifact_id: str,
 ) -> bool:
     """Copy a finished blurb onto the ``user_media`` row that displays it.
 
     Same reason the model's ``title`` is copied onto the artifact row: the library
     list must render without an S3 read. A screen showing 50 rows would otherwise
-    mean 50 artifact lookups plus 50 object downloads to display one paragraph
-    each, which is the cost this copy buys out — one attribute-level ``SET``,
-    once per media forever.
+    mean 50 artifact lookups plus 50 object downloads to display one card each,
+    which is the cost this copy buys out — one attribute-level ``SET``, once per
+    media forever.
 
     Never fatal. The artifact is stored and sealed by the time this runs, so a
     failure here must not turn a successful generation into a failed one;
     ``copy_review_blurb_to_library_row`` is the repair path for a row it missed.
     Returns whether the row now carries the prose.
     """
-    if not blurb:
+    if blurb is None:
         return False
 
     try:
@@ -1150,7 +1167,7 @@ async def _mirror_review_blurb_onto_library_row(
         updated = await user_media_store.update_attributes(
             user_id=user_id,
             media_item_id=media_item_id,
-            attributes={"review_blurb": blurb},
+            attributes={"review_blurb": blurb.model_dump()},
         )
         if not updated:
             log_event(

@@ -335,14 +335,16 @@ def _record_to_search_result(record: UserMediaRecord) -> Dict[str, Any]:
     and ``error_message`` are gone from this payload -- they were job attributes,
     and a list read no longer touches jobs.
 
-    ``review_blurb`` is the mirrored prose (task-323). It has to be listed here
+    ``review_blurb`` is the mirrored triage card (task-323). It has to be listed here
     *and* declared on the endpoint's response model: this dict is validated into
     that model, and Pydantic drops an undeclared key without a word.
     """
     return {
         "media_item_id": record.media_item_id,
         "title": record.title,
-        "review_blurb": record.review_blurb,
+        "review_blurb": (
+            record.review_blurb.model_dump() if record.review_blurb else None
+        ),
         "creator_name": record.creator_name,
         "source_platform": record.source_platform,
         "media_type": record.media_type,

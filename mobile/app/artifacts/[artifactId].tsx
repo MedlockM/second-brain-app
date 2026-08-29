@@ -15,6 +15,7 @@ import { useAuth } from "../../src/contexts/AuthContext";
 import { ArtifactService } from "../../src/services/artifactService";
 import { EngagementService } from "../../src/services/engagementService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
+import { Bullets } from "../../src/components/Bullets";
 import {
   BorderRadius,
   Colors,
@@ -866,34 +867,6 @@ function Section({
   );
 }
 
-function Bullets({
-  items,
-  variant = "dot",
-}: {
-  items: string[];
-  variant?: "dot" | "check";
-}) {
-  return (
-    <View>
-      {items.map((item, i) => (
-        <View key={`bullet-${i}`} style={styles.bulletRow}>
-          {variant === "check" ? (
-            <Ionicons
-              name="checkmark-circle"
-              size={18}
-              color={Colors.primary}
-              style={styles.bulletCheck}
-            />
-          ) : (
-            <View style={styles.bulletDot} />
-          )}
-          <Text style={styles.bulletText}>{item}</Text>
-        </View>
-      ))}
-    </View>
-  );
-}
-
 // --- Helpers ---
 
 function normalizeArtifactKind(raw: string): ArtifactKind {
@@ -1290,29 +1263,6 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
 
-  // Bullets
-  bulletRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: Spacing.sm + 2,
-    gap: Spacing.sm + 2,
-  },
-  bulletDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.primary,
-    marginTop: 9,
-  },
-  bulletCheck: {
-    marginTop: 2,
-  },
-  bulletText: {
-    flex: 1,
-    fontSize: Typography.body.fontSize,
-    color: Colors.textMain,
-    lineHeight: 24,
-  },
 
   // Notes — concepts & glossary
   conceptCard: {

@@ -2,7 +2,7 @@
 
 Its own module rather than a function in ``digest_service``: the completion path of
 every ingestion would then import the digest graph — digest records, digest
-settings, weekly assembly, the push producer — to write one paragraph. This module
+settings, weekly assembly, the push producer — to write one triage card. This module
 imports the artifact service and the library store, nothing else.
 
 The shape is deliberately the same as ``digest_service.trigger_summary_short_generation``:
@@ -54,7 +54,7 @@ async def trigger_review_blurb_generation(
 
     # Already provisioned. Checked first so a redelivered completion event, or a
     # backfill re-run, costs one GetItem instead of a scope resolution.
-    if (record.review_blurb or "").strip():
+    if record.review_blurb is not None and record.review_blurb.hook.strip():
         return None
 
     job = await resolve_job_for_record(record)

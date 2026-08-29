@@ -57,7 +57,11 @@ from media_summarizer.core.media_ingestion.title_derivation import (
 )
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.core.models.user_media import UserMediaRecord, UserMediaStatus
+from media_summarizer.core.models.user_media import (
+    ReviewBlurb,
+    UserMediaRecord,
+    UserMediaStatus,
+)
 from media_summarizer.core.ports.document_parser import DocumentFormat
 from media_summarizer.core.services import (
     audio_duration_probe,
@@ -332,10 +336,11 @@ class MediaSearchItem(BaseModel):
 
     media_item_id: str
     title: Optional[str] = None
-    # The short prose blurb mirrored from the ``review_blurb`` artifact (task-323).
-    # Null until that artifact completes, and null forever on an item whose
-    # generation failed -- a row without a blurb is a normal row.
-    review_blurb: Optional[str] = None
+    # The triage card mirrored from the ``review_blurb`` artifact (task-323): the
+    # hook, its bullets and who it is for. Null until that artifact completes, and
+    # null forever on an item whose generation failed -- a row without a blurb is a
+    # normal row.
+    review_blurb: Optional[ReviewBlurb] = None
     # Publisher of the media -- channel, show, site, account (task-304). Nullable
     # by contract: shared text, documents and audio files have none, and the tile
     # simply omits its second line.
