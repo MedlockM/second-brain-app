@@ -480,8 +480,6 @@ export const en = {
   "unsortedReview.saveA11y": "Save {title} to a collection",
   "unsortedReview.doneTitle": "Nothing left to sort",
   "unsortedReview.doneBody": "Everything that was waiting has been dealt with.",
-  "unsortedReview.sheetTitle": "Save to a collection",
-  "unsortedReview.newCollection": "New collection",
   // --- Digest tab ---
   "digest.daily": "Daily",
   "digest.weekly": "Weekly",

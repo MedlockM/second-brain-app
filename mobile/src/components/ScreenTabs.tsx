@@ -76,7 +76,10 @@ export function ScreenTabs<K extends string>({
                 color={selected ? Colors.onPrimary : Colors.textMuted}
               />
             ) : null}
-            <Text style={[styles.tabLabel, selected && styles.tabLabelSelected]}>
+            <Text
+              style={[styles.tabLabel, selected && styles.tabLabelSelected]}
+              numberOfLines={1}
+            >
               {label}
             </Text>
           </Pressable>
@@ -109,6 +112,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
   },
   tabLabel: {
+    // The tab is `flex: 1`, but that only sizes the pill: without this the
+    // label refuses to compress inside it and a translated word ("Sources" →
+    // "Quellen", "Transcript" → "Transkript") pushes past the rounded edge.
+    flexShrink: 1,
     fontSize: Typography.label.fontSize,
     fontWeight: Typography.label.fontWeight,
     color: Colors.textMuted,

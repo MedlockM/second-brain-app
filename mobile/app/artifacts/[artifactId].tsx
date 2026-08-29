@@ -516,7 +516,9 @@ function NotesBody({ content }: { content: Record<string, unknown> }) {
           {concepts.map((c, i) => (
             <View key={`concept-${i}`} style={styles.conceptCard}>
               <View style={styles.conceptHeader}>
-                <Text style={styles.conceptTerm}>{c.term}</Text>
+                <Text style={styles.conceptTerm} numberOfLines={2}>
+                  {c.term}
+                </Text>
                 {c.importance ? (
                   <View
                     style={[
@@ -1341,6 +1343,8 @@ const styles = StyleSheet.create({
     lineHeight: 23,
   },
   importanceBadge: {
+    // Keeps its own width: the term next to it is the element that yields.
+    flexShrink: 0,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
     borderRadius: BorderRadius.md,

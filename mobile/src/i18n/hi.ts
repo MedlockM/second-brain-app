@@ -4,7 +4,7 @@ import type { Catalog } from "./runtime";
 export const hi: Catalog = {
   "common.ok": "ठीक है",
   "common.cancel": "रद्द करें",
-  "common.retry": "फिर से कोशिश करें",
+  "common.retry": "पुनः प्रयास",
   "common.delete": "मिटाएँ",
   "common.save": "सहेजें",
   "common.done": "हो गया",
@@ -347,8 +347,6 @@ export const hi: Catalog = {
   "unsortedReview.saveA11y": "{title} को किसी संग्रह में सहेजें",
   "unsortedReview.doneTitle": "श्रेणी देने के लिए कुछ नहीं बचा",
   "unsortedReview.doneBody": "जो कुछ बाक़ी था, सब निपटा दिया गया है।",
-  "unsortedReview.sheetTitle": "किसी संग्रह में सहेजें",
-  "unsortedReview.newCollection": "नया संग्रह",
   "digest.daily": "रोज़ाना",
   "digest.weekly": "साप्ताहिक",
   "digest.dailyTitle": "आपका दिन एक नज़र में",

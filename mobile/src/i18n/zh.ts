@@ -342,8 +342,6 @@ export const zh: Catalog = {
   "unsortedReview.saveA11y": "把 {title} 保存到收藏集",
   "unsortedReview.doneTitle": "没有待整理的内容",
   "unsortedReview.doneBody": "所有等待处理的内容都已处理完毕。",
-  "unsortedReview.sheetTitle": "保存到收藏集",
-  "unsortedReview.newCollection": "新建收藏集",
   "digest.daily": "每日",
   "digest.weekly": "每周",
   "digest.dailyTitle": "今日回顾",

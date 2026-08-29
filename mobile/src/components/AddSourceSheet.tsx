@@ -72,8 +72,8 @@ export function AddSourceSheet({
       statusBarTranslucent
     >
       <View style={styles.root}>
-        {/* Scrim. The design system has no scrim token, so this is textMain at
-            35% — the only literal colour in this file, kept in sync with it. */}
+        {/* Tap-outside-to-close area, deliberately transparent: the sheet
+            stands on its own, with no scrim dimming the screen behind it. */}
         <Pressable
           style={styles.backdrop}
           onPress={onClose}
@@ -145,7 +145,6 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(43, 45, 66, 0.35)",
   },
   sheet: {
     backgroundColor: Colors.surface,

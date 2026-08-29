@@ -313,12 +313,14 @@ function InsightCard({
           {/* Badges */}
           <View style={styles.cardBadgeRow}>
             <View style={styles.mediaTypeBadge}>
-              <Text style={styles.mediaTypeBadgeText}>
+              <Text style={styles.mediaTypeBadgeText} numberOfLines={1}>
                 {formatMediaType(item.media_type)}
               </Text>
             </View>
             {readTime ? (
-              <Text style={styles.readTimeBadge}>{readTime}</Text>
+              <Text style={styles.readTimeBadge} numberOfLines={1}>
+                {readTime}
+              </Text>
             ) : null}
           </View>
         </View>
@@ -534,6 +536,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   mediaTypeBadge: {
+    // Both badges sit on the thumbnail with nothing between them: without a
+    // shrink they meet in the middle and overlap in the longer languages.
+    flexShrink: 1,
     paddingHorizontal: 12,
     paddingVertical: 4,
     backgroundColor: "rgba(255,255,255,0.2)",
@@ -549,6 +554,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   readTimeBadge: {
+    flexShrink: 0,
+    marginStart: Spacing.sm,
     color: "rgba(255,255,255,0.9)",
     fontSize: Typography.small.fontSize,
     fontWeight: "500",

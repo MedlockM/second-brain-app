@@ -489,9 +489,11 @@ export default function PaywallScreen() {
                       )}
 
                       <View style={styles.tierTitleRow}>
-                        <Text style={styles.tierName}>{card.name}</Text>
+                        <Text style={styles.tierName} numberOfLines={1}>
+                          {card.name}
+                        </Text>
                         {pkg !== undefined && (
-                          <Text style={styles.tierPrice}>
+                          <Text style={styles.tierPrice} numberOfLines={1}>
                             {pkg.product.priceString}
                             <Text style={styles.tierPricePeriod}>/mo</Text>
                           </Text>
@@ -680,7 +682,9 @@ const styles = StyleSheet.create({
   closeButton: {
     position: "absolute",
     top: Spacing.sm,
-    right: Spacing.lg,
+    // `end`, not `right`: an absolute `right` stays on the right in Arabic,
+    // where the close button belongs on the other side.
+    end: Spacing.lg,
     minHeight: TouchTarget.minimum,
     minWidth: TouchTarget.minimum,
     justifyContent: "center",
@@ -695,6 +699,10 @@ const styles = StyleSheet.create({
     ...Typography.display,
     color: Colors.textMain,
     marginTop: Spacing.md,
+    textAlign: "center",
+    // Keeps the longer translations clear of the floating close button rather
+    // than relying on "~280px on a 375pt screen", which is an English number.
+    paddingHorizontal: TouchTarget.minimum,
   },
   tagline: {
     ...Typography.label,
@@ -857,11 +865,15 @@ const styles = StyleSheet.create({
   // The name is the label of the row, not its headline: it says "Mix", which
   // tells a newcomer nothing. The allowance and the price are the headline.
   tierName: {
+    // Yields to the price rather than colliding with it: the price is the
+    // number the user came for, and it is the one that must stay whole.
+    flexShrink: 1,
     ...Typography.label,
     fontWeight: "600",
     color: Colors.textMain,
   },
   tierPrice: {
+    flexShrink: 0,
     ...Typography.headline,
     fontWeight: "700",
     color: Colors.textMain,

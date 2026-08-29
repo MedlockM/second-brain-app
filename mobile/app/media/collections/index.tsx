@@ -29,6 +29,7 @@ import {
   TouchTarget,
 } from "../../../src/constants/theme";
 import { t, tCount, useTranslation } from "../../../src/i18n";
+import { ScreenHeader, HeaderIconButton } from "../../../src/components/ScreenHeader";
 import type { MediaListItem } from "../../../src/types/media";
 
 /**
@@ -123,18 +124,16 @@ export default function CollectionsExplorerScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-      <View style={styles.header}>
-        <Pressable
-          style={styles.backButton}
-          onPress={handleBack}
-          accessibilityLabel={t("common.goBack")}
-          accessibilityRole="button"
-        >
-          <Ionicons name="arrow-back" size={22} color={Colors.textMain} />
-        </Pressable>
-        <Text style={styles.headerTitle}>{t("search.collections")}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader
+        title={t("search.collections")}
+        leading={
+          <HeaderIconButton
+            icon="arrow-back"
+            onPress={handleBack}
+            accessibilityLabel={t("common.goBack")}
+          />
+        }
+      />
 
       {isLoading ? (
         <View style={styles.centered}>
@@ -251,31 +250,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surfaceContainerHigh,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    fontSize: Typography.headline.fontSize,
-    fontWeight: "700",
-    color: Colors.textMain,
-    letterSpacing: -0.3,
-  },
-  headerSpacer: {
-    width: 40,
-    height: 40,
   },
   listContent: {
     paddingHorizontal: Spacing.md,

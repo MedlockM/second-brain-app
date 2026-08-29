@@ -20,6 +20,7 @@ import {
   Shadows,
 } from "../../src/constants/theme";
 import { t, tCount, useTranslation } from "../../src/i18n";
+import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { OrganizationService } from "../../src/services/organizationService";
@@ -272,34 +273,31 @@ export default function TagsScreen() {
       </View>
 
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={handleBack}
-          accessibilityLabel={t("common.goBack")}
-          accessibilityRole="button"
-        >
-          <Ionicons name="arrow-back" size={22} color={Colors.textMain} />
-        </TouchableOpacity>
-
-        <Text style={styles.headerTitle}>
-          {tCount("tags.selectedCount", selectedTagIds.length)}
-        </Text>
-
-        <TouchableOpacity
-          style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={isSaving}
-          accessibilityLabel={t("tags.saveA11y")}
-          accessibilityRole="button"
-        >
-          {isSaving ? (
-            <ActivityIndicator size="small" color={Colors.primary} />
-          ) : (
-            <Text style={styles.saveButtonText}>{t("common.done")}</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      <ScreenHeader
+        title={tCount("tags.selectedCount", selectedTagIds.length)}
+        leading={
+          <HeaderIconButton
+            icon="arrow-back"
+            onPress={handleBack}
+            accessibilityLabel={t("common.goBack")}
+          />
+        }
+        trailing={
+          <TouchableOpacity
+            style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
+            onPress={handleSave}
+            disabled={isSaving}
+            accessibilityLabel={t("tags.saveA11y")}
+            accessibilityRole="button"
+          >
+            {isSaving ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Text style={styles.saveButtonText}>{t("common.done")}</Text>
+            )}
+          </TouchableOpacity>
+        }
+      />
 
       {/* Selected tags chips */}
       {selectedTagChips.length > 0 && (
@@ -403,27 +401,6 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.outlineVariant,
     opacity: 0.5,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surfaceContainerHigh,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    fontSize: Typography.headline.fontSize,
-    fontWeight: "700",
-    color: Colors.textMain,
-    letterSpacing: -0.3,
   },
   saveButton: {
     paddingHorizontal: Spacing.md,

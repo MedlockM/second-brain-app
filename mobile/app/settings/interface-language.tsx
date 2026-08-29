@@ -1,4 +1,11 @@
-import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  Pressable,
+  Switch,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -17,6 +24,7 @@ import {
   BorderRadius,
   TouchTarget,
 } from "../../src/constants/theme";
+import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 
 /**
  * The language of the interface — a different setting from the reading
@@ -39,7 +47,7 @@ type LocaleChoice = SupportedLocale | typeof FOLLOW_DEVICE;
 
 export default function InterfaceLanguageScreen() {
   const router = useRouter();
-  const { locale, override, setLocale } = useTranslation();
+  const { locale, override, setLocale, pseudo, setPseudo } = useTranslation();
 
   const deviceLocale = resolveDeviceLocale();
   const selected: LocaleChoice = override ?? FOLLOW_DEVICE;
@@ -83,24 +91,52 @@ export default function InterfaceLanguageScreen() {
     );
   };
 
+  /**
+   * The pseudo-localisation switch, in development builds only.
+   *
+   * Its copy is hard-coded English rather than catalogue keys: a key would be
+   * pseudo-localised along with everything else, which would make the one
+   * control you need in order to turn the mode *off* the least readable thing
+   * on the screen.
+   */
+  const renderDevTools = () => {
+    if (!__DEV__) return null;
+
+    return (
+      <View style={styles.devSection}>
+        <Text style={styles.devHeading}>DEVELOPMENT</Text>
+        <View style={styles.devRow}>
+          <View style={styles.devRowText}>
+            <Text style={styles.devLabel}>Pseudo-localisation</Text>
+            <Text style={styles.devHint}>
+              Accents every string and pads it by ~40% to expose layouts that
+              break when a translation runs long. Screens already on the stack
+              repaint when you navigate away and back.
+            </Text>
+          </View>
+          <Switch value={pseudo} onValueChange={setPseudo} />
+        </View>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView
       testID="interface-language-screen"
       style={styles.container}
       edges={["top"]}
     >
-      <View style={styles.header}>
-        <Pressable
-          style={styles.backButton}
-          onPress={() => router.back()}
-          accessibilityLabel={t("common.goBack")}
-          accessibilityRole="button"
-        >
-          <Ionicons name="chevron-back" size={24} color={Colors.textMain} />
-        </Pressable>
-        <Text style={styles.title}>{t("uiLanguage.title")}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader
+        title={t("uiLanguage.title")}
+        leading={
+          <HeaderIconButton
+            icon="chevron-back"
+            variant="plain"
+            onPress={() => router.back()}
+            accessibilityLabel={t("common.goBack")}
+          />
+        }
+      />
 
       <View style={styles.disclaimer}>
         <Ionicons
@@ -118,6 +154,7 @@ export default function InterfaceLanguageScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         extraData={locale}
+        ListFooterComponent={renderDevTools}
       />
     </SafeAreaView>
   );
@@ -127,28 +164,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  backButton: {
-    width: TouchTarget.minimum,
-    height: TouchTarget.minimum,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    flex: 1,
-    ...Typography.headline,
-    color: Colors.textMain,
-    textAlign: "center",
-  },
-  // Balances the back button so the title stays optically centred.
-  headerSpacer: {
-    width: TouchTarget.minimum,
   },
   disclaimer: {
     flexDirection: "row",
@@ -166,6 +181,36 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.xxl,
+  },
+  devSection: {
+    marginTop: Spacing.xl,
+    gap: Spacing.sm,
+  },
+  devHeading: {
+    ...Typography.small,
+    color: Colors.textMuted,
+    letterSpacing: 1,
+  },
+  devRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+  },
+  devRowText: {
+    flex: 1,
+    gap: Spacing.xs,
+  },
+  devLabel: {
+    ...Typography.body,
+    color: Colors.textMain,
+  },
+  devHint: {
+    ...Typography.small,
+    color: Colors.textMuted,
   },
   languageItem: {
     flexDirection: "row",

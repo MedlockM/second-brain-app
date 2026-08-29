@@ -365,7 +365,9 @@ function UnsortedReviewButton({ count, onPress }: UnsortedReviewButtonProps) {
       <View style={styles.reviewIconContainer}>
         <Ionicons name="file-tray-outline" size={22} color={Colors.primary} />
       </View>
-      <Text style={styles.reviewButtonLabel}>{t("home.unsortedReview")}</Text>
+      <Text style={styles.reviewButtonLabel} numberOfLines={2}>
+        {t("home.unsortedReview")}
+      </Text>
       <View style={styles.reviewButtonRight}>
         <View style={styles.reviewCountBadge}>
           <Text style={styles.reviewCountText}>{count}</Text>
@@ -397,7 +399,9 @@ function TileRow({ testID, icon, title, tiles, onTilePress }: TileRowProps) {
     <View style={styles.section}>
       <View style={styles.sectionHeaderRow}>
         <Ionicons name={icon} size={18} color={Colors.primary} />
-        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={styles.sectionTitle} numberOfLines={1}>
+          {title}
+        </Text>
       </View>
       <FlatList
         testID={testID}
@@ -672,6 +676,8 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.md,
   },
   sectionTitle: {
+    // Claims the room left by the icon rather than wrapping under it.
+    flex: 1,
     fontSize: Typography.headline.fontSize,
     fontWeight: Typography.headline.fontWeight,
     color: Colors.textMain,

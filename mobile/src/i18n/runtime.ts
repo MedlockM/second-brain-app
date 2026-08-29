@@ -48,6 +48,17 @@ export function getActiveLocale(): SupportedLocale {
   return activeLocale;
 }
 
+/**
+ * The catalogue currently installed, by identity.
+ *
+ * `I18nProvider` compares it against the one it just derived to know whether
+ * the runtime is in step: the locale alone is not enough to answer that, since
+ * pseudo-localisation swaps the catalogue *without* changing the locale.
+ */
+export function getActiveCatalog(): Catalog {
+  return activeCatalog;
+}
+
 export function setActiveCatalog(
   locale: SupportedLocale,
   catalog: Catalog,

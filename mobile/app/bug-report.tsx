@@ -27,6 +27,7 @@ import {
   TouchTarget,
 } from "../src/constants/theme";
 import { t, useTranslation } from "../src/i18n";
+import { ScreenHeader, HeaderIconButton } from "../src/components/ScreenHeader";
 import { useAuth } from "../src/contexts/AuthContext";
 import {
   BugReportService,
@@ -326,35 +327,36 @@ export default function BugReportScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         {/* Header */}
-        <View style={styles.header}>
-          <Pressable
-            style={styles.closeButton}
-            onPress={handleClose}
-            accessibilityLabel={t("bugReport.closeA11y")}
-            accessibilityRole="button"
-          >
-            <Ionicons name="close" size={22} color={Colors.textMain} />
-          </Pressable>
-
-          <Text style={styles.headerTitle}>{t("account.reportBug")}</Text>
-
-          <Pressable
-            style={[
-              styles.submitButton,
-              (!isFormValid || isSubmitting) && styles.submitButtonDisabled,
-            ]}
-            onPress={handleSubmit}
-            disabled={!isFormValid || isSubmitting}
-            accessibilityLabel={t("bugReport.submitA11y")}
-            accessibilityRole="button"
-          >
-            {isSubmitting ? (
-              <ActivityIndicator size="small" color={Colors.onPrimary} />
-            ) : (
-              <Text style={styles.submitButtonText}>{t("bugReport.submit")}</Text>
-            )}
-          </Pressable>
-        </View>
+        <ScreenHeader
+          title={t("account.reportBug")}
+          leading={
+            <HeaderIconButton
+              icon="close"
+              onPress={handleClose}
+              accessibilityLabel={t("bugReport.closeA11y")}
+            />
+          }
+          trailing={
+            <Pressable
+              style={[
+                styles.submitButton,
+                (!isFormValid || isSubmitting) && styles.submitButtonDisabled,
+              ]}
+              onPress={handleSubmit}
+              disabled={!isFormValid || isSubmitting}
+              accessibilityLabel={t("bugReport.submitA11y")}
+              accessibilityRole="button"
+            >
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color={Colors.onPrimary} />
+              ) : (
+                <Text style={styles.submitButtonText}>
+                  {t("bugReport.submit")}
+                </Text>
+              )}
+            </Pressable>
+          }
+        />
 
         <ScrollView
           style={styles.scrollView}
@@ -501,26 +503,6 @@ const styles = StyleSheet.create({
   },
   keyboardView: {
     flex: 1,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  closeButton: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surfaceContainerHigh,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    fontSize: Typography.headline.fontSize,
-    fontWeight: Typography.headline.fontWeight,
-    color: Colors.textMain,
   },
   submitButton: {
     backgroundColor: Colors.primary,

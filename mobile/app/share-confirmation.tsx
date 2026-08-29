@@ -32,6 +32,7 @@ import {
   TouchTarget,
 } from "../src/constants/theme";
 import { t, type TranslationKey, useTranslation } from "../src/i18n";
+import { ScreenHeader, HeaderIconButton } from "../src/components/ScreenHeader";
 
 const TOP_BAR_TITLE_KEYS: Record<ShareContentType, TranslationKey> = {
   url: "share.title.url",
@@ -205,32 +206,31 @@ export default function ShareConfirmationScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Top Bar - matching design: close (left), title (center), save (right) */}
-      <View style={styles.topBar}>
-        <Pressable
-          style={styles.closeButton}
-          onPress={handleClose}
-          accessibilityLabel={t("common.close")}
-          accessibilityRole="button"
-        >
-          <Ionicons name="close" size={24} color={Colors.textMain} />
-        </Pressable>
-
-        <Text style={styles.topBarTitle}>{topBarTitle}</Text>
-
-        <Pressable
-          style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={!canSave}
-          accessibilityLabel={t("common.save")}
-          accessibilityRole="button"
-        >
-          {intake.status === "submitting" ? (
-            <ActivityIndicator size="small" color={Colors.textMain} />
-          ) : (
-            <Text style={styles.saveButtonText}>{t("common.save")}</Text>
-          )}
-        </Pressable>
-      </View>
+      <ScreenHeader
+        title={topBarTitle}
+        leading={
+          <HeaderIconButton
+            icon="close"
+            onPress={handleClose}
+            accessibilityLabel={t("common.close")}
+          />
+        }
+        trailing={
+          <Pressable
+            style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
+            onPress={handleSave}
+            disabled={!canSave}
+            accessibilityLabel={t("common.save")}
+            accessibilityRole="button"
+          >
+            {intake.status === "submitting" ? (
+              <ActivityIndicator size="small" color={Colors.textMain} />
+            ) : (
+              <Text style={styles.saveButtonText}>{t("common.save")}</Text>
+            )}
+          </Pressable>
+        }
+      />
 
       {/* Content */}
       <View style={styles.content}>
@@ -785,26 +785,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-  },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-  },
-  closeButton: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surfaceContainerHigh,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  topBarTitle: {
-    fontSize: Typography.headline.fontSize,
-    fontWeight: Typography.headline.fontWeight,
-    color: Colors.textMain,
   },
   saveButton: {
     backgroundColor: Colors.primary,

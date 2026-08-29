@@ -344,8 +344,6 @@ export const ja: Catalog = {
   "unsortedReview.saveA11y": "{title} をコレクションに整理",
   "unsortedReview.doneTitle": "整理するものはもうありません",
   "unsortedReview.doneBody": "待っていたものはすべて処理しました。",
-  "unsortedReview.sheetTitle": "コレクションに整理",
-  "unsortedReview.newCollection": "新しいコレクション",
   "digest.daily": "毎日",
   "digest.weekly": "毎週",
   "digest.dailyTitle": "今日のふりかえり",

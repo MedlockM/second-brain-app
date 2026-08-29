@@ -29,6 +29,7 @@ import {
   BorderRadius,
   TouchTarget,
 } from "../../src/constants/theme";
+import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 
 /**
  * Account deletion, required in-app by App Store guideline 5.1.1(v) and by the
@@ -115,19 +116,18 @@ export default function DeleteAccountScreen() {
       style={styles.container}
       edges={["top"]}
     >
-      <View style={styles.header}>
-        <Pressable
-          style={styles.backButton}
-          onPress={() => router.back()}
-          disabled={isDeleting}
-          accessibilityLabel={t("common.goBack")}
-          accessibilityRole="button"
-        >
-          <Ionicons name="chevron-back" size={24} color={Colors.textMain} />
-        </Pressable>
-        <Text style={styles.title}>{t("deleteAccount.title")}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader
+        title={t("deleteAccount.title")}
+        leading={
+          <HeaderIconButton
+            icon="chevron-back"
+            variant="plain"
+            onPress={() => router.back()}
+            disabled={isDeleting}
+            accessibilityLabel={t("common.goBack")}
+          />
+        }
+      />
 
       <ScrollView
         style={styles.scrollView}
@@ -263,28 +263,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-  },
-  backButton: {
-    width: TouchTarget.minimum,
-    height: TouchTarget.minimum,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    flex: 1,
-    ...Typography.headline,
-    fontWeight: "700",
-    color: Colors.textMain,
-    textAlign: "center",
-  },
-  headerSpacer: {
-    width: TouchTarget.minimum,
   },
   scrollView: {
     flex: 1,

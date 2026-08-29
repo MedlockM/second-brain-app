@@ -196,7 +196,7 @@ export const es: Catalog = {
     "Has usado {duration} en este periodo. {plan} es el plan más pequeño que lo cubre.",
   "plan.badge.recommended": "RECOMENDADO PARA TI",
   "plan.badge.yourTrial": "TU PLAN DE PRUEBA",
-  "plan.badge.bestValue": "MEJOR RELACIÓN",
+  "plan.badge.bestValue": "MEJOR PRECIO",
   "paywall.reason.trialOut":
     "Los minutos de tu prueba se han agotado y no se recargan. Elige un plan para seguir importando audio y vídeo.",
   "paywall.reason.outNoDate":
@@ -363,7 +363,7 @@ export const es: Catalog = {
   "account.subscription.manageHint": "Cambiar de plan o restaurar una compra",
   "account.subscription.viewPlans": "Ver planes",
   "account.subscription.viewPlansHint": "Mira qué incluye cada suscripción",
-  "account.subscription.upgrade": "Mejorar el plan",
+  "account.subscription.upgrade": "Cambiar plan",
   "account.subscription.upgradeHint": "Desbloquea más minutos de audio y vídeo",
   "account.featureRequests": "Sugerencias",
   "account.reportBug": "Informar de un error",
@@ -439,8 +439,6 @@ export const es: Catalog = {
   "unsortedReview.saveA11y": "Guardar {title} en una colección",
   "unsortedReview.doneTitle": "No queda nada por clasificar",
   "unsortedReview.doneBody": "Todo lo que esperaba ya está resuelto.",
-  "unsortedReview.sheetTitle": "Guardar en una colección",
-  "unsortedReview.newCollection": "Nueva colección",
   "digest.daily": "Diario",
   "digest.weekly": "Semanal",
   "digest.dailyTitle": "Tu día en revisión",

@@ -347,8 +347,6 @@ export const ar: Catalog = {
   "unsortedReview.saveA11y": "حفظ {title} في مجموعة",
   "unsortedReview.doneTitle": "لا شيء بحاجة إلى تصنيف",
   "unsortedReview.doneBody": "تمّت معالجة كل ما كان في الانتظار.",
-  "unsortedReview.sheetTitle": "الحفظ في مجموعة",
-  "unsortedReview.newCollection": "مجموعة جديدة",
   "digest.daily": "يومي",
   "digest.weekly": "أسبوعي",
   "digest.dailyTitle": "يومك في سطور",

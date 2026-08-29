@@ -25,6 +25,7 @@ import {
   BorderRadius,
   TouchTarget,
 } from "../../src/constants/theme";
+import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 
 /**
  * Settings screen for changing reading language preference.
@@ -94,22 +95,17 @@ export default function ReadingLanguageSettingsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       {/* Header with back button */}
-      <View style={styles.header}>
-        <Pressable
-          style={styles.backButton}
-          onPress={() => router.back()}
-          accessibilityLabel={t("common.goBack")}
-          accessibilityRole="button"
-        >
-          <Ionicons
-            name="chevron-back"
-            size={24}
-            color={Colors.textMain}
+      <ScreenHeader
+        title={t("readingLanguage.title")}
+        leading={
+          <HeaderIconButton
+            icon="chevron-back"
+            variant="plain"
+            onPress={() => router.back()}
+            accessibilityLabel={t("common.goBack")}
           />
-        </Pressable>
-        <Text style={styles.title}>{t("readingLanguage.title")}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+        }
+      />
 
       {/* Disclaimer */}
       <View style={styles.disclaimer}>
@@ -170,28 +166,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-  },
-  backButton: {
-    width: TouchTarget.minimum,
-    height: TouchTarget.minimum,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    flex: 1,
-    ...Typography.headline,
-    fontWeight: "700",
-    color: Colors.textMain,
-    textAlign: "center",
-  },
-  headerSpacer: {
-    width: TouchTarget.minimum,
   },
   disclaimer: {
     flexDirection: "row",

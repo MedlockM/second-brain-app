@@ -4,7 +4,7 @@ import type { Catalog } from "./runtime";
 export const pt: Catalog = {
   "common.ok": "OK",
   "common.cancel": "Cancelar",
-  "common.retry": "Tentar novamente",
+  "common.retry": "Repetir",
   "common.delete": "Eliminar",
   "common.save": "Guardar",
   "common.done": "Concluído",
@@ -346,8 +346,6 @@ export const pt: Catalog = {
   "unsortedReview.saveA11y": "Guardar {title} numa coleção",
   "unsortedReview.doneTitle": "Já não há nada para organizar",
   "unsortedReview.doneBody": "Tudo o que estava à espera foi tratado.",
-  "unsortedReview.sheetTitle": "Guardar numa coleção",
-  "unsortedReview.newCollection": "Nova coleção",
   "digest.daily": "Diário",
   "digest.weekly": "Semanal",
   "digest.dailyTitle": "O seu dia em revista",

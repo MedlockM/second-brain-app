@@ -43,6 +43,7 @@ import {
   TouchTarget,
 } from "../../../src/constants/theme";
 import { t, useTranslation } from "../../../src/i18n";
+import { ScreenHeader, HeaderIconButton } from "../../../src/components/ScreenHeader";
 import type { ArtifactType, MediaListItem, MediaType } from "../../../src/types/media";
 
 /**
@@ -215,20 +216,16 @@ export default function CollectionDetailScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-      <View style={styles.header}>
-        <Pressable
-          style={styles.backButton}
-          onPress={handleBack}
-          accessibilityLabel={t("common.goBack")}
-          accessibilityRole="button"
-        >
-          <Ionicons name="arrow-back" size={22} color={Colors.textMain} />
-        </Pressable>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {title}
-        </Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader
+        title={title}
+        leading={
+          <HeaderIconButton
+            icon="arrow-back"
+            onPress={handleBack}
+            accessibilityLabel={t("common.goBack")}
+          />
+        }
+      />
 
       <View style={styles.tabsContainer}>
         <ScreenTabs
@@ -673,34 +670,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    gap: Spacing.md,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surfaceContainerHigh,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: "center",
-    fontSize: Typography.headline.fontSize,
-    fontWeight: "700",
-    color: Colors.textMain,
-    letterSpacing: -0.3,
-  },
-  headerSpacer: {
-    width: 40,
-    height: 40,
   },
   // One page gutter for the whole screen, `Spacing.lg`, the same the header
   // already used and the same `ArtifactsPanel` brings to the AI tab: the tab bar

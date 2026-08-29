@@ -47,7 +47,7 @@ export const fr: Catalog = {
   "quota.dismissWarning": "Masquer l'alerte de minutes",
   "artifacts.sourceCount.one": "{count} source",
   "artifacts.sourceCount.other": "{count} sources",
-  "artifacts.status.queued": "En file d'attente",
+  "artifacts.status.queued": "En attente",
   "artifacts.status.generating": "Génération…",
   "artifacts.status.failed": "Échec",
   "artifacts.status.generated": "Généré",
@@ -211,7 +211,7 @@ export const fr: Catalog = {
     "Vous avez utilisé {duration} cette période. {plan} est la plus petite formule qui couvre cela.",
   "plan.badge.recommended": "RECOMMANDÉ POUR VOUS",
   "plan.badge.yourTrial": "VOTRE FORMULE D'ESSAI",
-  "plan.badge.bestValue": "MEILLEUR RAPPORT",
+  "plan.badge.bestValue": "MEILLEUR PRIX",
   "paywall.reason.trialOut":
     "Les minutes de votre essai sont épuisées, et elles ne se rechargent pas. Choisissez une formule pour continuer à importer de l'audio et de la vidéo.",
   "paywall.reason.outNoDate":
@@ -380,7 +380,7 @@ export const fr: Catalog = {
   "account.subscription.viewPlans": "Voir les formules",
   "account.subscription.viewPlansHint":
     "Découvrez ce que comprend chaque abonnement",
-  "account.subscription.upgrade": "Passer à une formule supérieure",
+  "account.subscription.upgrade": "Changer d'offre",
   "account.subscription.upgradeHint":
     "Débloquez plus de minutes d'audio et de vidéo",
   "account.featureRequests": "Suggestions",
@@ -457,8 +457,6 @@ export const fr: Catalog = {
   "unsortedReview.saveA11y": "Ranger {title} dans une collection",
   "unsortedReview.doneTitle": "Plus rien à trier",
   "unsortedReview.doneBody": "Tout ce qui attendait a été traité.",
-  "unsortedReview.sheetTitle": "Ranger dans une collection",
-  "unsortedReview.newCollection": "Nouvelle collection",
   "digest.daily": "Quotidien",
   "digest.weekly": "Hebdomadaire",
   "digest.dailyTitle": "Votre journée en revue",

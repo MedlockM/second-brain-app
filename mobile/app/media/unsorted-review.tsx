@@ -31,7 +31,10 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { Image } from "expo-image";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  initialWindowMetrics,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
@@ -70,6 +73,24 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
   // Copy resolved on render: the screen redraws with the interface language.
   useTranslation();
   const router = useRouter();
+
+  /**
+   * Safe area applied by hand, with the launch metrics as a floor.
+   *
+   * This screen is a `fullScreenModal`: it covers the status bar and the home
+   * indicator, so it owns its insets — but it reads them from the provider that
+   * measures the view it was presented *over*, and iOS zeroes that view's
+   * `safeAreaInsets` while a full-screen modal is up. A plain `SafeAreaView`
+   * therefore lays the header out at y = 0, under the clock. `initialWindowMetrics`
+   * is captured natively at launch and never collapses, so it is the floor here
+   * rather than the value.
+   */
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, initialWindowMetrics?.insets.top ?? 0);
+  const bottomInset = Math.max(
+    insets.bottom,
+    initialWindowMetrics?.insets.bottom ?? 0,
+  );
 
   const [items, setItems] = useState<MediaListItem[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -285,10 +306,12 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
   );
 
   return (
-    <SafeAreaView
+    <View
       testID="unsorted-review-screen"
-      style={styles.container}
-      edges={["top", "bottom"]}
+      style={[
+        styles.container,
+        { paddingTop: topInset, paddingBottom: bottomInset },
+      ]}
     >
       <View style={styles.header}>
         <Pressable
@@ -305,12 +328,18 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
         </Pressable>
 
         <View style={styles.headerTextSection}>
-          <Text style={styles.headerTitle}>{t("unsortedReview.title")}</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {t("unsortedReview.title")}
+          </Text>
           {/* The dots cap at seven and therefore cannot state where in the queue
               the user is. This is where that information lives, for the eye and
               for a screen reader alike. */}
           {items.length > 0 ? (
-            <Text style={styles.headerPosition} accessibilityLabel={positionA11yLabel}>
+            <Text
+              style={styles.headerPosition}
+              accessibilityLabel={positionA11yLabel}
+              numberOfLines={1}
+            >
               {positionLabel}
             </Text>
           ) : null}
@@ -418,10 +447,12 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
                   accessibilityState={{ disabled: isMutating }}
                 >
                   {/* The error tint is the only warning there is: the deletion
-                      leaves on this tap with no dialog behind it. Save keeps the
-                      hierarchy anyway — it is the one filled control. */}
+                      leaves on this tap with no dialog behind it. */}
                   <Ionicons name="close" size={26} color={Colors.error} />
-                  <Text style={[styles.plainActionLabel, styles.discardLabel]}>
+                  <Text
+                    style={[styles.plainActionLabel, styles.discardLabel]}
+                    numberOfLines={1}
+                  >
                     {t("unsortedReview.discard")}
                   </Text>
                 </Pressable>
@@ -444,7 +475,7 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
                   size={26}
                   color={Colors.textMain}
                 />
-                <Text style={styles.plainActionLabel}>
+                <Text style={styles.plainActionLabel} numberOfLines={1}>
                   {t("unsortedReview.deepen")}
                 </Text>
               </Pressable>
@@ -452,8 +483,8 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
               <View style={styles.gutterEnd}>
                 <Pressable
                   style={({ pressed }) => [
-                    styles.saveAction,
-                    pressed && styles.saveActionPressed,
+                    styles.plainAction,
+                    pressed && styles.plainActionPressed,
                   ]}
                   onPress={handleSavePress}
                   disabled={isMutating}
@@ -464,12 +495,16 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
                   accessibilityRole="button"
                   accessibilityState={{ disabled: isMutating }}
                 >
+                  {/* The brand amber, carried by the glyph alone: the three
+                      actions share one shape, and this is the one the screen
+                      exists for. The label stays `textMain` — amber on the
+                      background is nowhere near readable at 13px. */}
                   <Ionicons
                     name="folder-open"
-                    size={30}
-                    color={Colors.onPrimary}
+                    size={26}
+                    color={Colors.primary}
                   />
-                  <Text style={styles.saveActionLabel}>
+                  <Text style={styles.plainActionLabel} numberOfLines={1}>
                     {t("unsortedReview.save")}
                   </Text>
                 </Pressable>
@@ -487,7 +522,7 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
         onCollectionCreated={handleCollectionCreated}
         onSaved={handleSaved}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -602,6 +637,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: Spacing.md,
+    // Below the status bar, not against it: the safe area inset stops the
+    // content overlapping the clock, it does not give the header any air.
+    paddingTop: Spacing.sm,
     paddingBottom: Spacing.sm,
     gap: Spacing.md,
   },
@@ -775,34 +813,14 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   plainActionLabel: {
+    // Three labels share one row: each one has to give ground rather than wrap
+    // and drag the whole bar out of alignment.
+    flexShrink: 1,
     fontSize: Typography.small.fontSize,
     fontWeight: "600",
     color: Colors.textMain,
   },
   discardLabel: {
     color: Colors.error,
-  },
-  // The one filled control on the screen and the largest target of the three:
-  // the whole point of this queue is that a media not saved stays unsorted, so
-  // the button that files it is the one that has to be seen first.
-  saveAction: {
-    minWidth: TouchTarget.large + Spacing.md,
-    minHeight: TouchTarget.large,
-    paddingHorizontal: Spacing.md,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    borderRadius: BorderRadius.xl,
-    backgroundColor: Colors.primary,
-    ...Shadows.soft,
-  },
-  saveActionPressed: {
-    transform: [{ scale: 0.97 }],
-    opacity: 0.9,
-  },
-  saveActionLabel: {
-    fontSize: Typography.small.fontSize,
-    fontWeight: "700",
-    color: Colors.onPrimary,
   },
 });

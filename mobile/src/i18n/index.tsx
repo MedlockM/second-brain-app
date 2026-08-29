@@ -18,14 +18,17 @@ import {
   type SupportedLocale,
 } from "./locales";
 import {
+  getActiveCatalog,
   getActiveLocale,
   setActiveCatalog,
   t,
   tCount,
+  type Catalog,
   type PluralKey,
   type TranslationKey,
   type TranslationParams,
 } from "./runtime";
+import { pseudoize } from "./pseudo";
 
 export { SUPPORTED_LOCALES, LOCALE_ENDONYMS, isRTLLocale } from "./locales";
 export type { SupportedLocale } from "./locales";
@@ -33,6 +36,18 @@ export { formatDate, formatNumber, getActiveLocale, t, tCount } from "./runtime"
 export type { TranslationKey, PluralKey } from "./runtime";
 
 const UI_LOCALE_KEY = "ui_locale";
+const UI_PSEUDO_KEY = "ui_pseudo_locale";
+
+/**
+ * The catalogue to install for a locale, pseudo-localised or not.
+ *
+ * Pseudo-localisation is a transform over the *active* catalogue rather than a
+ * twelfth locale, so the locale tag handed to `Intl` stays a real one — see
+ * `pseudo.ts` for why that matters.
+ */
+function catalogFor(locale: SupportedLocale, pseudo: boolean): Catalog {
+  return pseudo ? pseudoize(CATALOGS[locale]) : CATALOGS[locale];
+}
 
 /**
  * The interface language the device asks for.
@@ -91,6 +106,40 @@ const UILocalePreference = {
   },
 } as const;
 
+/**
+ * Whether the interface is rendered pseudo-localised. Development only.
+ *
+ * Persisted so it survives a Metro reload — an overflow hunt across twenty
+ * screens is not something to restart every time the bundle refreshes. Both
+ * halves are guarded by `__DEV__` rather than just the toggle that writes it:
+ * a production build then cannot turn it on even if the key is still sitting
+ * in the keychain from a development install on the same device.
+ */
+const PseudoPreference = {
+  async read(): Promise<boolean> {
+    if (!__DEV__) return false;
+    try {
+      return (await SecureStore.getItemAsync(UI_PSEUDO_KEY)) === "1";
+    } catch {
+      return false;
+    }
+  },
+
+  async write(enabled: boolean): Promise<void> {
+    if (!__DEV__) return;
+    try {
+      if (enabled) {
+        await SecureStore.setItemAsync(UI_PSEUDO_KEY, "1");
+      } else {
+        await SecureStore.deleteItemAsync(UI_PSEUDO_KEY);
+      }
+    } catch {
+      // Same trade as the locale override: losing the flag on the next launch
+      // beats crashing a settings screen on a keychain refusal.
+    }
+  },
+} as const;
+
 interface I18nContextValue {
   /** The locale the interface is rendered in. */
   locale: SupportedLocale;
@@ -98,6 +147,9 @@ interface I18nContextValue {
   override: SupportedLocale | null;
   /** `null` hands the choice back to the device locale. */
   setLocale: (locale: SupportedLocale | null) => void;
+  /** Development-only: renders every catalogue string accented and padded. */
+  pseudo: boolean;
+  setPseudo: (enabled: boolean) => void;
   isRTL: boolean;
   t: (key: TranslationKey, params?: TranslationParams) => string;
   tCount: (key: PluralKey, count: number, params?: TranslationParams) => string;
@@ -123,6 +175,7 @@ function applyLayoutDirection(locale: SupportedLocale): boolean {
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [override, setOverride] = useState<SupportedLocale | null>(null);
+  const [pseudo, setPseudoState] = useState(false);
   const [deviceLocale] = useState<SupportedLocale>(resolveDeviceLocale);
   // The stored override is read asynchronously; rendering the tree before it
   // lands would show one language and then swap it under the user.
@@ -130,11 +183,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    void UILocalePreference.read().then((stored) => {
-      if (!active) return;
-      setOverride(stored);
-      setIsPreferenceLoaded(true);
-    });
+    void Promise.all([UILocalePreference.read(), PseudoPreference.read()]).then(
+      ([storedLocale, storedPseudo]) => {
+        if (!active) return;
+        setOverride(storedLocale);
+        setPseudoState(storedPseudo);
+        setIsPreferenceLoaded(true);
+      },
+    );
     return () => {
       active = false;
     };
@@ -142,36 +198,56 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const locale = override ?? deviceLocale;
 
+  // Rebuilt only when one of the two inputs moves: pseudo-localising 566
+  // strings on every render would be pure waste.
+  const catalog = useMemo(() => catalogFor(locale, pseudo), [locale, pseudo]);
+
   // Keeps the non-React half of the runtime in step with the React half, before
   // any child renders: the copy modules under `src/lib/` read it directly.
-  if (getActiveLocale() !== locale) {
-    setActiveCatalog(locale, CATALOGS[locale]);
+  // The catalogue is compared too, not just the locale: toggling pseudo swaps
+  // the catalogue while the locale stays put.
+  if (getActiveLocale() !== locale || getActiveCatalog() !== catalog) {
+    setActiveCatalog(locale, catalog);
   }
 
-  const setLocale = useCallback((next: SupportedLocale | null) => {
-    setOverride(next);
-    void UILocalePreference.write(next);
-
-    const effective = next ?? resolveDeviceLocale();
-    setActiveCatalog(effective, CATALOGS[effective]);
-
-    if (applyLayoutDirection(effective)) {
-      Alert.alert(t("settings.uiLanguage.restartTitle"), t("settings.uiLanguage.restartBody"), [
-        { text: t("common.ok") },
-      ]);
-    }
+  const setPseudo = useCallback((enabled: boolean) => {
+    setPseudoState(enabled);
+    void PseudoPreference.write(enabled);
+    // The render-time sync above installs the catalogue; nothing has to read
+    // the runtime between here and that render.
   }, []);
+
+  const setLocale = useCallback(
+    (next: SupportedLocale | null) => {
+      setOverride(next);
+      void UILocalePreference.write(next);
+
+      const effective = next ?? resolveDeviceLocale();
+      setActiveCatalog(effective, catalogFor(effective, pseudo));
+
+      if (applyLayoutDirection(effective)) {
+        Alert.alert(
+          t("settings.uiLanguage.restartTitle"),
+          t("settings.uiLanguage.restartBody"),
+          [{ text: t("common.ok") }],
+        );
+      }
+    },
+    [pseudo],
+  );
 
   const value = useMemo<I18nContextValue>(
     () => ({
       locale,
       override,
       setLocale,
+      pseudo,
+      setPseudo,
       isRTL: isRTLLocale(locale),
       t,
       tCount,
     }),
-    [locale, override, setLocale],
+    [locale, override, setLocale, pseudo, setPseudo],
   );
 
   if (!isPreferenceLoaded) return null;
