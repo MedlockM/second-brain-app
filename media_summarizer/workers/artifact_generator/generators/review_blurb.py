@@ -38,12 +38,22 @@ from media_summarizer.workers.artifact_generator.generators import corpus
 # fewer does not.
 MAX_POINTS = 4
 
+# The per-field lengths the prompt asks for are not round numbers, they are what the
+# card can actually show. Its text column is the screen width less 112 pt of stacked
+# padding — about 278 pt, i.e. ~34 characters a line at the 16 pt body size. A bullet
+# therefore has ~65 characters over two lines and the hook ~100 over three. v2 asked
+# for up to 110 per bullet, which no phone could render: the measured blurbs came out
+# at a median of 73 characters and a maximum of 134, so more than half of them were
+# being clipped mid-word, and a truncated bullet carries less than a shorter one.
+HOOK_CHARS = "60 to 100"
+POINT_CHARS = "35 to 65"
+
 # A global band on the rendered text, playing the same role the old character band
 # played: catch an answer that is not a blurb at all — a three-word telegram, or the
 # detailed summary pasted in. It is not there to police per-field length, which the
-# prompt states and which ``numberOfLines`` enforces visually on the card.
-MIN_TOTAL_CHARS = 120
-MAX_TOTAL_CHARS = 1200
+# prompt states and which ``numberOfLines`` backstops on the card.
+MIN_TOTAL_CHARS = 90
+MAX_TOTAL_CHARS = 700
 
 
 class ReviewBlurbValidationError(Exception):
@@ -51,14 +61,15 @@ class ReviewBlurbValidationError(Exception):
 
 
 class ReviewBlurbContent(BaseModel):
-    """``hook`` + ``points`` + ``audience``, the three questions a triage answers."""
+    """``hook`` + ``points``: what this is, and what is in it.
+
+    An ``audience`` field shipped in v2 and was dropped by the owner after using
+    the screen: naming who a source is for told the reader nothing they could not
+    infer from the hook, and it cost the card its last line.
+    """
 
     hook: str
     points: List[str]
-    # Optional for the same reason ``summary_short.takeaway`` is: demanding a field
-    # unconditionally is what makes a model invent one. A clip that is for nobody in
-    # particular has no audience, and the card simply hides the line.
-    audience: str = ""
 
     @field_validator("hook")
     @classmethod
@@ -67,13 +78,6 @@ class ReviewBlurbContent(BaseModel):
         if not normalized:
             raise ValueError("hook must be non-empty")
         return normalized
-
-    @field_validator("audience", mode="before")
-    @classmethod
-    def _optional_audience(cls, value: Any) -> str:
-        if value is None:
-            return ""
-        return " ".join(str(value).split())
 
     @field_validator("points")
     @classmethod
@@ -109,19 +113,20 @@ Rules:
 - {corpus.language_instruction(language)}
 - Output STRICT JSON only. No markdown. No commentary. No code fences. No preamble
   such as "Here is the summary".
-- "hook": one single sentence of 60 to 140 characters naming what this actually is.
-  Name the subject, never the document, and never open on "this content", "this
+- "hook": one single sentence of {HOOK_CHARS} characters naming what this actually
+  is. Name the subject, never the document, and never open on "this content", "this
   video", "this article".
-- "points": 2 to {MAX_POINTS} entries, one line each, 30 to 110 characters. Each one
-  carries a distinct piece of what the sources hold — a theme covered, a claim made,
-  a method shown. Write them as fragments, not as full sentences with a verb and a
-  full stop. A source that holds little yields two; there is no reason to reach {MAX_POINTS}.
+- "points": 2 to {MAX_POINTS} entries, {POINT_CHARS} characters each. Each one carries
+  a distinct piece of what the sources hold — a theme covered, a claim made, a method
+  shown. A source that holds little yields two; there is no reason to reach {MAX_POINTS}.
+- These lengths are hard limits, not preferences: the card shows a bullet over two
+  lines and clips whatever runs past. Write fragments, not sentences — no verb is
+  needed, no full stop, and no lead-in like "the video explains that". Drop the
+  qualifiers and keep the nouns that carry the information. If a point will not fit,
+  cut its least informative half rather than trailing off.
 - Never restate the hook in the points, and never restate one point in another.
-- "audience": one short phrase of at most 80 characters saying who gets something out
-  of this. Return an empty string when the sources are for no one in particular
-  rather than inventing a reader.
-- Be specific throughout: name the actual subject, the actual themes, the actual
-  reader. A card that would fit any other source is a failed card.
+- Be specific throughout: name the actual subject and the actual themes. A card that
+  would fit any other source is a failed card.
 - Never write more than the sources say, and never invent a thesis a source does not
   carry. A source that mostly entertains is described as what it is.
 {corpus.subject_matter_instruction()}
@@ -129,8 +134,7 @@ Rules:
 Return JSON with this exact schema:
 {{
   "hook": "One sentence naming what this is",
-  "points": ["First distinct point", "Second distinct point"],
-  "audience": "Who this is for, or an empty string"
+  "points": ["First distinct point", "Second distinct point"]
 }}
 """
         return corpus.build_prompt(sources, instructions)
@@ -142,7 +146,7 @@ Return JSON with this exact schema:
         return content
 
     def validate(self, content: str) -> Dict[str, Any]:
-        """Return ``{"hook": str, "points": [str], "audience": str}``.
+        """Return ``{"hook": str, "points": [str]}``.
 
         No ``title`` key, unlike the five requestable types: a title is what tells
         two entries of a type apart in the history listing, and this type is
@@ -151,8 +155,9 @@ Return JSON with this exact schema:
 
         Rejecting an empty answer does not contradict the "a section may be empty"
         rule the other prompts carry: that rule is about *how many* items a thin
-        source yields, and it is honoured here by ``audience``. What cannot be empty
-        is the card itself, whose precondition is that a transcript exists.
+        source yields, which is honoured by the bullet count floating between two
+        and four. What cannot be empty is the card itself, whose precondition is
+        that a transcript exists.
         """
         from media_summarizer.workers.artifact_generator.worker import _strip_code_fences
 
@@ -173,9 +178,7 @@ Return JSON with this exact schema:
                 f"review_blurb schema validation failed: {exc}"
             ) from exc
 
-        total = len(validated.hook) + sum(len(p) for p in validated.points) + len(
-            validated.audience
-        )
+        total = len(validated.hook) + sum(len(p) for p in validated.points)
         if not (MIN_TOTAL_CHARS <= total <= MAX_TOTAL_CHARS):
             raise ReviewBlurbValidationError(
                 f"review_blurb output totals {total} characters, outside the "

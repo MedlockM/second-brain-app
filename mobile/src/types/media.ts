@@ -193,16 +193,14 @@ export interface MediaStatusResponse {
  * The triage card mirrored from the `review_blurb` artifact (task-323).
  * Mirrors `ReviewBlurb` in `media_summarizer/core/models/user_media.py`.
  *
- * Three fields rather than one paragraph because the triage screen is scanned in
- * about three seconds, not read: `hook` is the headline, `points` the bullets,
- * `audience` the footer line. `audience` is empty when the sources are for no one
- * in particular, and the card then hides its last line rather than inventing a
- * reader.
+ * Two fields rather than one paragraph because the triage screen is scanned in
+ * about three seconds, not read: `hook` is the headline, `points` the bullets. A
+ * third field naming the audience shipped briefly and was dropped — it repeated
+ * what the hook already said, and cost the card its last line.
  */
 export interface ReviewBlurb {
   hook: string;
   points: string[];
-  audience?: string | null;
 }
 
 /**

@@ -248,14 +248,16 @@ def get_generator_version(artifact_type: MediaArtifactType) -> str:
             "FLASHCARDS_ARTIFACT_GENERATOR_VERSION",
             f"flashcards:{FLASHCARDS_MODEL}:prompt-v4",
         ),
-        # v2: the prose paragraph v1 asked for was unreadable on the triage card
-        # -- it overflowed, scrolled, and had to be read linearly to yield anything.
-        # v2 is the structured card (hook / points / audience). Note that this bump
+        # v3: v1's prose paragraph was unreadable on the triage card, and v2's
+        # structured card asked for bullets of up to 110 characters when the card
+        # can show ~65 -- half of them came back clipped mid-word. v3 states the
+        # lengths the card can actually render and drops the audience line, which
+        # the owner found told them nothing the hook did not. Note that a bump
         # regenerates nothing on its own: `build_artifact_id` deliberately excludes
-        # the generator version, so the v1 blurbs had to be purged explicitly.
+        # the generator version, so old blurbs have to be purged explicitly.
         MediaArtifactType.REVIEW_BLURB: os.environ.get(
             "REVIEW_BLURB_ARTIFACT_GENERATOR_VERSION",
-            f"review_blurb:{OPENAI_MODEL}:prompt-v2",
+            f"review_blurb:{OPENAI_MODEL}:prompt-v3",
         ),
     }
     return versions[artifact_type]

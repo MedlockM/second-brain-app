@@ -77,18 +77,16 @@ def build_folder_sort_key(folder_id: Optional[str], saved_at: datetime) -> str:
 
 
 class ReviewBlurb(BaseModel):
-    """The triage card: what this is, what is in it, who it is for.
+    """The triage card: what this is, and what is in it.
 
-    Three fields rather than one paragraph because the triage screen is scanned,
-    not read: the user has three seconds and three buttons. ``hook`` is the
-    headline, ``points`` the bullets, ``audience`` the footer line — and the last
-    one is optional by construction, a source that is for no one in particular
-    simply hides it.
+    Two fields rather than one paragraph because the triage screen is scanned, not
+    read: the user has three seconds and three buttons. ``hook`` is the headline,
+    ``points`` the bullets. A third field naming the audience shipped briefly and
+    was dropped — it repeated what the hook already said.
     """
 
     hook: str
     points: List[str] = Field(default_factory=list)
-    audience: str = ""
 
 
 class UserMediaRecord(BaseModel):

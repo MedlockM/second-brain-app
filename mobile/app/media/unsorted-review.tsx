@@ -536,9 +536,15 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
  * The card never scrolls. Its first shape wrapped a prose paragraph in a nested
  * vertical `ScrollView`, which failed at the one job of this screen: a summary you
  * have to scroll is not a summary you can decide on, and the nested scroller stole
- * swipes meant for the pager. The blurb is now three bounded fields — a hook, a
- * few bullets, a line saying who it is for — and `numberOfLines` caps each one, so
- * the card fits whatever the model wrote and the action bar stays put.
+ * swipes meant for the pager. The blurb is now a hook and a few bullets, and
+ * `numberOfLines` caps each one, so the card fits whatever the model wrote and the
+ * action bar stays put.
+ *
+ * Those caps are a backstop and nothing more: the prompt asks for lengths the card
+ * can actually render (~65 characters a bullet over two lines), so an ellipsis here
+ * means the model overran, not that the layout is doing its job. Raising the cap
+ * instead of shortening the text is the wrong fix — a clipped bullet carries less
+ * than a shorter one.
  */
 function ReviewCard({ item }: { item: MediaListItem }): React.JSX.Element {
   // Kept per card rather than per screen: a cover that failed on one media says
@@ -566,7 +572,6 @@ function ReviewCard({ item }: { item: MediaListItem }): React.JSX.Element {
   const blurb = item.review_blurb ?? null;
   const hook = blurb?.hook?.trim() ?? "";
   const points = (blurb?.points ?? []).map((p) => p.trim()).filter(Boolean);
-  const audience = blurb?.audience?.trim() ?? "";
 
   return (
     <View style={styles.page}>
@@ -619,21 +624,7 @@ function ReviewCard({ item }: { item: MediaListItem }): React.JSX.Element {
                 {hook}
               </Text>
               {points.length > 0 ? (
-                <Bullets items={points} numberOfLines={2} />
-              ) : null}
-              {/* Hidden rather than filled when the sources are for no one in
-                  particular — the prompt returns an empty string there. */}
-              {audience ? (
-                <View style={styles.blurbAudience}>
-                  <Ionicons
-                    name="person-outline"
-                    size={14}
-                    color={Colors.textSubtle}
-                  />
-                  <Text style={styles.blurbAudienceText} numberOfLines={2}>
-                    {audience}
-                  </Text>
-                </View>
+                <Bullets items={points} numberOfLines={3} />
               ) : null}
             </>
           ) : (
@@ -799,21 +790,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.textMain,
     lineHeight: Typography.body.lineHeight,
-  },
-  blurbAudience: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs + 2,
-    paddingTop: Spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: Colors.outlineVariant,
-  },
-  // `textSubtle` and not `textMuted`: this line is meant to be read, and
-  // `textMuted` misses AA contrast below 18.66px (see the token's own comment).
-  blurbAudienceText: {
-    flex: 1,
-    fontSize: Typography.small.fontSize,
-    color: Colors.textSubtle,
   },
   blurbMissing: {
     fontSize: Typography.body.fontSize,
