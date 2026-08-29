@@ -18,6 +18,11 @@ The S3 objects are deliberately left alone: their key derives from the artifact 
 which is a function of the request and not of the prompt, so the new generation
 writes over them.
 
+Rows are read **raw**, with a table scan, and never through ``UserMediaRecord``: that
+model degrades a blurb in an unknown shape to ``None`` so a stale row stays readable,
+which is exactly the value this script exists to find. Reading through it made the
+first run report zero rows to purge while 22 carried the v1 prose.
+
 Usage:
   uv run python -m media_summarizer.scripts.purge_review_blurbs
   # then, once this reports 0 remaining:
@@ -35,13 +40,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import List
+from typing import Any, Dict, List, Tuple
 
-from media_summarizer.core.models.media_artifact import (
-    ArtifactScope,
-    MediaArtifactType,
-    build_scope_key,
-)
+from media_summarizer.core.models.media_artifact import MediaArtifactType
 from media_summarizer.utils import media_artifacts
 from media_summarizer.utils import user_media as user_media_store
 
@@ -50,28 +51,35 @@ logger = logging.getLogger(__name__)
 MAX_PURGED = int(os.environ.get("REVIEW_BLURB_PURGE_LIMIT", "200"))
 
 
-async def _all_user_ids() -> List[str]:
-    """Scan the users table. Fine for V1 scale, same as the backfill."""
-    from media_summarizer.utils.database_async import (
-        USERS_TABLE,
-        _dynamodb_client_kwargs,
-        get_session,
-    )
+async def _rows_carrying_a_blurb() -> List[Tuple[str, str]]:
+    """``(user_id, media_item_id)`` of every row that still holds a blurb.
 
-    session = get_session()
-    user_ids: List[str] = []
-    async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
-        table = await dynamodb.Table(USERS_TABLE)
-        scan_kwargs = {"ProjectionExpression": "id"}
+    One scan with ``attribute_exists``, on the raw item: whatever shape the value
+    is in — the v1 prose string, a v2 map — the row needs purging, and only the
+    table itself can say so.
+    """
+    from media_summarizer.utils import database_async
+
+    session = database_async.get_session()
+    rows: List[Tuple[str, str]] = []
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(user_media_store.user_media_table_name())
+        scan_kwargs: Dict[str, Any] = {
+            "ProjectionExpression": "user_id, media_item_id",
+            "FilterExpression": "attribute_exists(review_blurb)",
+        }
         while True:
             resp = await table.scan(**scan_kwargs)
             for item in resp.get("Items", []):
-                user_ids.append(item["id"])
+                rows.append((item["user_id"], item["media_item_id"]))
             last_key = resp.get("LastEvaluatedKey")
             if not last_key:
                 break
             scan_kwargs["ExclusiveStartKey"] = last_key
-    return user_ids
+    return rows
 
 
 async def _remove_blurb_attribute(*, user_id: str, media_item_id: str) -> None:
@@ -95,22 +103,43 @@ async def _remove_blurb_attribute(*, user_id: str, media_item_id: str) -> None:
         )
 
 
-async def _delete_blurb_artifacts(*, user_id: str, media_item_id: str) -> int:
-    """Delete every ``review_blurb`` artifact recorded for one media scope."""
-    records, _ = await media_artifacts.list_artifacts_by_scope(
-        scope_key=build_scope_key(
-            user_id=user_id,
-            scope=ArtifactScope.MEDIA,
-            scope_id=media_item_id,
-        )
-    )
-    deleted = 0
-    for record in records:
-        if record.artifact_type != MediaArtifactType.REVIEW_BLURB:
-            continue
-        await media_artifacts.delete_media_artifact(record.artifact_id)
-        deleted += 1
-    return deleted
+async def _delete_blurb_artifacts() -> int:
+    """Delete every ``review_blurb`` artifact record, whoever owns it.
+
+    A scan filtered on the type, rather than one scope query per row. The scope of
+    this artifact is keyed by the **content** — ``<user>#media#mkey_v1_…`` — not by
+    the library row, so there is no scope key to rebuild from a ``media_item_id``;
+    trying deleted nothing on the first run while all 22 records sat there. The
+    table is small and this is a one-shot maintenance tool, so the scan is the
+    honest way to say "every record of this type".
+    """
+    from media_summarizer.utils import database_async
+
+    session = database_async.get_session()
+    artifact_ids: List[str] = []
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(media_artifacts.MEDIA_ARTIFACTS_TABLE)
+        scan_kwargs: Dict[str, Any] = {
+            "ProjectionExpression": "artifact_id",
+            "FilterExpression": "artifact_type = :t",
+            "ExpressionAttributeValues": {
+                ":t": MediaArtifactType.REVIEW_BLURB.value
+            },
+        }
+        while True:
+            resp = await table.scan(**scan_kwargs)
+            artifact_ids.extend(item["artifact_id"] for item in resp.get("Items", []))
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            scan_kwargs["ExclusiveStartKey"] = last_key
+
+    for artifact_id in artifact_ids:
+        await media_artifacts.delete_media_artifact(artifact_id)
+    return len(artifact_ids)
 
 
 async def purge() -> tuple[int, int, int]:
@@ -119,26 +148,20 @@ async def purge() -> tuple[int, int, int]:
     artifacts_deleted = 0
     rows_left = 0
 
-    for user_id in await _all_user_ids():
-        for record in await user_media_store.list_library_for_user(user_id):
-            if record.review_blurb is None:
-                continue
-            if rows_purged >= MAX_PURGED:
-                rows_left += 1
-                continue
+    for user_id, media_item_id in await _rows_carrying_a_blurb():
+        if rows_purged >= MAX_PURGED:
+            rows_left += 1
+            continue
 
-            await _remove_blurb_attribute(
-                user_id=user_id, media_item_id=record.media_item_id
-            )
-            deleted = await _delete_blurb_artifacts(
-                user_id=user_id, media_item_id=record.media_item_id
-            )
-            rows_purged += 1
-            artifacts_deleted += deleted
-            print(
-                f"purged {rows_purged}/{MAX_PURGED}: "
-                f"{record.media_item_id} ({deleted} artifact(s))"
-            )
+        await _remove_blurb_attribute(user_id=user_id, media_item_id=media_item_id)
+        rows_purged += 1
+        print(f"purged row {rows_purged}/{MAX_PURGED}: {media_item_id}")
+
+    # Only once every row is clear: an artifact deleted while its row still points
+    # at it would be regenerated by the next completion event and mirrored back.
+    if MAX_PURGED > 0:
+        artifacts_deleted = await _delete_blurb_artifacts()
+        print(f"deleted {artifacts_deleted} review_blurb artifact record(s)")
 
     return rows_purged, artifacts_deleted, rows_left
 
