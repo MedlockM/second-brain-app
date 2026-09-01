@@ -148,6 +148,22 @@ resource "aws_cloudwatch_metric_alarm" "dlq_depth" {
 
 # =============================================================================
 # Alarm: Lambda Error Rate > 5% over 10 min (per function)
+#
+# READ THIS BEFORE TRUSTING IT FOR A WORKER (task-330). AWS/Lambda Errors counts
+# invocations that ended in an unhandled exception. The SQS handler factory in
+# media_summarizer/workers/lambda_handlers.py does the opposite: it catches the
+# exception, appends the record to batchItemFailures and returns a 200 response.
+# A worker whose every message fails therefore produces Errors = 0, Invocations =
+# N, an error rate of 0%, and empty DLQs until maxReceiveCount is reached. The
+# translation worker is worse still: it swallows its own terminal failure and
+# never even reports the item as failed.
+#
+# So this alarm covers what happens *outside* the per-record try/except -- a
+# cold-start crash, a timeout, an out-of-memory kill, a bad handler path -- and
+# nothing else. It is not a signal that the worker is doing its job. Outcome
+# metrics derived from the workers' own log events are what answer that question:
+# llm_alerts.tf for the two LLM workers, durable_media_alerts.tf for the library
+# writes, the archiver alarms below for the job archiver.
 # =============================================================================
 
 resource "aws_cloudwatch_metric_alarm" "lambda_error_rate" {

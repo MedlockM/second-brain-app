@@ -43,6 +43,10 @@ import aiohttp
 
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.env import required_env
+from media_summarizer.utils.llm_failures import (
+    REFUSAL_AUTHENTICATION,
+    refusal_reason_for_status,
+)
 from media_summarizer.utils.logging_config import log_event
 from media_summarizer.utils.translation_idempotence import (
     TranslationStatus,
@@ -99,7 +103,25 @@ V1_LANGUAGES = frozenset(V1_LANGUAGE_NAMES.keys())
 
 
 class TranscriptTranslationError(Exception):
-    """Raised when translation fails after exhausting retries."""
+    """Raised when translation fails after exhausting retries.
+
+    ``refusal_reason`` / ``provider_status`` are filled when the provider itself
+    declined the call (no credit, bad credentials, throttling). They are what
+    lets the worker classify the failure for the ``LlmGenerationFailures`` metric
+    instead of parsing this exception's message — see
+    ``media_summarizer/utils/llm_failures.py``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        refusal_reason: Optional[str] = None,
+        provider_status: Optional[int] = None,
+    ) -> None:
+        super().__init__(message)
+        self.refusal_reason = refusal_reason
+        self.provider_status = provider_status
 
 
 class TranslationInProgressError(Exception):
@@ -239,7 +261,8 @@ async def _call_translation_llm(
     """
     if not OPENAI_API_KEY:
         raise TranscriptTranslationError(
-            "OPENAI_API_KEY environment variable is required for translation"
+            "OPENAI_API_KEY environment variable is required for translation",
+            refusal_reason=REFUSAL_AUTHENTICATION,
         )
 
     system_prompt = _build_system_prompt(
@@ -266,7 +289,9 @@ async def _call_translation_llm(
             if response.status >= 400:
                 body = await response.text()
                 raise TranscriptTranslationError(
-                    f"translation_llm_http_{response.status}: {body[:300]}"
+                    f"translation_llm_http_{response.status}: {body[:300]}",
+                    refusal_reason=refusal_reason_for_status(response.status, body),
+                    provider_status=response.status,
                 )
             result = await response.json()
             content = result["choices"][0]["message"]["content"]
@@ -306,8 +331,13 @@ async def _translate_with_retry(
                 detail=str(exc)[:200],
             )
             await asyncio.sleep(backoff)
+    # Carry the provider's verdict through the wrapper: without it the terminal
+    # error is a string, and the failure metric could not tell "the account has no
+    # credit left" from "the translation blew up".
     raise TranscriptTranslationError(
-        f"translation_failed_after_{TRANSLATION_MAX_RETRIES}_attempts: {last_exc}"
+        f"translation_failed_after_{TRANSLATION_MAX_RETRIES}_attempts: {last_exc}",
+        refusal_reason=getattr(last_exc, "refusal_reason", None),
+        provider_status=getattr(last_exc, "provider_status", None),
     )
 
 
@@ -342,6 +372,7 @@ class TranslationOutcome:
         is_translated: bool,
         translation_failed: bool = False,
         translation_error: Optional[str] = None,
+        translation_refusal_reason: Optional[str] = None,
     ) -> None:
         self.transcript_s3_key = transcript_s3_key
         self.detected_language = detected_language
@@ -350,6 +381,10 @@ class TranslationOutcome:
         self.is_translated = is_translated
         self.translation_failed = translation_failed
         self.translation_error = translation_error
+        # Set when the provider itself declined (quota / credentials / rate
+        # limit). The worker reads it to classify its failure metric, because on
+        # this path the failure never surfaces as an exception.
+        self.translation_refusal_reason = translation_refusal_reason
 
     def metadata(self) -> Dict[str, Any]:
         """Translation metadata block embedded in the artifact envelope."""
@@ -724,6 +759,8 @@ async def ensure_translated_transcript(
             model=TRANSLATION_MODEL,
             translated=False,
             detail=str(exc)[:300],
+            refusal_reason=exc.refusal_reason,
+            provider_status=exc.provider_status,
         )
         return TranslationOutcome(
             transcript_s3_key=transcript_s3_key,
@@ -733,6 +770,7 @@ async def ensure_translated_transcript(
             is_translated=False,
             translation_failed=True,
             translation_error=str(exc)[:300],
+            translation_refusal_reason=exc.refusal_reason,
         )
 
     payload_bytes = (translated_text or "").encode("utf-8")
