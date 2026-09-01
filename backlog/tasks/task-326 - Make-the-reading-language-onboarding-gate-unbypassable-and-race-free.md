@@ -53,10 +53,57 @@ Attention à ne pas créer de boucle : `updateReadingLanguage` renseigne `localR
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Aucun fichier de `mobile/app/(auth)/` ni `mobile/src/components/SocialAuthButtons.tsx` ne cible plus `/(tabs)/inbox` : un grep de `(tabs)/inbox` sur ces chemins ne renvoie rien.
-- [ ] #2 `mobile/app/(tabs)/_layout.tsx` redirige vers `/onboarding/language` quand la langue de lecture n'est pas renseignée, et cette vérification est placée après les gardes `isLoading` et `!isAuthenticated` existants.
-- [ ] #3 Le garde-fou de `mobile/app/index.tsx` reste en place et cohérent avec celui du layout des onglets — les deux lisent `needsLanguageOnboarding` depuis `UserPreferencesContext`, sans dupliquer la règle.
-- [ ] #4 `mobile/app/onboarding/language.tsx` continue de renseigner la préférence avant de naviguer, et sa cible de sortie ne peut pas ramener l'utilisateur sur le garde-fou : le chemin de sortie est tracé dans une note du fichier ou du rapport de tâche.
-- [ ] #5 `npm run typecheck` et `npm run lint` passent dans `mobile/` sans erreur.
-- [ ] #6 Aucune couche de compatibilité, aucun fallback vers l'ancien ciblage en dur n'est conservé.
+- [x] #1 Aucun fichier de `mobile/app/(auth)/` ni `mobile/src/components/SocialAuthButtons.tsx` ne cible plus `/(tabs)/inbox` : un grep de `(tabs)/inbox` sur ces chemins ne renvoie rien.
+- [x] #2 `mobile/app/(tabs)/_layout.tsx` redirige vers `/onboarding/language` quand la langue de lecture n'est pas renseignée, et cette vérification est placée après les gardes `isLoading` et `!isAuthenticated` existants.
+- [x] #3 Le garde-fou de `mobile/app/index.tsx` reste en place et cohérent avec celui du layout des onglets — les deux lisent `needsLanguageOnboarding` depuis `UserPreferencesContext`, sans dupliquer la règle.
+- [x] #4 `mobile/app/onboarding/language.tsx` continue de renseigner la préférence avant de naviguer, et sa cible de sortie ne peut pas ramener l'utilisateur sur le garde-fou : le chemin de sortie est tracé dans une note du fichier ou du rapport de tâche.
+- [x] #5 `npm run typecheck` et `npm run lint` passent dans `mobile/` sans erreur.
+- [x] #6 Aucune couche de compatibilité, aucun fallback vers l'ancien ciblage en dur n'est conservé.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Volet 1 — `/` devient le point d'entrée unique
+
+Quatre chemins post-authentification nommaient eux-mêmes leur destination. Ils passent tous par `/` :
+
+- `app/(auth)/login.tsx` — `router.replace("/(tabs)/inbox")` → `router.replace(POST_AUTH_ENTRY_POINT)`.
+- `app/(auth)/_layout.tsx` — `<Redirect href="/(tabs)/inbox" />` → `<Redirect href={POST_AUTH_ENTRY_POINT} />`.
+- `src/components/SocialAuthButtons.tsx` — les deux `router.replace` (Google et Apple), qui ne traversaient jamais le garde-fou.
+- `app/(auth)/register.tsx` — visait déjà `/`, passe au constant.
+
+La course décrite dans la tâche n'est pas arbitrée, elle est **dissoute** : les deux redirections qui se disputaient le stack racine au même `setState` d'`AuthContext` visent maintenant la même route, donc l'ordre du flush React ne change plus le résultat.
+
+Le `Redirect` d'`app/(auth)/_layout.tsx` est conservé plutôt que supprimé, parce qu'il ne décide plus rien — il rend la main à `/`. Il garde son seul vrai rôle : ne pas laisser une session vivante assise sur le formulaire de connexion. Ce cas existe sans qu'aucun écran n'ait navigué (`revalidateSession` au retour au premier plan répare une session expirée alors que l'utilisateur est sur `login`, `isAuthenticated` repasse à `true`, et seule cette branche le sort de là).
+
+## Volet 2 — la décision d'onboarding vit dans le layout des onglets
+
+`app/(tabs)/_layout.tsx` lit `needsLanguageOnboarding` et retourne `<Redirect href={LANGUAGE_ONBOARDING_ROUTE} />`, **après** `isLoading` puis `!isAuthenticated` — l'ordre compte, et le commentaire dans le fichier dit pourquoi : `needsLanguageOnboarding` est dérivé du profil, et un profil encore en restauration se lit exactement comme « pas de langue de lecture », ce qui enverrait un utilisateur de retour sur l'écran d'onboarding à chaque démarrage à froid.
+
+Ce qui rend l'invariant inviolable n'est pas la redirection mais **ce qu'elle remplace** : le garde-fou retourne le `Redirect` *à la place* de `<Tabs>`, donc aucun écran d'onglet n'est monté tant que la langue n'est pas renseignée. Il n'y a plus rien à armer. C'était tout le problème d'`app/index.tsx` : `Redirect` appelle `router.replace` depuis un `useFocusEffect`, donc une route non focalisée conserve une redirection non consommée et la tire plus tard — au premier tap sur l'onglet Compte, dans le rapport de bug.
+
+## Chemin de sortie de l'onboarding (AC #4)
+
+Sortie inchangée : `router.replace("/(tabs)/inbox")`, après `await updateReadingLanguage(selectedLanguage)`. Elle ne peut pas ramener sur le garde-fou, et la raison est écrite dans le fichier : l'`await` ne se résout qu'après que `updateReadingLanguage` a écrit `localReadingLanguage` dans `UserPreferencesContext`, donc `needsLanguageOnboarding` vaut déjà `false` quand le layout des onglets exécute sa vérification à son premier rendu. Pas de boucle, pas de fenêtre.
+
+Sortir vers `/` aurait été plus « uniforme » mais strictement moins bon : la préférence est déjà arbitrée au moment de naviguer, il ne reste rien à décider au point d'entrée, et le détour ajoute une frame de l'état de chargement racine. Un échec de l'API lève à la place de naviguer, ce qui garde l'utilisateur sur l'écran avec une erreur au lieu de le lâcher dans les onglets sans langue.
+
+## `src/constants/routes.ts`
+
+Deux constantes, `POST_AUTH_ENTRY_POINT` et `LANGUAGE_ONBOARDING_ROUTE`, utilisées par les six appelants. Ce n'est pas une couche d'indirection pour le plaisir : le bug était précisément un écran qui restatait une destination de son côté, et un chemin nommé une fois rend la règle relisible là où elle est appliquée. Le reste de l'app continue de naviguer avec des chemins inline, ce qui est très bien — `/media/[id]` n'énonce rien d'autre que sa destination.
+
+La **règle**, elle, n'est pas dupliquée (AC #3) : `needsLanguageOnboarding` reste la seule définition de `!readingLanguage`, dans `UserPreferencesContext`. `index.tsx` et `(tabs)/_layout.tsx` lisent ce booléen, ils ne le recalculent pas.
+
+## Ce qui n'a pas bougé
+
+Six `(tabs)/inbox` subsistent dans l'app, aucun n'est un choix de destination post-authentification : `index.tsx` (c'est lui qui décide), la sortie de l'onboarding, le dismiss de `share-confirmation`, `+native-intent.tsx`, la suppression d'un artefact, la fermeture d'`unsorted-review`. Tous partent d'un utilisateur déjà dans l'app.
+
+Aucun fallback, aucun drapeau, aucun double chemin (AC #6) : les anciennes cibles sont remplacées, pas doublées.
+
+## Vérifications
+
+- `grep -rn "(tabs)/inbox" "app/(auth)" src/components/SocialAuthButtons.tsx` : zéro occurrence (AC #1).
+- `npm run typecheck` : clean. `npm run lint` : 0 erreur, 2 warnings préexistants (`digest.tsx` `CARD_WIDTH`, `purchaseService.ts` `any`), aucun sur les fichiers touchés.
+- Non vérifiable ici, et laissé à l'owner comme le dit la description : le parcours réel sur device (compte neuf email/mot de passe, puis Google, puis Apple) et le flow `mobile/.maestro/01_login.yaml`. Un simulateur n'était pas à disposition et Maestro est déclenché par l'owner.
+<!-- SECTION:NOTES:END -->

@@ -19,6 +19,7 @@ import {
 } from "../../src/lib/validation";
 import { SocialAuthButtons } from "../../src/components/SocialAuthButtons";
 import { t } from "../../src/i18n";
+import { POST_AUTH_ENTRY_POINT } from "../../src/constants/routes";
 import { Colors, Typography, Spacing, BorderRadius } from "../../src/constants/theme";
 
 export default function LoginScreen() {
@@ -46,7 +47,7 @@ export default function LoginScreen() {
     setIsSubmitting(true);
     try {
       await login({ email: email.trim(), password });
-      router.replace("/(tabs)/inbox");
+      router.replace(POST_AUTH_ENTRY_POINT);
     } catch (err) {
       setError(getFriendlyErrorMessage(err));
     } finally {
