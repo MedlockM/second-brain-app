@@ -1,5 +1,10 @@
 {
-  "CFBundleDisplayName": "Media Summarizer",
-  "NSPhotoLibraryUsageDescription": "يُستخدم لإرفاق صور بعناصرك.",
-  "NSCameraUsageDescription": "يُستخدم لتصوير مستند أو صفحة واستيرادها إلى مكتبتك."
+  "ios": {
+    "CFBundleDisplayName": "Media Summarizer",
+    "NSPhotoLibraryUsageDescription": "يُستخدم لإرفاق صور بعناصرك.",
+    "NSCameraUsageDescription": "يُستخدم لتصوير مستند أو صفحة واستيرادها إلى مكتبتك."
+  },
+  "android": {
+    "app_name": "Media Summarizer"
+  }
 }

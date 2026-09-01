@@ -1,5 +1,10 @@
 {
-  "CFBundleDisplayName": "Media Summarizer",
-  "NSPhotoLibraryUsageDescription": "メディアに画像を添付するために使用します。",
-  "NSCameraUsageDescription": "書類やページを撮影してライブラリに取り込むために使用します。"
+  "ios": {
+    "CFBundleDisplayName": "Media Summarizer",
+    "NSPhotoLibraryUsageDescription": "メディアに画像を添付するために使用します。",
+    "NSCameraUsageDescription": "書類やページを撮影してライブラリに取り込むために使用します。"
+  },
+  "android": {
+    "app_name": "Media Summarizer"
+  }
 }

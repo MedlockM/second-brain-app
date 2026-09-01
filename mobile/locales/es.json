@@ -1,5 +1,10 @@
 {
-  "CFBundleDisplayName": "Media Summarizer",
-  "NSPhotoLibraryUsageDescription": "Se usa para adjuntar imágenes a tus elementos.",
-  "NSCameraUsageDescription": "Se usa para hacer una foto de un documento o una página e importarla a tu biblioteca."
+  "ios": {
+    "CFBundleDisplayName": "Media Summarizer",
+    "NSPhotoLibraryUsageDescription": "Se usa para adjuntar imágenes a tus elementos.",
+    "NSCameraUsageDescription": "Se usa para hacer una foto de un documento o una página e importarla a tu biblioteca."
+  },
+  "android": {
+    "app_name": "Media Summarizer"
+  }
 }

@@ -101,6 +101,18 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     // The files carry the app name (a brand, identical in every locale) and the
     // two `infoPlist` permission strings, which is everything the OS renders
     // outside the JS bundle.
+    //
+    // Each file is split into `ios` and `android` sections, and that split is
+    // load-bearing. Expo writes whatever keys it finds straight into the native
+    // resources without renaming them (`@expo/config-plugins`,
+    // `android/Locales.js`), and only keys outside those two sections go to both
+    // platforms. Left flat, the three iOS keys landed in
+    // `res/values-b+<lang>/strings.xml` where none of them means anything, and
+    // none of them exists in `res/values/strings.xml` — so `lintVitalRelease`
+    // failed the Android release build with 33 `ExtraTranslation` errors
+    // (11 locales x 3 keys) and no AAB could be produced. Android's half is
+    // `app_name`, the one string the platform actually renders as the launcher
+    // label, and it exists in the default locale, so lint is satisfied.
     locales: {
       en: "./locales/en.json",
       fr: "./locales/fr.json",
