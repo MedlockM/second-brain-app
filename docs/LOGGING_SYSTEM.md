@@ -134,6 +134,22 @@ The API middleware (`request_id_middleware` in `main.py`) binds `request_id`, `p
 | `external_call.succeeded` | DEBUG | AWS/external call succeeded |
 | `external_call.failed` | ERROR | AWS/external call failed |
 
+### LLM Generation — `llm.*`
+
+| Event | Level | Description |
+|---|---|---|
+| `llm.generation_failed` | ERROR | An LLM-backed generation failed (artifact generation or transcript translation) |
+
+`llm.generation_failed` is an alarm contract, not a free-text log line: the metric
+filters of `infrastructure/terraform/modules/platform/llm_alerts.tf` turn it into
+the `LlmGenerationFailures` metric, dimensioned by its `failure_kind` field
+(`provider_refused` | `other`). It is the *only* signal the alarm layer has for
+these two workers, because they report failures through `batchItemFailures` and
+never raise. Emit it through
+`media_summarizer.utils.llm_failures.log_llm_generation_failure()` so the field
+names stay in sync; the runbook section is
+`infrastructure/observability/runbooks/pipeline-alerts.md#llm-generation-failures`.
+
 ### Runtime — `runtime.*`
 
 | Event | Level | Description |

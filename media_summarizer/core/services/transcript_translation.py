@@ -44,6 +44,10 @@ import aiohttp
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.llm_failure import LLMFailureKind, classify_llm_failure
+from media_summarizer.utils.llm_failures import (
+    REFUSAL_AUTHENTICATION,
+    refusal_reason_for_status,
+)
 from media_summarizer.utils.logging_config import log_event
 from media_summarizer.utils.translation_idempotence import (
     TranslationStatus,
@@ -103,11 +107,25 @@ V1_LANGUAGES = frozenset(V1_LANGUAGE_NAMES.keys())
 class TranscriptTranslationError(Exception):
     """Raised when translation fails, after exhausting the retries it deserved.
 
-    ``failure_kind`` says whether the same call is worth making again. It travels
-    with the exception because the decision is taken where the provider's answer
-    is read -- the layers above only forward it, they never re-interpret a
-    message. The default is the conservative one: an error whose origin we did not
-    classify is treated as transient, i.e. re-attemptable.
+    This exception carries two classifications that answer two different
+    questions. Do not collapse them:
+
+    - ``failure_kind`` (``transient`` / ``permanent``, see
+      ``media_summarizer/utils/llm_failure.py``) says whether the same call is
+      worth making again. It drives the retry budget and the re-reservation gate.
+      It travels with the exception because the decision is taken where the
+      provider's answer is read -- the layers above only forward it, they never
+      re-interpret a message. The default is the conservative one: an error whose
+      origin we did not classify is treated as transient, i.e. re-attemptable.
+    - ``refusal_reason`` / ``provider_status`` (see
+      ``media_summarizer/utils/llm_failures.py``) name *what the operator must do*
+      -- top up the account, rotate a key, or wait. They are filled only when the
+      provider itself declined, and they feed the ``LlmGenerationFailures``
+      metric, so the worker never has to parse this exception's message.
+
+    A permanent failure is not always a provider refusal (an unknown model is
+    permanent with no ``refusal_reason``), and a provider refusal is not always
+    permanent (a named rate limit is transient), which is why both are kept.
     """
 
     def __init__(
@@ -115,9 +133,13 @@ class TranscriptTranslationError(Exception):
         message: str,
         *,
         failure_kind: str = LLMFailureKind.TRANSIENT,
+        refusal_reason: Optional[str] = None,
+        provider_status: Optional[int] = None,
     ) -> None:
         super().__init__(message)
         self.failure_kind = failure_kind
+        self.refusal_reason = refusal_reason
+        self.provider_status = provider_status
 
 
 class TranslationPermanentlyFailedError(Exception):
@@ -279,6 +301,7 @@ async def _call_translation_llm(
         raise TranscriptTranslationError(
             "OPENAI_API_KEY environment variable is required for translation",
             failure_kind=LLMFailureKind.PERMANENT,
+            refusal_reason=REFUSAL_AUTHENTICATION,
         )
 
     system_prompt = _build_system_prompt(
@@ -314,6 +337,8 @@ async def _call_translation_llm(
                 raise TranscriptTranslationError(
                     f"translation_llm_http_{response.status}: {body[:300]}",
                     failure_kind=failure_kind,
+                    refusal_reason=refusal_reason_for_status(response.status, body),
+                    provider_status=response.status,
                 )
             result = await response.json()
             content = result["choices"][0]["message"]["content"]
@@ -375,9 +400,16 @@ async def _translate_with_retry(
                 detail=str(exc)[:200],
             )
             await asyncio.sleep(backoff)
+    # Carry the provider's verdict through the wrapper: without it the terminal
+    # error is a string, and the failure metric could not tell "the account has no
+    # credit left" from "the translation blew up".
     raise TranscriptTranslationError(
         f"translation_failed_after_{TRANSLATION_MAX_RETRIES}_attempts: {last_exc}",
+        # Reaching here means every attempt was transient: a permanent failure
+        # re-raises from the except block above without consuming the budget.
         failure_kind=LLMFailureKind.TRANSIENT,
+        refusal_reason=getattr(last_exc, "refusal_reason", None),
+        provider_status=getattr(last_exc, "provider_status", None),
     )
 
 
@@ -413,6 +445,7 @@ class TranslationOutcome:
         translation_failed: bool = False,
         translation_error: Optional[str] = None,
         failure_kind: Optional[str] = None,
+        translation_refusal_reason: Optional[str] = None,
     ) -> None:
         self.transcript_s3_key = transcript_s3_key
         self.detected_language = detected_language
@@ -424,6 +457,10 @@ class TranslationOutcome:
         #: Set with ``translation_failed`` only, and forwarded onto the lock so
         #: the next caller can tell "not yet" from "not ever".
         self.failure_kind = failure_kind
+        # Set when the provider itself declined (quota / credentials / rate
+        # limit). The worker reads it to classify its failure metric, because on
+        # this path the failure never surfaces as an exception.
+        self.translation_refusal_reason = translation_refusal_reason
 
     def metadata(self) -> Dict[str, Any]:
         """Translation metadata block embedded in the artifact envelope."""
@@ -826,6 +863,8 @@ async def ensure_translated_transcript(
             translated=False,
             failure_kind=exc.failure_kind,
             detail=str(exc)[:300],
+            refusal_reason=exc.refusal_reason,
+            provider_status=exc.provider_status,
         )
         return TranslationOutcome(
             transcript_s3_key=transcript_s3_key,
@@ -836,6 +875,7 @@ async def ensure_translated_transcript(
             translation_failed=True,
             translation_error=str(exc)[:300],
             failure_kind=exc.failure_kind,
+            translation_refusal_reason=exc.refusal_reason,
         )
 
     payload_bytes = (translated_text or "").encode("utf-8")

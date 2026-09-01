@@ -15,6 +15,7 @@ Each section corresponds to a specific CloudWatch alarm defined in `infrastructu
 - [Lambda Throttles](#lambda-throttles)
 - [Deepgram Error Rate](#deepgram-error-rate)
 - [LlamaParse Fallback](#llamaparse-fallback)
+- [LLM Generation Failures](#llm-generation-failures)
 - [Archiver Failure](#archiver-failure)
 
 ---
@@ -271,6 +272,23 @@ Run `./scripts/replay_dlq.sh --help` for the full list of available DLQs.
 **Severity:** High
 **Threshold:** Error rate > 5% over 10 minutes (2 consecutive 5-min periods)
 
+### What this alarm cannot see
+
+`AWS/Lambda` `Errors` only counts invocations that ended in an unhandled
+exception. The SQS handler factory (`media_summarizer/workers/lambda_handlers.py`)
+catches the exception, appends the record to `batchItemFailures` and returns
+normally, so **a worker whose every message fails still reports an error rate of
+0%** — and the DLQ stays empty until `maxReceiveCount` is reached. That is exactly
+what happened on 2026-09-01: 3 artifact generations and 25 translations failed,
+`Errors` stayed at 0, every alarm stayed OK.
+
+Treat this alarm as covering what happens *outside* the per-record `try/except`
+(cold-start crash, timeout, out-of-memory kill, bad handler path) and nothing
+else. For the outcome question — "is the worker doing its job?" — read the
+outcome alarms instead: [LLM Generation Failures](#llm-generation-failures) for
+the two LLM workers, [Archiver Failure](#archiver-failure) for the job archiver,
+and `durable-media.md` for the library writes.
+
 ### Symptoms
 
 - Lambda function returning errors
@@ -454,6 +472,102 @@ Run `./scripts/replay_dlq.sh --help` for the full list of available DLQs.
 
 - If both LlamaParse AND Unstructured are failing: `document_parsing.all_failed` will fire Lambda error rate alarm
 - If cost concern: evaluate upgrading LlamaParse plan vs relying on Unstructured
+
+---
+
+## LLM Generation Failures
+
+**Alarms:** `media-summarizer-llm-provider-refused-<env>`, `media-summarizer-llm-generation-failures-<env>`
+**Severity:** Critical (provider refused) / High (any other cause)
+**Thresholds:** provider refusal = any occurrence in 5 minutes; other causes = more than 3 in 15 minutes
+**Defined in:** `infrastructure/terraform/modules/platform/llm_alerts.tf`
+
+The two workers that call the LLM — `artifact_generator` and
+`transcript_translation` — hide their failures from `AWS/Lambda` `Errors` (see
+[Lambda Errors](#lambda-errors)). These two alarms are the only automated signal
+that artifact generation has stopped working. They exist because on 2026-09-01
+the OpenAI credit ran out, the backend produced no artifact for an entire
+session, and nothing could fire.
+
+### Metric
+
+| | |
+|---|---|
+| Namespace | `MediaSummarizer/Pipeline/<env>` |
+| Metric name | `LlmGenerationFailures` |
+| Dimension | `FailureKind` — `provider_refused` \| `other` |
+| Statistic | `Sum` |
+| Source log event | `llm.generation_failed` (level ERROR) |
+| Source log groups | `/aws/lambda/media-summarizer-worker-artifact_generator-<env>`, `/aws/lambda/media-summarizer-worker-transcript_translation-<env>` |
+| Metric filters | `llm-generation-failed-artifact-generator-<env>`, `llm-generation-failed-transcript-translation-<env>` |
+
+Like every other metric in this module, it is derived from a log metric filter —
+the application never calls `put_metric_data`. The event contract lives in
+`media_summarizer/utils/llm_failures.py`; the `failure_kind` values there and the
+dimension values here must stay identical.
+
+Fields carried by the event: `worker`, `provider`, `failure_kind`,
+`refusal_reason` (`quota` \| `authentication` \| `rate_limit`, only when
+`failure_kind = provider_refused`), `provider_status`, `error_type`, `detail`,
+plus `artifact_id` / `artifact_type` or `transcript_s3_key` / `target_language`
+depending on the worker.
+
+### Symptoms
+
+- Artifacts stay `queued`/`failed` and no content appears in the app
+- Transcripts come back untranslated with the failure badge
+- `Errors` at 0 and empty DLQs on both worker Lambdas — the failures never raise
+
+### Investigation Steps
+
+1. **Read the failures and their class:**
+   ```
+   CloudWatch Insights on /aws/lambda/media-summarizer-worker-artifact_generator-<env>
+   and /aws/lambda/media-summarizer-worker-transcript_translation-<env>:
+
+   fields @timestamp, worker, failure_kind, refusal_reason, provider_status, error_type, detail
+   | filter event = "llm.generation_failed"
+   | sort @timestamp desc
+   | limit 50
+   ```
+
+2. **If `failure_kind = provider_refused`, read `refusal_reason`:**
+   - `quota` — the OpenAI account has no credit left (HTTP 402, or 429 with
+     `insufficient_quota`). Check the balance at
+     https://platform.openai.com/settings/organization/billing/overview
+   - `authentication` — the key is missing, revoked or wrong (HTTP 401/403, or
+     `openai_api_key_missing`). `OPENAI_API_KEY` lives in the runtime secret;
+     see task-252 for who holds the values.
+   - `rate_limit` — plain throttling (429 without a quota marker). Transient:
+     the artifact worker's messages are retried by SQS.
+
+3. **If `failure_kind = other`, group by cause:**
+   ```
+   fields error_type, detail
+   | filter event = "llm.generation_failed" and failure_kind = "other"
+   | stats count(*) by error_type
+   ```
+   Usual suspects: a validation error on the model output
+   (`*ValidationError`, also visible as `error_code = VALIDATION_ERROR`),
+   `corpus_too_large` on a collection above `MAX_COLLECTION_CORPUS_TOKENS`, or an
+   S3 read failure on a transcript.
+
+### First Response
+
+- `quota`: top the account up. Nothing else recovers the pipeline; messages that
+  already exhausted their 3 deliveries are in the artifact-generator DLQ and can
+  be replayed with `./scripts/replay_dlq.sh` once credit is back.
+- `authentication`: fix the key in the runtime secret, then let SQS retry.
+- `rate_limit`: no action; if it persists, lower the reserved concurrency of
+  `artifact_generator` so fewer generations compete for the same rate window.
+- `other`: fix the underlying cause, then replay the DLQ.
+
+### Escalation
+
+- Provider refusals still firing 30 min after the account was topped up: check
+  whether the deployed Lambda picked up the new secret (cold start required).
+- Recurrent `VALIDATION_ERROR` on one artifact type: it is a prompt/schema
+  regression, not an incident — open a task against that generator.
 
 ---
 

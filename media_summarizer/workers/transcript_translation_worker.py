@@ -41,6 +41,7 @@ from media_summarizer.core.services.transcript_translation import (
 from media_summarizer.utils import database_async, s3
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.llm_failure import LLMFailureKind
+from media_summarizer.utils.llm_failures import log_llm_generation_failure
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -199,6 +200,13 @@ async def process_message(message: Dict[str, Any]) -> None:
                 failure_kind=exc.failure_kind,
                 detail=str(exc)[:300],
             )
+            log_llm_generation_failure(
+                logger,
+                worker="transcript_translation",
+                exc=exc,
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
+            )
             await mark_translation_failed(
                 transcript_s3_key=transcript_s3_key,
                 target_language=target_language,
@@ -219,6 +227,13 @@ async def process_message(message: Dict[str, Any]) -> None:
                 target_language=target_language,
                 error_type=type(exc).__name__,
                 detail=str(exc)[:300],
+            )
+            log_llm_generation_failure(
+                logger,
+                worker="transcript_translation",
+                exc=exc,
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
             )
             # Mark failed so the state machine knows this attempt is done
             await mark_translation_failed(
@@ -249,6 +264,18 @@ async def process_message(message: Dict[str, Any]) -> None:
                 target_language=target_language,
                 failure_kind=failure_kind,
                 detail=(outcome.translation_error or "translation_failed")[:300],
+            )
+            # The blind spot this event exists for: the service swallowed the
+            # failure and returned normally, so this invocation is a success for
+            # Lambda -- no Errors datapoint, no DLQ message, nothing for
+            # lambda_error_rate to see (see utils/llm_failures.py).
+            log_llm_generation_failure(
+                logger,
+                worker="transcript_translation",
+                refusal_reason=outcome.translation_refusal_reason,
+                detail=(outcome.translation_error or "translation_failed")[:300],
+                transcript_s3_key=transcript_s3_key,
+                target_language=target_language,
             )
             return
 

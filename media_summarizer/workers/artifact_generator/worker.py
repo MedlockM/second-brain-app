@@ -44,6 +44,12 @@ from media_summarizer.core.services.artifact_service import (
 from media_summarizer.core.services.llm_pricing import estimate_llm_cost_eur
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.env import required_env
+from media_summarizer.utils.llm_failures import (
+    REFUSAL_AUTHENTICATION,
+    LlmProviderRefusedError,
+    log_llm_generation_failure,
+    refusal_reason_for_status,
+)
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -116,7 +122,12 @@ async def _call_llm(
     makes the real cost measurable instead of estimated (`llm_usage`).
     """
     if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY environment variable is required")
+        # A missing key and a revoked key are the same outage seen from here, and
+        # they need the same action, so they carry the same refusal reason.
+        raise LlmProviderRefusedError(
+            "openai_api_key_missing",
+            refusal_reason=REFUSAL_AUTHENTICATION,
+        )
 
     timeout = aiohttp.ClientTimeout(
         total=int(os.environ.get("LLM_TIMEOUT_SECONDS", "180"))
@@ -160,6 +171,16 @@ async def _call_llm(
                     status=response.status,
                     detail=body[:500],
                 )
+                # A refusal is raised as itself so the failure metric can name the
+                # account state (no credit / bad key / throttled) instead of
+                # lumping it in with a validation error.
+                refusal_reason = refusal_reason_for_status(response.status, body)
+                if refusal_reason is not None:
+                    raise LlmProviderRefusedError(
+                        f"llm_provider_refused_http_{response.status}",
+                        refusal_reason=refusal_reason,
+                        provider_status=response.status,
+                    )
             response.raise_for_status()
             result = await response.json()
             usage = result.get("usage") or {}
@@ -372,6 +393,18 @@ async def process_message(message: Dict[str, Any]) -> None:
             SummaryDetailedValidationError,
         )):
             error_code = "VALIDATION_ERROR"
+
+        # The alarm layer's only view of this failure: re-raising below produces a
+        # batchItemFailures entry, which Lambda counts as a successful invocation
+        # (see media_summarizer/utils/llm_failures.py). artifact_id and
+        # artifact_type ride along from the bound log context.
+        log_llm_generation_failure(
+            logger,
+            worker="artifact_generator",
+            exc=exc,
+            error_code=error_code,
+            source_count=len(sources),
+        )
 
         if artifact_id:
             await fail_artifact_generation(
