@@ -19,6 +19,7 @@ import {
 } from "../../src/lib/validation";
 import { SocialAuthButtons } from "../../src/components/SocialAuthButtons";
 import { t } from "../../src/i18n";
+import { POST_AUTH_ENTRY_POINT } from "../../src/constants/routes";
 import { Colors, Typography, Spacing, BorderRadius } from "../../src/constants/theme";
 
 export default function RegisterScreen() {
@@ -46,7 +47,7 @@ export default function RegisterScreen() {
     setIsSubmitting(true);
     try {
       await register({ email: email.trim(), password });
-      router.replace("/");
+      router.replace(POST_AUTH_ENTRY_POINT);
     } catch (err) {
       setError(getFriendlyErrorMessage(err));
     } finally {

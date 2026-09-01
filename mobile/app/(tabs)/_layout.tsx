@@ -1,17 +1,30 @@
 import { Redirect, Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/contexts/AuthContext";
+import { useUserPreferences } from "../../src/contexts/UserPreferencesContext";
+import { LANGUAGE_ONBOARDING_ROUTE } from "../../src/constants/routes";
 import { Colors, TouchTarget } from "../../src/constants/theme";
 import { t, useTranslation } from "../../src/i18n";
 import { ActivityIndicator, View, StyleSheet } from "react-native";
 
 /**
- * Protected tabs layout.
- * Navigation guard: redirects to login if not authenticated.
+ * Protected tabs layout, and the enforcement point of the two invariants that
+ * hold for every tab: a session, and a reading language.
+ *
+ * Both guards are checked in order, and both replace the tab bar entirely rather
+ * than rendering it alongside a redirect — that is what makes them impossible to
+ * walk past. `app/index.tsx` checks the same two things on a cold start, but it
+ * is a route like any other: expo-router's `Redirect` only fires from a focus
+ * effect, so an unfocused `index` keeps an unconsumed redirect armed and fires
+ * it whenever it regains focus. That is how a fresh account used to reach the
+ * tabs first and get the language screen thrown at it later, on an arbitrary tap
+ * (task-326). Here there is nothing to arm: no tab exists until both guards pass.
+ *
  * Tab bar follows the mockup navigation pattern (Home, Search, Digest, Account).
  */
 export default function TabsLayout() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { needsLanguageOnboarding } = useUserPreferences();
   // The four labels are resolved on render, so the bar has to redraw when the
   // interface language changes.
   useTranslation();
@@ -26,6 +39,14 @@ export default function TabsLayout() {
 
   if (!isAuthenticated) {
     return <Redirect href="/(auth)/login" />;
+  }
+
+  // Strictly after the two guards above: `needsLanguageOnboarding` is derived
+  // from the profile, and a profile still being restored reads as "no reading
+  // language", which would send a returning user to the onboarding screen every
+  // cold start.
+  if (needsLanguageOnboarding) {
+    return <Redirect href={LANGUAGE_ONBOARDING_ROUTE} />;
   }
 
   return (

@@ -28,7 +28,8 @@ import {
 
 /**
  * Onboarding screen: asks the user to select their preferred reading language.
- * Shown after registration when reading_language is not yet set.
+ * Reached from `app/index.tsx` on a cold start and from `app/(tabs)/_layout.tsx`,
+ * which is the guard that actually makes it unskippable.
  * Pre-selects the device locale if it matches a V1 language.
  */
 export default function OnboardingLanguageScreen() {
@@ -50,6 +51,16 @@ export default function OnboardingLanguageScreen() {
     if (!selectedLanguage) return;
     setError(null);
     try {
+      // Exit path, and why it cannot bounce back here: the await resolves only
+      // after `updateReadingLanguage` has written `localReadingLanguage` in
+      // UserPreferencesContext, so `needsLanguageOnboarding` is already false
+      // when the tabs layout runs its language guard on its first render. This
+      // is also why the exit stays a direct hop to the inbox rather than going
+      // through `/` — the preference is settled before navigation, so there is
+      // nothing left for the entry point to arbitrate, and the extra hop would
+      // only add a frame of the root loading state.
+      // A failed update throws instead, which keeps the user on this screen with
+      // an error rather than sending them into the tabs with no language set.
       await updateReadingLanguage(selectedLanguage);
       router.replace("/(tabs)/inbox");
     } catch (err) {

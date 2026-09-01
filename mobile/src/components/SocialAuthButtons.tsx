@@ -18,6 +18,7 @@ import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 import { t } from "../i18n";
 import { getGoogleIosRedirectUri } from "../lib/googleOAuth";
 import { Config } from "../constants/config";
+import { POST_AUTH_ENTRY_POINT } from "../constants/routes";
 import {
   Colors,
   Typography,
@@ -132,7 +133,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
       }
 
       await loginWithGoogle(tokens.idToken);
-      router.replace("/(tabs)/inbox");
+      router.replace(POST_AUTH_ENTRY_POINT);
     } catch (err) {
       onError(
         getFriendlyErrorMessage(err, {
@@ -170,7 +171,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
             }
           : undefined,
       });
-      router.replace("/(tabs)/inbox");
+      router.replace(POST_AUTH_ENTRY_POINT);
     } catch (err: unknown) {
       // Apple sign-in cancellation has a specific error code
       if (
