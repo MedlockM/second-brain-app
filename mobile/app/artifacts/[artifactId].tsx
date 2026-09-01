@@ -15,6 +15,11 @@ import { useAuth } from "../../src/contexts/AuthContext";
 import { ArtifactService } from "../../src/services/artifactService";
 import { EngagementService } from "../../src/services/engagementService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
+import { describeArtifactRefusal } from "../../src/lib/artifactRefusal";
+import {
+  readArtifactContentBlock,
+  type ArtifactRegenerationTarget,
+} from "../../src/lib/artifactContentBlock";
 import { Bullets } from "../../src/components/Bullets";
 import {
   BorderRadius,
@@ -62,6 +67,14 @@ type ArtifactKind =
   | "flashcards"
   | "quiz";
 
+/**
+ * The four things this screen can be showing.
+ *
+ * `pending` and `failed` are deliberately separate states, because the endpoint
+ * separates them (task-328): an entry still being produced resolves on its own
+ * and is worth coming back to, whereas a failed one is terminal — refreshing it
+ * would ask forever, so that state offers a new generation instead.
+ */
 type LoadState =
   | { status: "loading" }
   | {
@@ -72,7 +85,14 @@ type LoadState =
       translation: TranslationInfo | null;
     }
   | { status: "error"; message: string }
-  | { status: "not_ready"; message: string };
+  | { status: "pending"; message: string }
+  | {
+      status: "failed";
+      /** What a new generation would name, or `null` when the API did not say. */
+      regeneration: ArtifactRegenerationTarget | null;
+      /** Why the last regeneration attempt was refused, or `null`. */
+      refusal: string | null;
+    };
 
 interface ArtifactPayload {
   generated_at?: string;
@@ -140,6 +160,11 @@ export default function ArtifactDetailScreen() {
   const engagementReportedRef = useRef(false);
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  // A regeneration POST in flight. Held in a ref as well as in state: the ref is
+  // what makes a second tap a no-op on the frame it happens, before React has
+  // re-rendered the button as busy.
+  const [regenerating, setRegenerating] = useState(false);
+  const regeneratingRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -174,13 +199,19 @@ export default function ArtifactDetailScreen() {
       }
     } catch (err) {
       if (!mountedRef.current) return;
-      const httpStatus = (err as { status?: number } | undefined)?.status;
-      if (httpStatus === 409) {
+      // Read off the refusal's error code, never off its message: the endpoint
+      // types the two cases precisely so the client does not have to guess.
+      const block = readArtifactContentBlock(err);
+      if (block?.kind === "failed") {
         setState({
-          status: "not_ready",
-          message:
-            "This artifact isn't ready yet. Come back once generation completes.",
+          status: "failed",
+          regeneration: block.regeneration,
+          refusal: null,
         });
+        return;
+      }
+      if (block?.kind === "pending") {
+        setState({ status: "pending", message: t("artifact.pendingBody") });
         return;
       }
       setState({
@@ -201,6 +232,48 @@ export default function ArtifactDetailScreen() {
     setState({ status: "loading" });
     void fetchContent();
   }, [fetchContent]);
+
+  /**
+   * Ask for this artifact again, from the failure state.
+   *
+   * The refusal named the scope and the type, so the request needs nothing this
+   * screen would have to guess. The backend reruns the entry under its own id and
+   * charges nothing extra, and it comes back `queued` — which is exactly the
+   * `pending` state, so the screen stops describing a failure the moment there is
+   * something running again.
+   */
+  const handleRegenerate = useCallback(
+    async (target: ArtifactRegenerationTarget) => {
+      if (!isAuthenticated || regeneratingRef.current) return;
+      regeneratingRef.current = true;
+      setRegenerating(true);
+      try {
+        await ArtifactService.generateArtifact(
+          target.scope,
+          target.scopeId,
+          target.artifactType,
+        );
+        if (!mountedRef.current) return;
+        setState({ status: "pending", message: t("artifact.regenerationQueued") });
+      } catch (err) {
+        if (!mountedRef.current) return;
+        // A refusal is typed and carries its reason (a quota reached, a source
+        // that is not ready): saying it beats leaving the button unanswered.
+        setState((current) =>
+          current.status === "failed"
+            ? {
+                ...current,
+                refusal: describeArtifactRefusal(err, { scope: target.scope }),
+              }
+            : current,
+        );
+      } finally {
+        regeneratingRef.current = false;
+        if (mountedRef.current) setRegenerating(false);
+      }
+    },
+    [isAuthenticated],
+  );
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) {
@@ -258,7 +331,7 @@ export default function ArtifactDetailScreen() {
             <Text style={styles.refreshButtonText}>{t("common.retry")}</Text>
           </Pressable>
         </View>
-      ) : state.status === "not_ready" ? (
+      ) : state.status === "pending" ? (
         <View style={styles.centered}>
           <Ionicons
             name="time-outline"
@@ -277,6 +350,63 @@ export default function ArtifactDetailScreen() {
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
             <Text style={styles.refreshButtonText}>{t("media.refresh")}</Text>
           </Pressable>
+        </View>
+      ) : state.status === "failed" ? (
+        // Terminal: no Refresh here on purpose. Reading this entry again can only
+        // ever answer the same refusal, so the only way forward is a new
+        // generation — which the API named the scope and the type of.
+        <View style={styles.centered} testID="artifact-generation-failed">
+          <Ionicons
+            name="alert-circle"
+            size={48}
+            color={Colors.error}
+            style={styles.failedIcon}
+          />
+          <Text style={styles.failedTitle}>
+            {t("artifact.generationFailedTitle")}
+          </Text>
+          <Text style={styles.failedMessage}>
+            {t("artifact.generationFailedBody")}
+          </Text>
+          {state.regeneration ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.refreshButton,
+                pressed && styles.refreshButtonPressed,
+              ]}
+              onPress={() => {
+                if (state.regeneration) {
+                  void handleRegenerate(state.regeneration);
+                }
+              }}
+              disabled={regenerating}
+              accessibilityLabel={t("artifact.regenerateA11y")}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: regenerating }}
+              testID="artifact-regenerate-button"
+            >
+              {regenerating ? (
+                <ActivityIndicator size="small" color={Colors.onPrimary} />
+              ) : (
+                <Ionicons name="sparkles" size={18} color={Colors.onPrimary} />
+              )}
+              <Text style={styles.refreshButtonText}>
+                {regenerating
+                  ? t("artifact.regenerating")
+                  : t("artifact.regenerate")}
+              </Text>
+            </Pressable>
+          ) : null}
+          {state.refusal ? (
+            <View style={styles.refusalBanner} testID="artifact-regenerate-refusal">
+              <Ionicons
+                name="information-circle-outline"
+                size={18}
+                color={Colors.error}
+              />
+              <Text style={styles.refusalText}>{state.refusal}</Text>
+            </View>
+          ) : null}
         </View>
       ) : (
         <ScrollView
@@ -1561,9 +1691,31 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     minHeight: TouchTarget.minimum,
   },
+  refreshButtonPressed: {
+    opacity: 0.8,
+  },
   refreshButtonText: {
     fontSize: Typography.label.fontSize,
     fontWeight: Typography.label.fontWeight,
     color: Colors.onPrimary,
+  },
+  // Same refusal banner as the two AI tabs: the same refusals reach here, and
+  // they should read the same. `stretch` because this one sits in a centred
+  // column, where a row would otherwise collapse to its text's intrinsic width.
+  refusalBanner: {
+    flexDirection: "row",
+    alignSelf: "stretch",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    backgroundColor: Colors.errorContainer,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginTop: Spacing.md,
+  },
+  refusalText: {
+    flex: 1,
+    fontSize: Typography.small.fontSize,
+    color: Colors.error,
+    lineHeight: Typography.body.lineHeight,
   },
 });

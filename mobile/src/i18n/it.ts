@@ -495,7 +495,17 @@ export const it: Catalog = {
   "artifact.failedTitle": "Caricamento non riuscito",
   "artifact.retryA11y": "Riprova a caricare il contenuto generato",
   "artifact.notReady": "Non ancora pronto",
+  "artifact.pendingBody":
+    "Questo contenuto è ancora in generazione. Torna tra un momento.",
   "artifact.refreshA11y": "Aggiorna il contenuto generato",
+  "artifact.generationFailedTitle": "Generazione non riuscita",
+  "artifact.generationFailedBody":
+    "Non è stato possibile generare questo contenuto e non c'è più nulla in corso. Genera di nuovo per riprovare.",
+  "artifact.regenerate": "Genera di nuovo",
+  "artifact.regenerateA11y": "Genera di nuovo questo contenuto",
+  "artifact.regenerating": "Avvio...",
+  "artifact.regenerationQueued":
+    "Generazione riavviata. Torna tra un momento.",
   "artifact.anotherLanguage": "un'altra lingua",
   "artifact.translatedFrom": "Tradotto da {language}",
   "artifact.translationFailed": "Traduzione non disponibile: mostrato in {language}",

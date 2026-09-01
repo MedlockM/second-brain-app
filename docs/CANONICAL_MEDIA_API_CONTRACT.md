@@ -322,7 +322,41 @@ history rather than a defect.
 
 ### 6) GET /api/artifacts/{artifact_id}/content
 
-The stored JSON payload, inlined. `409` while the entry is not `ready`.
+The stored JSON payload, inlined. `409` while the entry is not `ready`, as a typed
+refusal whose `error_code` — never the message text — says whether the entry is
+still coming (task-328):
+
+```json
+{
+  "detail": {
+    "error_code": "artifact_not_ready",
+    "message": "Artifact is still being generated (status: generating). Try again once generation completes.",
+    "status": "generating"
+  }
+}
+```
+
+```json
+{
+  "detail": {
+    "error_code": "artifact_failed",
+    "message": "Artifact generation failed and will not resume on its own. Request a new generation for this scope and type.",
+    "status": "failed",
+    "artifact_error_code": "LLM_ERROR",
+    "scope": "media",
+    "scope_id": "med_01JQ8X8J5S3H3CXX8V70M9M3K7",
+    "artifact_type": "notes"
+  }
+}
+```
+
+`artifact_not_ready` resolves on its own, so a client may come back to it.
+`artifact_failed` is **terminal**: no worker will pick the entry up again, and a
+client that keeps polling it polls forever. The refusal therefore carries the
+`scope`, `scope_id` and `artifact_type` a new generation needs, so a failure state
+can offer `POST /api/artifacts` without a second round-trip — that request reruns
+the entry under its own id (`generation_outcome: "retried"`) and debits nothing
+extra.
 
 ```json
 {
