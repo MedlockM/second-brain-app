@@ -8,8 +8,14 @@ dist/
 *.mobileprovision
 *.orig.*
 web-build/
-ios/
-android/
+
+# Prebuild output (CNG), at the project root only. The leading slash is
+# load-bearing: an unanchored `ios/` / `android/` matches at *any* depth, so it
+# also swallowed `modules/<name>/android/` — the hand-written native sources of
+# the local Expo modules, which must be committed. Left unanchored, `main` looked
+# fine and the EAS build produced an AAB with no module in it (task-325).
+/ios/
+/android/
 
 # Environment
 .env

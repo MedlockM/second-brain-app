@@ -204,7 +204,7 @@ un staging ou une soumission.
 |---|---|---|
 | Re-run E2E AWS dev | Phase 4 | **Seul gate backend encore ouvert.** Dernier deploy vert : `130fb38` (2026-08-21T02:58), mais un commit backend local n'est pas poussé (`65d578e`). Aucune preuve de `pytest -m e2e` complet depuis le 2026-06-12, alors que `/api/v1/` a disparu, que YouTube et Instagram sont passés en Apify-only et que le contrat média porte désormais cover et créateur. Pousser, puis lancer |
 | Mobile dev builds | `task-161`, `task-162`, `task-163` | iOS : `task-161` est `Done`, mais sur une build du 2026-06-11 expirée le 2026-06-25 — le development client reste installé sur l'iPhone owner. Android : keystore (`task-162`) et Client ID en place, **le build unique reste à lancer** (`task-163` ACs #6-#8) |
-| Google OAuth Android | `task-163` (ACs #1-#5) | **Fait le 2026-08-13** : Client ID Android créé sur le SHA-1 du keystore `task-162`, et `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` déclarée dans l'environnement EAS `development` — donc en place **avant** le build, l'APK ne pourra pas embarquer `""`. Reste le build Android unique et sa validation sur device |
+| Google OAuth Android | `task-163` (ACs #1-#5), `task-325` | Client ID Android créé le 2026-08-13 sur le SHA-1 du keystore `task-162`. **Le flow a changé le 2026-09-01** (`task-325`) : Google refuse un custom URI scheme pour un client Android, donc l'app signe via **Credential Manager** (module Expo local, `serverClientId` = client Web) et ne lit plus aucun Client ID Android. Restent le build Android, la validation sur device, et **un second client Android sur le SHA-1 Play App Signing** dès qu'un binaire passe par Play |
 | Validation device non automatisable | `task-164`, `task-165` | À faire sur devices physiques : Apple Sign-In, Google sheet, Safari/Chrome share |
 | Maestro V1 | `task-168`, `task-169`, `task-170`, `task-171`, `task-172` | **Plus un bloquant release** — CI en sommeil depuis le 2026-08-13 (`task-254`) le temps que l'UI soit figée ; 168/169/170/171 closes, 172 verrouillée. Cf. Phase 7, section « Maestro E2E CI — en sommeil depuis le 2026-08-13 » |
 | Clôture Phase 5 | `task-166` | Mettre ce plan à jour une fois `task-163/164/165` terminées ; la couverture Maestro n'en est plus un prérequis |
@@ -342,19 +342,29 @@ Côté mobile (`mobile/.env` ou EAS secrets) :
 # Naming attendu par mobile/app.config.ts : suffixe _<PLATFORM>, pas infixe.
 EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB=...    # même valeur que GOOGLE_CLIENT_ID côté backend
 EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS=...
-EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID=...
+# Pas de _ANDROID : supprimée par task-325, Credential Manager ne prend pas d'ID
+# de client Android (voir ci-dessous).
 ```
 
-**Quel client émet l'id_token mobile.** `expo-auth-session` fait un flow
-authorization code + PKCE contre le client de la **plateforme** — le client iOS sur
-iOS, le client Android sur Android (`providers/Google.js`, `Platform.select`) — puis
-échange le code contre ce même client. Google émet donc l'id_token avec ce client
-comme `aud`, jamais le client Web : `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB` ne sert que
-sur la plateforme web. C'est pourquoi le backend a besoin de
-`GOOGLE_NATIVE_AUDIENCE_IOS` / `_ANDROID` pour valider `/auth/google/native`
-(task-298). Le comportement inverse — un id_token émis pour le client Web — n'existe
-qu'avec le SDK natif Google Sign-In, où un `serverClientId`/`webClientId` le demande
-explicitement ; ce n'est pas le SDK utilisé ici.
+**Quel client émet l'id_token mobile — une réponse par plateforme depuis
+`task-325`.**
+
+- **iOS** : `expo-auth-session` fait un flow authorization code + PKCE contre le
+  client **iOS**, puis échange le code contre ce même client. L'`aud` de l'id_token
+  est donc le client iOS, d'où `GOOGLE_NATIVE_AUDIENCE_IOS` côté backend (task-298).
+- **Android** : plus de flow navigateur du tout. Google refuse un custom URI scheme
+  comme `redirect_uri` pour un client Android (`Erreur 400 : invalid_request`,
+  « Custom URI scheme is not enabled for your Android client »), sans réglage pour le
+  réactiver — le flow était donc mort-né. L'app passe par **Credential Manager**
+  (module Expo local `mobile/modules/google-credential-manager`,
+  `GetSignInWithGoogleOption`), qui prend le client **Web** comme `serverClientId` :
+  l'`aud` de l'id_token est le client Web, que `/auth/google/native` accepte déjà
+  puisque c'est `GOOGLE_CLIENT_ID`. `GOOGLE_NATIVE_AUDIENCE_ANDROID` n'est donc plus
+  exercée par aucun flow.
+- Le client OAuth **Android** reste nécessaire côté Google : Credential Manager
+  vérifie l'appelant sur son nom de package **et** le SHA-1 du certificat qui signe
+  le binaire installé. Voir Phase 2, item 7 (Google Auth Platform → Clients) pour le
+  SHA-1 Play App Signing, qui s'ajoute à celui du keystore EAS.
 
 `mobile/.env` est gitignored. Contrairement à l'état noté au 2026-07-31, les trois
 environnements EAS `development`, `preview` et `production` **contiennent bien**
@@ -681,11 +691,27 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
      - ~~**Android**~~ **Fait le 2026-08-13** (`task-163`) : créé avec
        `package=com.secondbrainlabs.core` et le SHA-1 du keystore EAS produit
        par `task-162`, sans qu'aucun build Android n'ait été nécessaire.
-       Renseigné dans `mobile/.env` et déclaré dans l'environnement EAS
-       `development` → `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`.
        À noter : ce client sert uniquement à ce que Google vérifie la signature
        de l'APK. L'`aud` du id_token reste le client **Web** — c'est bien lui
-       que le backend vérifie.
+       que le backend vérifie, et depuis `task-325` c'est aussi le
+       `serverClientId` que l'app passe à Credential Manager. L'ID du client
+       Android n'entre plus dans l'app : `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` a
+       été supprimée de `mobile/eas.json`, `mobile/.env.example` et
+       `app.config.ts`, et la variable côté environnement EAS `development` peut
+       être supprimée.
+     - [ ] **Deuxième client Android sur le SHA-1 Play App Signing** — pas
+       optionnel dès qu'un binaire arrive par Play (piste interne comprise) :
+       Play re-signe l'artefact servi, donc l'empreinte que Credential Manager
+       voit sur le téléphone n'est **pas** celle du keystore d'upload EAS. Sans
+       ce second client (même `package=com.secondbrainlabs.core`, SHA-1 de Play),
+       la feuille de sélection de compte échoue sur l'app installée depuis Play
+       alors qu'elle marche sur un APK installé à la main.
+       - Lire le SHA-1 : Play Console → *Test et publication* → *Intégrité de
+         l'application* → onglet *Signature de l'application* → *Certificat de
+         clé de signature d'application*.
+       - Le déclarer : Google Cloud Console → *API et services* →
+         *Identifiants* → *Créer des identifiants* → *ID client OAuth* → type
+         *Android*.
 8. **Apple Developer Portal** (developer.apple.com → Certificates, Identifiers & Profiles) :
    - **Bundle ID figé : `com.secondbrainlabs.core`** (décidé 2026-06-07,
      propagé dans `mobile/app.config.ts`, `mobile/ios-share-extension/`, les

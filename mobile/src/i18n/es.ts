@@ -80,6 +80,8 @@ export const es: Catalog = {
     "El inicio de sesión con Google no se ha completado. Inténtalo de nuevo.",
   "auth.google.noIdToken":
     "No se ha podido obtener el token de identificación de Google. Inténtalo de nuevo.",
+  "auth.google.noGoogleAccount":
+    "No hay ninguna cuenta de Google en este dispositivo. Añade una en los ajustes del dispositivo e inténtalo de nuevo.",
   "auth.google.failed":
     "El inicio de sesión con Google no se ha podido completar. Inténtalo de nuevo.",
   "auth.apple.noIdentityToken":

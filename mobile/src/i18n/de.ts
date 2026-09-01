@@ -83,6 +83,8 @@ export const de: Catalog = {
     "Die Google-Anmeldung wurde nicht abgeschlossen. Bitte versuche es erneut.",
   "auth.google.noIdToken":
     "Das Google-ID-Token konnte nicht abgerufen werden. Bitte versuche es erneut.",
+  "auth.google.noGoogleAccount":
+    "Auf diesem Gerät ist kein Google-Konto vorhanden. Füge in den Geräteeinstellungen eines hinzu und versuche es erneut.",
   "auth.google.failed":
     "Die Google-Anmeldung konnte nicht abgeschlossen werden. Bitte versuche es erneut.",
   "auth.apple.noIdentityToken":

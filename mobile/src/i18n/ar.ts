@@ -73,6 +73,8 @@ export const ar: Catalog = {
   "auth.signInWithApple": "تسجيل الدخول باستخدام Apple",
   "auth.google.notCompleted": "لم يكتمل تسجيل الدخول عبر Google. يرجى المحاولة مرة أخرى.",
   "auth.google.noIdToken": "تعذّر الحصول على رمز هوية Google. يرجى المحاولة مرة أخرى.",
+  "auth.google.noGoogleAccount":
+    "لا يوجد حساب Google على هذا الجهاز. أضف حسابًا من إعدادات الجهاز ثم حاول مرة أخرى.",
   "auth.google.failed": "تعذّر إكمال تسجيل الدخول عبر Google. يرجى المحاولة مرة أخرى.",
   "auth.apple.noIdentityToken": "تعذّر الحصول على رمز هوية Apple. يرجى المحاولة مرة أخرى.",
   "artifacts.type.summaryShort": "ملخّص",

@@ -73,6 +73,8 @@ export const it: Catalog = {
   "auth.signInWithApple": "Accedi con Apple",
   "auth.google.notCompleted": "L'accesso con Google non è stato completato. Riprova.",
   "auth.google.noIdToken": "Impossibile ottenere il token ID di Google. Riprova.",
+  "auth.google.noGoogleAccount":
+    "Nessun account Google su questo dispositivo. Aggiungine uno nelle impostazioni del dispositivo e riprova.",
   "auth.google.failed": "L'accesso con Google non è andato a buon fine. Riprova.",
   "auth.apple.noIdentityToken": "Impossibile ottenere il token di identità Apple. Riprova.",
   "artifacts.type.summaryShort": "Riassunto",

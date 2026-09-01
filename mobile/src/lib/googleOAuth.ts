@@ -1,17 +1,23 @@
 /**
- * Helpers to derive Google's OAuth redirect target for the native sign-in flow.
+ * Helpers to derive Google's OAuth redirect target for the **iOS** sign-in flow.
  *
  * `expo-auth-session/providers/google` defaults the native redirect URI to
  * `<applicationId>:/oauthredirect`, i.e. `com.secondbrainlabs.core:/oauthredirect`.
- * Google rejects that value for an **iOS** OAuth client with
+ * Google rejects that value for an iOS OAuth client with
  * `Error 400: redirect_uri_mismatch`: an iOS client only accepts its reserved
  * custom scheme, the reversed client ID. So the iOS redirect URI is built here
  * from the configured client ID instead of being hardcoded, which keeps it valid
  * when the client is rotated.
  *
- * This module is imported both by the app at runtime and by `app.config.ts`,
- * which registers the resulting scheme in the app's iOS URL schemes. Keep it
- * dependency-free so the config can load it outside the React Native runtime.
+ * Nothing here applies to Android: Google refuses custom URI schemes outright for
+ * an Android OAuth client (`Error 400: invalid_request`, "Custom URI scheme is not
+ * enabled for your Android client"), so there is no redirect URI to build. Android
+ * signs in through Credential Manager instead — see
+ * `modules/google-credential-manager` and `src/hooks/useGoogleSignIn.android.ts`.
+ *
+ * `app.config.ts` needs the same scheme transformation to register the iOS URL
+ * scheme, but inlines its own copy: `@expo/config` transpiles that file alone, so
+ * it cannot import this one. Both derive from the same env var.
  */
 
 const GOOGLE_CLIENT_ID_SUFFIX = ".apps.googleusercontent.com";

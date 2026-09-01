@@ -73,6 +73,8 @@ export const hi: Catalog = {
   "auth.signInWithApple": "Apple से साइन इन करें",
   "auth.google.notCompleted": "Google से साइन इन पूरा नहीं हुआ। कृपया फिर से कोशिश करें।",
   "auth.google.noIdToken": "Google ID टोकन नहीं मिल सका। कृपया फिर से कोशिश करें।",
+  "auth.google.noGoogleAccount":
+    "इस डिवाइस पर कोई Google खाता नहीं है। डिवाइस सेटिंग में एक खाता जोड़ें और फिर कोशिश करें।",
   "auth.google.failed": "Google से साइन इन पूरा नहीं हो सका। कृपया फिर से कोशिश करें।",
   "auth.apple.noIdentityToken": "Apple पहचान टोकन नहीं मिल सका। कृपया फिर से कोशिश करें।",
   "artifacts.type.summaryShort": "सारांश",

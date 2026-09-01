@@ -70,6 +70,8 @@ export const zh: Catalog = {
   "auth.signInWithApple": "使用 Apple 登录",
   "auth.google.notCompleted": "Google 登录未完成，请重试。",
   "auth.google.noIdToken": "未能获取 Google ID 令牌，请重试。",
+  "auth.google.noGoogleAccount":
+    "此设备上没有 Google 账号。请在设备设置中添加一个账号后重试。",
   "auth.google.failed": "Google 登录未能完成，请重试。",
   "auth.apple.noIdentityToken": "未能获取 Apple 身份令牌，请重试。",
   "artifacts.type.summaryShort": "摘要",

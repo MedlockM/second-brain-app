@@ -107,6 +107,8 @@ export const en = {
   "auth.google.notCompleted":
     "Google sign-in was not completed. Please try again.",
   "auth.google.noIdToken": "Failed to obtain Google ID token. Please try again.",
+  "auth.google.noGoogleAccount":
+    "No Google account on this device. Add one in your device settings, then try again.",
   "auth.google.failed":
     "Google sign-in could not be completed. Please try again.",
   "auth.apple.noIdentityToken":

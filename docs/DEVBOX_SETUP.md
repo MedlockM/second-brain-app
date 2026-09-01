@@ -327,8 +327,9 @@ Ce qui reste manuel ou fragile, à connaître avant le prochain déménagement :
   passer par la console AWS.
 - **Historique des dispatches** (`.claude/dispatch-runs/`) : gitignoré, perdu avec
   le disque. C'est de la trace d'exécution, sans valeur pour reprendre.
-- **`EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`** est vide : l'OAuth Client ID Android
-  attend le SHA-1 du keystore d'upload EAS (task-163).
+- **`EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`** n'existe plus (task-325) : Android
+  signe via Credential Manager, qui prend le client **Web** comme `serverClientId`.
+  Une ligne restée dans un `mobile/.env` local est simplement ignorée.
 - **`EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY`** est renseignée dans `mobile/.env` depuis
   le 2026-08-20 (vraie clé publique `goog_`, l'app Play Store existant désormais
   dans le projet RevenueCat). Le SDK Android est donc configuré pour de vrai,
