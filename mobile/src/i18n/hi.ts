@@ -504,7 +504,17 @@ export const hi: Catalog = {
   "artifact.failedTitle": "लोड नहीं हो सका",
   "artifact.retryA11y": "बनाई गई सामग्री फिर से लोड करें",
   "artifact.notReady": "अभी तैयार नहीं",
+  "artifact.pendingBody":
+    "यह सामग्री अभी बन रही है। कुछ देर बाद वापस आएँ।",
   "artifact.refreshA11y": "बनाई गई सामग्री रीफ़्रेश करें",
+  "artifact.generationFailedTitle": "बनाना विफल रहा",
+  "artifact.generationFailedBody":
+    "यह सामग्री नहीं बन सकी, और अब कुछ भी नहीं चल रहा है। फिर से बनाकर दोबारा कोशिश करें।",
+  "artifact.regenerate": "फिर से बनाएँ",
+  "artifact.regenerateA11y": "यह सामग्री फिर से बनाएँ",
+  "artifact.regenerating": "शुरू हो रहा है...",
+  "artifact.regenerationQueued":
+    "बनाना फिर से शुरू हुआ। कुछ देर बाद वापस आएँ।",
   "artifact.anotherLanguage": "कोई दूसरी भाषा",
   "artifact.translatedFrom": "{language} से अनूदित",
   "artifact.translationFailed": "अनुवाद उपलब्ध नहीं — {language} में दिखाया जा रहा है",

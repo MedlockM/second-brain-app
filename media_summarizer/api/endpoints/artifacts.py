@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.core.models.media_artifact import ArtifactScope
+from media_summarizer.core.models.media_artifact import ArtifactScope, MediaArtifactStatus
 from media_summarizer.core.services import engagement_service, quota_enforcer
 from media_summarizer.core.services.artifact_service import (
     INTERNAL_ARTIFACT_TYPES,
@@ -46,6 +46,14 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LIST_LIMIT = 50
 MAX_LIST_LIMIT = 100
+
+#: The two reasons ``GET /artifacts/{id}/content`` has nothing to hand back, told
+#: apart in the contract rather than in the prose of a message (task-328). A
+#: client polls on the first and stops on the second: ``queued``/``generating``
+#: resolves on its own, whereas ``failed`` is terminal — no worker will pick the
+#: entry up again unless someone asks for a new generation.
+CONTENT_NOT_READY_ERROR_CODE = "artifact_not_ready"
+CONTENT_FAILED_ERROR_CODE = "artifact_failed"
 
 # One message per outcome: a log line that says "queued" for a reuse would hide
 # exactly the fact this endpoint is now built around.
@@ -592,6 +600,12 @@ async def get_artifact_content(
     content in the response so the mobile client doesn't need to deal with
     presigned URLs.
 
+    An entry with no payload answers ``409`` with a typed refusal, and the type is
+    what separates the two cases a client has to treat differently:
+    ``artifact_not_ready`` for an entry still being produced, ``artifact_failed``
+    for one that has terminally failed. Neither is readable from the message text,
+    on purpose (task-328).
+
     Side-effect-free, and it must stay that way: the "artifact opened" engagement
     (task-303 §5.2) is reported by an explicit ``POST /api/engagements`` from the
     viewer, not stamped here. This route is replayed by the client after a 401
@@ -607,14 +621,42 @@ async def get_artifact_content(
                 detail="Artifact not found",
             )
 
-        if record.storage is None:
-            # Artifact exists but isn't ready yet (queued / generating / failed).
+        if record.status is MediaArtifactStatus.FAILED:
+            # Terminal, and said as such: nothing is running any more, so telling
+            # the caller to come back once generation completes would describe a
+            # completion that will never happen and keep a client polling an entry
+            # that can only ever answer this. The three fields a new generation
+            # needs travel with the refusal, so the failure state can offer one
+            # without a second round-trip.
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Artifact is not ready (status: {record.status.value}). "
-                    "Try again once generation completes."
-                ),
+                detail={
+                    "error_code": CONTENT_FAILED_ERROR_CODE,
+                    "message": (
+                        "Artifact generation failed and will not resume on its "
+                        "own. Request a new generation for this scope and type."
+                    ),
+                    "status": record.status.value,
+                    "artifact_error_code": record.error_code,
+                    "scope": record.scope.value,
+                    "scope_id": record.scope_id,
+                    "artifact_type": record.artifact_type.value,
+                },
+            )
+
+        if record.storage is None:
+            # Still being produced (queued / generating): this one does resolve on
+            # its own, so coming back later is the right advice here and only here.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error_code": CONTENT_NOT_READY_ERROR_CODE,
+                    "message": (
+                        f"Artifact is still being generated (status: "
+                        f"{record.status.value}). Try again once generation completes."
+                    ),
+                    "status": record.status.value,
+                },
             )
 
         try:

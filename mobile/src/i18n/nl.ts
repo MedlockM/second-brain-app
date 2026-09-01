@@ -503,7 +503,17 @@ export const nl: Catalog = {
   "artifact.failedTitle": "Laden mislukt",
   "artifact.retryA11y": "Gegenereerde inhoud opnieuw laden",
   "artifact.notReady": "Nog niet klaar",
+  "artifact.pendingBody":
+    "Deze inhoud wordt nog gegenereerd. Kom straks terug.",
   "artifact.refreshA11y": "Gegenereerde inhoud vernieuwen",
+  "artifact.generationFailedTitle": "Genereren mislukt",
+  "artifact.generationFailedBody":
+    "Deze inhoud kon niet worden gegenereerd en er loopt niets meer. Genereer opnieuw om het te proberen.",
+  "artifact.regenerate": "Opnieuw genereren",
+  "artifact.regenerateA11y": "Deze inhoud opnieuw genereren",
+  "artifact.regenerating": "Starten...",
+  "artifact.regenerationQueued":
+    "Genereren opnieuw gestart. Kom straks terug.",
   "artifact.anotherLanguage": "een andere taal",
   "artifact.translatedFrom": "Vertaald uit het {language}",
   "artifact.translationFailed": "Vertaling niet beschikbaar — weergegeven in het {language}",

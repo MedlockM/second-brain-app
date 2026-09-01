@@ -662,7 +662,17 @@ export const en = {
   "artifact.failedTitle": "Unable to load",
   "artifact.retryA11y": "Retry loading artifact",
   "artifact.notReady": "Not ready yet",
+  "artifact.pendingBody":
+    "This artifact is still being generated. Come back in a moment.",
   "artifact.refreshA11y": "Refresh artifact",
+  "artifact.generationFailedTitle": "Generation failed",
+  "artifact.generationFailedBody":
+    "This artifact could not be generated, and nothing is running any more. Generate it again to try.",
+  "artifact.regenerate": "Generate again",
+  "artifact.regenerateA11y": "Generate this artifact again",
+  "artifact.regenerating": "Starting...",
+  "artifact.regenerationQueued":
+    "Generation restarted. Come back in a moment.",
   "artifact.anotherLanguage": "another language",
   "artifact.translatedFrom": "Translated from {language}",
   "artifact.translationFailed": "Translation unavailable — shown in {language}",

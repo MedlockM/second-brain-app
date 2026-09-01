@@ -503,7 +503,17 @@ export const pt: Catalog = {
   "artifact.failedTitle": "Não foi possível carregar",
   "artifact.retryA11y": "Tentar carregar novamente o conteúdo gerado",
   "artifact.notReady": "Ainda não está pronto",
+  "artifact.pendingBody":
+    "Este conteúdo ainda está a ser gerado. Volte dentro de um momento.",
   "artifact.refreshA11y": "Atualizar o conteúdo gerado",
+  "artifact.generationFailedTitle": "A geração falhou",
+  "artifact.generationFailedBody":
+    "Não foi possível gerar este conteúdo e já não há nada em curso. Gere novamente para tentar.",
+  "artifact.regenerate": "Gerar novamente",
+  "artifact.regenerateA11y": "Gerar novamente este conteúdo",
+  "artifact.regenerating": "A iniciar...",
+  "artifact.regenerationQueued":
+    "Geração reiniciada. Volte dentro de um momento.",
   "artifact.anotherLanguage": "outra língua",
   "artifact.translatedFrom": "Traduzido de {language}",
   "artifact.translationFailed": "Tradução indisponível — mostrado em {language}",

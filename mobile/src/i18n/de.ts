@@ -626,7 +626,17 @@ export const de: Catalog = {
   "artifact.failedTitle": "Laden nicht möglich",
   "artifact.retryA11y": "Erstellten Inhalt erneut laden",
   "artifact.notReady": "Noch nicht fertig",
+  "artifact.pendingBody":
+    "Dieser Inhalt wird noch erstellt. Schau in einem Moment wieder vorbei.",
   "artifact.refreshA11y": "Erstellten Inhalt aktualisieren",
+  "artifact.generationFailedTitle": "Erstellung fehlgeschlagen",
+  "artifact.generationFailedBody":
+    "Dieser Inhalt konnte nicht erstellt werden, und es läuft nichts mehr. Starte die Erstellung erneut, um es zu versuchen.",
+  "artifact.regenerate": "Erneut erstellen",
+  "artifact.regenerateA11y": "Diesen Inhalt erneut erstellen",
+  "artifact.regenerating": "Wird gestartet...",
+  "artifact.regenerationQueued":
+    "Erstellung neu gestartet. Schau in einem Moment wieder vorbei.",
   "artifact.anotherLanguage": "eine andere Sprache",
   "artifact.translatedFrom": "Übersetzt aus dem {language}",
   "artifact.translationFailed":

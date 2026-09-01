@@ -501,7 +501,17 @@ export const ja: Catalog = {
   "artifact.failedTitle": "読み込めません",
   "artifact.retryA11y": "生成コンテンツを再読み込み",
   "artifact.notReady": "まだ準備できていません",
+  "artifact.pendingBody":
+    "このコンテンツはまだ生成中です。少し経ってから戻ってきてください。",
   "artifact.refreshA11y": "生成コンテンツを更新",
+  "artifact.generationFailedTitle": "生成に失敗しました",
+  "artifact.generationFailedBody":
+    "このコンテンツは生成できず、処理も実行されていません。もう一度生成してみてください。",
+  "artifact.regenerate": "もう一度生成",
+  "artifact.regenerateA11y": "このコンテンツをもう一度生成",
+  "artifact.regenerating": "開始中...",
+  "artifact.regenerationQueued":
+    "生成を再開しました。少し経ってから戻ってきてください。",
   "artifact.anotherLanguage": "別の言語",
   "artifact.translatedFrom": "{language} から翻訳",
   "artifact.translationFailed": "翻訳を利用できません — {language} で表示しています",
