@@ -3,9 +3,10 @@ id: task-328
 title: >-
   Stop polling an artifact that has terminally failed, and fix the 409 message
   that invites the retry
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-01 16:39'
+updated_date: '2026-09-01 17:26'
 labels:
   - bug
   - api

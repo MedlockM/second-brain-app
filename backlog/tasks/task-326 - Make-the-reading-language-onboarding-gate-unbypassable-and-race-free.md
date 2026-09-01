@@ -1,9 +1,10 @@
 ---
 id: task-326
 title: Make the reading-language onboarding gate unbypassable and race-free
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-01 16:38'
+updated_date: '2026-09-01 17:26'
 labels:
   - bug
   - mobile

@@ -1,9 +1,10 @@
 ---
 id: task-329
 title: Reject content-provider UUIDs as photo titles on local import
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-01 16:41'
+updated_date: '2026-09-01 17:26'
 labels:
   - bug
   - mobile

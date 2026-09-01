@@ -3,9 +3,10 @@ id: task-327
 title: >-
   Stop re-enqueuing a translation whose LLM failure is permanent, and stop the
   mobile retry loop it feeds
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-01 16:39'
+updated_date: '2026-09-01 17:26'
 labels:
   - bug
   - api

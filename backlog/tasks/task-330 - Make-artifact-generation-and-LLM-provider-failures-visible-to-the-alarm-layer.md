@@ -1,9 +1,10 @@
 ---
 id: task-330
 title: Make artifact-generation and LLM-provider failures visible to the alarm layer
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-01 16:42'
+updated_date: '2026-09-01 17:26'
 labels:
   - observability
   - artifacts
