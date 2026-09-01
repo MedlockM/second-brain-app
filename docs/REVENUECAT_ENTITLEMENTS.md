@@ -35,6 +35,9 @@ Every product is attached to exactly one tier entitlement.
 | `com.secondbrainlabs.core.text_only_monthly` | `proda3433ca23d` | App Store `app0d4b00c12f` | `tier_text_only` |
 | `com.secondbrainlabs.core.mix_monthly` | `prodd7204320b0` | App Store `app0d4b00c12f` | `tier_mix` |
 | `com.secondbrainlabs.core.audio_heavy_monthly` | `prod1c519e5d72` | App Store `app0d4b00c12f` | `tier_audio_heavy` |
+| `text_only_monthly:monthly` | `prod8f49b59dbe` | Play Store `appb253c0f75a` | `tier_text_only` |
+| `mix_monthly:monthly` | `prod4f6a12db3f` | Play Store `appb253c0f75a` | `tier_mix` |
+| `audio_heavy_monthly:monthly` | `proda57a23a69e` | Play Store `appb253c0f75a` | `tier_audio_heavy` |
 | `text_only_monthly_test` | `prod7e3149d970` | Test Store `appa51ecf7585` | `tier_text_only` |
 | `mix_monthly_test` | `prod199b49706d` | Test Store `appa51ecf7585` | `tier_mix` |
 | `audio_heavy_monthly_test` | `prodfa048c9140` | Test Store `appa51ecf7585` | `tier_audio_heavy` |
@@ -53,16 +56,23 @@ key to RevenueCat — and neither needs a code change: the identifiers and the
 package lookup keys already match. Checklist:
 `docs/V1_LAUNCH_PLAN.md` Phase 6, item 3.
 
-A Google Play app was added to the project on 2026-08-20 — `appb253c0f75a`,
-package `com.secondbrainlabs.core` — and holds **no product**. Its service
-account credentials upload but do not validate: RevenueCat authenticates, then
-Google answers that the package name does not exist. A package name only becomes
-visible to the Google Play Developer API once a signed bundle carrying that
-`applicationId` has been uploaded to a test track — creating the app in Play
-Console is not enough, since the name is fixed by the first AAB and not at
-creation. So the Android products wait on the Android build (`task-163`), and
-`task-238` attaches them to the same entitlements afterwards. Its Implementation
-Notes carry the full state.
+The Google Play app `appb253c0f75a` (package `com.secondbrainlabs.core`, added
+2026-08-20) carries its three products since 2026-09-01, and its service account
+credentials read `Valid credentials`. The one thing that had been missing was an
+artifact: a package name only becomes visible to the Google Play Developer API
+once a signed bundle carrying that `applicationId` has been uploaded to a test
+track, so creating the app in Play Console was not enough.
+
+**A Play store identifier is `subscriptionId:basePlanId`.** The three Play
+subscriptions each carry one activated monthly base plan named `monthly`, hence
+the `:monthly` suffix in the table above. RevenueCat's docs only say « you will
+need to add both the subscription ID and the base plan ID » without showing the
+separator, so the products were brought in through the dashboard's **Import
+Products** rather than typed; the import produced that form. Play caps a product
+ID at 40 characters, which is why the Play subscription IDs are the bare tier
+names and not the reverse-DNS iOS ones — `com.secondbrainlabs.core.text_only_monthly`
+is 42 characters. Nothing in the code reads a store product identifier, so the two
+stores carrying different identifiers costs nothing.
 
 ## Offering and packages
 
@@ -70,11 +80,11 @@ Current offering `default` (`ofrng2c876c3f17`), three packages, one per tier.
 Each package holds one product per store, which is how one offering serves the
 App Store and the Test Store from a single set of lookup keys:
 
-| Position | Lookup key | Package ID | App Store product | Test Store product |
-|---|---|---|---|---|
-| 0 | `text_only` | `pkgefd39fb892f` | `com.secondbrainlabs.core.text_only_monthly` | `text_only_monthly_test` |
-| 1 | `mix` | `pkge7df593bf70` | `com.secondbrainlabs.core.mix_monthly` | `mix_monthly_test` |
-| 2 | `audio_heavy` | `pkge5843d287fa` | `com.secondbrainlabs.core.audio_heavy_monthly` | `audio_heavy_monthly_test` |
+| Position | Lookup key | Package ID | App Store product | Play Store product | Test Store product |
+|---|---|---|---|---|---|
+| 0 | `text_only` | `pkgefd39fb892f` | `com.secondbrainlabs.core.text_only_monthly` | `text_only_monthly:monthly` | `text_only_monthly_test` |
+| 1 | `mix` | `pkge7df593bf70` | `com.secondbrainlabs.core.mix_monthly` | `mix_monthly:monthly` | `mix_monthly_test` |
+| 2 | `audio_heavy` | `pkge5843d287fa` | `com.secondbrainlabs.core.audio_heavy_monthly` | `audio_heavy_monthly:monthly` | `audio_heavy_monthly_test` |
 
 The SDK only ever returns the product matching the store it was configured for,
 so the Test Store path the Maestro paywall flow drives is untouched by the App
@@ -103,11 +113,14 @@ Where the SDK keys come from, since none of them is in `mobile/eas.json`: the
 iOS one lives in `mobile/.env`, which is gitignored, so a local build reads it
 and an EAS cloud build does not; the Maestro job injects the Test Store key
 through the environment and never reads `eas.json` either, building with
-`expo prebuild` + `xcodebuild`. The Android key exists since the Play app was
-created — RevenueCat mints a public SDK key at that moment, whether or not the
-service credentials validate — and it is set in `mobile/.env`, so the SDK is
-configured for real on Android. What it cannot do yet is resolve an offering:
-that waits on the Play products (`task-238`).
+`expo prebuild` + `xcodebuild`. The Android key is the exception since
+2026-09-01: the real `goog_` key is set in the three EAS environments
+(`production`, `preview`, `development`), so a cloud build resolves it. That
+matters more than it looks — the `internal` build profile resolves the
+`production` environment, and `EXPO_PUBLIC_*` values are inlined at build time,
+so every AAB produced before that date carried the literal string
+`your_revenucat_google_api_key_here` and could not have resolved an offering
+whatever the dashboard said.
 
 ## Adding a store product
 

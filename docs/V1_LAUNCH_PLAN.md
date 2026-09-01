@@ -65,7 +65,8 @@
   (62, 118, 145, 229), 4 tâches mobile/device (163 à 166), 1 tâche CI en sommeil
   (172), et 6 tâches owner-only stores/branding/prod (180, 186, 238, 252, 260,
   261). **14 des 15 portent `dispatchable: false`** — seule `task-238` peut être
-  confiée à un agent, et elle attend le build Android de `task-163`. Le backlog
+  confiée à un agent, et il n'y reste plus que du travail sur téléphone depuis le
+  2026-09-01 (installation depuis la piste interne, achat sandbox). Le backlog
   n'a donc plus de travail à distribuer : ce qui reste est de la main d'œuvre
   owner (devices physiques, dashboards stores, credentials).
 - **La surface produit a beaucoup bougé depuis le 2026-08-13** — 12 tâches
@@ -214,7 +215,7 @@ un staging ou une soumission.
 |---|---|---|
 | Branding app | `task-186` | Nom marketing final requis avant App Store Connect / Play Console |
 | App icons | `task-180` | Remplacer les placeholders avant soumission |
-| RevenueCat / IAP | Phase 6 : `task-262` **faite**, `task-261` (iOS) faite côté RevenueCat, reste owner-only côté App Store Connect ; `task-238` (Android) entière | `REVENUCAT_WEBHOOK_SECRET` **renseigné** en local et dans le secret dev (valeurs identiques), et chargé par le Lambda déployé — sonde `401`, pas `500` (2026-08-13). `revenucat_events-dev` = 0 item, normal sans achat sandbox. Reste à confirmer côté dashboard RevenueCat (non exposé par l'API v2). Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent ; l'app iOS porte désormais ses 3 produits App Store rattachés aux entitlements et aux packages, mais **aucune clé App Store Connect** (`app_store_connect_api_key_configured: false`), donc les abonnements n'existent pas encore côté ASC et StoreKit n'en résout aucun. Une app Play Store existe désormais dans le projet (`appb253c0f75a`, package `com.secondbrainlabs.core`, 2026-08-20) mais **sans produit** : ses service credentials ne valident pas tant qu'aucun bundle signé n'a été déposé sur une piste de test Play, un package name n'existant pour l'API Google Play qu'au premier AAB — donc `task-238` attend le build Android de `task-163`. `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` porte la vraie clé `goog_` dans `mobile/.env`, mais l'AC #5 de `task-238` reste décochée : la clé n'est pas propagée aux profils EAS development/preview/CI/production, et `mobile/.env` étant gitignoré, aucun build cloud ne la voit |
+| RevenueCat / IAP | Phase 6 : `task-262` **faite** ; `task-261` (iOS) faite côté RevenueCat, reste owner-only côté App Store Connect ; `task-238` (Android) : AC#1-#5 faites au 2026-09-01, restent AC#6 (installer depuis la piste interne) et AC#7 (achat sandbox) | `REVENUCAT_WEBHOOK_SECRET` **renseigné** en local et dans le secret dev (valeurs identiques), et chargé par le Lambda déployé — sonde `401`, pas `500` (2026-08-13). `revenucat_events-dev` = 0 item, normal sans achat sandbox. Reste à confirmer côté dashboard RevenueCat (non exposé par l'API v2). Les 3 entitlements de tier (`tier_text_only`/`tier_mix`/`tier_audio_heavy`), l'offering `default` et les 3 packages existent, et **chaque tier porte désormais trois produits, un par store** (App Store, Play Store, Test Store). Côté iOS il manque **la clé App Store Connect** (`app_store_connect_api_key_configured: false`, d'où le statut `Could not check` au dashboard), donc les abonnements n'existent pas encore côté ASC et StoreKit n'en résout aucun. Côté Android tout est câblé : 3 abonnements Play avec forfait de base actif, produits importés en `subscriptionId:basePlanId`, service credentials `Valid credentials`, et la vraie clé `goog_` dans les trois environnements EAS depuis le 2026-09-01 (elle y valait le placeholder, ce qui rendait tout AAB inexploitable pour la facturation). Disposition détaillée : `docs/REVENUECAT_ENTITLEMENTS.md` |
 | Domaine production | Phase 10 | Revérifié le 2026-08-21, inchangé : `secondbrainlabs.com` **résout** mais redirige en `301` vers `sbl.so` ; `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont toujours en `NXDOMAIN`. Le profil EAS production pointe encore vers le second |
 | Store/legal | Phase 10 | Les textes existent au dépôt (`docs/compliance/privacy-policy.md`, `terms-of-service.md`, `apple-app-privacy.md`, `google-play-data-safety.md`, `CHECKLIST.md`) mais **ne sont pas hébergés** : `secondbrainlabs.com/privacy` et `/terms` redirigent vers `sbl.so/...` qui répond **404** (revérifié le 2026-08-21). Liens in-app absents, listings/screenshots/review accounts à finaliser |
 
@@ -245,9 +246,9 @@ un staging ou une soumission.
 | **GitHub** (compte + repo **public** depuis le 2026-08-13) | gratuit | Versioning, CI/CD, releases | Bon : source synchronisée, `Main Branch Checks` et `Deploy Lambda Functions` verts sur le HEAD, environnement `production` créé (branche `main` seule autorisée). Six secrets Actions (`AWS_DEPLOY_ROLE_ARN` + les cinq E2E). Manquent `EXPO_TOKEN`, Apple/App Store Connect et le service account Google Play. Branch protection **configurée** sur `main` depuis le 2026-08-13 (`task-257`, régime léger : force-push et suppression refusés, aucun required check) |
 | **AWS** (2 comptes, Organizations `o-7sf5u7j5hd`) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | Bon : dev dans `125313707865` (déployé sur le HEAD), prod dans `866874944541` (199 ressources, health `200`, **en veille** et secret vide). Aucune alarme active — par conception dans les deux environnements, pas par défaut de provisioning |
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
-| **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; les quatre vérifications d'éligibilité du compte restent à confirmer par l'owner (identité, profil de paiement, adresse publique, closed testing 12 testeurs / 14 jours) — runbook `task-260`, détail en Phase 2.2. Aucune preuve plus récente dans le repo |
-| **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée, aucune Android. Les trois environnements EAS **sont peuplés** (constaté le 2026-08-13) — `development` porte six variables `EXPO_PUBLIC_*` ; `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` y était un placeholder à cette date et n'a pas été revérifié depuis qu'elle est renseignée en local (2026-08-20). À noter : `mobile/eas.json` ne déclare aucune clé RevenueCat, et `mobile/.env` étant gitignoré, un build EAS cloud n'en voit aucune — seuls les builds locaux et la CI Maestro (qui injecte la clé Test Store par l'environnement) en ont une |
-| **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : projet `proj879a771a` avec 3 entitlements de tier, offering courant et 3 packages tiers (`task-262`, 2026-08-13), désormais servis par les produits Test Store **et** les 3 produits App Store de l'app iOS (`task-261`, 2026-08-13). Une app Play (`appb253c0f75a`) existe depuis le 2026-08-20, avec sa vraie clé `goog_` dans `mobile/.env`, mais sans aucun produit. Restent : la clé App Store Connect (`app_store_connect_api_key_configured: false`, donc les 3 abonnements ne sont pas encore créés côté ASC), les produits Play, et la propagation de la clé `goog_` aux environnements EAS. Le `REVENUCAT_WEBHOOK_SECRET` **est renseigné** (sonde `401`, pas `500`). Aucun achat sandbox réel possible en l'état. Disposition détaillée : `docs/REVENUECAT_ENTITLEMENTS.md` |
+| **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; 4 des 7 portes d'éligibilité franchies au 2026-09-01 (appareil Android physique ✅, numéro de téléphone de contact ✅, identité ✅ aucune action due ni échéance, enregistrement du nom de package ✅ — fait par le premier upload d'AAB via Play App Signing, bien avant l'échéance du 2026-09-30). **App Play créée le 2026-08-31** (`com.secondbrainlabs.core`, déclarée *Sans frais*, le nom de package étant le seul champ définitif du formulaire) et **premier AAB uploadé sur la piste de test interne le 2026-09-01**. **Compte marchand créé le 2026-08-31**, IBAN déposé le même jour, **compte bancaire validé par micro-dépôt et passé en `Principal` le 2026-09-01**. **Informations fiscales : W-8BEN approuvé le 2026-09-01** (0 % sur les royalties de droits d'auteur au titre de l'article 12 §1 de la convention France–États-Unis, attestation d'absence d'activité aux États-Unis enregistrée, valide jusqu'au 31 décembre 2029). **Compte marchand donc complet sur ses trois volets.** Restent ouvertes : adresse publique, closed testing (12 testeurs / 14 jours continus + review ≤7 jours = ~21 jours de plancher calendaire) — runbook `task-260`, détail en Phase 2.2 |
+| **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée. **Deux AAB Android produits le 2026-09-01** (profil `internal`, keystore géré par EAS, API dev) : `versionCode` 4, puis `versionCode` 5 une fois la clé RevenueCat corrigée dans les environnements EAS — le 4 était inexploitable pour la facturation, `EXPO_PUBLIC_*` étant inliné à la compilation. C'est le 5 qui est sur la piste de test interne. Il a fallu corriger un défaut qui rendait *tout* build Release Android impossible, `production` compris : les fichiers `mobile/locales/*.json` étaient plats, donc Expo recopiait les trois clés iOS dans les ressources Android où elles n'existent pas dans la locale par défaut, et `lintVitalRelease` échouait sur 33 erreurs `ExtraTranslation`. Les fichiers sont désormais scindés en sections `ios`/`android`. Les trois environnements EAS **sont peuplés** et portent la vraie clé `goog_` depuis le 2026-09-01. À noter : `mobile/eas.json` ne déclare aucune clé RevenueCat, et `mobile/.env` étant gitignoré, un build EAS cloud n'en voit aucune par ce biais — la clé Apple reste donc réservée aux builds locaux, et la CI Maestro injecte la clé Test Store par l'environnement |
+| **RevenueCat** | gratuit < $10k MTR | Cross-platform IAP backend | Partiel : projet `proj879a771a` avec 3 entitlements de tier, offering courant et 3 packages tiers (`task-262`, 2026-08-13), désormais servis par les produits Test Store **et** les 3 produits App Store de l'app iOS (`task-261`, 2026-08-13). L'app Play (`appb253c0f75a`) existe depuis le 2026-08-20 et porte ses **3 produits depuis le 2026-09-01**, rattachés aux mêmes entitlements et packages, avec des identifiants de la forme `subscriptionId:basePlanId`. Ses **identifiants de compte de service sont validés depuis le 2026-09-01** (`Valid credentials`) — il ne manquait que l'upload d'un AAB, les permissions et les API Google Cloud étant correctes depuis le départ, ce qu'a prouvé le panneau *Debug error* (2 vérifications sur 3 déjà vertes). Reste **côté iOS uniquement** : la clé App Store Connect (`app_store_connect_api_key_configured: false`, donc les 3 abonnements ne sont pas encore créés côté ASC). Le `REVENUCAT_WEBHOOK_SECRET` **est renseigné** (sonde `401`, pas `500`). Le premier achat sandbox possible est donc celui d'Android, via un license tester sur la piste interne (`task-238` AC#7). Disposition détaillée : `docs/REVENUECAT_ENTITLEMENTS.md` |
 | **Google Cloud Console** (OAuth) | gratuit | Sign in with Google : OAuth Client IDs (iOS, Android, Web) + écran de consentement OAuth | Partiel : projet + consent screen Test + OAuth Web backend + OAuth iOS OK ; OAuth Android et publication Production restent à faire |
 | **OpenAI** | usage-based | Génération artifacts (summary/notes/flashcards) | OK (compte créé, clé en local dans `.env`) |
 | **Deepgram** | usage-based | Transcription audio | OK (compte créé, clé en local dans `.env`) |
@@ -495,34 +496,156 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 ### Phase 2 — Comptes externes (jour 1-2)
 
 1. ~~Apple Developer Program.~~ **Fait** : payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés.
-2. Google Play Console : payé 2026-06-01. **Quatre vérifications d'éligibilité à
-   faire par l'owner dans la Play Console** — runbook pas-à-pas dans `task-260`,
-   qui est aussi l'endroit où consigner les résultats. Aucune preuve plus récente
-   n'est disponible dans le repo. Les $25 ne donnent qu'un compte : ils ne rendent
-   pas le compte apte à publier.
-   1. **Vérification d'identité du compte développeur** (Settings → Developer
-      account → Account details) : nom légal, adresse, téléphone, pièce
-      d'identité. Google la réclame de tous les comptes depuis 2023 et suspend
-      ceux qui ne la fournissent pas dans le délai imparti.
-   2. **Profil de paiement Google Payments** : obligatoire dès qu'il y a des
+2. Google Play Console : payé 2026-06-01. **Type de compte : PERSONNEL**
+   (constaté le 2026-08-19, reconfirmé par l'owner le 2026-08-31 — fait établi, ne
+   plus le redemander). **Sept portes d'éligibilité à franchir
+   par l'owner dans la Play Console** — runbook pas-à-pas dans `task-260`,
+   qui est aussi l'endroit où consigner les résultats. Les $25 ne donnent qu'un
+   compte : ils ne rendent pas le compte apte à publier. Deux portes sont
+   franchies au 2026-08-31 ; sur les cinq restantes, la septième devrait se solder
+   sans action.
+
+   Ce que « personnel » implique mécaniquement, et qui n'a donc plus à être
+   rediscuté : l'adresse développeur affichée publiquement sur la fiche Play est
+   une **adresse personnelle** (porte 5), et l'exigence de **closed testing
+   s'applique** (porte 6) — le compte datant du 2026-06-01, il tombe après le
+   seuil de novembre 2023. Seuls les *paramètres* de ce closed testing (nombre de
+   testeurs, durée) restent à lire dans la Play Console.
+   1. **Accès à un appareil Android physique — ✅ confirmé le 2026-08-31.**
+      Play Console → Accueil → carte « Terminer la configuration de votre compte
+      de développeur ». La confirmation passe par l'app mobile Play Console
+      installée sur un appareil Android réel et connectée au compte développeur ;
+      un émulateur ne convient pas. Effet constaté immédiatement après : le
+      bouton *Créer une application* de la Play Console est passé d'inactif à
+      actif.
+   2. **Numéro de téléphone de contact — ✅ validé le 2026-08-31**, dans la même
+      carte de configuration, une fois la porte ci-dessus franchie (elle en était
+      le prérequis). Revu sur pièce le même jour sur *Compte de développeur →
+      Coordonnées* : téléphone et adresse e-mail de contact portent tous deux la
+      pastille « vérifié ». Relevé au même endroit : le *Nom du développeur* est
+      déjà `Second Brain Labs` (l'entité légale), ce qui est indépendant du nom
+      marketing de l'app que `task-186` doit encore trancher.
+   3. **Vérification d'identité du compte développeur — ✅ aucune action due,
+      aucune échéance, relevé le 2026-08-31.** Chemin réel : *Validation des
+      développeurs Android* → onglet **Identité** (et non « Paramètres → Détails du
+      compte développeur », qui n'agrège plus cette information). Cet onglet est
+      purement informatif : il reflète le nom légal et l'adresse déjà fournis, sans
+      statut de vérification, sans « Action requise », **sans date limite** et sans
+      bouton d'action. Le risque de suspension pour dépassement d'échéance — que
+      Google applique depuis 2023 — ne pèse donc pas sur ce compte. Nuance : l'écran
+      n'affiche pas « Vérifié » non plus, et Google recommande d'ajouter un **site
+      web** au compte (« l'ajout d'un site nous aide à valider votre compte »), ce
+      qui reste à faire quand le domaine servant la politique de confidentialité de
+      `task-43` existera.
+   4. **Profil de paiement Google Payments** : obligatoire dès qu'il y a des
       achats intégrés — donc bloquant pour les abonnements de `task-238` et pour
       RevenueCat. Il porte la vérification d'identité du bénéficiaire, les
       informations fiscales et les coordonnées bancaires. Sans lui, les
       abonnements ne sont pas vendables même si l'app est publiée.
-   3. **Adresse développeur publique** : depuis 2023, l'email et l'adresse
-      physique du développeur s'affichent sur la fiche Play. Pour un compte
-      personnel, cela signifie publier une adresse personnelle. Un compte
-      organisation l'évite mais exige un numéro D-U-N-S — décision à prendre
-      avant de remplir la fiche, pas après.
-   4. **Closed testing préalable — à vérifier en priorité, c'est du délai
-      calendaire.** Google impose aux comptes développeur *personnels* créés
-      après novembre 2023 un test fermé d'environ 12 testeurs pendant 14 jours
-      continus avant de pouvoir demander l'accès à la production. Le compte
-      datant du 2026-06-01, l'exigence s'applique très probablement s'il est
-      personnel. Elle ne s'achète pas et ne se parallélise pas : elle doit
-      démarrer 14 jours avant la date de publication visée. **À confirmer dans
-      la Play Console** (les seuils et le périmètre de cette règle ont changé
-      plusieurs fois, et cette note n'est pas une source de vérité).
+      **Tranché le 2026-08-31 : le profil payeur existe et est vérifié, le compte
+      marchand n'existe pas.** Les deux objets sont distincts. Le *profil de paiement
+      Google* (le payeur, celui qui a réglé les $25) a été ouvert sur
+      `payments.google.com/gp/w/home/settings` : `TYPE DE COMPTE : Particulier`,
+      **nom validé le 2026-06-02**, **adresse validée le 2026-06-02**. Mais l'écran
+      **ne comporte ni section *Informations fiscales*, ni section *Coordonnées
+      bancaires*, ni aucune surface de virement** — elles ne sont pas « en attente »,
+      elles n'existent pas. Le **compte marchand Google Play** (l'encaisseur), seul
+      prérequis dur de `task-238`, **reste donc entièrement à créer**. Le menu Play
+      Console n'a aucune entrée « Paiements » parce que le profil payeur vit hors de
+      la console, pas parce que rien n'existe.
+      **Ordonnancement, corrigé sur la doc Google le 2026-08-31 :** il avait d'abord
+      été écrit ici que le compte marchand ne se créait qu'après la création de
+      l'app. C'est **faux** — c'était une inférence tirée de l'absence d'entrée
+      *Paiements* dans le menu. Play Console Help `answer/7161426` ne conditionne la
+      création du profil à **aucune app** : c'est une tâche de compte, à
+      **Play Console → Paramètres → Profil de paiement → *Créer un profil de
+      paiement***. Il n'existe pas d'entrée *Paiements* de premier niveau, d'où
+      l'impression qu'elle manquait. **Cette porte est donc à lancer immédiatement,
+      en parallèle du build** — c'est le seul poste administratif à délai Google qui
+      ne dépende de rien. Contraintes documentées : l'adresse ne peut pas être une
+      boîte postale, le **pays est verrouillé après soumission**, et le compte
+      bancaire de versement devra être enregistré dans ce même pays. Les sous-étapes
+      bancaires et fiscales ne sont pas documentées publiquement : à relever sur
+      pièce, avec leur délai, au moment de les faire.
+      **Écran ouvert le 2026-08-31 : c'est un sélecteur, pas une création.** La page
+      *Paramètres → Profil de paiement* propose de choisir le profil associé au
+      compte et présente **deux profils `Particulier` préexistants** — l'un de
+      portée large (YouTube, Cloud, Play, Google Pay), l'autre **dédié à Play**, qui
+      est celui dont le nom et l'adresse sont validés depuis le 2026-06-02 — plus une
+      option de création. **Aucun n'est coché.** L'action est de **cocher le profil
+      dédié à Play**, et surtout **pas** de créer un troisième profil en doublon. Le
+      rattachement est difficile à défaire une fois des transactions passées.
+      **✅ Compte marchand créé le 2026-08-31.** Le profil public de marchand a été
+      soumis et la page affiche désormais l'écran de l'encaisseur (`Google Play Apps`,
+      revenus 0,00 €, seuil de versement 1,00 €, paiement mensuel). L'**IBAN a été
+      déposé le 2026-08-31** et Google a lancé une **vérification par micro-dépôt** :
+      un montant sera viré sur le compte dans les jours suivants, à saisir dans la
+      console pour valider le mode de versement. Reste ouvert : les **informations
+      fiscales**, dont le statut n'a pas encore été relevé (à chercher sous *Gérer les
+      paramètres*). Rien de tout cela ne bloque la création de l'app Play ni sa
+      checklist de configuration.
+      Deux champs à ne pas rater lors de la saisie, la doc étant formelle
+      (`paymentscenter/answer/7162811`) : le **pays du profil et le merchant ID sont
+      définitifs** (seul remède en cas d'erreur : créer un nouveau profil et y
+      transférer les apps), et le **nom sur les relevés de carte est limité à 14
+      caractères** car Google y préfixe `GOOGLE*`. Tout le reste des informations
+      publiques — nom d'entreprise, nom de marque, e-mail de support client, site web —
+      est **modifiable après coup**.
+   5. **Adresse développeur publique** : depuis 2023, l'email et l'adresse
+      physique du développeur s'affichent sur la fiche Play. Le compte étant
+      **personnel**, cela signifie ici publier une adresse personnelle — ce n'est
+      pas une hypothèse, c'est le cas par défaut à trancher. **Deux constats du
+      2026-08-31 qui réduisent le problème.** D'abord, le bloc *Informations
+      affichées dans votre profil de développeur* ne liste aujourd'hui **que
+      l'e-mail développeur**, aucune adresse physique — l'affichage de l'adresse
+      étant lié aux apps à achats intégrés, la vérification devra être refaite après
+      création du compte marchand. Ensuite, l'échappatoire « passer en compte
+      organisation » est **indisponible** : le lien *Modifier le type de compte* est
+      grisé dans la console, donc pas de D-U-N-S à engager et une branche de moins
+      au calendrier. Restent deux options : accepter, ou domicilier.
+   6. **Closed testing préalable — c'est du délai calendaire, et il s'applique.**
+      Google impose aux comptes développeur *personnels* créés après novembre 2023
+      un test fermé d'environ 12 testeurs pendant 14 jours continus avant de
+      pouvoir demander l'accès à la production. Le compte est personnel et date du
+      2026-06-01 : les deux conditions sont réunies, **l'exigence s'applique**.
+      Elle ne s'achète pas et ne se parallélise pas.
+      **Paramètres établis sur la doc Google le 2026-08-31 (`answer/14151465`) :**
+      **12 testeurs minimum inscrits en continu pendant 14 jours consécutifs** — la
+      continuité est stricte, un désabonnement remet le compteur de la personne à
+      zéro. Il faut donc 12 personnes qui restent inscrites 14 jours, pas 12
+      inscriptions cumulées. La configuration de l'app doit être **terminée** avant
+      de pouvoir démarrer le test fermé. La demande d'accès à la production se fait
+      ensuite depuis *Tableau de bord → Demander l'accès à la production*, et sa
+      review prend « **seven days or less**, but can occasionally take longer ».
+      **Plancher calendaire : ~21 jours** (14 + jusqu'à 7) à compter du démarrage
+      effectif du test. Un refus est possible si moins de 12 testeurs inscrits ou
+      engagement jugé insuffisant, auquel cas il faut prolonger — prévoir de la
+      marge. Jusqu'à l'approbation, les pages *Production* et *Pré-enregistrement*
+      restent **désactivées**.
+      **Voie rapide à ne pas confondre avec celle-ci :** le *test interne* peut
+      démarrer **avant** que la configuration de l'app soit terminée
+      (`answer/9845334`). C'est par lui qu'on fait exister le nom de package dont
+      `task-238` AC#2 a besoin, sans attendre le test fermé. Même doc : « once you
+      upload an artifact, the package name for that app is fixed and cannot be
+      changed ».
+      Reste à consigner : la **date de démarrage effective** du test fermé.
+   7. **Enregistrement des noms de packages — *Android developer verification*,
+      découvert le 2026-08-31, très probablement sans action de notre part.**
+      Play Console → *Validation des développeurs Android* → onglet *Noms des
+      packages*. Programme annoncé par Google le 15 juillet 2026 ; le bandeau
+      console menace de supprimer de Google Play, **au 30 septembre 2026**, toute
+      app non enregistrée. Vérifié à la source le 2026-08-31 : **Play App Signing
+      déclenche l'enregistrement automatique** (Google annonce 99 % des apps
+      couvertes), et notre app Play l'utilisera. L'enregistrement manuel ne
+      concerne que les apps distribuées exclusivement hors Play et les clés
+      auto-gérées. L'échéance du 30 septembre 2026 est en outre **régionale**
+      (Brésil, Indonésie, Singapour, Thaïlande, magasins participants, appareils
+      certifiés Android 7+) — le déploiement mondial est annoncé pour **2027**.
+      `adb install` est explicitement exempté, donc les builds de dev sur device ne
+      sont pas concernés ; les builds EAS `distribution: internal` échappent à la
+      phase de septembre 2026 mais pas au rollout 2027. **À revérifier en Phase 10**
+      une fois l'app créée : elle doit apparaître *Registered* dans cet onglet.
+      Détail et sources dans `task-260`, étape 1 bis.
 3. ~~AWS account + IAM admin user + facturation alarms.~~ **Fait** : compte AWS, IAM admin `second-brain-app-admin` et billing alarm $50/mois configurés.
 4. Expo / EAS account + lien vers le repo : **compte/projet faits**. Une build
    iOS development a terminé le 2026-06-11 sur `8c63765`, mais elle a expiré le
@@ -542,10 +665,9 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    backend/iOS et Apple OAuth sont renseignés localement. Le **3ᵉ Client ID
    Google (Android)** est provisionné depuis le 2026-08-13 (`task-163`).
    Restent à provisionner/valider : publication du consent screen Google en
-   Production, la propagation de `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` aux
-   environnements EAS (la clé elle-même est provisionnée et posée dans
-   `mobile/.env` depuis le 2026-08-20), RevenueCat webhook + IAP et secrets
-   runtime staging/prod.
+   Production, RevenueCat webhook + IAP et secrets runtime staging/prod.
+   `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` porte la vraie clé `goog_` dans les trois
+   environnements EAS depuis le 2026-09-01 (`task-238`).
 7. **Google Cloud Console** (console.cloud.google.com) :
    - ~~Créer un projet~~ **Fait** : projet `media-summarizer` créé. Le nom du projet est un identifiant interne, peu visible aux users.
    - ~~**APIs & Services → OAuth consent screen (Audience)**~~ **Fait** : Type **External**, scopes `openid`, `email`, `profile` uniquement.
@@ -816,11 +938,11 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    environnements `development`/`preview`/`production` contiennent bien cinq
    variables `EXPO_PUBLIC_*` (constaté le 2026-08-13 via `eas env:list`).
    `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` a été ajoutée à l'environnement
-   `development` le 2026-08-13, qui porte donc six variables. Reste un trou :
-   `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` valait encore le placeholder
-   `your_revenucat_google_api_key_here` dans les trois environnements à cette
-   date (→ `task-238`) ; la vraie clé `goog_` est posée dans `mobile/.env`
-   depuis le 2026-08-20, mais EAS n'a pas été revérifié depuis. À noter aussi : `EXPO_PUBLIC_API_BASE_URL` n'existe **que**
+   `development` le 2026-08-13, qui porte donc six variables. Le trou qui
+   subsistait est comblé : `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` valait le
+   placeholder `your_revenucat_google_api_key_here` dans les trois
+   environnements, et porte la vraie clé `goog_` depuis le **2026-09-01**
+   (`task-238`). À noter aussi : `EXPO_PUBLIC_API_BASE_URL` n'existe **que**
    dans le bloc `env` inline de `mobile/eas.json`, pas côté serveur — les deux
    mécanismes coexistent.
 2. `task-163` — **le prérequis OAuth est levé ; reste le build.** Faits le
@@ -920,20 +1042,19 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
   dont les packages n'ont aucun produit achetable. Le câblage RevenueCat, lui,
   n'a plus rien à faire : il ne reste que du travail owner dans ASC (point 3
   ci-dessous).
-- **Une app Google Play existe depuis le 2026-08-20** (session owner,
+- **L'app Google Play est complète depuis le 2026-09-01** (sessions owner,
   `task-238`) : `appb253c0f75a`, package `com.secondbrainlabs.core`, service
-  account JSON uploadé. RevenueCat frappe une clé SDK publique à la création de
-  l'app, donc la **vraie clé `goog_`** existe indépendamment du reste et est
-  posée dans `mobile/.env` — le placeholder
-  `your_revenucat_google_api_key_here` a disparu, et `initializePurchases()`
-  configure désormais le SDK pour de bon sur Android. Deux limites subsistent :
-  (a) l'app **n'a aucun produit**, donc le SDK ne résout aucun offering, et ses
-  service credentials ne valideront pas tant qu'aucun bundle signé n'aura été
-  déposé sur une piste de test Play — un package name n'existe pour l'API Google
-  Play qu'au premier AAB, donc `task-238` attend le build Android de `task-163` ;
-  (b) la clé n'est que dans `mobile/.env`, qui est gitignoré : **aucun build EAS
-  cloud ne la voit**, et l'AC #5 de `task-238` (clé présente dans les profils
-  development, preview, CI et production) reste décochée.
+  credentials `Valid credentials`, et **3 produits** rattachés aux entitlements
+  de tier et aux packages de l'offering `default`. Les 3 abonnements Play
+  existent avec un forfait de base `monthly` actif et un prix manuel par pays
+  (3 / 5 / 9 EUR TTC en France) ; un identifiant de produit Play côté RevenueCat
+  s'écrit `subscriptionId:basePlanId`. La **vraie clé `goog_`** est posée dans
+  les trois environnements EAS depuis la même date — elle y valait le
+  placeholder `your_revenucat_google_api_key_here`, ce qui rendait tout AAB
+  antérieur incapable de résoudre un offering, `EXPO_PUBLIC_*` étant inliné à la
+  compilation. Restent les deux ACs qui exigent un téléphone : installer depuis
+  la piste interne et voir les trois cartes de prix (AC#6), puis un achat
+  sandbox en license tester avec vérification de l'entitlement (AC#7).
 - L'unique ligne de `subscriptions-dev` (tier `L`, `period_end` 2029) est une
   **fixture manuelle** du 2026-08-02 pour tester l'UI, pas la trace d'un achat.
 - **Un fichier `mobile/ios/StoreKit.storekit` est hors périmètre** — il n'existe pas au dépôt et n'a pas à y être créé : il ne servirait
@@ -1003,9 +1124,11 @@ faite :
       cf. `task-161` et Phase 5), install sur device, achat d'un tier avec le
       compte sandbox, puis Restore Purchases.
    7. Puis le point 5 ci-dessous, le tour de webhook.
-4. **`task-238` — Android** : app Google Play, mêmes 3 produits, clé publique
-   Google réelle en remplacement du placeholder, license tester, build Internal
-   Testing, achat + restore. Dépend aussi du build Android (`task-163`).
+4. **`task-238` — Android** : fait au 2026-09-01 pour l'app Google Play, les 3
+   abonnements et leurs prix, les 3 produits RevenueCat, la clé `goog_` dans les
+   environnements EAS et l'AAB `versionCode` 5 sur la piste interne. Restent
+   l'install depuis cette piste (AC#6) puis l'achat + restore en license tester
+   (AC#7), les deux sur téléphone.
 5. **Boucler le circuit webhook** une fois un achat sandbox réalisé :
    l'événement atterrit dans `revenucat_events-dev`, `subscriptions-dev` porte le
    bon tier, et `GET /api/entitlements/status` renvoie `is_active: true` avec
@@ -1052,8 +1175,8 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
    `EXPO_TOKEN`, Apple/App Store Connect et le service account Google Play pour
    les workflows de distribution.
 6. ✅ **Variables EAS** : les trois environnements sont peuplés (constaté le
-   2026-08-13). Seul `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` y restait un placeholder
-   (`task-238`) — renseignée en local depuis le 2026-08-20, EAS non revérifié.
+   2026-08-13) et `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` y porte la vraie clé
+   `goog_` depuis le 2026-09-01 (`task-238`), en remplacement du placeholder.
 7. **Maestro CI** : **en sommeil depuis le 2026-08-13** (`task-254`). Plus aucun
    déclenchement automatique ; `workflow_dispatch` est le seul point d'entrée.
    Ce n'est plus un gate de release. État des flows et plan de réactivation dans
@@ -1318,11 +1441,14 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   `envs/prod/main.tf` et rappliquer
 - [x] Apple Developer Program payé ($99) au 2026-06-01, validé par Apple
 - [x] **Apple Sign in with Apple Service ID + Key (.p8) + App ID + Team ID + Key ID** provisionnés au 2026-06-08 (cf. Phase 2.8) — toutes les vars Apple dans `.env` renseignées : `APPLE_CLIENT_ID` (Service ID), `APPLE_PRIVATE_KEY` (PEM single-line), `APPLE_REDIRECT_URI` prod, `APPLE_TEAM_ID`, `APPLE_KEY_ID`.
-- [ ] Google Play Console payé ($25) au 2026-06-01 — **quatre vérifications
-  d'éligibilité du compte à confirmer par l'owner** (identité développeur, profil
-  de paiement Google Payments, adresse développeur publique, closed testing
-  ~12 testeurs / 14 jours), cf. Phase 2.2. L'information « en cours » n'a pas été
-  actualisée depuis juin
+- [ ] Google Play Console payé ($25) au 2026-06-01 — **sept portes d'éligibilité
+  du compte, deux franchies au 2026-08-31** : accès à un appareil Android
+  physique ✅ 2026-08-31 (via l'app mobile Play Console) et numéro de téléphone de
+  contact ✅ 2026-08-31. Restent ouvertes : identité développeur, profil de
+  paiement Google Payments, adresse développeur publique, closed testing
+  ~12 testeurs / 14 jours, et l'enregistrement des noms de packages (échéance
+  Google 2026-09-30 — automatique via Play App Signing, à revérifier en Phase 10).
+  Cf. Phase 2.2 et `task-260`
 - [x] Google Cloud Console : projet `media-summarizer` créé, OAuth consent screen configuré (Branding `Second Brain`, External, scopes openid+email+profile), mode Test avec utilisateur test ajouté, **3 OAuth Client IDs créés (Web backend + iOS + Android au 2026-08-13)** — `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` dans `.env` racine ; `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB` + `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS` dans `mobile/.env` (naming aligné avec `mobile/app.config.ts`, corrigé 2026-06-08)
 - [x] Google Cloud Console **Android OAuth Client ID** — **fait le 2026-08-13**
   (`task-163`), avec `package=com.secondbrainlabs.core` et le SHA-1 du keystore
@@ -1351,10 +1477,12 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   (`task-261`) — mais aucun n'existe encore côté App Store Connect, donc seuls les
   produits **Test Store** sont réellement achetables. Le webhook secret, lui, est
   renseigné — ne pas le recompter comme un reste à faire. Restent : les
-  3 abonnements ASC + la clé App Store Connect (owner, `task-261`), les
-  3 produits Play sur l'app `appb253c0f75a` créée le 2026-08-20 (`task-238`), la
-  propagation de la clé `goog_` aux environnements EAS, les comptes
-  sandbox/license testers, achat/restore et propagation vers les quotas. Côté app,
+  3 abonnements ASC + la clé App Store Connect (owner, `task-261`), l'installation
+  depuis la piste de test interne et l'achat sandbox Android (`task-238` AC#6-#7),
+  puis la propagation vers les quotas. **Côté Play tout le reste est fait au
+  2026-09-01** : 3 abonnements avec forfait de base actif, 3 produits importés dans
+  RevenueCat et rattachés aux entitlements et aux packages, vraie clé `goog_` dans
+  les trois environnements EAS, testeur de licence configuré. Côté app,
   les entrées UI existent déjà (`task-244` : CTA d'upgrade dans Account +
   déclenchement sur refus de quota ; `task-245` : l'état d'abonnement est
   réellement consommé par l'UI) — le
@@ -1364,14 +1492,16 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   a expiré et précède le HEAD actuel (`task-161`)
 - [x] SHA-1 keystore Android via `eas credentials`, sans build (`task-162`,
   2026-08-13) — aucun build consommé, cf. notes de `task-162`
-- [ ] EAS Android development build : toujours aucune build Android ; à lancer
-  une seule fois en fin de `task-163`, après déclaration du Client ID
-- [~] Variables EAS development/preview/production : contrairement à l'état noté
-  au 2026-07-31, les trois environnements sont peuplés (vérifié le 2026-08-13).
-  `development` porte six variables depuis l'ajout du Client ID Android.
-  Reste `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY`, encore un placeholder dans les trois
-  environnements au 2026-08-13 (`task-238`) — la vraie clé est dans
-  `mobile/.env` depuis le 2026-08-20, la propagation EAS reste à faire
+- [x] Build Android EAS : deux AAB produits le **2026-09-01** avec le profil
+  `internal` (`versionCode` 4 puis 5), keystore géré par EAS, API dev. Le 5 est
+  sur la piste de test interne Play ; le 4 portait encore le placeholder de clé
+  RevenueCat. Aucune build de profil `development` n'a été consommée
+- [x] Variables EAS development/preview/production : les trois environnements sont
+  peuplés, et `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` y porte la vraie clé `goog_`
+  depuis le **2026-09-01** (`task-238`). Elle y valait le placeholder jusque-là,
+  ce qui rendait tout AAB inexploitable pour la facturation — le profil `internal`
+  résout l'environnement `production` et les `EXPO_PUBLIC_*` sont figées à la
+  compilation
 - [ ] Nom marketing final : requis avant `task-186`, App Store Connect, Play Console et Google OAuth Branding
 - [ ] Icônes finales : `task-180`, requis avant soumission stores
 - [ ] Domaines : décider quel domaine porte le produit (`secondbrainlabs.com`
@@ -1404,7 +1534,7 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 | Un health check vert lu comme « l'environnement fonctionne » | `GET /api/health/` ne teste que DynamoDB via le rôle IAM. Prod répond `200` avec un secret runtime **vide**. Ne jamais s'en servir comme preuve qu'un environnement est opérationnel — seul un E2E complet l'établit. |
 | Prod ouverte alors qu'elle est en veille | Trois booléens (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) à repasser à `true`, plus le quota de concurrence et le secret runtime. Une prod servant de vrais utilisateurs sans alarmes est une faute ; la veille n'est acceptable qu'avant lancement. |
 | CI donnant un faux sentiment de sécurité | Gates verts au 2026-08-21. Rester vigilant sur trois points : ne pas remettre de `|| true`, ne pas mettre le workflow Maestro en sommeil dans les required checks, et pin les outils via `uv.lock` pour que la CI lint avec les mêmes versions que le poste owner. |
-| Build mobile sans secrets runtime | Les trois environnements EAS sont peuplés ; reste `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` (`task-238`) et `EXPO_TOKEN` côté GitHub Actions. `mobile/.env` gitignored ne constitue pas une configuration de build distante. |
+| Build mobile sans secrets runtime | Les trois environnements EAS sont peuplés et portent la vraie clé `goog_` depuis le 2026-09-01 ; restent `EXPO_PUBLIC_REVENUCAT_APPLE_KEY` (seulement dans `mobile/.env`) et `EXPO_TOKEN` côté GitHub Actions. Une variable `EXPO_PUBLIC_*` étant inlinée à la compilation, un placeholder côté EAS produit un binaire silencieusement inerte : l'AAB `versionCode` 4 a dû être jeté pour cette raison. `mobile/.env` gitignored ne constitue pas une configuration de build distante. |
 | Domaine/légal indisponible | Textes légaux rédigés (`docs/compliance/`) mais **non hébergés** : `/privacy` et `/terms` répondent 404 derrière une redirection vers `sbl.so`. Trancher le domaine, héberger, puis vérifier les URLs depuis un réseau externe avant soumission. |
 | ~~Branch protection indisponible~~ | **Traité** (`task-257`, 2026-08-13) : `main` refuse le force-push et la suppression. Régime léger assumé — pas de required check, parce qu'un required check s'applique aussi aux pushes directs et que `Main Branch Checks` ne tourne jamais sur une PR. Rollback : `gh api -X DELETE repos/:owner/:repo/branches/main/protection`. |
 | Repo public et fuite d'identifiants | Le dépôt est public depuis peu. `task-255` et `de3ac86` ont purgé l'email de login et l'identité de compte des fichiers suivis ; l'email racine du compte AWS prod est volontairement absent du dépôt. Tout ajout de credential dans un fichier suivi est désormais une fuite publique immédiate. |
