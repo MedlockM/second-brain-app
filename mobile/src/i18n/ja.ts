@@ -145,6 +145,12 @@ export const ja: Catalog = {
   "artifacts.refusal.sourcesPending.one": "{count} 件のソースをまだ準備中です。しばらくしてからもう一度お試しください。",
   "artifacts.refusal.sourcesPending.other": "{count} 件のソースをまだ準備中です。しばらくしてからもう一度お試しください。",
   "artifacts.refusal.transcriptPending": "文字起こしをまだ準備中です。しばらくしてからもう一度お試しください。",
+  "artifacts.refusal.translationFailed":
+    "この文字起こしは翻訳できませんでした。自動で再試行されることはありません。あとでもう一度お試しください。",
+  "artifacts.refusal.sourcesTranslationFailed.one":
+    "ここにある唯一のソースを翻訳できませんでした。自動で再試行されることはありません。あとでもう一度お試しください。",
+  "artifacts.refusal.sourcesTranslationFailed.other":
+    "この {count} 件のソースはいずれも翻訳できませんでした。自動で再試行されることはありません。あとでもう一度お試しください。",
   "artifacts.refusal.generic": "この生成を開始できませんでした。もう一度お試しください。",
   "plan.hourlyRate": "1 時間あたり約 {price}",
   "plan.card.allowance": "音声と動画 {duration}",

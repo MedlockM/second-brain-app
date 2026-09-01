@@ -142,6 +142,12 @@ export const zh: Catalog = {
   "artifacts.refusal.sourcesPending.one": "还有 {count} 个来源正在准备中。请稍候再试。",
   "artifacts.refusal.sourcesPending.other": "还有 {count} 个来源正在准备中。请稍候再试。",
   "artifacts.refusal.transcriptPending": "文字记录仍在准备中。请稍候再试。",
+  "artifacts.refusal.translationFailed":
+    "无法翻译这份文字记录，系统不会自动重试。请稍后再试。",
+  "artifacts.refusal.sourcesTranslationFailed.one":
+    "这里唯一的来源无法翻译，系统不会自动重试。请稍后再试。",
+  "artifacts.refusal.sourcesTranslationFailed.other":
+    "这 {count} 个来源都无法翻译，系统不会自动重试。请稍后再试。",
   "artifacts.refusal.generic": "无法开始此次生成，请重试。",
   "plan.hourlyRate": "约 {price}/小时",
   "plan.card.allowance": "{duration} 音频和视频",

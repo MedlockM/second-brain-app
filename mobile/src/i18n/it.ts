@@ -145,6 +145,12 @@ export const it: Catalog = {
   "artifacts.refusal.sourcesPending.one": "{count} fonte è ancora in preparazione. Riprova tra poco.",
   "artifacts.refusal.sourcesPending.other": "{count} fonti sono ancora in preparazione. Riprova tra poco.",
   "artifacts.refusal.transcriptPending": "La trascrizione è ancora in preparazione. Riprova tra poco.",
+  "artifacts.refusal.translationFailed":
+    "Non è stato possibile tradurre questa trascrizione e il tentativo non verrà ripetuto automaticamente. Riprova più tardi.",
+  "artifacts.refusal.sourcesTranslationFailed.one":
+    "Non è stato possibile tradurre l'unica fonte presente e il tentativo non verrà ripetuto automaticamente. Riprova più tardi.",
+  "artifacts.refusal.sourcesTranslationFailed.other":
+    "Non è stato possibile tradurre nessuna di queste {count} fonti e il tentativo non verrà ripetuto automaticamente. Riprova più tardi.",
   "artifacts.refusal.generic": "Impossibile avviare questa generazione. Riprova.",
   "plan.hourlyRate": "≈ {price} all'ora",
   "plan.card.allowance": "{duration} di audio e video",

@@ -53,6 +53,17 @@ export function describeArtifactRefusal(
       }
       return t("artifacts.refusal.transcriptPending");
     }
+    // The other 409, and the opposite instruction: the translation this needed
+    // was refused by the provider for a reason a retry cannot change, so the
+    // sentence says so instead of sending the reader back in a moment. The
+    // response carries `terminal: true` for the same reason.
+    case "translation_failed": {
+      const failed = Number(details.failed_count ?? 0);
+      if (isCollection && failed > 0) {
+        return tCount("artifacts.refusal.sourcesTranslationFailed", failed);
+      }
+      return t("artifacts.refusal.translationFailed");
+    }
     default:
       return getFriendlyErrorMessage(err, {
         fallback: t("artifacts.refusal.generic"),

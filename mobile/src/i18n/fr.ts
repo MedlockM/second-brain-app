@@ -194,6 +194,12 @@ export const fr: Catalog = {
     "{count} sources sont encore en préparation. Réessayez dans un instant.",
   "artifacts.refusal.transcriptPending":
     "La transcription est encore en préparation. Réessayez dans un instant.",
+  "artifacts.refusal.translationFailed":
+    "Cette transcription n'a pas pu être traduite, et cela ne sera pas retenté automatiquement. Réessayez plus tard.",
+  "artifacts.refusal.sourcesTranslationFailed.one":
+    "La seule source ici n'a pas pu être traduite, et cela ne sera pas retenté automatiquement. Réessayez plus tard.",
+  "artifacts.refusal.sourcesTranslationFailed.other":
+    "Aucune de ces {count} sources n'a pu être traduite, et cela ne sera pas retenté automatiquement. Réessayez plus tard.",
   "artifacts.refusal.generic":
     "Impossible de lancer cette génération. Veuillez réessayer.",
   "plan.hourlyRate": "≈ {price} de l'heure",
