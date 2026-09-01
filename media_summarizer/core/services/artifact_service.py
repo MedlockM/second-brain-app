@@ -52,6 +52,7 @@ from media_summarizer.core.models.media_artifact import (
 from media_summarizer.core.models.user_media import ReviewBlurb
 from media_summarizer.core.services.transcript_translation import (
     TranslationInProgressError,
+    TranslationPermanentlyFailedError,
     job_source_language_hint,
     persist_detected_language,
     resolve_or_enqueue_translated_transcript,
@@ -123,6 +124,16 @@ INTERNAL_ARTIFACT_TYPES = {
 GENERATABLE_ARTIFACT_TYPES = REQUESTABLE_ARTIFACT_TYPES | INTERNAL_ARTIFACT_TYPES
 
 
+# Why a source is in the snapshot without having been read. Both are recorded
+# rather than dropped: the snapshot is what makes an artifact interpretable, and
+# "13 of 15 sources" needs the two missing ones to say what happened to them.
+#: No transcript at all: nothing was ever produced for this media item.
+EXCLUDED_REASON_TRANSCRIPT_UNAVAILABLE = "transcript_unavailable"
+#: A transcript exists, but the translation into the reading language was refused
+#: by the provider for good, so the text the corpus wanted will never exist.
+EXCLUDED_REASON_TRANSLATION_FAILED = "translation_failed"
+
+
 class ArtifactServiceError(Exception):
     pass
 
@@ -157,6 +168,27 @@ class ArtifactTranscriptNotReadyError(ArtifactServiceError):
 
 class ArtifactScopeEmptyError(ArtifactServiceError):
     """The scope holds no usable source at all."""
+
+
+class ArtifactTranslationFailedError(ArtifactServiceError):
+    """Every source of the scope was dropped for a translation that will not come.
+
+    The counterpart of :class:`ArtifactTranscriptNotReadyError`, and the reason
+    the two cannot share a code: this one is not retryable, and a client told to
+    "retry in a moment" retries forever (task-327). It reaches the client as its
+    own ``error_code`` so the UI can state a failure instead of a wait.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failed_titles: Optional[List[str]] = None,
+        failed_count: int = 0,
+    ) -> None:
+        super().__init__(message)
+        self.failed_titles = failed_titles or []
+        self.failed_count = failed_count or len(self.failed_titles)
 
 
 class ArtifactScopeTooLargeError(ArtifactServiceError):
@@ -524,9 +556,13 @@ async def resolve_scope_sources(
     produce a ``source_count`` that contradicts the screen.
 
     A source still being transcribed or translated aborts the whole request with
-    :class:`ArtifactTranscriptNotReadyError`; one whose transcript will never
-    arrive is excluded and recorded, so a single broken media cannot lock a
-    collection out forever.
+    :class:`ArtifactTranscriptNotReadyError`; one whose text will never arrive is
+    excluded and recorded, so a single broken media cannot lock a collection out
+    forever. "Never" covers two cases, and until task-327 it only covered the
+    first: no transcript at all, and a transcript whose translation the LLM
+    provider refused permanently. The second used to be re-reserved on every call
+    and reported as pending, which is how one media item spent an afternoon
+    answering "Retry in a moment" with nothing in flight.
     """
     from media_summarizer.core.services.durable_media_service import resolve_job_for_record
 
@@ -548,7 +584,7 @@ async def resolve_scope_sources(
                 media_item_id=media_item_id,
                 title=title,
                 excluded=True,
-                excluded_reason="transcript_unavailable",
+                excluded_reason=EXCLUDED_REASON_TRANSCRIPT_UNAVAILABLE,
             )
         try:
             return record, await resolve_source(
@@ -561,12 +597,19 @@ async def resolve_scope_sources(
             )
         except TranslationInProgressError:
             return record, "pending"
+        except TranslationPermanentlyFailedError:
+            return record, ArtifactSource(
+                media_item_id=media_item_id,
+                title=title,
+                excluded=True,
+                excluded_reason=EXCLUDED_REASON_TRANSLATION_FAILED,
+            )
         except ArtifactTranscriptNotReadyError:
             return record, ArtifactSource(
                 media_item_id=media_item_id,
                 title=title,
                 excluded=True,
-                excluded_reason="transcript_unavailable",
+                excluded_reason=EXCLUDED_REASON_TRANSCRIPT_UNAVAILABLE,
             )
 
     # In parallel: the API Lambda has a 30 s budget and 25 sources are ~400 kB of
@@ -992,10 +1035,28 @@ def enforce_scope_ceilings(resolution: ScopeResolution) -> None:
     the model, which makes its own snapshot a lie — and the snapshot is the thing
     that makes the history interpretable. Same reason there is no "25 most
     recent" auto-selection: that is truncation wearing a hat.
+
+    An empty scope is refused with the reason that emptied it. "No transcript
+    yet" tells the user to wait; a translation the provider refused for good is
+    not a wait, and saying so is what keeps the client from retrying (task-327).
     """
     source_count = len(resolution.sources)
     estimated_tokens = resolution.estimated_tokens
     if source_count == 0:
+        translation_failed = [
+            source
+            for source in resolution.excluded
+            if source.excluded_reason == EXCLUDED_REASON_TRANSLATION_FAILED
+        ]
+        if translation_failed:
+            raise ArtifactTranslationFailedError(
+                "The translation of every source here failed and will not be "
+                "retried automatically. Try again later.",
+                failed_titles=[
+                    source.title for source in translation_failed if source.title
+                ],
+                failed_count=len(translation_failed),
+            )
         raise ArtifactScopeEmptyError(
             "This collection has no source with a usable transcript yet."
         )

@@ -11,7 +11,10 @@ Consumes messages from TRANSCRIPT_TRANSLATION_QUEUE containing:
 State machine integration (task-203):
 - On start: marks status queued -> in_progress
 - On success: marks status -> done
-- On terminal failure: marks status -> failed (re-authorizes future attempts)
+- On failure: marks status -> failed, with the failure kind. A transient failure
+  re-authorizes future attempts; a permanent one (no provider credit, rejected
+  key, unknown model) does not, which is what stops a client retry loop from
+  paying for the same refusal over and over (task-327).
 
 The worker atomically claims a translation using the SQS message ID. Duplicate
 messages are rejected, retries of the same message may resume, and the S3 cache
@@ -37,6 +40,7 @@ from media_summarizer.core.services.transcript_translation import (
 )
 from media_summarizer.utils import database_async, s3
 from media_summarizer.utils.env import required_env
+from media_summarizer.utils.llm_failure import LLMFailureKind
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -192,12 +196,14 @@ async def process_message(message: Dict[str, Any]) -> None:
                 transcript_s3_key=transcript_s3_key,
                 target_language=target_language,
                 error_type=type(exc).__name__,
+                failure_kind=exc.failure_kind,
                 detail=str(exc)[:300],
             )
             await mark_translation_failed(
                 transcript_s3_key=transcript_s3_key,
                 target_language=target_language,
                 error_message=str(exc)[:300],
+                failure_kind=exc.failure_kind,
             )
             # Do NOT re-raise: the message should not be retried by SQS since
             # the internal retry logic already exhausted attempts.
@@ -223,10 +229,16 @@ async def process_message(message: Dict[str, Any]) -> None:
             raise
 
         if outcome.translation_failed:
+            # The failure kind is what stops the next `/raw-content` poll or
+            # artifact request from reserving this very translation again: a
+            # permanent refusal is recorded as such and the reservation gate
+            # refuses it (task-327).
+            failure_kind = outcome.failure_kind or LLMFailureKind.TRANSIENT
             await mark_translation_failed(
                 transcript_s3_key=transcript_s3_key,
                 target_language=target_language,
                 error_message=outcome.translation_error or "translation_failed",
+                failure_kind=failure_kind,
             )
             log_event(
                 logger,
@@ -235,6 +247,7 @@ async def process_message(message: Dict[str, Any]) -> None:
                 "Translation failed after internal retries",
                 transcript_s3_key=transcript_s3_key,
                 target_language=target_language,
+                failure_kind=failure_kind,
                 detail=(outcome.translation_error or "translation_failed")[:300],
             )
             return

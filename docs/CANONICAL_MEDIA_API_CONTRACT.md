@@ -227,6 +227,7 @@ Typed refusals:
 | No source with a usable transcript | `422` | `scope_empty` | no |
 | More than 25 sources, or more than 120 000 estimated tokens | `422` | `scope_too_large` | no |
 | A source is still being transcribed or translated | `409` | `sources_not_ready` | **yes, as-is** |
+| Every source lost its translation permanently | `409` | `translation_failed` | no, not until the provider works again |
 | Out of minutes (collection scope only) | `403` | `out_of_minutes` | next period, or on upgrade |
 | Artifact type disabled | `400` | — | no |
 | Generation disabled globally | `503` | — | no |
@@ -236,6 +237,18 @@ nothing: `source_count`, `max_sources`, `estimated_tokens`, `max_tokens`.
 `sources_not_ready` carries `pending_count` and `pending_titles`; the call that
 returned it has already kicked off the missing translations, so retrying it
 unchanged is the remedy.
+
+The two `409`s are the same status and the opposite instruction, so both carry a
+`terminal` boolean — `false` on `sources_not_ready`, `true` on
+`translation_failed` — and a client decides whether to keep polling from that flag
+alone. `translation_failed` carries `failed_count` and `failed_titles`, and means
+the LLM provider refused the translation for a reason a retry cannot change (no
+credit left, a rejected key, an unknown model): the sources were excluded from the
+corpus with `excluded_reason: "translation_failed"`, and here there was nothing
+left. A source that keeps a usable transcript in another language is not refused —
+it is dropped from the corpus and recorded in the snapshot, and the generation
+runs on the rest. The lock behind it stops being terminal after an hour, so the
+refusal lifts on its own once the provider answers again (task-327).
 
 A generation over a **single item** is free — its LLM cost is already inside what
 the item cost to ingest — so `out_of_minutes` can only ever come back on

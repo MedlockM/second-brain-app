@@ -43,11 +43,13 @@ import aiohttp
 
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.env import required_env
+from media_summarizer.utils.llm_failure import LLMFailureKind, classify_llm_failure
 from media_summarizer.utils.logging_config import log_event
 from media_summarizer.utils.translation_idempotence import (
     TranslationStatus,
     build_translation_fingerprint,
     get_translation_lock,
+    is_terminally_failed,
     mark_translation_failed,
     reserve_translation,
 )
@@ -99,7 +101,42 @@ V1_LANGUAGES = frozenset(V1_LANGUAGE_NAMES.keys())
 
 
 class TranscriptTranslationError(Exception):
-    """Raised when translation fails after exhausting retries."""
+    """Raised when translation fails, after exhausting the retries it deserved.
+
+    ``failure_kind`` says whether the same call is worth making again. It travels
+    with the exception because the decision is taken where the provider's answer
+    is read -- the layers above only forward it, they never re-interpret a
+    message. The default is the conservative one: an error whose origin we did not
+    classify is treated as transient, i.e. re-attemptable.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_kind: str = LLMFailureKind.TRANSIENT,
+    ) -> None:
+        super().__init__(message)
+        self.failure_kind = failure_kind
+
+
+class TranslationPermanentlyFailedError(Exception):
+    """Raised when the translation this caller needs will never be produced.
+
+    Distinct from :class:`TranslationInProgressError` on purpose: one means "wait
+    and ask again", this one means "stop asking". Callers that used to report
+    every missing translation as pending are what turned an exhausted OpenAI
+    balance into a media item stuck behind "Retry in a moment" (task-327).
+    """
+
+    def __init__(
+        self,
+        *,
+        error_message: Optional[str] = None,
+        message: str = "Translation failed permanently for this transcript",
+    ) -> None:
+        super().__init__(message)
+        self.error_message = error_message
 
 
 class TranslationInProgressError(Exception):
@@ -238,8 +275,10 @@ async def _call_translation_llm(
     No chunking for V1 (the 400k-token window covers any realistic transcript).
     """
     if not OPENAI_API_KEY:
+        # No key configured: three attempts would make three identical no-ops.
         raise TranscriptTranslationError(
-            "OPENAI_API_KEY environment variable is required for translation"
+            "OPENAI_API_KEY environment variable is required for translation",
+            failure_kind=LLMFailureKind.PERMANENT,
         )
 
     system_prompt = _build_system_prompt(
@@ -265,8 +304,16 @@ async def _call_translation_llm(
         ) as response:
             if response.status >= 400:
                 body = await response.text()
+                # The only place in the pipeline that sees the provider's raw
+                # answer, so the only place that can classify it.
+                failure_kind = classify_llm_failure(
+                    status_code=response.status,
+                    body=body,
+                    retry_after=response.headers.get("Retry-After"),
+                )
                 raise TranscriptTranslationError(
-                    f"translation_llm_http_{response.status}: {body[:300]}"
+                    f"translation_llm_http_{response.status}: {body[:300]}",
+                    failure_kind=failure_kind,
                 )
             result = await response.json()
             content = result["choices"][0]["message"]["content"]
@@ -280,7 +327,13 @@ async def _translate_with_retry(
     source_language: str,
     target_language: str,
 ) -> Tuple[str, Dict[str, Any]]:
-    """Translate with exponential backoff. Raises on terminal failure."""
+    """Translate with exponential backoff, spending it on transient failures only.
+
+    The retry budget exists for failures the next second may fix. A permanent one
+    -- no credit, rejected key, unknown model -- ends the loop on the first
+    answer: repeating it costs a provider call per attempt and cannot change the
+    verdict (task-327 AC#2).
+    """
     last_exc: Optional[Exception] = None
     for attempt in range(1, TRANSLATION_MAX_RETRIES + 1):
         try:
@@ -289,8 +342,24 @@ async def _translate_with_retry(
                 source_language=source_language,
                 target_language=target_language,
             )
-        except Exception as exc:  # noqa: BLE001 - retried below
+        except Exception as exc:  # noqa: BLE001 - classified below
             last_exc = exc
+            failure_kind = getattr(exc, "failure_kind", LLMFailureKind.TRANSIENT)
+            if failure_kind == LLMFailureKind.PERMANENT:
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    "translation.permanent_failure",
+                    "Translation refused for a reason no retry can change",
+                    attempt=attempt,
+                    max_retries=TRANSLATION_MAX_RETRIES,
+                    error_type=type(exc).__name__,
+                    detail=str(exc)[:200],
+                )
+                raise TranscriptTranslationError(
+                    f"translation_permanently_failed: {exc}",
+                    failure_kind=LLMFailureKind.PERMANENT,
+                ) from exc
             if attempt >= TRANSLATION_MAX_RETRIES:
                 break
             backoff = TRANSLATION_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
@@ -307,7 +376,8 @@ async def _translate_with_retry(
             )
             await asyncio.sleep(backoff)
     raise TranscriptTranslationError(
-        f"translation_failed_after_{TRANSLATION_MAX_RETRIES}_attempts: {last_exc}"
+        f"translation_failed_after_{TRANSLATION_MAX_RETRIES}_attempts: {last_exc}",
+        failure_kind=LLMFailureKind.TRANSIENT,
     )
 
 
@@ -342,6 +412,7 @@ class TranslationOutcome:
         is_translated: bool,
         translation_failed: bool = False,
         translation_error: Optional[str] = None,
+        failure_kind: Optional[str] = None,
     ) -> None:
         self.transcript_s3_key = transcript_s3_key
         self.detected_language = detected_language
@@ -350,6 +421,9 @@ class TranslationOutcome:
         self.is_translated = is_translated
         self.translation_failed = translation_failed
         self.translation_error = translation_error
+        #: Set with ``translation_failed`` only, and forwarded onto the lock so
+        #: the next caller can tell "not yet" from "not ever".
+        self.failure_kind = failure_kind
 
     def metadata(self) -> Dict[str, Any]:
         """Translation metadata block embedded in the artifact envelope."""
@@ -400,6 +474,11 @@ async def resolve_or_enqueue_translated_transcript(
     and dispatches the asynchronous worker, then raises
     :class:`TranslationInProgressError`. Concurrent callers only observe the
     existing reservation and never enqueue a duplicate translation.
+
+    When the lock says the provider refused permanently, it raises
+    :class:`TranslationPermanentlyFailedError` instead, and reserves nothing: the
+    caller has to handle the source as unreadable-in-this-language rather than
+    tell the client to retry (task-327).
     """
     detected_language, detection_method = detect_language(
         transcript_text,
@@ -503,6 +582,21 @@ async def resolve_or_enqueue_translated_transcript(
         )
         raise TranslationInProgressError(status=translation_lock.status)
 
+    if is_terminally_failed(translation_lock):
+        log_event(
+            logger,
+            logging.WARNING,
+            "translation.permanently_failed_detected",
+            "Translation failed permanently; not reserving another attempt",
+            transcript_s3_key=transcript_s3_key,
+            target_language=normalized_target,
+            failure_kind=translation_lock.failure_kind,
+            detail=(translation_lock.error_message or "")[:200],
+        )
+        raise TranslationPermanentlyFailedError(
+            error_message=translation_lock.error_message
+        )
+
     retry_missing_done_translation = bool(
         translation_lock and translation_lock.status == TranslationStatus.DONE
     )
@@ -551,15 +645,22 @@ async def resolve_or_enqueue_translated_transcript(
 
     pending_status = TranslationStatus.QUEUED
     if not reserved:
+        # The reservation was refused: either someone else holds it, or the gate
+        # itself refused a permanently failed lock. Re-reading is what tells the
+        # two apart, and only the first one is worth waiting for.
         try:
             current_lock = await get_translation_lock(fingerprint)
-            if current_lock and current_lock.status in (
-                TranslationStatus.QUEUED,
-                TranslationStatus.IN_PROGRESS,
-            ):
-                pending_status = current_lock.status
         except Exception:
-            pass
+            current_lock = None
+        if is_terminally_failed(current_lock):
+            raise TranslationPermanentlyFailedError(
+                error_message=current_lock.error_message
+            )
+        if current_lock and current_lock.status in (
+            TranslationStatus.QUEUED,
+            TranslationStatus.IN_PROGRESS,
+        ):
+            pending_status = current_lock.status
 
     raise TranslationInProgressError(status=pending_status)
 
@@ -716,13 +817,14 @@ async def ensure_translated_transcript(
             logger,
             logging.ERROR,
             "translation.failed",
-            "Translation failed after retries; falling back to original transcript",
+            "Translation failed; falling back to original transcript",
             source=source,
             detected_language=detected_language,
             target_language=normalized_target,
             detection_method=detection_method,
             model=TRANSLATION_MODEL,
             translated=False,
+            failure_kind=exc.failure_kind,
             detail=str(exc)[:300],
         )
         return TranslationOutcome(
@@ -733,6 +835,7 @@ async def ensure_translated_transcript(
             is_translated=False,
             translation_failed=True,
             translation_error=str(exc)[:300],
+            failure_kind=exc.failure_kind,
         )
 
     payload_bytes = (translated_text or "").encode("utf-8")

@@ -147,6 +147,12 @@ export const ar: Catalog = {
   "artifacts.refusal.sourcesPending.one": "لا يزال مصدر واحد قيد التحضير. حاول مرة أخرى بعد قليل.",
   "artifacts.refusal.sourcesPending.other": "لا يزال {count} مصدر قيد التحضير. حاول مرة أخرى بعد قليل.",
   "artifacts.refusal.transcriptPending": "لا يزال النص المكتوب قيد التحضير. حاول مرة أخرى بعد قليل.",
+  "artifacts.refusal.translationFailed":
+    "لم تتم ترجمة هذا النص، ولن تُعاد المحاولة تلقائيًا. حاول مرة أخرى لاحقًا.",
+  "artifacts.refusal.sourcesTranslationFailed.one":
+    "لم تتم ترجمة المصدر الوحيد الموجود هنا، ولن تُعاد المحاولة تلقائيًا. حاول مرة أخرى لاحقًا.",
+  "artifacts.refusal.sourcesTranslationFailed.other":
+    "لم تتم ترجمة أي من هذه المصادر ({count})، ولن تُعاد المحاولة تلقائيًا. حاول مرة أخرى لاحقًا.",
   "artifacts.refusal.generic": "تعذّر بدء هذا الإنشاء. يرجى المحاولة مرة أخرى.",
   "plan.hourlyRate": "≈ {price} للساعة",
   "plan.card.allowance": "{duration} من الصوت والفيديو",

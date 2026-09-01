@@ -147,6 +147,12 @@ export const hi: Catalog = {
   "artifacts.refusal.sourcesPending.one": "{count} स्रोत अभी तैयार हो रहा है। थोड़ी देर में फिर कोशिश करें।",
   "artifacts.refusal.sourcesPending.other": "{count} स्रोत अभी तैयार हो रहे हैं। थोड़ी देर में फिर कोशिश करें।",
   "artifacts.refusal.transcriptPending": "ट्रांसक्रिप्ट अभी तैयार हो रहा है। थोड़ी देर में फिर कोशिश करें।",
+  "artifacts.refusal.translationFailed":
+    "इस ट्रांसक्रिप्ट का अनुवाद नहीं हो सका, और यह अपने आप दोबारा नहीं आज़माया जाएगा। बाद में फिर कोशिश करें।",
+  "artifacts.refusal.sourcesTranslationFailed.one":
+    "यहाँ मौजूद एकमात्र स्रोत का अनुवाद नहीं हो सका, और यह अपने आप दोबारा नहीं आज़माया जाएगा। बाद में फिर कोशिश करें।",
+  "artifacts.refusal.sourcesTranslationFailed.other":
+    "इन {count} स्रोतों में से किसी का भी अनुवाद नहीं हो सका, और यह अपने आप दोबारा नहीं आज़माया जाएगा। बाद में फिर कोशिश करें।",
   "artifacts.refusal.generic": "यह जनरेशन शुरू नहीं की जा सकी। कृपया फिर से कोशिश करें।",
   "plan.hourlyRate": "≈ {price} प्रति घंटा",
   "plan.card.allowance": "{duration} ऑडियो और वीडियो",

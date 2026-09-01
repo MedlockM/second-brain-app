@@ -147,6 +147,12 @@ export const nl: Catalog = {
   "artifacts.refusal.sourcesPending.one": "{count} bron wordt nog voorbereid. Probeer het zo meteen opnieuw.",
   "artifacts.refusal.sourcesPending.other": "{count} bronnen worden nog voorbereid. Probeer het zo meteen opnieuw.",
   "artifacts.refusal.transcriptPending": "Het transcript wordt nog voorbereid. Probeer het zo meteen opnieuw.",
+  "artifacts.refusal.translationFailed":
+    "Dit transcript kon niet worden vertaald, en dat wordt niet automatisch opnieuw geprobeerd. Probeer het later opnieuw.",
+  "artifacts.refusal.sourcesTranslationFailed.one":
+    "De enige bron hier kon niet worden vertaald, en dat wordt niet automatisch opnieuw geprobeerd. Probeer het later opnieuw.",
+  "artifacts.refusal.sourcesTranslationFailed.other":
+    "Geen van deze {count} bronnen kon worden vertaald, en dat wordt niet automatisch opnieuw geprobeerd. Probeer het later opnieuw.",
   "artifacts.refusal.generic": "Deze generatie kon niet worden gestart. Probeer het opnieuw.",
   "plan.hourlyRate": "≈ {price} per uur",
   "plan.card.allowance": "{duration} audio en video",

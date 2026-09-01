@@ -44,6 +44,7 @@ from media_summarizer.utils.translation_idempotence import (
     TranslationStatus,
     build_translation_fingerprint,
     get_translation_lock,
+    is_terminally_failed,
     mark_translation_failed,
     reserve_translation,
 )
@@ -218,7 +219,9 @@ async def _resolve_translation(
        - ``done``: S3 cache should contain the translation -- serve it.
        - ``queued`` / ``in_progress``: translation already in-flight, do NOT
          re-enqueue -- return translation_pending with the status.
-       - ``failed``: re-authorize a fresh translation attempt.
+       - ``failed`` (permanent): the provider refused for good -- report
+         ``translation_status=failed`` and reserve nothing.
+       - ``failed`` (transient): re-authorize a fresh translation attempt.
        - no record: first request -- attempt atomic reservation + enqueue.
     4. On S3 cache hit (even without a state record, for backward compat):
        serve the translation directly.
@@ -328,15 +331,39 @@ async def _resolve_translation(
             "translation_status": lock.status,
         }
 
-    # If state machine says "failed": the translation was attempted and failed
-    # terminally (DLQ exhaustion). We allow a fresh re-attempt by falling through
-    # to the reservation logic below. The reserve_translation() ConditionExpression
-    # explicitly allows overwriting status=failed. This means the mobile never sees
-    # a "stuck" failed state -- it always gets a fresh attempt on the next access.
+    # If the state machine says "failed" with a *permanent* kind, the provider
+    # refused for a reason no retry can change (no credit, rejected key, unknown
+    # model). Report the failure and reserve nothing: this read path is polled
+    # every 3 seconds by the mobile transcript view, and re-reserving here is how
+    # one exhausted OpenAI balance turned into 25 worker invocations for a single
+    # document (task-327). The client stops polling on `translation_status:
+    # failed` and shows the original transcript with its "not translated" badge.
+    if is_terminally_failed(lock):
+        log_event(
+            logger,
+            logging.WARNING,
+            "raw_content.translation_permanently_failed",
+            "Translation failed permanently; serving the original transcript",
+            transcript_s3_key=transcript_s3_key,
+            target_language=normalized_target,
+            detected_language=detected_language,
+        )
+        return {
+            "is_translated": False,
+            "translated_from": None,
+            "target_language": normalized_target,
+            "detected_language": detected_language,
+            "detection_method": detection_method,
+            "translation_pending": False,
+            "translation_status": TranslationStatus.FAILED,
+        }
+
+    # A *transient* "failed" was attempted and failed for a reason that may pass
+    # (a timeout, a 5xx, a momentary rate limit). We allow a fresh re-attempt by
+    # falling through to the reservation logic below: the reserve_translation()
+    # ConditionExpression explicitly allows overwriting a transiently failed lock.
     # The anti-infinite-loop is provided by TRANSLATION_POLL_MAX_ATTEMPTS on mobile
     # (max 20 polls = 60s) and by the SQS DLQ (maxReceiveCount=3 per reservation).
-    # If translations keep failing persistently, the user will see the original
-    # transcript after the polling limit is reached (graceful degradation).
 
     # --- No inflight state (no record, state=failed, or state invalidated): check S3, then attempt reservation ---
 

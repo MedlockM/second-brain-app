@@ -190,6 +190,12 @@ export const de: Catalog = {
     "{count} Quellen werden noch vorbereitet. Versuche es gleich noch einmal.",
   "artifacts.refusal.transcriptPending":
     "Das Transkript wird noch vorbereitet. Versuche es gleich noch einmal.",
+  "artifacts.refusal.translationFailed":
+    "Dieses Transkript konnte nicht übersetzt werden, und das wird nicht automatisch wiederholt. Versuche es später erneut.",
+  "artifacts.refusal.sourcesTranslationFailed.one":
+    "Die einzige Quelle hier konnte nicht übersetzt werden, und das wird nicht automatisch wiederholt. Versuche es später erneut.",
+  "artifacts.refusal.sourcesTranslationFailed.other":
+    "Keine dieser {count} Quellen konnte übersetzt werden, und das wird nicht automatisch wiederholt. Versuche es später erneut.",
   "artifacts.refusal.generic":
     "Diese Erstellung konnte nicht gestartet werden. Bitte versuche es erneut.",
   "plan.hourlyRate": "≈ {price} pro Stunde",
