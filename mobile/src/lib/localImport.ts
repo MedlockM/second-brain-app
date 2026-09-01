@@ -160,7 +160,7 @@ function toImportResult(result: ImagePicker.ImagePickerResult): LocalImportResul
   const asset = result.assets[0];
   const prepared = prepareLocalUploadFile({
     uri: asset.uri,
-    name: asset.fileName || defaultPhotoName(asset.uri, asset.mimeType),
+    name: photoName(asset),
     mimeType: asset.mimeType,
     size: asset.fileSize ?? null,
   });
@@ -180,19 +180,67 @@ function toImportResult(result: ImagePicker.ImagePickerResult): LocalImportResul
 }
 
 /**
+ * A name that identifies a row instead of describing a photo: the Android photo
+ * picker reports the content provider's UUID as the display name, and iOS the
+ * same shape upper-cased. Hex only, 16 characters or more once dashes,
+ * underscores and spaces are gone — which catches a UUID written either way and
+ * in either case, and can never catch a name made of words.
+ */
+const OPAQUE_NAME_RE = /^[0-9a-f]{16,}$/i;
+
+/**
+ * Whether this file name says anything about its content (task-329).
+ *
+ * The upload name is carried verbatim into `processing_jobs` and becomes the
+ * media's displayed title, with no later chance to correct it, so a provider
+ * identifier must be treated as no name at all and leave the dated default
+ * below to speak instead.
+ */
+function isMeaningfulFileName(fileName: string): boolean {
+  const lastDot = fileName.lastIndexOf(".");
+  const stem = lastDot > 0 ? fileName.slice(0, lastDot) : fileName;
+  const compact = stem.replace(/[-_\s]+/g, "");
+  return compact.length > 0 && !OPAQUE_NAME_RE.test(compact);
+}
+
+/**
+ * Name to upload a picked or captured photo under: what the picker reported
+ * when it means something, otherwise the dated default.
+ *
+ * Both photo gestures land here, so the identifier check is applied once for
+ * every caller building an item name out of a picker asset.
+ */
+function photoName(asset: ImagePicker.ImagePickerAsset): string {
+  const reported = asset.fileName?.trim();
+  if (reported && isMeaningfulFileName(reported)) {
+    return reported;
+  }
+  return defaultPhotoName(asset.uri, asset.mimeType);
+}
+
+/**
  * Camera assets often come back without a file name. The extension is what the
  * backend routes on, so it is derived from the captured URI (or the MIME type)
  * rather than guessed as jpg unconditionally.
+ *
+ * The URI stem is no more trustworthy than the reported name: expo-image-picker
+ * names its cache copy after a fresh UUID whenever the provider surfaces no
+ * display name. So the extension is taken from the URI while an opaque stem is
+ * dropped, leaving a name the backend recognises as device-generated and
+ * replaces with a `Photo — <date>` title.
  */
 function defaultPhotoName(uri: string, mimeType?: string | null): string {
   const fromUri = uri.split("?")[0].split("/").pop() ?? "";
-  if (fromUri.includes(".")) {
+  const lastDot = fromUri.lastIndexOf(".");
+  const uriExtension = lastDot > 0 ? fromUri.slice(lastDot + 1).toLowerCase() : "";
+  if (uriExtension && isMeaningfulFileName(fromUri)) {
     return fromUri;
   }
   const subtype = (mimeType ?? "").split("/")[1]?.toLowerCase();
   const extension =
-    subtype === "png" || subtype === "heic" || subtype === "heif"
+    uriExtension ||
+    (subtype === "png" || subtype === "heic" || subtype === "heif"
       ? subtype
-      : "jpg";
+      : "jpg");
   return `photo-${Date.now()}.${extension}`;
 }
