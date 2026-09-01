@@ -65,16 +65,18 @@ const withEmbeddedDebugBundle: ConfigPlugin = (config) => {
 };
 
 export default ({ config }: ConfigContext): ExpoConfig => {
-  // Google's native sign-in flow redirects to the reversed client ID of the iOS
-  // OAuth client (see src/lib/googleOAuth.ts). That scheme has to be declared for
-  // the callback to re-enter the app, and it is derived from the same env var the
-  // runtime reads so a client rotation cannot desynchronise the two.
+  // Google's browser sign-in flow — iOS only — redirects to the reversed client
+  // ID of the iOS OAuth client (see src/lib/googleOAuth.ts). That scheme has to be
+  // declared for the callback to re-enter the app, and it is derived from the same
+  // env var the runtime reads so a client rotation cannot desynchronise the two.
+  // Android has no equivalent: it signs in through Credential Manager, with no
+  // redirect and therefore no scheme.
   //
-  // Declared through `ios.scheme` / `android.scheme` rather than
-  // `ios.infoPlist.CFBundleURLTypes`: those fields are *merged* into the generated
-  // CFBundleURLTypes / intent filters by @expo/config-plugins, whereas setting
-  // `ios.infoPlist.CFBundleURLTypes` directly makes the plugin skip the abstract
-  // `scheme` property altogether and would silently drop `media-summarizer`.
+  // Declared through `ios.scheme` rather than `ios.infoPlist.CFBundleURLTypes`:
+  // that field is *merged* into the generated CFBundleURLTypes by
+  // @expo/config-plugins, whereas setting `ios.infoPlist.CFBundleURLTypes`
+  // directly makes the plugin skip the abstract `scheme` property altogether and
+  // would silently drop `media-summarizer`.
   const googleIosScheme = googleReservedClientScheme(
     process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS,
   );
@@ -161,14 +163,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         backgroundColor: "#fcf9f6",
       },
       package: "com.secondbrainlabs.core",
-      // Google validates an Android OAuth client on package name + signing
-      // fingerprint, and documents `<package>:/oauthredirect` as its custom-scheme
-      // redirect — which is exactly what expo-auth-session already builds from
-      // `Application.applicationId`. Only the scheme was missing: on Android the
-      // callback comes back through a Linking deep link (there is no native
-      // ASWebAuthenticationSession), so it needs an intent filter to re-enter the
-      // app. Merged with the top-level `scheme`, not replacing it.
-      scheme: ["com.secondbrainlabs.core"],
+      // No `scheme` for Google here, deliberately. Google refuses a custom URI
+      // scheme `redirect_uri` for an Android OAuth client — `Error 400:
+      // invalid_request`, "Custom URI scheme is not enabled for your Android
+      // client", with no setting to turn it on — so `com.secondbrainlabs.core:/`
+      // was an intent filter nothing could ever call back into. Android now signs
+      // in through Credential Manager (`modules/google-credential-manager`),
+      // which needs no redirect at all.
       // Camera capture as an ingestion entry point (task-264). The runtime
       // request is made by expo-image-picker; the manifest entry is what makes
       // that request grantable.
@@ -215,8 +216,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         "https://api.mediasummarizer.com",
       googleClientIdWeb: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB || "",
       googleClientIdIos: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || "",
-      googleClientIdAndroid:
-        process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || "",
+      // No Android client ID: Credential Manager takes the *Web* client ID as
+      // `serverClientId`. The Android OAuth client still has to exist on Google's
+      // side (it is matched on package name + signing fingerprint), but its ID
+      // never reaches the app.
       revenueCatAppleKey: process.env.EXPO_PUBLIC_REVENUCAT_APPLE_KEY || "",
       revenueCatGoogleKey: process.env.EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY || "",
       feedbackUrl: process.env.EXPO_PUBLIC_FEEDBACK_URL || "",

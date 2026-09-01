@@ -78,6 +78,42 @@ Exemples — Flux côté client
   - 3) Stocker access_token + refresh_token du corps de la réponse dans le secure store
   - 4) À l’expiration de l’access token, POST /api/auth/refresh avec le refresh token stocké
 
+Sign-in Google mobile — un chemin par plateforme (task-325)
+- iOS : flux navigateur `expo-auth-session` (`src/hooks/useGoogleSignIn.ts`). Le
+  `redirect_uri` est le scheme réservé du client OAuth **iOS**
+  (`com.googleusercontent.apps.<guid>:/oauthredirect`), et le code est échangé
+  contre l’id_token auprès de ce même client : l’`aud` de l’id_token est donc le
+  client iOS (`GOOGLE_NATIVE_AUDIENCE_IOS` côté API)
+- Android : **Credential Manager**, via le module Expo local
+  `mobile/modules/google-credential-manager`
+  (`GetSignInWithGoogleOption` → `GoogleIdTokenCredential`, appelé par
+  `src/hooks/useGoogleSignIn.android.ts`). Le `serverClientId` passé au module est
+  le client OAuth **Web** (`EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB`, c’est-à-dire la même
+  valeur que `GOOGLE_CLIENT_ID` côté API), comme la documentation Google l’exige :
+  l’`aud` de l’id_token rendu est donc le client Web, déjà accepté par
+  `/api/auth/google/native` — aucune variable d’environnement API à ajouter
+  - Il n’y a **pas** de `redirect_uri` sur Android, et il ne peut pas y en avoir :
+    Google refuse un custom URI scheme pour un client OAuth Android (`Erreur 400 :
+    invalid_request`, « Custom URI scheme is not enabled for your Android client »),
+    sans réglage pour le réactiver. C’est ce qui a tué le flux navigateur sur
+    Android et motivé le module natif
+  - Aucun ID de client Android n’entre dans l’app. Mais un client OAuth **Android**
+    doit exister côté Google : Credential Manager vérifie l’appelant sur son nom de
+    package (`com.secondbrainlabs.core`) **et l’empreinte SHA-1 du certificat qui
+    signe le binaire installé**
+  - Pour tout binaire distribué par Google Play (piste interne comprise), ce
+    certificat n’est pas le keystore d’upload EAS : Play re-signe l’APK servi. Le
+    **SHA-1 de Play App Signing doit donc être déclaré sur un client OAuth
+    Android**, en plus de celui du keystore EAS (deux clients Android, même nom de
+    package). Sans ça, la feuille de sélection de compte échoue sur l’app installée
+    depuis Play alors qu’elle fonctionne sur un build local
+    - Où le lire : Play Console → *Test et publication* → *Intégrité de
+      l’application* → onglet *Signature de l’application* → *Certificat de clé de
+      signature d’application* (SHA-1)
+    - Où le déclarer : Google Cloud Console → *API et services* → *Identifiants* →
+      *ID clients OAuth 2.0* → *Créer des identifiants* → *ID client OAuth* →
+      type *Android*
+
 - Login local (curl)
   ```bash path=null start=null
   curl -X POST http://localhost:8000/api/auth/login \

@@ -1,0 +1,36 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.googlecredentialmanager'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.googlecredentialmanager"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+  // No `lintOptions { abortOnError false }` unlike the create-expo-module
+  // template: `expo-module-gradle-plugin` already sets it through
+  // `useDefaultAndroidSdkVersions` (expo-modules-core/android/
+  // ExpoModulesCorePlugin.gradle), along with compileSdk 36 / minSdk 24.
+}
+
+dependencies {
+  // Released versions only — no -alpha, no -beta, no -rc.
+  //
+  // `credentials` is pinned explicitly even though `googleid` already pulls it
+  // in, because `googleid:1.2.0` asks for `credentials:1.6.0-beta01`. Declaring
+  // 1.6.0 here wins the conflict resolution (Gradle orders a plain version above
+  // the same version with a qualifier), so nothing pre-release reaches the
+  // resolved graph.
+  implementation "androidx.credentials:credentials:1.6.0"
+  // The provider that answers a Google credential request through Play services.
+  // Runtime-only in practice: nothing in the Kotlin source imports from it, but
+  // without it Credential Manager finds no provider on the device.
+  implementation "androidx.credentials:credentials-play-services-auth:1.6.0"
+  // GetSignInWithGoogleOption / GoogleIdTokenCredential.
+  implementation "com.google.android.libraries.identity.googleid:googleid:1.2.0"
+}

@@ -73,6 +73,8 @@ export const nl: Catalog = {
   "auth.signInWithApple": "Inloggen met Apple",
   "auth.google.notCompleted": "Het inloggen met Google is niet voltooid. Probeer het opnieuw.",
   "auth.google.noIdToken": "Het Google-ID-token kon niet worden opgehaald. Probeer het opnieuw.",
+  "auth.google.noGoogleAccount":
+    "Geen Google-account op dit apparaat. Voeg er een toe in de apparaatinstellingen en probeer het opnieuw.",
   "auth.google.failed": "Het inloggen met Google kon niet worden voltooid. Probeer het opnieuw.",
   "auth.apple.noIdentityToken": "Het Apple-identiteitstoken kon niet worden opgehaald. Probeer het opnieuw.",
   "artifacts.type.summaryShort": "Samenvatting",

@@ -90,6 +90,8 @@ export const fr: Catalog = {
     "La connexion Google n'a pas abouti. Veuillez réessayer.",
   "auth.google.noIdToken":
     "Impossible d'obtenir le jeton d'identification Google. Veuillez réessayer.",
+  "auth.google.noGoogleAccount":
+    "Aucun compte Google sur cet appareil. Ajoutez-en un dans les réglages de l'appareil, puis réessayez.",
   "auth.google.failed":
     "La connexion Google n'a pas pu aboutir. Veuillez réessayer.",
   "auth.apple.noIdentityToken":

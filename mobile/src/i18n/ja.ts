@@ -73,6 +73,8 @@ export const ja: Catalog = {
   "auth.signInWithApple": "Apple でサインイン",
   "auth.google.notCompleted": "Google のサインインが完了しませんでした。もう一度お試しください。",
   "auth.google.noIdToken": "Google の ID トークンを取得できませんでした。もう一度お試しください。",
+  "auth.google.noGoogleAccount":
+    "この端末に Google アカウントがありません。端末の設定でアカウントを追加してから、もう一度お試しください。",
   "auth.google.failed": "Google のサインインを完了できませんでした。もう一度お試しください。",
   "auth.apple.noIdentityToken": "Apple の識別トークンを取得できませんでした。もう一度お試しください。",
   "artifacts.type.summaryShort": "要約",

@@ -73,6 +73,8 @@ export const pt: Catalog = {
   "auth.signInWithApple": "Iniciar sessão com a Apple",
   "auth.google.notCompleted": "O início de sessão com o Google não foi concluído. Tente novamente.",
   "auth.google.noIdToken": "Não foi possível obter o token de ID do Google. Tente novamente.",
+  "auth.google.noGoogleAccount":
+    "Não existe nenhuma conta Google neste dispositivo. Adicione uma nas definições do dispositivo e tente novamente.",
   "auth.google.failed": "O início de sessão com o Google não pôde ser concluído. Tente novamente.",
   "auth.apple.noIdentityToken": "Não foi possível obter o token de identidade da Apple. Tente novamente.",
   "artifacts.type.summaryShort": "Resumo",

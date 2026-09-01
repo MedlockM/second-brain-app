@@ -74,9 +74,6 @@ fi
 ENV_EXAMPLE="${MOBILE_DIR}/.env.example"
 ENV_FILE="${MOBILE_DIR}/.env"
 
-# Keys that are allowed to be empty (deferred to later tasks)
-OPTIONAL_KEYS="EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID"
-
 if [ ! -f "${ENV_EXAMPLE}" ]; then
   fail "mobile/.env.example not found — cannot validate env vars"
   ERRORS=$((ERRORS + 1))
@@ -101,23 +98,10 @@ else
       VALUE="$(grep "^${KEY}=" "${ENV_FILE}" | head -1 | cut -d'=' -f2-)"
     fi
 
-    # Check if key is optional
-    IS_OPTIONAL=false
-    for opt_key in ${OPTIONAL_KEYS}; do
-      if [ "${KEY}" = "${opt_key}" ]; then
-        IS_OPTIONAL=true
-        break
-      fi
-    done
-
     if [ -z "${VALUE}" ]; then
-      if [ "${IS_OPTIONAL}" = true ]; then
-        warn "${KEY} is empty (allowed — deferred)"
-      else
-        fail "${KEY} is missing or empty in mobile/.env"
-        ENV_OK=false
-        ERRORS=$((ERRORS + 1))
-      fi
+      fail "${KEY} is missing or empty in mobile/.env"
+      ENV_OK=false
+      ERRORS=$((ERRORS + 1))
     fi
   done < "${ENV_EXAMPLE}"
 
