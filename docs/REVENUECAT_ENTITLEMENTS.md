@@ -47,33 +47,33 @@ paywall through them via `E2E_REVENUECAT_TEST_KEY`.
 
 The three App Store products were created by `task-261` (2026-08-13) with the
 identifiers frozen by `docs/research/task-65-pricing-v1-benchmark/README.md`
-(3 / 5 / 9 EUR per month). They read back with `subscription.duration: null`,
-because `app_store_connect_api_key_configured` is still `false` on
-`app0d4b00c12f`: RevenueCat holds the identifier but has never read the
-subscription from App Store Connect. Two owner steps close that gap — create the
-three subscriptions in App Store Connect and upload the App Store Connect API
-key to RevenueCat — and neither needs a code change: the identifiers and the
-package lookup keys already match. Checklist:
-`docs/V1_LAUNCH_PLAN.md` Phase 6, item 3.
+(3 / 5 / 9 EUR per month). **The iOS chain is live since 2026-09-02**: the three
+subscriptions exist in App Store Connect under the group `Second Brain Plans`, the
+App Store Connect API key is uploaded, and `app0d4b00c12f` reads back
+`app_store_connect_api_key_configured: true` with a filled
+`app_store_connect_vendor_number` and `subscription_key_configured: true`. StoreKit
+resolves the three products on the TestFlight build and a real sandbox purchase went
+through — `INITIAL_PURCHASE`, then a `PRODUCT_CHANGE` that exercised a switch inside
+the subscription group, then a `RENEWAL`. No code change was needed at any point: the
+identifiers and the package lookup keys already matched.
 
-**They come in that order, and the App Store side is genuinely empty.** Queried
-against the App Store Connect API on 2026-09-02 with the Admin key: the app record
-`6778072060` has **zero** `subscriptionGroups` and zero `inAppPurchasesV2`. So there
-is nothing for the ASC API key to read yet, and uploading it first would change
-nothing — create the subscriptions, then upload the key.
+**One field stays `null`, and it is not a defect worth chasing.** The three iOS
+products still read `subscription.duration: null` while the Play products read
+`P1M` + `grace_period_duration: P7D`. That is the catalogue import, not the purchase
+path — RevenueCat imports « products and prices from App Store Connect » through the
+ASC API key, whereas a purchase is validated by the *In-App Purchase* key. The
+difference between the two apps is when the products were created relative to their
+credentials: Play's on 2026-09-01 with valid service credentials, iOS's on 2026-08-13
+with no ASC key. RevenueCat documents neither an import delay nor a re-import action,
+so the check to trust is the app-level flag, not this field.
 
-**`app0d4b00c12f` is missing one iOS key, not both.** The *In-App Purchase* key —
-the one that validates StoreKit transactions — is already uploaded:
-`subscription_key_configured: true` (read back 2026-09-02). It is the *App Store
-Connect API* key that is absent, and that one only gates catalogue reads and the
-dashboard's `Could not check` status. A missing ASC API key is therefore not what
-would make an iOS purchase fail; a missing subscription in App Store Connect is,
-because StoreKit resolves no product at all. The same distinction, with the three
-`.p8` files that carry it: `mobile/MOBILE_CI_CD.md` § 4.
-
-None of this blocks distribution. The iOS `1.0.0 (2)` build reached TestFlight on
-2026-09-02 and a beta tester used it with the catalogue in exactly this state — the
-paywall is the only screen that needs a store product.
+**The two iOS keys are distinct and both are in place.** The *In-App Purchase* key
+validates StoreKit transactions (`subscription_key_configured`); the *App Store
+Connect API* key gates catalogue reads and the dashboard's `Could not check` status
+(`app_store_connect_api_key_configured`). Neither one was ever what made an iOS
+purchase impossible — a missing subscription in App Store Connect was, because
+StoreKit then resolves no product at all. The same distinction, with the three `.p8`
+files that carry it: `mobile/MOBILE_CI_CD.md` § 4.
 
 The Google Play app `appb253c0f75a` (package `com.secondbrainlabs.core`, added
 2026-08-20) carries its three products since 2026-09-01, and its service account
