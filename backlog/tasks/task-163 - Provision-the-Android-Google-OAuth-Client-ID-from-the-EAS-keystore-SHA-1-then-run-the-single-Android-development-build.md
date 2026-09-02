@@ -3,9 +3,10 @@ id: task-163
 title: >-
   Provision the Android Google OAuth Client ID from the EAS keystore SHA-1, then
   run the single Android development build
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 05:38'
+updated_date: '2026-09-02 09:42'
 labels:
   - phase-5
   - mobile
@@ -16,7 +17,6 @@ dependencies:
   - task-162
   - task-325
 priority: high
-dispatchable: false
 ---
 
 ## Description
@@ -136,6 +136,7 @@ Ce n'est **pas** bloquant pour ce build : `mobile/src/contexts/PurchasesContext.
 
 ## Implementation Notes
 
+<!-- SECTION:NOTES:BEGIN -->
 ### AC#6 et AC#7 validées le 2026-09-01, avec deux écarts assumés par l'owner
 
 Le build Android existe et l'app tourne sur le téléphone owner. Deux différences avec la lettre des ACs, actées plutôt que corrigées :
@@ -150,3 +151,20 @@ Il a fallu au passage corriger un défaut qui rendait *tout* build Release Andro
 La section *Important* ci-dessus notait que `expo-auth-session` marque la config Google deprecated, en concluant « ça ne bloque rien pour V1 — notre implémentation actuelle fonctionne ». C'est faux sur Android, et ça n'a jamais fonctionné : le premier essai réel, le 2026-09-01, donne `Error 400: invalid_request` avec la raison `Custom URI scheme is not enabled for your Android client.` Google a retiré le redirect par custom scheme sur Android (« Custom URI schemes are no longer supported on Android and Chrome apps »), or c'est exactement ce que `expo-auth-session` construit. Ce n'est ni un `DEVELOPER_ERROR` ni un problème de SHA-1 : dans un flux navigateur, Google ne vérifie aucune signature d'app.
 
 AC#8 reste donc décochée et cette tâche est bloquée par **`task-325`**, qui remplace ce flux par un module Expo local sur Credential Manager. Rien d'autre ne l'attendait : l'écran de connexion porte un formulaire email/mot de passe, et c'est par là que tout le reste de la validation Android est passé.
+
+### Clôturée le 2026-09-02 avec l'AC#8 non satisfaite, sur décision de l'owner
+
+L'AC#8 (« le bouton Continue with Google est vérifié à la main sur ce build ») est **abandonnée, pas reportée**. Elle demandait de valider, sur le binaire `versionCode` 5, un flux que `task-325` a supprimé le jour même : la vérifier reviendrait à re-constater le `invalid_request` documenté ci-dessus. Le binaire capable de passer ce test n'existe pas encore — il faut un `eas build` postérieur au module Kotlin. Et ce test ne valide plus rien de ce que cette tâche a livré : il valide Credential Manager. Il vit donc dans `task-165` (validation device Android), avec les conditions réelles : second client OAuth Android sur le SHA-1 **Play App Signing**, et échec runtime muet si l'empreinte n'est pas déclarée.
+
+### Trois ACs cochées ici ont été défaites par `task-325` — ne pas s'y fier
+
+`EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` **n'existe plus dans le dépôt** (vérifié le 2026-09-02 : aucune occurrence dans `mobile/` ni `scripts/`). Credential Manager ne lit aucun Client ID Android côté app — il passe le client **Web** en `serverClientId`. Conséquences sur les ACs ci-dessus :
+
+- **AC#2** — la variable a été retirée de `mobile/.env.example` et n'a plus d'objet en local.
+- **AC#4** — la check correspondante de `scripts/mobile_release_check.sh` a disparu avec la machinerie `OPTIONAL_KEYS`, devenue vide.
+- **AC#5** — la variable a été retirée des quatre profils de `mobile/eas.json`, ainsi que `extra.googleClientIdAndroid` dans `app.config.ts` et `Config.GOOGLE_CLIENT_ID_ANDROID`.
+
+**AC#1 reste vraie mais insuffisante** : le client OAuth Android créé le 2026-08-13 existe toujours dans Google Cloud, sur le SHA-1 du keystore EAS. Or Credential Manager fait vérifier par Play services le couple *package name + empreinte du binaire installé*, et ce binaire est resigné par Play App Signing. Cette empreinte-là n'est pas déclarée. Un second client Android est nécessaire ; c'est du travail owner, consigné dans les Owner notes de `task-325`.
+
+Ce qui reste durablement acquis de cette tâche, ce sont **l'AC#6 et l'AC#7** : le build Android existe, l'app tourne sur un device physique, et c'est ce binaire qui a permis le cycle d'abonnement Play complet de `task-238` le 2026-09-01.
+<!-- SECTION:NOTES:END -->

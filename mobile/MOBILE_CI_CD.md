@@ -492,32 +492,34 @@ build profile points at the **dev** API, the `production` profile at
 `api.mediasummarizer.com`. A reviewer account that only exists in one of them fails
 the other.
 
-#### Internal testing is for your team, not for beta testers — use External
+#### The chosen path: Internal Testing, decided 2026-09-02
 
-**Do not route beta testers through Internal Testing.** An internal tester *is* an
-App Store Connect user, and there is no view-only or tester-only role. The narrowest
-role on offer, **Assistance client** (Customer Support), still grants — verbatim from
-the *Nouvel utilisateur* dialog, checked 2026-09-01:
+**Internal Testing is the route in use for beta testers**, taken deliberately to avoid
+TestFlight App Review entirely. It buys the two properties that matter — *any email
+address* and *no review* — and the bill is one App Store Connect seat per tester, plus
+no public link.
+
+The seat is not free of privileges. There is no view-only or tester-only role; the
+narrowest on offer, **Assistance client** (Customer Support), still grants — verbatim
+from the *Nouvel utilisateur* dialog, checked 2026-09-01:
 
 - *"Répondre aux avis des utilisateurs et modifier les réponses qui leur sont apportées"*
 - *"Afficher les indicateurs et les rapports de diagnostic dans Xcode Organizer"*
 
-The first one lets the person post publicly under the app's name on the App Store.
-Handing that to someone whose only job is to install a build and report bugs is the
-wrong trade, and it burns one of the 50 seats an individual enrolment gets.
+The first one lets the person post publicly under the app's name. **Today that
+privilege is inert**: the app is not published, so it has no reviews to reply to. That
+is what makes this trade acceptable for now, and it is also its expiry condition — once
+the app ships, either drop the testers' roles or move beta testing to an External group.
+Note it also burns one of the **50** seats an individual enrolment gets.
 
-**External Testing is the actual equivalent of the Play internal track**: testers are
-added by email address alone, with no App Store Connect account and no role, or they
-join through the public link. The price is TestFlight App Review on the first build of
-each version — that is the whole of what Apple charges for it.
-
-Keep Internal Testing for yourself and anyone who genuinely administers the app: it
-skips the review, so it is the fastest loop for your own devices.
+**External Testing remains the only route to a public link**, and stays documented above
+for when the app is live: testers by email alone, no App Store Connect account, no role,
+at the price of TestFlight App Review on the first build of each version.
 
 #### Turning an email address into an internal tester
 
-Only worth doing for a genuine collaborator. It takes two invitations: one onto the
-account, one into the TestFlight group.
+Two invitations: one onto the account, one into the TestFlight group. Nothing in this
+repo needs changing for it — see the checklist at the end of this section.
 
 1. **Users and Access → People → plus (+) button on the top left.** Enter first
    name, last name, email. Apple: *"Any email can activate the account. The email
@@ -547,8 +549,73 @@ Constraints that bite, all from App Store Connect Help (checked 2026-09-01):
 - Internal testers can install every build for **90 days**.
 - Deleting a user takes up to **10 minutes** of cache before access is really
   revoked.
-- Tick **Enable automatic distribution** when creating a group, otherwise every
-  build has to be added to it by hand.
+- A group needs automatic access to new builds, otherwise every build has to be added
+  to it by hand. The group EAS creates already has it — see below.
+
+#### What `eas submit` does for you, from the eas-cli source
+
+Read out of `eas-cli` on 2026-09-02 rather than inferred, because it decides how much
+of this is manual. `submit` runs `ensureTestFlightSetupForExistingAppAsync`, whose flag
+`--auto-testflight-setup` is `default: true` — so it happens unless you pass
+`--no-auto-testflight-setup`. It then calls `ensureTestFlightGroupExistsAsync`, which:
+
+- creates an internal group named **`Team (Expo)`** — the constant is commented *"this
+  should probably never change"* — with `isInternalGroup: true` and
+  `hasAccessToAllBuilds: true`, i.e. **every future build reaches the group with no
+  further action**. That is the Android-internal-track behaviour, obtained for free;
+- skips creation entirely if the app already has *any* beta group;
+- invites **only users whose role is `ADMIN`**. Every other tester must be added by
+  hand in App Store Connect. Do not expect `eas submit` to onboard your testers;
+- retries for up to 15 × 10 s because Apple rejects group creation on a freshly created
+  app;
+- never blocks the submission: the whole thing is wrapped in a `try/catch` that logs
+  *"Skipping TestFlight group setup"* and carries on. **If the group is missing after a
+  submit, look for that warning in the output** rather than assuming it worked.
+
+The source also proves role eligibility is real: adding a tester can come back
+`NOT_QUALIFIED_FOR_INTERNAL_GROUP`, and `ADMIN` is the only role EAS trusts enough to
+add automatically.
+
+Because the group carries `hasAccessToAllBuilds: true`, the `groups` field of the iOS
+submit profile — documented by Expo as *"An array of TestFlight internal group names to
+add the build to"* — is **redundant here and deliberately left unset**. Setting it would
+add a name that must be kept in sync with App Store Connect for no gain.
+
+#### Checklist to run this workflow
+
+Repo side: **nothing left to do.** Verified 2026-09-02 — `ascAppId` is literal in the
+`internal` submit profile, export compliance is declared in `app.config.ts` so no build
+or upload prompts for it, the App Store Connect API key lives on the EAS servers, both
+App Store provisioning profiles are active, and an App Store-signed ipa already exists:
+build `790af106-040c-4798-9599-68ad5b6f0770`, `1.0.0 (2)`, `distribution: STORE`,
+profile `internal`. Its artifact URL **expires 2026-10-01**; submit it before then or
+rebuild.
+
+Also settled: the `internal` profile's environment is a non-issue. `eas env:list` shows
+`development`, `preview` and `production` all carrying the *same* RevenueCat keys, and
+`EXPO_PUBLIC_API_BASE_URL` is in **none** of them — it comes only from the profile's own
+`env` block. So `internal` means "dev API, same RevenueCat project as everything else",
+with no hidden collision, and internal testers exercise the dev backend on purpose.
+Nothing reads `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` (grepped), so its absence from
+`preview`/`production` is harmless.
+
+Owner side, in order:
+
+1. `cd mobile && npx eas-cli@latest submit --platform ios --profile internal --latest`.
+   This uploads to TestFlight *and* creates `Team (Expo)`. First run is interactive —
+   let it be, so you see the group-creation output.
+2. If it fails with `BETA_CONTRACT_MISSING`, stop and read the troubleshooting entry
+   below. Do not retry or rebuild; open a Developer Support case.
+3. Wait for Apple to finish processing the build. No export-compliance question will be
+   asked, and no review is involved.
+4. Per tester: **Users and Access → People → (+)** → first name, last name, email →
+   narrowest role that works → scope to this app → **Invite**. Invitations expire in
+   3 days.
+5. **Apps → [app] → TestFlight → Internal Testing → Team (Expo) → Testers → (+)** →
+   tick the invited users → **Add**. If someone is not listed, their role is not
+   eligible: widen it.
+6. Tester installs **TestFlight** from the App Store and accepts the emailed invite.
+   Builds stay installable for **90 days**.
 
 Net effect: internal testing reproduces the "list of emails" half of the Play
 internal track without any review, but each address costs an App Store Connect

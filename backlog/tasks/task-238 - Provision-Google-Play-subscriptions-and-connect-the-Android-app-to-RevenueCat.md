@@ -16,11 +16,20 @@ dependencies:
   - task-163
   - task-262
 priority: high
+dispatchable: false
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
+> ⚠️ **MANUAL — OWNER ONLY. NEVER DISPATCH TO A SUBAGENT.** Verrouillée par
+> `dispatchable: false` le 2026-09-02, quand `task-163` est passée `Done` et a cessé de la
+> retenir par dépendance. Six ACs sur sept sont closes ; la seule qui reste est la moitié
+> *restore* de l'AC#7 — un rachat en license tester puis un **Restore Purchases** sur le
+> device physique de l'owner (voir « What is left » en fin de notes). Aucun agent ne peut
+> toucher un téléphone ni la Play Console. Ne pas retirer ce verrou pour « avancer » la
+> tâche : il n'y a rien à y coder.
+
 Complete the production-like Android billing configuration that is intentionally absent today. The Android application must exist in Google Play Console and RevenueCat, expose the three validated V1 monthly tiers through the current offering, and use a real Google Play public SDK key instead of the Test Store key or the current placeholder. This work involves owner-controlled Google Play Console credentials and billing setup; an agent may automate verifiable RevenueCat/API portions but must not handle or expose private service-account material.
 <!-- SECTION:DESCRIPTION:END -->
 

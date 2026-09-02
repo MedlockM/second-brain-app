@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-06-10 05:39'
-updated_date: '2026-06-10 05:57'
+updated_date: '2026-09-02 09:49'
 labels:
   - phase-5
   - mobile
@@ -66,9 +66,35 @@ Sign in with Apple n'est **pas applicable sur Android** — vérifie juste que l
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Continue with Google crée/lie un user Android et atterrit sur l'inbox (sans DEVELOPER_ERROR)
-- [ ] #2 Bouton Sign in with Apple soit absent soit no-op clean sur Android
+- [x] #1 Continue with Google crée/lie un user Android et atterrit sur l'inbox (sans DEVELOPER_ERROR)
+- [x] #2 Bouton Sign in with Apple soit absent soit no-op clean sur Android
 - [ ] #3 Share intent depuis Chrome (URL) atteint share-confirm, soumet, et la vignette apparaît dans l'inbox
 - [ ] #4 Share intent texte ou audio depuis app native fonctionne
 - [ ] #5 Tous les bugs P0/P1 détectés ont un sous-ticket et sont résolus avant clôture
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### AC#1 et AC#2 validées le 2026-09-02 (owner), sur le `versionCode` 6
+
+**AC#1 — Continue with Google fonctionne sur Android.** Le libellé de la vérif 1 ci-dessus était périmé : il parlait de `DEVELOPER_ERROR` et du SHA-1 du keystore EAS, or le flux a changé le 2026-09-01 (`task-325`) — Android passe désormais par **Credential Manager** via le module Expo local `mobile/modules/google-credential-manager`, avec le client **Web** en `serverClientId`. Le binaire qui valide cette AC est donc le `versionCode` 6, pas celui de `task-163` :
+
+- build EAS `a04c9c46-4b28-4a56-9a1a-c99213fee1b0`, profil `internal`, commit `ca9cadb` — le commit immédiatement postérieur au merge de `task-325` (`16c6cd9`), donc le module Kotlin est bien dans l'AAB ;
+- installé depuis la piste de test interne Play ;
+- preuve côté backend : `POST /api/auth/google/native 200` dans `/aws/lambda/media-summarizer-api-dev` à `2026-09-01T20:58:17Z`, pour l'utilisateur `039ea8cf`. C'est une **connexion** à un compte `google` préexistant (créé le 2026-08-19), pas une inscription : aucune ligne nouvelle dans `users-dev`, ce qui est le comportement attendu.
+
+Première exécution réussie de Credential Manager, et première connexion Google réussie sur Android tout court.
+
+**AC#2 — pas de bouton Apple sur Android.** Vrai par construction, lisible dans le code sans device : `mobile/src/components/SocialAuthButtons.tsx:156` conditionne le rendu à `Platform.OS === "ios"`.
+
+### Ce qui reste : les deux share intents, sur le binaire déjà installé
+
+AC#3 et AC#4 ne demandent pas de nouveau build. `mobile/app.config.ts:188-199` déclare deux filtres `action: SEND` — `text/plain` (ce que Chrome envoie pour une URL) et `audio/*`.
+
+**Écart relevé le 2026-09-02, hors périmètre de cette tâche** : aucun `mimeType` image n'est déclaré, alors que `task-264` a ajouté la capture caméra comme point d'entrée d'ingestion. Partager une photo ou une capture d'écran vers Second Brain ne proposera pas l'app. À traiter dans une tâche propre.
+
+### Question owner en suspens
+
+Credential Manager fait vérifier par Play services le couple *package name + empreinte du binaire installé*, qui est celle de **Play App Signing** et non du keystore EAS. Le seul client OAuth Android connu du dépôt porte le SHA-1 EAS (`task-163` AC#1). Soit un second client a été déclaré sur le SHA-1 Play, soit la vérification est plus permissive que la doc ne l'indique. À trancher, parce que le « second client Android » figure encore comme travail owner restant dans les Owner notes de `task-325`.
+<!-- SECTION:NOTES:END -->
