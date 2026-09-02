@@ -1,9 +1,10 @@
 ---
 id: task-335
 title: Never let a paid subscription grant less than the running free trial
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-02 07:29'
+updated_date: '2026-09-02 12:59'
 labels:
   - billing
   - quota
