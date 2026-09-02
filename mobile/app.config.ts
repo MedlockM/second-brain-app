@@ -185,18 +185,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       // request is made by expo-image-picker; the manifest entry is what makes
       // that request grantable.
       permissions: ["android.permission.CAMERA"],
-      intentFilters: [
-        {
-          action: "SEND",
-          category: ["DEFAULT"],
-          data: [{ mimeType: "text/plain" }],
-        },
-        {
-          action: "SEND",
-          category: ["DEFAULT"],
-          data: [{ mimeType: "audio/*" }],
-        },
-      ],
     },
     plugins: [
       "expo-router",
@@ -218,6 +206,22 @@ export default ({ config }: ConfigContext): ExpoConfig => {
             NSExtensionActivationSupportsText: true,
             NSExtensionActivationSupportsFileWithMaxCount: 1,
           },
+          // Android SEND intent filters for share intents. Declared here rather than
+          // in `android.intentFilters` so there's a single source of truth and the
+          // plugin doesn't add its default `["text/*"]`. Specific MIME types rather
+          // than `application/*` so the app only appears for files it can handle
+          // (PDF, Office docs, images, audio), not for arbitrary application files
+          // (.zip, executables, etc.) that would be refused anyway. The handler
+          // (ShareIntentContext) validates extensions and enforces the 50 MB ceiling.
+          androidIntentFilters: [
+            "text/*",
+            "audio/*",
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "image/*",
+          ],
         },
       ],
     ],
