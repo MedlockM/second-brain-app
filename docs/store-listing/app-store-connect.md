@@ -27,12 +27,20 @@ inside a group instead of two concurrent subscriptions.
 
 | Field | Value |
 |-------|-------|
-| Reference Name (internal) | Media Summarizer Plans |
-| Localized Display Name (en-US, ≤ 30 chars) | Media Summarizer Plans |
+| Reference Name (internal) | Second Brain Plans |
+| Localized Display Name (en-US, ≤ 30 chars) | Second Brain Plans |
 
-The group display name is customer-visible (iOS Settings → Subscriptions), so if
-`task-186` settles on a different marketing name, edit it. Names are editable at
-any time; the product identifiers below are not.
+**Created in App Store Connect on 2026-09-02 as `Second Brain Plans`**, not the
+`Media Summarizer Plans` this table used to hold. The rest of this file, and the app
+itself, still say `Media Summarizer` — the placeholder `task-186` exists to replace
+once a marketing name is decided. If `Second Brain` *is* that decision, `task-186`
+has to land before the version metadata is written, because the App Store listing,
+the screenshots and this group name all consume the final name (`V1_LAUNCH_PLAN.md`
+Phase 10, sub-step 0).
+
+The group display name is customer-visible (iOS Settings → Subscriptions). Names are
+editable at any time — **except while an item sits in a submission**, see below. The
+product identifiers are never editable.
 
 ### The three monthly subscriptions
 
@@ -156,6 +164,36 @@ subscriptions cannot be reviewed on their own — they go in the 1.0 submission.
 
 Levels are ordered with **Edit Order** on the group page, « from the one that offers
 the most (level 1) to the one that offers the least ».
+
+### Do not put the subscriptions in a submission before 1.0 is ready
+
+Observed on 2026-09-02: a draft submission holding the three subscriptions and the
+group refuses to send — « Impossible de soumettre pour vérification. Pour soumettre
+vos éléments pour vérification, ajoutez une version de l'app pour la plateforme
+sélectionnée. » That is the rule above, enforced. Apple: « If your submission doesn't
+include an app version … items will be reviewed together with the latest version of
+the platform you specify » — and this app has no version yet, approved or otherwise,
+so there is nothing to attach the items to.
+
+**Adding them to a draft submission costs editability.** Status `Ready for Review`
+means « Your In-App Purchase has been added to a submission, but you haven't sent the
+submission to App Review yet. While your product is in this state, **you can edit only
+the reference name, pricing, and availability** » — so the thirteen localizations, the
+review screenshot and the duration all freeze, in a submission that cannot be sent.
+The way out is **App Review → Submissions → the submission → Cancel Submission →
+Confirm**, which returns the items to `Prepare for Submission`.
+
+Adding a version is what unblocks it, and Apple gates that on two things: « Before
+submitting an app version for review, provide required metadata and choose the build
+for the version. » The build means a real EAS iOS production build uploaded to App
+Store Connect; the metadata means the whole 1.0 listing, including a privacy-policy
+URL that answers. Neither exists yet, so the correct order is: subscriptions created
+and left in `Prepare for Submission` → API key in RevenueCat → sandbox purchase →
+build → 1.0 metadata → **one** submission carrying the version *and* the four items.
+
+Nothing before that submission depends on it: RevenueCat imports through the App
+Store Connect API key, and sandbox resolution needs the products to exist, not to be
+approved.
 
 ### TestFlight accelerates renewals
 

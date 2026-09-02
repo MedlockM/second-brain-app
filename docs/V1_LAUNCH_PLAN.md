@@ -1261,6 +1261,20 @@ faite :
       - Le classement des niveaux se fait par le bouton **`Edit Order`** sur la page
         du groupe, « from the one that offers the most (level 1) to the one that
         offers the least » — Audio-Heavy en 1.
+
+      **Ne pas mettre les abonnements dans une soumission maintenant.** Constaté le
+      2026-09-02 : le groupe `Second Brain Plans` et les trois abonnements existent, et
+      une soumission qui les contient refuse de partir — « ajoutez une version de l'app
+      pour la plateforme sélectionnée ». Or y avoir ajouté les produits les met en
+      `Ready for Review`, état où « you can edit only the reference name, pricing, and
+      availability » : les 13 localisations, le screenshot de review et la durée gèlent,
+      dans une soumission impossible à envoyer. Sortie : **App Review → Submissions →
+      la soumission → `Cancel Submission` → `Confirm`**, les produits repassent
+      `Prepare for Submission`. Détail et enchaînement correct dans
+      `docs/store-listing/app-store-connect.md`, § « Do not put the subscriptions in a
+      submission before 1.0 is ready ». À noter aussi : le groupe s'appelle
+      `Second Brain Plans` — si c'est le nom marketing définitif, `task-186` doit
+      passer avant d'écrire les métadonnées de la 1.0 (Phase 10, sous-étape 0).
    4. **App Store Connect → Users and Access → Integrations → App Store Connect
       API** : la clé Admin **existe depuis le 2026-09-01** et est déjà enregistrée
       auprès d'EAS Submit (cf. `mobile/MOBILE_CI_CD.md` § 4) — ne pas en générer une
