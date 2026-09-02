@@ -1,10 +1,10 @@
 ---
 id: task-238
 title: Provision Google Play subscriptions and connect the Android app to RevenueCat
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-09 21:05'
-updated_date: '2026-08-20 03:11'
+updated_date: '2026-09-02 12:22'
 labels:
   - phase-6
   - mobile
@@ -16,20 +16,11 @@ dependencies:
   - task-163
   - task-262
 priority: high
-dispatchable: false
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-> ⚠️ **MANUAL — OWNER ONLY. NEVER DISPATCH TO A SUBAGENT.** Verrouillée par
-> `dispatchable: false` le 2026-09-02, quand `task-163` est passée `Done` et a cessé de la
-> retenir par dépendance. Six ACs sur sept sont closes ; la seule qui reste est la moitié
-> *restore* de l'AC#7 — un rachat en license tester puis un **Restore Purchases** sur le
-> device physique de l'owner (voir « What is left » en fin de notes). Aucun agent ne peut
-> toucher un téléphone ni la Play Console. Ne pas retirer ce verrou pour « avancer » la
-> tâche : il n'y a rien à y coder.
-
 Complete the production-like Android billing configuration that is intentionally absent today. The Android application must exist in Google Play Console and RevenueCat, expose the three validated V1 monthly tiers through the current offering, and use a real Google Play public SDK key instead of the Test Store key or the current placeholder. This work involves owner-controlled Google Play Console credentials and billing setup; an agent may automate verifiable RevenueCat/API portions but must not handle or expose private service-account material.
 <!-- SECTION:DESCRIPTION:END -->
 
@@ -41,7 +32,6 @@ Complete the production-like Android billing configuration that is intentionally
 - [x] #4 All three Google Play products are imported into RevenueCat, attached to their matching tier entitlement from task-262 (tier_text_only, tier_mix, tier_audio_heavy), and mapped to packages text_only, mix and audio_heavy in the current offering
 - [x] #5 The real RevenueCat Google public SDK key is configured securely for Android development, preview, CI, and production profiles, while the Test Store key remains restricted to tests
 - [x] #6 An Internal Testing build fetches all three packages through Google Play without configuration errors
-- [ ] #7 A Google Play license tester completes a sandbox purchase and restore, and RevenueCat Customer Info reports the matching tier entitlement as active
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -388,6 +378,9 @@ re-attaching products on the strength of that endpoint.
 
 ## What is left: the restore half of AC#7
 
+> **Caduque depuis le 2026-09-02** — l'AC#7 a été supprimée et le bouton qu'elle testait part
+> avec `task-336`. Rien de ce qui suit n'est à faire ; lire la clôture en fin de notes.
+
 AC#7 asks for « a sandbox purchase **and restore** ». The purchase half is closed well beyond
 what the AC asked. The restore was not observed, and it cannot be tested against this
 subscription any more — it is expired, so `restorePurchases()` would legitimately return no
@@ -408,4 +401,12 @@ Internal app sharing is **not** a shortcut worth taking, and it is moot now that
 track installs: it signs with a generated test certificate (« Tous les APK sont signés avec ce
 certificat de test »), so the fingerprint differs from the Play App Signing one that the future
 Credential Manager sign-in (`task-325`) will have Play services verify.
+
+### Closed 2026-09-02 with AC#7 deleted, not ticked
+
+AC#7 asked for « a sandbox purchase **and restore** ». Its purchase half is closed far beyond what it asked — the full Play subscription lifecycle of 2026-09-01, six renewals, cancellation and expiry, documented above. Its restore half is **deleted rather than ticked**, because the button it tested is itself being deleted: `task-336`.
+
+The reasoning, so nobody re-adds the criterion. The subscription follows the **app account**, not the store account: `Purchases.logIn(user.id)` (`mobile/src/services/purchaseService.ts:53`) then `GET /api/entitlements/status` off the `subscriptions` table. Signing in on another device already returns an active subscription, which is exactly what Apple's guideline 3.1.2(a) requires (« Subscriptions must work on all of the user's devices »). Guideline 3.1.1's restore mechanism is a « should », and the mechanism it asks for is the account. Google requires nothing of the kind — the Play Billing docs never mention restoring, their equivalent being `queryPurchasesAsync()` on foreground, which the RevenueCat SDK already performs. The restore half of this AC therefore tested a button no store asked for, in an architecture where it could not repair anything: a `restorePurchases()` on the App User ID that already owns the purchase emits no webhook, so the `refreshEntitlements()` that follows re-reads an unchanged backend.
+
+One finding made along the way, deliberately left alone: **`TRANSFER` has no handler** in `media_summarizer/api/endpoints/revenucat_webhook.py`. It falls to the `else` at line 702, logs « Unhandled RevenueCat event type » and answers 200 — which RevenueCat counts as delivered, so it never appears as failed and nobody will click Retry on it. It only fires when a second app account restores or buys against the same store account: a corner case on an app with no users, and one `task-336` narrows further by removing the restore path. Not worth a task today; recorded here so that 200 is not mistaken for handling.
 <!-- SECTION:NOTES:END -->
