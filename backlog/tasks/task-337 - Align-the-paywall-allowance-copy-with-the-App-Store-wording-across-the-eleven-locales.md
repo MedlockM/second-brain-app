@@ -3,9 +3,10 @@ id: task-337
 title: >-
   Align the paywall allowance copy with the App Store wording across the eleven
   locales
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-02 14:27'
+updated_date: '2026-09-02 16:12'
 labels:
   - phase-6
   - mobile
