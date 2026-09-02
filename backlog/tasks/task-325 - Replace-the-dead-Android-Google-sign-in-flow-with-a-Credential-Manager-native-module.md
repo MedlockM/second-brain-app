@@ -54,9 +54,11 @@ Shape to build:
 
 ## Owner notes — not acceptance criteria
 
-- Read the Play App Signing SHA-1 in **Play Console → Test et publication → Intégrité de l'application → onglet Signature de l'application → Certificat de clé de signature d'application**, then declare it in **Google Cloud Console → API et services → Identifiants → ID clients OAuth 2.0**. The Android client form takes one fingerprint, so this means a second Android OAuth client alongside the EAS-keystore one, same package name. Both are fine: with Credential Manager the token audience is the Web client, so the backend is indifferent to how many Android clients exist.
-- Then an EAS build, an install from the internal track, and an actual sign-in on the phone. None of that is reachable from a worktree.
-- This unblocks nothing on the billing side — `task-238` AC#6/#7 need a working sign-in first, since the paywall sits behind the account.
+**Toutes closes au 2026-09-02.** Détail dans les notes de `task-165` (« Question SHA-1 — tranchée »).
+
+- ~~Read the Play App Signing SHA-1 in **Play Console → Test et publication → Intégrité de l'application → onglet Signature de l'application → Certificat de clé de signature d'application**, then declare it in **Google Cloud Console → API et services → Identifiants → ID clients OAuth 2.0**.~~ **Fait.** The Android client form takes one fingerprint, so this means a second Android OAuth client alongside the EAS-keystore one, same package name. Both are fine and both are kept: with Credential Manager the token audience is the Web client, so the backend is indifferent to how many Android clients exist. The Play certificate is the same across the internal track, closed testing and production, so nothing has to be redone at launch.
+- ~~Then an EAS build, an install from the internal track, and an actual sign-in on the phone.~~ **Fait** : `versionCode` 6, build `a04c9c46`, commit `ca9cadb`, installé depuis la piste interne — `POST /api/auth/google/native 200` à `2026-09-01T20:58:17Z`. Première connexion Google réussie sur Android.
+- ~~This unblocks nothing on the billing side — `task-238` AC#6/#7 need a working sign-in first, since the paywall sits behind the account.~~ **Débloqué** : les achats sandbox Play ont suivi le 2026-09-01/02.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
