@@ -56,19 +56,18 @@
 - **Production release** : `docs/RELEASE_LOG.md` reste la source de vérité :
   v1.0.0 `Pre-release`, aucun tag (`git tag -l` vide), aucun build production,
   aucune soumission.
-- **Backlog** : 288 tâches (+ 19 archivées), dont **15 non-`Done`** — 62, 118,
-  145, 163, 164, 165, 166, 172, 180, 186, 229, 238, 252, 260, 261. `task-262`
-  est passée `Done`, et les 26 tâches ouvertes entre le 2026-08-14 et le
+- **Backlog** : **13 tâches non-`Done`** au 2026-09-02 — 62, 118, 145, 164, 165,
+  166, 172, 180, 186, 229, 252, 260, 337. `task-262`, `task-238`, `task-261` et
+  `task-163` sont passées `Done`, et les 26 tâches ouvertes entre le 2026-08-14 et le
   2026-08-21 (287, 289 à 312) sont toutes closes. `task-212`/`task-213`
   (architecture LLM) restent **archivées** sur `owner_decision: abandoned`.
-  Aucune des 15 restantes n'est un gate technique : 4 tâches produit V2 / support
-  (62, 118, 145, 229), 4 tâches mobile/device (163 à 166), 1 tâche CI en sommeil
-  (172), et 6 tâches owner-only stores/branding/prod (180, 186, 238, 252, 260,
-  261). **14 des 15 portent `dispatchable: false`** — seule `task-238` peut être
-  confiée à un agent, et il n'y reste plus que du travail sur téléphone depuis le
-  2026-09-01 (installation depuis la piste interne, achat sandbox). Le backlog
-  n'a donc plus de travail à distribuer : ce qui reste est de la main d'œuvre
-  owner (devices physiques, dashboards stores, credentials).
+  Aucune des 13 restantes n'est un gate technique : 4 tâches produit V2 / support
+  (62, 118, 145, 229), 3 tâches mobile/device (164, 165, 166), 1 tâche CI en sommeil
+  (172), 4 tâches owner-only stores/branding/prod (180, 186, 252, 260), et
+  `task-337` (alignement du libellé de quota du paywall sur la formulation store).
+  **12 des 13 portent `dispatchable: false` : `task-337` est la seule tâche que le
+  dispatcher peut confier à un agent.** Tout le reste est de la main d'œuvre owner
+  (devices physiques, dashboards stores, credentials).
 - **La surface produit a beaucoup bougé depuis le 2026-08-13** — 12 tâches
   livrées qui changent ce que l'utilisateur voit, donc ce que les screenshots
   stores devront montrer (cf. § 0, « Surface produit V1 ») : consommation
@@ -1688,25 +1687,20 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   variable de nom d'index ni de search-only key** : l'index vaut
   `media_items_{ENVIRONMENT}`, calculé par `utils/algolia_client.py`, et la
   recherche est proxifiée par le backend (`task-312`)
-- [~] RevenueCat — clés backend et mobiles présentes localement,
-  `REVENUCAT_WEBHOOK_SECRET` **renseigné** en local et dans le secret dev (mêmes
-  valeurs) et chargé par le Lambda déployé : le webhook répond `401` sur token
-  invalide, plus `500`. `revenucat_events-dev` est vide faute d'achat sandbox, pas
-  faute de configuration. L'offering `default`, ses 3 packages de tier et les 3
-  entitlements de tier existent (`task-262`), et les 3 produits App Store leur sont rattachés
-  (`task-261`) — mais aucun n'existe encore côté App Store Connect, donc seuls les
-  produits **Test Store** sont réellement achetables. Le webhook secret, lui, est
-  renseigné — ne pas le recompter comme un reste à faire. Restent : les
-  3 abonnements ASC + la clé App Store Connect (owner, `task-261`), l'installation
-  depuis la piste de test interne et l'achat sandbox Android (`task-238` AC#6-#7),
-  puis la propagation vers les quotas. **Côté Play tout le reste est fait au
-  2026-09-01** : 3 abonnements avec forfait de base actif, 3 produits importés dans
-  RevenueCat et rattachés aux entitlements et aux packages, vraie clé `goog_` dans
-  les trois environnements EAS, testeur de licence configuré. Côté app,
-  les entrées UI existent déjà (`task-244` : CTA d'upgrade dans Account +
-  déclenchement sur refus de quota ; `task-245` : l'état d'abonnement est
-  réellement consommé par l'UI) — le
-  paywall n'est donc plus un écran orphelin, seul le circuit d'achat réel manque
+- [x] RevenueCat — **circuit d'achat réel validé sur les deux stores** (`task-262`,
+  `task-238`, `task-261` toutes `Done`). Play le 2026-09-01, App Store le 2026-09-02 :
+  `revenucat_events-dev` porte 32 événements et `subscriptions-dev` un abonnement iOS
+  actif au tier `M`. Le `REVENUCAT_WEBHOOK_SECRET` est donc validé par l'usage, et non
+  plus par la sonde `401`. L'offering `default`, ses 3 packages de tier et les 3
+  entitlements existent, chacun servi par trois produits — un par store. Côté iOS les
+  3 abonnements existent en ASC dans le groupe `Second Brain Plans` et la clé App
+  Store Connect est déposée dans RevenueCat ; côté Play, 3 abonnements avec forfait de
+  base actif et testeur de licence configuré. Côté app, les entrées UI existent
+  (`task-244` : CTA d'upgrade dans Account + déclenchement sur refus de quota ;
+  `task-245` : l'état d'abonnement est consommé par l'UI). Reste une seule
+  vérification, à la main sur un appareil connecté : la propagation vers les quotas,
+  c'est-à-dire `GET /api/entitlements/status` qui renvoie `is_active: true` et le
+  `minutes_remaining` du tier
 - [x] Pricing admin secret généré au 2026-06-08 (`PRICING_ADMIN_SECRET` en local dans `.env`, requis pour `PUT /api/pricing/admin`)
 - [x] Build iOS EAS **de distribution store** : `790af106-040c-4798-9599-68ad5b6f0770`,
   profil `internal`, `distribution: store`, 1.0.0 build **2**, commit `ca9cadb`,
