@@ -31,6 +31,10 @@ import { UploadService } from "../services/uploadService";
 import type { IngestUrlResponse } from "../types/media";
 import type { SharedFileAttachment } from "../types/sharedContent";
 import type { LocalUploadFile } from "../types/upload";
+import {
+  classifyUploadFile,
+  prepareLocalUploadFile,
+} from "../types/upload";
 
 /**
  * The type of content being confirmed before ingestion.
@@ -314,9 +318,9 @@ export function ShareIntentProvider({
         }
         mapped = true;
       } else if (intent.type === "file" || intent.type === "media") {
-        // File share - check if audio
         const file = intent.files?.[0];
         if (file && file.mimeType?.startsWith("audio/")) {
+          // Audio files keep using the WhatsApp-specific path (ingest-shared-content)
           const audioFile: SharedFileAttachment = {
             uri: file.path,
             mimeType: file.mimeType,
@@ -334,17 +338,50 @@ export function ShareIntentProvider({
           });
           mapped = true;
         } else if (file) {
-          // Non-audio file - not currently supported
-          setIntake({
-            status: "invalid",
-            url: null,
-            rawText: null,
-            message: t("share.unsupportedFile"),
-            response: null,
-            contentType: "url",
-            audioFile: null,
-          });
-          mapped = true;
+          // Non-audio file: classify and route through the upload path
+          const fileName = file.fileName ?? "file";
+          const classification = classifyUploadFile(fileName);
+
+          if (classification) {
+            // File is supported, prepare it
+            const result = prepareLocalUploadFile({
+              uri: file.path,
+              name: fileName,
+              mimeType: file.mimeType,
+              size: file.size,
+            });
+
+            if ("file" in result) {
+              // File is accepted, route through upload path.
+              // applyLocalUpload clears organization and navigates, so return early.
+              applyLocalUpload(result.file, "file");
+              return;
+            } else {
+              // File is rejected (too large, empty, etc.)
+              setIntake({
+                status: "invalid",
+                url: null,
+                rawText: null,
+                message: result.rejection.message,
+                response: null,
+                contentType: "url",
+                audioFile: null,
+              });
+              mapped = true;
+            }
+          } else {
+            // File extension is not supported
+            setIntake({
+              status: "invalid",
+              url: null,
+              rawText: null,
+              message: t("share.unsupportedFile"),
+              response: null,
+              contentType: "url",
+              audioFile: null,
+            });
+            mapped = true;
+          }
         }
       } else if (intent.type === "text" && intent.text) {
         // Plain text share - check if it contains a URL
@@ -400,7 +437,7 @@ export function ShareIntentProvider({
       // there before the provider mounted), otherwise the screen stacks twice.
       navigateToConfirmation();
     },
-    [navigateToConfirmation, resetShareIntent],
+    [applyLocalUpload, navigateToConfirmation, resetShareIntent],
   );
 
   const resumePendingIntake = useCallback((): Promise<void> => {
