@@ -1,10 +1,10 @@
 ---
 id: task-261
 title: Provision App Store subscriptions and connect the iOS app to RevenueCat
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-13 19:04'
-updated_date: '2026-08-13 22:40'
+updated_date: '2026-09-02 16:10'
 labels:
   - phase-6
   - mobile
@@ -18,14 +18,18 @@ priority: high
 dispatchable: false
 ---
 
-> **Verrou `dispatchable: false` posé le 2026-08-13 par l'owner.** La part
-> agent-atteignable est faite et mergée (`4375527`) : les 3 produits App Store
-> existent dans RevenueCat, rattachés à leur entitlement de tier et à leur
-> package. Tout le reste est owner-only en App Store Connect (voir OWNER GATES),
-> donc la tâche reste `To Do` pour rester visible comme travail restant, sans être
-> re-sélectionnée à vide par le dispatcher. La lever consiste à retirer cette
-> ligne du front-matter ; la clôturer `Done` est la décision de l'owner une fois
-> les OWNER GATES 1-4 franchis.
+> **Fermée `Done` le 2026-09-02 par l'owner, sur preuve d'achat.** Les OWNER GATES
+> sont franchis : la facturation iOS ne marche pas « sur le papier », elle a encaissé
+> un achat sandbox réel qui a produit `INITIAL_PURCHASE`, `PRODUCT_CHANGE` et
+> `RENEWAL`, et `subscriptions-dev` porte un abonnement iOS actif au bon tier. Détail
+> et chiffres dans les notes d'implémentation, section « OWNER GATES franchis ».
+>
+> Le verrou `dispatchable: false` reste dans le front-matter : sans lui, une
+> réécriture par `backlog.md` le supprimerait silencieusement, et si la tâche était un
+> jour rouverte elle redeviendrait dispatchable alors que tout ce qui reste est
+> owner-only. Ce qui **n'est pas** couvert par cette clôture — les 13 localisations
+> ASC, la capture de vérification, la soumission 1.0 — vit dans
+> `docs/V1_LAUNCH_PLAN.md` Phase 6 item 3 et Phase 10, pas ici.
 
 ## Description
 
@@ -63,6 +67,8 @@ Each product attaches to its matching tier entitlement from `task-262` (`tier_te
 ## OWNER GATES — steps no agent can perform, and where they are tracked
 
 None of the six items below is an acceptance criterion: each one needs an App Store Connect session, an Apple credential or a TestFlight build, so an agent in a worktree cannot reach any of them. They are the owner's checklist, and the ordered version lives in `docs/V1_LAUNCH_PLAN.md` Phase 6, execution item 3. **The iOS billing setup is not finished until they are done**, whatever the state of this file's ACs — the ACs only cover the RevenueCat wiring and the preparation the agent could deliver.
+
+**All six are cleared as of 2026-09-02** — with two of them turning out differently from what they say below. Read the six items as the historical checklist and the closing note « OWNER GATES franchis » for what actually happened: gate 3 was **unnecessary** (TestFlight is already a sandbox) and gate 4's premise about the expired build was **wrong** (a store build existed and had been submitted).
 
 1. **App Store Connect → Apps → Subscriptions**: create one subscription group, then the three monthly subscriptions with the product IDs and prices above. Each needs a localized display name, description and a review screenshot — but that trio gates **the review submission only**, not the RevenueCat import and not StoreKit's sandbox resolution; `Missing Metadata` is not even a status Apple still uses (verified 2026-09-02, see `docs/store-listing/app-store-connect.md` § "Review screenshot"). Ready-to-paste values: same file, section "Subscriptions (In-App Purchases)". Do **not** add an App Store introductory offer — the 30-day Mix trial is granted server-side by account age (`quota_enforcer._is_free_trial_active`), so an ASC offer would hand out a second, billed free month.
 2. **App Store Connect → Users and Access → Integrations → App Store Connect API**: generate an API key (Admin or App Manager role), then paste the issuer ID, key ID and `.p8` into the RevenueCat iOS app configuration. This is what flips `app_store_connect_api_key_configured` from `false` to `true` and lets RevenueCat read and validate the products. The `.p8` must never be written to a tracked file — the repo is public.
@@ -129,4 +135,24 @@ Packages hold one product per store, and the SDK only returns the product matchi
 Everything in OWNER GATES. Also unreachable and not an AC: the webhook round trip, which needs a real sandbox purchase. Correction to what this note first claimed — `REVENUCAT_WEBHOOK_SECRET` is **not** empty: it is set in `.env` and in `media-summarizer-runtime-dev` with identical values, and the deployed Lambda loads it (`401` on an invalid Bearer, never `500`). The webhook is not the blocker; the missing App Store Connect subscriptions are.
 
 No automated tests were written, per the project rule.
+
+### OWNER GATES franchis — 2026-09-02
+
+The note above used to warn that ticking the ACs did not mean iOS billing worked. It does now, and the evidence is a purchase rather than a configuration screen.
+
+**Gate 1 — the subscriptions exist in App Store Connect.** One group, `Second Brain Plans` (not the `Media Summarizer Plans` this repo had planned), and the three monthly subscriptions. Prices set in euros; the US storefront shows $3.00 / $4.00, which corroborates 3 € / 5 € bases once VAT is removed rather than contradicting them (Apple converts « taking into account taxes and foreign exchange rates »).
+
+**Gate 2 — the App Store Connect API key is in RevenueCat.** `GET /v2/projects/proj879a771a/apps` now returns `app_store_connect_api_key_configured: true`, a filled `app_store_connect_vendor_number` and `subscription_key_configured: true`. The existing Admin key was reused — no second key generated, which matters because a `.p8` downloads once. RevenueCat also demands the **Vendor Number**, a field nobody had noted: ASC section `Reports`, top-left under the legal entity name.
+
+**Gate 3 — no sandbox tester was needed.** Apple: « Apps downloaded from TestFlight will automatically operate in a sandbox environment. » A Sandbox Apple Account only serves *scenario* testing (billing retry, custom renewal cadence). This gate was a false prerequisite.
+
+**Gate 4 — the build was never the blocker.** The claim above that « the last one expired 2026-06-25 » was wrong: EAS build `790af106-040c-4798-9599-68ad5b6f0770` (`internal`, `distribution: store`, 1.0.0 build 2) finished 2026-09-01 and EAS Submit pushed it to ASC on 2026-09-02, from where a beta tester installed it. It also carries the right runtime configuration — `apiBaseUrl` on the dev API and both RevenueCat SDK keys — readable in `Payload/*.app/EXConstants.bundle/app.config`, not in `main.jsbundle`, since `app.config.ts` `extra` ships in the manifest.
+
+**Gate 5 — the purchase and the round trip.** Three events for one user: `INITIAL_PURCHASE` at 15:42:41, then `PRODUCT_CHANGE` and `RENEWAL` at 15:43:00. `subscriptions-dev` holds `com.secondbrainlabs.core.mix_monthly`, `platform: ios`, `tier: M`, `status: active`, `auto_renew_status: true`, period 15:42:57 → +1 day (TestFlight's accelerated renewal). The `PRODUCT_CHANGE` was not asked for and is the most valuable line of the three: it exercises a **switch inside the subscription group**, which is what the 1/2/3 levels are for.
+
+Two limits worth writing down. `revenucat_events-dev` is a **dedup ledger**, not a payload archive — it stores only `event_id`, `event_type`, `user_id`, `processed_at`, `ttl` — so this gate's `store: app_store` check is not observable there; the equivalent proof is `platform: ios` next to a `com.secondbrainlabs.core.*` product identifier, which only exists on the App Store app of the project. And **Restore Purchases emits no webhook event**, so that path can only be checked on screen.
+
+**Gate 6 — the Test Store is untouched.** The three `*_test` products still back `mobile/.maestro/07_paywall.yaml` through `E2E_REVENUECAT_TEST_KEY`.
+
+**What this closure does not cover**, and where it lives instead: the thirteen ASC localizations and the review screenshot (frozen while the subscriptions sit in a draft submission — cancel it first), the 1.0 metadata, and the hosted `/privacy` and `/terms`. All of it is `docs/V1_LAUNCH_PLAN.md` Phase 6 item 3 and Phase 10, plus `docs/store-listing/app-store-connect.md`.
 <!-- SECTION:NOTES:END -->
