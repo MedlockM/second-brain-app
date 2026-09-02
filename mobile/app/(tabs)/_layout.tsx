@@ -1,5 +1,6 @@
 import { Redirect, Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useUserPreferences } from "../../src/contexts/UserPreferencesContext";
 import { LANGUAGE_ONBOARDING_ROUTE } from "../../src/constants/routes";
@@ -28,6 +29,9 @@ export default function TabsLayout() {
   // The four labels are resolved on render, so the bar has to redraw when the
   // interface language changes.
   useTranslation();
+  // The bar is the app's only bottom-anchored surface that was not carrying the
+  // bottom inset. See `tabBarStyle` below for why it has to.
+  const insets = useSafeAreaInsets();
 
   if (isLoading) {
     return (
@@ -55,12 +59,22 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: Colors.tabActive,
         tabBarInactiveTintColor: Colors.tabInactive,
+        // The bottom inset is *added* to the 64 dp of the icon+label block, never
+        // taken out of it. An explicit `height` in `tabBarStyle` replaces the
+        // height `@react-navigation/bottom-tabs` would otherwise derive from the
+        // inset, so a flat 64 dp made the bar share its strip with the Android
+        // system navigation bar — under edge-to-edge (the only mode Expo SDK 55 /
+        // RN 0.83 offers) the Back/Home/Recents buttons landed inside the tab
+        // touch targets and hid the labels. No platform branch: an iPhone with a
+        // home indicator reports a bottom inset too, and the fixed height was
+        // cramping the bar there just the same.
         tabBarStyle: {
           backgroundColor: Colors.surface,
           borderTopColor: Colors.outlineVariant,
           borderTopWidth: StyleSheet.hairlineWidth,
           paddingTop: 4,
-          height: TouchTarget.large,
+          height: TouchTarget.large + insets.bottom,
+          paddingBottom: insets.bottom,
         },
         tabBarLabelStyle: {
           fontSize: 10,

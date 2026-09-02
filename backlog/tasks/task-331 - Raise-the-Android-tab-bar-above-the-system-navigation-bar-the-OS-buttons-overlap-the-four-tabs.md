@@ -36,10 +36,69 @@ Nothing should be needed on the four tab screens: they all mount `SafeAreaView e
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `mobile/app/(tabs)/_layout.tsx` reads the bottom safe-area inset via `useSafeAreaInsets()` from `react-native-safe-area-context` and feeds it into `tabBarStyle`.
-- [ ] #2 The bar's declared `height` is `TouchTarget.large + insets.bottom` and its `paddingBottom` is `insets.bottom`, so the icon+label block keeps at least `TouchTarget.large` of height above the system bar.
-- [ ] #3 No `Platform.OS` branch gates that inset: the same formula applies on iOS and on Android.
-- [ ] #4 The four `Tabs.Screen` entries are untouched — same names, titles, icons and `tabBarButtonTestID` values (`search-tab-button`, `account-tab-button`).
-- [ ] #5 `mobile/app/(tabs)/inbox.tsx` is reviewed against the taller bar and the implementation notes state whether `scrollContent.paddingBottom` and `fabStack.bottom` needed to change, with the reason.
-- [ ] #6 `npm run typecheck` and `npm run lint` both pass from `mobile/`.
+- [x] #1 `mobile/app/(tabs)/_layout.tsx` reads the bottom safe-area inset via `useSafeAreaInsets()` from `react-native-safe-area-context` and feeds it into `tabBarStyle`.
+- [x] #2 The bar's declared `height` is `TouchTarget.large + insets.bottom` and its `paddingBottom` is `insets.bottom`, so the icon+label block keeps at least `TouchTarget.large` of height above the system bar.
+- [x] #3 No `Platform.OS` branch gates that inset: the same formula applies on iOS and on Android.
+- [x] #4 The four `Tabs.Screen` entries are untouched — same names, titles, icons and `tabBarButtonTestID` values (`search-tab-button`, `account-tab-button`).
+- [x] #5 `mobile/app/(tabs)/inbox.tsx` is reviewed against the taller bar and the implementation notes state whether `scrollContent.paddingBottom` and `fabStack.bottom` needed to change, with the reason.
+- [x] #6 `npm run typecheck` and `npm run lint` both pass from `mobile/`.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### What changed
+
+One file, `mobile/app/(tabs)/_layout.tsx`:
+
+- `useSafeAreaInsets()` is read next to the other hooks, before the three guards
+  (loading / unauthenticated / language onboarding), so the hook order is stable
+  whichever branch renders.
+- `tabBarStyle` now declares `height: TouchTarget.large + insets.bottom` and
+  `paddingBottom: insets.bottom`. No `Platform.OS` anywhere.
+
+The four `Tabs.Screen` blocks, the tint colours, `paddingTop: 4`, the hairline
+top border and `tabBarLabelStyle` are byte-for-byte unchanged, test ids included.
+
+### Why the flat height was the bug
+
+Confirmed in the installed `@react-navigation/bottom-tabs@7.17.2`:
+`getTabBarHeight()` (`src/views/BottomTabBar.tsx`) short-circuits on a numeric
+`height` in `tabBarStyle` and returns it as-is, skipping the
+`TABBAR_HEIGHT_UIKIT + inset` it computes otherwise. The bar's own view does set
+`paddingBottom: insets.bottom` by default — but that padding was being taken out
+of the flat 64 dp rather than added to it, so on a 3-button Samsung the icon+label
+row was squeezed into `64 - 48 - 4 = 12` dp and collapsed into the system
+buttons' strip. Adding the inset to the height restores the full 60 dp of content
+(64 minus the existing `paddingTop: 4`) *above* the navigation bar.
+
+### AC #5 — `inbox.tsx` needed no change
+
+Reviewed, left untouched. `BottomTabView` renders the bar as a sibling of the
+screen container in a flex column (`position: 'absolute'` only when the bar is
+hidden), so the screen's coordinate space **ends at the top edge of the bar** and
+shrinks by exactly the amount the bar grows. Both values are measured from that
+edge, so they keep their meaning:
+
+- `fabStack.bottom: Spacing.lg` — 24 dp of clearance above the bar's top edge,
+  whatever `insets.bottom` is. Raising the bar pushes both floating buttons up
+  with it; they never sit over it.
+- `scrollContent.paddingBottom: TouchTarget.large + Spacing.xl` (96) — still
+  covers the 64 dp buttons anchored 24 dp up (they occupy 24→88 of the content
+  area), so the last tile row never ends under them.
+
+Deliberately no `insets.bottom` added on this screen: that would double-count the
+inset the bar now owns and leave a 48 dp gap on Android. Nothing else in the app
+restates the bar height — `TouchTarget.large` appears in `inbox.tsx` only for the
+two 64 dp round buttons, and no screen calls `useBottomTabBarHeight()`.
+
+### Verification
+
+`npm run typecheck` clean. `npm run lint`: 0 errors, 2 warnings, both
+pre-existing and in files this task did not touch (`digest.tsx` unused
+`CARD_WIDTH`, `purchaseService.ts` explicit `any`).
+
+Not verifiable from the worktree, and left to the owner as the task's description
+already states: the visual result on an Android device with 3-button navigation,
+then with gesture navigation, and on an iPhone with a home indicator.
+<!-- SECTION:NOTES:END -->
