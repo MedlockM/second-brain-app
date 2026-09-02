@@ -124,11 +124,11 @@ Le PDF est pourtant une cible d'ingestion supportée (`mobile/src/types/upload.t
 
 Une seule chose, AC#5, et elle ne demande aucune nouvelle validation manuelle des flows déjà couverts : attendre la résolution de `task-338`, puis rejouer sur le `versionCode` 7 le check device décrit dans ses Owner notes.
 
-### Question SHA-1 — tranchée par l'owner le 2026-09-02
+### Question SHA-1 — tranchée (fait owner relevé le 2026-09-02)
 
-La doc avait raison : Credential Manager fait vérifier par Play services le couple *package name + empreinte du binaire installé*, qui est celle de **Play App Signing** et non du keystore EAS. L'owner a déclaré un **second client OAuth Android** sur le SHA-1 de Play (même `package=com.secondbrainlabs.core`), et le sign in with Google marche depuis sur l'app installée depuis Play — c'était bien la cause.
+La doc avait raison : Credential Manager fait vérifier par Play services le couple *package name + empreinte du binaire installé*, qui est celle de **Play App Signing** et non du keystore EAS. L'owner a déclaré un **second client OAuth Android** sur le SHA-1 de Play (même `package=com.secondbrainlabs.core`). Il était donc en place **au plus tard le 2026-09-01T20:58** — date du `POST /api/auth/google/native 200` qui valide AC#1 ci-dessus, obtenu depuis un binaire installé par Play, ce qui n'aurait pas pu aboutir sans lui.
 
 Les deux clients coexistent et aucun n'est redondant : celui du keystore EAS (`task-163` AC#1) couvre les APK posés à la main, celui de Play couvre tout binaire servi par Play. Aucun des deux n'entre dans le bundle — `task-325` a supprimé `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`, l'app ne passe que le client **Web** en `serverClientId`. Rien à rejouer pour la production : le certificat Play App Signing est le même sur la piste interne, le closed testing et la production.
 
-Conséquence pour AC#2 : le flow Google est validé, il n'y a plus de réserve dessus. Le « second client Android » des Owner notes de `task-325` est clos.
+Il n'y a donc plus de réserve sur AC#1, et le « second client Android » qui figurait comme travail owner restant dans les Owner notes de `task-325` est clos.
 <!-- SECTION:NOTES:END -->
