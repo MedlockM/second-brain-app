@@ -14,6 +14,7 @@ labels:
   - auth
 dependencies:
   - task-162
+  - task-325
 priority: high
 dispatchable: false
 ---
@@ -98,6 +99,8 @@ Ce n'est **pas** bloquant pour ce build : `mobile/src/contexts/PurchasesContext.
 ## Important
 
 - Quand on passera en **Phase 10** (publication Play Store), Google Play générera un **upload key + app signing key** distincts. Il faudra alors créer un **2ᵉ OAuth Client ID Android** avec le SHA-1 du nouveau keystore Play Console. Ce ticket gère uniquement le SHA-1 EAS (dev/preview build). Note cette suite dans le ticket Phase 10 quand on y arrivera. Règle Google : **un client Android par couple (package name, SHA-1)**.
+  - **Où lire ce SHA-1, chemin vérifié le 2026-09-01** : Play Console → **Protégé avec Play** → **Distribution Play Store** → **Accéder à la signature d'application Play** → section **Clé de signature de l'application**. L'ancien chemin par *Tester et publier* → *Intégrité des applis* est mort : cette page n'affiche plus qu'un renvoi « Les paramètres d'intégrité de l'appli ont été déplacés ». Si la page liste plusieurs clés (signature hybride post-quantique), chaque empreinte demande son propre client Android.
+  - **Ce n'est pas un prérequis documenté de Credential Manager**, contrairement à l'ancien SDK Google Sign-In. Les quatre pages Android (`credential-manager/prerequisites`, `sign-in/credential-manager-siwg`, son guide d'implémentation, son guide de dépannage) ne mentionnent ni client Android ni SHA-1 : elles ne demandent que le **Web** client ID passé à `setServerClientId`, ce que fait déjà `modules/google-credential-manager/.../GoogleCredentialManagerModule.kt:86`. Ce qui est documenté, c'est que Google re-signe l'AAB avec sa propre clé et qu'« il faut enregistrer l'empreinte de la clé de signature détenue par Google auprès de ses fournisseurs d'API, pas seulement la clé d'upload » (OAuth cité explicitement). Donc : builder d'abord, tester le bouton sur le téléphone, et n'ajouter le client Android que si le flow échoue.
 - **Le Client ID Android ne sert pas d'`audience`.** Sur Android, le jeton renvoyé par Google porte comme `aud` le **Web** client ID, pas l'Android. C'est cohérent avec notre code : `mobile/src/components/SocialAuthButtons.tsx:47-51` passe les trois (`iosClientId`, `androidClientId`, `webClientId`) à `Google.useAuthRequest`, et le backend vérifie l'`aud` contre `GOOGLE_CLIENT_ID` (le Web). Le client Android existe pour que Google puisse vérifier la signature de l'APK — d'où le SHA-1. Conséquence pratique : ne pas remplacer le Web client ID par l'Android côté backend.
 - **`androidClientId` n'est honoré que dans un build natif**, pas dans Expo Go — la doc `expo-auth-session` le qualifie de « for use in production builds and existing React Native projects ». Notre build `development` (`developmentClient: true`, `distribution: internal`) est un build natif : c'est bien le bon véhicule pour tester ce flow.
 - La doc `expo-auth-session` marque la config Google **deprecated** et pousse vers `@react-native-google-signin/google-signin` (et Google pousse Credential Manager côté Android, l'ancien SDK Sign-In étant déprécié). Ça ne bloque rien pour V1 — notre implémentation actuelle fonctionne — mais c'est une dette à ouvrir en tâche séparée après le lancement, pas ici.
@@ -126,7 +129,24 @@ Ce n'est **pas** bloquant pour ce build : `mobile/src/contexts/PurchasesContext.
 - [x] #3 docs/V1_LAUNCH_PLAN.md section 5 et Phase 2/5 mis à jour
 - [x] #4 bash scripts/mobile_release_check.sh passe sans warning sur EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID
 - [x] #5 EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID est déclarée côté EAS (secret projet ou bloc env du profil development de mobile/eas.json) AVANT tout build, et eas env:list / eas secret:list la montre
-- [ ] #6 Un seul build Android est lancé, après l'étape 5, via eas build --platform android --profile development, et il termine avec succès
-- [ ] #7 Build ID et URL du build EAS notés dans ce ticket ; l'APK est installé sur un device Android physique et l'app démarre
+- [x] #6 Un seul build Android est lancé, après l'étape 5, via eas build --platform android --profile development, et il termine avec succès
+- [x] #7 Build ID et URL du build EAS notés dans ce ticket ; l'APK est installé sur un device Android physique et l'app démarre
 - [ ] #8 Le bouton Continue with Google est vérifié à la main sur ce build : il ouvre le consentement Google et ne renvoie pas DEVELOPER_ERROR
 <!-- AC:END -->
+
+## Implementation Notes
+
+### AC#6 et AC#7 validées le 2026-09-01, avec deux écarts assumés par l'owner
+
+Le build Android existe et l'app tourne sur le téléphone owner. Deux différences avec la lettre des ACs, actées plutôt que corrigées :
+
+- **Deux builds, profil `internal` et non `development`.** L'AC#6 disait « un seul build » pour ménager le quota du free tier EAS ; le budget a été dépensé autrement. Le `versionCode` 4 a dû être jeté parce que les trois environnements EAS portaient encore le placeholder `your_revenucat_google_api_key_here` sur `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` et qu'une variable `EXPO_PUBLIC_*` est inlinée à la compilation — le binaire était donc muet côté facturation (voir `task-238`). Le `versionCode` 5 est celui qui compte : build `56771adb-6213-407b-8cd7-ca1b07acf889`, `https://expo.dev/accounts/second-brain-labs/projects/media-summarizer/builds/56771adb-6213-407b-8cd7-ca1b07acf889`.
+- **Un AAB installé depuis la piste de test interne Play, pas un APK sideloadé.** Résultat équivalent pour ce que l'AC cherchait à établir — l'app démarre sur un device physique — et supérieur en couverture, puisque le binaire testé est celui que Play resigne et distribue. Il a servi à valider l'AC#6 **et** l'AC#7 de `task-238` le même jour, cycle d'abonnement complet compris.
+
+Il a fallu au passage corriger un défaut qui rendait *tout* build Release Android impossible : `mobile/locales/*.json` étaient plats, Expo recopiait les trois clés iOS dans les ressources Android, et `lintVitalRelease` échouait sur 33 erreurs `ExtraTranslation`.
+
+### AC#8 échoue, et la « dette à ouvrir après le lancement » était en réalité un blocage dur
+
+La section *Important* ci-dessus notait que `expo-auth-session` marque la config Google deprecated, en concluant « ça ne bloque rien pour V1 — notre implémentation actuelle fonctionne ». C'est faux sur Android, et ça n'a jamais fonctionné : le premier essai réel, le 2026-09-01, donne `Error 400: invalid_request` avec la raison `Custom URI scheme is not enabled for your Android client.` Google a retiré le redirect par custom scheme sur Android (« Custom URI schemes are no longer supported on Android and Chrome apps »), or c'est exactement ce que `expo-auth-session` construit. Ce n'est ni un `DEVELOPER_ERROR` ni un problème de SHA-1 : dans un flux navigateur, Google ne vérifie aucune signature d'app.
+
+AC#8 reste donc décochée et cette tâche est bloquée par **`task-325`**, qui remplace ce flux par un module Expo local sur Credential Manager. Rien d'autre ne l'attendait : l'écran de connexion porte un formulaire email/mot de passe, et c'est par là que tout le reste de la validation Android est passé.

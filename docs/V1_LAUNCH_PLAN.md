@@ -1138,8 +1138,10 @@ faite :
    3. **Screenshot de review + localisation** par abonnement, sinon il reste en
       `Missing Metadata` et RevenueCat ne pourra pas le valider.
    4. **App Store Connect → Users and Access → Integrations → App Store Connect
-      API** : générer une clé (rôle Admin ou App Manager), puis coller issuer ID,
-      key ID et `.p8` dans RevenueCat → app iOS. Gate :
+      API** : la clé Admin **existe depuis le 2026-09-01** et est déjà enregistrée
+      auprès d'EAS Submit (cf. `mobile/MOBILE_CI_CD.md` § 4) — ne pas en générer une
+      seconde. Il reste à coller issuer ID, key ID et `.p8` dans RevenueCat → app
+      iOS. Gate :
       `GET /v2/projects/proj879a771a/apps` renvoie
       `app_store_connect_api_key_configured: true`, et les 3 produits ne lisent
       plus `subscription.duration: null` mais `P1M`. Le `.p8` ne s'écrit **jamais**
@@ -1409,7 +1411,7 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
    - **App Privacy** : remplir le questionnaire détaillé sur les données collectées + leur usage. Apple est strict — toute imprécision peut entraîner un rejet ou un retrait post-launch.
    - **App Review Information** : compte de démo (login + password) pour le reviewer Apple, notes éventuelles, contact.
    - **Version 1.0** : screenshots (5 par device-size requis : 6.9", 6.5", iPad), description (4000 chars), promotional text, mots-clés (100 chars), URL support, URL marketing, URL politique de confidentialité publiquement hébergée.
-   - **Build** : sélectionner la build TestFlight déjà uploadée + validée.
+   - **Build** : sélectionner la build TestFlight déjà uploadée + validée. Elle doit venir du profil EAS **`production`**, jamais `internal` : `internal` porte `EXPO_PUBLIC_API_BASE_URL` = API dev (`jji077bi8e.execute-api...`), c'est le profil des builds de test TestFlight. Vérifier au passage que l'URL du profil `production` est bien le domaine retenu en 0bis.
    - **Soumettre pour review** (1-3 jours, parfois plus).
 2. **Google Play Store** :
    - Play Console : assets, description, classification, politique de confidentialité.

@@ -91,10 +91,18 @@ jobs:
 
       - name: Submit to App Store (production)
         working-directory: mobile
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        # No Apple env vars here, on purpose. `eas.json` used to carry
+        # "ascAppId": "${ASC_APP_ID}" and friends, but @expo/eas-json only
+        # interpolates ascApiKeyPath/ascApiKeyIssuerId/ascApiKeyId in a submit
+        # profile — appleId, ascAppId and appleTeamId are passed through
+        # verbatim, so `${...}` reached the validator and failed it. Apple-side
+        # auth comes from the App Store Connect API key stored on the EAS
+        # servers. See mobile/MOBILE_CI_CD.md, "Submit Profiles".
+        #
+        # `--non-interactive` additionally requires a literal `ascAppId` in the
+        # submit profile ("Set ascAppId in the submit profile (eas.json) or
+        # re-run this command in interactive mode"). It is hardcoded in eas.json
+        # since 2026-09-01; keep it literal, it has no env-var equivalent.
         run: |
           eas submit \
             --platform ios \

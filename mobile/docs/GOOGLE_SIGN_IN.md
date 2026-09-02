@@ -110,19 +110,51 @@ on Google's side: Credential Manager checks the calling app on its package name
 signed the installed binary.
 
 For anything distributed by Google Play — the internal track included — that
-certificate is **not** the EAS upload keystore: Play re-signs the served artifact.
-So the **Play App Signing SHA-1 must be declared on an Android OAuth client** as
-well, next to the EAS-keystore one (two Android clients, same package name).
-Otherwise the account sheet fails on the Play-installed app while working on a
-locally installed build.
+certificate is **not** the EAS upload keystore. The upload keystore (*Certificat de
+clé d'importation* in Play Console, SHA-1 `38:D5:13:F4:…`) only proves the AAB came
+from us at upload time: Play verifies it, discards it, and re-signs the served
+artifact with its own keys.
 
-- Read it: Play Console → *Test and release* (*Test et publication*) → *App integrity*
-  (*Intégrité de l'application*) → *App signing* tab (*Signature de l'application*) →
-  *App signing key certificate* (*Certificat de clé de signature d'application*),
-  SHA-1 line.
-- Declare it: Google Cloud Console → *APIs & Services* (*API et services*) →
-  *Credentials* (*Identifiants*) → *Create credentials* (*Créer des identifiants*) →
-  *OAuth client ID* (*ID client OAuth*) → application type *Android*.
+And Play holds **several** signing keys at once here, because the quantum-ready
+hybrid signing upgrade (beta) is enabled on this app. Four fingerprints are in play,
+and Google's rule is one Android OAuth client per (package name, SHA-1) pair — so
+four clients:
+
+| Fingerprint | Signs |
+| --- | --- |
+| upload keystore `38:D5:13:F4:…` | `development` / `preview` APKs installed directly |
+| Play *clé classique* | per Google's docs, Play installs on Android 13-16 |
+| Play *clé cryptographique post-quantique* | per Google's docs, Play installs on Android 17+ |
+| Play *clé précédente* (first used 2026-08-31 16:10) | what Play actually served on 2026-09-01 |
+
+Registering all of them is Google's own instruction: under hybrid signing "you must
+copy the fingerprints for three keys and register each of them" with API providers,
+OAuth named among them
+(`support.google.com/googleplay/android-developer/answer/9842756`).
+
+**The last row is the one that actually mattered.** On 2026-09-01 the internal-track
+build still failed on an Android 14 device with the classical *and* PQC clients
+declared, and started working the moment the *previous* key got its own client. So do
+not trust the documented Android-version mapping while the key upgrade is in beta:
+Play was still serving the pre-upgrade signature.
+
+The failure mode gives nothing away. The account sheet lists accounts normally — that
+needs no client — then closes silently after the pick: Credential Manager reports a
+cancellation, which `GoogleCredentialManagerModule.kt` resolves as `cancelled` and
+`SocialAuthButtons.tsx` deliberately swallows. Nothing reaches the API either, and
+checking that is the fastest way to separate a Google-side configuration problem from
+a backend one — a missing client means **no** `/api/auth/google/native` line at all in
+`/aws/lambda/media-summarizer-api-dev`.
+
+- Read the fingerprints: Play Console → *Protégé avec Play* → *Distribution Play
+  Store* → *Accéder à la signature d'application Play*. The *Clé de signature de
+  l'application* block has a copy button per fingerprint; a **previous** key exposes
+  only a certificate download, so get its SHA-1 with
+  `keytool -printcert -file <downloaded>.der`.
+  The older path (*Tester et publier* → *Intégrité des applis*) is dead: that page now
+  only states the settings moved.
+- Declare them: https://console.cloud.google.com/auth/clients → *Create client* →
+  application type *Android*.
 
 ## iOS: `promptAsync()` returns a code, not an id_token
 
@@ -228,11 +260,13 @@ APIs & Services → Credentials that the client referenced by
   construction — no client-side change can fix that);
 - has **Bundle ID** exactly `com.secondbrainlabs.core`.
 
-If the Android account sheet closes immediately or reports a developer error, check
-that an **Android** client exists with package name `com.secondbrainlabs.core` and
-the SHA-1 of the certificate that signed *the binary under test* — the EAS keystore
-for a directly installed build, the Play App Signing certificate for anything
-installed from a Play track.
+If the Android account sheet closes silently after the account pick, or reports a
+developer error, check that an **Android** client exists with package name
+`com.secondbrainlabs.core` and the SHA-1 of the certificate that signed *the binary
+under test* — the EAS keystore for a directly installed build, one of the Play App
+Signing keys for anything installed from a Play track. With hybrid signing enabled
+there are three of the latter and all three need a client; see "Which client, and
+which fingerprint" above for why the *previous* key is not optional.
 
 Neither client needs a redirect URI registered by hand: an iOS client accepts its own
 reversed-client-ID scheme implicitly, and an Android client has no redirect at all.

@@ -31,7 +31,7 @@ Complete the production-like Android billing configuration that is intentionally
 - [x] #3 The Text-Only, Mix, and Audio-Heavy monthly subscriptions exist in Google Play with the validated V1 prices and active base plans
 - [x] #4 All three Google Play products are imported into RevenueCat, attached to their matching tier entitlement from task-262 (tier_text_only, tier_mix, tier_audio_heavy), and mapped to packages text_only, mix and audio_heavy in the current offering
 - [x] #5 The real RevenueCat Google public SDK key is configured securely for Android development, preview, CI, and production profiles, while the Test Store key remains restricted to tests
-- [ ] #6 An Internal Testing build fetches all three packages through Google Play without configuration errors
+- [x] #6 An Internal Testing build fetches all three packages through Google Play without configuration errors
 - [ ] #7 A Google Play license tester completes a sandbox purchase and restore, and RevenueCat Customer Info reports the matching tier entitlement as active
 <!-- AC:END -->
 
@@ -159,6 +159,15 @@ the AAB by hand**. `eas submit` is a dead end today — `mobile/google-services-
 gitignored and absent locally, and the service account holds no release-to-track permission,
 so granting one would restart the 24-36 h propagation for nothing.
 
+**Superseded the same evening (2026-09-01).** `eas submit` is no longer a dead end, and the
+propagation argument above was wrong. A dedicated service account
+(`eas-play-publisher`, no IAM role) was created, granted the six publishing permissions in
+Play Console, and its key uploaded to the EAS servers through `eas credentials` — so no
+local file and no `serviceAccountKeyPath` are involved. `eas submit --profile internal`
+then pushed `versionCode` 6 to the internal track **minutes after the invitation**, first
+try. Whatever the 24-36 h window applies to, it is not the release-to-track permissions.
+Full state in `mobile/MOBILE_CI_CD.md`, section *Google Play Service Account Key*.
+
 **The Android release build was broken, and it had nothing to do with Play.** The first two
 `internal` builds (2026-08-31 16:21, 2026-09-01 08:08) both died in `RUN_GRADLEW` with
 `EAS_BUILD_UNKNOWN_GRADLE_ERROR`, which hides the real message. The log says:
@@ -282,35 +291,112 @@ key (`text_only` / `mix` / `audio_heavy`). RevenueCat products are per-app, so t
 simply carry different store identifiers than the iOS rows while pointing at the same
 entitlements and packages. Nothing in the code reads a store product identifier.
 
-## What is left: AC#6 and AC#7
+## AC#6 closed — 2026-09-01
 
-**AC#6 — the internal-testing build.** `versionCode` 5 (profile `internal`, dev API, keystore
-`aRG08ty5Ek`) is published on the internal test track and reads « Accessible aux testeurs
-internes » since 2026-09-01 17:28, state « Non examinée » with the temporary app name
-`com.secondbrainlabs.core (unreviewed)` — both normal for an app whose store listing is not
-filled. Installing from the phone answers « Une erreur s'est produite de notre côté », which is
-Play's generic refusal. Two candidate causes, in order: the tester list must be selected on
-**Tests internes → onglet Testeurs** (a different list from **Paramètres → Test de licence**;
-being on the second one grants free purchases, not the right to install), and the documented
-propagation delay — for a channel's first publication, « il faut parfois attendre plusieurs
-heures avant que le lien vers cette version de test soit accessible aux testeurs ».
+`versionCode` 5 (profile `internal`, dev API, keystore `aRG08ty5Ek`) installed from the internal
+test track and the paywall rendered the three tiers with their prices: Reader 3,00 €/mois · 1 h,
+Mix 5,00 €/mois · 5 h (« VOTRE FORMULE D'ESSAI » selected), Audio-Heavy 9,00 €/mois · 12 h
+(« MEILLEUR PRIX »), an active CTA « Commencer avec Mix — 5,00 €/mois » and the notice
+« Résiliez à tout moment dans votre compte Play Store ».
 
-**AC#7 — the sandbox purchase.** License testing is configured: list `beta-testeurs`, « Réponse
-de la licence » left on `RESPOND_NORMALLY`. That field belongs to Google Play *Licensing* (the
-anti-piracy check for paid apps, « licensed to the current device user »), not to Play Billing,
-and this app is free and links no LVL — so it has no effect either way.
+**Those visible prices are the proof, not just a good sign.** `mobile/app/paywall.tsx` derives a
+price from `pkg.product.priceString` and nowhere else — no package, no price, and the card
+renders without one. Three prices on screen therefore means the Play Billing SDK resolved the
+offering, matched all three packages, and read them back from Google Play. The build being an
+AAB resigned by Play App Signing, this exercises the real distribution path.
 
-Testing as a license tester rather than with a real card is not only about money: a monthly
-subscription renews **every 5 minutes** for a license tester, up to six times, with free trial
-at 3 minutes and grace period at 5 minutes
-(`developer.android.com/google/play/billing/test`). The whole subscription lifecycle — including
-the `RENEWAL` events `revenucat_webhook.py` has never once processed on Android — is exercisable
-in 35 minutes instead of six months. Two traps documented on the same page: « a purchase is
-refunded after 3 minutes if your app does not acknowledge the purchase » (so an entitlement that
-appears then vanishes is an acknowledgement problem, not a webhook one), and enabling real
-payment methods « loses all other license tester features ».
+The earlier « Une erreur s'est produite de notre côté » on install is gone. The two candidate
+causes were the tester list on **Tests internes → onglet Testeurs** (a different list from
+**Paramètres → Test de licence**; being on the second grants free purchases, not the right to
+install) and the documented multi-hour propagation delay of a channel's first publication. Which
+of the two it was was not isolated, and no longer matters.
 
-Internal app sharing is **not** a shortcut worth taking here: it signs with a generated test
-certificate (« Tous les APK sont signés avec ce certificat de test »), and Google Sign-In is
-bound to the signing fingerprint, so the build would not get past login.
+The account was reached with **email/password**, not Google: the Android Google sign-in is dead
+for an unrelated reason — `expo-auth-session` builds a custom-scheme redirect Google no longer
+accepts on Android — tracked in `task-325`. It does not touch billing.
+
+## The full Android subscription lifecycle ran end to end — 2026-09-01
+
+License testing was configured with the list `beta-testeurs`, « Réponse de la licence » left on
+`RESPOND_NORMALLY` (that field belongs to Google Play *Licensing*, the anti-piracy check for paid
+apps, not to Play Billing — this app is free and links no LVL, so it has no effect either way).
+A license tester bought **Audio-Heavy** and the 5-minute renewal clock
+(`developer.android.com/google/play/billing/test`) compressed six months of billing into 43
+minutes. Every event reached the backend. Read back from `revenucat_events-dev` (eu-west-3):
+
+| Event | `processed_at` |
+|---|---|
+| `INITIAL_PURCHASE` | 16:54:31 |
+| `RENEWAL` | 17:00:57 |
+| `RENEWAL` | 17:07:21 |
+| `RENEWAL` | 17:13:08 |
+| `RENEWAL` | 17:21:02 |
+| `RENEWAL` | 17:29:02 |
+| `CANCELLATION` | 17:37:00 |
+| `EXPIRATION` | 17:37:00 |
+
+Six paid periods then the automatic stop, exactly the documented license-tester behaviour. The
+`revenucat_events-dev` table went from 1 item (a `TEST` ping from 2026-08-13) to 9. **This is the
+first time the Android billing circuit has ever run, and the first `RENEWAL` the backend has ever
+processed on any platform.**
+
+**What each hop proves, since the whole chain was untested until now:**
+
+- **Play → RevenueCat.** `GET /v2/.../customers/<id>/subscriptions` returns
+  `subGps71ab95a86198da46a7ff9e60de80dce9`: `store: play_store`, `environment: sandbox`,
+  `ownership: purchased`, `product_id: proda57a23a69e` (= `audio_heavy_monthly:monthly`),
+  `store_subscription_identifier: GPA.3335-6339-1997-53484..5`, `country: FR`. The Google
+  developer-notifications path that `line 65` above deferred is therefore live enough to carry
+  renewals — RevenueCat saw all six within seconds.
+- **The presented offering was the real one.** `presented_offering_id: ofrng2c876c3f17` — the
+  `default` offering, not the Test Store. Combined with AC#6's prices, that closes any doubt
+  about which catalogue the binary talked to.
+- **The webhook signature check passes in production conditions.** Nine stored events means nine
+  requests that got past the `REVENUCAT_WEBHOOK_SECRET` comparison; an unsigned `POST` answers
+  `401`. The value in RevenueCat → Integrations → Webhooks does match `.env` and
+  `media-summarizer-runtime-dev`, which the v2 API could not tell us (`404`) and which
+  `task-261` OWNER GATE 5 still lists as unconfirmed. **It is confirmed now, for the shared
+  secret at least** — the Android event flow uses the same webhook endpoint and the same secret
+  as iOS will.
+- **Entitlement-driven tier resolution works on a Play product.** `subscriptions-dev` carries
+  `tier: L`, `platform: android`, `revenucat_product_id: audio_heavy_monthly:monthly`. The only
+  way `_resolve_tier()` can produce `L` is `tier_audio_heavy` appearing in the event's
+  `entitlement_ids` (`media_summarizer/api/endpoints/revenucat_webhook.py:141-148` maps nothing
+  else, and returns `None` otherwise). So `task-262`'s layout held on a second store, and
+  `revenucat.tier_unresolved` never fired.
+- **Cancellation and expiry are handled distinctly.** The row ends at `status: expired`,
+  `auto_renew_status: false`, `cancel_at_period_end: true`, `current_period_end` 17:29:13 —
+  `CANCELLATION` flipped the renewal flag while leaving access until the period end, then
+  `EXPIRATION` closed it. Access is correctly gone now (`gives_access: false`).
+
+**Two readings to not misinterpret later.** The subscription reports
+`total_revenue_in_usd.gross: 62.77` (six periods at ~10.46 USD): sandbox money, no cash moved,
+`environment: sandbox` is the field that says so. And
+`GET /v2/projects/proj879a771a/subscriptions/<id>/entitlements` returns an **empty list** even
+though the tier resolved from `tier_audio_heavy` — the entitlement was certainly in the payload,
+so this is a v2 reporting quirk on an expired subscription, not a missing attachment. Don't go
+re-attaching products on the strength of that endpoint.
+
+## What is left: the restore half of AC#7
+
+AC#7 asks for « a sandbox purchase **and restore** ». The purchase half is closed well beyond
+what the AC asked. The restore was not observed, and it cannot be tested against this
+subscription any more — it is expired, so `restorePurchases()` would legitimately return no
+entitlement. It needs an active one: buy any tier again as the license tester (free, and the
+first renewal lands 5 minutes later), then force-stop the app or clear its data, sign back in and
+hit **Restore Purchases**. What must come back is the tier entitlement active, and no new
+`INITIAL_PURCHASE` in `revenucat_events-dev` — a restore syncs, it does not re-buy.
+
+That is worth the two minutes: it is the reinstall path every real user hits, and it is the one
+place where a purchase can exist in Play while the app shows nothing.
+
+One trap documented on the same Google page, for that run: « a purchase is refunded after
+3 minutes if your app does not acknowledge the purchase ». So an entitlement that appears then
+vanishes is an acknowledgement problem, not a webhook one. Enabling real payment methods
+« loses all other license tester features » — leave them off.
+
+Internal app sharing is **not** a shortcut worth taking, and it is moot now that the internal
+track installs: it signs with a generated test certificate (« Tous les APK sont signés avec ce
+certificat de test »), so the fingerprint differs from the Play App Signing one that the future
+Credential Manager sign-in (`task-325`) will have Play services verify.
 <!-- SECTION:NOTES:END -->

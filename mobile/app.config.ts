@@ -140,6 +140,17 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       // Merged with the top-level `scheme` into CFBundleURLTypes at prebuild, so
       // `media-summarizer` (expo-router deep links) keeps working untouched.
       scheme: googleIosScheme ? [googleIosScheme] : [],
+      config: {
+        // Writes ITSAppUsesNonExemptEncryption=false into the ipa's Info.plist.
+        // The app only ever uses platform TLS (HTTPS to the API, Google/Apple
+        // OAuth, RevenueCat) — no proprietary cryptography — which is exempt
+        // under Apple's export rules. Declared here rather than answered at the
+        // prompt: without it `eas build` asks "iOS app only uses
+        // standard/exempt encryption?" on every interactive run, and App Store
+        // Connect asks for the export-compliance tick on every TestFlight
+        // upload. Set it to `true` only if real non-exempt crypto ever ships.
+        usesNonExemptEncryption: false,
+      },
       infoPlist: {
         NSPhotoLibraryUsageDescription:
           "Used to attach images to media entries.",

@@ -55,6 +55,7 @@ on:
         type: choice
         options:
           - preview
+          - internal
           - production
       submit:
         description: "Submit to the store after build (TestFlight / Play internal)"
@@ -178,10 +179,20 @@ jobs:
           (github.event_name == 'workflow_dispatch' ||
            startsWith(github.ref, 'refs/tags/mobile-v'))
         working-directory: mobile
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        # `--profile production` regardless of the build profile, on purpose: the
+        # submit profiles `internal` and `production` both target TestFlight with
+        # the same credentials. Only `production-store` differs, and only for
+        # Android (Play `production` track instead of `internal`).
+        #
+        # No Apple env vars here, on purpose: @expo/eas-json only interpolates
+        # ascApiKeyPath/ascApiKeyIssuerId/ascApiKeyId in a submit profile, so the
+        # old "ascAppId": "${ASC_APP_ID}" reached the validator verbatim and
+        # failed it. Apple-side auth comes from the App Store Connect API key
+        # stored on the EAS servers.
+        #
+        # `--non-interactive` additionally requires a literal `ascAppId` in the
+        # submit profile; it is hardcoded in eas.json since 2026-09-01. Keep it
+        # literal — it has no env-var equivalent, unlike appleId/appleTeamId.
         run: |
           eas submit \
             --platform ios \
@@ -252,10 +263,11 @@ jobs:
           echo "submit=$SUBMIT" >> "$GITHUB_OUTPUT"
           echo "Resolved profile=$PROFILE submit=$SUBMIT"
 
-      - name: Write Google Play service account key
-        working-directory: mobile
-        run: |
-          echo '${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY }}' > google-services-key.json
+      # No service account key is written here. Since 2026-09-01 the Google Play
+      # key lives on the EAS servers (uploaded through `eas credentials`), and the
+      # `submit` profiles in eas.json no longer carry `serviceAccountKeyPath`, so
+      # `eas submit` resolves it by itself. Writing a local key file again would
+      # shadow the stored one and reintroduce a secret this workflow does not need.
 
       - name: Run EAS Build for Android
         id: build
@@ -310,11 +322,6 @@ jobs:
           echo "## Android Internal Testing Submission" >> $GITHUB_STEP_SUMMARY
           echo "- Status: Submitted" >> $GITHUB_STEP_SUMMARY
           echo "- Build ID: \`${{ steps.build.outputs.build_id }}\`" >> $GITHUB_STEP_SUMMARY
-
-      - name: Clean up service account key
-        if: always()
-        working-directory: mobile
-        run: rm -f google-services-key.json
 
   # -------------------------------------------------------------------
   # Build Failure Notification

@@ -54,6 +54,21 @@ Read `README.md` for project overview and V1 scope. Read `docs/CANONICAL_MEDIA_A
 - LLM model, OCR service, cloud provider, and pricing model are all open choices — never hardcode a specific solution without a benchmark justifying it.
 - Debug instrumentation is temporary. When you add `console.log` / `console.error` / `print` / extra log lines to diagnose a specific bug, **remove them as soon as the bug is fixed**, in the same session. Do not leave them in the codebase as "useful future logs" — they pollute the signal in real logs and rot. Keep only logs that belong to the permanent observability story (structured logger calls, telemetry events) and were already there before the investigation.
 
+## Shipping an Android build to the internal testers
+
+GitHub Actions cannot do it yet (`EXPO_TOKEN` secret still missing), so when a new binary must
+reach the testers, run from `mobile/`:
+
+```
+eas build --platform android --profile internal --auto-submit --non-interactive
+```
+
+One command, no manual step: `autoIncrement` bumps the `versionCode`, `--auto-submit` publishes to
+the Play `internal` track with `releaseStatus: completed`, no Google review, and installed devices
+update themselves within minutes from an opt-in link that never changes. The Play service account
+key lives on the EAS servers — never write one to disk and never re-add `serviceAccountKeyPath` to
+`eas.json`. Details in `mobile/MOBILE_CI_CD.md`.
+
 ## Never write secrets or account identity into backlog tasks
 
 **This repository is public, and `main` refuses force-pushes and deletion** (light branch protection, posed by task-257 on 2026-08-13 — it blocks history rewriting only, normal pushes and local merge commits are untouched). Anything you write into a task file, a research README, a dispatch summary or a commit message is published the moment `main` is pushed, and stays in the git history even if a later commit removes it — and scrubbing it after the fact now requires the owner to lift the protection first. Task files are the highest-risk surface because agents naturally paste command output into `Implementation Notes` as proof of work.
