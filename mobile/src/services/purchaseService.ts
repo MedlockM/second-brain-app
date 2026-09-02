@@ -3,6 +3,15 @@
  *
  * Wraps react-native-purchases SDK to provide a clean interface
  * for subscription management in the mobile app.
+ *
+ * **Nothing here wraps the SDK's restore call, deliberately** (task-336). The
+ * wrapper that used to sit here claimed to be "required by Apple App Store
+ * guidelines", which misread 3.1.1 — a "should", asking for *a* restore
+ * mechanism. The mechanism here is the account: `identifyUser()` below binds the
+ * RevenueCat customer to the backend user id, and entitlements are read from
+ * `GET /api/entitlements/status`, so signing in on a new device is the restore.
+ * Restoring on an App User ID that already owns the purchase changes no state,
+ * therefore emits no webhook, and would leave the backend as it found it.
  */
 import Purchases, {
   CustomerInfo,
@@ -101,15 +110,6 @@ export async function purchasePackage(
     console.error("[PurchaseService] Purchase error:", error);
     return { status: "error", message };
   }
-}
-
-/**
- * Restore previous purchases (required by Apple App Store guidelines).
- * Syncs any purchases made on other devices or after reinstall.
- */
-export async function restorePurchases(): Promise<CustomerInfo> {
-  const customerInfo = await Purchases.restorePurchases();
-  return customerInfo;
 }
 
 /**

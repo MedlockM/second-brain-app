@@ -591,16 +591,6 @@ export const es: Catalog = {
   "paywall.hideDetails": "Ocultar los detalles",
   "paywall.ctaChoose": "Elegir un plan",
   "paywall.ctaStart": "Empezar con {plan} — {price}/mes",
-  "paywall.restore": "Restaurar compras",
-  "paywall.restoreA11y": "Restaurar compras",
-  "paywall.restored": "Compras restauradas",
-  "paywall.restoredBody": "Tus compras anteriores se han restaurado.",
-  "paywall.nothingToRestore": "Nada que restaurar",
-  "paywall.nothingToRestoreBody":
-    "No hemos encontrado ninguna suscripción anterior en esta cuenta de {store}.",
-  "paywall.restoreFailed": "Error al restaurar",
-  "paywall.restoreFailedBody":
-    "No se han podido restaurar las compras. Inténtalo de nuevo más tarde.",
   "paywall.purchaseSuccess": "Compra realizada",
   "paywall.purchaseSuccessBody": "Tu suscripción ya está activa. ¡Disfrútala!",
   "paywall.purchasePending": "Compra pendiente",

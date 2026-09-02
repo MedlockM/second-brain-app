@@ -307,6 +307,33 @@ Bring-your-own alternatives, if you would rather not let EAS hold the key:
 Apple ID with an app-specific password passed through
 `EXPO_APPLE_APP_SPECIFIC_PASSWORD`.
 
+#### App Review note: the app has no Restore Purchases button
+
+Paste this into **App Store Connect → the version → App Review Information → Notes**
+on any submission that goes to review, and into the equivalent Play Console review
+notes:
+
+> Purchases are tied to the user account. Signing in on any device restores the
+> active subscription; there is no separate restore step.
+
+Why it is worth a sentence to a reviewer: guideline **3.1.1** asks that you *"make
+sure you have a restore mechanism for any restorable in-app purchases"* — a
+mechanism, not a button. The binding one here is the account. The app logs the user
+in to RevenueCat under the backend user id (`identifyUser()` in
+`src/services/purchaseService.ts`), and entitlements are served by
+`GET /api/entitlements/status` off the `subscriptions` table, so a reinstall or a
+second device recovers the subscription by signing in. The hard requirement,
+**3.1.2(a)** — *"Subscriptions must work on all of the user's devices"* — is
+satisfied by the server, not by a button.
+
+The button that used to sit on the paywall was deleted in `task-336`: no purchase can
+be made anonymously (the paywall only opens for a signed-in user), so there was never
+an orphan receipt to reattach, and it read its success/failure verdict from
+RevenueCat while the paywall reads access from the backend — which let it announce
+"Purchases restored" on a paywall that then stayed shut. If a reviewer ever pushes
+back on its absence, re-adding one costs less than maintaining a dead control, so
+this is not pre-empted any further.
+
 ### 5. Google Play Console Setup
 
 1. Create the app in Google Play Console (package: `com.secondbrainlabs.core`)

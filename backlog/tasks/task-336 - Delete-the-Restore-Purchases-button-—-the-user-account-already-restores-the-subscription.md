@@ -55,10 +55,65 @@ Nothing here needs a device or a build. The one thing that lands outside the cod
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Restore Purchases button, its handler and the state and styles that only served it no longer exist in mobile/app/paywall.tsx
-- [ ] #2 restorePurchases() is gone from mobile/src/services/purchaseService.ts, and grep -rn restorePurchases over mobile/ returns nothing
-- [ ] #3 The eight paywall.restore* / paywall.nothingToRestore* keys are removed from all eleven locale catalogues in mobile/src/i18n/, leaving no catalogue with an orphan key and any catalogue-comparison guard still green
-- [ ] #4 The comment in mobile/src/constants/theme.ts no longer cites Restore Purchases as an example
-- [ ] #5 The App Store submission note stating that the subscription follows the user account is written in mobile/MOBILE_CI_CD.md, where submission is covered
-- [ ] #6 npm run typecheck and npm run lint pass in mobile/ with no new error and no new warning
+- [x] #1 The Restore Purchases button, its handler and the state and styles that only served it no longer exist in mobile/app/paywall.tsx
+- [x] #2 restorePurchases() is gone from mobile/src/services/purchaseService.ts, and grep -rn restorePurchases over mobile/ returns nothing
+- [x] #3 The eight paywall.restore* / paywall.nothingToRestore* keys are removed from all eleven locale catalogues in mobile/src/i18n/, leaving no catalogue with an orphan key and any catalogue-comparison guard still green
+- [x] #4 The comment in mobile/src/constants/theme.ts no longer cites Restore Purchases as an example
+- [x] #5 The App Store submission note stating that the subscription follows the user account is written in mobile/MOBILE_CI_CD.md, where submission is covered
+- [x] #6 npm run typecheck and npm run lint pass in mobile/ with no new error and no new warning
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Deleted, in one pass, with no fallback: 193 lines removed against 82 added.
+
+**`mobile/app/paywall.tsx`** — the button, `handleRestore`, `isRestoring`, the
+`restorePurchases` import and the `restoreButton` / `restoreText` styles are gone.
+`Alert`, `ActivityIndicator`, `TouchTarget` and `STORE_NAME` all stayed: the purchase
+path still uses every one of them (`STORE_NAME` for `renewalTerms`, `cancelAnytime`
+and `pricesUnavailable`).
+
+One thing the button was doing besides lying: **holding the vertical gap**. It
+carried `marginTop: Spacing.lg` plus `paddingVertical: Spacing.md` between the
+"included in every plan" card and the legal block, and the legal block itself only
+had `Spacing.sm` — so a straight excision left the renewal terms nearly flush
+against a shadowed card, and flush against it entirely in the `!canPurchase` state
+where the terms do not render at all. The terms and the two links are now wrapped in
+a `legalBlock` view that owns `marginTop: Spacing.lg`, which is correct in both
+states rather than depending on which sibling precedes it. No new token, no new
+value — `Spacing.lg` was already the gap the deleted button contributed.
+
+**`mobile/src/services/purchaseService.ts`** — `restorePurchases()` and the
+"required by Apple App Store guidelines" comment are gone. The module docblock now
+records *why* there is no wrapper, phrased without the identifier so that AC #2's
+`grep -rn restorePurchases` over `mobile/` stays empty.
+
+**The eleven catalogues** — the eight keys were contiguous in every one of them
+(`"paywall.restore"` through `"paywall.restoreFailedBody"`, always followed by
+`"paywall.purchaseSuccess"`), removed by script with an assertion that exactly 8
+`"paywall.*"` entries were dropped per file: 88 entries total.
+
+Worth recording for the next catalogue cleanup: **the guard does not catch orphans.**
+`Catalog` in `src/i18n/runtime.ts` is
+`Record<TranslationKey, string> & Record<string, string>`, and that index signature —
+there so Arabic can declare six plural categories — means a key left in `fr` after
+being removed from `en` is *not* a `tsc` error. Only a *missing* key is. So the
+removal had to be done in all eleven by hand; typecheck being green proves no key is
+missing, not that none is orphaned. `grep -rn "paywall.restore\|nothingToRestore"`
+over `mobile/` returning nothing is what proves the second half.
+
+**`mobile/MOBILE_CI_CD.md`** — new subsection under *4. App Store Connect Setup*:
+"App Review note: the app has no Restore Purchases button". It carries the exact
+sentence to paste into App Store Connect → the version → App Review Information →
+Notes, and the 3.1.1-is-a-"should" / 3.1.2(a)-is-the-hard-requirement reasoning a
+reviewer question would need.
+
+`mobile/.maestro/07_paywall.yaml` never referenced the button, so nothing to ignore
+there after all.
+
+Checks: `npm run typecheck` clean. `npm run lint` reports the same two pre-existing
+warnings as before the change and no others — `digest.tsx:36` unused `CARD_WIDTH`
+(untouched file) and the `catch (error: any)` in `purchasePackage`, which only moved
+line number because of the new docblock.
+<!-- SECTION:NOTES:END -->

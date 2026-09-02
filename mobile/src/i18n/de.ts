@@ -599,16 +599,6 @@ export const de: Catalog = {
   "paywall.hideDetails": "Details ausblenden",
   "paywall.ctaChoose": "Tarif wählen",
   "paywall.ctaStart": "Mit {plan} starten — {price}/Mon.",
-  "paywall.restore": "Käufe wiederherstellen",
-  "paywall.restoreA11y": "Käufe wiederherstellen",
-  "paywall.restored": "Käufe wiederhergestellt",
-  "paywall.restoredBody": "Deine früheren Käufe wurden wiederhergestellt.",
-  "paywall.nothingToRestore": "Nichts wiederherzustellen",
-  "paywall.nothingToRestoreBody":
-    "Wir haben auf diesem {store}-Konto kein früheres Abo gefunden.",
-  "paywall.restoreFailed": "Wiederherstellung fehlgeschlagen",
-  "paywall.restoreFailedBody":
-    "Die Käufe konnten nicht wiederhergestellt werden. Bitte versuche es später erneut.",
   "paywall.purchaseSuccess": "Kauf erfolgreich",
   "paywall.purchaseSuccessBody": "Dein Abo ist jetzt aktiv. Viel Freude damit!",
   "paywall.purchasePending": "Kauf ausstehend",

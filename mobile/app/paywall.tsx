@@ -27,6 +27,15 @@
  * derived from minutes the account actually spent, "best value" is arithmetic on
  * the store's own prices, and there is no "most popular" badge because with no
  * users that would simply be false. See `buildPlanGuidance`.
+ *
+ * **There is no Restore Purchases button**, and adding one back would be a
+ * regression (task-336). The subscription follows the *app account*, not the
+ * store account: `identifyUser()` logs the user in to RevenueCat under their own
+ * id, and access is read from `GET /api/entitlements/status`, so a reinstall or a
+ * new device recovers it by signing in. The button could only ever restore what
+ * the account already had — and it read its verdict from RevenueCat while the
+ * paywall reads the backend, so it could announce "Purchases restored" on a
+ * screen that then refused to close.
  */
 import React, { useEffect, useState } from "react";
 import {
@@ -44,11 +53,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { PurchasesPackage } from "react-native-purchases";
-import {
-  getOfferings,
-  purchasePackage,
-  restorePurchases,
-} from "../src/services/purchaseService";
+import { getOfferings, purchasePackage } from "../src/services/purchaseService";
 import { usePurchases } from "../src/contexts/PurchasesContext";
 import {
   fetchPublicPricing,
@@ -111,7 +116,6 @@ export default function PaywallScreen() {
   const [pricing, setPricing] = useState<PublicPricing | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPurchasing, setIsPurchasing] = useState(false);
-  const [isRestoring, setIsRestoring] = useState(false);
   // Which plan the CTA buys. `null` until the pricing lands, then whatever the
   // guidance recommends — the user can always pick another.
   const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
@@ -212,36 +216,6 @@ export default function PaywallScreen() {
       Alert.alert(t("common.error"), t("paywall.unexpectedError"));
     } finally {
       setIsPurchasing(false);
-    }
-  };
-
-  // Restoring nothing is a normal outcome — a fresh store account has no
-  // purchase to find — and announcing "your purchases have been restored"
-  // regardless told those users something untrue about their own account.
-  const handleRestore = async () => {
-    setIsRestoring(true);
-    try {
-      const customerInfo = await restorePurchases();
-      await refreshEntitlements();
-      const hasEntitlement =
-        Object.keys(customerInfo.entitlements.active).length > 0;
-
-      if (hasEntitlement) {
-        Alert.alert(
-          t("paywall.restored"),
-          t("paywall.restoredBody"),
-          [{ text: t("common.ok"), onPress: () => dismiss() }],
-        );
-      } else {
-        Alert.alert(
-          t("paywall.nothingToRestore"),
-          t("paywall.nothingToRestoreBody", { store: STORE_NAME }),
-        );
-      }
-    } catch {
-      Alert.alert(t("paywall.restoreFailed"), t("paywall.restoreFailedBody"));
-    } finally {
-      setIsRestoring(false);
     }
   };
 
@@ -580,52 +554,44 @@ export default function PaywallScreen() {
           </>
         )}
 
-        {/* Restore Purchases */}
-        <TouchableOpacity
-          style={styles.restoreButton}
-          onPress={handleRestore}
-          disabled={isRestoring}
-          accessibilityRole="button"
-          accessibilityLabel={t("paywall.restoreA11y")}
-        >
-          {isRestoring ? (
-            <ActivityIndicator size="small" color={Colors.textSubtle} />
-          ) : (
-            <Text style={styles.restoreText}>{t("paywall.restore")}</Text>
-          )}
-        </TouchableOpacity>
-
         {/* Legal. The renewal terms are required wording on a screen that can
             actually take money, so they follow the purchase path; the two links
             are required *in the binary, on the purchase screen* by App Store
             guideline 3.1.2 and by Play's subscription policy, were absent
             entirely — one of the most common paywall rejections — and stay put
-            whatever the store is doing. */}
-        {canPurchase && (
-          <Text style={styles.legalText}>
-            {t("paywall.renewalTerms", { store: STORE_NAME })}
-          </Text>
-        )}
-        <View style={styles.legalLinks}>
-          <TouchableOpacity
-            testID="paywall-terms-link"
-            style={styles.legalLinkButton}
-            onPress={() => void Linking.openURL(TERMS_URL)}
-            accessibilityRole="link"
-            accessibilityLabel={t("paywall.terms")}
-          >
-            <Text style={styles.legalLinkText}>{t("paywall.terms")}</Text>
-          </TouchableOpacity>
-          <Text style={styles.legalLinkSeparator}>·</Text>
-          <TouchableOpacity
-            testID="paywall-privacy-link"
-            style={styles.legalLinkButton}
-            onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
-            accessibilityRole="link"
-            accessibilityLabel={t("paywall.privacy")}
-          >
-            <Text style={styles.legalLinkText}>{t("paywall.privacy")}</Text>
-          </TouchableOpacity>
+            whatever the store is doing.
+
+            The block owns the gap that separates it from whatever precedes it,
+            because what precedes it is not always the same element: the terms
+            only render on the purchase path, and until task-336 the spacing came
+            from a Restore Purchases button above them that no longer exists. */}
+        <View style={styles.legalBlock}>
+          {canPurchase && (
+            <Text style={styles.legalText}>
+              {t("paywall.renewalTerms", { store: STORE_NAME })}
+            </Text>
+          )}
+          <View style={styles.legalLinks}>
+            <TouchableOpacity
+              testID="paywall-terms-link"
+              style={styles.legalLinkButton}
+              onPress={() => void Linking.openURL(TERMS_URL)}
+              accessibilityRole="link"
+              accessibilityLabel={t("paywall.terms")}
+            >
+              <Text style={styles.legalLinkText}>{t("paywall.terms")}</Text>
+            </TouchableOpacity>
+            <Text style={styles.legalLinkSeparator}>·</Text>
+            <TouchableOpacity
+              testID="paywall-privacy-link"
+              style={styles.legalLinkButton}
+              onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)}
+              accessibilityRole="link"
+              accessibilityLabel={t("paywall.privacy")}
+            >
+              <Text style={styles.legalLinkText}>{t("paywall.privacy")}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
 
@@ -980,24 +946,13 @@ const styles = StyleSheet.create({
     color: Colors.textSubtle,
     lineHeight: 18,
   },
-  restoreButton: {
+  legalBlock: {
     marginTop: Spacing.lg,
-    alignItems: "center",
-    paddingVertical: Spacing.md,
-    minHeight: TouchTarget.minimum,
-    justifyContent: "center",
-  },
-  restoreText: {
-    ...Typography.label,
-    fontWeight: "600",
-    color: Colors.textSubtle,
-    textDecorationLine: "underline",
   },
   legalText: {
     ...Typography.small,
     color: Colors.textSubtle,
     textAlign: "center",
-    marginTop: Spacing.sm,
     paddingHorizontal: Spacing.md,
     lineHeight: 18,
   },

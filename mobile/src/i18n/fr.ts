@@ -609,16 +609,6 @@ export const fr: Catalog = {
   "paywall.hideDetails": "Masquer les détails",
   "paywall.ctaChoose": "Choisir une formule",
   "paywall.ctaStart": "Commencer avec {plan} — {price}/mois",
-  "paywall.restore": "Restaurer les achats",
-  "paywall.restoreA11y": "Restaurer les achats",
-  "paywall.restored": "Achats restaurés",
-  "paywall.restoredBody": "Vos achats précédents ont été restaurés.",
-  "paywall.nothingToRestore": "Rien à restaurer",
-  "paywall.nothingToRestoreBody":
-    "Nous n'avons trouvé aucun abonnement précédent sur ce compte {store}.",
-  "paywall.restoreFailed": "Échec de la restauration",
-  "paywall.restoreFailedBody":
-    "Impossible de restaurer les achats. Veuillez réessayer plus tard.",
   "paywall.purchaseSuccess": "Achat réussi",
   "paywall.purchaseSuccessBody":
     "Votre abonnement est maintenant actif. Profitez-en !",

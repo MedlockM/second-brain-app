@@ -635,16 +635,6 @@ export const en = {
   "paywall.hideDetails": "Hide the details",
   "paywall.ctaChoose": "Choose a plan",
   "paywall.ctaStart": "Start with {plan} — {price}/mo",
-  "paywall.restore": "Restore Purchases",
-  "paywall.restoreA11y": "Restore purchases",
-  "paywall.restored": "Purchases Restored",
-  "paywall.restoredBody": "Your previous purchases have been restored.",
-  "paywall.nothingToRestore": "Nothing to Restore",
-  "paywall.nothingToRestoreBody":
-    "We found no previous subscription on this {store} account.",
-  "paywall.restoreFailed": "Restore Failed",
-  "paywall.restoreFailedBody":
-    "Could not restore purchases. Please try again later.",
   "paywall.purchaseSuccess": "Purchase Successful",
   "paywall.purchaseSuccessBody": "Your subscription is now active. Enjoy!",
   "paywall.purchasePending": "Purchase Pending",

@@ -19,9 +19,9 @@ export const Colors = {
    *
    * `textMuted` measures 2.75:1 on `background` and 2.88:1 on `surface`, well
    * under the 4.5:1 WCAG AA asks for below 18.66px — which made every small
-   * grey line on the paywall (the per-import ceiling, "Restore Purchases", the
-   * whole legal block, the close button) formally unreadable. This is the same
-   * blue-grey hue darkened to 5.3:1 on `background` and 5.6:1 on `surface`.
+   * grey line on the paywall (the per-import ceiling, the whole legal block, the
+   * close button) formally unreadable. This is the same blue-grey hue darkened
+   * to 5.3:1 on `background` and 5.6:1 on `surface`.
    *
    * `textMuted` is kept for what it is genuinely good at — inactive icons, tab
    * bar glyphs, decoration — and the two are not interchangeable: anything the
