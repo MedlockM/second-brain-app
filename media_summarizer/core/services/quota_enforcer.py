@@ -243,27 +243,71 @@ def _next_month_start(now: datetime) -> datetime:
     )
 
 
-async def _active_subscription(user_id: str) -> Optional[Any]:
-    """The subscription that entitles the user, or None."""
+def _entitles(sub: Any, now: datetime) -> bool:
+    """Whether one subscription row still entitles its holder at `now`."""
+    if sub.status.value in _ENTITLED_STATUSES:
+        return True
+    # A cancelled subscription still entitles until the period it was paid for
+    # actually ends.
+    return (
+        sub.status.value == "canceled"
+        and sub.current_period_end is not None
+        and sub.current_period_end > now
+    )
+
+
+def _row_allowance(tiers: Mapping[str, Any], sub: Any) -> Tuple[int, int]:
+    """The allowance the pricing config gives the tier a row carries.
+
+    A tier the config no longer describes scores (0, 0) — it loses the comparison
+    instead of borrowing a neighbour's figures.
+    """
+    config_key = SUBSCRIPTION_TIER_TO_CONFIG.get(sub.tier.value, "")
+    tier_config = tiers.get(config_key, {}) or {}
+    return (
+        int(tier_config.get("minutes_per_month", 0) or 0),
+        int(tier_config.get("max_minutes_per_item", 0) or 0),
+    )
+
+
+async def _active_subscription(user_id: str, tiers: Mapping[str, Any]) -> Optional[Any]:
+    """The subscription that entitles the user, or None.
+
+    A user can legitimately hold several rows — the webhook writes one per store
+    and per product — so which one decides their allowance must not depend on the
+    order the DynamoDB query happens to return. Among the rows that still entitle
+    (`active`, `grace_period`, or `canceled` and inside the period it was paid
+    for), the winner is the one **whose tier carries the larger allowance in the
+    pricing config**: more `minutes_per_month` first, then a higher
+    `max_minutes_per_item`, then the period ending last, then the row id so the
+    order is total.
+
+    Nothing here ranks the tiers by name. The ordering is whatever
+    `pricing_config` says at read time, so the owner moving an allowance — or
+    adding, renaming or retiring a tier — moves this choice with it and no code
+    has to follow.
+    """
     from media_summarizer.utils import minute_db
 
     subs = await minute_db.get_subscriptions_by_user_id(user_id)
-    if not subs:
-        return None
-
     now = datetime.now(timezone.utc)
-    for sub in subs:
-        if sub.status.value in _ENTITLED_STATUSES:
-            return sub
-        # A cancelled subscription still entitles until the period it was paid for
-        # actually ends.
-        if (
-            sub.status.value == "canceled"
-            and sub.current_period_end
-            and sub.current_period_end > now
-        ):
-            return sub
-    return None
+    entitled = [sub for sub in subs if _entitles(sub, now)]
+    if not entitled:
+        return None
+    if len(entitled) == 1:
+        return entitled[0]
+
+    def rank(sub: Any) -> Tuple[int, int, float, str]:
+        minutes, per_item = _row_allowance(tiers, sub)
+        period_end = sub.current_period_end
+        return (
+            minutes,
+            per_item,
+            period_end.timestamp() if period_end else 0.0,
+            str(sub.id),
+        )
+
+    return max(entitled, key=rank)
 
 
 async def _free_trial_window(
@@ -327,7 +371,7 @@ async def get_entitlement_snapshot(
         (config.get("usage_gauge", {}) or {}).get("warning_threshold_pct", 80) or 80
     )
 
-    subscription = await _active_subscription(user_id)
+    subscription = await _active_subscription(user_id, tiers)
     now = datetime.now(timezone.utc)
     trial_window = (
         await _free_trial_window(user_id, config) if subscription is None else None
