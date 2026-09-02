@@ -156,6 +156,51 @@ are the signal.
 In practice it means one thing: a product reached a store without being attached
 to its tier entitlement. The fix is step 2 above, no deploy involved.
 
+## Which subscription an event applies to (task-334)
+
+A user holds **one `subscriptions` row per store and per product**, so every
+webhook handler resolves which row the event describes before writing anything.
+Until task-334 they all took the user's *first* row, which let an Android purchase
+overwrite an iOS row's platform, product and period, and let an Android expiry
+close an iOS subscription.
+
+The match uses three keys, sharpest first
+(`_match_subscription` in `media_summarizer/api/endpoints/revenucat_webhook.py`):
+
+1. `original_transaction_id` — the store's own subscription identifier, stored on
+   the row as `revenucat_store_subscription_id` and refreshed from every event
+   that carries one, since Google Play issues a new purchase token when a
+   subscription is replaced. `transaction_id` is deliberately never used: it
+   changes on every renewal, so it names a payment, not a subscription.
+2. the `(platform, product)` pair, `platform` being what `_get_platform` maps the
+   event's `store` to.
+3. for `PRODUCT_CHANGE` only, the *outgoing* `product_id` — that is the one event
+   whose product is expected not to match the row yet.
+
+Two consequences worth knowing when reading a row:
+
+- **Event order does not matter.** RevenueCat delivers `CANCELLATION` and
+  `EXPIRATION` within milliseconds and promises no order, so `CANCELLATION`
+  writes `cancel_at_period_end` and `auto_renew_status` whatever the row's status
+  and only moves `status` to `canceled` when the row is not already `expired`.
+  `RENEWAL` is the only event allowed to bring an expired row back — it is the
+  only one that means money moved for a new period.
+- **`RENEWAL` settles the tier.** A downgrade on the App Store, or a deferred one
+  on Google Play, still reports the outgoing tier on `PRODUCT_CHANGE`; the
+  following `RENEWAL` carries the new entitlement and assigns it.
+
+An event matching none of the user's rows logs `revenucat.subscription_unmatched`
+at ERROR with the event type, the app user ID, the product, the store and how many
+rows that user has, and is alarmed beside the tier one in `revenucat_alerts.tf`.
+Zero rows means the `INITIAL_PURCHASE` never landed (look for a
+`revenucat.tier_unresolved` before it); rows present means they carry another
+product than the one the store is talking about.
+
+When several rows still entitle the user, the one that decides their allowance is
+the one whose tier carries the larger allowance **in the pricing config**
+(`quota_enforcer._active_subscription`) — never a ranking written in the code, so
+moving an allowance in the `pricing_config` table moves that choice with it.
+
 ## Deleted by task-262
 
 Nothing read any of this, and nothing had ever been purchased through it — the

@@ -45,6 +45,12 @@ class Subscription(BaseModel):
     # RevenueCat-specific fields
     revenucat_app_user_id: Optional[str] = None
     revenucat_product_id: Optional[str] = None
+    # The store's own identifier for this subscription, which is RevenueCat's
+    # `original_transaction_id`. It is what lets a webhook event name the row it
+    # describes instead of the handler guessing. Optional because a store does
+    # not always send one and because a row written before the field existed
+    # carries none: matching then falls back to the (platform, product) pair.
+    revenucat_store_subscription_id: Optional[str] = None
     platform: Optional[SubscriptionPlatform] = None
     auto_renew_status: bool = Field(default=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -69,6 +75,8 @@ class Subscription(BaseModel):
             item["revenucat_app_user_id"] = self.revenucat_app_user_id
         if self.revenucat_product_id:
             item["revenucat_product_id"] = self.revenucat_product_id
+        if self.revenucat_store_subscription_id:
+            item["revenucat_store_subscription_id"] = self.revenucat_store_subscription_id
         if self.platform:
             item["platform"] = self.platform.value
         return item
@@ -88,6 +96,7 @@ class Subscription(BaseModel):
             cancel_at_period_end=bool(item.get("cancel_at_period_end", False)),
             revenucat_app_user_id=item.get("revenucat_app_user_id"),
             revenucat_product_id=item.get("revenucat_product_id"),
+            revenucat_store_subscription_id=item.get("revenucat_store_subscription_id"),
             platform=SubscriptionPlatform(platform_val) if platform_val else None,
             auto_renew_status=bool(item.get("auto_renew_status", True)),
             created_at=datetime.fromisoformat(item["created_at"]),
