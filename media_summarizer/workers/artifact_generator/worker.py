@@ -44,11 +44,12 @@ from media_summarizer.core.services.artifact_service import (
 from media_summarizer.core.services.llm_pricing import estimate_llm_cost_eur
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.env import required_env
-from media_summarizer.utils.llm_failures import (
+from media_summarizer.utils.llm_failure import (
     REFUSAL_AUTHENTICATION,
+    LLMFailureKind,
     LlmProviderRefusedError,
+    classify_llm_failure,
     log_llm_generation_failure,
-    refusal_reason_for_status,
 )
 from media_summarizer.utils.logging_config import (
     bind_log_context,
@@ -127,6 +128,9 @@ async def _call_llm(
         raise LlmProviderRefusedError(
             "openai_api_key_missing",
             refusal_reason=REFUSAL_AUTHENTICATION,
+            # Three deliveries of the same message would make three identical
+            # no-ops: the key appears in the runtime secret, not between retries.
+            failure_kind=LLMFailureKind.PERMANENT,
         )
 
     timeout = aiohttp.ClientTimeout(
@@ -161,6 +165,14 @@ async def _call_llm(
         ) as response:
             if response.status >= 400:
                 body = await response.text()
+                # One parse of the provider's answer, both axes out: what the
+                # operator must do about it, and whether another delivery of this
+                # message could ever get a different answer.
+                failure = classify_llm_failure(
+                    status_code=response.status,
+                    body=body,
+                    retry_after=response.headers.get("Retry-After"),
+                )
                 log_event(
                     logger,
                     logging.ERROR,
@@ -169,16 +181,18 @@ async def _call_llm(
                     provider="openai",
                     artifact_type=artifact_type,
                     status=response.status,
+                    failure_kind=failure.kind,
+                    refusal_reason=failure.refusal_reason,
                     detail=body[:500],
                 )
                 # A refusal is raised as itself so the failure metric can name the
                 # account state (no credit / bad key / throttled) instead of
                 # lumping it in with a validation error.
-                refusal_reason = refusal_reason_for_status(response.status, body)
-                if refusal_reason is not None:
+                if failure.refusal_reason is not None:
                     raise LlmProviderRefusedError(
                         f"llm_provider_refused_http_{response.status}",
-                        refusal_reason=refusal_reason,
+                        refusal_reason=failure.refusal_reason,
+                        failure_kind=failure.kind,
                         provider_status=response.status,
                     )
             response.raise_for_status()
@@ -396,7 +410,7 @@ async def process_message(message: Dict[str, Any]) -> None:
 
         # The alarm layer's only view of this failure: re-raising below produces a
         # batchItemFailures entry, which Lambda counts as a successful invocation
-        # (see media_summarizer/utils/llm_failures.py). artifact_id and
+        # (see media_summarizer/utils/llm_failure.py). artifact_id and
         # artifact_type ride along from the bound log context.
         log_llm_generation_failure(
             logger,
@@ -412,6 +426,28 @@ async def process_message(message: Dict[str, Any]) -> None:
                 error_message=str(exc),
                 error_code=error_code,
             )
+
+        # The retry axis, read off the exception rather than re-derived from its
+        # message. A permanent refusal -- no credit, rejected key -- gets the same
+        # answer on every redelivery, so returning normally acknowledges the
+        # message instead of spending its two remaining deliveries and filling the
+        # DLQ with records nobody can usefully replay. The entry is already
+        # terminal in DynamoDB, so the client stops polling either way. This is
+        # the asymmetry the translation worker has enforced since task-327.
+        # Everything else keeps its deliveries: the default is transient, so an
+        # unclassified error still gets its three attempts.
+        failure_kind = getattr(exc, "failure_kind", LLMFailureKind.TRANSIENT)
+        if failure_kind == LLMFailureKind.PERMANENT:
+            log_event(
+                logger,
+                logging.WARNING,
+                "artifact.delivery_acknowledged",
+                "Permanent refusal: acknowledging the message instead of retrying",
+                failure_kind=failure_kind,
+                refusal_reason=getattr(exc, "refusal_reason", None),
+                error_type=type(exc).__name__,
+            )
+            return
         raise
     finally:
         reset_log_context(context_token)

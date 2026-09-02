@@ -40,8 +40,10 @@ from media_summarizer.core.services.transcript_translation import (
 )
 from media_summarizer.utils import database_async, s3
 from media_summarizer.utils.env import required_env
-from media_summarizer.utils.llm_failure import LLMFailureKind
-from media_summarizer.utils.llm_failures import log_llm_generation_failure
+from media_summarizer.utils.llm_failure import (
+    LLMFailureKind,
+    log_llm_generation_failure,
+)
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
@@ -268,7 +270,7 @@ async def process_message(message: Dict[str, Any]) -> None:
             # The blind spot this event exists for: the service swallowed the
             # failure and returned normally, so this invocation is a success for
             # Lambda -- no Errors datapoint, no DLQ message, nothing for
-            # lambda_error_rate to see (see utils/llm_failures.py).
+            # lambda_error_rate to see (see utils/llm_failure.py).
             log_llm_generation_failure(
                 logger,
                 worker="transcript_translation",

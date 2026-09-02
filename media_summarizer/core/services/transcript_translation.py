@@ -43,10 +43,10 @@ import aiohttp
 
 from media_summarizer.utils import s3, sqs
 from media_summarizer.utils.env import required_env
-from media_summarizer.utils.llm_failure import LLMFailureKind, classify_llm_failure
-from media_summarizer.utils.llm_failures import (
+from media_summarizer.utils.llm_failure import (
     REFUSAL_AUTHENTICATION,
-    refusal_reason_for_status,
+    LLMFailureKind,
+    classify_llm_failure,
 )
 from media_summarizer.utils.logging_config import log_event
 from media_summarizer.utils.translation_idempotence import (
@@ -107,19 +107,18 @@ V1_LANGUAGES = frozenset(V1_LANGUAGE_NAMES.keys())
 class TranscriptTranslationError(Exception):
     """Raised when translation fails, after exhausting the retries it deserved.
 
-    This exception carries two classifications that answer two different
+    This exception carries the two axes of
+    ``media_summarizer/utils/llm_failure.py``, which answer two different
     questions. Do not collapse them:
 
-    - ``failure_kind`` (``transient`` / ``permanent``, see
-      ``media_summarizer/utils/llm_failure.py``) says whether the same call is
-      worth making again. It drives the retry budget and the re-reservation gate.
-      It travels with the exception because the decision is taken where the
+    - ``failure_kind`` (``transient`` / ``permanent``) says whether the same call
+      is worth making again. It drives the retry budget and the re-reservation
+      gate. It travels with the exception because the decision is taken where the
       provider's answer is read -- the layers above only forward it, they never
       re-interpret a message. The default is the conservative one: an error whose
       origin we did not classify is treated as transient, i.e. re-attemptable.
-    - ``refusal_reason`` / ``provider_status`` (see
-      ``media_summarizer/utils/llm_failures.py``) name *what the operator must do*
-      -- top up the account, rotate a key, or wait. They are filled only when the
+    - ``refusal_reason`` / ``provider_status`` name *what the operator must do* --
+      top up the account, rotate a key, or wait. They are filled only when the
       provider itself declined, and they feed the ``LlmGenerationFailures``
       metric, so the worker never has to parse this exception's message.
 
@@ -328,16 +327,17 @@ async def _call_translation_llm(
             if response.status >= 400:
                 body = await response.text()
                 # The only place in the pipeline that sees the provider's raw
-                # answer, so the only place that can classify it.
-                failure_kind = classify_llm_failure(
+                # answer, so the only place that can classify it -- and it reads
+                # it once, for both axes.
+                failure = classify_llm_failure(
                     status_code=response.status,
                     body=body,
                     retry_after=response.headers.get("Retry-After"),
                 )
                 raise TranscriptTranslationError(
                     f"translation_llm_http_{response.status}: {body[:300]}",
-                    failure_kind=failure_kind,
-                    refusal_reason=refusal_reason_for_status(response.status, body),
+                    failure_kind=failure.kind,
+                    refusal_reason=failure.refusal_reason,
                     provider_status=response.status,
                 )
             result = await response.json()
