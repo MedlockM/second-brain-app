@@ -192,12 +192,19 @@ hand that day, its `.p8` parked at
 `~/.appstoreconnect/private_keys/AuthKey_<KeyID>.p8`, and it is now **registered
 with EAS**: the `second-brain-labs` Expo account holds exactly one ASC API key and
 it is bound as the submission key of the `com.secondbrainlabs.core` iOS app
-credentials (2026-09-01 17:43 UTC). **RevenueCat still does not have it.** **No iOS
-build has reached TestFlight yet**: the five builds preceding 2026-09-01 were all on
-the `development` profile (dev client, ad hoc, EAS expires those after 14 days) —
-including the one that lapsed on 2026-06-25 — and the first `internal` build,
-`1.0.0 (2)` on 2026-09-01, is store-signed but awaits `eas submit`. Android, by
-contrast, is already on `internal` with store distribution (`1.0.0 (5)`, 2026-09-01).
+credentials (2026-09-01 17:43 UTC). **RevenueCat still does not have this one** — it
+does hold the *In-App Purchase* key, which is a different thing; see the table
+below.
+
+**iOS shipped to TestFlight on 2026-09-02.** The `internal` build `1.0.0 (2)` was
+submitted and Apple accepted it: the App Store Connect API reports one build on the
+app record, `version: 2`, `processingState: VALID`, `expired: false`, uploaded
+2026-09-02T03:01:44-07:00 — and a beta tester has installed and used it. The five
+builds preceding 2026-09-01 were all on the `development` profile (dev client, ad
+hoc, EAS expires those after 14 days), including the one that lapsed on 2026-06-25.
+Android reached its own internal track the day before (`1.0.0 (5)`, 2026-09-01).
+Nothing is published: the single `appStoreVersions` entry, `1.0`, sits in
+`PREPARE_FOR_SUBMISSION`.
 
 The share-extension bundle (`com.secondbrainlabs.core.share-extension`) has its own
 iOS credentials entry and carries **no** submission key. That is correct, not a
@@ -211,11 +218,19 @@ another:
 |------|-----------|-------------|
 | `AuthKey_97D94A5ZKM.p8` | *Sign in with Apple* key | `APPLE_PRIVATE_KEY` / `APPLE_KEY_ID` in `.env`, auth backend |
 | `AuthKey_F5622R22D5.p8` | *App Store Connect API* key (Admin) | EAS Submit (done), RevenueCat iOS (pending) |
-| `SubscriptionKey_*.p8` | *In-App Purchase* key (Apple's naming for it) | nothing yet |
+| `SubscriptionKey_*.p8` | *In-App Purchase* key (Apple's naming for it) | RevenueCat: `subscription_key_configured: true` (2026-09-02) |
 
 All three are covered by the `*.p8` rule, present in `.gitignore` at the repo root
 and in `mobile/.gitignore`. Only the ASC API key works for `eas submit`; picking
 either of the other two fails.
+
+**Do not read RevenueCat's two iOS key flags as one.** The In-App Purchase key is
+what validates StoreKit transactions and it is **already uploaded**
+(`subscription_key_configured: true`); the App Store Connect API key is what lets
+RevenueCat *read* subscription metadata out of App Store Connect and is still
+missing (`app_store_connect_api_key_configured: false`). The missing one is not what
+would block a purchase — it is what leaves the dashboard unable to check the
+catalogue.
 
 > **The `.p8` downloads once.** Apple keeps no copy. If it was not saved at
 > creation time the key is dead weight: revoke it and generate another. The **Key
@@ -263,17 +278,29 @@ Remaining steps, in order:
    2026-09-01, it says nothing about the first. Its Apple ID is **6778072060**, now
    in `eas.json` as `ascAppId` (see [Submit Profiles](#submit-profiles)); the app
    page is `https://appstoreconnect.apple.com/apps/6778072060/distribution/info`.
-   Its store-facing name is still the legacy `Media Summarizer` until `task-186`
-   lands; the name is editable from that page for as long as the app is unpublished.
-   Metadata to paste: `docs/store-listing/app-store-connect.md`.
+   Its store-facing name reads **`Second Brain Labs - Core`** (SKU `SBL-CORE`), not
+   the legacy `Media Summarizer` that the app binary still carries — `task-186` is
+   about the app itself, not this record. The name stays editable from that page for
+   as long as the app is unpublished. Metadata to paste:
+   `docs/store-listing/app-store-connect.md`.
 2. Set up the tester groups: see
    [Distributing a Build to Testers](#ios--testflight-with-a-public-link).
 
-The same key is what RevenueCat needs on the iOS side (`task-261`), where
-`app_store_connect_api_key_configured` is still `false` and the three ASC
-subscriptions do not exist yet. **Registering it with EAS did not register it with
-RevenueCat**: the issuer ID, key ID and the `.p8` itself have to be pasted there
-too, which is why the file had to stay in hand rather than be minted by EAS.
+**Distribution no longer waits on anything; monetization does.** What is left on the
+iOS side is the in-app purchase catalogue, and TestFlight never needed it — which is
+why `1.0.0 (2)` reached a tester with none of it in place. Verified against the App
+Store Connect API on 2026-09-02: the app record has **zero** `subscriptionGroups` and
+zero `inAppPurchasesV2`, so StoreKit can resolve no iOS product and the paywall has
+nothing to show. Order matters, and it is the reverse of what this section used to
+imply:
+
+1. **Create the three subscriptions in App Store Connect** (`task-261`, owner-only).
+   Until they exist there is no metadata for anyone to read.
+2. **Then** paste the issuer ID, key ID and `.p8` of the ASC API key into RevenueCat →
+   iOS app, which flips `app_store_connect_api_key_configured` to `true` and replaces
+   `subscription.duration: null` with `P1M` on the three products. Registering the key
+   with EAS did not register it with RevenueCat — the two are unrelated stores of the
+   same key, which is why the `.p8` had to stay in hand rather than be minted by EAS.
 
 Bring-your-own alternatives, if you would rather not let EAS hold the key:
 `ascApiKeyPath` / `ascApiKeyId` / `ascApiKeyIssuerId` in the submit profile, or an

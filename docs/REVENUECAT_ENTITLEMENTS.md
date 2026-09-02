@@ -56,6 +56,25 @@ key to RevenueCat — and neither needs a code change: the identifiers and the
 package lookup keys already match. Checklist:
 `docs/V1_LAUNCH_PLAN.md` Phase 6, item 3.
 
+**They come in that order, and the App Store side is genuinely empty.** Queried
+against the App Store Connect API on 2026-09-02 with the Admin key: the app record
+`6778072060` has **zero** `subscriptionGroups` and zero `inAppPurchasesV2`. So there
+is nothing for the ASC API key to read yet, and uploading it first would change
+nothing — create the subscriptions, then upload the key.
+
+**`app0d4b00c12f` is missing one iOS key, not both.** The *In-App Purchase* key —
+the one that validates StoreKit transactions — is already uploaded:
+`subscription_key_configured: true` (read back 2026-09-02). It is the *App Store
+Connect API* key that is absent, and that one only gates catalogue reads and the
+dashboard's `Could not check` status. A missing ASC API key is therefore not what
+would make an iOS purchase fail; a missing subscription in App Store Connect is,
+because StoreKit resolves no product at all. The same distinction, with the three
+`.p8` files that carry it: `mobile/MOBILE_CI_CD.md` § 4.
+
+None of this blocks distribution. The iOS `1.0.0 (2)` build reached TestFlight on
+2026-09-02 and a beta tester used it with the catalogue in exactly this state — the
+paywall is the only screen that needs a store product.
+
 The Google Play app `appb253c0f75a` (package `com.secondbrainlabs.core`, added
 2026-08-20) carries its three products since 2026-09-01, and its service account
 credentials read `Valid credentials`. The one thing that had been missing was an
