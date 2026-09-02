@@ -3,9 +3,10 @@ id: task-336
 title: >-
   Delete the Restore Purchases button — the user account already restores the
   subscription
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-02 12:21'
+updated_date: '2026-09-02 12:57'
 labels:
   - mobile
   - paywall
