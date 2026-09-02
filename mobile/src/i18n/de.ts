@@ -199,7 +199,7 @@ export const de: Catalog = {
   "artifacts.refusal.generic":
     "Diese Erstellung konnte nicht gestartet werden. Bitte versuche es erneut.",
   "plan.hourlyRate": "≈ {price} pro Stunde",
-  "plan.card.allowance": "{duration} Audio und Video",
+  "plan.card.allowance": "{duration} Transkription",
   "plan.card.perImport": "bis zu {duration} pro Import",
   "plan.rec.cappedLargest":
     "Du hast alle {duration} dieses Zeitraums verbraucht. {plan} ist der größte Tarif, den wir anbieten.",
@@ -225,7 +225,7 @@ export const de: Catalog = {
   "paywall.reason.lowNoDate": "Noch {left} in diesem Zeitraum.",
   "paywall.reason.lowWithDate": "Noch {left} bis zum {date}.",
   "plan.minutesRule":
-    "Minuten decken Audio und Video ab, die wir transkribieren. Deine Bibliothek zu lesen, ist unbegrenzt.",
+    "Minuten decken Audio und Video ab, die wir transkribieren. Artikel und Webseiten kosten keine Minuten. Deine Bibliothek zu lesen, ist unbegrenzt.",
   "plan.legend.realLength":
     "Audio und Video zählen ihre tatsächliche Länge, Minute für Minute.",
   "plan.legend.captions":

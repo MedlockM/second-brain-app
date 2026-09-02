@@ -226,7 +226,7 @@ export const en = {
 
   // --- Plans and paywall copy ---
   "plan.hourlyRate": "≈ {price} an hour",
-  "plan.card.allowance": "{duration} of audio and video",
+  "plan.card.allowance": "{duration} of transcription",
   "plan.card.perImport": "up to {duration} in one import",
   "plan.rec.cappedLargest":
     "You used up all {duration} this period. {plan} is the largest plan we offer.",
@@ -252,7 +252,7 @@ export const en = {
   "paywall.reason.lowNoDate": "{left} left this period.",
   "paywall.reason.lowWithDate": "{left} left until {date}.",
   "plan.minutesRule":
-    "Minutes cover audio and video we transcribe. Reading your library is unlimited.",
+    "Minutes cover audio and video we transcribe. Articles and web pages cost no minutes, and reading your library is unlimited.",
   "plan.legend.realLength":
     "Audio and video count their real length, minute for minute.",
   "plan.legend.captions":

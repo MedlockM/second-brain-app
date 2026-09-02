@@ -19,9 +19,9 @@
  * card was on screen at all. A purchase screen that hides its prices until you
  * scroll is arguing with someone who has already decided to look. The order is
  * now: one short promise, the refusal you are standing in (if any), the three
- * plans, then what every plan includes as the supporting evidence. The benefit
- * lines still exist, below the cards, where they answer a question rather than
- * delay one.
+ * plans, the one rule that qualifies what their allowance meters, then what every
+ * plan includes as the supporting evidence. The benefit lines still exist, below
+ * the cards, where they answer a question rather than delay one.
  *
  * **What the screen may claim.** Only checkable facts. The recommended plan is
  * derived from minutes the account actually spent, "best value" is arithmetic on
@@ -67,6 +67,7 @@ import {
   buildPlanGuidance,
   buildPlanHighlights,
   buildPlanIncludes,
+  minutesRule,
   type PaywallReason,
   type PlanCard,
 } from "../src/lib/planCopy";
@@ -488,6 +489,20 @@ export default function PaywallScreen() {
               })}
             </View>
 
+            {/* What the allowance on those cards meters, and what it does not.
+                The cards say "N h of transcription", which is the half that
+                differs between them; this is the half that does not — articles
+                and web pages cost no minutes — and stating it once under the
+                list beats repeating it inside three cards, or leaving it behind
+                the disclosure where it used to be the only place the screen
+                admitted the app is not an audio-only product. Below the cards
+                rather than above them so it costs nothing before the first
+                price: the same sentence already frames them from the header
+                ("Only the monthly transcription time changes"). */}
+            <Text testID="paywall-minutes-rule" style={styles.minutesRuleText}>
+              {minutesRule()}
+            </Text>
+
             {/* What every plan does, *under* the prices: evidence for a decision
                 already framed, rather than four lines standing between the
                 reader and the figures. The exhaustive version stays one tap
@@ -878,6 +893,16 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.5,
     color: Colors.textMain,
+  },
+  // `textMain`, not the subtle grey the other small lines here use: this one
+  // qualifies the dominant line of all three cards, and at `textSubtle` on no
+  // surface it reads as a legal footnote — which is how the app ended up
+  // implying the allowance meters everything you save.
+  minutesRuleText: {
+    ...Typography.small,
+    color: Colors.textMain,
+    marginTop: Spacing.sm,
+    lineHeight: 18,
   },
   highlightBlock: {
     marginTop: Spacing.lg,

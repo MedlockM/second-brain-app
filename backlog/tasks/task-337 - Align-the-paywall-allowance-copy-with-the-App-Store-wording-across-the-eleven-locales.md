@@ -53,10 +53,105 @@ The card layout can only be judged on a device or a simulator, which no agent ha
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 mobile/src/i18n/en.ts no longer claims the monthly allowance covers 'audio and video' alone: the paywall card copy states both that articles and web pages cost no minutes and that transcription is what the allowance meters
-- [ ] #2 The same change is applied to the ten other locale files (fr, es, de, it, ja, zh, pt, nl, ar, hi) with no key present in one file and missing from another, verifiable by comparing the key sets
-- [ ] #3 No figure is hardcoded in mobile/src/lib/planCopy.ts or in any locale file: allowances, page-per-minute and item-per-minute conversions still arrive from GET /api/pricing through the existing interpolation placeholders
-- [ ] #4 The sentences of buildMinutesLegend still match media_summarizer/core/services/pricing_config_service.py DEFAULT_PRICING_CONFIG unit_conversion: audio and video at real length, bought captions 1 min flat, documents and photos 1 min per 5 pages, collection-wide generation 1 min per 5 items, articles and web pages and TikToks and Instagram photo posts free
-- [ ] #5 docs/store-listing/app-store-connect.md records what the app now says instead of stating that the alignment is outstanding
-- [ ] #6 cd mobile && npx tsc --noEmit is clean, and npx eslint . reports no new error
+- [x] #1 mobile/src/i18n/en.ts no longer claims the monthly allowance covers 'audio and video' alone: the paywall card copy states both that articles and web pages cost no minutes and that transcription is what the allowance meters
+- [x] #2 The same change is applied to the ten other locale files (fr, es, de, it, ja, zh, pt, nl, ar, hi) with no key present in one file and missing from another, verifiable by comparing the key sets
+- [x] #3 No figure is hardcoded in mobile/src/lib/planCopy.ts or in any locale file: allowances, page-per-minute and item-per-minute conversions still arrive from GET /api/pricing through the existing interpolation placeholders
+- [x] #4 The sentences of buildMinutesLegend still match media_summarizer/core/services/pricing_config_service.py DEFAULT_PRICING_CONFIG unit_conversion: audio and video at real length, bought captions 1 min flat, documents and photos 1 min per 5 pages, collection-wide generation 1 min per 5 items, articles and web pages and TikToks and Instagram photo posts free
+- [x] #5 docs/store-listing/app-store-connect.md records what the app now says instead of stating that the alignment is outstanding
+- [x] #6 cd mobile && npx tsc --noEmit is clean, and npx eslint . reports no new error
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### What changed
+
+Two strings per locale, one new placement on the paywall, no new and no deleted key.
+
+1. **`plan.card.allowance` → `"{duration} of transcription"`** (eleven locales). The
+   half of the claim that *differs between the tiers*, in the word the screen already
+   used two lines above it: `paywall.selectorLabel` is "Pick your monthly transcription
+   time" and `paywall.subtitle` is "Every plan does all of it. Only the monthly
+   transcription time changes." The card was the only place still saying "audio and
+   video". It is also the store's own second half (`{N} h of transcription`).
+2. **`plan.minutesRule` gained one clause**: « Minutes cover audio and video we
+   transcribe. **Articles and web pages cost no minutes**, and reading your library is
+   unlimited. » Rendered on the paywall directly under the card list (`testID
+   paywall-minutes-rule`), and unchanged in its other home, the Account tab's hint
+   under the usage gauge.
+3. `minutesRule()` was **removed from `buildMinutesLegend`**, which now returns the
+   conversion table only. It used to be the legend's first sentence, i.e. behind
+   `See exactly what is included`; leaving it there as well would have printed the
+   same sentence twice on one screen.
+
+### Why this shape rather than a longer card line or a sibling line per card
+
+- **The store string cannot go on the card**, as the task says — but the *reason* also
+  rules out any per-card variant of it. "Unlimited articles" is identical on all three
+  cards: printing it three times spends ~60pt of the most expensive vertical space on
+  the screen to say one thing, and the module's own rule is that what does not vary by
+  tier is stated once (that is why `buildPlanIncludes` sits under the cards at all).
+  So the card keeps only what differs — the duration — and the shared half is one line
+  under the list.
+- **`plan.minutesRule` was already the right sentence**, three-quarters written and
+  translated eleven times; it only lacked the free half. Reusing it buys two things a
+  new key could not: the paywall and the Account tab cannot contradict each other about
+  the meter (they read the same key, which is the constraint named in the task), and the
+  free enumeration is not duplicated — the exhaustive list, TikToks and Instagram photo
+  posts included, stays in `plan.legend.free` behind the disclosure. Short claim above,
+  exhaustive list behind the disclosure is the pattern the screen already uses for the
+  four highlights.
+- **"Cover", never "only cover".** A PDF, an Office document or a photo costs 1 min per
+  5 pages and a collection-wide generation 1 min per 5 items, so an exclusive form
+  ("minutes only pay for transcription") would have been a second false rule. The line
+  says what minutes cover and what costs nothing, and leaves the conversions to the
+  legend — which is why `Articles and web pages cost no minutes` is phrased as a fact
+  about those two source types and not as "everything else is free".
+- **Below the cards, not above them.** The screen's stated priority is that a price is
+  on screen without scrolling; the header already carries "Only the monthly
+  transcription time changes", so the rule costs 0pt before the first price where above
+  the cards it would have cost one to three lines in the wider locales.
+- **`Colors.textMain`, not `textSubtle`**, at `Typography.small`: the line qualifies the
+  dominant line of all three cards, and in the grey used for the legal block it reads
+  as a footnote — which is how the app got here.
+
+No figure was authored: the only interpolation on the card is `{duration}`, fed by
+`formatMinutes(tier.minutes_per_month)` from `GET /api/pricing`, and the new clause
+contains no number at all. Key sets were compared file by file after the change: the
+ten Latin/CJK catalogues are identical to `en`, and `ar` differs only by its extra
+plural categories, exactly as before.
+
+### For the owner — the card and the line on a device
+
+Nothing here can be judged from a worktree; two things to look at on the next build.
+
+- **The card line got shorter in all eleven locales**, so it is the safer half:
+  `12 h of transcription` (en) against `12 h of audio and video`, `12 Std.
+  Transkription` against `12 Std. Audio und Video`, `12 u transcriptie` against
+  `12 u audio en video`. The widest rendered card line is now Arabic
+  (`12 ساعة من التحويل إلى نص`), which is the same width as the string it replaces.
+- **The tightest fit is the new line, and the tightest locale is French.** At 160
+  characters it is the longest of the eleven (en 123, es 150, de 145, hi 137, ja 122
+  display columns, zh 78), i.e. about four lines of 13px text at 327pt of content
+  width on a 375pt screen, sitting between the last plan card and the "Included in
+  every plan" block. Check that it still reads as a note on the plans and not as a
+  paragraph pushing the block off screen.
+- **The same sentence in the Account tab during a free trial is the longest text run
+  of the two screens**: `account.plan.minutesRuleTrial` appends "Les minutes d'essai
+  ne se rechargent pas." to it, 202 characters in French, under the usage bar in
+  `SubscriptionStatusCard`. Neither `Text` sets `numberOfLines`, so the risk is height,
+  never truncation.
+- Unrelated, spotted while editing: the paywall's tagline (`mobile/app/paywall.tsx`,
+  under `styles.tagline`) is a hard-coded English literal that never goes through the
+  catalogue, so it stays English in the other ten locales. Out of this task's scope,
+  left alone.
+
+### Not done
+
+No automated test was added (project rule). AC #6 was verified by running `tsc
+--noEmit` (clean) and `eslint` (0 errors; the 2 pre-existing warnings are in
+`app/(tabs)/digest.tsx` and `src/services/purchaseService.ts`, untouched here) with
+the repository checkout's `mobile/node_modules` symlinked into the worktree for the
+run and removed afterwards — the worktree has no `node_modules` of its own.
+`mobile/.maestro/` was not touched and contains no assertion on this copy.
+<!-- SECTION:NOTES:END -->

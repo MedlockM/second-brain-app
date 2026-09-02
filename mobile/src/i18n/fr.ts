@@ -205,7 +205,7 @@ export const fr: Catalog = {
   "artifacts.refusal.generic":
     "Impossible de lancer cette génération. Veuillez réessayer.",
   "plan.hourlyRate": "≈ {price} de l'heure",
-  "plan.card.allowance": "{duration} d'audio et de vidéo",
+  "plan.card.allowance": "{duration} de transcription",
   "plan.card.perImport": "jusqu'à {duration} par import",
   "plan.rec.cappedLargest":
     "Vous avez utilisé les {duration} de cette période. {plan} est la formule la plus grande que nous proposons.",
@@ -231,7 +231,7 @@ export const fr: Catalog = {
   "paywall.reason.lowNoDate": "{left} restant sur cette période.",
   "paywall.reason.lowWithDate": "{left} restant jusqu'au {date}.",
   "plan.minutesRule":
-    "Les minutes couvrent l'audio et la vidéo que nous transcrivons. Lire votre bibliothèque est illimité.",
+    "Les minutes couvrent l'audio et la vidéo que nous transcrivons. Les articles et les pages web ne coûtent aucune minute, et lire votre bibliothèque est illimité.",
   "plan.legend.realLength":
     "L'audio et la vidéo comptent leur durée réelle, minute pour minute.",
   "plan.legend.captions":

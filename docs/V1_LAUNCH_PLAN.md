@@ -1248,12 +1248,17 @@ faite :
       refuse ; et le display name reste `Reader` / `Mix` / `Audio-Heavy` partout, un nom
       de produit ne se traduit pas.
 
-      Ces descriptions **divergent volontairement de l'app** : `plan.card.allowance`
-      annonce encore « {duration} of audio and video », ce qui cachait que les articles,
-      pages web, TikToks et posts photo Instagram sont gratuits et illimités, et
-      omettait que les PDF et les photos consomment le même budget de minutes. La fiche
-      store porte les deux moitiés ; aligner les 11 fichiers de langue de l'app est le
-      travail de `task-337` (agent, pas owner) et ne bloque pas la soumission.
+      Ces descriptions **ne se collent pas telles quelles dans l'app** : la carte du
+      paywall doit tenir à 20px à côté d'un prix sur un écran de 375pt. `task-337` a
+      donc réparti les deux moitiés plutôt que de recopier la phrase — la ligne
+      dominante de la carte (`plan.card.allowance`) dit « {duration} of
+      transcription », et la moitié qui ne varie pas d'une formule à l'autre est dite
+      une seule fois sous la liste des cartes par `plan.minutesRule` : les articles et
+      les pages web ne coûtent aucune minute. C'est aussi la phrase affichée sous la
+      jauge de l'onglet Compte, donc les deux écrans ne peuvent pas diverger. Les 11
+      fichiers de langue sont alignés ; détail dans
+      `docs/store-listing/app-store-connect.md`, § « Why not "N h of audio and video a
+      month" ».
 
       Deux contraintes Apple relevées au même endroit :
       - **Les trois abonnements ne peuvent pas être revus seuls** : « Your first

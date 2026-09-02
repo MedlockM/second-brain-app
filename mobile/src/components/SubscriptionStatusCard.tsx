@@ -204,10 +204,11 @@ function CardBody({
 
       <UsageBar entitlement={entitlement} />
 
-      {/* The paywall's own first sentence, imported rather than re-typed: the
-          two screens explain the meter in the same words or not at all. A trial
-          allowance is spent once and never refills, which the date above says
-          but the meter rule does not. */}
+      {/* The sentence the paywall prints under its plan cards, imported rather
+          than re-typed: the two screens explain the meter in the same words or
+          not at all — what the minutes cover, and that articles and web pages
+          cost none of them. A trial allowance is spent once and never refills,
+          which the date above says but the meter rule does not. */}
       <Text style={styles.hintText}>
         {isTrial
           ? t("account.plan.minutesRuleTrial", { rule: minutesRule() })

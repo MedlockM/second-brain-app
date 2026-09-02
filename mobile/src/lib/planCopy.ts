@@ -9,8 +9,9 @@
  * the paywall drifting from the enforcer the way it had (task-299).
  *
  * The paywall and the Account tab both read from here, so a rule stated on one
- * cannot contradict the other: `MINUTES_RULE` is literally the sentence both
- * screens show, and the refusal wording matches `quota_enforcer.py`.
+ * cannot contradict the other: `minutesRule` is literally the sentence both
+ * screens show — under the plan cards on one, under the usage gauge on the other
+ * — and the refusal wording matches `quota_enforcer.py`.
  *
  * What a plan *does* — the sources it accepts, the artifacts it generates, the
  * organisation and search around them — is the other half of the answer, and it
@@ -133,6 +134,18 @@ function buildPlanCard(tier: PricingTier, trialTierId: string | null): PlanCard 
     name: tier.name,
     // "a month" is carried by the price column ("per month"), not repeated here:
     // this line has to survive at 20px next to a price on a 375pt screen.
+    //
+    // It names *transcription*, not "audio and video". The old wording made the
+    // dominant line of the screen say the app is an audio product and that the
+    // allowance meters everything you save — while `plan.legend.free` says
+    // articles, web pages, TikToks and Instagram photo posts cost nothing, and
+    // `unit_conversion` charges documents and collection-wide generations too.
+    // What the allowance actually buys is transcription time, which is also what
+    // the header and the selector label above the cards already call it, and what
+    // the App Store descriptions say (`docs/store-listing/app-store-connect.md`).
+    // The half that does *not* vary by tier — that articles cost no minutes — is
+    // stated once under the card list by `minutesRule`, not three times inside
+    // the cards.
     allowance:
       tier.minutes_per_month === null
         ? null
@@ -367,8 +380,21 @@ export function buildPaywallReasonLine(
 }
 
 /**
- * The one thing a minute is, said once. Also the Account tab's hint, so the
- * gauge there and the plans here explain themselves in the same words.
+ * The one thing a minute is, said once — and the one thing it is not.
+ *
+ * Read in two places, which is the point: the paywall shows it directly under
+ * the plan cards, and the Account tab shows it under the usage gauge, so the
+ * meter is explained in the same words wherever the reader meets it.
+ *
+ * It carries both halves of the answer. What the minutes cover (audio and video
+ * we transcribe) qualifies the allowance on the cards, and what they do
+ * not cover (articles and web pages) is the half a card cannot state without
+ * repeating itself on every tier — it is identical on all three. The exhaustive
+ * free list, TikToks and Instagram photo posts included, stays in
+ * `plan.legend.free` behind the disclosure.
+ *
+ * "Cover", never "only cover": documents and collection-wide generations debit
+ * minutes too (`buildMinutesLegend`), so an exclusive form would be false.
  *
  * "Reading your library", not "reading": consulting anything already saved is
  * free forever, but *importing* a PDF debits minutes, so the unqualified form
@@ -384,6 +410,10 @@ export function minutesRule(): string {
  * `quota_enforcer` charges zero for — a document is not on it, because five of
  * its pages cost a minute, and neither is any transcribed clip.
  *
+ * The rule itself is not here: `minutesRule` sits above the disclosure, next to
+ * the cards it qualifies, and repeating it as the first bullet of the section
+ * would have said it twice on one screen. This is the conversion table only.
+ *
  * Returned as separate sentences rather than one paragraph: this is the part a
  * reader has to hold four rules in their head for, and a wall of prose is where
  * they stop reading.
@@ -394,7 +424,7 @@ export function buildMinutesLegend(pricing: PublicPricing): string[] {
   const pagesPerMinute = conversion.document_pages_per_minute ?? null;
   const sourcesPerMinute = conversion.collection_sources_per_minute ?? null;
 
-  const sentences = [minutesRule(), t("plan.legend.realLength")];
+  const sentences = [t("plan.legend.realLength")];
 
   // One rule per sentence. Strung together as a comma list they were unreadable
   // to anyone who did not already know the model they describe.

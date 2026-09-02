@@ -118,11 +118,28 @@ nothing, and omitted that documents and photos spend the same budget. The chosen
 shape carries both halves in 45 characters. The figures live only in
 `DEFAULT_PRICING_CONFIG`: if one moves, re-derive these lines from it.
 
-**The app still carries the old wording.** `plan.card.allowance` is
-`"{duration} of audio and video"` across the eleven locale files, so the paywall card
-and this store sheet now disagree. `task-337` closes that gap — and deliberately does
-not paste these 45-character strings onto the card, which has to hold at 20px next to
-a price on a 375pt screen.
+**What the app says now** (`task-337`), and why it is not this string verbatim: the
+card has to hold at 20px next to a price on a 375pt screen, so the two halves are
+split rather than pasted into one line.
+
+- The card's dominant line, `plan.card.allowance`, is **`"{duration} of
+  transcription"`** — the half that differs between the three tiers, and the same
+  word `paywall.selectorLabel` ("Pick your monthly transcription time") and
+  `paywall.subtitle` already used above the cards. It is *shorter* than the
+  `"{duration} of audio and video"` it replaces, in all eleven locales.
+- The half that does not differ is stated once, directly under the card list, by
+  `plan.minutesRule`: **« Minutes cover audio and video we transcribe. Articles and
+  web pages cost no minutes, and reading your library is unlimited. »** That is
+  also the Account tab's hint under the usage gauge (`SubscriptionStatusCard`), so
+  the two screens cannot drift. "Cover", not "only cover": documents and
+  collection-wide generations debit minutes too.
+- The exhaustive free list — TikToks and Instagram photo posts included — stays in
+  `plan.legend.free`, behind `See exactly what is included`, with the four
+  conversion sentences.
+
+So the store's `Unlimited articles` maps to `plan.minutesRule`, and its `{N} h of
+transcription` to `plan.card.allowance`; the app never authors the figure, which
+arrives from `GET /api/pricing`.
 
 ### Do NOT add an introductory offer
 
