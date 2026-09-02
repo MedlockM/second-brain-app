@@ -113,8 +113,8 @@ class EntitlementSnapshot:
     """
 
     user_id: str
-    # Pricing config tier key ('text_only' | 'mix' | 'audio_heavy'), None when the
-    # user has neither a subscription nor an active trial.
+    # Pricing config tier key, None when the user has neither a subscription nor
+    # an active trial.
     tier: Optional[str] = None
     subscription_tier: Optional[str] = None  # store-facing enum (S/M/L)
     subscription_status: Optional[str] = None
@@ -124,6 +124,12 @@ class EntitlementSnapshot:
     minutes_included: int = 0
     minutes_used: int = 0
     max_minutes_per_item: int = 0
+    # Set only when a running free trial is what raises a *paid* plan's allowance
+    # above what the plan itself grants: the instant the raise expires, i.e. when
+    # the figures above drop back to the plan's own. None whenever the allowance is
+    # already the plan's (or the trial's, which `is_free_trial` says). The app needs
+    # it to announce the drop instead of letting the user discover it.
+    trial_raises_allowance_until: Optional[datetime] = None
     period_key: str = ""
     period_end: Optional[datetime] = None
     warning_threshold_pct: int = 80
@@ -256,18 +262,128 @@ def _entitles(sub: Any, now: datetime) -> bool:
     )
 
 
-def _row_allowance(tiers: Mapping[str, Any], sub: Any) -> Tuple[int, int]:
+@dataclass(frozen=True)
+class Allowance:
+    """The two figures an entitlement grants, and nothing else about it.
+
+    They answer different questions — how much the period holds, and how long a
+    single import may be — so they are always carried and compared together but
+    never mixed. Whose figures they are (a plan's, a trial's) is not in here on
+    purpose: every rule below is arithmetic on pairs, so none of it can grow a
+    dependency on the tier catalogue.
+    """
+
+    # 0 means no minutes at all: an allowance of 0 refuses every metered import.
+    minutes_included: int = 0
+    # 0 does *not* mean "no import may be longer than nothing", it means **no cap**
+    # — the reading `evaluate_submission` gives it. So on this axis alone 0 is the
+    # widest value there is, and the comparisons below have to say so; treating it
+    # as the smallest would let a capped allowance take an uncapped one away.
+    max_minutes_per_item: int = 0
+
+    def covers(self, other: "Allowance") -> bool:
+        """Whether this allowance matches or beats `other` on *both* axes.
+
+        False as soon as `other` is ahead on one of them, which is exactly the
+        condition under which comparing the two can still change something.
+        """
+        return self.minutes_included >= other.minutes_included and (
+            self.max_minutes_per_item == 0
+            or (
+                other.max_minutes_per_item != 0
+                and self.max_minutes_per_item >= other.max_minutes_per_item
+            )
+        )
+
+    def raised_by(self, other: "Allowance") -> "Allowance":
+        """The better of the two, axis by axis and each axis on its own.
+
+        Independently rather than "the better one wholesale" because the two
+        figures answer different questions: an entitlement ahead on one axis only
+        must raise that axis and leave the other alone.
+        """
+        uncapped = self.max_minutes_per_item == 0 or other.max_minutes_per_item == 0
+        return Allowance(
+            minutes_included=max(self.minutes_included, other.minutes_included),
+            max_minutes_per_item=(
+                0
+                if uncapped
+                else max(self.max_minutes_per_item, other.max_minutes_per_item)
+            ),
+        )
+
+
+# Pricing config keys the two figures of an allowance are stored under.
+_MINUTES_KEY = "minutes_per_month"
+_PER_ITEM_KEY = "max_minutes_per_item"
+
+
+def _read_allowance(*sources: Mapping[str, Any]) -> Allowance:
+    """The allowance the first source that states each figure grants.
+
+    Each figure is resolved on its own, so a source stating one and not the other
+    falls through to the next for the missing one only. That is the layering the
+    free trial has always had — its own keys first, the config of the tier it names
+    behind them — expressed once so nothing has to repeat it.
+
+    A figure no source states, or states as something unusable, is 0: an allowance
+    is never invented for a tier the config does not describe. A stored 0 is a
+    figure like any other and stops the fallthrough, because a deliberate zero is
+    an owner's decision, not a gap.
+    """
+
+    def figure(key: str) -> int:
+        for source in sources:
+            if key in source:
+                try:
+                    return max(0, int(source[key] or 0))
+                except (TypeError, ValueError):
+                    return 0
+        return 0
+
+    return Allowance(figure(_MINUTES_KEY), figure(_PER_ITEM_KEY))
+
+
+def _config_tier(tiers: Mapping[str, Any], subscription_tier: str) -> Optional[str]:
+    """The pricing config tier a stored subscription resolves to, or None.
+
+    None both when the store-facing enum maps onto nothing and when it maps onto a
+    tier the config no longer describes. **There is no default**: a subscriber whose
+    tier was retired must not be silently handed the figures of whichever tier
+    happened to be written here as a fallback — that is a stranger's allowance, and
+    it would be granted without a trace.
+    """
+    key = SUBSCRIPTION_TIER_TO_CONFIG.get(subscription_tier)
+    return key if key and tiers.get(key) else None
+
+
+def _tier_allowance(tiers: Mapping[str, Any], tier: Optional[str]) -> Allowance:
+    """What one pricing config tier grants; empty when the config has no such tier."""
+    return _read_allowance(tiers.get(tier or "", {}) or {})
+
+
+def _trial_allowance(config: Mapping[str, Any], tiers: Mapping[str, Any]) -> Allowance:
+    """What the free trial grants, resolved in the one place that knows how.
+
+    `free_trial`'s own keys first, the config of the tier it names behind them — and
+    nothing behind them at all when that tier is absent from `tiers`, so a trial
+    pointing at a retired tier contributes exactly what it states itself and no
+    allowance is invented for it.
+
+    Says nothing about whether a trial is *running*: that is the window's job.
+    """
+    free_trial = config.get("free_trial", {}) or {}
+    trial_tier = str(free_trial.get("tier", "") or "")
+    return _read_allowance(free_trial, tiers.get(trial_tier, {}) or {})
+
+
+def _row_allowance(tiers: Mapping[str, Any], sub: Any) -> Allowance:
     """The allowance the pricing config gives the tier a row carries.
 
-    A tier the config no longer describes scores (0, 0) — it loses the comparison
-    instead of borrowing a neighbour's figures.
+    A tier the config no longer describes scores an empty allowance — it loses the
+    comparison instead of borrowing a neighbour's figures.
     """
-    config_key = SUBSCRIPTION_TIER_TO_CONFIG.get(sub.tier.value, "")
-    tier_config = tiers.get(config_key, {}) or {}
-    return (
-        int(tier_config.get("minutes_per_month", 0) or 0),
-        int(tier_config.get("max_minutes_per_item", 0) or 0),
-    )
+    return _tier_allowance(tiers, _config_tier(tiers, sub.tier.value))
 
 
 async def _active_subscription(user_id: str, tiers: Mapping[str, Any]) -> Optional[Any]:
@@ -298,11 +414,11 @@ async def _active_subscription(user_id: str, tiers: Mapping[str, Any]) -> Option
         return entitled[0]
 
     def rank(sub: Any) -> Tuple[int, int, float, str]:
-        minutes, per_item = _row_allowance(tiers, sub)
+        allowance = _row_allowance(tiers, sub)
         period_end = sub.current_period_end
         return (
-            minutes,
-            per_item,
+            allowance.minutes_included,
+            allowance.max_minutes_per_item,
             period_end.timestamp() if period_end else 0.0,
             str(sub.id),
         )
@@ -347,6 +463,51 @@ def _is_free_trial_active(
     return window is not None and now < window[1]
 
 
+async def _subscriber_allowance(
+    user_id: str,
+    config: Mapping[str, Any],
+    *,
+    paid: Allowance,
+    trial: Allowance,
+    now: datetime,
+) -> Tuple[Allowance, Optional[datetime]]:
+    """A subscriber's allowance: `max(trial, paid)` while the trial window is open.
+
+    Buying a plan must never take anything away, so as long as the free trial is
+    still running each figure is the larger of the paid tier's and the trial's,
+    compared independently. What the user bought is unaffected — `tier`,
+    `subscription_tier` and `subscription_status` keep describing the plan, because
+    they did buy it; only the figures move.
+
+    **The allowance drops when the window closes.** From the trial's end date the
+    paid tier stands alone, so a plan below the trial loses everything the trial was
+    adding. That is the decision's intended consequence, not a defect, which is why
+    the instant comes back with the figures: the app needs it to announce the drop
+    in advance instead of looking broken on the day.
+
+    One consequence of keeping the counter on the subscription's period — which this
+    function deliberately does not touch, so that no second helping of minutes is
+    handed out mid-window — is that inside the window the subscriber gets the trial's
+    allowance **per subscription period rather than once**. Bounded by the length of
+    the trial, and in the user's favour.
+
+    The trial window costs a user-row read, and it is only paid for when it can
+    change something: both pairs of figures come from the pricing config, already in
+    memory, so a plan that already covers the trial on both axes is settled without
+    any `GetItem`. Which plans those are is whatever the config says at read time.
+
+    Returns `(allowance, trial_end)`, `trial_end` being None whenever the trial is
+    not what raises the figures.
+    """
+    if paid.covers(trial):
+        return paid, None
+
+    window = await _free_trial_window(user_id, config)
+    if _is_free_trial_active(window, now):
+        return paid.raised_by(trial), window[1]
+    return paid, None
+
+
 async def get_entitlement_snapshot(
     user_id: str,
     *,
@@ -362,6 +523,11 @@ async def get_entitlement_snapshot(
     `free_trial.duration_days` later, so one trial grants one allowance and
     crossing a month boundary refills nothing.
 
+    A running trial is not cancelled by buying a plan: for a subscriber the
+    allowance is `max(trial, paid)` until the window closes — see
+    `_subscriber_allowance`, which holds that rule — while the period, the tier and
+    the status stay the subscription's.
+
     `with_usage=False` skips reading the counter row, for callers that only need
     to know which row to write to.
     """
@@ -370,17 +536,42 @@ async def get_entitlement_snapshot(
     warning_pct = int(
         (config.get("usage_gauge", {}) or {}).get("warning_threshold_pct", 80) or 80
     )
-
-    subscription = await _active_subscription(user_id, tiers)
     now = datetime.now(timezone.utc)
-    trial_window = (
-        await _free_trial_window(user_id, config) if subscription is None else None
+    unentitled = EntitlementSnapshot(
+        user_id=user_id,
+        period_key=now.strftime("%Y-%m"),
+        warning_threshold_pct=warning_pct,
     )
+
+    trial = _trial_allowance(config, tiers)
+    subscription = await _active_subscription(user_id, tiers)
 
     if subscription is not None:
         subscription_tier = subscription.tier.value
-        tier = SUBSCRIPTION_TIER_TO_CONFIG.get(subscription_tier, "mix")
-        tier_config = tiers.get(tier, {}) or {}
+        tier = _config_tier(tiers, subscription_tier)
+        if tier is None:
+            # A subscription the pricing config cannot explain. Nothing here may
+            # guess an allowance for it — the alternative is handing out some other
+            # tier's figures silently — so the user is un-entitled and the owner
+            # gets told, loudly, that a stored tier has drifted from the catalogue.
+            logger.error(
+                "quota.subscription_tier_not_in_pricing_config",
+                extra={
+                    "user_id": user_id,
+                    "subscription_id": str(subscription.id),
+                    "subscription_tier": subscription_tier,
+                    "config_tiers": sorted(tiers),
+                },
+            )
+            return unentitled
+
+        allowance, trial_raises_until = await _subscriber_allowance(
+            user_id,
+            config,
+            paid=_tier_allowance(tiers, tier),
+            trial=trial,
+            now=now,
+        )
         period_end = subscription.current_period_end
         period_key = (
             f"sub:{period_end.strftime('%Y-%m-%d')}"
@@ -394,41 +585,29 @@ async def get_entitlement_snapshot(
             subscription_status=subscription.status.value,
             auto_renew=subscription.auto_renew_status,
             is_entitled=True,
-            minutes_included=int(tier_config.get("minutes_per_month", 0) or 0),
-            max_minutes_per_item=int(tier_config.get("max_minutes_per_item", 0) or 0),
+            minutes_included=allowance.minutes_included,
+            max_minutes_per_item=allowance.max_minutes_per_item,
+            trial_raises_allowance_until=trial_raises_until,
             period_key=period_key,
             period_end=period_end or _next_month_start(now),
             warning_threshold_pct=warning_pct,
         )
-    elif _is_free_trial_active(trial_window, now):
+    else:
+        trial_window = await _free_trial_window(user_id, config)
+        if not _is_free_trial_active(trial_window, now):
+            return unentitled
         free_trial = config.get("free_trial", {}) or {}
-        tier = str(free_trial.get("tier", "mix"))
-        tier_config = tiers.get(tier, {}) or {}
         snapshot = EntitlementSnapshot(
             user_id=user_id,
-            tier=tier,
+            tier=str(free_trial.get("tier", "") or "") or None,
             subscription_tier=None,
             subscription_status="free_trial",
             is_entitled=True,
             is_free_trial=True,
-            minutes_included=int(
-                free_trial.get("minutes_per_month", tier_config.get("minutes_per_month", 0))
-                or 0
-            ),
-            max_minutes_per_item=int(
-                free_trial.get(
-                    "max_minutes_per_item", tier_config.get("max_minutes_per_item", 0)
-                )
-                or 0
-            ),
+            minutes_included=trial.minutes_included,
+            max_minutes_per_item=trial.max_minutes_per_item,
             period_key=_trial_period_key(trial_window),
             period_end=trial_window[1],
-            warning_threshold_pct=warning_pct,
-        )
-    else:
-        return EntitlementSnapshot(
-            user_id=user_id,
-            period_key=now.strftime("%Y-%m"),
             warning_threshold_pct=warning_pct,
         )
 

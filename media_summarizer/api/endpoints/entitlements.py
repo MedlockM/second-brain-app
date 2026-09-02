@@ -38,6 +38,13 @@ async def get_entitlements_status(
     twice under two names would only invite the app to render two. On a
     subscription that instant is the renewal anniversary; during the free trial it
     is the moment the trial closes, after which nothing refills at all.
+
+    `trial_raises_allowance_until` is the one exception, and it is a different date
+    for a different fact: a subscriber whose free trial is still running is served
+    the better of the two allowances, so on that instant the gauge *shrinks* to what
+    their plan alone grants. It is null whenever the allowance is already the plan's
+    own. The app should say so before the day comes rather than let the user watch
+    their minutes disappear.
     """
     try:
         snapshot = await quota_enforcer.get_entitlement_snapshot(current_user.id)
@@ -55,6 +62,11 @@ async def get_entitlements_status(
             "max_minutes_per_item": snapshot.max_minutes_per_item,
             "resets_at": (
                 snapshot.period_end.isoformat() if snapshot.period_end else None
+            ),
+            "trial_raises_allowance_until": (
+                snapshot.trial_raises_allowance_until.isoformat()
+                if snapshot.trial_raises_allowance_until
+                else None
             ),
             "warning_threshold_reached": snapshot.warning_threshold_reached,
         }
