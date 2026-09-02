@@ -184,12 +184,20 @@ The way out is **App Review → Submissions → the submission → Cancel Submis
 Confirm**, which returns the items to `Prepare for Submission`.
 
 Adding a version is what unblocks it, and Apple gates that on two things: « Before
-submitting an app version for review, provide required metadata and choose the build
-for the version. » The build means a real EAS iOS production build uploaded to App
-Store Connect; the metadata means the whole 1.0 listing, including a privacy-policy
-URL that answers. Neither exists yet, so the correct order is: subscriptions created
-and left in `Prepare for Submission` → API key in RevenueCat → sandbox purchase →
-build → 1.0 metadata → **one** submission carrying the version *and* the four items.
+submitting an app version for review, provide required metadata **and** choose the
+build for the version. »
+
+**The build half is done.** EAS build `790af106-040c-4798-9599-68ad5b6f0770`
+(`distribution: store`, 1.0.0 build 2, commit `ca9cadb`) finished 2026-09-01 and EAS
+Submit pushed it to ASC App ID `6778072060` on 2026-09-02, status `finished` — it went
+out to a TestFlight beta tester who installed it. TestFlight needs no review, which is
+why that worked while the submission is stuck: a build in TestFlight is not a version
+added to a submission.
+
+**The metadata half is not**, and the hard blocker is the URLs below. So the order is:
+subscriptions left in `Prepare for Submission` → API key in RevenueCat → sandbox
+purchase on the TestFlight build → 1.0 metadata and hosted URLs → `Add for Review` on
+the version → **one** submission carrying the version *and* the four items.
 
 Nothing before that submission depends on it: RevenueCat imports through the App
 Store Connect API key, and sandbox resolution needs the products to exist, not to be
@@ -281,11 +289,24 @@ Welcome to Media Summarizer! In this first release:
 
 ## URLs
 
-| Field | Value |
-|-------|-------|
-| Support URL | https://mediasummarizer.com/support |
-| Marketing URL | https://mediasummarizer.com |
-| Privacy Policy URL | https://mediasummarizer.com/privacy |
+**None of these work, and this is what blocks the 1.0 submission.** Checked
+2026-09-02:
+
+| Field | Value in this table | Reality |
+|-------|--------------------|---------|
+| Support URL | https://mediasummarizer.com/support | `mediasummarizer.com` **has no DNS record at all** |
+| Marketing URL | https://mediasummarizer.com | same — the domain does not resolve |
+| Privacy Policy URL | https://mediasummarizer.com/privacy | same |
+| — | https://secondbrainlabs.com/privacy | resolves, answers **404** |
+| — | https://secondbrainlabs.com/terms | resolves, answers **404** |
+
+Support URL is a required version property and Privacy Policy URL a required App
+Privacy property, so `Add for Review` cannot be satisfied until two pages are actually
+served. The texts already exist in the repo — `docs/compliance/privacy-policy.md` and
+`terms-of-service.md` — they are simply not hosted anywhere, and the app has no in-app
+links to them either (`V1_LAUNCH_PLAN.md` Phase 10). Whatever domain ends up serving
+them has to match the marketing name settled by `task-186`, so decide the name first
+and host once.
 
 ## Age Rating
 

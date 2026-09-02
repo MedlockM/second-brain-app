@@ -1286,9 +1286,10 @@ faite :
       dans un fichier suivi (repo public).
    5. **Users and Access → Sandbox → Test Accounts** : un tester sandbox sur une
       adresse que tu contrôles, non rattachée à un Apple ID existant.
-   6. **Build EAS iOS + TestFlight** (le dernier artifact a expiré le 2026-06-25,
-      cf. `task-161` et Phase 5), install sur device, achat d'un tier avec le
-      compte sandbox, puis Restore Purchases.
+   6. **Achat sandbox depuis TestFlight.** Le build existe : 1.0.0 (2) est sur ASC
+      depuis le 2026-09-02 et un beta testeur l'a installé (détail dans la checklist
+      §2). Reste à se connecter sur le device avec le compte sandbox du point 5,
+      acheter un tier, puis exercer Restore Purchases.
    7. Puis le point 5 ci-dessous, le tour de webhook.
 4. **`task-238` — Android** : fait au 2026-09-01 pour l'app Google Play, les 3
    abonnements et leurs prix, les 3 produits RevenueCat, la clé `goog_` dans les
@@ -1654,8 +1655,17 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   réellement consommé par l'UI) — le
   paywall n'est donc plus un écran orphelin, seul le circuit d'achat réel manque
 - [x] Pricing admin secret généré au 2026-06-08 (`PRICING_ADMIN_SECRET` en local dans `.env`, requis pour `PUT /api/pricing/admin`)
-- [ ] EAS iOS development build **courante** : l'ancienne build du 2026-06-11
-  a expiré et précède le HEAD actuel (`task-161`)
+- [x] Build iOS EAS **de distribution store** : `790af106-040c-4798-9599-68ad5b6f0770`,
+  profil `internal`, `distribution: store`, 1.0.0 build **2**, commit `ca9cadb`,
+  terminée le **2026-09-01 20:07**. Poussée vers App Store Connect par EAS Submit
+  (`25324d9b-6bd2-46ab-8fa3-c0bbc541c462`, ASC App ID `6778072060`) le
+  **2026-09-02 11:54**, statut `finished`, et **distribuée en TestFlight à un beta
+  testeur qui a installé l'app**. Le build n'est donc plus un bloquant : la 1.0 a un
+  binaire à sélectionner. Ce qui reste avant `Add for Review`, ce sont les
+  métadonnées de version — cf. la sous-étape 3 de Phase 6 et l'hébergement des URLs
+- [ ] EAS iOS **development** build courante : la dernière est du 2026-08-23
+  (`cd22ba7a`), donc postérieure au HEAD de `task-161` mais pas au HEAD actuel. Sans
+  objet pour la soumission ; utile seulement pour un dev client sur device
 - [x] SHA-1 keystore Android via `eas credentials`, sans build (`task-162`,
   2026-08-13) — aucun build consommé, cf. notes de `task-162`
 - [x] Build Android EAS : deux AAB produits le **2026-09-01** avec le profil
