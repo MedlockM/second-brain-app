@@ -2,13 +2,7 @@ import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  Colors,
-  Typography,
-  Spacing,
-  BorderRadius,
-  TouchTarget,
-} from "../constants/theme";
+import { Colors, Typography, Spacing, BorderRadius } from "../constants/theme";
 import type { MediaType, SourcePlatform } from "../types/media";
 import { getMediaTypeIcon } from "../lib/mediaTypeDisplay";
 import { t, tCount } from "../i18n";
@@ -20,6 +14,10 @@ import { t, tCount } from "../i18n";
  * cover, the title on up to three lines, the creator on one muted line. There is
  * no type badge and no timestamp — the rows are short and ordered, so neither
  * earns its space, and dropping them is what lets the title breathe.
+ *
+ * Its height is fixed (`TILE_HEIGHT`) rather than driven by its own text, so the
+ * row it sits in is the same height whichever kinds of tile it holds — see the
+ * constant's comment for what that was breaking on the Home screen.
  *
  * The cover is 16:9 and cropped with `contentFit="cover"`, the ratio validated
  * by the task-302 benchmark (§6.4): it matches the two highest-volume sources
@@ -47,6 +45,38 @@ export const TILE_WIDTH = 200;
 /** 200 x 113 is 16:9 to within half a point. */
 export const TILE_COVER_HEIGHT = 113;
 export const TILE_GAP = Spacing.md;
+
+/**
+ * The text block under the cover is *reserved*, not measured — which is what
+ * makes every tile the same height whatever it holds (task-332).
+ *
+ * A tile that sized itself to its content made the row size itself to whichever
+ * tile happened to be tallest, and the gap the Home screen declares below a row
+ * was then measured from that one tile. Two things make tiles disagree: a
+ * collection tile always carries a subtitle (its item count) where a media tile
+ * without a creator carries none, and a three-line title stands 40 dp taller than
+ * a one-line one. So a row holding one media tile beside one collection tile left
+ * a void under the media tile ~20 dp deeper than declared, and the next heading
+ * read as pushed away. Reserving the worst case — three title lines plus one
+ * subtitle line — makes the row's height independent of the kinds it holds, so
+ * the gap between two Home blocks means what `inbox.tsx` says it means.
+ *
+ * Text stays top-aligned, so a short tile carries its slack at the bottom, where
+ * it is the same on every tile of the row. The line heights are explicit for the
+ * same reason the height is fixed: a height computed from tokens is only exact if
+ * the text cannot pick its own leading. Android font padding may still spend a dp
+ * or two past the box; nothing is clipped, and the tile's layout height is
+ * constant either way, which is all the row's rhythm depends on.
+ */
+const TILE_TITLE_MAX_LINES = 3;
+const TILE_TITLE_LINE_HEIGHT = 20;
+const TILE_SUBTITLE_LINE_HEIGHT = 18;
+export const TILE_HEIGHT =
+  TILE_COVER_HEIGHT +
+  Spacing.sm +
+  TILE_TITLE_MAX_LINES * TILE_TITLE_LINE_HEIGHT +
+  Spacing.xs +
+  TILE_SUBTITLE_LINE_HEIGHT;
 
 /** Up to four member covers, per the collection tile's mosaic. */
 const MAX_MOSAIC_IMAGES = 4;
@@ -107,7 +137,7 @@ export function HomeTile({ item, onPress }: HomeTileProps): React.JSX.Element {
       accessibilityRole="button"
     >
       <TileCover item={item} />
-      <Text style={styles.title} numberOfLines={3}>
+      <Text style={styles.title} numberOfLines={TILE_TITLE_MAX_LINES}>
         {tileTitle(item)}
       </Text>
       {tileSubtitle(item) ? (
@@ -332,9 +362,10 @@ function getSourcePlatformIcon(
 const styles = StyleSheet.create({
   tile: {
     width: TILE_WIDTH,
-    // Well past the 48 px floor on its own; stated so a future tightening of the
-    // tile cannot silently take it under.
-    minHeight: TouchTarget.minimum,
+    // Fixed, not minimum: the row's height must not depend on which kinds of tile
+    // it happens to hold. Well past the 48 px touch floor, which the tile would
+    // clear on its cover alone.
+    height: TILE_HEIGHT,
   },
   tilePressed: {
     opacity: 0.7,
@@ -371,12 +402,13 @@ const styles = StyleSheet.create({
   title: {
     ...Typography.label,
     fontSize: 15,
-    lineHeight: 20,
+    lineHeight: TILE_TITLE_LINE_HEIGHT,
     color: Colors.textMain,
     marginTop: Spacing.sm,
   },
   subtitle: {
     ...Typography.small,
+    lineHeight: TILE_SUBTITLE_LINE_HEIGHT,
     color: Colors.textSubtle,
     marginTop: Spacing.xs,
   },
