@@ -2,7 +2,7 @@
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
 > Date de rédaction : 2026-05-19. Dernière mise à jour : **2026-09-02**
-> (réconciliation de l'état git — 43 commits locaux non poussés — et clôture du
+> (réconciliation de l'état git — une pile de commits locaux non poussés — et clôture du
 > second client OAuth Android ; la réconciliation de fond avec le worktree, le
 > backlog, la CI et le code date du 2026-08-21). Les gates
 > techniques backend qui bloquaient le plan au 2026-07-31 restent **fermés** :
@@ -18,10 +18,16 @@
 - **Source et CI vertes** : `Main Branch Checks` et `Deploy Lambda Functions`
   sont `success` sur tous les push récents. Le dernier commit poussé est
   `30cf62c` (2026-08-29T21:10) — c'est lui que le runtime dev exécute.
-- **43 commits locaux non poussés** — relevé le 2026-09-02 contre
-  `git ls-remote`, la seule mesure fiable : `origin/main` est sur `30cf62c`,
-  `main` local sur `e78ce1b`. **10 d'entre eux touchent `media_summarizer/` ou
-  `infrastructure/`**, donc le runtime dev n'est pas le HEAD :
+- **Une pile de commits locaux non poussés** — `origin/main` est sur `30cf62c`,
+  et le local a continué d'avancer sans push : **49 commits d'avance** au dernier
+  relevé du 2026-09-02. Ce total bouge à chaque commit, donc ne pas s'y fier :
+  le remesurer avec `git ls-remote origin main` puis
+  `git rev-list --count origin/main..HEAD` — c'est la seule mesure fiable,
+  `git status` ne dit rien sur l'état réel du remote.
+  Le nombre qui compte, lui, est stable : **10 de ces commits touchent
+  `media_summarizer/` ou `infrastructure/`**
+  (`git rev-list --count origin/main..HEAD -- media_summarizer/ infrastructure/`),
+  donc le runtime dev n'est pas le HEAD :
   - le matching événement RevenueCat → abonnement (`task-334`, `2376622`) ;
   - le `max(trial, paid)` sur le quota d'un abonné (`task-335`, `fedb843`) ;
   - les fixes translation / artifacts / classifieur LLM (`task-327`, `328`,
@@ -121,7 +127,7 @@ bloquant au moins bloquant :
    tranché puis API/privacy/terms réellement hébergés, listings et review accounts.
    **Les screenshots devront montrer l'UI d'après `task-306`/`307`**, pas l'Inbox
    verticale d'avant le 2026-08-21.
-6. **Hygiène, rapide** — pousser les 43 commits locaux (cf. § « État de vérité »,
+6. **Hygiène, rapide** — pousser les commits locaux (cf. § « État de vérité »,
    dont 10 touchent le backend), puis renseigner
    `EXPO_TOKEN` (dernier reste de `task-258`). Le reste de cette ligne est fait :
    les 5 fichiers `uv.lock` du worktree sont commités (`c05df88`), la branch
@@ -202,7 +208,7 @@ un staging ou une soumission.
 | Sécurité users legacy | `task-222`, `task-224`, `task-253` | **Corrigé et déployé** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email`, `update_user` et `POST /api/v1/auth/verify-email` supprimés. 2026-08-12 (`task-224`) : `endpoints/users.py` et `DELETE /api/v1/users/{user_id}` supprimés au profit de `DELETE /api/account`, qui déduit le compte du token. 2026-08-13 (`task-253`) : le 404 de `DELETE /api/account` en dev est corrigé et un **startup guard** échoue au boot si une route critique n'est pas montée. Le code est déployé (dernier deploy backend vert : `30cf62c`, 2026-08-29T21:10). Les routes citées ici portaient encore le préfixe `/api/v1/`, supprimé depuis par `task-289`. **Reste** : le run E2E complet (Phase 4) |
 | Dérive de dépendances Lambda | `6b22542` | **Corrigé le 2026-08-13, après incident** — l'API dev a répondu 500 sur toutes les routes pendant ~2 h 20 : le startup guard de `task-253` lisait mal `app.routes` sur FastAPI 0.13x, et les Dockerfiles résolvaient `fastapi>=0.104.0` au build (0.141.1 dans l'image contre 0.116.1 dans `uv.lock` et le venv local) — donc irreproductible localement. Les images installent désormais depuis `uv export --frozen`. **Clos le 2026-08-13 par `c05df88`** : la même bascule sur `uv.lock` a été étendue à `api.Dockerfile`, `worker.Dockerfile`, `test-orchestrator.Dockerfile`, `pr.yml` et `main.yml`. Rechute connue depuis : `f06bd62` a dû plafonner `pillow` sous 12.3 pour que l'image worker se construise à nouveau |
 | Suppression/export de compte | `mobile/app/settings/delete-account.tsx`, `media_summarizer/core/services/account_deletion_service.py`, `task-224` | **Fait en code (2026-08-12)** — suppression de compte in-app (Account > Delete Account) branchée sur `DELETE /api/account`, qui purge DynamoDB + S3 + Algolia. Le bouton `Export Data` mort est retiré : l'accès et la portabilité passent par `privacy@mediasummarizer.com` sous un mois, documenté dans la privacy policy. Le bouton `Settings` mort reste à traiter hors `task-224` |
-| Source + CI | `task-223`, `task-227`, `task-228` | **Fait** — `Main Branch Checks` et `Deploy Lambda Functions` verts sur les push récents (dernier : `30cf62c`, 2026-08-29). Reste hors P0 : `Mobile Build & Distribute` (cf. Phase 7), et 43 commits locaux non poussés (cf. § « État de vérité ») |
+| Source + CI | `task-223`, `task-227`, `task-228` | **Fait** — `Main Branch Checks` et `Deploy Lambda Functions` verts sur les push récents (dernier : `30cf62c`, 2026-08-29). Reste hors P0 : `Mobile Build & Distribute` (cf. Phase 7), et une pile de commits locaux non poussés (cf. § « État de vérité ») |
 
 ### Bloquants release immédiats
 
@@ -483,9 +489,9 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 3. ⚠️ **Source désynchronisée au 2026-09-02** : les 5 fichiers du fix
    `uv.lock` (`pr.yml`, `main.yml`, `api.Dockerfile`, `worker.Dockerfile`,
    `test-orchestrator.Dockerfile`) sont commités depuis `c05df88` — ce point est
-   clos. Mais `main` local porte **43 commits d'avance non poussés**, dont 10
-   touchent le backend ou l'infra : `origin/main` est sur `30cf62c` et c'est lui
-   qui est déployé. Détail des 10 dans § « État de vérité ». À pousser.
+   clos. Mais `main` local porte des dizaines de commits d'avance non poussés,
+   **dont 10 touchent le backend ou l'infra** : `origin/main` est sur `30cf62c`
+   et c'est lui qui est déployé. Détail des 10 dans § « État de vérité ». À pousser.
 4. ✅ **CI verte** (`task-223`, `task-227`, `task-228`) :
    - `Main Branch Checks` **success** sur tous les push récents, dont
      `30cf62c` (2026-08-29) ;
@@ -508,8 +514,9 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    pull-request reviews — le flow reste un merge local suivi d'un push direct sur
    `main`, que des required checks rejetteraient. Aucun ruleset (`rulesets` →
    `[]`). Rollback : `gh api -X DELETE repos/:owner/:repo/branches/main/protection`.
-7. **Reste à faire** : pousser les 43 commits locaux sur `origin/main`, et
-   renseigner `EXPO_TOKEN` (point 5).
+7. **Reste à faire** : pousser les commits locaux sur `origin/main`, et
+   renseigner `EXPO_TOKEN` (point 5). Procédure pas à pas dans
+   `mobile/MOBILE_CI_CD.md` § « Owner prerequisite: `EXPO_TOKEN` ».
 
 ### Phase 2 — Comptes externes (jour 1-2)
 
@@ -1387,8 +1394,8 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
    - `.github/workflows/mobile-build-distribute.yml` — EAS build/submit.
    - `.github/workflows/mobile-store-promote.yml` — promotion stores.
    - `.github/workflows/mobile-e2e-maestro.yml` — Maestro Android/iOS.
-2. ⚠️ **État source** : `origin/main` est sur `30cf62c`, `main` local sur
-   `e78ce1b` — **43 commits d'avance non poussés, dont 10 backend/infra**
+2. ⚠️ **État source** : `origin/main` est sur `30cf62c` (2026-08-29) et le local
+   a des dizaines de commits d'avance, **dont 10 backend/infra**
    (cf. § « État de vérité »). Les runs GitHub portent donc sur un état vieux
    de quatre jours.
 3. ✅ **Main checks verts** (`task-223`, `task-227`, `task-228`) : `Main Branch
@@ -1779,7 +1786,7 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 | ~~API interactive indisponible après longue inactivité~~ | **Traité** (`task-217`, 2026-08-06) : image API minimale, reserved concurrency configurable, warm-up EventBridge, health gate de release. Cold 5,2 s / warm 1,0 s au 2026-08-13. |
 | ~~Collision/destruction entre dev/staging/prod~~ | **Traité** (`task-237`, `task-248`) : une racine Terraform par environnement, 100 % des noms suffixés, et surtout **une frontière de compte AWS** entre dev et prod — un plan lancé avec les identifiants de prod ne peut rien toucher dans dev. |
 | ~~CRUD users legacy non authentifié~~ | **Traité** (`task-222`, `task-224`, `task-253`) : surface legacy supprimée, `DELETE /api/account` déduit le compte du token et purge DynamoDB + S3 + Algolia, startup guard contre les routes silencieusement absentes. |
-| État local non poussé sur GitHub | **Aggravation au 2026-09-02** : `main` local est sur `e78ce1b`, `origin/main` sur `30cf62c` — **43 commits d'écart, dont 10 backend/infra**, contre un seul au 2026-08-21. Le runtime dev n'est donc pas le HEAD, et le fix de matching webhook de `task-334` n'a jamais tourné en vrai : les achats sandbox du 2026-09-01/02 ont été traités par le code d'avant. Le risque n'est pas théorique, il se répète — pousser après chaque session de merge, avant tout run E2E. |
+| État local non poussé sur GitHub | **Aggravation au 2026-09-02** : `origin/main` est resté sur `30cf62c` et le local a des dizaines de commits d'avance — **dont 10 backend/infra**, contre un seul commit d'écart au 2026-08-21. Le runtime dev n'est donc pas le HEAD, et le fix de matching webhook de `task-334` n'a jamais tourné en vrai : les achats sandbox du 2026-09-01/02 ont été traités par le code d'avant. Le risque n'est pas théorique, il se répète — pousser après chaque session de merge, avant tout run E2E. |
 | Dérive silencieuse entre l'image Lambda et le lockfile | **Cause de l'incident du 2026-08-13** (API dev 500 sur toutes les routes, ~2 h 20) : les Dockerfiles résolvaient les intervalles de `pyproject.toml` au build, donc chaque build produisait une image différente et aucune exécution locale ne pouvait reproduire le bug. Mitigation : installer depuis `uv export --frozen` — **fait partout depuis `c05df88`** (les trois images et les deux workflows). Le risque n'est pas éteint pour autant : `f06bd62` a dû plafonner `pillow` sous 12.3 pour que l'image worker se construise à nouveau. |
 | Un health check vert lu comme « l'environnement fonctionne » | `GET /api/health/` ne teste que DynamoDB via le rôle IAM. Prod répond `200` avec un secret runtime **vide**. Ne jamais s'en servir comme preuve qu'un environnement est opérationnel — seul un E2E complet l'établit. |
 | Prod ouverte alors qu'elle est en veille | Trois booléens (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) à repasser à `true`, plus le quota de concurrence et le secret runtime. Une prod servant de vrais utilisateurs sans alarmes est une faute ; la veille n'est acceptable qu'avant lancement. |

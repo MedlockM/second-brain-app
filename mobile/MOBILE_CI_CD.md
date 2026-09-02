@@ -36,15 +36,15 @@ Configure these in GitHub repository Settings > Secrets and variables > Actions:
 
 ### Secrets (required)
 
-**`EXPO_TOKEN` is the only one, and it is not provisioned as of 2026-09-01**
-(`gh secret list` returns only `AWS_DEPLOY_ROLE_ARN` and the five `E2E_*`
-secrets), so this workflow cannot build or submit anything today. Until it is set,
-drive builds from your machine — see
+**`EXPO_TOKEN` is the only one, and it is still not provisioned — re-verified
+2026-09-02** (`gh secret list` returns only `AWS_DEPLOY_ROLE_ARN` and the five
+`E2E_*` secrets), so this workflow cannot build or submit anything today. Until it
+is set, drive builds from your machine — see
 [Running Builds From Your Machine](#running-builds-from-your-machine).
 
 | Secret | Description | How to obtain |
 |--------|-------------|---------------|
-| `EXPO_TOKEN` | Expo access token for EAS CLI authentication. Builds fail fast until it is set, see [Owner prerequisite](#owner-prerequisite-expo_token) | <https://expo.dev/settings/access-tokens> - create a robot token, then `gh secret set EXPO_TOKEN` |
+| `EXPO_TOKEN` | Expo access token for EAS CLI authentication. Builds fail fast until it is set | Step by step in [Owner prerequisite](#owner-prerequisite-expo_token) — in short, <https://expo.dev/settings/access-tokens> then `gh secret set EXPO_TOKEN` |
 
 Four secrets that used to be listed here are gone, none of them replaced:
 
@@ -816,20 +816,51 @@ this workflow — pushing to the Play `production` track stays a manual act.
 ### Owner prerequisite: `EXPO_TOKEN`
 
 Every `eas` invocation in both mobile workflows authenticates with the
-`EXPO_TOKEN` repository secret. As of 2026-09-01 that secret is still **not
-provisioned**: without it, `eas build --non-interactive` dies immediately with
-`An Expo user account is required to proceed`, so no build or submission can
-succeed regardless of the trigger.
+`EXPO_TOKEN` repository secret. **Still not provisioned — re-verified 2026-09-02**
+with `gh secret list`, which returns six secrets (`AWS_DEPLOY_ROLE_ARN` and the
+five `E2E_*`) and nothing Expo-related. Without it, `eas build --non-interactive`
+dies immediately with `An Expo user account is required to proceed`, so no build
+or submission can succeed regardless of the trigger.
 
-Both build jobs now start with a `Require EXPO_TOKEN` step that fails the run in
-a couple of seconds with an explicit error message, before Node, `npm ci` or the
-EAS CLI are installed. To provision it:
+Both build jobs start with a `Require EXPO_TOKEN` step that fails the run in a
+couple of seconds with an explicit error message, before Node, `npm ci` or the
+EAS CLI are installed.
 
-1. Create a robot access token at <https://expo.dev/settings/access-tokens>
-2. `gh secret set EXPO_TOKEN` (paste the token when prompted)
+The project is `@second-brain-labs/media-summarizer`
+(`fad6e877-590d-4143-bbaa-fdd013b01c43`), owned by the account
+`second-brain-labs`. To provision the secret:
 
-Never commit the token value; the workflow only ever references it as
-`secrets.EXPO_TOKEN`.
+1. On <https://expo.dev>, open the avatar menu (top right) → **Settings** →
+   **Access tokens** — direct URL <https://expo.dev/settings/access-tokens>.
+   Create a **personal access token**, name it after the consumer (e.g.
+   `github-actions-second-brain-app`), and copy the value **at that moment**: it
+   is shown once and never again.
+2. From the repo root, `gh secret set EXPO_TOKEN` and paste the value at the
+   prompt. Never `echo` it into the command line — it would land in the shell
+   history of a machine that also holds the repo.
+3. Verify with `gh secret list` — the secret name and its timestamp are the only
+   things the API returns, values are write-only.
+
+A **robot access token** is the tighter alternative and is what a shared account
+should use: robot users cannot sign in to Expo, cannot own projects, and
+authenticate by token only, so revoking one does not touch the human account.
+They live under the account (not the user): the entry point is
+<https://expo.dev/accounts/second-brain-labs/settings/access-tokens>. Expo's docs
+do not document that screen's navigation labels, so use the URL. For a solo
+account either token works identically from the workflow's point of view — the
+`EXPO_TOKEN` env var takes precedence over any stored login either way.
+
+Never commit the token value; the workflows only ever reference it as
+`secrets.EXPO_TOKEN`. **This repository is public**, so a token pasted into a
+tracked file is a public leak the moment it is pushed.
+
+Once the secret exists, the first thing to run is a deliberately harmless manual
+dispatch — `Actions` → `Mobile Build & Distribute` → `Run workflow`, keeping the
+defaults (`platform: all`, `profile: preview`, `submit: false`). That exercises
+authentication and the build path without spending a store submission. Note that
+`EXPO_TOKEN` only unblocks `eas build`; `eas submit` additionally needs the App
+Store Connect API key and the Google Play service account, which live on EAS's
+side (`eas credentials`), not in GitHub secrets.
 
 ## Observability & Failure Handling
 
