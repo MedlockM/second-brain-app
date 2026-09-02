@@ -18,6 +18,8 @@
 #   - No uncommitted changes to tracked files on current branch
 #   - No untracked files under backlog/tasks (worktrees cannot see them)
 #   - Other untracked files only emit a warning because they can block merges
+#   - Every To Do task whose body mentions the lock carries a `dispatchable:` field
+#     (guards against Backlog.md silently dropping it — see the guard below)
 #   - Agent definitions in .claude/agents/
 
 set -euo pipefail
@@ -134,6 +136,46 @@ for TASK_FILE in "${TASK_FILES[@]}"; do
   fi
 done
 NON_DISPATCHABLE_IDS="${NON_DISPATCHABLE_IDS:-aucune}"
+
+# Le verrou n'a aucune mémoire propre : Backlog.md efface les champs custom du
+# front-matter à chaque réécriture, et rien ne distingue ensuite « jamais
+# verrouillée » de « verrou effacé ». C'est arrivé à task-263, dont le corps porte
+# encore une section entière intitulée « Pourquoi cette tâche est verrouillée
+# (dispatchable: false) » et l'étape « Retirer la ligne du front-matter », alors
+# que la ligne n'y est plus.
+#
+# La prose, elle, survit aux réécritures. On s'en sert comme témoin : une tâche
+# `To Do` dont le corps parle du verrou sans que le front-matter porte le moindre
+# champ `dispatchable:` est soit une dérive à réparer, soit une ambiguïté à lever.
+# Le remède est explicite dans les deux cas, et écrire `dispatchable: true` suffit
+# à faire taire ce guard sans rien verrouiller.
+#
+# Restreint aux `To Do` à dessein : c'est le seul statut où la dérive expédie
+# réellement la tâche en dispatch. Une tâche `Done` qui évoque le verrou d'une
+# autre — task-237 cite celui de task-252, task-254 celui de task-172 — ne coûte
+# rien et n'a pas à faire du bruit ici.
+DRIFTED_LOCKS=""
+for TASK_FILE in "${TASK_FILES[@]}"; do
+  if awk '
+    NR == 1 && $0 == "---" { in_front_matter = 1; next }
+    in_front_matter && $0 == "---" { in_front_matter = 0; in_body = 1; next }
+    in_front_matter && $0 ~ /^status:[[:space:]]*['"'"'"]?To Do['"'"'"]?[[:space:]]*$/ { todo = 1 }
+    in_front_matter && $0 ~ /^dispatchable:/ { declared = 1 }
+    in_body && /dispatchable/ { mentioned = 1 }
+    END { if (todo && mentioned && !declared) exit 0; exit 1 }
+  ' "${TASK_FILE}"; then
+    DRIFTED_LOCKS="${DRIFTED_LOCKS}  ${TASK_FILE}
+"
+  fi
+done
+if [ -n "${DRIFTED_LOCKS}" ]; then
+  echo "Error: verrou dispatchable vraisemblablement effacé par Backlog.md." >&2
+  echo "Ces tâches sont To Do, leur corps parle du verrou, leur front-matter ne le porte pas :" >&2
+  printf '%s' "${DRIFTED_LOCKS}" >&2
+  echo "Remettre 'dispatchable: false' dans le front-matter pour restaurer le verrou," >&2
+  echo "ou écrire 'dispatchable: true' si le verrou est réellement levé." >&2
+  exit 1
+fi
 
 # Les worktrees d'agents (isolation: worktree) partent du HEAD local grâce à
 # `worktree.baseRef: "head"` dans .claude/settings.json — ils voient donc les
