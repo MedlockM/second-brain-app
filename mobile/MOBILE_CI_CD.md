@@ -895,9 +895,70 @@ eas build:list --platform all --limit 10
 # View specific build
 eas build:view <build-id>
 
-# View submission status
-eas submit --platform ios --latest --json
+# View submission status — see the note below, there is no read-only CLI command
 ```
+
+**`eas submission:view` does not exist**, and `eas submit ... --latest` is not a
+read: it *creates another submission*. The status of a submission already in
+flight reads from the Expo GraphQL API instead, with the `expo-session` secret
+from `~/.expo/state.json` and a `User-Agent: eas-cli/<version>` header (the API
+answers `403` without one) — the same access pattern as the credentials lookup
+in [App Store Connect Setup](#4-app-store-connect-setup):
+
+```graphql
+query($s: ID!) { submissions { byId(submissionId: $s) { status updatedAt } } }
+```
+
+### Why jobs wait: one Linux queue, one slot — measured 2026-09-02
+
+The Free plan gives the account **one concurrency slot in total**
+(`subscription.concurrencies` reads `{ total: 1, android: 1, ios: 1 }`), and the
+low-priority queue that comes with it is what actually sets the wait. Expo
+documents "wait times of 90+ minutes" on it at busy times. Three facts decide how
+to schedule work, and none of them is guessable from the CLI:
+
+- **EAS Submit runs on Linux, not on the platform being submitted to.** The
+  `JobRun` behind an *iOS* TestFlight submission reports
+  `resourceClassDisplayName: "Linux Medium"`. A submission therefore competes with
+  Android builds for the same workers, and a TestFlight upload is in no way
+  insulated from Android contention.
+- **iOS builds are the exception** — they run on macOS hosts, a separate pool.
+  Every iOS build of this project got a worker in **0.4 min**, on every day
+  sampled, including while Android was starved.
+- **A submission consumes the single slot exactly like a build does.** On
+  2026-09-02 an iOS submission sat `IN_QUEUE` for 2 h 51 purely because an Android
+  build held the slot ahead of it. Cancelling the build released the slot — and
+  changed nothing, because the Linux pool was the binding constraint, not the slot.
+
+Wait before a worker was assigned, by time of enqueue in **US Pacific** (where the
+demand is):
+
+| Enqueued (PT) | Job | Wait |
+|---|---|---|
+| 01:26 | Android build | 0.2 min |
+| 02:49 | iOS submission | 4.9 min end to end |
+| 03:46 | Android build | 5.3 min |
+| 09:21 | Android build | 25.6 min |
+| 11:55 | Android build | 15.3 min |
+| 10:13 | Android build | **never served in 5 h 50, cancelled** |
+| 14:16 | iOS submission | still queued after 12 min |
+
+**Practical rule: queue anything that needs Linux — an Android build, or a
+submission to either store — during the European morning, which is the US night.**
+Between 01:00 and 04:00 PT the same jobs were served in 0.2 to 5.3 minutes.
+
+**A queued job is not lost and does not need babysitting.** `JobRun.expiresAt`
+sits 30 days out, so a job left `IN_QUEUE` will run when capacity returns.
+Cancelling and re-submitting buys nothing: a fresh submission queued at 14:16 PT
+behaved exactly like the one it replaced.
+
+Other Free-plan ceilings worth knowing: a **45-minute build timeout**
+(`maxRunTimeSeconds: 2700`) and **15 Android + 15 iOS builds per month**. Usage on
+2026-09-02 for the 2026-09-01 → 2026-10-01 period was 5/15 Android and 2/15 iOS,
+so the quota has never been the constraint here. The paid escape is **Starter at
+$19/month**, which buys the high-priority queue while still granting a single
+concurrency; **Production at $199/month** is the first tier with 2 concurrencies,
+and therefore the first that stops serialising a build against a submission.
 
 ### EAS Build Dashboard
 
