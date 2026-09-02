@@ -1119,6 +1119,78 @@ faite :
    `GET /v2/projects/proj879a771a/entitlements/<id>/products` et
    `GET /v2/projects/proj879a771a/packages/<id>/products`. Reste **uniquement du
    travail owner**, dans cet ordre :
+   0. **Le contrat relatif aux applications payantes est signé — `Actif` depuis le
+      2026-09-02**, avec le compte bancaire `Actif` et les deux formulaires fiscaux
+      envoyés le même jour (« U.S. Certificate of Foreign Status of Beneficial Owner »
+      et « U.S. Form W-8BEN », tous deux `Actif`). Cette étape n'est plus bloquante ;
+      le reste du point 0 documente la séquence traversée, parce qu'aucun de ces écrans
+      ne se rejoue et que plusieurs portent des échéances.
+
+      L'état de départ, relevé le matin du 2026-09-02 dans **App Store Connect →
+      Business → Contrats** : « Contrat relatif aux applications **gratuites** » =
+      **Actif** (1 sept. 2026 – 1 juin 2027), « Contrat relatif aux applications
+      **payantes** » = **Nouveau**. Rien de payant n'est vendable avant qu'il soit
+      `Actif`, et **une app à téléchargement gratuit qui vend des abonnements relève du
+      contrat payant** : le critère d'Apple est la circulation d'argent, pas le prix du
+      téléchargement. C'est le contrat gratuit, seul actif, qui a suffi pour la
+      distribution TestFlight du 2026-09-02 — il n'aurait suffi pour aucun abonnement.
+      Deux bandeaux d'Apple sur cette page portaient la séquence :
+      - bandeau bleu → lien **« Modifier l'entité juridique »** : les informations
+        d'entité juridique doivent être complètes *avant* la signature. Prérequis du
+        prérequis. Dans cette boîte de dialogue, **Nom**, **Type** (`Particulier`) et
+        **Pays ou région** sont grisés — ils viennent de l'inscription au Developer
+        Program et seul le support Apple les change ; seuls adresse / ville / code
+        postal sont éditables, et c'est suffisant : un particulier peut signer le
+        contrat payant. Enregistrer la fiche même sans la modifier est ce qui la
+        commet, la fiche datant de l'inscription n'ayant jamais traversé ce
+        formulaire. Bandeau toujours présent après enregistrement ⇒ support Apple
+        Developer, rien à forcer depuis l'interface.
+      - puis signer, et compléter informations fiscales et bancaires dans la même
+        section **Business**. Le volet fiscal est le formulaire **« U.S. Certificate
+        of Foreign Status of Beneficial Owner »** (équivalent W-8BEN, évite la retenue
+        à la source américaine de 30 %), rattaché au contrat *Apps payantes* : nom,
+        pays, `Individual/Sole proprietor`, résidence permanente et adresse postale
+        sont préremplis depuis l'entité juridique ; le seul champ à saisir est
+        **`Title`** = la qualité du signataire, `Owner` pour un développeur
+        individuel. **Envoyer est irréversible** (« vous ne pourrez plus apporter de
+        modifications à ce formulaire ») — une erreur se corrige au support Apple.
+        Le « Pseudo du formulaire fiscal » est une étiquette privée, facultative.
+        L'adresse de ce formulaire n'est pas publique : elle va à Apple et au fisc,
+        pas sur la fiche App Store. Dans sa *Part II*, la **ligne 10 (« Special rates
+        and conditions ») reste vide** — les instructions IRS la réservent aux
+        avantages conventionnels exigeant des conditions que la ligne 9 ne couvre
+        pas ; la ligne 9 (résidence fiscale française au sens de la convention
+        France–États-Unis) suffit à ramener la retenue à 0 % sur les revenus de vente
+        d'apps. La *Part III* demande deux cases : la déclaration sous peine de
+        parjure, et `I certify that I have the capacity to sign` — cette dernière fait
+        partie du bloc signature standard du W-8BEN depuis la révision 2021 et se
+        coche même quand on signe pour soi-même.
+      - **Échéances portées par le W-8BEN signé le 2026-09-02**, à ne pas
+        redécouvrir quand Apple suspendra les versements : validité de trois années
+        civiles, donc **expiration le 2029-12-31** avec renouvellement à faire avant ;
+        et obligation de redéposer un formulaire **sous 30 jours** si une
+        certification devient inexacte — un changement d'adresse, ou le passage de
+        l'activité d'un particulier à une société.
+      - bandeau rouge → lien **« Compléter les exigences de conformité »** : statut de
+        commerçant (DSA). Indépendant du contrat, mais bloquant pour la disponibilité
+        dans l'UE. La boîte de dialogue « Conformité à la législation sur les services
+        numériques » offre deux réponses, et **c'est « J'ai le statut de commerçant »**
+        qu'il faut prendre : le critère du DSA est l'activité commerciale, pas le prix
+        du téléchargement. La seconde réponse n'est pas une échappatoire mais un
+        retrait — Apple ne distribue pas dans l'UE les apps d'un développeur déclaré
+        non-commerçant.
+        **Les coordonnées de commerçant (adresse, téléphone, e-mail) sont publiées par
+        Apple sur la fiche App Store**, et Apple vérifie le téléphone et l'e-mail par
+        code : les deux doivent être opérationnels au moment du formulaire. Ce sont
+        bien les coordonnées **de ce formulaire** qui sont publiées, pas l'adresse de
+        l'entité juridique ci-dessus (celle-là sert au contrat et aux paiements, et
+        doit rester l'adresse réelle). Contrairement au W-8BEN, **ces coordonnées
+        restent modifiables** — Apple relance simplement la vérification — donc une
+        domiciliation ne bloque pas le lancement ; mais modifiable n'est pas
+        effaçable, une adresse personnelle publiée quelques mois aura été aspirée.
+        L'e-mail publié doit être une adresse dédiée du domaine, pas une boîte
+        personnelle, et c'est la même que celle de la fiche App Store et de la
+        politique de confidentialité.
    1. **App Store Connect → Apps → Abonnements** : créer un groupe d'abonnements
       (un seul groupe pour les trois : c'est ce qui rend upgrade/downgrade
       possible sans double facturation), puis les trois abonnements mensuels avec
@@ -1135,8 +1207,60 @@ faite :
       `pricing_config_service`). Ajouter une Introductory Offer dans ASC le
       doublerait — un mois gratuit *facturé* Apple en plus du mois gratuit
       applicatif.
-   3. **Screenshot de review + localisation** par abonnement, sinon il reste en
-      `Missing Metadata` et RevenueCat ne pourra pas le valider.
+   3. **Screenshot de review + localisation** par abonnement. Ce que ça bloque
+      exactement, vérifié dans la référence App Store Connect le 2026-09-02 : la
+      **soumission à la revue**, rien d'autre. Sous `Prepare for Submission`, Apple
+      écrit « If your In-App Purchase is missing required metadata, complete it before
+      adding for review » — donc ni l'import RevenueCat ni la résolution StoreKit en
+      sandbox n'en dépendent, contrairement à ce que ce point affirmait. La capture
+      est « used for review only and isn't displayed on the App Store », et **une fois
+      déposée elle est remplaçable mais pas supprimable**. Apple ne donne pas de
+      dimension propre, il renvoie aux specs de captures d'app ; le 640 × 920 vient de
+      RevenueCat, qui autorise même un placeholder — « While testing, it's okay to
+      upload an empty 640 x 920 image here of whatever you want ». Aucune poule et
+      aucun œuf, donc : `mobile/app/paywall.tsx` affiche les trois cartes depuis
+      `GET /api/pricing` même quand le store ne résout rien (prix, sélection et bouton
+      d'achat éteints), donc une capture prise avant la création des produits est déjà
+      valable, et se remplace par une capture avec les prix avant la soumission.
+      Compter **jusqu'à 1 h** entre l'écriture des métadonnées et leur apparition en
+      sandbox (« It may take up to 1 hour… »).
+
+      **La section `Langue`, elle, est obligatoire** — Apple : « You must include these
+      properties for at least one language » — et contrairement au screenshot ces deux
+      chaînes sont vues par le client (feuille d'achat, Réglages → Abonnements). Pas
+      d'option « s'adapte automatiquement » : Apple sert la localisation correspondant à
+      la langue App Store de l'utilisateur et retombe sur la **langue principale de
+      l'app** (App Information — la garder sur `Anglais (É.-U.)`), donc le jeu fourni
+      *est* la portée. Les 11 locales de `mobile/app.config.ts` sont rédigées prêtes à
+      coller dans `docs/store-listing/app-store-connect.md`, § « Localizations — all
+      eleven locales », mot pour mot depuis les fichiers de langue de l'app. Trois
+      pièges : **13 entrées ASC et non 11** (Apple n'a pas d'espagnol ni de portugais
+      génériques — prendre les deux variantes de chaque avec la même chaîne, sinon les
+      storefronts latino-américains retombent en anglais) ; l'espagnol Audio-Heavy fait
+      **exactement 45 caractères**, avec un repli à 40 noté dans le doc si ASC le
+      refuse ; et le display name reste `Reader` / `Mix` / `Audio-Heavy` partout, un nom
+      de produit ne se traduit pas.
+
+      Ces descriptions **divergent volontairement de l'app** : `plan.card.allowance`
+      annonce encore « {duration} of audio and video », ce qui cachait que les articles,
+      pages web, TikToks et posts photo Instagram sont gratuits et illimités, et
+      omettait que les PDF et les photos consomment le même budget de minutes. La fiche
+      store porte les deux moitiés ; aligner les 11 fichiers de langue de l'app est le
+      travail de `task-337` (agent, pas owner) et ne bloque pas la soumission.
+
+      Deux contraintes Apple relevées au même endroit :
+      - **Les trois abonnements ne peuvent pas être revus seuls** : « Your first
+        auto-renewable subscription must be submitted with a new app version. Your
+        first subscription group must also be submitted with a new app version and
+        must include an auto-renewable subscription in the same submission. » Ils
+        partent dans la même soumission que la 1.0.
+      - **En TestFlight le renouvellement est accéléré** : un `RENEWAL` par jour,
+        6 au maximum sur une semaine, quelle que soit la durée réelle. Excellent pour
+        vérifier la boucle `revenucat_events-dev` → `subscriptions-dev`, mais un
+        abonnement de test s'éteint au bout de 6 jours.
+      - Le classement des niveaux se fait par le bouton **`Edit Order`** sur la page
+        du groupe, « from the one that offers the most (level 1) to the one that
+        offers the least » — Audio-Heavy en 1.
    4. **App Store Connect → Users and Access → Integrations → App Store Connect
       API** : la clé Admin **existe depuis le 2026-09-01** et est déjà enregistrée
       auprès d'EAS Submit (cf. `mobile/MOBILE_CI_CD.md` § 4) — ne pas en générer une
