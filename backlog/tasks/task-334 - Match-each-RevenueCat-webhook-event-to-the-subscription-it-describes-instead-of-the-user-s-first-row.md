@@ -131,13 +131,107 @@ The two rows currently in `subscriptions-dev` for users `07055fd9` and `039ea8cf
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No handler in revenucat_webhook.py selects a subscription by taking the first row of the user: each one matches the row the event describes on the store and the product, and _handle_initial_purchase no longer uses a predicate that is true for every row of that user
-- [ ] #2 An event whose store and product match no row of the user logs at ERROR under a named event, with the event type, the app user id, the product and the store, instead of returning silently — and that event has a metric filter next to revenucat.tier_unresolved in infrastructure/terraform/modules/platform/revenucat_alerts.tf
-- [ ] #3 A purchase on one store can no longer overwrite the row of another store: a user holding an iOS row and buying on Android ends with two rows, each carrying its own platform, product, tier and period
-- [ ] #4 The update branch of _handle_initial_purchase preserves the row's original created_at instead of letting the model default it to now
-- [ ] #5 _handle_renewal assigns the tier it resolves to the matched row, so the deferred tier change that _handle_product_change documents actually lands on the following renewal
-- [ ] #6 The final state of a subscription is identical whether CANCELLATION arrives before or after EXPIRATION: CANCELLATION records cancel_at_period_end and auto_renew_status on the matched row even when it is already expired, and never moves an expired row back to canceled
-- [ ] #7 quota_enforcer._active_subscription returns a deterministic row when the user has several entitled ones — the one whose tier carries the larger allowance in the pricing config, never a ranking hardcoded in the code — rather than whichever the scan yields first, and its docstring says so
-- [ ] #8 aws logs test-metric-filter against the real CloudWatch confirms the unmatched-event log line matches the pattern declared for it in revenucat_alerts.tf, and terraform validate passes on the platform module
-- [ ] #9 ruff check . and mypy media_summarizer are clean
+- [x] #1 No handler in revenucat_webhook.py selects a subscription by taking the first row of the user: each one matches the row the event describes on the store and the product, and _handle_initial_purchase no longer uses a predicate that is true for every row of that user
+- [x] #2 An event whose store and product match no row of the user logs at ERROR under a named event, with the event type, the app user id, the product and the store, instead of returning silently — and that event has a metric filter next to revenucat.tier_unresolved in infrastructure/terraform/modules/platform/revenucat_alerts.tf
+- [x] #3 A purchase on one store can no longer overwrite the row of another store: a user holding an iOS row and buying on Android ends with two rows, each carrying its own platform, product, tier and period
+- [x] #4 The update branch of _handle_initial_purchase preserves the row's original created_at instead of letting the model default it to now
+- [x] #5 _handle_renewal assigns the tier it resolves to the matched row, so the deferred tier change that _handle_product_change documents actually lands on the following renewal
+- [x] #6 The final state of a subscription is identical whether CANCELLATION arrives before or after EXPIRATION: CANCELLATION records cancel_at_period_end and auto_renew_status on the matched row even when it is already expired, and never moves an expired row back to canceled
+- [x] #7 quota_enforcer._active_subscription returns a deterministic row when the user has several entitled ones — the one whose tier carries the larger allowance in the pricing config, never a ranking hardcoded in the code — rather than whichever the scan yields first, and its docstring says so
+- [x] #8 aws logs test-metric-filter against the real CloudWatch confirms the unmatched-event log line matches the pattern declared for it in revenucat_alerts.tf, and terraform validate passes on the platform module
+- [x] #9 ruff check . and mypy media_summarizer are clean
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### One matching rule, three keys, no "first row"
+
+Every handler now starts by reading an `_EventSubject` (event type, app user id,
+store, mapped platform, the product the row should carry, the outgoing product,
+the store's subscription identifier) and resolves the row through a single
+`_match_subscription()`. Keys are tried sharpest first:
+
+1. `original_transaction_id` when the event and the row both carry one;
+2. the `(platform, product)` pair;
+3. the *outgoing* `product_id`, only ever populated for `PRODUCT_CHANGE`.
+
+`transaction_id` is deliberately not a key: it changes on every renewal, so it
+names a payment and not a subscription. Should two rows answer the same key — a
+duplicate from before this change — the most recently written one wins
+(`_freshness`, on `updated_at.timestamp()` then the row id), so the DynamoDB scan
+order decides nothing anywhere in this module.
+
+The platform is compared as the row stores it, which makes the rule self-consistent
+for a store `_get_platform` maps to nothing (RevenueCat's Test Store, Stripe): the
+rows written from that store carry `platform: null` and match each other, never the
+rows of a store we do map.
+
+### A new field, populated going forward, no backfill
+
+`Subscription.revenucat_store_subscription_id` holds RevenueCat's
+`original_transaction_id`. It is refreshed from every event that carries one,
+because Google Play issues a new purchase token when a subscription is replaced —
+the row keeps naming the subscription the store is currently billing. Rows written
+before the field existed carry none and simply fall through to key 2, so nothing
+needs a migration; the three rows in `subscriptions-dev` were left in place
+(disposable test data, and they gate nothing).
+
+### Order independence, stated per event
+
+- `CANCELLATION` writes `cancel_at_period_end` and `auto_renew_status`
+  unconditionally and only guards `status`: an `expired` row keeps that status.
+- `EXPIRATION` never touches `cancel_at_period_end` — that is CANCELLATION's
+  field, and leaving it alone is the other half of why the two commute.
+- Both orders therefore land on `expired / cancel_at_period_end: true /
+  auto_renew_status: false`, which is what the two runs of 2026-09-01 disagreed on.
+- `RENEWAL` is the only event allowed to bring a row back from `expired`: it is
+  the only one that means money moved for a new period. `PRODUCT_CHANGE` and
+  `BILLING_ISSUE_DETECTED` explicitly do not resurrect a row.
+
+`RENEWAL` also *assigns* the tier it resolves (previously only logged), which is
+what makes the deferred downgrade documented by `_handle_product_change` actually
+land. An unresolvable tier still extends the period and leaves the tier alone.
+
+Incidental cleanup: the four hand-rolled copies of "ISO string, else `_ms` epoch"
+collapsed into `_event_datetime()`.
+
+### `_active_subscription` compares allowances, it does not rank tiers
+
+`quota_enforcer._active_subscription(user_id, tiers)` now collects *every* entitled
+row and returns the one whose tier carries the larger allowance in the pricing
+config — `minutes_per_month`, then `max_minutes_per_item`, then the period ending
+last, then the row id so the order is total. The `tiers` mapping is passed in by
+`get_entitlement_snapshot`, which already had it, so this costs no extra read; the
+allowance lookup only runs when the user has more than one entitled row. A tier the
+config no longer describes scores `(0, 0)` and loses, rather than borrowing a
+neighbour's figures. No fourth tier-by-name map was added: the only existing one it
+reuses is `SUBSCRIPTION_TIER_TO_CONFIG`, and `ENTITLEMENT_TIER_MAP`, `_TIER_RANK`
+and the `SubscriptionTier` enum are untouched as the task requires.
+
+### Verification actually run
+
+- `aws logs test-metric-filter --region eu-west-3` against the real CloudWatch,
+  with a `revenucat.subscription_unmatched` line produced by the repo's own
+  `JsonFormatter`: **1 match** for the pattern declared in `revenucat_alerts.tf`.
+  The same line with `event` swapped to `revenucat.tier_unresolved` returns **0
+  matches**, so the two filters cannot double-count each other.
+- `terraform init -backend=false` + `terraform validate` in
+  `infrastructure/terraform/envs/dev` (which instantiates the platform module):
+  `Success! The configuration is valid.`
+- `ruff check .` and `mypy media_summarizer` clean (179 files).
+- `subscriptions-dev` read back to confirm the defect the task describes: the two
+  Android rows differ only on `cancel_at_period_end` (`07055fd9` true, `039ea8cf`
+  false) for the same lifecycle, and the iOS row of `4cd1abcb` is `active` with
+  `current_period_end` in 2029.
+
+No automated test was written (project rule), and no AC asked for one.
+
+### Not verifiable from a worktree
+
+The behaviour under real webhook traffic needs the Lambda image rebuilt, which
+happens on push to `main`. The owner-facing check is in the task description: on
+the next license-tester lifecycle, confirm the row carries the **new** tier after
+the renewal that follows a tier change, and that the final row is identical
+whichever of `CANCELLATION` / `EXPIRATION` lands first.
+<!-- SECTION:NOTES:END -->
