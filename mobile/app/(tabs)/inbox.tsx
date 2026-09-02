@@ -43,6 +43,7 @@ import {
   Shadows,
   TouchTarget,
 } from "../../src/constants/theme";
+import { HOME_BLOCK_GAP } from "../../src/constants/homeRhythm";
 import type { MediaListItem, MediaType } from "../../src/types/media";
 import type { RecentEngagement } from "../../src/types/engagements";
 import type { Collection } from "../../src/types/organization";
@@ -253,9 +254,10 @@ export default function InboxScreen() {
         {/* Both read the entitlement state themselves and render nothing until
             they have something true to say — the trial notice while a trial is
             running, the minutes warning once the allowance is nearly spent. They
-            stack in that order and each carries its own top margin, so a trial
-            user who is also low on minutes sees both, neither displacing the
-            other. */}
+            stack in that order and, like every block below them, each carries the
+            screen's one inter-block gap above itself and nothing below, so a
+            trial user who is also low on minutes sees both, neither displacing
+            the other, and an absent one costs the column nothing. */}
         <FreeTrialNotice />
         <MinutesWarningBanner />
 
@@ -563,9 +565,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   scrollContent: {
-    // Breathing room under the safe area, previously carried by the greeting
-    // header that used to sit here.
-    paddingTop: Spacing.md,
+    // No top padding on purpose: whichever block comes first carries the gap
+    // under the safe area itself, through the same `HOME_BLOCK_GAP` as every
+    // other. Padding here would stack on top of it and make the head of the
+    // screen the one place with a different rhythm — which is what it was, at 32
+    // above the trial pill against 16 below it.
     // Room for the floating buttons so they never cover the last row.
     paddingBottom: TouchTarget.large + Spacing.xl,
   },
@@ -616,8 +620,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: Colors.surface,
     marginHorizontal: Spacing.md,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.lg,
+    // Its share of the column's rhythm, above only — see `HOME_BLOCK_GAP`.
+    marginTop: HOME_BLOCK_GAP,
     padding: Spacing.md + 4,
     borderRadius: BorderRadius.xl,
     borderWidth: StyleSheet.hairlineWidth,
@@ -666,7 +670,12 @@ const styles = StyleSheet.create({
 
   // Rows
   section: {
-    marginBottom: Spacing.lg,
+    // Same gap as every other block, and on the same side of it, so the space
+    // between the review card and the first heading and the space between the
+    // first row and the second heading are one value. The row's own height no
+    // longer varies with the kinds of tile it holds (`TILE_HEIGHT`), so this is
+    // now the whole of what separates two rows.
+    marginTop: HOME_BLOCK_GAP,
   },
   sectionHeaderRow: {
     flexDirection: "row",

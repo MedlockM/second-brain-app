@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Colors, Typography, Spacing, BorderRadius } from "../constants/theme";
+import { HOME_BLOCK_GAP } from "../constants/homeRhythm";
 import { usePurchases } from "../contexts/PurchasesContext";
 import { getDaysUntil } from "../lib/subscriptionDisplay";
 import { t, tCount } from "../i18n";
@@ -65,9 +66,15 @@ const styles = StyleSheet.create({
   // The pill sizes to its text and the row centres it, so the notice reads as a
   // small badge rather than a full-width banner — the minutes warning below it
   // is the full-width one, and the two must not look like the same alert.
+  //
+  // It is usually the first block of the Home column, and it takes the same gap
+  // above itself as any other one (`HOME_BLOCK_GAP`) and none below: the block
+  // under it declares that side. It used to declare 16 above while the scroll
+  // content added 16 of its own, so the pill sat 32 from the top and 16 from
+  // whatever came next — cramped against the thing below it.
   row: {
     alignItems: "center",
-    marginTop: Spacing.md,
+    marginTop: HOME_BLOCK_GAP,
     paddingHorizontal: Spacing.md,
   },
   pill: {

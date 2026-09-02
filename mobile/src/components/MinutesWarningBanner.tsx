@@ -9,6 +9,7 @@ import {
   BorderRadius,
   TouchTarget,
 } from "../constants/theme";
+import { HOME_BLOCK_GAP } from "../constants/homeRhythm";
 import { usePurchases } from "../contexts/PurchasesContext";
 import { formatResetDate, getUsageRatio } from "../lib/subscriptionDisplay";
 import { UsageWarningDismissal } from "../lib/usageWarningDismissal";
@@ -128,7 +129,10 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: Spacing.sm,
     marginHorizontal: Spacing.md,
-    marginTop: Spacing.md,
+    // The Home column's one inter-block gap, above only (`HOME_BLOCK_GAP`), so
+    // the banner reads the same distance from the trial pill above it as from the
+    // card below it, and costs the column nothing when dismissed.
+    marginTop: HOME_BLOCK_GAP,
     paddingVertical: Spacing.sm,
     paddingStart: Spacing.md,
     paddingEnd: Spacing.xs,
