@@ -3,7 +3,8 @@ id: task-332
 title: >-
   Fix the Home screen vertical rhythm: unequal gaps between sections and a
   cramped free-trial pill
-status: To Do
+status: Done
+updated_date: '2026-09-02 10:48'
 assignee: []
 created_date: '2026-09-01 17:11'
 labels:

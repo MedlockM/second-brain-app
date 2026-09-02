@@ -3,7 +3,8 @@ id: task-331
 title: >-
   Raise the Android tab bar above the system navigation bar: the OS buttons
   overlap the four tabs
-status: To Do
+status: Done
+updated_date: '2026-09-02 10:48'
 assignee: []
 created_date: '2026-09-01 17:11'
 labels:

@@ -1,7 +1,8 @@
 ---
 id: task-333
 title: Consolidate the two LLM failure classifiers into one parse with two axes
-status: To Do
+status: Done
+updated_date: '2026-09-02 10:48'
 assignee: []
 created_date: '2026-09-01 19:35'
 labels:

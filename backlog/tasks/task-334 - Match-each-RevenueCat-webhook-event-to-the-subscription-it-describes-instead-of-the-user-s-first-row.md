@@ -3,7 +3,8 @@ id: task-334
 title: >-
   Match each RevenueCat webhook event to the subscription it describes, instead
   of the user's first row
-status: To Do
+status: Done
+updated_date: '2026-09-02 10:48'
 assignee: []
 created_date: '2026-09-02 07:29'
 labels:
