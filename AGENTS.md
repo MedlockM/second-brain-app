@@ -56,8 +56,9 @@ Read `README.md` for project overview and V1 scope. Read `docs/CANONICAL_MEDIA_A
 
 ## Shipping an Android build to the internal testers
 
-GitHub Actions cannot do it yet (`EXPO_TOKEN` secret still missing), so when a new binary must
-reach the testers, run from `mobile/`:
+`EXPO_TOKEN` was set on 2026-09-02, so `Mobile Build & Distribute` is no longer blocked — but it has
+never yet completed a green run, so do not assume the Actions path works. The local command below
+stays the reference way to get a binary to the testers. Run it from `mobile/`:
 
 ```
 eas build --platform android --profile internal --auto-submit --non-interactive

@@ -36,15 +36,16 @@ Configure these in GitHub repository Settings > Secrets and variables > Actions:
 
 ### Secrets (required)
 
-**`EXPO_TOKEN` is the only one, and it is still not provisioned — re-verified
-2026-09-02** (`gh secret list` returns only `AWS_DEPLOY_ROLE_ARN` and the five
-`E2E_*` secrets), so this workflow cannot build or submit anything today. Until it
-is set, drive builds from your machine — see
-[Running Builds From Your Machine](#running-builds-from-your-machine).
+**`EXPO_TOKEN` is the only one, and it was provisioned on 2026-09-02** at
+`17:13:47Z` — verified with `gh secret list`, which now returns seven secrets.
+The last blocker on this workflow is therefore lifted for `eas build`. It has not
+been exercised through Actions yet: every `Mobile Build & Distribute` run on
+record is a `failure` from 2026-08-13 or earlier, all of them push-triggered
+under the old trigger contract and all of them dead on authentication.
 
-| Secret | Description | How to obtain |
-|--------|-------------|---------------|
-| `EXPO_TOKEN` | Expo access token for EAS CLI authentication. Builds fail fast until it is set | Step by step in [Owner prerequisite](#owner-prerequisite-expo_token) — in short, <https://expo.dev/settings/access-tokens> then `gh secret set EXPO_TOKEN` |
+| Secret | Description | Status |
+|--------|-------------|--------|
+| `EXPO_TOKEN` | Expo access token for EAS CLI authentication. Both build jobs assert it in their first step | **Set 2026-09-02.** Rotation procedure in [Owner prerequisite](#owner-prerequisite-expo_token) |
 
 Four secrets that used to be listed here are gone, none of them replaced:
 
@@ -816,11 +817,15 @@ this workflow — pushing to the Play `production` track stays a manual act.
 ### Owner prerequisite: `EXPO_TOKEN`
 
 Every `eas` invocation in both mobile workflows authenticates with the
-`EXPO_TOKEN` repository secret. **Still not provisioned — re-verified 2026-09-02**
-with `gh secret list`, which returns six secrets (`AWS_DEPLOY_ROLE_ARN` and the
-five `E2E_*`) and nothing Expo-related. Without it, `eas build --non-interactive`
-dies immediately with `An Expo user account is required to proceed`, so no build
-or submission can succeed regardless of the trigger.
+`EXPO_TOKEN` repository secret. Without it, `eas build --non-interactive` dies
+immediately with `An Expo user account is required to proceed`, so no build or
+submission can succeed regardless of the trigger.
+
+**Provisioned 2026-09-02 at `17:13:47Z`** (`gh secret list`). What remains is
+proving it end to end: the guard passing is not the same as `eas build`
+authenticating, since the guard only checks that the string is non-empty. A
+revoked or mistyped token clears the guard and dies later inside `eas build` with
+`An Expo user account is required to proceed`.
 
 Both build jobs start with a `Require EXPO_TOKEN` step that fails the run in a
 couple of seconds with an explicit error message, before Node, `npm ci` or the
@@ -828,7 +833,7 @@ EAS CLI are installed.
 
 The project is `@second-brain-labs/media-summarizer`
 (`fad6e877-590d-4143-bbaa-fdd013b01c43`), owned by the account
-`second-brain-labs`. To provision the secret:
+`second-brain-labs`. To create or rotate the secret:
 
 1. On <https://expo.dev>, open the avatar menu (top right) → **Settings** →
    **Access tokens** — direct URL <https://expo.dev/settings/access-tokens>.
@@ -854,9 +859,9 @@ Never commit the token value; the workflows only ever reference it as
 `secrets.EXPO_TOKEN`. **This repository is public**, so a token pasted into a
 tracked file is a public leak the moment it is pushed.
 
-Once the secret exists, the first thing to run is a deliberately harmless manual
-dispatch — `Actions` → `Mobile Build & Distribute` → `Run workflow`, keeping the
-defaults (`platform: all`, `profile: preview`, `submit: false`). That exercises
+**First run after setting it** — a deliberately harmless manual dispatch:
+`Actions` → `Mobile Build & Distribute` → `Run workflow`, keeping the defaults
+(`platform: all`, `profile: preview`, `submit: false`). That exercises
 authentication and the build path without spending a store submission. Note that
 `EXPO_TOKEN` only unblocks `eas build`; `eas submit` additionally needs the App
 Store Connect API key and the Google Play service account, which live on EAS's

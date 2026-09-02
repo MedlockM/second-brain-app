@@ -63,10 +63,13 @@
   aucun required check ni required review, `rulesets` toujours `[]`), et tout
   identifiant écrit dans un fichier suivi est désormais public (d'où `task-255`
   et `de3ac86`).
-- **Mobile inchangé et redevenu le chemin critique** : aucune build EAS Android
-  n'existe, la build iOS du 2026-06-11 a expiré, `Mobile Build & Distribute` est
-  rouge faute d'`EXPO_TOKEN`. `task-163` ACs #6-#8, `task-164` et `task-165`
-  restent ouverts.
+- **Mobile : le chemin critique s'est largement dégagé depuis** (état au
+  2026-09-02). Les AAB Android et l'ipa store existent, `task-163` est `Done`, et
+  `EXPO_TOKEN` est posé depuis le 2026-09-02T17:13:47Z — `Mobile Build &
+  Distribute` n'a plus de cause d'échec connue, mais **n'a encore jamais tourné
+  vert** : tous ses runs au registre sont des `failure` du 2026-08-13 ou avant,
+  déclenchés par push sous l'ancien contrat et morts à l'authentification.
+  `task-164` et `task-165` restent ouverts (validations device).
 - **Production release** : `docs/RELEASE_LOG.md` reste la source de vérité :
   v1.0.0 `Pre-release`, aucun tag (`git tag -l` vide), aucun build production,
   aucune soumission.
@@ -127,12 +130,13 @@ bloquant au moins bloquant :
    tranché puis API/privacy/terms réellement hébergés, listings et review accounts.
    **Les screenshots devront montrer l'UI d'après `task-306`/`307`**, pas l'Inbox
    verticale d'avant le 2026-08-21.
-6. **Hygiène, rapide** — pousser les commits locaux (cf. § « État de vérité »,
-   dont 10 touchent le backend), puis renseigner
-   `EXPO_TOKEN` (dernier reste de `task-258`). Le reste de cette ligne est fait :
-   les 5 fichiers `uv.lock` du worktree sont commités (`c05df88`), la branch
-   protection est configurée (`task-257`), le workflow de build mobile est
-   désarmé (`task-258`) et les comptes E2E résiduels sont purgés (`task-259`).
+6. **Hygiène, rapide** — il ne reste qu'une chose : **pousser les commits locaux**
+   (cf. § « État de vérité », dont 10 touchent le backend). Tout le reste de
+   cette ligne est fait : `EXPO_TOKEN` est posé depuis le 2026-09-02T17:13:47Z
+   (dernier reste de `task-258`), les 5 fichiers `uv.lock` du worktree sont
+   commités (`c05df88`), la branch protection est configurée (`task-257`), le
+   workflow de build mobile est désarmé (`task-258`) et les comptes E2E
+   résiduels sont purgés (`task-259`).
 
 ---
 
@@ -255,7 +259,7 @@ un staging ou une soumission.
 
 | Service | Coût | Pourquoi | Statut |
 |---|---|---|---|
-| **GitHub** (compte + repo **public** depuis le 2026-08-13) | gratuit | Versioning, CI/CD, releases | Bon : source synchronisée, `Main Branch Checks` et `Deploy Lambda Functions` verts sur le HEAD, environnement `production` créé (branche `main` seule autorisée). Six secrets Actions (`AWS_DEPLOY_ROLE_ARN` + les cinq E2E). Manquent `EXPO_TOKEN`, Apple/App Store Connect et le service account Google Play. Branch protection **configurée** sur `main` depuis le 2026-08-13 (`task-257`, régime léger : force-push et suppression refusés, aucun required check) |
+| **GitHub** (compte + repo **public** depuis le 2026-08-13) | gratuit | Versioning, CI/CD, releases | Bon : source synchronisée, `Main Branch Checks` et `Deploy Lambda Functions` verts sur le HEAD, environnement `production` créé (branche `main` seule autorisée). **Sept secrets Actions** (`AWS_DEPLOY_ROLE_ARN`, les cinq E2E, et `EXPO_TOKEN` depuis le 2026-09-02T17:13:47Z) — plus rien ne manque côté GitHub, la clé App Store Connect et le service account Google Play vivant côté EAS. Branch protection **configurée** sur `main` depuis le 2026-08-13 (`task-257`, régime léger : force-push et suppression refusés, aucun required check) |
 | **AWS** (2 comptes, Organizations `o-7sf5u7j5hd`) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | Bon : dev dans `125313707865` (déployé sur le HEAD), prod dans `866874944541` (199 ressources, health `200`, **en veille** et secret vide). Aucune alarme active — par conception dans les deux environnements, pas par défaut de provisioning |
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; 4 des 7 portes d'éligibilité franchies au 2026-09-01 (appareil Android physique ✅, numéro de téléphone de contact ✅, identité ✅ aucune action due ni échéance, enregistrement du nom de package ✅ — fait par le premier upload d'AAB via Play App Signing, bien avant l'échéance du 2026-09-30). **App Play créée le 2026-08-31** (`com.secondbrainlabs.core`, déclarée *Sans frais*, le nom de package étant le seul champ définitif du formulaire) et **premier AAB uploadé sur la piste de test interne le 2026-09-01**. **Compte marchand créé le 2026-08-31**, IBAN déposé le même jour, **compte bancaire validé par micro-dépôt et passé en `Principal` le 2026-09-01**. **Informations fiscales : W-8BEN approuvé le 2026-09-01** (0 % sur les royalties de droits d'auteur au titre de l'article 12 §1 de la convention France–États-Unis, attestation d'absence d'activité aux États-Unis enregistrée, valide jusqu'au 31 décembre 2029). **Compte marchand donc complet sur ses trois volets.** Restent ouvertes : adresse publique, closed testing (12 testeurs / 14 jours continus + review ≤7 jours = ~21 jours de plancher calendaire) — runbook `task-260`, détail en Phase 2.2 |
@@ -500,13 +504,15 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
      corrigées, `rules` remises en `error` ;
    - l'interpréteur du venv local est réparé, donc Mypy est rejouable en local
      autant qu'en CI.
-5. **GitHub Actions secrets** : six configurés — `AWS_DEPLOY_ROLE_ARN`,
+5. **GitHub Actions secrets** : **sept configurés** — `AWS_DEPLOY_ROLE_ARN`,
    `E2E_TEST_USER_EMAIL`, `E2E_TEST_USER_PASSWORD`, `E2E_SEARCH_TEST_TERM`,
-   `E2E_REVENUECAT_TEST_KEY`, `E2E_REVENUECAT_APPLE_KEY`. Manquent toujours
-   `EXPO_TOKEN` (c'est ce qui fait échouer `Mobile Build & Distribute`),
-   Apple/App Store Connect et le service account Google Play. Un environnement
-   GitHub `production` existe (créé par `task-248`), restreint à `main`, avec son
-   propre `AWS_DEPLOY_ROLE_ARN`.
+   `E2E_REVENUECAT_TEST_KEY`, `E2E_REVENUECAT_APPLE_KEY`, et **`EXPO_TOKEN`
+   depuis le 2026-09-02T17:13:47Z** — ce dernier était la cause des échecs de
+   `Mobile Build & Distribute`. Aucun autre secret n'est attendu ici : la clé App
+   Store Connect et le service account Google Play vivent côté EAS
+   (`eas credentials`), pas dans GitHub. Un environnement GitHub `production`
+   existe (créé par `task-248`), restreint à `main`, avec son propre
+   `AWS_DEPLOY_ROLE_ARN`.
 6. **Branch protection** : **configurée** le 2026-08-13 par `task-257`, en régime
    léger. `branches/main/protection` → `200`, avec `allow_force_pushes: false`,
    `allow_deletions: false`, `required_linear_history: false`,
@@ -514,8 +520,9 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    pull-request reviews — le flow reste un merge local suivi d'un push direct sur
    `main`, que des required checks rejetteraient. Aucun ruleset (`rulesets` →
    `[]`). Rollback : `gh api -X DELETE repos/:owner/:repo/branches/main/protection`.
-7. **Reste à faire** : pousser les commits locaux sur `origin/main`, et
-   renseigner `EXPO_TOKEN` (point 5). Procédure pas à pas dans
+7. **Reste à faire** : pousser les commits locaux sur `origin/main`. `EXPO_TOKEN`
+   est posé (point 5) ; ce qui reste à prouver, c'est un run vert de
+   `Mobile Build & Distribute` — cf. Phase 7. Procédure et rotation dans
    `mobile/MOBILE_CI_CD.md` § « Owner prerequisite: `EXPO_TOKEN` ».
 
 ### Phase 2 — Comptes externes (jour 1-2)
@@ -1413,15 +1420,18 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
    `gh issue create`), le workflow déclare `permissions` (`contents: read`, plus
    `issues: write` sur `notify-failure`), et les deux jobs de build commencent par
    une garde `Require EXPO_TOKEN` qui échoue en quelques secondes avec un message
-   explicite. **Reste à faire, owner uniquement** : créer un robot token sur
-   https://expo.dev/settings/access-tokens puis `gh secret set EXPO_TOKEN`. Sans
-   ce secret le workflow est inoffensif mais non fonctionnel. Contrat de
-   déclenchement détaillé dans `mobile/MOBILE_CI_CD.md`.
-5. **Secrets GitHub** : six configurés, dont les cinq requis par Maestro
+   explicite. ✅ **`EXPO_TOKEN` a été posé le 2026-09-02T17:13:47Z**, donc
+   `task-258` est entièrement clos. **Ce qui reste, owner uniquement** : un
+   premier `workflow_dispatch` à défauts (`platform: all`, `profile: preview`,
+   `submit: false`) pour prouver que le token authentifie réellement — la garde
+   ne vérifie que la non-vacuité de la chaîne, un token révoqué la passe et meurt
+   plus loin dans `eas build`. Contrat de déclenchement détaillé dans
+   `mobile/MOBILE_CI_CD.md`.
+5. ✅ **Secrets GitHub** : **sept configurés**, dont les cinq requis par Maestro
    (`E2E_TEST_USER_EMAIL`/`_PASSWORD`, `E2E_SEARCH_TEST_TERM`,
-   `E2E_REVENUECAT_TEST_KEY`, `E2E_REVENUECAT_APPLE_KEY`). Ajouter encore
-   `EXPO_TOKEN`, Apple/App Store Connect et le service account Google Play pour
-   les workflows de distribution.
+   `E2E_REVENUECAT_TEST_KEY`, `E2E_REVENUECAT_APPLE_KEY`) et `EXPO_TOKEN`. Rien
+   d'autre n'est attendu ici : la clé App Store Connect et le service account
+   Google Play sont déposés côté EAS (`eas credentials`), pas dans GitHub.
 6. ✅ **Variables EAS** : les trois environnements sont peuplés (constaté le
    2026-08-13) et `EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY` y porte la vraie clé
    `goog_` depuis le 2026-09-01 (`task-238`), en remplacement du placeholder.
@@ -1791,7 +1801,7 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 | Un health check vert lu comme « l'environnement fonctionne » | `GET /api/health/` ne teste que DynamoDB via le rôle IAM. Prod répond `200` avec un secret runtime **vide**. Ne jamais s'en servir comme preuve qu'un environnement est opérationnel — seul un E2E complet l'établit. |
 | Prod ouverte alors qu'elle est en veille | Trois booléens (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) à repasser à `true`, plus le quota de concurrence et le secret runtime. Une prod servant de vrais utilisateurs sans alarmes est une faute ; la veille n'est acceptable qu'avant lancement. |
 | CI donnant un faux sentiment de sécurité | Gates verts au 2026-08-21. Rester vigilant sur trois points : ne pas remettre de `|| true`, ne pas mettre le workflow Maestro en sommeil dans les required checks, et pin les outils via `uv.lock` pour que la CI lint avec les mêmes versions que le poste owner. |
-| Build mobile sans secrets runtime | Les trois environnements EAS sont peuplés et portent la vraie clé `goog_` depuis le 2026-09-01 ; restent `EXPO_PUBLIC_REVENUCAT_APPLE_KEY` (seulement dans `mobile/.env`) et `EXPO_TOKEN` côté GitHub Actions. Une variable `EXPO_PUBLIC_*` étant inlinée à la compilation, un placeholder côté EAS produit un binaire silencieusement inerte : l'AAB `versionCode` 4 a dû être jeté pour cette raison. `mobile/.env` gitignored ne constitue pas une configuration de build distante. |
+| Build mobile sans secrets runtime | Les trois environnements EAS sont peuplés et portent la vraie clé `goog_` depuis le 2026-09-01, et `EXPO_TOKEN` est posé côté GitHub Actions depuis le 2026-09-02 ; reste `EXPO_PUBLIC_REVENUCAT_APPLE_KEY`, qui n'existe que dans `mobile/.env`. Une variable `EXPO_PUBLIC_*` étant inlinée à la compilation, un placeholder côté EAS produit un binaire silencieusement inerte : l'AAB `versionCode` 4 a dû être jeté pour cette raison. `mobile/.env` gitignored ne constitue pas une configuration de build distante. |
 | Domaine/légal indisponible | Textes légaux rédigés (`docs/compliance/`) mais **non hébergés** : `/privacy` et `/terms` répondent 404 derrière une redirection vers `sbl.so`. Trancher le domaine, héberger, puis vérifier les URLs depuis un réseau externe avant soumission. |
 | ~~Branch protection indisponible~~ | **Traité** (`task-257`, 2026-08-13) : `main` refuse le force-push et la suppression. Régime léger assumé — pas de required check, parce qu'un required check s'applique aussi aux pushes directs et que `Main Branch Checks` ne tourne jamais sur une PR. Rollback : `gh api -X DELETE repos/:owner/:repo/branches/main/protection`. |
 | Repo public et fuite d'identifiants | Le dépôt est public depuis peu. `task-255` et `de3ac86` ont purgé l'email de login et l'identité de compte des fichiers suivis ; l'email racine du compte AWS prod est volontairement absent du dépôt. Tout ajout de credential dans un fichier suivi est désormais une fuite publique immédiate. |
