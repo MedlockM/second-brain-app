@@ -203,6 +203,51 @@ Nothing before that submission depends on it: RevenueCat imports through the App
 Store Connect API key, and sandbox resolution needs the products to exist, not to be
 approved.
 
+### The prices shown in TestFlight are not trustworthy
+
+Observed 2026-09-02 on build 1.0.0 (2): the paywall resolved the three subscriptions
+and printed `$3.00/mo` and `$4.00/mo` — US dollars, on a French device, for products
+whose base prices are set in euros. **Nothing is broken.** RevenueCat documents it:
+
+> In sandbox, StoreKit Test, and TestFlight environments … prices will often not
+> reflect the actual prices set in App Store Connect. […] Paywalls or
+> `getOfferings()` may return prices in USD when testing through TestFlight, even if
+> the tester's storefront is set to another country. […] StoreKit product metadata can
+> return prices in USD even when the purchase itself uses the correct local storefront.
+> […] RevenueCat passes through the product metadata provided by StoreKit as-is. […]
+> Apple's purchase sheet may still show the correct local currency, and purchases can
+> complete successfully. This is a known quirk of Apple's TestFlight and sandbox
+> environments.
+
+The app is doing the right thing, deliberately: `mobile/app/paywall.tsx:407-471` prints
+`pkg.product.priceString` and `pkg.product.currencyCode` straight from the SDK, and
+`mobile/src/lib/planCopy.ts:69-76` says why — money comes « from the store's own
+currency … never from the pricing config: the config holds one currency, the store
+holds the truth ». So there is no currency to fix in the code, and RevenueCat's own
+checklist agrees: « Your paywall isn't hardcoding a specific currency. »
+
+**What to check instead**: « The purchase sheet shows the expected local currency » —
+Apple's own sheet, the one that appears after the purchase button. That is the value a
+real customer pays. The card above it is metadata, and in TestFlight it lies.
+
+Two figures worth reading anyway, because they *corroborate* the euro bases rather
+than contradict them: Apple « provides comparable prices for all 175 App Store
+countries and regions, **taking into account taxes and foreign exchange rates** ».
+French prices include ~20 % VAT, US prices exclude sales tax, so the converted US
+number lands *below* a naive rate conversion — 5 € incl. VAT is ≈ 4.17 € net, hence
+$4.00, and 3 € is ≈ 2.50 € net, hence $3.00. Audio-Heavy should sit near $8.
+
+To confirm the euro row directly, Apple's path is: « In Apps, select the app … In the
+sidebar, click Subscriptions … Click the subscription group name … Click the
+subscription reference name … Scroll down to the Subscription Prices section », then
+**View all Subscription Pricing** for the per-territory table (`Export as CSV` there
+too). Setting a starting price is `Add Subscription Price` → « Choose a country or
+region and price » (the base) → Apple's conversion table, where « If you want to set
+different prices for specific storefronts, make the changes ». Required role: Account
+Holder, Admin or App Manager. And the same one-hour lag applies here: « It may take up
+to 1 hour for changes you make to product metadata to appear in the sandbox
+environment. »
+
 ### TestFlight accelerates renewals
 
 « Each subscription is renewed daily, up to 6 times within a 1-week period,

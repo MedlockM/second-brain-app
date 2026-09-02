@@ -1286,13 +1286,25 @@ faite :
       le nom de l'entité juridique, sous la forme `Vendor # 1234567` (rôle Account
       Holder, Admin ou Finance). Puis `Save Changes`. Attention à ne pas confondre
       avec la clé In-App Purchase (`SubscriptionKey_*.p8`) : celle-là est déjà en
-      place, `subscription_key_configured: true`. Gate, relevé le 2026-09-02 :
-      `GET /v2/projects/proj879a771a/apps` donne encore
-      `app_store_connect_api_key_configured: false` et
-      `app_store_connect_vendor_number: null`, et les 3 produits lisent
-      `subscription.duration: null` — après la manip, `true` et `P1M`. Le `.p8` ne
-      s'écrit **jamais** dans un fichier suivi (repo public), pas plus que le key ID
-      ou l'issuer ID.
+      place, `subscription_key_configured: true`. Le `.p8` ne s'écrit **jamais** dans
+      un fichier suivi (repo public), pas plus que le key ID ou l'issuer ID.
+
+      ✅ **Fait le 2026-09-02.** `GET /v2/projects/proj879a771a/apps` donne
+      `app_store_connect_api_key_configured: true`, `app_store_connect_vendor_number`
+      renseigné et `subscription_key_configured: true` — les trois drapeaux iOS sont
+      verts. Le rôle exigé est bien celui de la clé en place : RevenueCat demande « at
+      least the access level **App Manager** », la clé est Admin.
+
+      **En revanche les 3 produits iOS lisent toujours `subscription.duration: null`**,
+      et l'annonce faite ici d'un passage à `P1M` était prématurée. Ce n'est pas un
+      blocant : StoreKit résout les produits, la preuve étant que le paywall affiche des
+      prix sur le build TestFlight. Ce champ vient de l'import du catalogue par
+      RevenueCat, pas de l'achat — que valide la clé In-App Purchase. Comparaison utile :
+      les 3 produits Play lisent `duration: P1M` **et** `grace_period_duration: P7D`
+      parce qu'ils ont été créés le 2026-09-01, une fois les *service credentials*
+      validés ; les 3 produits iOS ont été créés le 2026-08-13, sans clé ASC. Aucune
+      page RevenueCat ne documente ni délai d'import ni bouton de réimport, donc :
+      revérifier plus tard, et ne rien bloquer là-dessus.
    5. **Pas besoin de compte sandbox pour l'achat de base.** Apple : « Apps
       downloaded from TestFlight will automatically operate in a sandbox
       environment. » Un Sandbox Apple Account ne sert qu'à tester des *scénarios* —
@@ -1304,6 +1316,12 @@ faite :
       testeur l'a installé (détail dans la checklist §2). Ouvrir le paywall, acheter
       un tier, puis exercer Restore Purchases. Renouvellement accéléré : un par jour,
       **6 au maximum**, puis l'auto-renouvellement se coupe.
+
+      **Les prix affichés en dollars sur ce build ne sont pas un bug** — ni de l'app,
+      ni d'App Store Connect. C'est un défaut connu et documenté de TestFlight, détaillé
+      dans `docs/store-listing/app-store-connect.md` § « Les prix affichés en TestFlight
+      ne sont pas fiables ». Ne rien corriger : ce qui compte est la devise de la feuille
+      d'achat d'Apple, pas celle de la carte.
    7. Puis le point 5 ci-dessous, le tour de webhook — il atterrit dans
       `revenucat_events-dev` puisque le build pointe l'API dev.
 4. **`task-238` — Android** : fait au 2026-09-01 pour l'app Google Play, les 3
