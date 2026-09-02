@@ -144,15 +144,65 @@ second the trial closes around 2026-09-18.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 get_entitlement_snapshot no longer makes the free trial conditional on there being no subscription: a subscriber inside the trial window gets minutes_included and max_minutes_per_item as the maximum of the paid tier's value and the trial's, each compared independently
-- [ ] #2 The trial side of the comparison resolves the same way as the trial branch already does — the free_trial config keys first, the trial tier's config as fallback — from one code path rather than two copies of that resolution
-- [ ] #3 Once the trial window has closed the paid tier stands alone, with no trace of the trial in the allowance
-- [ ] #4 tier, subscription_tier and subscription_status keep describing the paid subscription, and the snapshot exposes that the running trial is what is raising the allowance, so the app can explain the drop on the trial end date
-- [ ] #5 period_key stays the subscription's sub:<period_end> and period_end stays current_period_end for a subscriber, whether or not the trial is raising the allowance, so no second allowance is handed out mid-window
-- [ ] #6 The trial window is not looked up for subscribers whose paid tier already matches or beats the trial on both axes, so the entitlement path gains no GetItem for them, and which tiers those are is decided by the config at read time and by nothing written in the code
-- [ ] #7 No tier id, tier name, price or minute figure appears in the code this task adds, and nothing branches on which tier is being compared, on how many tiers exist, or on the tiers being ordered
-- [ ] #8 The rule holds when free_trial.tier names a tier absent from tiers (the trial contributes what free_trial states, no allowance is invented) and when tiers holds a number of entries other than three
-- [ ] #9 A subscription whose tier the pricing config no longer describes no longer resolves to a hardcoded tier: the SUBSCRIPTION_TIER_TO_CONFIG.get(..., "mix") default is gone, the case logs at ERROR, and the user is treated as un-entitled rather than as an arbitrary tier
-- [ ] #10 The docstring of the function that applies the rule states it as max(trial, paid), says the allowance drops when the window closes, and records that a subscriber inside the window gets the trial allowance per subscription period rather than once
-- [ ] #11 ruff check . and mypy media_summarizer are clean
+- [x] #1 get_entitlement_snapshot no longer makes the free trial conditional on there being no subscription: a subscriber inside the trial window gets minutes_included and max_minutes_per_item as the maximum of the paid tier's value and the trial's, each compared independently
+- [x] #2 The trial side of the comparison resolves the same way as the trial branch already does — the free_trial config keys first, the trial tier's config as fallback — from one code path rather than two copies of that resolution
+- [x] #3 Once the trial window has closed the paid tier stands alone, with no trace of the trial in the allowance
+- [x] #4 tier, subscription_tier and subscription_status keep describing the paid subscription, and the snapshot exposes that the running trial is what is raising the allowance, so the app can explain the drop on the trial end date
+- [x] #5 period_key stays the subscription's sub:<period_end> and period_end stays current_period_end for a subscriber, whether or not the trial is raising the allowance, so no second allowance is handed out mid-window
+- [x] #6 The trial window is not looked up for subscribers whose paid tier already matches or beats the trial on both axes, so the entitlement path gains no GetItem for them, and which tiers those are is decided by the config at read time and by nothing written in the code
+- [x] #7 No tier id, tier name, price or minute figure appears in the code this task adds, and nothing branches on which tier is being compared, on how many tiers exist, or on the tiers being ordered
+- [x] #8 The rule holds when free_trial.tier names a tier absent from tiers (the trial contributes what free_trial states, no allowance is invented) and when tiers holds a number of entries other than three
+- [x] #9 A subscription whose tier the pricing config no longer describes no longer resolves to a hardcoded tier: the SUBSCRIPTION_TIER_TO_CONFIG.get(..., "mix") default is gone, the case logs at ERROR, and the user is treated as un-entitled rather than as an arbitrary tier
+- [x] #10 The docstring of the function that applies the rule states it as max(trial, paid), says the allowance drops when the window closes, and records that a subscriber inside the window gets the trial allowance per subscription period rather than once
+- [x] #11 ruff check . and mypy media_summarizer are clean
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The rule lives in `quota_enforcer._subscriber_allowance()`, whose docstring carries the
+three statements AC#10 asks for. Everything it touches is a pair of numbers:
+
+- **`Allowance`** — a frozen pair (`minutes_included`, `max_minutes_per_item`) with
+  `covers()` (matches-or-beats on both axes) and `raised_by()` (per-axis maximum). It
+  holds no notion of *whose* figures it carries, which is what keeps the rule free of
+  the tier catalogue.
+- **`_read_allowance(*sources)`** — resolves each figure from the first mapping that
+  states it. One code path for both branches (AC#2): the trial passes
+  `(free_trial, tiers[free_trial.tier])`, a plan passes its tier config alone. A
+  source that states one figure and not the other only falls through for the missing
+  one, which is exactly the layering the old trial branch open-coded.
+- **`_config_tier()`** — replaces `SUBSCRIPTION_TIER_TO_CONFIG.get(..., "mix")` and
+  returns `None` both when the store enum maps onto nothing and when it maps onto a
+  tier the config no longer holds. `get_entitlement_snapshot()` then logs
+  `quota.subscription_tier_not_in_pricing_config` at ERROR and returns the un-entitled
+  snapshot (AC#9). `_row_allowance()` (task-334's ranking) now goes through the same
+  helper, so the two places that read a row's tier agree.
+
+**One thing the task did not call out and the code now handles**: `max_minutes_per_item
+== 0` does not mean "nothing may be imported", it means *no cap* — that is how
+`evaluate_submission()` reads it (`snapshot.max_minutes_per_item > 0`). A plain `max()`
+on that axis would therefore have let a capped allowance take an uncapped one away,
+which is the exact defect this task exists to remove. So on that axis alone, 0 wins in
+both `covers()` and `raised_by()`. Unreachable with today's config (every tier and the
+trial state both figures) but reachable the moment one of them stops, which AC#8's
+degraded-config requirement is about.
+
+**Cost (AC#6)**: `paid.covers(trial)` is decided from the pricing config already in
+memory, and the user-row `GetItem` behind `_free_trial_window()` is only issued when
+that comparison fails. With the config as of 2026-09-02 that means one plan pays the
+read and two do not — but nothing in the code says which, and the split moves on its
+own when an allowance is edited in DynamoDB.
+
+**New snapshot field (AC#4)**: `trial_raises_allowance_until`, set only when a running
+trial is what lifts a paid plan's figures, and surfaced as
+`trial_raises_allowance_until` on `GET /api/v1/entitlements/status`. `is_free_trial`
+deliberately stays `false` for a subscriber — the account screen and the paywall read it
+to mean "no plan bought yet". Rendering that date is out of scope per the task; the
+field exists so the mobile task can.
+
+**Not verified here, by construction**: the owner's three-minute license-tester check
+needs the code deployed, which happens on push to `main` after this branch merges. The
+worktree checks that were run: `ruff check .` and `mypy media_summarizer` both clean.
+No tests were added (project rule).
+<!-- SECTION:NOTES:END -->
