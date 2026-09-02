@@ -14,7 +14,7 @@
 # over the structured JSON log events (the application never calls
 # put_metric_data), an outcome metric, and alarms gated on var.enable_alarms.
 #
-# The application contract is media_summarizer/utils/llm_failures.py: both LLM
+# The application contract is media_summarizer/utils/llm_failure.py: both LLM
 # workers emit one llm.generation_failed event per failed generation, carrying
 # failure_kind = provider_refused | other. Renaming the event or a kind there
 # without changing this file silently blinds both alarms.

@@ -503,7 +503,7 @@ session, and nothing could fire.
 
 Like every other metric in this module, it is derived from a log metric filter —
 the application never calls `put_metric_data`. The event contract lives in
-`media_summarizer/utils/llm_failures.py`; the `failure_kind` values there and the
+`media_summarizer/utils/llm_failure.py`; the `failure_kind` values there and the
 dimension values here must stay identical.
 
 Fields carried by the event: `worker`, `provider`, `failure_kind`,
@@ -532,14 +532,18 @@ depending on the worker.
    ```
 
 2. **If `failure_kind = provider_refused`, read `refusal_reason`:**
-   - `quota` — the OpenAI account has no credit left (HTTP 402, or 429 with
-     `insufficient_quota`). Check the balance at
+   - `quota` — the OpenAI account has no credit left (HTTP 402, a 429 naming
+     money — `insufficient_quota`, `credit_balance_exhausted`, any `billing`
+     wording — or a bare 429 with no marker and no `Retry-After`, which is read as
+     a billing wall on purpose). Check the balance at
      https://platform.openai.com/settings/organization/billing/overview
    - `authentication` — the key is missing, revoked or wrong (HTTP 401/403, or
      `openai_api_key_missing`). `OPENAI_API_KEY` lives in the runtime secret;
      see task-252 for who holds the values.
-   - `rate_limit` — plain throttling (429 without a quota marker). Transient:
-     the artifact worker's messages are retried by SQS.
+   - `rate_limit` — throttling the provider named itself (429 with
+     `rate_limit_exceeded`, a "requests per min" message or a `Retry-After`
+     header). The only refusal that is transient, so it is also the only one whose
+     SQS messages are retried.
 
 3. **If `failure_kind = other`, group by cause:**
    ```
@@ -554,10 +558,14 @@ depending on the worker.
 
 ### First Response
 
-- `quota`: top the account up. Nothing else recovers the pipeline; messages that
-  already exhausted their 3 deliveries are in the artifact-generator DLQ and can
-  be replayed with `./scripts/replay_dlq.sh` once credit is back.
-- `authentication`: fix the key in the runtime secret, then let SQS retry.
+- `quota`: top the account up. Nothing else recovers the pipeline. Do not look
+  for the failed generations in the DLQ: a permanent refusal is acknowledged on
+  its first delivery (task-333) rather than hammered twice more, so the artifact
+  entries are `failed` in DynamoDB and the way back is to ask for them again from
+  the app once credit is restored.
+- `authentication`: fix the key in the runtime secret. Same as `quota`: the
+  refusal is permanent, so nothing is waiting in SQS — the generations have to be
+  requested again after the Lambda cold-starts on the new secret.
 - `rate_limit`: no action; if it persists, lower the reserved concurrency of
   `artifact_generator` so fewer generations compete for the same rate window.
 - `other`: fix the underlying cause, then replay the DLQ.
