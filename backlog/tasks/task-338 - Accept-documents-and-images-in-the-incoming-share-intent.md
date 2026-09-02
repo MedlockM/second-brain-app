@@ -1,10 +1,10 @@
 ---
 id: task-338
 title: Accept documents and images in the incoming share intent
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-02 11:34'
-updated_date: '2026-09-02 11:34'
+updated_date: '2026-09-02 16:55'
 labels:
   - phase-5
   - mobile
@@ -68,6 +68,7 @@ Mind the size ceiling: the incoming-share audio path enforces `MAX_SHARED_AUDIO_
 
 ## Implementation Notes
 
+<!-- SECTION:NOTES:BEGIN -->
 **Phase 1: Release engineering** (app.config.ts)
 - Removed the duplicate `android.intentFilters` array (lines 188-199) that was creating redundant intent filters
 - Added `androidIntentFilters` option to the `expo-share-intent` plugin configuration with specific MIME types:
@@ -105,3 +106,4 @@ Mind the size ceiling: the incoming-share audio path enforces `MAX_SHARED_AUDIO_
 **Files modified**:
 - `mobile/app.config.ts` (Release engineering)
 - `mobile/src/contexts/ShareIntentContext.tsx` (UI/UX)
+<!-- SECTION:NOTES:END -->
