@@ -1,9 +1,10 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : **2026-08-21**
-> (réconciliation avec le worktree, le backlog, la CI et le code après les
-> 177 commits qui ont suivi la réconciliation du 2026-08-13). Les gates
+> Date de rédaction : 2026-05-19. Dernière mise à jour : **2026-09-02**
+> (réconciliation de l'état git — 43 commits locaux non poussés — et clôture du
+> second client OAuth Android ; la réconciliation de fond avec le worktree, le
+> backlog, la CI et le code date du 2026-08-21). Les gates
 > techniques backend qui bloquaient le plan au 2026-07-31 restent **fermés** :
 > source synchronisée, CI verte, HEAD déployé, runtime API isolé, dev et prod
 > dans deux comptes AWS séparés. Ce qui reste est concentré sur **le mobile, le
@@ -15,15 +16,22 @@
 ### État de vérité au 2026-08-21
 
 - **Source et CI vertes** : `Main Branch Checks` et `Deploy Lambda Functions`
-  sont `success` sur tous les push récents, dont `130fb38` (2026-08-21T02:58,
-  dernier commit touchant le backend) et `a2dafa5` (2026-08-21T03:17,
-  mobile-only, donc sans deploy — c'est le comportement attendu du filtre
-  `paths`).
-- **Un commit local non poussé** : `main` local est sur `65d578e`
-  (`chore(task-312)`), `origin/main` sur `a2dafa5`. `65d578e` touche le backend
-  (`api/endpoints/search.py`, `utils/algolia_client.py`, `core/config.py`) :
-  **il n'est donc ni sur `origin` ni déployé**. Le runtime dev correspond à
-  `130fb38`. À pousser.
+  sont `success` sur tous les push récents. Le dernier commit poussé est
+  `30cf62c` (2026-08-29T21:10) — c'est lui que le runtime dev exécute.
+- **43 commits locaux non poussés** — relevé le 2026-09-02 contre
+  `git ls-remote`, la seule mesure fiable : `origin/main` est sur `30cf62c`,
+  `main` local sur `e78ce1b`. **10 d'entre eux touchent `media_summarizer/` ou
+  `infrastructure/`**, donc le runtime dev n'est pas le HEAD :
+  - le matching événement RevenueCat → abonnement (`task-334`, `2376622`) ;
+  - le `max(trial, paid)` sur le quota d'un abonné (`task-335`, `fedb843`) ;
+  - les fixes translation / artifacts / classifieur LLM (`task-327`, `328`,
+    `330`, `333`) ;
+  - **deux alarmes CloudWatch** (`e2cae8d`, `aebbb73`), qui demandent un
+    `terraform apply` en plus du deploy Lambda déclenché par le push.
+
+  Conséquence à ne pas oublier : **les achats sandbox du 2026-09-01/02 ont
+  tourné sur le code d'avant `task-334`**, donc le fix de matching webhook n'a
+  jamais été exercé en vrai. À pousser avant tout re-run E2E.
 - **Runtime API isolé (`task-217`, Done le 2026-08-06)** : image API dédiée,
   reserved concurrency configurable, warm-up EventBridge, health gate de release,
   logs API Gateway enrichis, documenté dans `docs/API_LAMBDA_RUNTIME.md`. Mesure
@@ -113,7 +121,8 @@ bloquant au moins bloquant :
    tranché puis API/privacy/terms réellement hébergés, listings et review accounts.
    **Les screenshots devront montrer l'UI d'après `task-306`/`307`**, pas l'Inbox
    verticale d'avant le 2026-08-21.
-6. **Hygiène, rapide** — pousser le commit local `65d578e`, puis renseigner
+6. **Hygiène, rapide** — pousser les 43 commits locaux (cf. § « État de vérité »,
+   dont 10 touchent le backend), puis renseigner
    `EXPO_TOKEN` (dernier reste de `task-258`). Le reste de cette ligne est fait :
    les 5 fichiers `uv.lock` du worktree sont commités (`c05df88`), la branch
    protection est configurée (`task-257`), le workflow de build mobile est
@@ -146,7 +155,7 @@ bloquant au moins bloquant :
 |---|---|---|
 | Email + password | OK (backend + mobile) | — |
 | **Sign in with Apple** | Code OK — backend + mobile câblés. Obligatoire App Store car Google login présent | OK (chaîne Apple Developer complète provisionnée 2026-06-08 : Service ID, Sign in with Apple Key `.p8`, Team ID, Key ID, Return URL prod renseignés dans `.env`) |
-| **Continue with Google** | Code OK — backend + mobile câblés. Backend Web client ID + secret OK dans `.env`. OAuth Web + iOS provisionnés côté Google Cloud | OAuth Client ID Android créé le 2026-08-13 sur le SHA-1 du keystore EAS (`task-162`, sans build) et variable déclarée côté EAS ; restent le build Android unique et l'écran de consentement Google à publier en Production en Phase 10 |
+| **Continue with Google** | Code OK — backend + mobile câblés. Backend Web client ID + secret OK dans `.env`. OAuth Web + iOS provisionnés côté Google Cloud. **Android validé sur device le 2026-09-02**, via Credential Manager et le second client déclaré sur le SHA-1 Play App Signing | Reste l'écran de consentement Google à publier en Production en Phase 10 |
 
 Sur l'`aud` des id_tokens mobiles et pourquoi le backend a besoin de
 `GOOGLE_NATIVE_AUDIENCE_IOS`/`_ANDROID` en plus du client Web (`task-298`),
@@ -190,18 +199,18 @@ un staging ou une soumission.
 | Isolation API Lambda | `task-217` | **Fait (2026-08-06)** — image API ARM64 dédiée (`infrastructure/docker/lambda-api.Dockerfile`), image workers séparée, reserved concurrency configurable, warm-up EventBridge, health gate de release, logs API Gateway enrichis, `docs/API_LAMBDA_RUNTIME.md`. Mesuré le 2026-08-13 : cold 5,2 s / warm 1,0 s |
 | Isolation dev/prod | `task-221` (benchmark, `owner_decision: ok`, option B) → `task-237` → `task-248` | **Fait (2026-08-13)** — `envs/{dev,staging,prod}` sur `modules/platform`, un state par env, 100 % des noms suffixés, `scripts/tf_plan_guard.sh`. Dev reste dans `125313707865`, **prod dans le compte dédié `866874944541`** (organisation `o-7sf5u7j5hd`). `staging` détruit, son répertoire conservé comme référentiel jetable |
 | Nettoyage legacy AWS | `task-249` | **Fait** — 21 tables DynamoDB non suffixées supprimées ; il ne reste que 26 tables `-dev` + la table de lock du state |
-| Sécurité users legacy | `task-222`, `task-224`, `task-253` | **Corrigé et déployé** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email`, `update_user` et `POST /api/v1/auth/verify-email` supprimés. 2026-08-12 (`task-224`) : `endpoints/users.py` et `DELETE /api/v1/users/{user_id}` supprimés au profit de `DELETE /api/account`, qui déduit le compte du token. 2026-08-13 (`task-253`) : le 404 de `DELETE /api/account` en dev est corrigé et un **startup guard** échoue au boot si une route critique n'est pas montée. Le code est déployé (dernier deploy backend vert : `130fb38`, 2026-08-21T02:58). Les routes citées ici portaient encore le préfixe `/api/v1/`, supprimé depuis par `task-289`. **Reste** : le run E2E complet (Phase 4) |
+| Sécurité users legacy | `task-222`, `task-224`, `task-253` | **Corrigé et déployé** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email`, `update_user` et `POST /api/v1/auth/verify-email` supprimés. 2026-08-12 (`task-224`) : `endpoints/users.py` et `DELETE /api/v1/users/{user_id}` supprimés au profit de `DELETE /api/account`, qui déduit le compte du token. 2026-08-13 (`task-253`) : le 404 de `DELETE /api/account` en dev est corrigé et un **startup guard** échoue au boot si une route critique n'est pas montée. Le code est déployé (dernier deploy backend vert : `30cf62c`, 2026-08-29T21:10). Les routes citées ici portaient encore le préfixe `/api/v1/`, supprimé depuis par `task-289`. **Reste** : le run E2E complet (Phase 4) |
 | Dérive de dépendances Lambda | `6b22542` | **Corrigé le 2026-08-13, après incident** — l'API dev a répondu 500 sur toutes les routes pendant ~2 h 20 : le startup guard de `task-253` lisait mal `app.routes` sur FastAPI 0.13x, et les Dockerfiles résolvaient `fastapi>=0.104.0` au build (0.141.1 dans l'image contre 0.116.1 dans `uv.lock` et le venv local) — donc irreproductible localement. Les images installent désormais depuis `uv export --frozen`. **Clos le 2026-08-13 par `c05df88`** : la même bascule sur `uv.lock` a été étendue à `api.Dockerfile`, `worker.Dockerfile`, `test-orchestrator.Dockerfile`, `pr.yml` et `main.yml`. Rechute connue depuis : `f06bd62` a dû plafonner `pillow` sous 12.3 pour que l'image worker se construise à nouveau |
 | Suppression/export de compte | `mobile/app/settings/delete-account.tsx`, `media_summarizer/core/services/account_deletion_service.py`, `task-224` | **Fait en code (2026-08-12)** — suppression de compte in-app (Account > Delete Account) branchée sur `DELETE /api/account`, qui purge DynamoDB + S3 + Algolia. Le bouton `Export Data` mort est retiré : l'accès et la portabilité passent par `privacy@mediasummarizer.com` sous un mois, documenté dans la privacy policy. Le bouton `Settings` mort reste à traiter hors `task-224` |
-| Source + CI | `task-223`, `task-227`, `task-228` | **Fait** — `Main Branch Checks` et `Deploy Lambda Functions` verts sur les push récents (2026-08-21). Reste hors P0 : `Mobile Build & Distribute` (cf. Phase 7), et un commit local `65d578e` non poussé |
+| Source + CI | `task-223`, `task-227`, `task-228` | **Fait** — `Main Branch Checks` et `Deploy Lambda Functions` verts sur les push récents (dernier : `30cf62c`, 2026-08-29). Reste hors P0 : `Mobile Build & Distribute` (cf. Phase 7), et 43 commits locaux non poussés (cf. § « État de vérité ») |
 
 ### Bloquants release immédiats
 
 | Zone | Tâches | Statut |
 |---|---|---|
-| Re-run E2E AWS dev | Phase 4 | **Seul gate backend encore ouvert.** Dernier deploy vert : `130fb38` (2026-08-21T02:58), mais un commit backend local n'est pas poussé (`65d578e`). Aucune preuve de `pytest -m e2e` complet depuis le 2026-06-12, alors que `/api/v1/` a disparu, que YouTube et Instagram sont passés en Apify-only et que le contrat média porte désormais cover et créateur. Pousser, puis lancer |
-| Mobile dev builds | `task-161`, `task-162`, `task-163` | iOS : `task-161` est `Done`, mais sur une build du 2026-06-11 expirée le 2026-06-25 — le development client reste installé sur l'iPhone owner. Android : keystore (`task-162`) et Client ID en place, **le build unique reste à lancer** (`task-163` ACs #6-#8) |
-| Google OAuth Android | `task-163` (ACs #1-#5), `task-325` | Client ID Android créé le 2026-08-13 sur le SHA-1 du keystore `task-162`. **Le flow a changé le 2026-09-01** (`task-325`) : Google refuse un custom URI scheme pour un client Android, donc l'app signe via **Credential Manager** (module Expo local, `serverClientId` = client Web) et ne lit plus aucun Client ID Android. Restent le build Android, la validation sur device, et **un second client Android sur le SHA-1 Play App Signing** dès qu'un binaire passe par Play |
+| Re-run E2E AWS dev | Phase 4 | **Seul gate backend encore ouvert.** Dernier deploy vert : `30cf62c` (2026-08-29T21:10), mais **10 commits backend/infra locaux ne sont pas poussés** (cf. § « État de vérité »). Aucune preuve de `pytest -m e2e` complet depuis le 2026-06-12, alors que `/api/v1/` a disparu, que YouTube et Instagram sont passés en Apify-only et que le contrat média porte désormais cover et créateur. Pousser, puis lancer |
+| Mobile dev builds | `task-161`, `task-162`, `task-163` | **Clos.** iOS : `task-161` est `Done`, sur une build du 2026-06-11 expirée le 2026-06-25 — le development client reste installé sur l'iPhone owner. Android : keystore (`task-162`), Client IDs et build en place, `task-163` est `Done` au 2026-09-02 |
+| Google OAuth Android | `task-163`, `task-325` | **Clos le 2026-09-02 : le sign in with Google marche sur device, sur l'app installée depuis Play.** Deux clients Android coexistent — celui du 2026-08-13 sur le SHA-1 du keystore EAS (`task-162`, pour les APK posés à la main) et celui du 2026-09-02 sur le SHA-1 Play App Signing (pour tout binaire servi par Play, production incluse). Le flow lui-même a changé le 2026-09-01 (`task-325`) : Google refuse un custom URI scheme pour un client Android, donc l'app signe via **Credential Manager** (module Expo local, `serverClientId` = client Web) et ne lit aucun Client ID Android |
 | Validation device non automatisable | `task-164`, `task-165` | À faire sur devices physiques : Apple Sign-In, Google sheet, Safari/Chrome share |
 | Maestro V1 | `task-168`, `task-169`, `task-170`, `task-171`, `task-172` | **Plus un bloquant release** — CI en sommeil depuis le 2026-08-13 (`task-254`) le temps que l'UI soit figée ; 168/169/170/171 closes, 172 verrouillée. Cf. Phase 7, section « Maestro E2E CI — en sommeil depuis le 2026-08-13 » |
 | Clôture Phase 5 | `task-166` | Mettre ce plan à jour une fois `task-163/164/165` terminées ; la couverture Maestro n'en est plus un prérequis |
@@ -358,10 +367,12 @@ EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS=...
   l'`aud` de l'id_token est le client Web, que `/auth/google/native` accepte déjà
   puisque c'est `GOOGLE_CLIENT_ID`. `GOOGLE_NATIVE_AUDIENCE_ANDROID` n'est donc plus
   exercée par aucun flow.
-- Le client OAuth **Android** reste nécessaire côté Google : Credential Manager
+- Les clients OAuth **Android** restent nécessaires côté Google : Credential Manager
   vérifie l'appelant sur son nom de package **et** le SHA-1 du certificat qui signe
-  le binaire installé. Voir Phase 2, item 7 (Google Auth Platform → Clients) pour le
-  SHA-1 Play App Signing, qui s'ajoute à celui du keystore EAS.
+  le binaire installé. Il y en a donc **deux**, sur le même package : SHA-1 du
+  keystore EAS (APK posés à la main) et SHA-1 Play App Signing (tout binaire servi
+  par Play). Le second a été déclaré le 2026-09-02 et c'est ce qui a débloqué le
+  sign-in sur device. Voir Phase 2, item 7 (Google Auth Platform → Clients).
 
 `mobile/.env` est gitignored. Contrairement à l'état noté au 2026-07-31, les trois
 environnements EAS `development`, `preview` et `production` **contiennent bien**
@@ -469,15 +480,15 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 
 1. ~~Créer un repo GitHub.~~ **Fait** : `MedlockM/second-brain-app`, branche par défaut `main`. Historique purgé des secrets, `.venv-311/` et scratchpads ; `.gitignore` durci. Premier push : 2026-05-27 (HEAD `eb22f0e`, 174 commits, 553 fichiers). **Le repo est passé public** : vérifié le 2026-08-13 (`visibility: PUBLIC`). C'est ce qui motive `task-255` et `de3ac86` (purge de l'email de login et de l'identité de compte des fichiers suivis) — désormais, tout identifiant écrit dans un fichier suivi est public.
 2. **GitHub Actions versionnés** : `.github/workflows/pr.yml`, `main.yml`, `deploy-lambda.yml`, `deploy-lambda-env.yml`, `mobile-build-distribute.yml`, `mobile-store-promote.yml`, `mobile-e2e-maestro.yml`.
-3. ⚠️ **Source presque synchronisée au 2026-08-21** : les 5 fichiers du fix
+3. ⚠️ **Source désynchronisée au 2026-09-02** : les 5 fichiers du fix
    `uv.lock` (`pr.yml`, `main.yml`, `api.Dockerfile`, `worker.Dockerfile`,
    `test-orchestrator.Dockerfile`) sont commités depuis `c05df88` — ce point est
-   clos. Mais `main` local porte **un commit d'avance non poussé**, `65d578e`
-   (`task-312`), et il touche le backend : `origin/main` est sur `a2dafa5` et
-   c'est `130fb38` qui est déployé. À pousser.
+   clos. Mais `main` local porte **43 commits d'avance non poussés**, dont 10
+   touchent le backend ou l'infra : `origin/main` est sur `30cf62c` et c'est lui
+   qui est déployé. Détail des 10 dans § « État de vérité ». À pousser.
 4. ✅ **CI verte** (`task-223`, `task-227`, `task-228`) :
    - `Main Branch Checks` **success** sur tous les push récents, dont
-     `130fb38` et `a2dafa5` (2026-08-21) ;
+     `30cf62c` (2026-08-29) ;
    - `ruff check .` en local → `All checks passed!` ;
    - la config ESLint manquante a été ajoutée et les 20 violations react-hooks
      corrigées, `rules` remises en `error` ;
@@ -497,8 +508,8 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
    pull-request reviews — le flow reste un merge local suivi d'un push direct sur
    `main`, que des required checks rejetteraient. Aucun ruleset (`rulesets` →
    `[]`). Rollback : `gh api -X DELETE repos/:owner/:repo/branches/main/protection`.
-7. **Reste à faire** : pousser `65d578e` sur `origin/main`, et renseigner
-   `EXPO_TOKEN` (point 5).
+7. **Reste à faire** : pousser les 43 commits locaux sur `origin/main`, et
+   renseigner `EXPO_TOKEN` (point 5).
 
 ### Phase 2 — Comptes externes (jour 1-2)
 
@@ -696,19 +707,26 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
        été supprimée de `mobile/eas.json`, `mobile/.env.example` et
        `app.config.ts`, et la variable côté environnement EAS `development` peut
        être supprimée.
-     - [ ] **Deuxième client Android sur le SHA-1 Play App Signing** — pas
-       optionnel dès qu'un binaire arrive par Play (piste interne comprise) :
-       Play re-signe l'artefact servi, donc l'empreinte que Credential Manager
-       voit sur le téléphone n'est **pas** celle du keystore d'upload EAS. Sans
-       ce second client (même `package=com.secondbrainlabs.core`, SHA-1 de Play),
-       la feuille de sélection de compte échoue sur l'app installée depuis Play
-       alors qu'elle marche sur un APK installé à la main.
-       - Lire le SHA-1 : Play Console → *Test et publication* → *Intégrité de
-         l'application* → onglet *Signature de l'application* → *Certificat de
-         clé de signature d'application*.
-       - Le déclarer : Google Cloud Console → *API et services* →
-         *Identifiants* → *Créer des identifiants* → *ID client OAuth* → type
-         *Android*.
+     - ~~**Deuxième client Android sur le SHA-1 Play App Signing**~~ **Fait le
+       2026-09-02** : le client a été déclaré sur l'empreinte de Play (même
+       `package=com.secondbrainlabs.core`, autre SHA-1), et **le sign in with
+       Google fonctionne sur l'app Android installée depuis Play** — validé sur
+       device par l'owner. C'était bien la cause : Play re-signe l'artefact
+       servi, donc l'empreinte que Credential Manager voit sur le téléphone
+       n'est pas celle du keystore d'upload EAS.
+       Le premier client (SHA-1 keystore EAS, `task-163`) **reste en place** et
+       n'est pas redondant : il couvre les APK installés à la main
+       (`eas build --profile development|preview`), que Play ne re-signe pas.
+       Deux clients Android coexistent donc, tous deux sur le même package, et
+       aucun des deux n'entre dans le bundle — l'app ne connaît que le client
+       Web (`serverClientId`). Rien à rejouer en Phase 10 : le certificat Play
+       App Signing est le même pour la piste interne, le closed testing et la
+       production, donc ce client vaut aussi pour le binaire de production.
+       - Chemins utilisés — lire le SHA-1 : Play Console → *Test et publication*
+         → *Intégrité de l'application* → onglet *Signature de l'application* →
+         *Certificat de clé de signature d'application*. Le déclarer : Google
+         Cloud Console → *API et services* → *Identifiants* → *Créer des
+         identifiants* → *ID client OAuth* → type *Android*.
 8. **Apple Developer Portal** (developer.apple.com → Certificates, Identifiers & Profiles) :
    - **Bundle ID figé : `com.secondbrainlabs.core`** (décidé 2026-06-07,
      propagé dans `mobile/app.config.ts`, `mobile/ios-share-extension/`, les
@@ -890,9 +908,11 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 #### Reste à faire
 
 1. ⚠️ **Synchroniser et déployer le code courant** — `Deploy Lambda Functions`
-   est vert sur `130fb38` (2026-08-21T02:58), mais `main` local porte un commit
-   backend non poussé (`65d578e`, `task-312`). À pousser **avant** le re-run,
-   sinon la suite s'exécute contre un runtime qui n'est pas le HEAD.
+   est vert sur `30cf62c` (2026-08-29T21:10), mais `main` local porte **10
+   commits backend/infra non poussés** (cf. § « État de vérité »). À pousser
+   **avant** le re-run, sinon la suite s'exécute contre un runtime qui n'est pas
+   le HEAD. Deux d'entre eux ajoutent des alarmes CloudWatch : le push déclenche
+   le deploy Lambda, pas le `terraform apply`, qui reste à lancer à la main.
 2. ✅ **Fermer `task-217` et revalider le cold start API** — `Done` le
    2026-08-06 ; cold 5,2 s / warm 1,0 s mesurés le 2026-08-13. Le health check
    est utilisable comme gate de release (`task-217` AC #7).
@@ -968,19 +988,12 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
    (`task-238`). À noter aussi : `EXPO_PUBLIC_API_BASE_URL` n'existe **que**
    dans le bloc `env` inline de `mobile/eas.json`, pas côté serveur — les deux
    mécanismes coexistent.
-2. `task-163` — **le prérequis OAuth est levé ; reste le build.** Faits le
-   2026-08-13 : l'OAuth Client ID Android est créé dans Google Cloud Console
-   avec `package=com.secondbrainlabs.core` et le SHA-1 ci-dessus, et
-   `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` est déclarée dans l'environnement EAS
-   `development` (six variables `EXPO_PUBLIC_*` désormais). La création du Client
-   ID a dû se faire à la main dans l'UI web de la Cloud Console — ni `gcloud` ni
-   aucune API publique n'expose la création d'un OAuth client de type Android.
-   Reste à lancer `eas build --platform android --profile development`, **une
-   seule fois**, puis à valider l'APK sur device (ACs #6 à #8).
-   Avertissement détaillé dans le ticket : le profil `development` ne fixe pas
-   `environment`, et la doc Expo ne garantit pas le rattachement — contrôler
-   l'environnement annoncé dans les premières lignes de log du build, et
-   interrompre tout de suite s'il n'est pas `development`.
+2. ~~`task-163`~~ — **`Done` le 2026-09-02.** Les deux OAuth clients Android
+   existent (SHA-1 keystore EAS le 2026-08-13, SHA-1 Play App Signing le
+   2026-09-02), les AAB sont produits, et le sign in with Google est validé sur
+   device sur l'app installée depuis Play. Les deux créations ont dû se faire à
+   la main dans l'UI web de la Cloud Console — ni `gcloud` ni aucune API
+   publique n'expose la création d'un OAuth client de type Android.
 3. `task-164` — validation iOS sur device physique :
    - Sign in with Apple → user créé/lié → inbox.
    - Continue with Google → `ASWebAuthenticationSession` → user créé/lié → inbox.
@@ -1371,9 +1384,10 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
    - `.github/workflows/mobile-build-distribute.yml` — EAS build/submit.
    - `.github/workflows/mobile-store-promote.yml` — promotion stores.
    - `.github/workflows/mobile-e2e-maestro.yml` — Maestro Android/iOS.
-2. ⚠️ **État source** : `origin/main` est sur `a2dafa5`, `main` local sur
-   `65d578e` — **un commit backend d'avance non poussé** (cf. Phase 1). Les runs
-   GitHub portent donc sur l'avant-dernier état.
+2. ⚠️ **État source** : `origin/main` est sur `30cf62c`, `main` local sur
+   `e78ce1b` — **43 commits d'avance non poussés, dont 10 backend/infra**
+   (cf. § « État de vérité »). Les runs GitHub portent donc sur un état vieux
+   de quatre jours.
 3. ✅ **Main checks verts** (`task-223`, `task-227`, `task-228`) : `Main Branch
    Checks` est `success` sur tous les push récents. Le pin sur `uv.lock`
    (`c05df88`) a fermé la dernière faille de ce gate — jusque-là la CI installait
@@ -1674,12 +1688,17 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   Google 2026-09-30 — automatique via Play App Signing, à revérifier en Phase 10).
   Cf. Phase 2.2 et `task-260`
 - [x] Google Cloud Console : projet `media-summarizer` créé, OAuth consent screen configuré (Branding `Second Brain`, External, scopes openid+email+profile), mode Test avec utilisateur test ajouté, **3 OAuth Client IDs créés (Web backend + iOS + Android au 2026-08-13)** — `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` dans `.env` racine ; `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB` + `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS` dans `mobile/.env` (naming aligné avec `mobile/app.config.ts`, corrigé 2026-06-08)
-- [x] Google Cloud Console **Android OAuth Client ID** — **fait le 2026-08-13**
-  (`task-163`), avec `package=com.secondbrainlabs.core` et le SHA-1 du keystore
-  EAS `38:D5:13:F4:2F:A9:DA:74:2F:A1:39:E3:17:9A:22:A8:59:58:DD:FD`.
-  `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` est renseignée dans `mobile/.env` et
-  déclarée dans l'environnement EAS `development` — donc **en place avant** le
-  build Android unique, qui reste à lancer
+- [x] Google Cloud Console **Android OAuth Client IDs — les deux** :
+  - le 2026-08-13 (`task-163`), `package=com.secondbrainlabs.core` + SHA-1 du
+    keystore EAS `38:D5:13:F4:2F:A9:DA:74:2F:A1:39:E3:17:9A:22:A8:59:58:DD:FD`,
+    qui couvre les APK installés à la main ;
+  - le 2026-09-02, même package + SHA-1 **Play App Signing**, qui couvre tout
+    binaire servi par Play (piste interne, closed testing, production). C'est ce
+    second client qui a débloqué le sign in with Google sur device.
+
+  Aucun de ces IDs n'entre dans le bundle : `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`
+  a été supprimée par `task-325`, Credential Manager prend le client **Web** comme
+  `serverClientId`
 - [ ] Google Cloud Console **publication OAuth (Test → Production)** à faire en Phase 10 juste avant le lancement
 - [x] X Developer App approuvée + bearer token (en local dans `.env`)
 - [x] Apify API tokens + actor IDs obtenus — en local dans `.env` (Instagram Reel/Post, YouTube, TikTok selon fallback chain)
@@ -1757,7 +1776,7 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 | ~~API interactive indisponible après longue inactivité~~ | **Traité** (`task-217`, 2026-08-06) : image API minimale, reserved concurrency configurable, warm-up EventBridge, health gate de release. Cold 5,2 s / warm 1,0 s au 2026-08-13. |
 | ~~Collision/destruction entre dev/staging/prod~~ | **Traité** (`task-237`, `task-248`) : une racine Terraform par environnement, 100 % des noms suffixés, et surtout **une frontière de compte AWS** entre dev et prod — un plan lancé avec les identifiants de prod ne peut rien toucher dans dev. |
 | ~~CRUD users legacy non authentifié~~ | **Traité** (`task-222`, `task-224`, `task-253`) : surface legacy supprimée, `DELETE /api/account` déduit le compte du token et purge DynamoDB + S3 + Algolia, startup guard contre les routes silencieusement absentes. |
-| État local non poussé sur GitHub | **Récidive au 2026-08-21** : `main` local est sur `65d578e`, `origin/main` sur `a2dafa5`. Le commit non poussé touche le backend, donc le runtime dev n'est pas le HEAD. À pousser avant tout run E2E. |
+| État local non poussé sur GitHub | **Aggravation au 2026-09-02** : `main` local est sur `e78ce1b`, `origin/main` sur `30cf62c` — **43 commits d'écart, dont 10 backend/infra**, contre un seul au 2026-08-21. Le runtime dev n'est donc pas le HEAD, et le fix de matching webhook de `task-334` n'a jamais tourné en vrai : les achats sandbox du 2026-09-01/02 ont été traités par le code d'avant. Le risque n'est pas théorique, il se répète — pousser après chaque session de merge, avant tout run E2E. |
 | Dérive silencieuse entre l'image Lambda et le lockfile | **Cause de l'incident du 2026-08-13** (API dev 500 sur toutes les routes, ~2 h 20) : les Dockerfiles résolvaient les intervalles de `pyproject.toml` au build, donc chaque build produisait une image différente et aucune exécution locale ne pouvait reproduire le bug. Mitigation : installer depuis `uv export --frozen` — **fait partout depuis `c05df88`** (les trois images et les deux workflows). Le risque n'est pas éteint pour autant : `f06bd62` a dû plafonner `pillow` sous 12.3 pour que l'image worker se construise à nouveau. |
 | Un health check vert lu comme « l'environnement fonctionne » | `GET /api/health/` ne teste que DynamoDB via le rôle IAM. Prod répond `200` avec un secret runtime **vide**. Ne jamais s'en servir comme preuve qu'un environnement est opérationnel — seul un E2E complet l'établit. |
 | Prod ouverte alors qu'elle est en veille | Trois booléens (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) à repasser à `true`, plus le quota de concurrence et le secret runtime. Une prod servant de vrais utilisateurs sans alarmes est une faute ; la veille n'est acceptable qu'avant lancement. |

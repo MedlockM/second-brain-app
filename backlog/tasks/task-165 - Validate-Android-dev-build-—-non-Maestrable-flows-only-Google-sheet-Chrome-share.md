@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-06-10 05:39'
-updated_date: '2026-09-02 09:49'
+updated_date: '2026-09-02 11:34'
 labels:
   - phase-5
   - mobile
@@ -16,6 +16,7 @@ labels:
 dependencies:
   - task-162
   - task-163
+  - task-338
 priority: high
 dispatchable: false
 ---
@@ -68,8 +69,8 @@ Sign in with Apple n'est **pas applicable sur Android** — vérifie juste que l
 <!-- AC:BEGIN -->
 - [x] #1 Continue with Google crée/lie un user Android et atterrit sur l'inbox (sans DEVELOPER_ERROR)
 - [x] #2 Bouton Sign in with Apple soit absent soit no-op clean sur Android
-- [ ] #3 Share intent depuis Chrome (URL) atteint share-confirm, soumet, et la vignette apparaît dans l'inbox
-- [ ] #4 Share intent texte ou audio depuis app native fonctionne
+- [x] #3 Share intent depuis Chrome (URL) atteint share-confirm, soumet, et la vignette apparaît dans l'inbox
+- [x] #4 Share intent texte ou audio depuis app native fonctionne
 - [ ] #5 Tous les bugs P0/P1 détectés ont un sous-ticket et sont résolus avant clôture
 <!-- AC:END -->
 
@@ -88,13 +89,46 @@ Première exécution réussie de Credential Manager, et première connexion Goog
 
 **AC#2 — pas de bouton Apple sur Android.** Vrai par construction, lisible dans le code sans device : `mobile/src/components/SocialAuthButtons.tsx:156` conditionne le rendu à `Platform.OS === "ios"`.
 
-### Ce qui reste : les deux share intents, sur le binaire déjà installé
+### AC#3 et AC#4 validées le 2026-09-02 (owner), sur le même `versionCode` 6
 
-AC#3 et AC#4 ne demandent pas de nouveau build. `mobile/app.config.ts:188-199` déclare deux filtres `action: SEND` — `text/plain` (ce que Chrome envoie pour une URL) et `audio/*`.
+Aucun nouveau build n'a été nécessaire : les deux filtres utiles étaient déjà dans le binaire installé. Testé à la main sur device physique Android :
 
-**Écart relevé le 2026-09-02, hors périmètre de cette tâche** : aucun `mimeType` image n'est déclaré, alors que `task-264` a ajouté la capture caméra comme point d'entrée d'ingestion. Partager une photo ou une capture d'écran vers Second Brain ne proposera pas l'app. À traiter dans une tâche propre.
+- **AC#3** — article ouvert dans Chrome → ⋮ → Partager → Second Brain → share-confirm → submit : fonctionne.
+- **AC#4** — fichier MP3 partagé depuis une app native vers Second Brain : fonctionne.
 
-### Question owner en suspens
+Ce sont les deux seuls types que le manifest expose. `mobile/app.config.ts:188-199` déclare `text/plain` (ce que Chrome envoie pour une URL) et `audio/*`.
 
-Credential Manager fait vérifier par Play services le couple *package name + empreinte du binaire installé*, qui est celle de **Play App Signing** et non du keystore EAS. Le seul client OAuth Android connu du dépôt porte le SHA-1 EAS (`task-163` AC#1). Soit un second client a été déclaré sur le SHA-1 Play, soit la vérification est plus permissive que la doc ne l'indique. À trancher, parce que le « second client Android » figure encore comme travail owner restant dans les Owner notes de `task-325`.
+### Écart relevé le 2026-09-02, hors périmètre de cette tâche : le partage entrant n'accepte ni document ni image
+
+Constaté par l'owner en tentant de partager un PDF : **Second Brain n'apparaît pas dans la feuille de partage Android.** Deux causes indépendantes, les deux à corriger, dans cet ordre.
+
+**1. Le manifest ne déclare aucun `mimeType` document ni image.** Le manifest final porte trois filtres `SEND`, pas deux — parce que le plugin en ajoute un que le dépôt ne configure pas :
+
+| Origine | Filtre `SEND` |
+| --- | --- |
+| `android.intentFilters` (`app.config.ts:188-199`) | `text/plain` |
+| `android.intentFilters` | `audio/*` |
+| plugin `expo-share-intent`, **valeur par défaut** | `text/*` |
+
+Le plugin est instancié sans `androidIntentFilters` (`app.config.ts:212-222`), donc `withAndroidIntentFilters.js:51` retombe sur son défaut `["text/*"]`. Rien ne matche `application/pdf`, ni les MIME Office, ni `image/*` — alors que `task-264` a fait de la capture caméra un point d'entrée d'ingestion. Le fix propre passe par l'option `androidIntentFilters` du plugin plutôt que par `android.intentFilters`, ce qui supprime au passage le doublon `text/*` / `text/plain`.
+
+**2. Même avec le filtre, le handler rejetterait le fichier.** `mobile/src/contexts/ShareIntentContext.tsx:316-345` ne route que `mimeType?.startsWith("audio/")` ; tout autre fichier tombe dans la branche `share.unsupportedFile` (« This file type is not supported yet. »). Lisible sur iOS sans device Android : `NSExtensionActivationSupportsFileWithMaxCount: 1` y fait bien apparaître l'app pour un PDF, et le partage échoue ensuite sur ce message.
+
+Le PDF est pourtant une cible d'ingestion supportée (`mobile/src/types/upload.ts:57`, `mobile/src/services/uploadService.ts:54`) — mais uniquement par le picker interne (Add source → Import file), jamais par le partage entrant.
+
+**Enjeu commercial** : le copy vendu au paywall promet le contraire. `mobile/src/i18n/en.ts:271` — « Save from any app: YouTube, podcasts, TikTok, Instagram, X, articles, PDFs, documents, photos and audio files », décliné dans les 10 locales. Sur Android l'app n'apparaît même pas ; sur iOS elle apparaît et refuse.
+
+**Tranché par l'owner le 2026-09-02 : P1 bloquant.** Sous-ticket `task-338`, ajouté aux dépendances de cette tâche. AC#5 ne peut donc pas être cochée avant que `task-338` soit résolue *et* vérifiée sur device — ce qui exige un nouveau build EAS, contrairement à AC#3 et AC#4 : un changement d'intent filter vit dans le manifest.
+
+### Reste à faire pour clore cette tâche
+
+Une seule chose, AC#5, et elle ne demande aucune nouvelle validation manuelle des flows déjà couverts : attendre la résolution de `task-338`, puis rejouer sur le `versionCode` 7 le check device décrit dans ses Owner notes.
+
+### Question SHA-1 — tranchée par l'owner le 2026-09-02
+
+La doc avait raison : Credential Manager fait vérifier par Play services le couple *package name + empreinte du binaire installé*, qui est celle de **Play App Signing** et non du keystore EAS. L'owner a déclaré un **second client OAuth Android** sur le SHA-1 de Play (même `package=com.secondbrainlabs.core`), et le sign in with Google marche depuis sur l'app installée depuis Play — c'était bien la cause.
+
+Les deux clients coexistent et aucun n'est redondant : celui du keystore EAS (`task-163` AC#1) couvre les APK posés à la main, celui de Play couvre tout binaire servi par Play. Aucun des deux n'entre dans le bundle — `task-325` a supprimé `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID`, l'app ne passe que le client **Web** en `serverClientId`. Rien à rejouer pour la production : le certificat Play App Signing est le même sur la piste interne, le closed testing et la production.
+
+Conséquence pour AC#2 : le flow Google est validé, il n'y a plus de réserve dessus. Le « second client Android » des Owner notes de `task-325` est clos.
 <!-- SECTION:NOTES:END -->
