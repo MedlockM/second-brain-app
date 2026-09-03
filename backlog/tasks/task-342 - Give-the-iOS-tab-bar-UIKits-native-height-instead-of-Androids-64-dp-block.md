@@ -1,9 +1,10 @@
 ---
 id: task-342
 title: Give the iOS tab bar UIKit's native height instead of Android's 64 dp block
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 08:34'
+updated_date: '2026-09-03 09:56'
 labels:
   - mobile
   - ui
