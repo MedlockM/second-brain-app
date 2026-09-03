@@ -7,6 +7,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "development",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://jji077bi8e.execute-api.eu-west-3.amazonaws.com",
         "EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS": "285796240127-ljujk2ubnq4bgav0s97vgcg19plaldgd.apps.googleusercontent.com",
@@ -21,6 +22,8 @@
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
+      "environment": "preview",
       "ios": {
         "buildConfiguration": "Release"
       },
@@ -34,6 +37,8 @@
       }
     },
     "internal": {
+      "channel": "internal",
+      "environment": "production",
       "ios": {
         "buildConfiguration": "Release",
         "autoIncrement": true
@@ -49,6 +54,8 @@
       }
     },
     "production": {
+      "channel": "production",
+      "environment": "production",
       "ios": {
         "buildConfiguration": "Release",
         "autoIncrement": true

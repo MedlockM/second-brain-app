@@ -159,15 +159,122 @@ coexist.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 expo-updates is in mobile/package.json dependencies at the version npx expo install resolves for SDK 55, and npx expo install --check reports no version mismatch for it
-- [ ] #2 mobile/app.config.ts declares updates.url derived from the same projectId constant used by extra.eas.projectId (the UUID appears once in the file) and runtimeVersion policy fingerprint; npx expo config --type introspect shows both
-- [ ] #3 mobile/eas.json gives internal the channel internal, production the channel production, and preview its own channel; no two build profiles share a channel, and the choice made for the two dev-client profiles is stated in a comment or in MOBILE_CI_CD.md
-- [ ] #4 A workflow triggers on push to main with paths covering mobile/** while excluding markdown files and mobile/.maestro/**, and declares a concurrency group
-- [ ] #5 That workflow computes the fingerprint per platform with eas fingerprint:generate --json --non-interactive --platform <p> -e internal, queries eas build:list with --fingerprint-hash --status finished --limit 1 --json --non-interactive, and branches to eas build --profile internal --auto-submit --non-interactive on an empty result or to eas update --channel internal otherwise
-- [ ] #6 Every eas update invocation in the repository passes --environment; git grep for eas update returns no invocation without it
-- [ ] #7 No workflow installs the EAS CLI unpinned; each install pins an explicit version and carries a comment naming the flags the pin protects
-- [ ] #8 eas fingerprint:generate is run from the worktree for both platforms after the change and the two hashes are pasted into the Implementation Notes next to the pre-change Android hash cdde50c777525d5ff172cfbb2ad9f95bd40b40d0, showing the fingerprint moved
-- [ ] #9 npx expo config --type introspect still lists the expo-share-intent Android intent filters including application/pdf and image/*, and npx expo-modules-autolinking search -p android still resolves google-credential-manager
-- [ ] #10 npx tsc --noEmit and npm run lint are clean in mobile/
-- [ ] #11 mobile/MOBILE_CI_CD.md documents the profile-to-channel map, the fingerprint decision rule with the exact commands and the eas-cli version they were verified against, the --environment requirement on SDK 55 and which EAS environment feeds an OTA bundle, the three rollback commands, the free-tier build and MAU limits, and the one-time reinstall for binaries installed before this change
+- [x] #1 expo-updates is in mobile/package.json dependencies at the version npx expo install resolves for SDK 55, and npx expo install --check reports no version mismatch for it
+- [x] #2 mobile/app.config.ts declares updates.url derived from the same projectId constant used by extra.eas.projectId (the UUID appears once in the file) and runtimeVersion policy fingerprint; npx expo config --type introspect shows both
+- [x] #3 mobile/eas.json gives internal the channel internal, production the channel production, and preview its own channel; no two build profiles share a channel, and the choice made for the two dev-client profiles is stated in a comment or in MOBILE_CI_CD.md
+- [x] #4 A workflow triggers on push to main with paths covering mobile/** while excluding markdown files and mobile/.maestro/**, and declares a concurrency group
+- [x] #5 That workflow computes the fingerprint per platform with eas fingerprint:generate --json --non-interactive --platform <p> -e internal, queries eas build:list with --fingerprint-hash --status finished --limit 1 --json --non-interactive, and branches to eas build --profile internal --auto-submit --non-interactive on an empty result or to eas update --channel internal otherwise
+- [x] #6 Every eas update invocation in the repository passes --environment; git grep for eas update returns no invocation without it
+- [x] #7 No workflow installs the EAS CLI unpinned; each install pins an explicit version and carries a comment naming the flags the pin protects
+- [x] #8 eas fingerprint:generate is run from the worktree for both platforms after the change and the two hashes are pasted into the Implementation Notes next to the pre-change Android hash cdde50c777525d5ff172cfbb2ad9f95bd40b40d0, showing the fingerprint moved
+- [x] #9 npx expo config --type introspect still lists the expo-share-intent Android intent filters including application/pdf and image/*, and npx expo-modules-autolinking search -p android still resolves google-credential-manager
+- [x] #10 npx tsc --noEmit and npm run lint are clean in mobile/
+- [x] #11 mobile/MOBILE_CI_CD.md documents the profile-to-channel map, the fingerprint decision rule with the exact commands and the eas-cli version they were verified against, the --environment requirement on SDK 55 and which EAS environment feeds an OTA bundle, the three rollback commands, the free-tier build and MAU limits, and the one-time reinstall for binaries installed before this change
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### The fingerprint moved, measured
+
+`eas fingerprint:generate --json --non-interactive --platform <p> -e internal`, run from
+this worktree. The pre-change Android hash in the description was measured at `de6c91b`,
+before `expo-updates`:
+
+| Platform | Before `expo-updates` | After |
+|---|---|---|
+| Android | `cdde50c777525d5ff172cfbb2ad9f95bd40b40d0` | `e53f6e78308ff4aa250fdc1eefa2675bb5329e92` |
+| iOS | not measured before the change | `045400802019f4b94fee1bcf46b2963445b94d7c` |
+
+That movement is the reason the **first** automated run produces one build per platform
+instead of an OTA update — expected, and the strongest available proof the decision rule
+reads the native surface rather than a heuristic. The command needs no Expo login.
+
+### What was changed
+
+- `mobile/app.config.ts` — `const easProjectId` declared once at module scope, feeding
+  both `updates.url` (`https://u.expo.dev/${easProjectId}`) and `extra.eas.projectId`;
+  `runtimeVersion: { policy: "fingerprint" }`. `npx expo config --type introspect`
+  confirms the plugin lands the native keys on both platforms: `EXUpdatesURL`,
+  `EXUpdatesRuntimeVersion`, `EXUpdatesEnabled`, and
+  `expo.modules.updates.EXPO_UPDATE_URL` / `EXPO_RUNTIME_VERSION` / `ENABLED`.
+- `mobile/eas.json` — `channel` and `environment` added to the build profiles:
+  `preview` → `preview`/`preview`, `internal` → `internal`/`production`, `production` →
+  `production`/`production`. `development` gets `"environment": "development"` and
+  **deliberately no channel**; `development-simulator` extends it and inherits that
+  absence. Rationale in MOBILE_CI_CD.md: a dev-client binary is a debug build loading
+  from Metro, `expo-updates` is disabled in debug, and giving the pair a channel would
+  either break the one-profile-per-channel rule through inheritance or hand them a
+  channel nothing publishes to.
+- `.github/workflows/mobile-ota-or-build.yml` — new. Push to `main` on `mobile/**` minus
+  `**/*.md` and `mobile/.maestro/**`, `concurrency` group, matrix over both platforms
+  with `fail-fast: false`. Steps: EXPO_TOKEN gate → `npm ci` → pinned CLI →
+  `scripts/mobile_release_check.sh internal` (task-339's DNS guard, reused) → load env →
+  fingerprint → `build:list --fingerprint-hash` → `eas update` or
+  `eas build --auto-submit --no-wait`.
+- `.github/workflows/mobile-build-distribute.yml`, `.github/workflows/mobile-store-promote.yml`
+  — `EAS_CLI_VERSION: "22.0.0"`, five install sites in total now pinned across three
+  workflows. `mobile-e2e-maestro.yml` installs no eas-cli, so nothing to pin there.
+- `mobile/MOBILE_CI_CD.md` — new "Shipping JS Over The Air" section (AC #11), channel and
+  environment columns on the profiles table, rewritten "Workflow Triggers".
+- `docs/DEVBOX_SETUP.md` — the `eas-cli` prerequisite row now says 22.0.0 exactly, to
+  match the CI pin.
+
+### The env-var precedence trap, resolved by reading the CLI
+
+The task flagged that `EXPO_PUBLIC_*` values are inlined at bundle time and that this
+repo declares them in per-profile `env` blocks of `eas.json`, which feeds a *build* — so
+an `eas update` could inline empty values with no error anywhere. Read out of eas-cli
+22.0.0's own source, the two paths merge in **opposite** order:
+
+| Path | Merge | Winner |
+|---|---|---|
+| `eas build` | `build/evaluateConfigWithEnvVarsAsync.js`: `{ ...serverEnvVars, ...buildProfile.env }` | `eas.json` |
+| `eas update` | `utils/expoCli.js` `spawnExpoCommand`: `{ ...process.env, ...serverEnvVars }` | EAS environment |
+
+So the resolution is not "put the values in the EAS environment" but "make sure no
+`EXPO_PUBLIC_*` key is defined on both sides". Today none is: the API base URL and the
+two Google client IDs live only in `eas.json`; the RevenueCat keys only in the EAS
+environments. The workflow therefore copies `.build.internal.env` out of `eas.json` into
+`$GITHUB_ENV` with `jq` before publishing — one source of truth, no owner action — and
+then **greps the published bytes** in `mobile/dist/` for the expected API base URL,
+turning a silent failure into a red job that prints the rollback command. `grep -a`
+because Hermes bytecode is binary.
+
+`--environment production` for the OTA path: eas-cli's
+`resolveSuggestedEnvironmentForBuildProfileConfiguration` maps `distribution: "store"`
+(the schema default, which `internal` takes) to `production`, so this matches what a
+build of the same profile already resolves. The residual check —
+that the EAS `production` environment does not itself define one of those three keys —
+needs authentication and stays an owner step.
+
+### Not regressed
+
+`npx expo config --type introspect` still lists the `expo-share-intent` intent filters
+with `application/pdf`, `image/*`, `audio/*`, `text/*` and the three Office MIME types;
+`npx expo-modules-autolinking search -p android` still resolves
+`google-credential-manager` (and now `expo-updates`); `mobile/ios-share-extension/` is
+untouched; no diff line adds or removes the bundle ID `com.secondbrainlabs.core`.
+`appVersionSource: "remote"` + `autoIncrement` left as is — a fingerprint
+`runtimeVersion` is independent of the version string.
+
+### Checks
+
+`npx tsc --noEmit` exit 0. `npm run lint` 0 errors (2 pre-existing warnings in
+`app/(tabs)/digest.tsx` and `src/services/purchaseService.ts`, files not touched here).
+`cat mobile/eas.json | jq .` parses. All eight workflow YAMLs load. `bash
+scripts/mobile_release_check.sh internal` passes. `npx expo install --check` does not
+flag `expo-updates` (it reports 18 unrelated pre-existing mismatches; bumping
+`expo`/`react-native` would move the fingerprint massively and is out of scope).
+
+### Owner-dependent, by construction
+
+- `eas env:list production` — confirm it defines none of `EXPO_PUBLIC_API_BASE_URL`,
+  `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS`, `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB`. Needs auth.
+- The first `mobile-ota-or-build.yml` run, which only exists after this lands on `main`.
+- Replacing the pre-OTA installs once: TestFlight `1.0.0 (2)` and Play internal-track
+  `1.0.0 (5)` have no updates runtime and will never receive an OTA. Do this before the
+  task-260 closed-testing recruitment.
+- No automated test was added, per the project rule.
+<!-- SECTION:NOTES:END -->
+

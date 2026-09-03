@@ -36,6 +36,14 @@ env:
   # `app.config.ts` is evaluated as plain JS and every eas command dies on
   # "Missing initializer in const declaration".
   NODE_VERSION: "22"
+  # Pinned, never bare `eas-cli`. This workflow relies on `build:list
+  # --buildProfile --status finished --limit --json --non-interactive` returning
+  # an array whose first element carries `id`/`appVersion`/`appBuildVersion`, and
+  # on `submit --non-interactive --id` taking `ascAppId` from eas.json. Verified
+  # against 22.0.0 on 2026-09-03, which is also what the owner's machine runs.
+  # 23.2.0 is already published; bump this deliberately after re-reading
+  # `--help`, not by drifting to latest.
+  EAS_CLI_VERSION: "22.0.0"
   EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
 jobs:
@@ -65,8 +73,8 @@ jobs:
         working-directory: mobile
         run: npm ci
 
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
+      - name: Install EAS CLI ${{ env.EAS_CLI_VERSION }}
+        run: npm install -g "eas-cli@${EAS_CLI_VERSION}"
 
       - name: Get latest production build
         id: build
@@ -146,8 +154,8 @@ jobs:
         working-directory: mobile
         run: npm ci
 
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
+      - name: Install EAS CLI ${{ env.EAS_CLI_VERSION }}
+        run: npm install -g "eas-cli@${EAS_CLI_VERSION}"
 
       - name: Write Google Play service account key
         working-directory: mobile

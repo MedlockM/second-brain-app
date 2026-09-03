@@ -74,7 +74,7 @@ Versions connues comme fonctionnelles (relevées sur le poste de référence) :
 | AWS CLI | v2 | `secretsmanager`, `sts`, `dynamodb` |
 | `jq` | 1.7 | Utilisé par `scripts/tf_plan_guard.sh` |
 | `gh` | 2.45 | Opérations GitHub |
-| `eas-cli` | ≥ 20 | `npm install -g eas-cli` |
+| `eas-cli` | **22.0.0 exactement** | `npm install -g eas-cli@22.0.0` — même pin que les workflows mobiles (`EAS_CLI_VERSION`). Une version flottante met la machine sur une autre majeure que la CI, et la règle de décision OTA repose sur des flags qu'un bump de majeure peut déplacer (`mobile/MOBILE_CI_CD.md`, « Pinning the EAS CLI ») |
 
 Docker n'est pas requis : le développement cible l'environnement AWS dev, pas
 LocalStack (déprécié par task-130).

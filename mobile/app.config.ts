@@ -20,6 +20,19 @@ import {
  * Returns `null` when the env var is missing, so a build without it declares no
  * scheme rather than a broken one.
  */
+/**
+ * The EAS project id, declared once for the whole file.
+ *
+ * It is read twice — `extra.eas.projectId`, which is what links the checkout to
+ * the Expo project, and the `updates.url` an OTA-capable binary polls
+ * (`https://u.expo.dev/<projectId>`, the shape `eas update:configure` would have
+ * written into a static `app.json`; it cannot write into a dynamic
+ * `app.config.ts` and only prints what to add). Two literal copies of the UUID
+ * is one copy that can go stale, and a stale `updates.url` is silent: the binary
+ * polls a project that publishes nothing and simply never updates.
+ */
+const easProjectId = "fad6e877-590d-4143-bbaa-fdd013b01c43";
+
 const googleReservedClientScheme = (clientId?: string): string | null => {
   const suffix = ".apps.googleusercontent.com";
   const trimmed = clientId?.trim();
@@ -90,6 +103,31 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     icon: "./assets/icon.png",
     userInterfaceStyle: "light",
     scheme: "media-summarizer",
+    // EAS Update (task-340). Two fields, and the second one is the mechanism.
+    //
+    // `updates.url` is where the installed binary asks for a newer JS bundle.
+    // `runtimeVersion` is what stops it from accepting one it cannot run: the
+    // `fingerprint` policy makes the runtime version a hash of the *native*
+    // project — every autolinked native module, the local
+    // `modules/google-credential-manager` module, the share-extension target,
+    // the intent filters, the plugin list. An update is only ever served to a
+    // binary whose fingerprint matches the one it was published under, so a JS
+    // bundle that calls into a native module the installed app does not have can
+    // never reach it.
+    //
+    // That is also what makes "build only when a build is needed" decidable in
+    // CI: the fingerprint either moved or it did not. See
+    // .github/workflows/mobile-ota-or-build.yml and MOBILE_CI_CD.md.
+    //
+    // It is independent of `version` above and of the `autoIncrement` build
+    // numbers in eas.json, which is why a fingerprint runtime version and
+    // `appVersionSource: "remote"` coexist without interfering.
+    updates: {
+      url: `https://u.expo.dev/${easProjectId}`,
+    },
+    runtimeVersion: {
+      policy: "fingerprint",
+    },
     // The eleven V1 locales, declared at the *native* level.
     //
     // This is what makes the OS treat the app as multilingual: the picker
@@ -239,7 +277,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       revenueCatGoogleKey: process.env.EXPO_PUBLIC_REVENUCAT_GOOGLE_KEY || "",
       feedbackUrl: process.env.EXPO_PUBLIC_FEEDBACK_URL || "",
       eas: {
-        projectId: "fad6e877-590d-4143-bbaa-fdd013b01c43",
+        projectId: easProjectId,
       },
     },
   };

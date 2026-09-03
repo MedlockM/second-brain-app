@@ -1,0 +1,293 @@
+name: Mobile OTA or Build
+
+# ---------------------------------------------------------------------------
+# One push to `main`, one decision per platform: publish an over-the-air JS
+# update, or spend a native build. Added by task-340.
+#
+# The decision is not a heuristic. With `runtimeVersion: { policy:
+# "fingerprint" }` in app.config.ts, the runtime version of the app *is* a hash
+# of its native project, so:
+#
+#   fingerprint unchanged  -> a finished `internal` build already runs this
+#                             native surface -> `eas update` reaches it. Free,
+#                             unlimited, seconds.
+#   fingerprint changed    -> no installed binary can run the new JS ->
+#                             `eas build --profile internal --auto-submit`.
+#
+# Why it has to be this way and not "always build": EAS Free gives 15 Android +
+# 15 iOS builds per month, 1 concurrency slot and the low-priority queue (waits
+# of 3 h+ measured on 2026-09-02). A dozen JS-only commits in a day would
+# exhaust a month of quota. EAS Update Free gives 1 000 MAUs and unlimited
+# updates.
+#
+# `internal` only, never `production`. Publishing to a channel a store binary
+# listens on is a silent way to ship untested JS to whoever holds that binary.
+#
+# All eas-cli flags used below were verified against eas-cli 22.0.0, which is
+# also the version pinned in EAS_CLI_VERSION. See mobile/MOBILE_CI_CD.md,
+# "Shipping JS over the air".
+# ---------------------------------------------------------------------------
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+    # Order matters: GitHub applies these top to bottom, so the two exclusions
+    # must come last. Without them, editing mobile/MOBILE_CI_CD.md would publish
+    # an update whose bundle is byte-identical to the previous one, and touching
+    # a Maestro flow — which never ships inside the app — would do the same.
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile-ota-or-build.yml"
+      - "!**/*.md"
+      - "!mobile/.maestro/**"
+
+# Two pushes landing close together must not publish two updates at once, nor
+# start two builds against the single concurrency slot of the Free plan.
+# `cancel-in-progress: false` on purpose: a cancelled run leaves the EAS-side
+# build or submission running anyway, so cancelling buys nothing and loses the
+# log that says what was decided.
+concurrency:
+  group: mobile-ota-or-build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Node 22+, not 20: eas-cli 22 bundles typescript 7, which no longer exposes
+  # `transpileModule`. `@expo/require-utils` then falls back to Node's
+  # `module.stripTypeScriptTypes`, which only exists from Node 22 -- without it
+  # `app.config.ts` is evaluated as plain JS and every eas command dies on
+  # "Missing initializer in const declaration".
+  NODE_VERSION: "22"
+  # Pinned, never bare `eas-cli`. The decision rule in this workflow rests on
+  # four flags whose behaviour a CLI major bump can move:
+  # `fingerprint:generate --json` (top-level `hash` in stdout),
+  # `build:list --fingerprint-hash`, `update --environment` and
+  # `build --auto-submit` combined with `--no-wait`. All four were verified
+  # against 22.0.0 on 2026-09-03. 23.2.0 is already published — bump this pin
+  # deliberately, after re-reading `--help`, not by drifting to latest.
+  EAS_CLI_VERSION: "22.0.0"
+  EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+jobs:
+  ota-or-build:
+    name: ${{ matrix.platform }} — OTA or native build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # Each platform has its own native fingerprint and decides on its own. A
+      # failed iOS decision must not cancel a valid Android publish.
+      fail-fast: false
+      matrix:
+        platform: [android, ios]
+
+    steps:
+      # Fail here rather than 10 steps later inside `eas`.
+      - name: Require EXPO_TOKEN
+        run: |
+          if [[ -z "${EXPO_TOKEN}" ]]; then
+            echo "::error::EXPO_TOKEN secret is empty. Create a robot token at" \
+                 "https://expo.dev/settings/access-tokens then run" \
+                 "'gh secret set EXPO_TOKEN'. Every eas command in this workflow" \
+                 "needs it (see mobile/MOBILE_CI_CD.md)."
+            exit 1
+          fi
+          echo "EXPO_TOKEN is present."
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Install EAS CLI ${{ env.EAS_CLI_VERSION }}
+        run: npm install -g "eas-cli@${EAS_CLI_VERSION}"
+
+      # Same gate as mobile-build-distribute.yml, and it matters more here: an
+      # OTA update reaches installed devices in minutes, so an unresolvable
+      # EXPO_PUBLIC_API_BASE_URL would break a working app instead of merely
+      # producing an inert artifact.
+      - name: Pre-flight check for the internal profile
+        run: bash scripts/mobile_release_check.sh internal
+
+      # `eas update` bundles on *this runner*, so the EXPO_PUBLIC_* values it
+      # inlines come from this process's environment plus the EAS server-side
+      # environment. A build, in contrast, takes them from the `env` block of the
+      # build profile. Reading them here out of that same block is what makes the
+      # two paths inline one set of values from one source of truth.
+      #
+      # Precedence, read out of eas-cli 22.0.0 rather than assumed, because the
+      # two paths disagree:
+      #   build  (build/evaluateConfigWithEnvVarsAsync.js) -> { ...serverEnvVars, ...buildProfile.env }  eas.json wins
+      #   update (utils/expoCli.js spawnExpoCommand)       -> { ...process.env,  ...serverEnvVars     }  EAS env wins
+      # So the two agree only while no EXPO_PUBLIC_* key is defined on both
+      # sides. Today none is: the API URL and the Google client IDs live only in
+      # eas.json, the RevenueCat keys only in the EAS environments. Keep it that
+      # way — `eas env:list production` is the owner check.
+      - name: Load the internal profile's EXPO_PUBLIC_* variables
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          MISSING=0
+          while IFS= read -r entry; do
+            NAME="${entry%%=*}"
+            VALUE="${entry#*=}"
+            if [[ -z "${VALUE}" || "${VALUE}" == "null" ]]; then
+              echo "::error::${NAME} is empty in the \"internal\" build profile of mobile/eas.json."
+              MISSING=1
+              continue
+            fi
+            printf '%s\n' "${entry}" >> "$GITHUB_ENV"
+            echo "Loaded ${NAME} from mobile/eas.json (build.internal.env)."
+          done < <(jq -r '.build.internal.env | to_entries[] | "\(.key)=\(.value)"' eas.json)
+          if [[ "${MISSING}" -ne 0 ]]; then
+            exit 1
+          fi
+
+      # The whole decision, first half. This command needs no Expo login (it
+      # hashes the local project), but it does need `-e internal` so the config
+      # it hashes is the one the internal profile produces —
+      # EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS decides `ios.scheme` in app.config.ts
+      # and therefore changes the iOS fingerprint.
+      - name: Compute the native fingerprint for ${{ matrix.platform }}
+        id: fingerprint
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          HASH=$(eas fingerprint:generate \
+            --json \
+            --non-interactive \
+            --platform ${{ matrix.platform }} \
+            -e internal | jq -r '.hash')
+          if [[ -z "${HASH}" || "${HASH}" == "null" ]]; then
+            echo "::error::eas fingerprint:generate returned no hash for ${{ matrix.platform }}."
+            exit 1
+          fi
+          echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+          echo "Native fingerprint (${{ matrix.platform }}, internal profile): ${HASH}"
+
+      # Second half. An empty array means no finished `internal` build runs this
+      # native surface, so no installed binary could accept an update published
+      # against it.
+      - name: Look for a finished internal build with that fingerprint
+        id: decision
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          MATCHES=$(eas build:list \
+            --platform ${{ matrix.platform }} \
+            -e internal \
+            --status finished \
+            --fingerprint-hash "${{ steps.fingerprint.outputs.hash }}" \
+            --limit 1 \
+            --json \
+            --non-interactive)
+          COUNT=$(printf '%s' "${MATCHES}" | jq 'length')
+          if [[ "${COUNT}" -gt 0 ]]; then
+            MATCHED_ID=$(printf '%s' "${MATCHES}" | jq -r '.[0].id')
+            MATCHED_VERSION=$(printf '%s' "${MATCHES}" | jq -r '"\(.[0].appVersion) (\(.[0].appBuildVersion))"')
+            echo "route=update" >> "$GITHUB_OUTPUT"
+            echo "matched_build_id=${MATCHED_ID}" >> "$GITHUB_OUTPUT"
+            echo "Fingerprint unchanged — build ${MATCHED_ID} (${MATCHED_VERSION}) already runs it. Routing to eas update."
+          else
+            echo "route=build" >> "$GITHUB_OUTPUT"
+            echo "No finished internal build carries this fingerprint — the native surface moved. Routing to eas build."
+          fi
+
+      # `--environment production` is not decoration: eas update on SDK 55 says
+      # "Required for projects using Expo SDK 55 or greater". `production` is the
+      # EAS environment the `internal` build profile declares in eas.json, so the
+      # OTA bundle reads the same server-side variables the build reads.
+      - name: Publish an OTA update to the internal channel
+        id: update
+        if: steps.decision.outputs.route == 'update'
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          MESSAGE=$(git log -1 --pretty=%s | cut -c1-200)
+          eas update \
+            --channel internal \
+            --platform ${{ matrix.platform }} \
+            --environment production \
+            --message "${MESSAGE}" \
+            --non-interactive
+
+      # The failure this catches is the silent one: EXPO_PUBLIC_* values are
+      # inlined at bundle time, so an update published with an empty API base URL
+      # builds, uploads and installs with no error anywhere, and then every
+      # network call of the updated app fails. `eas update` leaves its export in
+      # dist/, so the published bytes can be checked directly. Hermes bytecode is
+      # binary, hence `grep -a`.
+      - name: Verify the published bundle inlined the API base URL
+        if: steps.decision.outputs.route == 'update'
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          if grep -raqF "${EXPO_PUBLIC_API_BASE_URL}" dist/; then
+            echo "The published bundle inlines ${EXPO_PUBLIC_API_BASE_URL}."
+          else
+            echo "::error::The update just published to the \"internal\" channel does not" \
+                 "contain ${EXPO_PUBLIC_API_BASE_URL}. It is ALREADY LIVE and every network" \
+                 "call of the updated app will fail. Roll it back now:" \
+                 "cd mobile && eas update:rollback (or eas update:roll-back-to-embedded" \
+                 "--channel internal --platform ${{ matrix.platform }}), then check whether" \
+                 "the EAS \"production\" environment defines EXPO_PUBLIC_API_BASE_URL and" \
+                 "overrides the value from eas.json (eas env:list production)."
+            exit 1
+          fi
+
+      # `--auto-submit` picks the submit profile named after the build profile,
+      # i.e. `internal` -> TestFlight + Play internal track. It is scheduled
+      # server-side the moment the build starts, which is why `--no-wait` is
+      # safe here and the submission still happens.
+      #
+      # `--no-wait` on purpose: the Free plan's low-priority queue served jobs
+      # after 3 h+ on 2026-09-02. Holding a GitHub job open for that proves
+      # nothing and burns Actions minutes; EAS keeps a queued job for 30 days.
+      - name: Start a native build (the fingerprint moved)
+        id: build
+        if: steps.decision.outputs.route == 'build'
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          MESSAGE=$(git log -1 --pretty=%s | cut -c1-200)
+          BUILD_OUTPUT=$(eas build \
+            --platform ${{ matrix.platform }} \
+            --profile internal \
+            --auto-submit \
+            --non-interactive \
+            --message "${MESSAGE}" \
+            --json \
+            --no-wait)
+          BUILD_ID=$(printf '%s' "${BUILD_OUTPUT}" | jq -r '.[0].id')
+          echo "build_id=${BUILD_ID}" >> "$GITHUB_OUTPUT"
+          echo "Started build ${BUILD_ID}. It will auto-submit when it finishes."
+
+      - name: Summarise the decision
+        if: always() && steps.decision.outcome == 'success'
+        run: |
+          {
+            echo "## ${{ matrix.platform }}: ${{ steps.decision.outputs.route }}"
+            echo ""
+            echo "- Native fingerprint: \`${{ steps.fingerprint.outputs.hash }}\`"
+            if [[ "${{ steps.decision.outputs.route }}" == "update" ]]; then
+              echo "- Matching finished build: \`${{ steps.decision.outputs.matched_build_id }}\`"
+              echo "- Published an OTA update on the \`internal\` channel (EAS environment \`production\`)."
+              echo "- Rollback: \`cd mobile && eas update:rollback\`"
+            else
+              echo "- No finished \`internal\` build carries this fingerprint."
+              echo "- Started build \`${{ steps.build.outputs.build_id }}\` with \`--auto-submit\`."
+              echo "- It will reach TestFlight and the Play \`internal\` track without a further step."
+              echo "- Testers holding a binary built before this fingerprint must reinstall once."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
