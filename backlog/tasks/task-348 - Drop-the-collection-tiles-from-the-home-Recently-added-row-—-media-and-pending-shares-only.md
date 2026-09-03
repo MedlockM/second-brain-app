@@ -3,9 +3,10 @@ id: task-348
 title: >-
   Drop the collection tiles from the home "Recently added" row — media and
   pending shares only
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 12:32'
+updated_date: '2026-09-03 13:13'
 labels:
   - mobile
   - ui

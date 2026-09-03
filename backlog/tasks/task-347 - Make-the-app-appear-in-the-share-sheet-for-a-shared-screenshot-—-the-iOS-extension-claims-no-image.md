@@ -3,9 +3,10 @@ id: task-347
 title: >-
   Make the app appear in the share sheet for a shared screenshot — the iOS
   extension claims no image
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 12:02'
+updated_date: '2026-09-03 13:13'
 labels:
   - mobile
   - bug
