@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   TextInput,
   FlatList,
   ActivityIndicator,
-  Platform,
   Pressable,
   RefreshControl,
   type StyleProp,
@@ -16,7 +15,6 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
@@ -47,6 +45,7 @@ import {
   type AnchorRect,
 } from "../../src/components/MediaContextMenu";
 import { MediaRenameDialog } from "../../src/components/MediaRenameDialog";
+import { GlassSurface } from "../../src/components/GlassSurface";
 import { useMediaActions } from "../../src/hooks/useMediaActions";
 import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
 import { Image } from "expo-image";
@@ -524,34 +523,6 @@ export default function SearchScreen() {
 }
 
 // --- Sub-components ---
-
-/**
- * Translucent backdrop of the search pill.
- *
- * iOS renders the real native blur. Android's blur support is uneven across
- * devices and vendors -- and silently degrades when the system disables
- * animations -- so it falls back to a semi-opaque tint, which keeps the pill
- * readable over any scrolling content instead of risking a broken surface.
- */
-function GlassSurface({
-  children,
-  style,
-}: {
-  children: ReactNode;
-  style: StyleProp<ViewStyle>;
-}) {
-  if (Platform.OS === "ios") {
-    return (
-      <BlurView intensity={60} tint="light" style={style}>
-        {children}
-      </BlurView>
-    );
-  }
-
-  return (
-    <View style={[style, styles.searchBarAndroidFallback]}>{children}</View>
-  );
-}
 
 /**
  * Dismiss the keyboard as soon as either list is dragged.
@@ -1191,12 +1162,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.outlineVariant,
     height: SEARCH_BAR_HEIGHT,
     paddingHorizontal: Spacing.md,
-    // Required for the blur to be clipped by the pill radius on iOS.
+    // Required for the material to be clipped by the pill radius on iOS.
     overflow: "hidden",
-  },
-  searchBarAndroidFallback: {
-    // Android fallback: a tint opaque enough to stay legible without blur.
-    backgroundColor: "rgba(252, 249, 246, 0.92)",
   },
   searchIcon: {
     marginEnd: Spacing.sm,

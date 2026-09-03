@@ -78,15 +78,118 @@ The two reasons that do hold, and that the corrected comment should carry instea
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `mobile/src/components/GlassSurface.tsx` exports `GlassSurface` with the same `{ children, style }` shape and resolves in three branches: `GlassView` (`glassEffectStyle="regular"`) when `isLiquidGlassAvailable()` and `isGlassEffectAPIAvailable()` are both true, `BlurView` with today's parameters on any other iOS, and a `View` carrying the opaque tint elsewhere
-- [ ] #2 The tint literal `rgba(252, 249, 246, 0.92)` and the comment explaining why Android does not blur live in `GlassSurface.tsx`; `styles.searchBarAndroidFallback` no longer exists in `mobile/app/(tabs)/search.tsx`
-- [ ] #3 `GlassSurface` falls back to the opaque tint branch when `AccessibilityInfo.isReduceTransparencyEnabled()` reports true, and re-evaluates on the `reduceTransparencyChanged` event
-- [ ] #4 `mobile/app/(tabs)/search.tsx` imports `GlassSurface` from `src/components/`, its local definition is deleted, it no longer imports `BlurView`, and `SEARCH_BAR_HEIGHT`, `CONTENT_TOP_INSET`, `searchBarOverlay` and the pill's own styles are otherwise unchanged (`overflow: "hidden"` included)
-- [ ] #5 The menu card in `mobile/src/components/MediaContextMenu.tsx` renders through `GlassSurface`, and `cardVeil` plus its style are deleted
-- [ ] #6 The full-screen backdrop stays a `BlurView` at `intensity={40}` with its scrim, and a comment states why it is not a glass surface
-- [ ] #7 No ancestor of the glass card animates from `opacity: 0`: the entry and exit animations keep `PREVIEW_SCALE`, `OPEN_DURATION`, `CLOSE_DURATION`, `useNativeDriver: true` and the `requestClose` contract, and a comment names the documented `opacity: 0` issue that forced the change
-- [ ] #8 `expo-glass-effect` is a declared direct dependency of `mobile/package.json` at the SDK 55 range, and `expo-blur` is still declared
-- [ ] #9 The header comment of `MediaContextMenu.tsx` no longer claims a context-menu library would pull in `react-native-reanimated` or `react-native-gesture-handler`; it states instead that `LinkMenu` is iOS-only and that a `UIMenu` dismisses on selection, leaving no place for the Delete spinner
-- [ ] #10 The menu's placement maths (`opensDown`, `clamp`, `MENU_HEIGHT`, `MENU_WIDTH`, `SCREEN_EDGE`, `MENU_GAP`), `renderPreview`, the anchor rect and every call into `useMediaActions` are untouched, and no file outside `mobile/src/components/` and `mobile/app/(tabs)/search.tsx` changes apart from `package.json`
-- [ ] #11 `npm run lint` and `npm run typecheck` are clean in `mobile/`
+- [x] #1 `mobile/src/components/GlassSurface.tsx` exports `GlassSurface` with the same `{ children, style }` shape and resolves in three branches: `GlassView` (`glassEffectStyle="regular"`) when `isLiquidGlassAvailable()` and `isGlassEffectAPIAvailable()` are both true, `BlurView` with today's parameters on any other iOS, and a `View` carrying the opaque tint elsewhere
+- [x] #2 The tint literal `rgba(252, 249, 246, 0.92)` and the comment explaining why Android does not blur live in `GlassSurface.tsx`; `styles.searchBarAndroidFallback` no longer exists in `mobile/app/(tabs)/search.tsx`
+- [x] #3 `GlassSurface` falls back to the opaque tint branch when `AccessibilityInfo.isReduceTransparencyEnabled()` reports true, and re-evaluates on the `reduceTransparencyChanged` event
+- [x] #4 `mobile/app/(tabs)/search.tsx` imports `GlassSurface` from `src/components/`, its local definition is deleted, it no longer imports `BlurView`, and `SEARCH_BAR_HEIGHT`, `CONTENT_TOP_INSET`, `searchBarOverlay` and the pill's own styles are otherwise unchanged (`overflow: "hidden"` included)
+- [x] #5 The menu card in `mobile/src/components/MediaContextMenu.tsx` renders through `GlassSurface`, and `cardVeil` plus its style are deleted
+- [x] #6 The full-screen backdrop stays a `BlurView` at `intensity={40}` with its scrim, and a comment states why it is not a glass surface
+- [x] #7 No ancestor of the glass card animates from `opacity: 0`: the entry and exit animations keep `PREVIEW_SCALE`, `OPEN_DURATION`, `CLOSE_DURATION`, `useNativeDriver: true` and the `requestClose` contract, and a comment names the documented `opacity: 0` issue that forced the change
+- [x] #8 `expo-glass-effect` is a declared direct dependency of `mobile/package.json` at the SDK 55 range, and `expo-blur` is still declared
+- [x] #9 The header comment of `MediaContextMenu.tsx` no longer claims a context-menu library would pull in `react-native-reanimated` or `react-native-gesture-handler`; it states instead that `LinkMenu` is iOS-only and that a `UIMenu` dismisses on selection, leaving no place for the Delete spinner
+- [x] #10 The menu's placement maths (`opensDown`, `clamp`, `MENU_HEIGHT`, `MENU_WIDTH`, `SCREEN_EDGE`, `MENU_GAP`), `renderPreview`, the anchor rect and every call into `useMediaActions` are untouched, and no file outside `mobile/src/components/` and `mobile/app/(tabs)/search.tsx` changes apart from `package.json`
+- [x] #11 `npm run lint` and `npm run typecheck` are clean in `mobile/`
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### The shared component
+
+`mobile/src/components/GlassSurface.tsx` is the local helper of `search.tsx`,
+moved out with the same `{ children, style }` props and a third branch:
+
+1. `GlassView glassEffectStyle="regular"` when `Platform.OS === "ios"` and both
+   `isLiquidGlassAvailable()` and `isGlassEffectAPIAvailable()` return true.
+2. `BlurView intensity={60} tint="light"` on any other iOS.
+3. `View` carrying `styles.opaqueTint` — `rgba(252, 249, 246, 0.92)` — everywhere
+   else, with the Android rationale (uneven vendor blur, silent degradation when
+   animations are off) travelling with the literal.
+
+Reduce transparency is a condition of the fork, not an extra: `useReduceTransparency`
+reads `AccessibilityInfo.isReduceTransparencyEnabled()` on mount and subscribes to
+`reduceTransparencyChanged`, and a `true` sends *both* iOS branches to the tint —
+a blurred pill is as unreadable a promise as a glass one when the user has asked
+for less transparency. Both calls are safe on Android without a platform guard:
+React Native resolves the query to `false` there
+(`AccessibilityInfo.js:301-303`) and `addEventListener` returns an inert
+subscription for an unmapped event name (`:430-434`). The query is chained through
+`.catch(() => false)` because it rejects when there is no native accessibility
+manager to ask (web).
+
+Two consequences worth stating, both deliberate:
+
+- **The blur branch is now one setting for both surfaces.** The pill blurred at
+  60, the menu card at 80 under a 78 %-white `cardVeil`. The shared component
+  keeps the pill's 60 — the parameters of the component being moved, which is what
+  AC #1 names — so on iOS 18 the menu card is slightly more transparent than it
+  was. The veil is gone per AC #5, and on iOS 26 the real material supplies the
+  vibrancy it was imitating.
+- **The menu card no longer blurs on Android**, since it now takes branch 3 like
+  the pill. `experimentalBlurMethod="dimezisBlurView"` is therefore gone from the
+  card (the backdrop keeps its own), and the card reads as an opaque tinted card
+  rather than a Dimezis blur under a white veil.
+
+### The `opacity: 0` trap
+
+`cardWrapper` is the glass card's ancestor and its opacity was `progress`, which
+`useEffect` resets to `0` before every open — the exact shape `expo-glass-effect`
+documents as stopping the material from rendering. Fixed by flooring the fade
+rather than by touching the animation:
+
+```ts
+const CARD_MIN_OPACITY = 0.05;
+const cardOpacity = progress.interpolate({
+  inputRange: [0, 1],
+  outputRange: [CARD_MIN_OPACITY, 1],
+});
+```
+
+`progress` itself still runs 0 → 1, so `previewScale`, `cardScale`, the backdrop
+fade, `PREVIEW_SCALE`, `OPEN_DURATION`, `CLOSE_DURATION`, `useNativeDriver: true`
+and the whole `requestClose` contract are byte-identical. The known issue is named
+in the doc comment on the constant, because a card that comes up as a plain view
+looks like a styling mistake and not like a documented constraint.
+
+The alternative the description mentions — animating the wrapper's opacity while
+switching `glassEffectStyle` to `'none'` at low values — was not taken: it needs a
+per-frame `glassEffectStyle` on the surface, and AC #1 pins `GlassSurface` to
+`{ children, style }`. Flooring the fade satisfies the constraint the workaround
+exists to satisfy (the material never sees a zero) with no new prop and no
+listener attached to a natively driven value.
+
+### The backdrop
+
+Left exactly as it was — `BlurView intensity={40} tint="light"` with the 35 %
+scrim over it — under a comment stating that Liquid Glass is the material of a
+*panel* and this is the whole screen behind the menu, which iOS blurs behind its
+own context menu rather than glassing. The comment also carries the
+expo/expo#42501 watch item (glass and blur coexisting on SDK 55 / iOS 26) and
+names the first thing to try if artifacts show up: dropping the backdrop to its
+scrim alone.
+
+### Files touched, and the one addition to AC #10's list
+
+`mobile/src/components/GlassSurface.tsx` (new),
+`mobile/src/components/MediaContextMenu.tsx`, `mobile/app/(tabs)/search.tsx`,
+`mobile/package.json` — **plus `mobile/package-lock.json`**, which AC #10 does not
+name. It is a one-line insert (`"expo-glass-effect": "~55.0.11"` in the root
+`packages[""].dependencies`, the package already being in the tree at 55.0.11 as
+an `expo-router` transitive) produced by `npm install --package-lock-only`.
+Without it `npm ci` fails on a lockfile that no longer satisfies `package.json`,
+so the lock is the mechanical companion of the AC's own requirement rather than an
+unrelated file.
+
+Inside `search.tsx` the only edit beyond the import swap and the two deletions is
+one comment word in `styles.searchBar`: "Required for the **blur** to be clipped"
+became "the **material**". No style value moved, `overflow: "hidden"` included.
+
+### Not done, and why
+
+- **No tests**, per the project rule.
+- **No visual verification.** Whether the two surfaces read as glass, whether the
+  card's material actually appears as it fades in, and whether the pill's hairline
+  border and `Shadows.soft` now double the edge and shadow Liquid Glass draws
+  itself, all need a fresh dev build on an iOS 26 device — the owner's checks,
+  listed in the description's owner notes and unreachable from this worktree.
+<!-- SECTION:NOTES:END -->

@@ -10,12 +10,14 @@
  * pressed item and the menu are the only sharp things on screen and the gesture
  * visibly names its target.
  *
- * Rebuilt in JS on purpose (task-346). A system `UIMenu` cannot be styled and
- * this look is required on Android too, which is the project's shipping path;
- * and `package.json` carries neither `react-native-reanimated` nor
- * `react-native-gesture-handler`, which a context-menu library would drag in.
- * Nothing here needs them: the animation is one scale-and-fade with no
- * continuous gesture, which the `Animated` API of React Native core does.
+ * Rebuilt in JS on purpose (task-346). A system `UIMenu` cannot be styled, and
+ * the ready-made shape fails on two counts beyond that. `Link.Menu` and
+ * `Link.Preview` do ship inside `expo-router`, but `LinkMenu` is annotated
+ * `@platform ios`, so Android — the project's shipping path — would lose the long
+ * press entirely; and a `UIMenu` dismisses itself the moment a row is selected,
+ * which leaves nowhere for the in-flight spinner on Delete to live. The animation
+ * needs no gesture library either: it is one scale-and-fade with no continuous
+ * gesture, which the `Animated` API of React Native core does.
  *
  * The orchestration — which media is targeted, the destructive confirmation, the
  * network calls — belongs to `useMediaActions`; this file is the surface only.
@@ -45,6 +47,7 @@ import {
   Typography,
 } from "../constants/theme";
 import { t } from "../i18n";
+import { GlassSurface } from "./GlassSurface";
 import type { MediaListItem } from "../types/media";
 
 /**
@@ -109,6 +112,20 @@ const SCREEN_EDGE = Spacing.md;
 /** How much the pressed row grows as it lifts. Enough to read, not a jump. */
 const PREVIEW_SCALE = 1.04;
 
+/**
+ * Where the card's fade starts, and the reason it is not zero.
+ *
+ * `expo-glass-effect` documents that an `opacity` of `0` on the glass view **or
+ * on any of its ancestors** stops the material rendering at all — and
+ * `cardWrapper`, whose opacity the entry animation drives, is exactly such an
+ * ancestor. A literal `opacity: progress` therefore produced a menu card that
+ * came up as a plain untinted view: a failure mode that reads as a styling
+ * mistake rather than as a documented constraint, which is why it is named here.
+ * Starting the fade a hair above zero keeps the material in the render tree for
+ * the whole animation while being invisible on the first frame.
+ */
+const CARD_MIN_OPACITY = 0.05;
+
 const OPEN_DURATION = 160;
 const CLOSE_DURATION = 120;
 
@@ -170,6 +187,12 @@ export function MediaContextMenu({
     inputRange: [0, 1],
     outputRange: [0.92, 1],
   });
+  // Same fade as before, floored at `CARD_MIN_OPACITY` so the glass card is
+  // never handed the one value its material refuses to draw on.
+  const cardOpacity = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [CARD_MIN_OPACITY, 1],
+  });
 
   /**
    * Plays the exit, then hands control back to the caller.
@@ -216,6 +239,14 @@ export function MediaContextMenu({
           style={[StyleSheet.absoluteFill, { opacity: progress }]}
           pointerEvents="none"
         >
+          {/* Still a blur, and deliberately not a glass surface: Liquid Glass is
+              the material of a *panel*, and this is the whole screen behind the
+              menu — iOS blurs the background behind its own context menu rather
+              than glassing it, and there is nothing here for glass to be the
+              panel of. (expo/expo#42501 is worth watching: glass and blur
+              coexisting on SDK 55 / iOS 26 can produce render artifacts, and
+              this screen now holds one of each. The first thing to try would be
+              dropping this backdrop to its scrim alone.) */}
           <BlurView
             intensity={40}
             tint="light"
@@ -262,24 +293,14 @@ export function MediaContextMenu({
             {
               top,
               left,
-              opacity: progress,
+              opacity: cardOpacity,
               transform: [{ scale: cardScale }],
               transformOrigin: opensDown ? "top left" : "bottom left",
             },
           ]}
           testID="media-actions-menu"
         >
-          <BlurView
-            intensity={80}
-            tint="light"
-            experimentalBlurMethod="dimezisBlurView"
-            style={styles.card}
-          >
-            {/* Translucency without a new colour token: the surface white is
-                laid over the blur at partial opacity, so what is behind the
-                card still shows through the way platform vibrancy does. */}
-            <View style={styles.cardVeil} pointerEvents="none" />
-
+          <GlassSurface style={styles.card}>
             <MenuRow
               icon="folder-outline"
               label={t("mediaActions.move.label")}
@@ -306,7 +327,7 @@ export function MediaContextMenu({
               destructive
               testID="media-actions-delete"
             />
-          </BlurView>
+          </GlassSurface>
         </Animated.View>
       </View>
     </Modal>
@@ -385,18 +406,13 @@ const styles = StyleSheet.create({
     width: MENU_WIDTH,
     borderRadius: BorderRadius.xl,
     // On the wrapper rather than the card: a shadow does not survive the
-    // `overflow: hidden` the rounded blur needs.
+    // `overflow: hidden` the rounded material needs.
     ...Shadows.soft,
   },
   card: {
     borderRadius: BorderRadius.xl,
     paddingVertical: CARD_PADDING_VERTICAL,
     overflow: "hidden",
-  },
-  cardVeil: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: Colors.surface,
-    opacity: 0.78,
   },
   row: {
     flexDirection: "row",
