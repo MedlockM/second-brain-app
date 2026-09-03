@@ -15,7 +15,6 @@ export interface Collection {
   id: string;
   name: string;
   media_count: number;
-  created_at: string;
   updated_at?: string;
   parent_id?: string | null;
   parent_folder_id?: string | null;
