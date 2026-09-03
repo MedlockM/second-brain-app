@@ -3,10 +3,10 @@ id: task-343
 title: >-
   Benchmark first-page rendering for uploaded documents on the arm64 AL2 Lambda
   image
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 09:12'
-updated_date: '2026-09-03 10:42'
+updated_date: '2026-09-03 10:59'
 labels:
   - benchmark
   - ingestion
