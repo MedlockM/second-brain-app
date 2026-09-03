@@ -909,7 +909,7 @@ in [App Store Connect Setup](#4-app-store-connect-setup):
 query($s: ID!) { submissions { byId(submissionId: $s) { status updatedAt } } }
 ```
 
-### Why jobs wait: one Linux queue, one slot — measured 2026-09-02
+### Why jobs wait: one Linux queue, one slot — measured 2026-09-02/03
 
 The Free plan gives the account **one concurrency slot in total**
 (`subscription.concurrencies` reads `{ total: 1, android: 1, ios: 1 }`), and the
@@ -941,16 +941,43 @@ demand is):
 | 09:21 | Android build | 25.6 min |
 | 11:55 | Android build | 15.3 min |
 | 10:13 | Android build | **never served in 5 h 50, cancelled** |
-| 14:16 | iOS submission | still queued after 12 min |
+| 14:16 | iOS submission | **3 h 30** — served at 17:45 PT |
+| 14:38 | Android build | **3 h 17** — served at 17:55 PT, then built in 7 min |
+
+**The queue drains when the US workday ends.** Both jobs left queued through the
+afternoon of 2026-09-02 were picked up between 17:45 and 17:55 PT, within ten
+minutes of each other, and both succeeded. Nothing was retried and nothing was
+touched: they simply waited out the contention.
 
 **Practical rule: queue anything that needs Linux — an Android build, or a
-submission to either store — during the European morning, which is the US night.**
-Between 01:00 and 04:00 PT the same jobs were served in 0.2 to 5.3 minutes.
+submission to either store — outside US working hours.** Early morning (01:00 to
+04:00 PT) and after 17:45 PT both served jobs in minutes; 09:00 to 15:00 PT is
+where the multi-hour waits live.
 
 **A queued job is not lost and does not need babysitting.** `JobRun.expiresAt`
 sits 30 days out, so a job left `IN_QUEUE` will run when capacity returns.
-Cancelling and re-submitting buys nothing: a fresh submission queued at 14:16 PT
-behaved exactly like the one it replaced.
+Cancelling and re-submitting buys nothing and costs the queue position: a fresh
+submission queued at 14:16 PT behaved exactly like the one it replaced, and the
+Android build cancelled at 14:13 PT had to start over — the replacement waited
+3 h 17 where the original might have been served at the same 17:45 PT.
+
+### Never let two Android submissions overlap
+
+`eas submit --platform android` drives Fastlane `supply`, which opens an **Edit**
+on the Play Console app record. Two submissions running at once fight over it and
+the loser dies with:
+
+```
+Google Api Error: Invalid request - This Edit has been deleted. - Retrying...
+[!] Google Api Error: Invalid request - This Edit has been deleted.
+Fastlane supply failed
+```
+
+Seen on 2026-09-03: two submissions of the same AAB started two seconds apart
+(one by hand, one by a watcher script). One finished normally, the other errored
+this way. **The error is the collision, not the artifact** — check whether a
+sibling submission finished before re-uploading anything, because the build is
+already on the track when it did.
 
 Other Free-plan ceilings worth knowing: a **45-minute build timeout**
 (`maxRunTimeSeconds: 2700`) and **15 Android + 15 iOS builds per month**. Usage on

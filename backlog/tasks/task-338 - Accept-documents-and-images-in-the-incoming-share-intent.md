@@ -52,7 +52,7 @@ Mind the size ceiling: the incoming-share audio path enforces `MAX_SHARED_AUDIO_
 
 ## Owner notes — not acceptance criteria
 
-- **This one needs a new build.** Unlike AC#3/AC#4 of `task-165`, which were validated on the already-installed `versionCode` 6, an intent-filter change lives in the manifest: it takes a new EAS build and a new install before anything can be checked on device. Expect `versionCode` 7.
+- **This one needs a new build.** Unlike AC#3/AC#4 of `task-165`, which were validated on the already-installed `versionCode` 6, an intent-filter change lives in the manifest: it takes a new EAS build and a new install before anything can be checked on device. **Both binaries are delivered as of 2026-09-03**: Android `versionCode` **8** on the Play internal track (not 7 — `autoIncrement` burned 7 on a build cancelled while queued), and iOS `1.0.0 (3)` on TestFlight.
 - **Device check to run after that build**, on both platforms: share a PDF from Files/Drive → the app appears in the share sheet → share-confirm shows the document → submit → the thumbnail lands in the inbox. Then the same with a photo, and with a deliberately unsupported file (e.g. a `.zip`) to confirm the refusal is legible rather than a crash or a silent no-op.
 - Once that device check passes, AC#5 of `task-165` is unblocked.
 <!-- SECTION:DESCRIPTION:END -->
