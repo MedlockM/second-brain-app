@@ -3,7 +3,10 @@
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
 > Date de rédaction : 2026-05-19. Dernière mise à jour : **2026-09-03**
 > (audit CI/CD des six workflows et décisions d'automatisation de la cadence, en
-> Phase 7 point 10 ; la veille : réconciliation de l'état git — une pile de commits
+> Phase 7 point 10 ; **correction d'un fait faux depuis trois semaines** : le quota
+> Lambda `L-B99A9384` du compte prod était annoncé `PENDING` alors qu'il a été
+> accordé le 2026-08-13 — quatre endroits de ce fichier corrigés et la ligne de
+> contournement retirée d'`envs/prod/main.tf` ; la veille : réconciliation de l'état git — une pile de commits
 > locaux non poussés — et clôture du second client OAuth Android ; la réconciliation
 > de fond avec le worktree, le backlog, la CI et le code date du 2026-08-21). Les gates
 > techniques backend qui bloquaient le plan au 2026-07-31 restent **fermés** :
@@ -245,7 +248,7 @@ un staging ou une soumission.
 | Zone | Preuve | Statut |
 |---|---|---|
 | Credentials runtime prod | `task-252` (`dispatchable: false`, owner-only) | **Bloquant dur.** Le secret `media-summarizer-runtime-prod` contient **0 clé**, quand dev en porte 40 dont 37 vivantes (recomptées le 2026-08-21, `task-312`) : sans lui, aucune transcription, résumé, résolution, recherche, achat, ni même session utilisateur valide (`JWT_SECRET_KEY`) |
-| Quota Lambda concurrence prod | demande `L-B99A9384`, 10 → 1000 | **PENDING** côté AWS. Un compte neuf plafonne à 10 exécutions concurrentes. Tant que c'est le cas, `envs/prod/main.tf` porte `api_reserved_concurrency = -1` ; **retirer cette ligne** puis plan + apply dès que le quota passe, sinon l'API se dispute 10 exécutions avec 14 workers |
+| Quota Lambda concurrence prod | quota `L-B99A9384`, 10 → 1000 | ✅ **ACCORDÉ le 2026-08-13**, relevé le 2026-09-03 : `get-service-quota` retourne `Value: 1000.0` sur `866874944541`/eu-west-3, et la demande est `CASE_CLOSED` — déposée à 09:56, fermée à 12:13 le même jour. Le plan a affiché `PENDING` à tort pendant trois semaines. Conséquence appliquée le 2026-09-03 : `api_reserved_concurrency = -1` **retiré** de `envs/prod/main.tf`, ce qui rend au module son défaut non-dev de 10 (990 non réservées, très au-dessus du minimum de 10 qu'AWS impose). **Reste un `terraform apply` prod manuel** pour que la réservation existe réellement |
 | Réveil de prod | `envs/prod/main.tf` | Trois booléens à passer à `true` (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) — ~7,20 $/mois. Une prod qui sert de vrais utilisateurs sans alarmes est une faute ; la veille n'est valide qu'avant lancement |
 
 ### Décisions à prendre sans bloquer inutilement le premier build interne
@@ -832,8 +835,9 @@ livré :
 - `database: connected` alors que le secret runtime est **vide** — la route de
   santé ne teste que DynamoDB via les noms de tables injectés par Terraform, pas
   les credentials tiers. Ne jamais lire ce `200` comme « prod fonctionne ».
-- Deux prérequis de lancement en découlent : `task-252` (37 credentials vivants) et la
-  demande de quota Lambda `L-B99A9384` (10 → 1000), toujours `PENDING`.
+- Un prérequis de lancement en découle : `task-252` (37 credentials vivants). Le
+  second, le quota Lambda `L-B99A9384` (10 → 1000), est **accordé depuis le
+  2026-08-13** (relevé le 2026-09-03).
 
 ### Phase 4 — Tests d'intégration contre AWS dev (jour 3-4) — **NON VALIDÉE, RE-RUN COMPLET REQUIS**
 
@@ -1638,16 +1642,34 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
    `866874944541`, health `HTTP 200`. Il est en veille et son secret est vide.
 2. **Peupler le secret runtime prod** (`task-252`, owner) puis réveiller les trois
    interrupteurs de coût. Sans ça, aucune des étapes suivantes n'a de sens.
-3. **Lever le plafond de concurrence** : quota `L-B99A9384` (10 → 1000) en
-   attente ; retirer ensuite `api_reserved_concurrency = -1` de
-   `envs/prod/main.tf` et rappliquer.
+3. ✅ **Plafond de concurrence levé** : quota `L-B99A9384` accordé le 2026-08-13
+   (`Value: 1000.0`, demande `CASE_CLOSED`). `api_reserved_concurrency = -1`
+   retiré de `envs/prod/main.tf` le 2026-09-03 ; **il reste à rappliquer**
+   (apply prod manuel, owner) pour que la réservation de 10 existe côté AWS.
+   Le `plan` du 2026-09-03 confirme le passage `-1 → 10` sur
+   `aws_lambda_function.api`, mais **cet apply n'est pas une formalité** : prod
+   n'a pas été appliqué depuis le 2026-08-13 et le plan porte **11 create,
+   24 update, 1 delete, 0 replace** — les buckets `covers` et `review_blurb`,
+   6 metric filters, les variables `COVERS_BUCKET`/`REVIEW_BLURB_BUCKET` sur les
+   19 fonctions, et surtout la **destruction de `artifact_idempotence-prod`**,
+   table retirée du module par `task-270`. Elle est vide (0 item, 0 octet, créée
+   le 2026-08-13 pendant l'apply de `task-248`) donc rien n'est en jeu, mais
+   `DeletionProtectionEnabled = true` : l'apply échouera dessus tant que la
+   protection est active. `scripts/tf_plan_guard.sh prod <plan>` sort **1** sur
+   ce plan, correctement. Son conseil (« forget-and-copy ») ne s'applique pas
+   ici : il n'y a rien à copier. Deux issues, au choix de l'owner —
+   `aws dynamodb update-table --table-name artifact_idempotence-prod
+   --no-deletion-protection-enabled` puis laisser Terraform détruire (l'état
+   reste vrai), ou `terraform state rm
+   module.platform.aws_dynamodb_table.artifact_idempotence_v1` et supprimer la
+   table à la main plus tard.
 4. Créer le vrai endpoint/domaine prod (`api.secondbrainlabs.com`, cf. Phase 10
    §0bis) et l'injecter dans EAS + Maestro.
 5. Tester depuis un device physique avec une URL réelle de chaque source.
 6. Vérifier qu'aucun credential de dev n'a été recopié dans prod (`task-252`
    l'interdit explicitement).
 7. Charger 50-100 URLs en parallèle pour vérifier le scaling SQS / Lambda —
-   **après** la levée du quota, sinon la mesure ne mesure que le throttling.
+   **après l'apply du point 3**, sinon la mesure ne mesure que le throttling.
 8. Vérifier RevenueCat sandbox → backend webhook contre prod.
 9. Mesurer cold/warm API, profondeur SQS, DLQ et coût avant ouverture.
 
@@ -1740,9 +1762,12 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 - [ ] **Les 37 credentials runtime vivants du secret prod** (`task-252`, owner uniquement,
   `dispatchable: false`) — prod est une coquille vide sans eux : ni transcription,
   ni résumé, ni résolution, ni recherche, ni achat, ni session utilisateur valide
-- [ ] **Quota Lambda concurrence du compte prod** : demande `L-B99A9384` (10 → 1000)
-  `PENDING` côté AWS. Retirer ensuite `api_reserved_concurrency = -1` de
-  `envs/prod/main.tf` et rappliquer
+- [x] **Quota Lambda concurrence du compte prod** : quota `L-B99A9384` (10 → 1000)
+  **accordé le 2026-08-13** ; `api_reserved_concurrency = -1` retiré de
+  `envs/prod/main.tf` le 2026-09-03. Action restante, non bloquante pour le
+  lancement mais à faire avant tout test de charge : `terraform apply` prod
+  manuel pour matérialiser la réservation de 10 — cet apply bute sur la
+  protection de suppression d'`artifact_idempotence-prod`, cf. Phase 9 point 3
 - [x] Apple Developer Program payé ($99) au 2026-06-01, validé par Apple
 - [x] **Apple Sign in with Apple Service ID + Key (.p8) + App ID + Team ID + Key ID** provisionnés au 2026-06-08 (cf. Phase 2.8) — toutes les vars Apple dans `.env` renseignées : `APPLE_CLIENT_ID` (Service ID), `APPLE_PRIVATE_KEY` (PEM single-line), `APPLE_REDIRECT_URI` prod, `APPLE_TEAM_ID`, `APPLE_KEY_ID`.
 - [ ] Google Play Console payé ($25) au 2026-06-01 — **sept portes d'éligibilité

@@ -93,30 +93,32 @@ module "platform" {
   enable_worker_polling = false
   alert_email           = var.alert_email
 
-  # NO API reservation yet, and this one is NOT a cost decision — it is an AWS
-  # quota wall discovered during the first apply.
+  # api_reserved_concurrency is DELIBERATELY ABSENT so the module default for a
+  # non-dev environment applies: a reservation of 10, which guarantees the
+  # interactive API a slice of concurrency that a worker burst cannot eat.
   #
-  # The module defaults every non-dev environment to a reservation of 10, which
-  # is the right value: it guarantees the interactive API a slice of concurrency
-  # that a worker burst cannot eat. But a BRAND NEW AWS account gets a Lambda
+  # It was not always absent, and the history is worth keeping because the wall
+  # it hit is invisible from the code. A BRAND NEW AWS account gets a Lambda
   # "Concurrent executions" quota of 10 instead of the usual 1000, and AWS
-  # refuses any reservation that would leave fewer than 10 unreserved. So in this
-  # account a reservation of 10 is arithmetically impossible:
+  # refuses any reservation that would leave fewer than 10 unreserved — so the
+  # first apply of this environment died on an arithmetic impossibility:
   #
   #   PutFunctionConcurrency: InvalidParameterValueException: Specified
   #   ReservedConcurrentExecutions for function decreases account's
   #   UnreservedConcurrentExecution below its minimum value of [10].
   #
-  # An increase to 1000 has been requested (Service Quotas L-B99A9384, PENDING at
-  # the time of writing; find the request id with `aws service-quotas
-  # list-requested-service-quota-change-history --service-code lambda` under the
-  # prod profile — it is not recorded here because this repository is public).
-  # LAUNCH PREREQUISITE: once it is granted, delete this line so the
-  # module default of 10 applies again, then plan and apply. Until then prod
-  # serves zero users, so an unreserved API changes nothing observable — but a
-  # launched prod whose API competes with 14 workers over 10 total concurrent
-  # executions would throttle under the first real load.
-  api_reserved_concurrency = -1
+  # The workaround was an explicit `api_reserved_concurrency = -1` (no
+  # reservation at all) plus a launch prerequisite to remove it. Service Quotas
+  # L-B99A9384 was raised to 1000 on 2026-08-13, which makes the default legal
+  # again (1000 - 10 = 990 unreserved, far above the minimum of 10), so the
+  # override was removed on 2026-09-03. Verify with `aws service-quotas
+  # get-service-quota --service-code lambda --quota-code L-B99A9384` under the
+  # prod profile; the request id is not recorded here because this repository is
+  # public.
+  #
+  # Do not re-add the override to make a plan quieter: an unreserved API
+  # competing with 14 workers over the shared pool is exactly what throttles
+  # under the first real load.
 
   # No secret_payload on purpose (task-221 §7.3): Terraform creates the empty
   # secret shell and the owner populates it once out-of-band with

@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-08-12 16:40'
-updated_date: '2026-08-13 08:13'
+updated_date: '2026-09-03 11:05'
 labels:
   - infra
   - terraform
@@ -108,7 +108,7 @@ Les trois volets sont livrés. **9 AC sur 11 sont cochés ; #4 et #10 restent ou
 8. **199 ressources prod créées.**
 9. **`[profile prod]` ajouté à `~/.aws/config`** (hors dépôt, nécessaire à l'AC #7).
 10. **GitHub Environment `production` créé** (id 19802739056), branche `main` seule autorisée, secret d'environnement `AWS_DEPLOY_ROLE_ARN` renseigné.
-11. **Demande d'augmentation de quota Lambda** dans le compte prod : quota `L-B99A9384` (concurrence réservée, 10 → 1000), **PENDING**. L'identifiant de la demande n'est pas consigné ici (dépôt public) ; il se retrouve via `aws service-quotas list-requested-service-quota-change-history --service-code lambda` avec le profil prod.
+11. **Augmentation de quota Lambda accordée** dans le compte prod : quota `L-B99A9384` (exécutions concurrentes, 10 → 1000), déposée puis **accordée le 2026-08-13** — `get-service-quota` retourne `Value: 1000.0` et la demande est `CASE_CLOSED` (relevé le 2026-09-03 ; ce fichier l'annonçait `PENDING` à tort dans l'intervalle). L'identifiant de la demande n'est pas consigné ici (dépôt public) ; il se retrouve via `aws service-quotas list-requested-service-quota-change-history --service-code lambda` avec le profil prod.
 
 ### Preuves collectées avant chaque destruction
 
@@ -139,7 +139,7 @@ for function decreases account's UnreservedConcurrentExecution below its minimum
 
 L'apply s'est arrêté là (189 ressources créées, la Lambda API marquée `tainted`, ses 5 dépendants jamais créés). Traitement : augmentation de quota demandée (cf. plus haut), puis `api_reserved_concurrency = -1` posé **dans `envs/prod/main.tf`** avec le commentaire qui explique pourquoi et qui en fait un prérequis de lancement explicite. La Lambda a été `untaint`ée après vérification directe qu'elle était `State=Active` / `LastUpdateStatus=Successful` — la seule opération en échec portait sur un appel séparé dont la valeur cible a changé. Apply suivant : 5 ressources, sans erreur.
 
-**Prérequis de lancement pour l'owner** : quand le quota passe à 1000, supprimer la ligne `api_reserved_concurrency = -1` pour rétablir la réservation de 10, puis plan + apply. Une prod lancée où l'API se dispute 10 exécutions concurrentes avec 14 workers throttlerait à la première charge réelle.
+**Prérequis de lancement pour l'owner — résolu à moitié le 2026-09-03.** Le quota est passé à 1000 le 2026-08-13 et la ligne `api_reserved_concurrency = -1` a été supprimée d'`envs/prod/main.tf` le 2026-09-03, ce qui rend au module son défaut non-dev de 10. **Il reste le plan + apply prod manuel** : tant qu'il n'a pas tourné, AWS ne connaît toujours aucune réservation et l'API se dispute le pool commun avec les 14 workers, ce qui throttlerait à la première charge réelle. L'arithmétique qui bloquait est maintenant satisfaite : 1000 − 10 = 990 non réservées, très au-dessus du minimum de 10 exigé par `PutFunctionConcurrency`.
 
 ### AC #9 — preuve par invocation réelle, pas par lecture de policy
 

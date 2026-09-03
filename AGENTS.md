@@ -84,7 +84,7 @@ Never write the following into any tracked file:
 Write the *outcome* and the *way to retrieve the value*, not the value:
 
 > Bad: `email owner+aws-prod@example.com`, request `a1b2c3d4e5f6…`
-> Good: the member account's login is a `+aws-prod` alias of the management account's root email — deliberately not recorded here (public repo); retrieve it from the Organizations console. Quota `L-B99A9384`, PENDING; find the request via `aws service-quotas list-requested-service-quota-change-history --service-code lambda`.
+> Good: the member account's login is a `+aws-prod` alias of the management account's root email — deliberately not recorded here (public repo); retrieve it from the Organizations console. Quota `L-B99A9384`, granted 2026-08-13; find the request via `aws service-quotas list-requested-service-quota-change-history --service-code lambda`.
 
 **Resource identifiers that Terraform needs are not secrets and must stay.** AWS account IDs already appear in `allowed_account_ids`, state-bucket names and IAM ARNs across `infrastructure/terraform/`, so redacting them from a task note protects nothing and desynchronises the note from the code. Same for resource names, table names, region, ARNs and log-group names. The line is: *does this value let someone authenticate, reset a credential, or impersonate the owner?* If yes, it never gets written down. If it is just a name a `terraform plan` would print anyway, write it.
 
