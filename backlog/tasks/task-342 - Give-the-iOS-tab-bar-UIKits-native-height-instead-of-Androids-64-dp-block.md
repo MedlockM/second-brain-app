@@ -56,11 +56,101 @@ Note that a platform branch is available and used all over this app; task-331's 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `mobile/app/(tabs)/_layout.tsx` declares no numeric `height` in `tabBarStyle` on iOS: the `height` / `paddingBottom` / `paddingTop` triple sits behind a `Platform.OS === "android"` branch (spread or `Platform.select`), so `getTabBarHeight()` falls back to the library's `TABBAR_HEIGHT_UIKIT + insets.bottom` there.
-- [ ] #2 The Android values are unchanged: `height: TouchTarget.large + insets.bottom`, `paddingBottom: insets.bottom`, `paddingTop: 4`, all still fed by `useSafeAreaInsets()`.
-- [ ] #3 No `49` (or any other restatement of the UIKit tab bar height) is hardcoded in the layout — the iOS height comes from the library default.
-- [ ] #4 The comment above `tabBarStyle` is rewritten: the current one asserts "No platform branch: an iPhone with a home indicator reports a bottom inset too", which this task makes false. The new comment records why iOS takes the library default (49 pt UIKit + inset = the native bar, still above iOS's 44 pt touch-target floor) and why Android forces 64 dp above the system navigation bar.
-- [ ] #5 The four `Tabs.Screen` entries are untouched — same names, titles, icons and `tabBarButtonTestID` values (`search-tab-button`, `account-tab-button`) — and so are the tint colours and `tabBarLabelStyle`.
-- [ ] #6 `mobile/app/(tabs)/inbox.tsx` is reviewed against the now-shorter iOS bar and the implementation notes state whether `scrollContent.paddingBottom` and `fabStack.bottom` needed to change, with the reason; a grep records whether any screen restates the bar height or calls `useBottomTabBarHeight()`.
-- [ ] #7 `npm run typecheck` and `npm run lint` both pass from `mobile/`, with any remaining warnings identified as pre-existing and outside the files this task touches.
+- [x] #1 `mobile/app/(tabs)/_layout.tsx` declares no numeric `height` in `tabBarStyle` on iOS: the `height` / `paddingBottom` / `paddingTop` triple sits behind a `Platform.OS === "android"` branch (spread or `Platform.select`), so `getTabBarHeight()` falls back to the library's `TABBAR_HEIGHT_UIKIT + insets.bottom` there.
+- [x] #2 The Android values are unchanged: `height: TouchTarget.large + insets.bottom`, `paddingBottom: insets.bottom`, `paddingTop: 4`, all still fed by `useSafeAreaInsets()`.
+- [x] #3 No `49` (or any other restatement of the UIKit tab bar height) is hardcoded in the layout — the iOS height comes from the library default.
+- [x] #4 The comment above `tabBarStyle` is rewritten: the current one asserts "No platform branch: an iPhone with a home indicator reports a bottom inset too", which this task makes false. The new comment records why iOS takes the library default (49 pt UIKit + inset = the native bar, still above iOS's 44 pt touch-target floor) and why Android forces 64 dp above the system navigation bar.
+- [x] #5 The four `Tabs.Screen` entries are untouched — same names, titles, icons and `tabBarButtonTestID` values (`search-tab-button`, `account-tab-button`) — and so are the tint colours and `tabBarLabelStyle`.
+- [x] #6 `mobile/app/(tabs)/inbox.tsx` is reviewed against the now-shorter iOS bar and the implementation notes state whether `scrollContent.paddingBottom` and `fabStack.bottom` needed to change, with the reason; a grep records whether any screen restates the bar height or calls `useBottomTabBarHeight()`.
+- [x] #7 `npm run typecheck` and `npm run lint` both pass from `mobile/`, with any remaining warnings identified as pre-existing and outside the files this task touches.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### What changed
+
+One file, `mobile/app/(tabs)/_layout.tsx`, one hunk of substance:
+
+- `Platform` added to the `react-native` import.
+- `tabBarStyle` keeps only its three visual keys unconditionally (`backgroundColor`,
+  `borderTopColor`, `borderTopWidth: StyleSheet.hairlineWidth`) and spreads the
+  `paddingTop: 4` / `height: TouchTarget.large + insets.bottom` /
+  `paddingBottom: insets.bottom` triple behind `Platform.OS === "android" ? {…} : null`.
+  The Android values are byte-identical to task-331's; only their reachability changed.
+- The comment above `tabBarStyle` is rewritten, and the one above
+  `useSafeAreaInsets()` with it — the old pair asserted "No platform branch", which
+  this task makes false. The new comment names the Android branch as the only
+  consumer of the inset and states why an *empty* iOS branch is the correct one.
+
+The four `Tabs.Screen` blocks, `tabBarActiveTintColor` / `tabBarInactiveTintColor`
+and `tabBarLabelStyle` are untouched, `search-tab-button` and `account-tab-button`
+included. `useSafeAreaInsets()` stays where it was, before the three guards, so the
+hook order is stable whichever branch renders.
+
+### Why declaring nothing on iOS is the fix (AC #3)
+
+Re-verified against the installed `@react-navigation/bottom-tabs@7.17.2`, which
+matches the task's measurement:
+
+- `lib/module/views/BottomTabBar.js:87-100` — `getTabBarHeight()` flattens the
+  passed style, and `if (typeof customHeight === 'number') return customHeight;`
+  short-circuits before the inset is ever read. Otherwise it returns
+  `TABBAR_HEIGHT_UIKIT + inset`, and `TABBAR_HEIGHT_UIKIT = 49` (line 11).
+- Line 251-252 — the bar's own view sets `height: tabBarHeight` **and**
+  `paddingBottom: insets.bottom` for a bottom bar.
+- Line 206 — `style: [tabBarStyle, style]`, the layout's object last. So every key
+  the layout declares wins, and every key it omits keeps the library's value.
+
+Omitting `height` on iOS therefore yields `49 + insets.bottom` total with
+`insets.bottom` of padding, i.e. a 49 pt icon+label block: the native UIKit bar,
+obtained without writing 49 anywhere. `paddingTop: 4` had to move into the Android
+branch too — on iOS it would subtract from that 49 pt block, and the library already
+spaces the icon+label row itself (line 236).
+
+Net effect on an iPhone with a home indicator (`insets.bottom` = 34): 98 pt → 83 pt
+total, 60 pt → 49 pt of content. Android is unchanged at `64 + insets.bottom`.
+
+### Accessibility
+
+49 pt of content is above iOS's 44 pt touch-target minimum, so no tab drops below
+the floor. Android keeps its 64 dp, itself under Material 3's 80 dp navigation-bar
+content spec.
+
+### AC #6 — `inbox.tsx` needed no change, and nothing else restates the height
+
+Reviewed, left untouched. The bar is a flex sibling of the screen container, so the
+screen's coordinate space still ends at the bar's top edge and now *grows* by the
+15 pt the iOS bar gives back. Both values are measured from that edge and from the
+FAB geometry, never from the bar:
+
+- `fabStack.bottom: Spacing.lg` (line 704) — 24 pt of clearance above the bar's top
+  edge, whatever the bar's height. The shorter iOS bar moves the stack down with it
+  and preserves the gap exactly.
+- `scrollContent.paddingBottom: TouchTarget.large + Spacing.xl` (line 574, = 96) —
+  sized for the two 64 pt round buttons anchored 24 pt up (they occupy 24→88 of the
+  content area), not for the bar. Still correct.
+
+Adding `insets.bottom` here would double-count the inset the bar owns, on either
+platform.
+
+Greps over `mobile/app`, `mobile/src` and `mobile/modules`:
+
+- `useBottomTabBarHeight` / `BottomTabBarHeightContext` — no hits anywhere. No screen
+  reads the bar height at runtime.
+- `tabBarHeight`, `TAB_BAR`, a bare `49` — no hits outside the layout.
+- `TouchTarget.large` — 5 hits besides the layout, all in `inbox.tsx`: the
+  `scrollContent` padding above, and the 64 pt width/height of `addButton` and
+  `cameraButton`. None is a bar height.
+
+### Verification
+
+`npm run typecheck` clean. `npm run lint`: 0 errors, 2 warnings, both pre-existing
+and in files this task did not touch (`app/(tabs)/digest.tsx:36` unused
+`CARD_WIDTH`, `src/services/purchaseService.ts:98` explicit `any`).
+
+Left to the owner, as the description states and as an owner note rather than an AC —
+the visual result cannot be checked from a worktree: an iPhone with a home indicator
+(the bar should now line up with a native iOS tab bar), then Android with 3-button
+navigation and with gesture navigation to confirm task-331's fix is untouched.
+<!-- SECTION:NOTES:END -->

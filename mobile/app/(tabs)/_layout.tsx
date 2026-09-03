@@ -6,7 +6,7 @@ import { useUserPreferences } from "../../src/contexts/UserPreferencesContext";
 import { LANGUAGE_ONBOARDING_ROUTE } from "../../src/constants/routes";
 import { Colors, TouchTarget } from "../../src/constants/theme";
 import { t, useTranslation } from "../../src/i18n";
-import { ActivityIndicator, View, StyleSheet } from "react-native";
+import { ActivityIndicator, Platform, View, StyleSheet } from "react-native";
 
 /**
  * Protected tabs layout, and the enforcement point of the two invariants that
@@ -29,8 +29,9 @@ export default function TabsLayout() {
   // The four labels are resolved on render, so the bar has to redraw when the
   // interface language changes.
   useTranslation();
-  // The bar is the app's only bottom-anchored surface that was not carrying the
-  // bottom inset. See `tabBarStyle` below for why it has to.
+  // Only the Android branch of `tabBarStyle` reads this: it declares its own
+  // height, which overrides the one the library derives from the inset, so it has
+  // to add the inset back by hand. iOS keeps the derived height and needs nothing.
   const insets = useSafeAreaInsets();
 
   if (isLoading) {
@@ -59,22 +60,36 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: Colors.tabActive,
         tabBarInactiveTintColor: Colors.tabInactive,
-        // The bottom inset is *added* to the 64 dp of the icon+label block, never
-        // taken out of it. An explicit `height` in `tabBarStyle` replaces the
-        // height `@react-navigation/bottom-tabs` would otherwise derive from the
-        // inset, so a flat 64 dp made the bar share its strip with the Android
-        // system navigation bar — under edge-to-edge (the only mode Expo SDK 55 /
-        // RN 0.83 offers) the Back/Home/Recents buttons landed inside the tab
-        // touch targets and hid the labels. No platform branch: an iPhone with a
-        // home indicator reports a bottom inset too, and the fixed height was
-        // cramping the bar there just the same.
+        // Both platforms clear their bottom system affordance; only the *content*
+        // height differs, so only that is branched.
+        //
+        // iOS declares nothing. `getTabBarHeight()` short-circuits on a numeric
+        // `height` in `tabBarStyle` and otherwise returns its UIKit constant plus
+        // the bottom inset, while the bar's own view already pads by that inset —
+        // so an empty branch *is* the native iOS tab bar (49 pt of icon+label
+        // above the home indicator), and restating 49 here would only risk
+        // drifting from it. That 49 pt block stays above iOS's 44 pt touch-target
+        // floor. `paddingTop` is deliberately not shared: it would eat into the
+        // UIKit block, and the library spaces the icon+label row itself.
+        //
+        // Android forces 64 dp *above* the navigation bar, because an explicit
+        // `height` replaces the derived one: a flat 64 dp made the bar share its
+        // strip with the system navigation bar, and under edge-to-edge (the only
+        // mode Expo SDK 55 / RN 0.83 offers) the Back/Home/Recents buttons landed
+        // inside the tab touch targets and hid the labels. 64 dp is under Material
+        // 3's 80 dp navigation-bar spec, which is the conservative value the app
+        // already chose.
         tabBarStyle: {
           backgroundColor: Colors.surface,
           borderTopColor: Colors.outlineVariant,
           borderTopWidth: StyleSheet.hairlineWidth,
-          paddingTop: 4,
-          height: TouchTarget.large + insets.bottom,
-          paddingBottom: insets.bottom,
+          ...(Platform.OS === "android"
+            ? {
+                paddingTop: 4,
+                height: TouchTarget.large + insets.bottom,
+                paddingBottom: insets.bottom,
+              }
+            : null),
         },
         tabBarLabelStyle: {
           fontSize: 10,
