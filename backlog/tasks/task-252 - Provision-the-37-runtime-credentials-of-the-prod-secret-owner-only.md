@@ -4,7 +4,7 @@ title: Provision the 37 runtime credentials of the prod secret (owner only)
 status: To Do
 assignee: []
 created_date: '2026-08-13 07:30'
-updated_date: '2026-08-21 10:00'
+updated_date: '2026-09-03 11:20'
 labels:
   - infra
   - security
@@ -231,8 +231,14 @@ contient que des placeholders.
   prod (mise en veille, `envs/prod/main.tf`). Un worker ne consommera aucune file
   tant que ce n'est pas rebasculé : ne pas conclure d'un silence que les
   credentials sont faux.
-- Le quota Lambda « Concurrent executions » du compte prod est à 10 et une demande
-  d'augmentation est PENDING (`envs/prod/main.tf`). Même remarque.
+- Le quota Lambda « Concurrent executions » du compte prod est passé de 10 à
+  **1000 le 2026-08-13** (`L-B99A9384`, accordé ; relevé le 2026-09-03). Ce n'est
+  donc plus une explication possible d'un throttling constaté ici. En revanche
+  aucune réservation n'existe encore côté AWS : la ligne de contournement
+  `api_reserved_concurrency = -1` a été retirée d'`envs/prod/main.tf` le
+  2026-09-03, mais l'`apply` prod manuel qui la matérialise reste à faire (cf.
+  `docs/V1_LAUNCH_PLAN.md`, Phase 9 point 3 — cet apply bute sur la protection de
+  suppression d'`artifact_idempotence-prod`).
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
