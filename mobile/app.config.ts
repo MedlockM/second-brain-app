@@ -33,6 +33,22 @@ import {
  */
 const easProjectId = "fad6e877-590d-4143-bbaa-fdd013b01c43";
 
+/**
+ * The app name, declared once because two things render it and they must never
+ * disagree: `expo.name` (the launcher label, modulo the `locales/*.json`
+ * overrides) and `iosShareExtensionName`, which expo-share-intent writes into the
+ * extension's `CFBundleDisplayName` — the label under the icon in the iOS share
+ * sheet. It used to read "ShareMedia" there, a name that appears nowhere else in
+ * the product, so the row was unfindable even when iOS did offer it (task-347).
+ *
+ * The extension's bundle id is derived from the app's (`<appId>.share-extension`,
+ * expo-share-intent/plugin/.../constants.js) and not from this string, so
+ * changing it needs no new App ID and no new provisioning profile. What it does
+ * change is the Xcode target name and the generated `ios/<Name>/` directory
+ * (non-alphanumerics stripped), both of which live under the gitignored `ios/`.
+ */
+const appName = "Media Summarizer";
+
 const googleReservedClientScheme = (clientId?: string): string | null => {
   const suffix = ".apps.googleusercontent.com";
   const trimmed = clientId?.trim();
@@ -96,7 +112,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   const expoConfig: ExpoConfig = {
     ...config,
-    name: "Media Summarizer",
+    name: appName,
     slug: "media-summarizer",
     version: "1.0.0",
     orientation: "portrait",
@@ -238,10 +254,26 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       [
         "expo-share-intent",
         {
-          iosShareExtensionName: "ShareMedia",
+          // The label under the icon in the iOS share sheet. See `appName`.
+          iosShareExtensionName: appName,
+          // These predicates *are* the share sheet: iOS evaluates them against
+          // the items being shared and only renders the row when one matches
+          // (they become the `NSExtensionActivationRule` of the generated
+          // ShareExtension-Info.plist). A missing key is a whole class of
+          // content the app is invisible for.
+          //
+          // `…SupportsImage…` is what covers a screenshot or a photo: the
+          // screenshot editor and Photos hand over a `public.image` attachment,
+          // which `…SupportsFile…` does not match — without it the app simply
+          // did not exist in the share sheet of a screenshot (task-347).
+          //
+          // No `NSExtensionActivationSupportsMovieWithMaxCount`, deliberately:
+          // video has no backend route, so claiming it would put the app in the
+          // share sheet for content it can only refuse.
           iosActivationRules: {
             NSExtensionActivationSupportsWebURLWithMaxCount: 1,
             NSExtensionActivationSupportsText: true,
+            NSExtensionActivationSupportsImageWithMaxCount: 1,
             NSExtensionActivationSupportsFileWithMaxCount: 1,
           },
           // Android SEND intent filters for share intents. Declared here rather than
