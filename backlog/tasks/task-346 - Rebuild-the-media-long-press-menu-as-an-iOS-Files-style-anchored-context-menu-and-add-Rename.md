@@ -70,20 +70,117 @@ Keep it a plain rename of the user-facing title. Nothing about identity, dedup k
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `mobile/src/components/MediaActionsSheet.tsx` no longer exists; the long press on a media vignette opens a new anchored context-menu component, and `grep -rn "MediaActionsSheet" mobile/` returns nothing.
-- [ ] #2 The menu is positioned from a `measureInWindow` of the pressed vignette rather than pinned to the bottom of the screen, and the code chooses between opening below and opening above depending on the room left under the vignette.
-- [ ] #3 The backdrop is an `expo-blur` view over the screen, and a copy of the pressed vignette is drawn above it at an enlarged scale, so the pressed item is the only unblurred content besides the menu card.
-- [ ] #4 The menu card is a single rounded translucent surface whose rows are single-line — icon plus label only, with no description text, no circled icon container and no trailing chevron — and the destructive row is separated from the others by a hairline divider.
-- [ ] #5 There is no Cancel button and no drag handle in the menu; a press on the backdrop dismisses it, and that dismissal target carries an accessibility label.
-- [ ] #6 The menu offers exactly three actions — Move, Rename, Delete — with Delete tinted with the destructive colour of `mobile/src/constants/theme`.
-- [ ] #7 No new native dependency is added: `mobile/package.json` gains neither `react-native-reanimated` nor `react-native-gesture-handler` nor any context-menu library; the animation uses the `Animated` API of React Native core.
-- [ ] #8 `PatchMediaRequest` in `media_summarizer/api/endpoints/media.py` accepts an optional title, and `patch_media` writes it through `user_media.update_attributes` while still routing a `folder_id` to `folder_service.assign_folder_to_media`; a request carrying neither field is refused with a 4xx rather than silently succeeding.
-- [ ] #9 A blank or whitespace-only title is refused by the API, and the accepted length bound is stated in the field definition rather than left implicit.
-- [ ] #10 Renaming updates the denormalized `title` on that media's Algolia chunks, selected by the `media_item_id` filter, so a subsequent search matches and displays the new name.
-- [ ] #11 The mobile rename entry point prefills the current title and, once the API confirms, the new title is shown on the originating surface without requiring the user to leave and come back.
-- [ ] #12 A failed rename leaves the displayed title unchanged and surfaces a translated message from `mobile/src/i18n`, never a raw provider or HTTP string.
-- [ ] #13 Every i18n key the new menu introduces exists in all catalogs under `mobile/src/i18n/` (ar, de, en, es, fr, hi, it, ja, nl, pt, zh), and the keys the removed sheet no longer uses — including `mediaActions.eyebrow` and the `*.description` entries — are deleted from all of them.
-- [ ] #14 `ruff check media_summarizer` and `mypy media_summarizer` are clean, and `npx tsc --noEmit` plus `npm run lint` in `mobile/` report no error.
-- [ ] #15 A `PATCH` carrying a new title, issued against the real `-dev` API or applied through the same code path onto the `-dev` DynamoDB table, is readable back on the `user_media` row with the new title and an unchanged `media_key` and `saved_at`.
-- [ ] #16 `docs/CANONICAL_MEDIA_API_CONTRACT.md` documents the title field of `PATCH /api/media/{media_id}` and its validation, and `docs/CANONICAL_MEDIA_API_OPENAPI.yaml` matches.
+- [x] #1 `mobile/src/components/MediaActionsSheet.tsx` no longer exists; the long press on a media vignette opens a new anchored context-menu component, and `grep -rn "MediaActionsSheet" mobile/` returns nothing.
+- [x] #2 The menu is positioned from a `measureInWindow` of the pressed vignette rather than pinned to the bottom of the screen, and the code chooses between opening below and opening above depending on the room left under the vignette.
+- [x] #3 The backdrop is an `expo-blur` view over the screen, and a copy of the pressed vignette is drawn above it at an enlarged scale, so the pressed item is the only unblurred content besides the menu card.
+- [x] #4 The menu card is a single rounded translucent surface whose rows are single-line — icon plus label only, with no description text, no circled icon container and no trailing chevron — and the destructive row is separated from the others by a hairline divider.
+- [x] #5 There is no Cancel button and no drag handle in the menu; a press on the backdrop dismisses it, and that dismissal target carries an accessibility label.
+- [x] #6 The menu offers exactly three actions — Move, Rename, Delete — with Delete tinted with the destructive colour of `mobile/src/constants/theme`.
+- [x] #7 No new native dependency is added: `mobile/package.json` gains neither `react-native-reanimated` nor `react-native-gesture-handler` nor any context-menu library; the animation uses the `Animated` API of React Native core.
+- [x] #8 `PatchMediaRequest` in `media_summarizer/api/endpoints/media.py` accepts an optional title, and `patch_media` writes it through `user_media.update_attributes` while still routing a `folder_id` to `folder_service.assign_folder_to_media`; a request carrying neither field is refused with a 4xx rather than silently succeeding.
+- [x] #9 A blank or whitespace-only title is refused by the API, and the accepted length bound is stated in the field definition rather than left implicit.
+- [x] #10 Renaming updates the denormalized `title` on that media's Algolia chunks, selected by the `media_item_id` filter, so a subsequent search matches and displays the new name.
+- [x] #11 The mobile rename entry point prefills the current title and, once the API confirms, the new title is shown on the originating surface without requiring the user to leave and come back.
+- [x] #12 A failed rename leaves the displayed title unchanged and surfaces a translated message from `mobile/src/i18n`, never a raw provider or HTTP string.
+- [x] #13 Every i18n key the new menu introduces exists in all catalogs under `mobile/src/i18n/` (ar, de, en, es, fr, hi, it, ja, nl, pt, zh), and the keys the removed sheet no longer uses — including `mediaActions.eyebrow` and the `*.description` entries — are deleted from all of them.
+- [x] #14 `ruff check media_summarizer` and `mypy media_summarizer` are clean, and `npx tsc --noEmit` plus `npm run lint` in `mobile/` report no error.
+- [x] #15 A `PATCH` carrying a new title, issued against the real `-dev` API or applied through the same code path onto the `-dev` DynamoDB table, is readable back on the `user_media` row with the new title and an unchanged `media_key` and `saved_at`.
+- [x] #16 `docs/CANONICAL_MEDIA_API_CONTRACT.md` documents the title field of `PATCH /api/media/{media_id}` and its validation, and `docs/CANONICAL_MEDIA_API_OPENAPI.yaml` matches.
 <!-- AC:END -->
+
+## Implementation Notes
+<!-- SECTION:NOTES:BEGIN -->
+### What replaced the sheet
+
+`mobile/src/components/MediaActionsSheet.tsx` is deleted. Two new components:
+
+- `mobile/src/components/MediaContextMenu.tsx` — the anchored menu. `expo-blur`
+  backdrop + scrim, a copy of the pressed row redrawn on its measured rect at
+  `scale: 1.04`, and one translucent card of three single-line rows with a
+  hairline before Delete. The whole appearance is one `Animated.Value` (core RN,
+  `useNativeDriver`) driving backdrop opacity, the lift and the card scale.
+  Geometry comes from `measureInWindow` taken at long-press time: the card opens
+  under the vignette when `MENU_HEIGHT` fits below it and above it otherwise,
+  clamped inside the safe-area gutters. `MENU_HEIGHT` is a constant because the
+  up/down choice has to be made in the frame the menu appears — measuring the
+  card first would show it in the wrong place for one frame.
+- `mobile/src/components/MediaRenameDialog.tsx` — one field, Cancel/Save, and an
+  inline error under the input.
+
+Each surface passes a `renderPreview` because only it knows what its rows look
+like: `MediaListCard` in the library list, the local `SourceRow` inside a
+collection. Both gained an optional `style` prop so the preview can zero their
+list margins and sit exactly on the measured rect (there is no view-snapshot API
+without a native module).
+
+### Deliberate deviations from the reference screenshots
+
+- **The card is light, not dark.** The design system is light-only and has no dark
+  vibrancy token; the card is `BlurView tint="light"` with `Colors.surface` laid
+  over it at `opacity: 0.78`, which gives the see-through quality without
+  inventing a colour. Judging that against the screenshots is the owner's call.
+- **No `expo-haptics`.** It was allowed, not required, and it is not currently a
+  dependency — AC #7 is worth more than the tap feedback.
+- **No exit animation when the caller closes the menu outright** (a deletion just
+  succeeded). Dismissals the menu initiates fade out; that one is instant, which
+  reads correctly since the row leaves the list in the same frame.
+
+### Two React-compiler rules shaped the design
+
+`mobile/.eslintrc.js` sets `react-hooks/refs` and `react-hooks/set-state-in-effect`
+to `error`, so the two obvious shapes are unavailable:
+
+- the animated value is `useMemo(() => new Animated.Value(0), [])`, not
+  `useRef(...).current` — the same pattern as `mobile/app/media/[id].tsx`;
+- nothing is mounted-state-tracked to survive the exit animation. The menu keeps
+  `visible` true while it fades and only calls `onClose` once the animation is
+  done, then runs a parked Move/Rename one frame later (a modal still on screen
+  sits over whatever appears underneath it). Likewise the rename draft lives in
+  `useMediaActions`, seeded from the target when the dialog opens, instead of a
+  local field resynchronising itself from `initialTitle` in an effect.
+
+### Backend
+
+`PATCH /api/media/{media_id}` now dispatches on `payload.model_fields_set`, which
+is what keeps "no `folder_id` sent" distinguishable from `"folder_id": null`
+(Unsorted) — `OrganizationService.setMediaCollection` sends the latter. An empty
+body is a `400`. The title half is `media_summarizer/core/services/media_rename_service.py`:
+normalize (trim, collapse whitespace, 1..`MAX_TITLE_LENGTH`), `update_attributes`,
+then refresh the title denormalized on the search chunks. Algolia has no
+update-by-query, so `search_indexing.update_media_title` browses the objectIDs
+under `media_item_id:<id> AND user_id:<id>` and sends one
+`partial_update_objects` batch. That refresh is best-effort: a failure logs
+`user_media.rename_search_failed` and does not fail the rename, since the library
+row is the source of truth.
+
+### Verified against dev
+
+`ruff check media_summarizer` and `mypy media_summarizer` clean; `npx tsc
+--noEmit` clean; `npm run lint` reports 0 errors (2 warnings, both pre-existing
+in files this task does not touch).
+
+A rename applied through `media_rename_service.rename_media_for_user` against the
+real `user_media-dev` table and the real `media_items_dev` Algolia index, on
+`mi_50cba5ddc3984308823a3df15f0c7d4b`:
+
+- input `"  Agent   design   Q&A   (security)  "` stored as
+  `"Agent design Q&A (security)"` — trimmed and collapsed;
+- `media_key` and `saved_at` byte-identical before and after;
+- the media's one search chunk carries the new title, and a search for
+  `security` filtered on that `media_item_id` now returns it;
+- `""`, `"   "` and a 121-character title are refused, and an unknown id raises
+  `MediaNotFound` (the `404` of the endpoint).
+
+That dev row keeps its new title — it was an auto-derived filename before, so the
+rename is left in place as the readable evidence.
+
+### Left to the owner
+
+- The visual match, including the upward flip on a vignette at the bottom of the
+  list, and the same menu on Android.
+- The mobile rename reaches the API only once `main` is pushed and the Lambda
+  image is redeployed; until then the deployed dev API answers `422` on the new
+  field and the dialog shows its translated failure message.
+- No automated test was added (repo rule); the checks above are direct runs
+  against dev, not a test suite.
+<!-- SECTION:NOTES:END -->

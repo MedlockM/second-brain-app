@@ -52,12 +52,14 @@ export const nl: Catalog = {
   "mediaCard.a11yByCreator": "{title} van {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} van {domain}",
   "mediaCard.longPressHint":
-    "Dubbeltik en houd vast om deze bron te verplaatsen of te verwijderen",
-  "mediaActions.eyebrow": "Bron beheren",
+    "Dubbeltik en houd vast om deze bron te verplaatsen, te hernoemen of te verwijderen",
   "mediaActions.move.label": "Verplaatsen",
-  "mediaActions.move.description": "Zet deze bron in een andere collectie.",
+  "mediaActions.rename.label": "Hernoemen",
   "mediaActions.delete.label": "Verwijderen",
-  "mediaActions.delete.description": "Haal deze bron uit je bibliotheek.",
+  "mediaActions.rename.title": "Deze bron hernoemen",
+  "mediaActions.rename.placeholder": "Naam van de bron",
+  "mediaActions.renameFailed":
+    "Deze bron kon niet worden hernoemd. De naam is onveranderd.",
   "mediaActions.deleteTitle": "Deze bron verwijderen?",
   "mediaActions.deleteBody":
     "‘{title}’ wordt uit je bibliotheek gehaald. Dit kan niet ongedaan worden gemaakt.",

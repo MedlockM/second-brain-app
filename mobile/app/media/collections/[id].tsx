@@ -7,6 +7,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Pressable,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,7 +24,11 @@ import {
   type ArtifactTileState,
 } from "../../../src/components/ArtifactTile";
 import { ArtifactsPanel } from "../../../src/components/ArtifactsPanel";
-import { MediaActionsSheet } from "../../../src/components/MediaActionsSheet";
+import {
+  MediaContextMenu,
+  type AnchorRect,
+} from "../../../src/components/MediaContextMenu";
+import { MediaRenameDialog } from "../../../src/components/MediaRenameDialog";
 import { ScreenTabs, type ScreenTab } from "../../../src/components/ScreenTabs";
 import { useMediaActions } from "../../../src/hooks/useMediaActions";
 import { describeArtifactRefusal } from "../../../src/lib/artifactRefusal";
@@ -72,6 +78,13 @@ import type { ArtifactType, MediaListItem, MediaType } from "../../../src/types/
  */
 
 const ARTIFACT_POLL_INTERVAL_MS = 3000;
+
+/**
+ * The lifted copy of a pressed row is inert — the context menu draws it with
+ * `pointerEvents="none"` — but `SourceRow` requires a tap handler, so this is
+ * the one it gets.
+ */
+const noopOpenMedia = () => {};
 
 type CollectionTabKey = "sources" | "ai";
 
@@ -202,10 +215,39 @@ export default function CollectionDetailScreen() {
     );
   }, []);
 
+  // Patched in place rather than refetched: the rename already returned the
+  // stored title, and the row has to carry it before the user leaves the screen.
+  const handleMediaRenamed = useCallback(
+    (mediaItemId: string, title: string) => {
+      setMedia((current) =>
+        current.map((item) =>
+          item.media_item_id === mediaItemId ? { ...item, title } : item,
+        ),
+      );
+    },
+    [],
+  );
+
   // The long-press menu of a source row. A move out of this collection needs no
   // handling here: the focus refetch above runs when the picker is popped, and
   // the row is gone because the collection no longer holds that media.
-  const mediaActions = useMediaActions({ onDeleted: handleMediaDeleted });
+  const mediaActions = useMediaActions({
+    onDeleted: handleMediaDeleted,
+    onRenamed: handleMediaRenamed,
+  });
+
+  // The copy of the pressed row the menu lifts above its blur: the same row,
+  // with the list margins dropped so it lands exactly on its measured rect.
+  const renderSourcePreview = useCallback(
+    (item: MediaListItem) => (
+      <SourceRow
+        media={item}
+        onPress={noopOpenMedia}
+        style={styles.sourceRowPreview}
+      />
+    ),
+    [],
+  );
 
   const rows = useMemo<Row[]>(() => {
     return [
@@ -293,10 +335,14 @@ export default function CollectionDetailScreen() {
         <AiTab collectionId={collectionId} scopeMediaIds={scopeMediaIds} />
       )}
 
-      {/* Screen level, outside the list: the sheet belongs to the screen's
+      {/* Screen level, outside the list: the menu belongs to the screen's
           state, and mounting it inside a row would tie a modal to a cell the
           virtualizer is free to recycle. */}
-      <MediaActionsSheet {...mediaActions.sheetProps} />
+      <MediaContextMenu
+        {...mediaActions.menuProps}
+        renderPreview={renderSourcePreview}
+      />
+      <MediaRenameDialog {...mediaActions.renameProps} />
     </SafeAreaView>
   );
 }
@@ -618,23 +664,51 @@ function FolderRow({ node, onPress }: FolderRowProps) {
 interface SourceRowProps {
   media: MediaListItem;
   onPress: (mediaItemId: string) => void;
-  /** Opens the row's actions menu — move the source, or delete it. */
-  onLongPress: (media: MediaListItem) => void;
+  /**
+   * Opens the row's actions menu — move, rename or delete the source — with the
+   * row's own window rect, which is what the menu anchors itself to. Omitted for
+   * the inert copy the menu lifts above its blur.
+   */
+  onLongPress?: (media: MediaListItem, anchor: AnchorRect) => void;
+  /**
+   * Overrides the row's outer box, so the lifted copy can drop the list margins
+   * the measured rect already excludes.
+   */
+  style?: StyleProp<ViewStyle>;
 }
 
-function SourceRow({ media, onPress, onLongPress }: SourceRowProps) {
+function SourceRow({ media, onPress, onLongPress, style }: SourceRowProps) {
   const mediaType = (media.media_type ?? "unknown") as MediaType;
+  const rowRef = useRef<View>(null);
+
+  // Measured on the gesture rather than on layout: a `FlatList` cell moves with
+  // every scroll, so the only rect the menu can trust is the one taken when the
+  // press was recognised.
+  const handleLongPress = () => {
+    if (!onLongPress) return;
+    rowRef.current?.measureInWindow((x, y, width, height) => {
+      onLongPress(media, { x, y, width, height });
+    });
+  };
+
   return (
     <Pressable
-      style={({ pressed }) => [styles.sourceRow, pressed && styles.sourceRowPressed]}
+      ref={rowRef}
+      style={({ pressed }) => [
+        styles.sourceRow,
+        pressed && styles.sourceRowPressed,
+        style,
+      ]}
       onPress={() => onPress(media.media_item_id)}
-      onLongPress={() => onLongPress(media)}
+      onLongPress={onLongPress ? handleLongPress : undefined}
       testID={`collection-source-media-${media.media_item_id}`}
       accessibilityLabel={`Open ${media.title ?? "source"}`}
-      // The gesture is invisible, so a screen reader is told about it.
-      // `Pressable` keeps the tap and the long press exclusive, so opening the
-      // menu never also opens the media.
-      accessibilityHint={t("mediaCard.longPressHint")}
+      // The gesture is invisible, so a screen reader is told about it — and only
+      // where it exists. `Pressable` keeps the tap and the long press exclusive,
+      // so opening the menu never also opens the media.
+      accessibilityHint={
+        onLongPress ? t("mediaCard.longPressHint") : undefined
+      }
       accessibilityRole="button"
     >
       <View style={styles.sourceIconContainer}>
@@ -711,6 +785,12 @@ const styles = StyleSheet.create({
   sourceRowPressed: {
     transform: [{ scale: 0.98 }],
     opacity: 0.9,
+  },
+  // The row as the context menu redraws it: the list margins are what the
+  // measured rect already excludes, so keeping them would shift the copy.
+  sourceRowPreview: {
+    marginHorizontal: 0,
+    marginBottom: 0,
   },
   sourceIconContainer: {
     width: 36,

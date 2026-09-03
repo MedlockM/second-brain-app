@@ -77,6 +77,7 @@ Operational behavior now implemented in runtime:
 5. `GET /api/artifacts/{artifact_id}`
 6. `GET /api/artifacts/{artifact_id}/content`
 7. `DELETE /api/media/{media_item_id}`
+8. `PATCH /api/media/{media_id}`
 
 Authentication:
 - all endpoints require authenticated user context
@@ -476,7 +477,7 @@ Malformed `notes` model output is handled with strict validation:
 - mark artifact `failed` with `VALIDATION_ERROR` if validation fails
 - never persist a degraded fallback payload as `ready`
 
-### 6) DELETE /api/media/{media_item_id}
+### 7) DELETE /api/media/{media_item_id}
 
 No request body.
 
@@ -503,6 +504,44 @@ Semantics (task-243, §6.2 of the task-218 benchmark):
 - `media_item_id` in the response is the same durable library id supplied in the path
 - unknown or foreign id returns `404 MEDIA_NOT_FOUND`
 - this is the only endpoint in the system allowed to schedule a library row for purge; retention rules are in `docs/DATA_RETENTION.md`
+
+### 8) PATCH /api/media/{media_id}
+
+Partial update of one library item: where it is filed, what it is called, or both.
+
+Request (`PatchMediaRequest`):
+```json
+{
+  "folder_id": "fld_01JQ8X8J5S3H3CXX8V70M9M3K7",
+  "title": "Commonplace book"
+}
+```
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `folder_id` | string or null | no | Destination collection, `null` meaning Uncategorized. Routed to `folder_service.assign_folder_to_media`. |
+| `title` | string | no | New user-facing title. Trimmed, with runs of whitespace collapsed, then **1 to 120 characters** (`MAX_TITLE_LENGTH` in `media_summarizer/core/media_ingestion/title_derivation.py` — the same ceiling ingestion derives titles under). Routed to `user_media.update_attributes`. |
+
+Response (`PatchMediaResponse`):
+```json
+{
+  "status": "success",
+  "media_id": "mi_9f2c1d0b7a4e5f6081c2d3e4f5a6b7c8",
+  "folder_id": "fld_01JQ8X8J5S3H3CXX8V70M9M3K7",
+  "previous_folder_id": null,
+  "title": "Commonplace book"
+}
+```
+
+Semantics (task-264 for the folder half, task-346 for the title half):
+- **which fields the body carries** drives the dispatch, not their value: an explicit `"folder_id": null` (move to Uncategorized) stays distinguishable from a body that says nothing about the folder
+- the response reports only what the patch touched — `folder_id`/`previous_folder_id` are absent on a title-only patch, `title` is absent on a folder-only one
+- a body carrying neither field is refused with `400 BAD_REQUEST` ("Nothing to update"), never answered with a success that changed no row
+- a title that is blank, whitespace-only, or longer than the bound is refused with `422 VALIDATION_ERROR`; the value is normalized before storage, so what the response carries is what the library holds
+- ownership is the `(user_id, media_item_id)` key itself, as for the folder move; an unknown or foreign id returns `404 MEDIA_NOT_FOUND`
+- a rename also refreshes the `title` denormalized onto that media's search chunks (selected by the `media_item_id` filter), so results stop matching and displaying the old name. That refresh is best-effort: a search-index failure is logged as `user_media.rename_search_failed` and does not fail the request — the library row is the source of truth
+- a rename touches the user-facing title only: `media_key`, `saved_at`, dedup identity and artifacts are untouched
+- the path parameter is spelled `media_id` on this route; it carries the same durable library id as `{media_item_id}` elsewhere
 
 ## File upload entrypoints (non-canonical, same organization contract)
 

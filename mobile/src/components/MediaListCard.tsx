@@ -1,5 +1,12 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import React, { useRef, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -11,6 +18,7 @@ import {
   TouchTarget,
 } from "../constants/theme";
 import type { MediaListItem, MediaType } from "../types/media";
+import type { AnchorRect } from "./MediaContextMenu";
 import { getMediaTypeIcon } from "../lib/mediaTypeDisplay";
 import { t } from "../i18n";
 import { getRelativeTime } from "../lib/relativeTime";
@@ -51,14 +59,22 @@ interface MediaListCardProps {
   item: MediaListItem;
   onPress: (mediaItemId: string) => void;
   /**
-   * Long press on the row, when the surface has something to offer for it.
+   * Long press on the row, when the surface has something to offer for it. It
+   * receives the row's own window rect, measured as the press is recognised: the
+   * context menu is anchored to it and redraws the row there.
    *
    * Optional, and deliberately not wired inside the component: the search
    * results share this card, and a media there is a *match* being read, not an
    * item being filed — only the Library surfaces pass a handler. A row without
    * one keeps a bare tap and says nothing about a gesture it does not answer.
    */
-  onLongPress?: (item: MediaListItem) => void;
+  onLongPress?: (item: MediaListItem, anchor: AnchorRect) => void;
+  /**
+   * Overrides the card's outer box. Used by the context menu to redraw this row
+   * as a lifted copy on the measured rect, where the list margins would offset
+   * it — nothing else has a reason to touch it.
+   */
+  style?: StyleProp<ViewStyle>;
   /** Set by the list rendering the row so a flow can address it. */
   testID?: string;
 }
@@ -67,8 +83,10 @@ export function MediaListCard({
   item,
   onPress,
   onLongPress,
+  style,
   testID,
 }: MediaListCardProps): React.JSX.Element {
+  const rowRef = useRef<View>(null);
   // Keyed by media id rather than a bare boolean: a `FlatList` cell can be
   // handed a different item, and a failure recorded for the previous one must
   // not hide the new one's cover.
@@ -100,12 +118,27 @@ export function MediaListCard({
   const coverUrl = item.media_image?.trim() ?? "";
   const showCover = coverUrl.length > 0 && failedCoverId !== item.media_item_id;
 
+  // Measured on the gesture rather than on layout: a `FlatList` cell moves with
+  // every scroll, so the only rect the menu can trust is the one taken when the
+  // press was recognised.
+  const handleLongPress = () => {
+    if (!onLongPress) return;
+    rowRef.current?.measureInWindow((x, y, width, height) => {
+      onLongPress(item, { x, y, width, height });
+    });
+  };
+
   return (
     <Pressable
+      ref={rowRef}
       testID={testID}
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      style={({ pressed }) => [
+        styles.card,
+        pressed && styles.cardPressed,
+        style,
+      ]}
       onPress={() => onPress(item.media_item_id)}
-      onLongPress={onLongPress ? () => onLongPress(item) : undefined}
+      onLongPress={onLongPress ? handleLongPress : undefined}
       // The gesture is invisible, so a screen reader is told about it — and only
       // where it exists. `Pressable` keeps the tap and the long press exclusive,
       // so opening the menu never also opens the media.

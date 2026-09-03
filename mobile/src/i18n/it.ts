@@ -52,12 +52,14 @@ export const it: Catalog = {
   "mediaCard.a11yByCreator": "{title} di {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} da {domain}",
   "mediaCard.longPressHint":
-    "Tocca due volte e tieni premuto per spostare o eliminare questa fonte",
-  "mediaActions.eyebrow": "Gestisci fonte",
+    "Tocca due volte e tieni premuto per spostare, rinominare o eliminare questa fonte",
   "mediaActions.move.label": "Sposta",
-  "mediaActions.move.description": "Metti questa fonte in un'altra raccolta.",
+  "mediaActions.rename.label": "Rinomina",
   "mediaActions.delete.label": "Elimina",
-  "mediaActions.delete.description": "Rimuovi questa fonte dalla tua libreria.",
+  "mediaActions.rename.title": "Rinomina questa fonte",
+  "mediaActions.rename.placeholder": "Nome della fonte",
+  "mediaActions.renameFailed":
+    "Non è stato possibile rinominare questa fonte. Il nome non è cambiato.",
   "mediaActions.deleteTitle": "Eliminare questa fonte?",
   "mediaActions.deleteBody":
     "«{title}» verrà rimossa dalla tua libreria. L'operazione non può essere annullata.",

@@ -52,12 +52,14 @@ export const hi: Catalog = {
   "mediaCard.a11yByCreator": "{title}, {creator} द्वारा, {type}",
   "mediaCard.a11yFromDomain": "{title}, {domain} से {type}",
   "mediaCard.longPressHint":
-    "इस स्रोत को हटाने या दूसरी संग्रह में ले जाने के लिए दो बार टैप करके दबाए रखें",
-  "mediaActions.eyebrow": "स्रोत प्रबंधित करें",
+    "इस स्रोत को ले जाने, नाम बदलने या हटाने के लिए दो बार टैप करके दबाए रखें",
   "mediaActions.move.label": "ले जाएँ",
-  "mediaActions.move.description": "इस स्रोत को दूसरी संग्रह में रखें।",
+  "mediaActions.rename.label": "नाम बदलें",
   "mediaActions.delete.label": "हटाएँ",
-  "mediaActions.delete.description": "इस स्रोत को अपनी लाइब्रेरी से हटा दें।",
+  "mediaActions.rename.title": "इस स्रोत का नाम बदलें",
+  "mediaActions.rename.placeholder": "स्रोत का नाम",
+  "mediaActions.renameFailed":
+    "इस स्रोत का नाम नहीं बदला जा सका। नाम पहले जैसा ही है।",
   "mediaActions.deleteTitle": "यह स्रोत हटाएँ?",
   "mediaActions.deleteBody":
     "“{title}” आपकी लाइब्रेरी से हटा दिया जाएगा। इसे पहले जैसा नहीं किया जा सकता।",
