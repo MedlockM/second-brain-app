@@ -20,6 +20,16 @@ iOS App Store and Google Play Store, including hotfix procedures and rollback st
 
 ## Release Overview
 
+> **This runbook cannot be executed today, and a `mobile-v*` tag push fails on
+> purpose.** Every step below builds the `production` profile, whose
+> `EXPO_PUBLIC_API_BASE_URL` host has no DNS record and no zone delegated to it,
+> and there is no production API behind that host either. Since 2026-09-03 both CI
+> build jobs run `scripts/mobile_release_check.sh <profile>` before `eas build` and
+> fail the run in seconds. The reason, the guard and the two conditions that
+> unblock this path are in `mobile/MOBILE_CI_CD.md`, section *Why a `mobile-v*` tag
+> push is blocked today*. Until then, ship through the `internal` profile
+> (TestFlight + Play internal track), not through this runbook.
+
 Media Summarizer uses **EAS Build** and **EAS Submit** for production releases. The
 pipeline supports two paths:
 

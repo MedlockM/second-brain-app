@@ -9,7 +9,12 @@ name: Mobile Build & Distribute
 #   1. Push of a `mobile-v*` tag  -> production build on both platforms,
 #                                    followed by `eas submit` to both stores.
 #                                    This is the release path documented in
-#                                    docs/PRODUCTION_RELEASE_RUNBOOK.md.
+#                                    docs/PRODUCTION_RELEASE_RUNBOOK.md, and it
+#                                    is BLOCKED today: the `production` profile
+#                                    inlines an API host with no DNS, so the
+#                                    pre-flight step below fails the run before
+#                                    `eas build` starts. See mobile/MOBILE_CI_CD.md,
+#                                    "Why a `mobile-v*` tag push is blocked today".
 #   2. `workflow_dispatch`        -> whatever the operator asks for. Defaults
 #                                    are deliberately harmless: `preview`
 #                                    profile, `submit=false`. Submitting to a
@@ -132,6 +137,15 @@ jobs:
           echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
           echo "submit=$SUBMIT" >> "$GITHUB_OUTPUT"
           echo "Resolved profile=$PROFILE submit=$SUBMIT"
+
+      # Gate on the profile before a build slot is spent. The profile's
+      # EXPO_PUBLIC_API_BASE_URL is inlined into the JS bundle, so a host with no
+      # DNS produces a binary that builds, submits and installs with no signal
+      # and then fails every network call. Failing here costs seconds; failing
+      # after `eas build` burns one of the 15 monthly builds of the free tier and
+      # may still submit.
+      - name: Pre-flight check for profile ${{ steps.plan.outputs.profile }}
+        run: bash scripts/mobile_release_check.sh "${{ steps.plan.outputs.profile }}"
 
       - name: Run EAS Build for iOS
         id: build
@@ -262,6 +276,13 @@ jobs:
           echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
           echo "submit=$SUBMIT" >> "$GITHUB_OUTPUT"
           echo "Resolved profile=$PROFILE submit=$SUBMIT"
+
+      # Same gate as the iOS job, for the same reason: an unresolvable
+      # EXPO_PUBLIC_API_BASE_URL is baked into the AAB and only shows up as
+      # every network call failing on an installed app. This is what made
+      # versionCode 4 unusable.
+      - name: Pre-flight check for profile ${{ steps.plan.outputs.profile }}
+        run: bash scripts/mobile_release_check.sh "${{ steps.plan.outputs.profile }}"
 
       # No service account key is written here. Since 2026-09-01 the Google Play
       # key lives on the EAS servers (uploaded through `eas credentials`), and the

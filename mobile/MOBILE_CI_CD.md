@@ -15,6 +15,9 @@ Push of a mobile-v* tag         Manual workflow_dispatch
     v                                v
 GitHub Actions (.github/workflows/mobile-build-distribute.yml)
     |
+    +-- Pre-flight: scripts/mobile_release_check.sh <profile>
+    |     `-- BLOCKS the production profile today (no DNS on its API host)
+    |
     +-- iOS: EAS Build -> EAS Submit -> TestFlight (internal)
     |
     +-- Android: EAS Build -> EAS Submit -> Google Play (internal track)
@@ -25,9 +28,18 @@ GitHub Actions (.github/workflows/mobile-build-distribute.yml)
 A push to a branch, `main` included, builds nothing — see
 [Workflow Triggers](#workflow-triggers) for the full contract.
 
-GitHub Actions is not the only path, and today it is not a working one: the Apple
-and Expo secrets it needs are missing. The same two commands run from a laptop,
-Linux included — that is the route documented in
+**Pushing a `mobile-v*` tag fails on purpose today**, in seconds, before any EAS
+build starts: it selects the `production` profile and that profile is unusable.
+Read [Why a `mobile-v*` tag push is blocked today](#why-a-mobile-v-tag-push-is-blocked-today)
+before reaching for it. The usable route to testers is
+`workflow_dispatch` with `profile=internal`, or the two commands in
+[Running Builds From Your Machine](#running-builds-from-your-machine).
+
+GitHub Actions is not the only path either. `EXPO_TOKEN` was provisioned on
+2026-09-02 so the workflow is no longer blocked on secrets (see
+[Required Secrets & Variables](#required-secrets--variables)), but it has never
+been exercised end to end through Actions. The same two commands run from a
+laptop, Linux included — that is the route documented in
 [Running Builds From Your Machine](#running-builds-from-your-machine).
 
 ## Required Secrets & Variables
@@ -405,11 +417,68 @@ never substituted, see [Submit Profiles](#submit-profiles).
 | `development-simulator` | Same, iOS simulator | Simulator build | — | **Yes** |
 | `preview` | Ad hoc share, no store round-trip | IPA (ad hoc, UDID-gated) | APK (shareable) | No |
 | `internal` | Testers via TestFlight / Play internal track | IPA (App Store) | AAB | No |
-| `production` | Release, points at the prod API | IPA (App Store) | AAB | No |
+| `production` | **Unusable** — see below | IPA (App Store) | AAB | No |
 
 `internal` and `production` differ only in `EXPO_PUBLIC_API_BASE_URL`: `internal`
-points at the **dev** API, `production` at `api.mediasummarizer.com`. Decide which
-backend your testers should hit before sending a link.
+points at the **dev** API, `production` at a host that does not exist. Every
+build and every submission goes through `internal` today, testers included.
+
+### Why a `mobile-v*` tag push is blocked today
+
+`production` is not mis-configured, it is unusable by construction, and both of
+its halves are missing:
+
+- **The host has no DNS.** `EXPO_PUBLIC_API_BASE_URL` for `production` is
+  `https://api.mediasummarizer.com`. Measured 2026-09-03: no A record, and — the
+  load-bearing part — `dig +short mediasummarizer.com NS` is **empty**. There is no
+  delegated zone at all for the apex, so this is not a record someone forgot to add
+  inside an existing zone.
+- **There is no production API behind it either.** AWS `prod` is a dormant shell
+  that has never served traffic. Repointing the profile at the dev
+  `execute-api` host is *not* the fix: it would silently redefine "production" as
+  "the dev backend".
+
+Why that combination is a trap rather than a stale value: `EXPO_PUBLIC_*`
+variables are **inlined into the JS bundle at build time** by Expo's babel
+transform. A wrong value produces no build error, no submission error and no
+runtime signal — the store accepts the artifact and every network call of the
+installed app fails on DNS. That is exactly what made AAB `versionCode` 4
+unusable.
+
+And it was one command away: a `mobile-v*` tag push resolves
+`PROFILE="production"` **and** `SUBMIT="true"`, so a single tag built two inert
+binaries and shipped them to TestFlight and the Play `internal` track in the same
+run.
+
+**The guard.** `scripts/mobile_release_check.sh` takes an optional build profile.
+Given one, it reads that profile's `EXPO_PUBLIC_API_BASE_URL` out of `eas.json`,
+extracts the host, resolves it with `getent hosts` (glibc — `dig` and `nslookup`
+come from `dnsutils`, which `ubuntu-latest` does not guarantee) and exits
+non-zero if the host has no address. Both `ios-build` and `android-build` run it
+right after the profile is resolved and before `eas build`, so a tag push now
+fails in seconds instead of spending two of the 15 monthly builds of the free
+tier. The host is read from `eas.json` at run time and never hardcoded: the day
+the value changes, the guard follows.
+
+Run it by hand the same way:
+
+```bash
+bash scripts/mobile_release_check.sh production   # fails today
+bash scripts/mobile_release_check.sh internal     # passes
+bash scripts/mobile_release_check.sh              # general pre-flight, DNS as a warning
+```
+
+**Two conditions unblock the `mobile-v*` path**, both owner work and neither in
+this repo:
+
+1. `mediasummarizer.com` (or whichever domain is chosen instead) is **registered
+   and delegated** — a zone answering `NS`, with `api.<domain>` resolving to the
+   production API Gateway.
+2. A **production API actually serves** on that host: the AWS `prod` environment
+   deployed and answering, not the dormant shell it is today.
+
+Until both hold, do not push a `mobile-v*` tag and do not select `production` in
+a manual dispatch.
 
 ## Submit Profiles
 
@@ -422,6 +491,13 @@ backend your testers should hit before sending a link.
 Nothing reaches the public App Store without a separate, manual **submit for
 review** in App Store Connect — `eas submit` only ever gets a build into
 TestFlight.
+
+**The `production` *submit* profile has nothing to do with the `production`
+*build* profile.** `eas.json` has two independent maps, `build` and `submit`, and
+a name may appear in both. The submit profile named `production` is alive and in
+daily use — it is what the workflow passes to `eas submit` for an `internal`
+build, since both submit profiles target the same destinations. The *build*
+profile named `production` is the blocked one.
 
 ### The iOS blocks carry one field, and that is deliberate
 
@@ -551,10 +627,12 @@ registration or account details"*. Apple's TestFlight pages do not restate that
 requirement, so whether TestFlight App Review enforces it here is unverified — but
 `docs/store-listing/app-store-connect.md` already promises *"A test account will be
 provided in the review submission"* and **no such account exists yet**. Create one
-before submitting, on whichever backend the submitted build talks to: the `internal`
-build profile points at the **dev** API, the `production` profile at
-`api.mediasummarizer.com`. A reviewer account that only exists in one of them fails
-the other.
+before submitting, on the backend the submitted build talks to — which today is
+always the **dev** API, since every shippable profile (`internal` included) points
+there and `production` cannot be built at all (see
+[Why a `mobile-v*` tag push is blocked today](#why-a-mobile-v-tag-push-is-blocked-today)).
+The day a prod backend exists, the reviewer account has to exist on it too: one
+that only lives in dev fails a `production` build.
 
 #### The chosen path: Internal Testing, decided 2026-09-02
 
@@ -771,9 +849,15 @@ stores, so it has exactly two entry points:
 
 | Event | Builds | Profile | `eas submit` |
 |-------|--------|---------|--------------|
-| Push of a `mobile-v*` tag | iOS + Android | `production` | Yes — TestFlight + Play internal track |
+| Push of a `mobile-v*` tag | **Nothing today** — both jobs fail on the pre-flight | `production` (unusable, [why](#why-a-mobile-v-tag-push-is-blocked-today)) | No — the run never reaches it |
 | `workflow_dispatch` | Operator's choice of platform | Operator's choice, default `preview` | Only if the operator sets `submit=true` (default `false`) |
 | Push to a branch (`main` included) | **Nothing** | — | — |
+
+Both jobs run `bash scripts/mobile_release_check.sh <profile>` between resolving
+the profile and calling `eas build`. It hard-fails when the profile's
+`EXPO_PUBLIC_API_BASE_URL` host resolves to no address, which is the state of
+`production`. A manual dispatch with `profile=production` fails there too, by
+design.
 
 ### What no longer happens on push to `main`
 
@@ -805,7 +889,7 @@ loosened again by mistake.
 | Input | Options | Default |
 |-------|---------|---------|
 | Platform | ios, android, all | all |
-| Profile | preview, internal, production | preview |
+| Profile | preview, internal, ~~production~~ (fails the pre-flight) | preview |
 | Submit | true, false | false |
 
 Whatever build profile is picked, both submission steps run
@@ -1090,6 +1174,16 @@ Free EAS plans have limited concurrent builds. Options:
 - Wait and retry (builds are queued)
 - Upgrade to EAS Production plan for priority queue
 - Use `--local` flag for local builds
+
+### Generic: "API host … resolves to no address" (job fails before `eas build`)
+
+The pre-flight gate tripped: the build profile's `EXPO_PUBLIC_API_BASE_URL` points
+at a host with no DNS record, so the binary would be inert. This is the expected
+outcome for the `production` profile, tag pushes included — see
+[Why a `mobile-v*` tag push is blocked today](#why-a-mobile-v-tag-push-is-blocked-today).
+Do not "fix" it by editing the URL to the dev host; build `internal` instead, which
+is what testers use. If the host *should* resolve, check it locally with
+`getent hosts <host>` before touching anything in the repo.
 
 ### Generic: "EXPO_TOKEN secret is empty" (job fails in seconds)
 
