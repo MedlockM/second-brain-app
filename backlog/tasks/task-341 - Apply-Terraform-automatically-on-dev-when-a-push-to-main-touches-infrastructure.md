@@ -1,9 +1,12 @@
 ---
 id: task-341
-title: Apply Terraform automatically on dev when a push to main touches infrastructure
-status: To Do
+title: >-
+  Apply Terraform automatically on dev when a push to main touches
+  infrastructure
+status: Done
 assignee: []
 created_date: '2026-09-03 10:14'
+updated_date: '2026-09-03 08:40'
 labels:
   - infrastructure
   - terraform
@@ -154,6 +157,7 @@ task; do not fix it here.
 <!-- AC:END -->
 
 ## Implementation Notes
+
 <!-- SECTION:NOTES:BEGIN -->
 All 13 acceptance criteria are met. Four files touched, two of them new:
 
