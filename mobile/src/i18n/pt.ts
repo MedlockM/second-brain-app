@@ -573,6 +573,7 @@ export const pt: Catalog = {
   "upload.reject.noExtension": "Este ficheiro não tem uma extensão reconhecível. Formatos suportados: {formats}.",
   "upload.reject.empty": "Este ficheiro está vazio, por isso não há nada para importar.",
   "upload.reject.tooLarge": "Este ficheiro tem {size}, acima do limite de {max} para uma única importação.",
+  "upload.transferFailed": "Não foi possível enviar este ficheiro. Verifique a sua ligação e tente novamente.",
   "home.loadFailed": "Não foi possível carregar a sua caixa de entrada. Tente novamente.",
   "share.unsupportedFile": "Este tipo de ficheiro ainda não é suportado.",
   "share.signInLinks": "Tem de ter sessão iniciada para guardar ligações.",

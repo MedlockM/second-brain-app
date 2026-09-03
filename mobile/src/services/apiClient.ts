@@ -91,27 +91,3 @@ export async function apiRequest<T = unknown>(
 
   return parseResponse<T>(response, `Request failed: ${method} ${path}`);
 }
-
-/**
- * Same client, multipart body. Kept separate because the Content-Type has to be
- * set by the runtime, with the boundary it generates — we must not send one.
- * Uploads go through here rather than a bare fetch so they get the same session
- * resolution and the same one-shot 401 replay as every other call.
- */
-export async function apiUpload<T = unknown>(
-  path: string,
-  formData: FormData,
-  fallbackMessage: string,
-): Promise<T> {
-  const url = `${Config.API_BASE_URL}${path}`;
-
-  const response = await sendAuthenticated((accessToken) =>
-    fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: formData,
-    }),
-  );
-
-  return parseResponse<T>(response, fallbackMessage);
-}

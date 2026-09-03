@@ -27,7 +27,7 @@ from typing import Any, Dict
 import httpx
 import pytest
 
-from tests.e2e.conftest import poll_until
+from tests.e2e.conftest import poll_until, upload_document_file
 
 # =============================================================================
 # Helpers
@@ -215,13 +215,13 @@ async def test_document_unstructured_fallback(
     # return a simulated rate-limit error, triggering the Unstructured fallback.
     sentinel_filename = "__e2e_force_llamaparse_failure__sample.pdf"
 
-    with fixture.open("rb") as f:
-        files = {"file": (sentinel_filename, f, "application/pdf")}
-        resp = await http_client.post(
-            "/api/media/upload",
-            files=files,
-            headers=auth_headers,
-        )
+    resp = await upload_document_file(
+        http_client,
+        auth_headers,
+        file_name=sentinel_filename,
+        content=fixture.read_bytes(),
+        content_type="application/pdf",
+    )
 
     assert resp.status_code == 202, (
         f"upload failed: {resp.status_code} {resp.text}"

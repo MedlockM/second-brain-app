@@ -3,16 +3,27 @@ Media API endpoints.
 
 Provides operations on media items (processing jobs from the user's perspective).
 Supports URL ingestion, file upload (document parsing), status retrieval, and folder assignment via PATCH.
+
+Upload: presigned PUT URL — binary never transits through this API. API Gateway
+base64-encodes the request body into the Lambda event, so Lambda's 6 MiB
+synchronous payload ceiling caps any HTTP body at 4 718 592 raw bytes; above that
+the gateway answers `Request Entity Too Large` itself, before the request reaches
+FastAPI, which made the 50 MB / 25 MB limits this module advertises unreachable.
+Clients therefore ask `POST /api/media/upload-url` for a presigned PUT, send the
+bytes straight to S3, and hand the resulting key to the ingestion endpoint. Same
+pattern as `endpoints/bug_reports.py`.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-from typing import List, Optional
+import uuid
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
@@ -125,29 +136,250 @@ SUPPORTED_SHARED_AUDIO_MIME_TYPES = frozenset([
 
 _AUDIO_EXTENSIONS = (".mp3", ".m4a", ".aac", ".ogg", ".wav", ".flac", ".opus")
 
+_SHARED_AUDIO_MIME_EXTENSIONS = {
+    "audio/ogg": "ogg",
+    "audio/opus": "opus",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/x-m4a": "m4a",
+    "audio/aac": "aac",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/flac": "flac",
+    "audio/amr": "amr",
+}
 
-def _parse_form_tag_ids(raw: Optional[str]) -> Optional[List[str]]:
-    """Decode the multipart `tag_ids` field, which travels as a JSON array.
+# Where a presigned PUT lands. The ingestion endpoint then copies the object to
+# its canonical key -- `{job_id}/{file_name}` for a document, `{job_id}.{ext}` for
+# an audio upload -- and drops the staged copy, so the workers and the deletion
+# cascade keep resolving objects from the job id alone. What a client uploads and
+# never submits expires through the lifecycle rule on this prefix
+# (infrastructure/terraform/modules/platform/s3.tf).
+UPLOAD_STAGING_PREFIX = "uploads"
 
-    Multipart form fields are strings, so every upload/share endpoint carries the
-    tag list as `["tag_a","tag_b"]`. This is the only place that knows it, so the
-    validation below works on real lists whatever the transport was.
+# Presigned PUT validity: enough to push 50 MB over a poor mobile connection,
+# short enough that a URL read from a log later is worthless.
+UPLOAD_PRESIGNED_URL_EXPIRATION = int(os.environ.get("UPLOAD_PRESIGNED_URL_EXPIRATION", "900"))
+
+# Presigned GET validity for the pre-storage duration probe, which reads a few
+# kilobytes of container header and trailer through Range requests.
+UPLOAD_PROBE_URL_EXPIRATION = 300
+
+
+class UploadTarget(str, Enum):
+    """Which ingestion flow a staged upload is destined for.
+
+    Decides the staging bucket, the accepted formats and the size ceiling, so one
+    presigned-URL endpoint serves the three upload entrypoints without any of them
+    re-deriving those rules.
     """
-    if not raw:
-        return None
+
+    DOCUMENT = "document"
+    AUDIO = "audio"
+    SHARED_AUDIO = "shared_audio"
+
+
+@dataclass(frozen=True)
+class StagedUpload:
+    """An object a client PUT, once vouched for against the caller and the ceiling."""
+
+    bucket: str
+    key: str
+    file_name: str
+    size_bytes: int
+    content_type: str
+    etag: str
+
+
+def _staging_bucket_for(target: UploadTarget) -> str:
+    return DOCUMENT_BUCKET if target is UploadTarget.DOCUMENT else AUDIO_BUCKET
+
+
+def _max_upload_bytes_for(target: UploadTarget) -> int:
+    return (
+        MAX_SHARED_AUDIO_SIZE_BYTES
+        if target is UploadTarget.SHARED_AUDIO
+        else MAX_UPLOAD_SIZE_BYTES
+    )
+
+
+def _upload_extension(file_name: str) -> str:
+    """Lowercase extension without its dot, empty when the name carries none."""
+    return file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+
+
+def _staging_file_name(file_name: Optional[str]) -> str:
+    """The client's file name, minus anything that could reshape the S3 key."""
+    cleaned = os.path.basename((file_name or "").strip().replace("\\", "/")).strip()
+    return "upload" if cleaned in ("", ".", "..") else cleaned
+
+
+def _validate_upload_format(
+    target: UploadTarget, *, file_name: str, content_type: Optional[str]
+) -> None:
+    """Refuse an unusable format before a URL is issued, not after the transfer.
+
+    Same wording as the flow it targets, so the client keeps showing the message
+    it showed when the format check happened on the ingestion call.
+    """
+    ext = _upload_extension(file_name)
+    if target is UploadTarget.DOCUMENT:
+        if not ext or ext not in DocumentFormat.supported_extensions():
+            supported = ", ".join(sorted(DocumentFormat.supported_extensions()))
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported file format: '.{ext}'. Supported formats: {supported}",
+            )
+        return
+    if target is UploadTarget.AUDIO:
+        if not ext or f".{ext}" not in _AUDIO_EXTENSIONS:
+            supported = ", ".join(_AUDIO_EXTENSIONS)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported audio format: '.{ext}'. Supported formats: {supported}",
+            )
+        return
+    mime = (content_type or "").strip().lower()
+    if not mime or mime not in SUPPORTED_SHARED_AUDIO_MIME_TYPES:
+        supported_list = ", ".join(sorted(SUPPORTED_SHARED_AUDIO_MIME_TYPES))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported audio MIME type: '{mime}'. Supported: {supported_list}.",
+        )
+
+
+async def _discard_staged_upload(bucket: str, key: str) -> None:
+    """Drop a staged object once consumed or refused, without failing the request.
+
+    A leftover is a cost, not a bug: the lifecycle rule on the staging prefix
+    collects it. Losing the submission over it would be the actual bug.
+    """
     try:
-        parsed = json.loads(raw)
-    except (ValueError, TypeError):
+        await s3.delete_object(bucket=bucket, key=key)
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "media.upload.staged_cleanup_failed",
+            "Staged upload could not be deleted; the lifecycle rule will collect it",
+            s3_bucket=bucket,
+            s3_key=key,
+            error_type=type(exc).__name__,
+        )
+
+
+async def _resolve_staged_upload(
+    upload_key: Optional[str],
+    *,
+    user_id: str,
+    target: UploadTarget,
+) -> StagedUpload:
+    """Resolve the object a client PUT, and vouch for it. Shared by all three flows.
+
+    Ownership comes first and is decided on the key alone, before any S3 call: a
+    key that does not sit under ``uploads/{caller}/`` is refused with 403, so this
+    endpoint cannot be turned into a probe for another user's objects. Then the
+    object must exist -- a submission whose PUT never landed says so, instead of
+    failing in a worker two minutes later -- and the ceiling is enforced on the
+    size S3 reports, never on a figure the client claims.
+    """
+    key = (upload_key or "").strip()
+    if not key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="tag_ids must be a valid JSON array of strings",
+            detail=(
+                "Field 'upload_key' is required: ask POST /api/media/upload-url for a "
+                "presigned URL and upload the file first."
+            ),
         )
-    if not isinstance(parsed, list):
+    if not key.startswith(f"{UPLOAD_STAGING_PREFIX}/{user_id}/"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This upload does not belong to you.",
+        )
+    file_name = key.rsplit("/", 1)[-1]
+    if not file_name:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="tag_ids must be a JSON array",
+            detail="Malformed upload_key: it must end with the uploaded file name.",
         )
-    return [str(tag_id) for tag_id in parsed]
+
+    bucket = _staging_bucket_for(target)
+    try:
+        metadata: Dict[str, Any] = await s3.get_object_metadata(bucket, key)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"No uploaded file found at '{key}'. Send the file to the presigned URL "
+                "before submitting it."
+            ),
+        )
+
+    size_bytes = int(metadata.get("ContentLength") or 0)
+    if size_bytes <= 0:
+        await _discard_staged_upload(bucket, key)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty",
+        )
+    max_bytes = _max_upload_bytes_for(target)
+    if size_bytes > max_bytes:
+        await _discard_staged_upload(bucket, key)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large. Maximum size: {max_bytes // (1024 * 1024)}MB",
+        )
+
+    return StagedUpload(
+        bucket=bucket,
+        key=key,
+        file_name=file_name,
+        size_bytes=size_bytes,
+        content_type=str(metadata.get("ContentType") or "application/octet-stream"),
+        # Single-part PUT under SSE-S3, so the ETag is the MD5 of the body: a
+        # content fingerprint the API gets without ever reading the bytes.
+        etag=str(metadata.get("ETag") or "").strip('"'),
+    )
+
+
+async def _promote_staged_upload(
+    staged: StagedUpload, *, bucket: str, key: str
+) -> None:
+    """Move a staged object to its canonical key, server side.
+
+    The workers and the deletion cascade address objects by job id --
+    ``{job_id}/...`` in the document bucket, ``{job_id}.{ext}`` in the audio one,
+    and ``media_purge_service`` sweeps those prefixes knowing nothing else -- so a
+    per-user staging key cannot be the final one. The copy runs inside S3: the
+    bytes never come back through this Lambda, and Content-Type and user metadata
+    are preserved since no metadata directive is set.
+    """
+    await s3.copy_object(
+        source_bucket=staged.bucket,
+        source_key=staged.key,
+        dest_bucket=bucket,
+        dest_key=key,
+    )
+    await _discard_staged_upload(staged.bucket, staged.key)
+
+
+async def _probe_staged_audio_duration(staged: StagedUpload) -> int:
+    """Duration of a staged audio object, read over a presigned GET.
+
+    The bytes are no longer in memory, so the container header/trailer is fetched
+    with a couple of Range requests instead. Same contract as before: a container
+    the probe cannot read yields 0, which the callers treat as "accept, debit one
+    provisional minute, settle after transcription" -- a metadata failure never
+    refuses a submission.
+    """
+    probe_url = await s3.generate_presigned_url(
+        bucket=staged.bucket,
+        key=staged.key,
+        expiration=UPLOAD_PROBE_URL_EXPIRATION,
+        http_method="GET",
+    )
+    return await audio_duration_probe.probe_duration_seconds_from_url(probe_url) or 0
 
 
 async def _resolve_media_organization(
@@ -225,6 +457,100 @@ class IngestUrlResponse(BaseModel):
     media_item_id: str
     status: str
     source_platform: str
+
+
+class UploadUrlRequest(BaseModel):
+    target: UploadTarget = Field(
+        ...,
+        description=(
+            "Ingestion flow the file is meant for: `document` for POST /api/media/upload, "
+            "`audio` for POST /api/media/upload-audio, `shared_audio` for "
+            "POST /api/media/ingest-shared-content with share_type=audio."
+        ),
+    )
+    filename: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Name of the file being uploaded. Its extension decides the format check.",
+    )
+    content_type: Optional[str] = Field(
+        None,
+        description=(
+            "MIME type the client will send with the PUT. Required for `shared_audio`, "
+            "whose format check is MIME-based."
+        ),
+    )
+    file_size: int = Field(
+        ...,
+        gt=0,
+        description=(
+            "Size in bytes, checked against the ceiling before a URL is issued so a "
+            "hopeless transfer never starts. Re-checked from S3 at submission."
+        ),
+    )
+
+
+class UploadUrlResponse(BaseModel):
+    upload_url: str = Field(
+        ..., description="Presigned S3 PUT URL. Send the raw bytes to it, no form encoding."
+    )
+    upload_key: str = Field(
+        ..., description="Key to hand back to the ingestion endpoint once the PUT succeeded."
+    )
+    expires_in: int = Field(..., description="Validity of the presigned URL, in seconds.")
+
+
+class UploadDocumentRequest(BaseModel):
+    upload_key: str = Field(
+        ..., description="Key returned by POST /api/media/upload-url for target=document."
+    )
+    folder_id: Optional[str] = Field(
+        None, description="Optional folder ID to assign to the media item"
+    )
+    tag_ids: Optional[List[str]] = Field(
+        None, description="Optional list of tag IDs to associate with the media item"
+    )
+
+
+class UploadAudioRequest(BaseModel):
+    upload_key: str = Field(
+        ..., description="Key returned by POST /api/media/upload-url for target=audio."
+    )
+    folder_id: Optional[str] = Field(
+        None, description="Optional folder ID to assign to the media item"
+    )
+    tag_ids: Optional[List[str]] = Field(
+        None, description="Optional list of tag IDs to associate with the media item"
+    )
+
+
+class IngestSharedContentRequest(BaseModel):
+    share_type: str = Field(..., description="'text' or 'audio'")
+    source_platform: str = Field(..., description="Platform the content was shared from")
+    source_app: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    locale: Optional[str] = None
+    text: Optional[str] = Field(None, description="Shared message, required for share_type=text")
+    content_mime_type: Optional[str] = Field(
+        None, description="MIME type of the shared audio, required for share_type=audio"
+    )
+    original_name: Optional[str] = Field(
+        None, description="File name as the sharing app knew it, used for the title"
+    )
+    upload_key: Optional[str] = Field(
+        None,
+        description=(
+            "Key returned by POST /api/media/upload-url for target=shared_audio. "
+            "Required for share_type=audio."
+        ),
+    )
+    folder_id: Optional[str] = Field(
+        None, description="Optional folder ID to assign to the media item"
+    )
+    tag_ids: Optional[List[str]] = Field(
+        None, description="Optional list of tag IDs to associate with the media item"
+    )
 
 
 class UploadDocumentResponse(BaseModel):
@@ -879,50 +1205,105 @@ async def ingest_url(
         reset_log_context(token)
 
 
+@router.post("/upload-url", response_model=UploadUrlResponse)
+async def create_upload_url(
+    payload: UploadUrlRequest,
+    current_user: AuthUser = Depends(get_current_user),
+) -> UploadUrlResponse:
+    """Issue a presigned PUT so the client sends its file straight to S3.
+
+    The ingestion endpoints cannot receive bytes at all: API Gateway base64-encodes
+    the body into the Lambda event, so anything past 4 718 592 raw bytes is refused
+    by the gateway with `Request Entity Too Large` before FastAPI is reached. Format
+    and size are checked here, so a file that would be refused anyway never gets
+    transferred, and the key is namespaced under the caller's id -- which is what
+    lets the ingestion endpoint prove the object is the caller's own.
+    """
+    file_name = _staging_file_name(payload.filename)
+    _validate_upload_format(
+        payload.target, file_name=file_name, content_type=payload.content_type
+    )
+
+    max_bytes = _max_upload_bytes_for(payload.target)
+    if payload.file_size > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large. Maximum size: {max_bytes // (1024 * 1024)}MB",
+        )
+
+    # One directory per request: two uploads of the same file name never collide,
+    # and no object here can be addressed by guessing a file name.
+    upload_key = f"{UPLOAD_STAGING_PREFIX}/{current_user.id}/{uuid.uuid4().hex}/{file_name}"
+    bucket = _staging_bucket_for(payload.target)
+    try:
+        upload_url = await s3.generate_presigned_url(
+            bucket=bucket,
+            key=upload_key,
+            expiration=UPLOAD_PRESIGNED_URL_EXPIRATION,
+            http_method="PUT",
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "media.upload_url.failed",
+            "Could not sign the upload URL",
+            error_type=type(exc).__name__,
+            error_code="UPLOAD_URL_FAILED",
+            exc_info=exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not prepare the upload",
+        )
+
+    log_event(
+        logger,
+        logging.INFO,
+        "media.upload_url.issued",
+        "Presigned upload URL issued",
+        user_id=current_user.id,
+        upload_target=payload.target.value,
+        s3_key=upload_key,
+        file_size_bytes=payload.file_size,
+    )
+    return UploadUrlResponse(
+        upload_url=upload_url,
+        upload_key=upload_key,
+        expires_in=UPLOAD_PRESIGNED_URL_EXPIRATION,
+    )
+
+
 @router.post("/upload", response_model=UploadDocumentResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_document(
-    file: UploadFile = File(...),
-    folder_id: Optional[str] = Form(None),
-    tag_ids: Optional[str] = Form(None),
+    payload: UploadDocumentRequest,
     current_user: AuthUser = Depends(get_current_user),
 ):
     """
-    Upload a document file for parsing and ingestion.
+    Ingest a document the client already uploaded, for parsing and summarization.
 
     Supported formats: PDF, DOCX, PPTX, XLSX, JPG, JPEG, PNG, TIFF, BMP, HEIF.
-    The document will be parsed using LlamaParse (primary) with fallback to
-    Unstructured API, then fed into the downstream LLM pipeline.
+    The bytes are not in this request: `upload_key` points at the object the client
+    PUT to the presigned URL from `POST /api/media/upload-url`. The document is then
+    parsed using LlamaParse (primary) with fallback to Unstructured API, and fed
+    into the downstream LLM pipeline.
 
-    `folder_id` and `tag_ids` (JSON array of strings) are optional and place the
-    resulting library row exactly like every other ingestion entrypoint does.
+    `folder_id` and `tag_ids` are optional and place the resulting library row
+    exactly like every other ingestion entrypoint does.
 
     Returns 202 Accepted with the media_item_id to poll for status.
     """
-    file_name = file.filename or "document"
-    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
-
     token = bind_log_context(user_id=current_user.id, source_platform="document")
     try:
-        # Validate file extension
-        if not ext or ext not in DocumentFormat.supported_extensions():
-            supported = ", ".join(sorted(DocumentFormat.supported_extensions()))
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported file format: '.{ext}'. Supported formats: {supported}",
-            )
-
-        # Read file content (with size check)
-        content = await file.read()
-        if len(content) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Uploaded file is empty",
-            )
-        if len(content) > MAX_UPLOAD_SIZE_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File too large. Maximum size: {MAX_UPLOAD_SIZE_BYTES // (1024*1024)}MB",
-            )
+        staged = await _resolve_staged_upload(
+            payload.upload_key,
+            user_id=current_user.id,
+            target=UploadTarget.DOCUMENT,
+        )
+        file_name = staged.file_name
+        _validate_upload_format(
+            UploadTarget.DOCUMENT, file_name=file_name, content_type=staged.content_type
+        )
 
         user = await database_async.get_user_by_id(current_user.id)
         if not user:
@@ -932,8 +1313,8 @@ async def upload_document(
         # unusable folder or tag costs nothing to the user's allowance.
         resolved_folder_id, resolved_tag_ids = await _resolve_media_organization(
             user_id=user.id,
-            folder_id=folder_id,
-            tag_ids=_parse_form_tag_ids(tag_ids),
+            folder_id=payload.folder_id,
+            tag_ids=payload.tag_ids,
         )
 
         # Consumption check before processing. A document costs a minute per five
@@ -949,8 +1330,9 @@ async def upload_document(
             )
 
         # Media key for idempotence (user + filename + size). Computed before the
-        # job so it can seed the durable library id.
-        media_key = f"doc:{user.id}:{file_name}:{len(content)}"
+        # job so it can seed the durable library id. The size is the one S3 reports
+        # for the uploaded object, so the key is the same it has always been.
+        media_key = f"doc:{user.id}:{file_name}:{staged.size_bytes}"
 
         # Title stored right away (task-266): the cleaned filename when it says
         # something -- "Grant Deed_Security.pdf" reads "Grant Deed Security" --
@@ -962,9 +1344,9 @@ async def upload_document(
             label=label_for_file_name(file_name),
             file_name_candidates=[file_name],
         )
-        # No cover here even for a photo: the bytes are not in S3 yet. The
-        # parsing worker builds the thumbnail once the object exists, from the
-        # object itself, and mirrors it back (task-302 §4, rows 9-10). A PDF or
+        # No cover here even for a photo: this handler never sees the bytes. The
+        # parsing worker builds the thumbnail from the object itself once it sits
+        # at its canonical key, and mirrors it back (task-302 §4, rows 9-10). A PDF or
         # a DOCX never gets one -- `ParseResult` carries no image and there is no
         # page rasteriser in the runtime. No creator either: an uploaded file has
         # no publisher we can read.
@@ -1000,17 +1382,10 @@ async def upload_document(
         )
         job = await database_async.create_processing_job(job)
 
-        # Upload document to S3
+        # Move the uploaded object to the key the parsing worker and the deletion
+        # cascade expect. Server-side copy: the bytes stay inside S3.
         document_s3_key = f"{job.id}/{file_name}"
-        from io import BytesIO
-
-        await s3.upload_file_object(
-            bucket=DOCUMENT_BUCKET,
-            key=document_s3_key,
-            file_obj=BytesIO(content),
-            content_type=file.content_type or "application/octet-stream",
-            metadata={"original-filename": file_name},
-        )
+        await _promote_staged_upload(staged, bucket=DOCUMENT_BUCKET, key=document_s3_key)
 
         # Enqueue document parsing message
         await sqs.send_message(
@@ -1041,7 +1416,7 @@ async def upload_document(
             job_id=job.id,
             source_platform="document",
             file_name=file_name,
-            file_size_bytes=len(content),
+            file_size_bytes=staged.size_bytes,
         )
 
         return UploadDocumentResponse(
@@ -1073,48 +1448,35 @@ async def upload_document(
 
 @router.post("/upload-audio", response_model=UploadAudioResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_audio(
-    file: UploadFile = File(...),
-    folder_id: Optional[str] = Form(None),
-    tag_ids: Optional[str] = Form(None),
+    payload: UploadAudioRequest,
     current_user: AuthUser = Depends(get_current_user),
 ):
     """
-    Upload an audio file for transcription via Deepgram.
+    Ingest an audio file the client already uploaded, for transcription via Deepgram.
 
     Supported formats: MP3, M4A, AAC, OGG, WAV, FLAC, OPUS.
-    The audio file is uploaded to S3, then a pre-signed URL is generated
-    and sent to the Deepgram transcription worker.
+    The bytes are not in this request: `upload_key` points at the object the client
+    PUT to the presigned URL from `POST /api/media/upload-url`. The object is moved
+    to its job-scoped key, then a pre-signed GET URL is generated and sent to the
+    Deepgram transcription worker.
 
-    `folder_id` and `tag_ids` (JSON array of strings) are optional and place the
-    resulting library row exactly like every other ingestion entrypoint does.
+    `folder_id` and `tag_ids` are optional and place the resulting library row
+    exactly like every other ingestion entrypoint does.
 
     Returns 202 Accepted with the media_item_id to poll for status.
     """
-    file_name = file.filename or "audio"
-    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
-
     token = bind_log_context(user_id=current_user.id, source_platform="audio")
     try:
-        # Validate file extension
-        if not ext or f".{ext}" not in _AUDIO_EXTENSIONS:
-            supported = ", ".join(_AUDIO_EXTENSIONS)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported audio format: '.{ext}'. Supported formats: {supported}",
-            )
-
-        # Read file content (with size check)
-        content = await file.read()
-        if len(content) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Uploaded file is empty",
-            )
-        if len(content) > MAX_UPLOAD_SIZE_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File too large. Maximum size: {MAX_UPLOAD_SIZE_BYTES // (1024*1024)}MB",
-            )
+        staged = await _resolve_staged_upload(
+            payload.upload_key,
+            user_id=current_user.id,
+            target=UploadTarget.AUDIO,
+        )
+        file_name = staged.file_name
+        _validate_upload_format(
+            UploadTarget.AUDIO, file_name=file_name, content_type=staged.content_type
+        )
+        ext = _upload_extension(file_name)
 
         user = await database_async.get_user_by_id(current_user.id)
         if not user:
@@ -1124,19 +1486,17 @@ async def upload_audio(
         # unusable folder or tag costs nothing to the user's allowance.
         resolved_folder_id, resolved_tag_ids = await _resolve_media_organization(
             user_id=user.id,
-            folder_id=folder_id,
-            tag_ids=_parse_form_tag_ids(tag_ids),
+            folder_id=payload.folder_id,
+            tag_ids=payload.tag_ids,
         )
 
-        # Consumption check. The whole file is in memory, so the real duration is
-        # read from the container here and the check is exact — this is the one
-        # path that knows the length up front, which is also what makes the
-        # "too long for one import" refusal possible before anything is stored. A
-        # container we cannot parse yields 0, which means "accept, debit one
-        # provisional minute, settle after transcription".
-        upload_duration_seconds = (
-            audio_duration_probe.probe_duration_seconds_from_bytes(content) or 0
-        )
+        # Consumption check. The file is already in S3, so its real duration is read
+        # from the container over a presigned GET — a couple of Range requests, not a
+        # download. This is still the one path that knows the length up front, which
+        # is what makes the "too long for one import" refusal possible before
+        # anything is committed. A container we cannot parse yields 0, which means
+        # "accept, debit one provisional minute, settle after transcription".
+        upload_duration_seconds = await _probe_staged_audio_duration(staged)
         upload_minutes = quota_enforcer.minutes_for_seconds(upload_duration_seconds)
         quota_result = await check_submission_allowed(
             user.id,
@@ -1152,7 +1512,7 @@ async def upload_audio(
         # Same content-key convention as the document upload. The library id is
         # independent and random, so re-uploading creates another save even when
         # the content key is identical.
-        media_key = f"audio:{user.id}:{file_name}:{len(content)}"
+        media_key = f"audio:{user.id}:{file_name}:{staged.size_bytes}"
 
         # Cleaned filename when it carries a name of its own, otherwise
         # "Audio note — <date>" (task-266). A voice memo exported as
@@ -1197,17 +1557,11 @@ async def upload_audio(
 
         job = await database_async.create_processing_job(job)
 
-        # Upload audio file to S3
+        # Move the uploaded object to the job-scoped key the transcription worker
+        # and the deletion cascade expect. Server-side copy: no bytes come back
+        # through this Lambda.
         audio_s3_key = f"{job.id}.{ext}"
-        from io import BytesIO
-
-        await s3.upload_file_object(
-            bucket=AUDIO_BUCKET,
-            key=audio_s3_key,
-            file_obj=BytesIO(content),
-            content_type=file.content_type or "application/octet-stream",
-            metadata={"original-filename": file_name},
-        )
+        await _promote_staged_upload(staged, bucket=AUDIO_BUCKET, key=audio_s3_key)
 
         # Generate pre-signed S3 GET URL (10 min validity)
         presigned_url = await s3.generate_presigned_url(
@@ -1280,7 +1634,7 @@ async def upload_audio(
             job_id=job.id,
             source_platform="audio",
             file_name=file_name,
-            file_size_bytes=len(content),
+            file_size_bytes=staged.size_bytes,
             audio_s3_key=audio_s3_key,
         )
 
@@ -1312,31 +1666,20 @@ async def upload_audio(
 
 @router.post("/ingest-shared-content", response_model=IngestSharedContentResponse, status_code=status.HTTP_202_ACCEPTED)
 async def ingest_shared_content(
-    share_type: str = Form(...),
-    source_platform: str = Form(...),
-    source_app: Optional[str] = Form(None),
-    idempotency_key: Optional[str] = Form(None),
-    locale: Optional[str] = Form(None),
-    text: Optional[str] = Form(None),
-    content_mime_type: Optional[str] = Form(None),
-    original_name: Optional[str] = Form(None),
-    folder_id: Optional[str] = Form(None),
-    tag_ids: Optional[str] = Form(None),
-    audio_file: Optional[UploadFile] = File(None),
+    payload: IngestSharedContentRequest,
     current_user: AuthUser = Depends(get_current_user),
 ):
     """
     Ingest shared content (text or audio) from mobile share intents (e.g. WhatsApp).
 
-    Accepts multipart/form-data. The `share_type` field determines which path is taken:
+    Accepts JSON. The `share_type` field determines which path is taken:
     - "text": requires the `text` field with the shared message content.
-    - "audio": requires `audio_file` (the binary), `content_mime_type`, and `original_name`.
+    - "audio": requires `upload_key` (the object the client PUT to the presigned URL
+      from `POST /api/media/upload-url` with target=shared_audio), `content_mime_type`,
+      and `original_name`.
 
     Returns 202 Accepted with the media_item_id to poll for status.
     """
-    import hashlib
-    from io import BytesIO
-
     from media_summarizer.core.media_ingestion.domain import (
         IngestSharedContentCommand,
         SharedContentType,
@@ -1357,22 +1700,22 @@ async def ingest_shared_content(
     token = bind_log_context(user_id=current_user.id, source_platform="shared_content")
     try:
         # Validate share_type
-        share_type_clean = (share_type or "").strip().lower()
+        share_type_clean = (payload.share_type or "").strip().lower()
         if share_type_clean not in ("text", "audio"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid share_type: '{share_type}'. Must be 'text' or 'audio'.",
+                detail=f"Invalid share_type: '{payload.share_type}'. Must be 'text' or 'audio'.",
             )
 
         # Validate source_platform
-        source_platform_clean = (source_platform or "").strip().lower()
+        source_platform_clean = (payload.source_platform or "").strip().lower()
         try:
             domain_source_platform = SourcePlatform(source_platform_clean)
         except ValueError:
             valid_platforms = ', '.join(sp.value for sp in SourcePlatform)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid source_platform: '{source_platform}'. Must be one of: {valid_platforms}.",
+                detail=f"Invalid source_platform: '{payload.source_platform}'. Must be one of: {valid_platforms}.",
             )
 
         domain_share_type = SharedContentType(share_type_clean)
@@ -1385,8 +1728,8 @@ async def ingest_shared_content(
         # Where the save goes: folder and tags must belong to the caller.
         resolved_folder_id, unique_tag_ids = await _resolve_media_organization(
             user_id=user.id,
-            folder_id=folder_id,
-            tag_ids=_parse_form_tag_ids(tag_ids),
+            folder_id=payload.folder_id,
+            tag_ids=payload.tag_ids,
         )
 
         # Branch based on share_type
@@ -1397,7 +1740,7 @@ async def ingest_shared_content(
 
         if domain_share_type == SharedContentType.TEXT:
             # Validate text field
-            text_content = (text or "").strip()
+            text_content = (payload.text or "").strip()
             if not text_content:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1410,49 +1753,36 @@ async def ingest_shared_content(
                 )
 
         elif domain_share_type == SharedContentType.AUDIO:
-            # Validate audio-specific fields
-            if audio_file is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Field 'audio_file' is required for share_type=audio.",
-                )
-
-            mime = (content_mime_type or audio_file.content_type or "").strip().lower()
-            if not mime or mime not in SUPPORTED_SHARED_AUDIO_MIME_TYPES:
-                supported_list = ", ".join(sorted(SUPPORTED_SHARED_AUDIO_MIME_TYPES))
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Unsupported audio MIME type: '{mime}'. Supported: {supported_list}.",
-                )
-
-            # Read file content
-            audio_content = await audio_file.read()
-            if len(audio_content) == 0:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Audio file is empty.",
-                )
-            if len(audio_content) > MAX_SHARED_AUDIO_SIZE_BYTES:
-                max_mb = MAX_SHARED_AUDIO_SIZE_BYTES // (1024 * 1024)
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"Audio file too large. Maximum size: {max_mb}MB.",
-                )
-
-            content_size_bytes = len(audio_content)
-
-            # Compute content hash for deduplication
-            content_hash = hashlib.sha256(audio_content).hexdigest()
-
-            # Consumption check. The bytes are in memory, so the container gives
-            # the real duration for free and the refusal below is exact. The debit
-            # itself happens once in the ingestion orchestrator, where the job id
-            # exists; this check is only here to answer the share sheet with a
-            # real HTTP error instead of a job that fails a second later.
-            shared_audio_duration_seconds = (
-                audio_duration_probe.probe_duration_seconds_from_bytes(audio_content)
-                or 0
+            staged = await _resolve_staged_upload(
+                payload.upload_key,
+                user_id=current_user.id,
+                target=UploadTarget.SHARED_AUDIO,
             )
+
+            mime = (payload.content_mime_type or staged.content_type or "").strip().lower()
+            _validate_upload_format(
+                UploadTarget.SHARED_AUDIO, file_name=staged.file_name, content_type=mime
+            )
+
+            content_size_bytes = staged.size_bytes
+
+            # Content fingerprint for deduplication. A single-part PUT under SSE-S3
+            # gives an ETag that is the MD5 of the body, so the API keeps a real
+            # content identity — the same share sent twice still lands on the same
+            # `media_key` — without ever holding the bytes to hash them.
+            content_hash = staged.etag
+            if not content_hash:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Uploaded audio has no content fingerprint. Please share it again.",
+                )
+
+            # Consumption check. The duration comes from the container over a
+            # presigned GET, so the refusal below stays exact. The debit itself
+            # happens once in the ingestion orchestrator, where the job id exists;
+            # this check is only here to answer the share sheet with a real HTTP
+            # error instead of a job that fails a second later.
+            shared_audio_duration_seconds = await _probe_staged_audio_duration(staged)
             quota_result = await check_submission_allowed(
                 current_user.id,
                 minutes_needed=(
@@ -1467,34 +1797,12 @@ async def ingest_shared_content(
                     headers={"X-Quota-Error-Code": quota_result.error_code or ""},
                 )
 
-            # Determine file extension from MIME
-            _mime_to_ext = {
-                "audio/ogg": "ogg",
-                "audio/opus": "opus",
-                "audio/mp4": "m4a",
-                "audio/mpeg": "mp3",
-                "audio/x-m4a": "m4a",
-                "audio/aac": "aac",
-                "audio/wav": "wav",
-                "audio/x-wav": "wav",
-                "audio/flac": "flac",
-                "audio/amr": "amr",
-            }
-            ext = _mime_to_ext.get(mime, "audio")
-            file_name_for_s3 = original_name or audio_file.filename or f"shared-audio.{ext}"
-
-            # Stage audio to S3
+            # Move the object to the content-addressed key the ingestion
+            # orchestrator hands to the transcription worker. Server-side copy.
+            ext = _SHARED_AUDIO_MIME_EXTENSIONS.get(mime, "audio")
             staged_audio_s3_key = f"shared-audio/{current_user.id}/{content_hash}.{ext}"
-            await s3.upload_file_object(
-                bucket=AUDIO_BUCKET,
-                key=staged_audio_s3_key,
-                file_obj=BytesIO(audio_content),
-                content_type=mime,
-                metadata={
-                    "original-filename": file_name_for_s3,
-                    "source-platform": source_platform_clean,
-                    "share-type": "audio",
-                },
+            await _promote_staged_upload(
+                staged, bucket=AUDIO_BUCKET, key=staged_audio_s3_key
             )
 
             log_event(
@@ -1511,13 +1819,13 @@ async def ingest_shared_content(
         domain_request = DomainIngestSharedContentRequest(
             share_type=domain_share_type,
             source_platform=domain_source_platform,
-            source_app=source_app,
-            locale=locale,
-            idempotency_key=idempotency_key,
-            text=text if domain_share_type == SharedContentType.TEXT else None,
+            source_app=payload.source_app,
+            locale=payload.locale,
+            idempotency_key=payload.idempotency_key,
+            text=payload.text if domain_share_type == SharedContentType.TEXT else None,
             content_hash=content_hash,
-            content_mime_type=content_mime_type,
-            original_name=original_name,
+            content_mime_type=payload.content_mime_type,
+            original_name=payload.original_name,
             content_size_bytes=content_size_bytes,
             staged_audio_s3_key=staged_audio_s3_key,
             audio_duration_seconds=shared_audio_duration_seconds,

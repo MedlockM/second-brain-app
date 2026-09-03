@@ -504,23 +504,57 @@ Semantics (task-243, §6.2 of the task-218 benchmark):
 - unknown or foreign id returns `404 MEDIA_NOT_FOUND`
 - this is the only endpoint in the system allowed to schedule a library row for purge; retention rules are in `docs/DATA_RETENTION.md`
 
-## Multipart upload entrypoints (non-canonical, same organization contract)
+## File upload entrypoints (non-canonical, same organization contract)
 
-Two ingestion entrypoints take bytes instead of a URL. They are **not** part of the six canonical
-endpoints above and have their own compact response shape, but since task-264 they accept the same
-organization fields as `POST /api/media/ingest-url` and `POST /api/media/ingest-shared-content`.
-There is one dialect for "where does this save go", implemented once in
+Three ingestion entrypoints work from a file instead of a URL: `POST /api/media/upload`,
+`POST /api/media/upload-audio`, and `POST /api/media/ingest-shared-content` with
+`share_type=audio`. They are **not** part of the six canonical endpoints above and have their own
+compact response shapes, but since task-264 they accept the same organization fields as
+`POST /api/media/ingest-url`. There is one dialect for "where does this save go", implemented once in
 `_resolve_media_organization` (`media_summarizer/api/endpoints/media.py`) and shared by all four.
+
+**No endpoint of this API ever receives a file.** Requests arrive through API Gateway, which
+base64-encodes the body into the Lambda event, so Lambda's 6 MiB synchronous payload ceiling caps any
+HTTP body at **4 718 592 raw bytes** — and past that the gateway answers `Request Entity Too Large`
+itself, before FastAPI, so the API cannot even shape the error. Since task-345 the client uploads
+straight to S3 and the endpoints take JSON carrying the resulting key.
+
+### POST /api/media/upload-url
+
+`application/json`. Issues a presigned S3 PUT. Same pattern as
+`POST /api/bug-reports/upload-url`.
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `target` | string | yes | `document`, `audio` or `shared_audio` — which of the three flows the file is for. Decides the bucket, the accepted formats and the ceiling. |
+| `filename` | string | yes | Name including its extension; it is what the format check reads, and it is kept in the key. Any path component is stripped. |
+| `content_type` | string | no | MIME type the client will send with the PUT. Required for `shared_audio`, whose check is MIME-based. |
+| `file_size` | integer | yes | Bytes. Checked against the ceiling before signing, so a hopeless transfer never starts. Re-checked from S3 at submission — the client's figure is never trusted. |
+
+Response (`200 OK`):
+```json
+{
+  "upload_url": "https://<bucket>.s3.<region>.amazonaws.com/uploads/usr_01JQ.../3f1c.../invoice-2026-03.pdf?X-Amz-Algorithm=...",
+  "upload_key": "uploads/usr_01JQ8X8J5S3H3CXX8V70M9M3K7/3f1c9a2e.../invoice-2026-03.pdf",
+  "expires_in": 900
+}
+```
+
+The client then sends the raw bytes with `PUT` to `upload_url`, **without** the `Authorization`
+header: the signature is the credential, and the session must not travel to a host that is not this
+API. Ceilings are `MAX_UPLOAD_SIZE_BYTES` (50 MB) for `document` and `audio`,
+`MAX_SHARED_AUDIO_SIZE_BYTES` (25 MB) for `shared_audio`; both are mirrored in the mobile client
+(`mobile/src/types/upload.ts`, `mobile/src/types/sharedContent.ts`).
 
 ### POST /api/media/upload
 
-`multipart/form-data`:
+`application/json`:
 
-| Part | Type | Required | Notes |
+| Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `file` | file | yes | Extension must be in `DocumentFormat.supported_extensions()`: `pdf`, `docx`, `pptx`, `xlsx`, `jpg`, `jpeg`, `png`, `tiff`, `tif`, `bmp`, `heif`, `heic`. Images go through OCR. |
-| `folder_id` | text | no | Destination collection. Omitted or empty means the user's default Uncategorized folder. |
-| `tag_ids` | text | no | JSON array of strings, e.g. `["tag_01JQ...","tag_01JR..."]`. Multipart has no native array type, so the array travels encoded. |
+| `upload_key` | string | yes | Key returned by `upload-url` for `target=document`. Extension must be in `DocumentFormat.supported_extensions()`: `pdf`, `docx`, `pptx`, `xlsx`, `jpg`, `jpeg`, `png`, `tiff`, `tif`, `bmp`, `heif`, `heic`. Images go through OCR. |
+| `folder_id` | string \| null | no | Destination collection. Omitted or null means the user's default Uncategorized folder. |
+| `tag_ids` | string[] \| null | no | e.g. `["tag_01JQ...","tag_01JR..."]`. |
 
 Response (`UploadDocumentResponse`, `202 Accepted`):
 ```json
@@ -534,13 +568,13 @@ Response (`UploadDocumentResponse`, `202 Accepted`):
 
 ### POST /api/media/upload-audio
 
-`multipart/form-data`:
+`application/json`:
 
-| Part | Type | Required | Notes |
+| Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `file` | file | yes | Extension must be one of `.mp3`, `.m4a`, `.aac`, `.ogg`, `.wav`, `.flac`, `.opus`. Transcribed by Deepgram. |
-| `folder_id` | text | no | Same semantics as above. |
-| `tag_ids` | text | no | Same semantics as above. |
+| `upload_key` | string | yes | Key returned by `upload-url` for `target=audio`. Extension must be one of `.mp3`, `.m4a`, `.aac`, `.ogg`, `.wav`, `.flac`, `.opus`. Transcribed by Deepgram. |
+| `folder_id` | string \| null | no | Same semantics as above. |
+| `tag_ids` | string[] \| null | no | Same semantics as above. |
 
 Response (`UploadAudioResponse`, `202 Accepted`):
 ```json
@@ -557,17 +591,26 @@ Response (`UploadAudioResponse`, `202 Accepted`):
   unusable folder or tag costs nothing to the user's allowance. An id that does not exist or belongs
   to someone else is `400 Folder not found` / `400 Tag(s) not found`, and more than
   `MAX_TAGS_PER_MEDIA` distinct tags is `400` — identical wording and status to `ingest-url`.
-- A malformed `tag_ids` (not valid JSON, or valid JSON that is not an array) is `400`; duplicates are
-  collapsed.
+  Duplicates are collapsed.
 - Both fields land on the durable library row through `save_media_for_user`, never on the processing
   job — organization belongs to what the user saved, not to the pipeline working for it.
-- Rejections that do not depend on the file's content are stable: unsupported extension `400`, empty
-  file `400`, over `MAX_UPLOAD_SIZE_BYTES` `413`. Clients are expected to enforce the extension list
-  and the size ceiling locally so a refusal costs no upload.
+- An `upload_key` that does not start with `uploads/{caller_id}/` is `403`, decided on the key alone
+  **before any S3 call**, so these endpoints cannot be used to probe another user's objects.
+- An `upload_key` with no object behind it is `422` naming the missing upload: the transfer either
+  never happened or has expired. The key is single-use — the object is moved to its canonical
+  location and the staged copy deleted — so replaying the same submission gets this same `422`.
+- Rejections that do not depend on the file's content are stable: unsupported extension or MIME
+  `400`, empty object `400`, over the ceiling `413`. Extension and size are checked twice, once at
+  `upload-url` (so a refusal costs no transfer) and once at submission against what S3 actually
+  holds.
 - A consumption refusal carries the `X-Quota-Error-Code` header (`out_of_minutes` or
-  `item_too_long`), exactly like the URL and shared-content entrypoints.
+  `item_too_long`), exactly like the URL and shared-content entrypoints. For an audio upload the
+  duration is read from the object over a presigned GET (a few Range requests) before the debit, so
+  the "too long for one import" refusal still happens before anything is committed.
 - The library row stores `media_type` `document` / `audio`, which the list endpoint returns as-is;
   `GET /api/media/{media_item_id}` normalizes them to the canonical `article` / `audio_file`.
+- Objects the client uploads and never submits stay under `uploads/` and expire after one day
+  through the bucket lifecycle rule (`infrastructure/terraform/modules/platform/s3.tf`).
 
 ## Domain enums (locked)
 

@@ -163,6 +163,55 @@ resource "aws_s3_bucket" "covers" {
   }
 }
 
+# Client uploads land under `uploads/{user_id}/{uuid}/{filename}` through a
+# presigned PUT (task-345), and the ingestion endpoint copies them to their
+# canonical key before returning. Everything still sitting under that prefix is
+# therefore an upload the user never submitted -- share sheet dismissed, app
+# killed mid-transfer, request that failed after the PUT. Nothing reads those
+# objects, so they expire on their own rather than accumulating storage nobody
+# can name. One day is far longer than the 15-minute URL that created them.
+resource "aws_s3_bucket_lifecycle_configuration" "documents_upload_staging" {
+  bucket = aws_s3_bucket.documents.id
+
+  rule {
+    id     = "expire-abandoned-upload-staging"
+    status = "Enabled"
+
+    filter {
+      prefix = "uploads/"
+    }
+
+    expiration {
+      days = 1
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "audio_upload_staging" {
+  bucket = aws_s3_bucket.audio.id
+
+  rule {
+    id     = "expire-abandoned-upload-staging"
+    status = "Enabled"
+
+    filter {
+      prefix = "uploads/"
+    }
+
+    expiration {
+      days = 1
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
 # Covers are served through presigned URLs (task-302 §5.5): the bucket stays
 # private, and the user's own photos are never reachable without a signature.
 resource "aws_s3_bucket_public_access_block" "covers" {

@@ -1,13 +1,18 @@
 /**
  * Service for ingesting shared content (text and audio) from WhatsApp
- * via the POST /api/media/ingest-shared-content multipart endpoint.
+ * via the POST /api/media/ingest-shared-content endpoint.
  *
  * This service handles the non-URL share path where the content is either
  * raw text (no URL found) or an audio file attachment.
+ *
+ * The endpoint takes JSON, never bytes (task-345): a shared voice message is sent
+ * straight to S3 through a presigned PUT, and the submission below only carries
+ * the resulting key.
  */
 
 import { Platform } from "react-native";
-import { apiUpload } from "./apiClient";
+import { apiRequest } from "./apiClient";
+import { stageUpload } from "./presignedUpload";
 import type {
   IngestSharedContentResponse,
   SharedFileAttachment,
@@ -75,24 +80,17 @@ export class SharedContentService {
       (Platform.OS === "ios" ? "ios-share-extension" : "android-share-intent");
     const idempotencyKey = generateIdempotencyKey("wa-text", trimmed);
 
-    const formData = new FormData();
-    formData.append("share_type", "text");
-    formData.append("source_platform", "whatsapp");
-    formData.append("source_app", sourceApp);
-    formData.append("idempotency_key", idempotencyKey);
-    formData.append("text", trimmed);
-
-    if (options.locale) {
-      formData.append("locale", options.locale);
-    }
-    if (options.folderId) {
-      formData.append("folder_id", options.folderId);
-    }
-    if (options.tagIds && options.tagIds.length > 0) {
-      formData.append("tag_ids", JSON.stringify(options.tagIds));
-    }
-
-    return SharedContentService.submitFormData(formData);
+    return SharedContentService.submitIngest({
+      share_type: "text",
+      source_platform: "whatsapp",
+      source_app: sourceApp,
+      idempotency_key: idempotencyKey,
+      text: trimmed,
+      locale: options.locale ?? null,
+      folder_id: options.folderId ?? null,
+      tag_ids:
+        options.tagIds && options.tagIds.length > 0 ? options.tagIds : null,
+    });
   }
 
   /**
@@ -138,47 +136,41 @@ export class SharedContentService {
       `${fileName}:${file.fileSize ?? 0}`,
     );
 
-    const formData = new FormData();
-    formData.append("share_type", "audio");
-    formData.append("source_platform", "whatsapp");
-    formData.append("source_app", sourceApp);
-    formData.append("idempotency_key", idempotencyKey);
-    formData.append("content_mime_type", file.mimeType);
-    formData.append("original_name", fileName);
-
-    if (options.locale) {
-      formData.append("locale", options.locale);
-    }
-    if (options.folderId) {
-      formData.append("folder_id", options.folderId);
-    }
-    if (options.tagIds && options.tagIds.length > 0) {
-      formData.append("tag_ids", JSON.stringify(options.tagIds));
-    }
-
-    // Append the audio file
-    // React Native's FormData accepts an object with uri/type/name for file uploads
-    formData.append("audio_file", {
+    // The audio itself goes straight to S3; the submission carries its key.
+    const uploadKey = await stageUpload({
+      target: "shared_audio",
       uri: file.uri,
-      type: file.mimeType,
-      name: fileName,
-    } as unknown as Blob);
+      fileName,
+      mimeType: file.mimeType,
+      size: file.fileSize,
+    });
 
-    return SharedContentService.submitFormData(formData);
+    return SharedContentService.submitIngest({
+      share_type: "audio",
+      source_platform: "whatsapp",
+      source_app: sourceApp,
+      idempotency_key: idempotencyKey,
+      content_mime_type: file.mimeType,
+      original_name: fileName,
+      upload_key: uploadKey,
+      locale: options.locale ?? null,
+      folder_id: options.folderId ?? null,
+      tag_ids:
+        options.tagIds && options.tagIds.length > 0 ? options.tagIds : null,
+    });
   }
 
   /**
-   * Submit the prepared FormData to the ingest-shared-content endpoint.
-   * Multipart, so it goes through `apiUpload`: same bearer resolution and same
-   * one-shot replay on a 401 as every other authenticated call.
+   * Submit the prepared body to the ingest-shared-content endpoint. Same bearer
+   * resolution and same one-shot replay on a 401 as every other authenticated
+   * call.
    */
-  private static async submitFormData(
-    formData: FormData,
+  private static async submitIngest(
+    body: Record<string, unknown>,
   ): Promise<IngestSharedContentResponse> {
-    const response = await apiUpload<IngestSharedContentResponse | undefined>(
+    const response = await apiRequest<IngestSharedContentResponse | undefined>(
       "/api/media/ingest-shared-content",
-      formData,
-      "Failed to submit shared content.",
+      { method: "POST", body },
     );
 
     // A 204 carries no body: the submission was accepted and nothing is known

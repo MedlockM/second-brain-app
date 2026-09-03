@@ -573,6 +573,7 @@ export const nl: Catalog = {
   "upload.reject.noExtension": "Dit bestand heeft geen herkenbare extensie. Ondersteunde formaten: {formats}.",
   "upload.reject.empty": "Dit bestand is leeg, er valt dus niets te importeren.",
   "upload.reject.tooLarge": "Dit bestand is {size}, meer dan de limiet van {max} voor één import.",
+  "upload.transferFailed": "Dit bestand kon niet worden verzonden. Controleer je verbinding en probeer het opnieuw.",
   "home.loadFailed": "Je postvak kon niet worden geladen. Probeer het opnieuw.",
   "share.unsupportedFile": "Dit bestandstype wordt nog niet ondersteund.",
   "share.signInLinks": "Je moet ingelogd zijn om links op te slaan.",

@@ -11,7 +11,7 @@ from typing import Dict
 import httpx
 import pytest
 
-from tests.e2e.conftest import poll_until
+from tests.e2e.conftest import poll_until, upload_document_file
 
 
 async def _ingest_and_wait(
@@ -207,18 +207,18 @@ async def test_document_upload(
     http_client: httpx.AsyncClient,
     auth_headers: Dict[str, str],
 ) -> None:
-    """Document upload via POST /api/media/upload (multipart). Uses a tiny
-    1-page PDF fixture (~640 bytes) to keep LlamaParse cost minimal."""
+    """Document upload: presigned PUT then POST /api/media/upload with the key.
+    Uses a tiny 1-page PDF fixture (~640 bytes) to keep LlamaParse cost minimal."""
     from pathlib import Path
 
     fixture = Path(__file__).parent / "fixtures" / "sample.pdf"
-    with fixture.open("rb") as f:
-        files = {"file": ("sample.pdf", f, "application/pdf")}
-        resp = await http_client.post(
-            "/api/media/upload",
-            files=files,
-            headers=auth_headers,
-        )
+    resp = await upload_document_file(
+        http_client,
+        auth_headers,
+        file_name="sample.pdf",
+        content=fixture.read_bytes(),
+        content_type="application/pdf",
+    )
     assert resp.status_code == 202, (
         f"upload failed: {resp.status_code} {resp.text}"
     )

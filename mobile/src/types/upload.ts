@@ -1,6 +1,7 @@
 /**
  * Local file ingestion (task-264): importing a file from the device and taking
- * a photo, both of which end up on one of the two multipart upload endpoints.
+ * a photo, both of which end up on one of the two upload endpoints — through a
+ * presigned S3 PUT, since neither endpoint accepts bytes (task-345).
  *
  * The two extension lists below mirror the backend exactly and are the reason a
  * refusal can be pronounced before any byte leaves the device:
@@ -79,8 +80,10 @@ export const UPLOAD_PICKER_MIME_TYPES = [
 
 /**
  * Server-side ceiling for both upload endpoints (`MAX_UPLOAD_SIZE_BYTES`,
- * 50 MB by default). Mirrored here so an oversized file is refused with a clear
- * message instead of consuming the user's bandwidth for a 413.
+ * 50 MB, in `media_summarizer/api/endpoints/media.py`). The same value is what
+ * `POST /api/media/upload-url` checks before signing anything, so mirroring it
+ * here refuses an oversized file with a clear message on the device instead of
+ * spending the user's bandwidth to be told the same thing.
  */
 export const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024;
 
@@ -209,7 +212,8 @@ export function prepareLocalUploadFile(input: {
 
 /**
  * Fallback MIME type when the picker reports none. Android content providers
- * routinely omit it, and the multipart part still needs a type.
+ * routinely omit it, and the PUT to S3 still needs a Content-Type — it is what
+ * the object keeps, and what the ingestion endpoint reads back from it.
  */
 function defaultMimeTypeFor(fileName: string): string {
   const ext = getFileExtension(fileName);

@@ -1,6 +1,6 @@
 /**
- * Uploads a file picked or captured on the device to one of the two multipart
- * ingestion endpoints (task-264):
+ * Uploads a file picked or captured on the device to one of the two ingestion
+ * endpoints (task-264):
  *
  * - `POST /api/media/upload` for documents and images (LlamaParse, OCR)
  * - `POST /api/media/upload-audio` for audio (Deepgram)
@@ -9,13 +9,14 @@
  * `ingest-url` and `ingest-shared-content`, so an import lands in the collection
  * and tags the user picked on the confirmation screen.
  *
- * They go through `apiUpload` rather than `apiRequest` because the body is
- * multipart/form-data: the boundary must be set by the runtime, which means the
- * Content-Type header cannot be provided by us. The session handling — bearer
- * resolution and the one-shot replay on a 401 — is the same as everywhere else.
+ * The file itself never goes through the API (task-345): `stageUpload` sends it
+ * straight to S3 through a presigned PUT, and these calls only carry the
+ * resulting key, as JSON. That is what makes a 12 MB document importable at all —
+ * API Gateway refuses any body past ~4.5 MB before the API sees it.
  */
 
-import { apiUpload } from "./apiClient";
+import { apiRequest } from "./apiClient";
+import { stageUpload } from "./presignedUpload";
 import type {
   LocalUploadFile,
   UploadAudioResponse,
@@ -27,27 +28,14 @@ export interface UploadOrganizationOptions {
   tagIds?: string[];
 }
 
-function buildUploadFormData(
-  file: LocalUploadFile,
-  options: UploadOrganizationOptions,
-): FormData {
-  const formData = new FormData();
-
-  // React Native's FormData takes an object with uri/type/name for file parts.
-  formData.append("file", {
-    uri: file.uri,
-    type: file.mimeType,
-    name: file.name,
-  } as unknown as Blob);
-
-  if (options.folderId) {
-    formData.append("folder_id", options.folderId);
-  }
-  if (options.tagIds && options.tagIds.length > 0) {
-    formData.append("tag_ids", JSON.stringify(options.tagIds));
-  }
-
-  return formData;
+function organizationBody(options: UploadOrganizationOptions): {
+  folder_id: string | null;
+  tag_ids: string[] | null;
+} {
+  return {
+    folder_id: options.folderId ?? null,
+    tag_ids: options.tagIds && options.tagIds.length > 0 ? options.tagIds : null,
+  };
 }
 
 export class UploadService {
@@ -56,11 +44,18 @@ export class UploadService {
     file: LocalUploadFile,
     options: UploadOrganizationOptions = {},
   ): Promise<UploadDocumentResponse> {
-    return apiUpload<UploadDocumentResponse>(
-      "/api/media/upload",
-      buildUploadFormData(file, options),
-      "Failed to import this file. Please try again.",
-    );
+    const uploadKey = await stageUpload({
+      target: "document",
+      uri: file.uri,
+      fileName: file.name,
+      mimeType: file.mimeType,
+      size: file.size,
+    });
+
+    return apiRequest<UploadDocumentResponse>("/api/media/upload", {
+      method: "POST",
+      body: { upload_key: uploadKey, ...organizationBody(options) },
+    });
   }
 
   /** Audio files (mp3, m4a, aac, ogg, wav, flac, opus). */
@@ -68,11 +63,18 @@ export class UploadService {
     file: LocalUploadFile,
     options: UploadOrganizationOptions = {},
   ): Promise<UploadAudioResponse> {
-    return apiUpload<UploadAudioResponse>(
-      "/api/media/upload-audio",
-      buildUploadFormData(file, options),
-      "Failed to import this audio file. Please try again.",
-    );
+    const uploadKey = await stageUpload({
+      target: "audio",
+      uri: file.uri,
+      fileName: file.name,
+      mimeType: file.mimeType,
+      size: file.size,
+    });
+
+    return apiRequest<UploadAudioResponse>("/api/media/upload-audio", {
+      method: "POST",
+      body: { upload_key: uploadKey, ...organizationBody(options) },
+    });
   }
 
   /** Route a prepared file to the endpoint its extension belongs to. */
