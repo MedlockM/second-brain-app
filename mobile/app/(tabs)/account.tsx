@@ -164,7 +164,18 @@ export default function AccountScreen() {
         <Text style={styles.title}>{t("account.title")}</Text>
       </View>
 
+      {/* `contentInsetAdjustmentBehavior` is set by hand, not left to
+          `NativeTabs`. The tab bar insets the screen's scroll view itself, but
+          only the one it can find: react-native-screens walks the first-subview
+          chain down from the screen
+          (`RNSScrollViewFinder.findScrollViewInFirstDescendantChainFrom`) and
+          flips the first `UIScrollView` it meets from `never` to `automatic`
+          (`RNSScrollViewHelper`). The header above is the screen root's first
+          child, so that walk dead-ends in a `Text` and this list would never be
+          inset for the floating bar. `automatic` is the very value the native
+          helper would have set, so the last row clears the glass. */}
       <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}

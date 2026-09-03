@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  Platform,
   RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -79,6 +80,30 @@ import type { RecentEngagement } from "../../src/types/engagements";
  * extra tile is a cover to fetch on a screen that already has two rows.
  */
 const RECENTLY_ADDED_LIMIT = 12;
+
+/**
+ * The band at the bottom of the screen the tab bar owns, and the one figure both
+ * floating things on this screen measure themselves from.
+ *
+ * It is written down rather than measured: `NativeTabs` exposes no tab bar
+ * height, because the bar is a `UITabBar` / Material `BottomNavigationView` the
+ * system lays out itself (task-350).
+ *
+ * On iOS 26 the bar is a capsule detached from the screen edges with the content
+ * passing under it, and this screen's `SafeAreaView` takes `edges={["top"]}`, so
+ * the safe area runs all the way to the screen bottom — the 24 pt the buttons
+ * used to sit at now lands *inside* the glass. `TouchTarget.large` is the strip
+ * the capsule itself needs, and it is the same 64 the deleted Android branch of
+ * `tabBarStyle` gave a bottom bar; `Spacing.lg` is the gap the capsule floats
+ * above the screen bottom plus the room that keeps the buttons visibly off it
+ * rather than tangent to it.
+ *
+ * On Android the native bottom navigation is opaque and `NativeTabs` already
+ * wraps the screen in a `SafeAreaView` with the bottom inset applied, so there is
+ * no glass to clear and the old 24 dp margin is still the whole of it.
+ */
+const TAB_BAR_CLEARANCE =
+  Platform.OS === "ios" ? TouchTarget.large + Spacing.lg : Spacing.lg;
 
 export default function InboxScreen() {
   // The screen's copy is resolved on render, so it redraws with the language.
@@ -235,6 +260,12 @@ export default function InboxScreen() {
 
   return (
     <SafeAreaView testID="inbox-screen" style={styles.container} edges={["top"]}>
+      {/* First child of the screen root, and it has to stay there: under
+          `NativeTabs` the scrollable UIKit insets and hangs the scroll-edge
+          effect on is found by walking the first-subview chain down from the
+          screen (`RNSScrollViewFinder.findScrollViewInFirstDescendantChainFrom`
+          in react-native-screens), so anything inserted above this loses both.
+          The floating buttons below are fine: they come after it. */}
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -521,8 +552,13 @@ const styles = StyleSheet.create({
     // other. Padding here would stack on top of it and make the head of the
     // screen the one place with a different rhythm — which is what it was, at 32
     // above the trial pill against 16 below it.
-    // Room for the floating buttons so they never cover the last row.
-    paddingBottom: TouchTarget.large + Spacing.xl,
+    // Room for the floating buttons so they never cover the last row, on top of
+    // the band the tab bar owns. Derived from the same `TAB_BAR_CLEARANCE` the
+    // buttons are pinned at rather than restated as a second figure: the row is
+    // `TouchTarget.large` tall and sits that far above the screen bottom, and
+    // `Spacing.sm` is the gap left between the last tile and it — the same 8 the
+    // previous pair of values produced (64 + 32 against a 24 pt offset).
+    paddingBottom: TAB_BAR_CLEARANCE + TouchTarget.large + Spacing.sm,
   },
 
   // Loading state
@@ -647,12 +683,14 @@ const styles = StyleSheet.create({
     gap: TILE_GAP,
   },
 
-  // Floating ingestion controls (unchanged: task-264)
+  // Floating ingestion controls (task-264)
   fabStack: {
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: Spacing.lg,
+    // Absolutely positioned, so nothing insets it for the bar: this row is the
+    // reason `TAB_BAR_CLEARANCE` exists.
+    bottom: TAB_BAR_CLEARANCE,
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
