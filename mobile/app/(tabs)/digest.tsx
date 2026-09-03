@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { DigestService } from "../../src/services/digestService";
 import {
@@ -81,10 +81,20 @@ export default function DigestScreen() {
     [isAuthenticated],
   );
 
-  useEffect(() => {
-    const timer = setTimeout(() => void fetchDigest(activeTab), 0);
-    return () => clearTimeout(timer);
-  }, [activeTab, fetchDigest]);
+  // Fetched on focus, not on mount: `NativeTabs` has no lazy loading, so every
+  // tab screen mounts on the first render of the bar (task-350). From a plain
+  // `useEffect` this screen asked the backend for a digest on every cold start,
+  // including the ones where the tab is never opened.
+  //
+  // The dependency on `activeTab` is what still refetches when the segmented
+  // control moves: a new callback identity re-runs the effect, and the screen is
+  // focused when the user is tapping it.
+  useFocusEffect(
+    useCallback(() => {
+      const timer = setTimeout(() => void fetchDigest(activeTab), 0);
+      return () => clearTimeout(timer);
+    }, [activeTab, fetchDigest]),
+  );
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -183,7 +193,18 @@ export default function DigestScreen() {
           <ActivityIndicator size="large" color={Colors.primary} />
         </View>
       ) : error ? (
+        /* `contentInsetAdjustmentBehavior` is set by hand, not left to
+           `NativeTabs`. The bar insets the tab's scroll view itself, but only
+           the one it can find: react-native-screens walks the first-subview
+           chain down from the screen
+           (`RNSScrollViewFinder.findScrollViewInFirstDescendantChainFrom`) and
+           flips the first `UIScrollView` it meets from `never` to `automatic`
+           (`RNSScrollViewHelper`). On this screen the segmented control and the
+           header come first, so that walk dead-ends before any scrollable and
+           the inset would never be applied. `automatic` here is the very value
+           the native helper would have set. */
         <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={styles.centeredContent}
           refreshControl={
             <RefreshControl
@@ -199,7 +220,9 @@ export default function DigestScreen() {
           </Pressable>
         </ScrollView>
       ) : items.length === 0 ? (
+        /* Same reason as the error state above. */
         <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={styles.centeredContent}
           refreshControl={
             <RefreshControl
@@ -212,7 +235,11 @@ export default function DigestScreen() {
           <EmptyState tab={activeTab} />
         </ScrollView>
       ) : (
-        <View style={styles.carouselContainer}>
+        /* No automatic inset on the carousel: it is the one scrollable on this
+           screen that scrolls horizontally, and an automatic adjustment would
+           inset the paging axis. `collapsable={false}` keeps the wrapper a real
+           view so the pager below it stays where the layout puts it. */
+        <View style={styles.carouselContainer} collapsable={false}>
           {/* Pagination Dots */}
           <View style={styles.paginationDots}>
             {items.map((_, index) => (

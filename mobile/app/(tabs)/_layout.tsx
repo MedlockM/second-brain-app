@@ -1,12 +1,12 @@
-import { Redirect, Tabs } from "expo-router";
+import { Redirect } from "expo-router";
+import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { Ionicons } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useUserPreferences } from "../../src/contexts/UserPreferencesContext";
 import { LANGUAGE_ONBOARDING_ROUTE } from "../../src/constants/routes";
-import { Colors, TouchTarget } from "../../src/constants/theme";
+import { Colors } from "../../src/constants/theme";
 import { t, useTranslation } from "../../src/i18n";
-import { ActivityIndicator, Platform, View, StyleSheet } from "react-native";
+import { ActivityIndicator, View, StyleSheet } from "react-native";
 
 /**
  * Protected tabs layout, and the enforcement point of the two invariants that
@@ -22,6 +22,28 @@ import { ActivityIndicator, Platform, View, StyleSheet } from "react-native";
  * (task-326). Here there is nothing to arm: no tab exists until both guards pass.
  *
  * Tab bar follows the mockup navigation pattern (Home, Search, Digest, Account).
+ *
+ * The bar itself is no longer drawn here (task-350). `NativeTabs` hands the four
+ * items to `UITabBarController` on iOS and to Material's bottom navigation on
+ * Android, and that is the whole of what buys the iOS 26 floating glass capsule:
+ * a detached, fully rounded bar inset from the screen edges, translucent, with
+ * the content passing under it and the selected item in a filled pill. It is not
+ * a design to redraw — it *is* the system bar — and it arrives with the
+ * scroll-edge effect, Dynamic Type, the minimize behaviours and next year's
+ * appearance, none of which a JS bar would ever stop owing.
+ *
+ * The price is that the background stops being ours to set: under Liquid Glass
+ * the system owns it, and `backgroundColor`, `blurEffect`, `shadowColor` and
+ * `disableTransparentOnScrollEdge` apply on iOS 18 and earlier only. So none of
+ * them is passed, and on an iOS 18 device the classic opaque bar is the expected
+ * rendering rather than a regression.
+ *
+ * `NativeTabs` is alpha and its API is stated as subject to change. Two known
+ * upstream bugs surface here and are not local ones, so they are named rather
+ * than chased: expo/expo#44029 (`labelStyle` colours not applying on iOS, which
+ * is why the labels take their colour from `tintColor` and nothing sets
+ * `labelStyle`) and expo/expo#39930 (icon tint not refreshing over light/dark
+ * content on iOS 26).
  */
 export default function TabsLayout() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -29,10 +51,6 @@ export default function TabsLayout() {
   // The four labels are resolved on render, so the bar has to redraw when the
   // interface language changes.
   useTranslation();
-  // Only the Android branch of `tabBarStyle` reads this: it declares its own
-  // height, which overrides the one the library derives from the inset, so it has
-  // to add the inset back by hand. iOS keeps the derived height and needs nothing.
-  const insets = useSafeAreaInsets();
 
   if (isLoading) {
     return (
@@ -55,94 +73,86 @@ export default function TabsLayout() {
   }
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: Colors.tabActive,
-        tabBarInactiveTintColor: Colors.tabInactive,
-        // Both platforms clear their bottom system affordance; only the *content*
-        // height differs, so only that is branched.
-        //
-        // iOS declares nothing. `getTabBarHeight()` short-circuits on a numeric
-        // `height` in `tabBarStyle` and otherwise returns its UIKit constant plus
-        // the bottom inset, while the bar's own view already pads by that inset —
-        // so an empty branch *is* the native iOS tab bar (49 pt of icon+label
-        // above the home indicator), and restating 49 here would only risk
-        // drifting from it. That 49 pt block stays above iOS's 44 pt touch-target
-        // floor. `paddingTop` is deliberately not shared: it would eat into the
-        // UIKit block, and the library spaces the icon+label row itself.
-        //
-        // Android forces 64 dp *above* the navigation bar, because an explicit
-        // `height` replaces the derived one: a flat 64 dp made the bar share its
-        // strip with the system navigation bar, and under edge-to-edge (the only
-        // mode Expo SDK 55 / RN 0.83 offers) the Back/Home/Recents buttons landed
-        // inside the tab touch targets and hid the labels. 64 dp is under Material
-        // 3's 80 dp navigation-bar spec, which is the conservative value the app
-        // already chose.
-        tabBarStyle: {
-          backgroundColor: Colors.surface,
-          borderTopColor: Colors.outlineVariant,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          ...(Platform.OS === "android"
-            ? {
-                paddingTop: 4,
-                height: TouchTarget.large + insets.bottom,
-                paddingBottom: insets.bottom,
-              }
-            : null),
-        },
-        tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: "500",
-          letterSpacing: 0.3,
-        },
-      }}
+    <NativeTabs
+      // The bar's two colours, and the whole of them. `tintColor` carries the
+      // selected item (glyph and label alike); `iconColor` states both states
+      // explicitly so an unselected glyph is never left to a system default.
+      tintColor={Colors.tabActive}
+      iconColor={{ default: Colors.tabInactive, selected: Colors.tabActive }}
+      // The bar stays put. Both reference screens show a bar that does not
+      // shrink away, and this is an app people switch tabs in rather than read
+      // in one long scroll — a bar that minimizes on scroll would spend the
+      // gesture hiding the way out of the screen.
+      minimizeBehavior="never"
     >
-      <Tabs.Screen
-        name="inbox"
-        options={{
-          title: t("tabs.home"),
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="file-tray-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      {/* The screen file stays `search`, and so does its test id: only the
-          label has ever moved. task-306 labelled this tab for its content
-          ("Library") because the screen holds every collection and every saved
-          item; task-315 put it back on the action, so the two labels now name
-          what the user does — go Home, or Search — rather than what each screen
-          contains. */}
-      <Tabs.Screen
-        name="search"
-        options={{
-          title: t("tabs.search"),
-          tabBarButtonTestID: "search-tab-button",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="library-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="digest"
-        options={{
-          title: t("tabs.digest"),
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="sparkles-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="account"
-        options={{
-          title: t("account.title"),
-          tabBarButtonTestID: "account-tab-button",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+      {/* `sf` serves iOS and `src` serves Android (iOS priority is
+          `sf` > `xcasset` > `src`), so each item names an SF Symbol *and* keeps
+          today's Ionicon. That is what leaves Android on exactly the glyphs it
+          already had, and adds no icon asset to the bundle. */}
+      <NativeTabs.Trigger name="inbox">
+        <NativeTabs.Trigger.Icon
+          sf="tray"
+          src={
+            <NativeTabs.Trigger.VectorIcon
+              family={Ionicons}
+              name="file-tray-outline"
+            />
+          }
+        />
+        <NativeTabs.Trigger.Label>{t("tabs.home")}</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+
+      {/* The screen file stays `search`: only the label has ever moved. task-306
+          labelled this tab for its content ("Library") because the screen holds
+          every collection and every saved item; task-315 put it back on the
+          action, so the two labels now name what the user does — go Home, or
+          Search — rather than what each screen contains.
+
+          No `role="search"`, deliberately: iOS 26 pulls a search-role tab out to
+          the trailing edge of the bar for a genuine search *field*, and this tab
+          is the library, which carries its own floating pill. The role also has
+          an open badge-clipping bug (expo/expo#41573). */}
+      <NativeTabs.Trigger name="search">
+        <NativeTabs.Trigger.Icon
+          sf="books.vertical"
+          src={
+            <NativeTabs.Trigger.VectorIcon
+              family={Ionicons}
+              name="library-outline"
+            />
+          }
+        />
+        <NativeTabs.Trigger.Label>{t("tabs.search")}</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="digest">
+        <NativeTabs.Trigger.Icon
+          sf="sparkles"
+          src={
+            <NativeTabs.Trigger.VectorIcon
+              family={Ionicons}
+              name="sparkles-outline"
+            />
+          }
+        />
+        <NativeTabs.Trigger.Label>{t("tabs.digest")}</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="account">
+        <NativeTabs.Trigger.Icon
+          sf="person.crop.circle"
+          src={
+            <NativeTabs.Trigger.VectorIcon
+              family={Ionicons}
+              name="person-outline"
+            />
+          }
+        />
+        <NativeTabs.Trigger.Label>
+          {t("account.title")}
+        </NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+    </NativeTabs>
   );
 }
 

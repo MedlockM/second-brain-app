@@ -162,7 +162,8 @@ function formatTimestamp(unixTimestamp: number): string {
  * item, newest first. Typing hands the screen over to Algolia; clearing the
  * query gives it back.
  *
- * The tab keeps its `search-tab-button` id whatever its label reads.
+ * The tab bar item itself carries no test id any more: task-350 handed the bar to
+ * the system, and `NativeTabs` has no equivalent of `tabBarButtonTestID`.
  */
 export default function SearchScreen() {
   const { isAuthenticated } = useAuth();
@@ -421,9 +422,21 @@ export default function SearchScreen() {
   }, [loadCollections, loadMedia]);
 
   return (
-    <View style={styles.container}>
-      {/* Results Area -- scrolls underneath the floating search bar */}
-      <SafeAreaView style={styles.resultsArea} edges={["top"]}>
+    /* `collapsable={false}`: under `NativeTabs` the scrollable UIKit insets and
+       hangs the scroll-edge effect on is found by walking the first-subview chain
+       down from the screen
+       (`RNSScrollViewFinder.findScrollViewInFirstDescendantChainFrom` in
+       react-native-screens). The list is two wrappers down that chain — this view,
+       then the results area — and a flattened wrapper is one the view hierarchy
+       no longer contains, so both are pinned. */
+    <View style={styles.container} collapsable={false}>
+      {/* Results Area -- scrolls underneath the floating search bar. First child
+          on purpose: it holds the list the chain above has to reach. */}
+      <SafeAreaView
+        style={styles.resultsArea}
+        edges={["top"]}
+        collapsable={false}
+      >
         {!query.trim() ? (
           <LibraryState
             collections={sortedCollections}
