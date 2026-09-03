@@ -1,10 +1,10 @@
 ---
 id: task-349
 title: 'Surface a failed EAS build as a GitHub issue, since --no-wait hides it today'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 12:57'
-updated_date: '2026-09-03 15:45'
+updated_date: '2026-09-03 13:40'
 labels:
   - mobile
   - ci
@@ -155,6 +155,7 @@ One new workflow — `.github/workflows/mobile-build-watch.yml` is a suggested n
 <!-- AC:END -->
 
 ## Implementation Notes
+
 <!-- SECTION:NOTES:BEGIN -->
 ### What shipped
 
