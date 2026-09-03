@@ -751,10 +751,13 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
          identifiants* → *ID client OAuth* → type *Android*.
 8. **Apple Developer Portal** (developer.apple.com → Certificates, Identifiers & Profiles) :
    - **Bundle ID figé : `com.secondbrainlabs.core`** (décidé 2026-06-07,
-     propagé dans `mobile/app.config.ts`, `mobile/ios-share-extension/`, les
-     projets natifs générés et les product IDs RevenueCat). Le plugin custom
-     `mobile/plugins/withShareExtension.js` a été supprimé par `task-188` au
-     profit du plugin officiel `expo-share-intent`.
+     déclaré dans `mobile/app.config.ts` — seul endroit — puis propagé aux
+     projets natifs générés et aux product IDs RevenueCat). L'extension de
+     partage est générée au prebuild par le plugin officiel `expo-share-intent`,
+     qui dérive son bundle id de celui de l'app (`<appId>.share-extension`) : pas
+     d'App ID séparé à créer. Les deux copies écrites à la main ont été
+     supprimées, `mobile/plugins/withShareExtension.js` par `task-188` et
+     `mobile/ios-share-extension/` par `task-347`.
    - ~~**Identifiers → App IDs**~~ **Fait** : App ID `com.secondbrainlabs.core` créé, capability "Sign in with Apple" activée.
    - ~~**Identifiers → Services IDs**~~ **Fait** : Service ID `com.secondbrainlabs.core.signinwithapple` créé et return URL backend configurée.
    - ~~**Keys → Sign in with Apple Key**~~ **Fait** : clé `.p8` générée, `APPLE_PRIVATE_KEY`, `APPLE_KEY_ID`, `APPLE_TEAM_ID` renseignés.

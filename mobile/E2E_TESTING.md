@@ -175,7 +175,7 @@ If the iOS share extension gap becomes a release blocker, implement targeted App
      config/
        wdio.ios.conf.ts      # WebdriverIO + Appium config
      specs/
-       ios-share-extension.spec.ts  # Share extension specific test
+       share-extension.spec.ts  # Share extension specific test
      package.json
    ```
 
