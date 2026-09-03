@@ -567,6 +567,7 @@ export const zh: Catalog = {
   "upload.reject.noExtension": "这个文件没有可识别的扩展名。支持的格式：{formats}。",
   "upload.reject.empty": "这个文件是空的，没有可导入的内容。",
   "upload.reject.tooLarge": "这个文件为 {size}，超过了单次导入 {max} 的上限。",
+  "upload.transferFailed": "这个文件发送失败。请检查网络连接后重试。",
   "home.loadFailed": "无法加载你的收件箱，请重试。",
   "share.unsupportedFile": "暂不支持这种文件类型。",
   "share.signInLinks": "需要登录后才能保存链接。",

@@ -719,6 +719,8 @@ export const fr: Catalog = {
   "upload.reject.empty": "Ce fichier est vide : il n'y a rien à importer.",
   "upload.reject.tooLarge":
     "Ce fichier fait {size}, au-delà de la limite de {max} pour un import unique.",
+  "upload.transferFailed":
+    "Ce fichier n'a pas pu être envoyé. Vérifiez votre connexion et réessayez.",
   "home.loadFailed":
     "Impossible de charger votre boîte de réception. Veuillez réessayer.",
   "share.unsupportedFile": "Ce type de fichier n'est pas encore pris en charge.",

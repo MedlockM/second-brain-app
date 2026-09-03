@@ -171,6 +171,53 @@ async def poll_until(
     )
 
 
+async def upload_document_file(
+    client: httpx.AsyncClient,
+    headers: Dict[str, str],
+    *,
+    file_name: str,
+    content: bytes,
+    content_type: str,
+) -> httpx.Response:
+    """Run the real document upload sequence and return the ingestion response.
+
+    Three calls, exactly what the mobile client does (task-345): ask for a
+    presigned PUT, send the bytes straight to S3, then submit the key. The PUT is
+    made without the auth headers on purpose — the signature is the credential,
+    and the request must not carry the session to a URL that is not our API.
+    """
+    presign = await client.post(
+        "/api/media/upload-url",
+        json={
+            "target": "document",
+            "filename": file_name,
+            "content_type": content_type,
+            "file_size": len(content),
+        },
+        headers=headers,
+    )
+    assert presign.status_code == 200, (
+        f"upload-url failed: {presign.status_code} {presign.text}"
+    )
+    issued = presign.json()
+
+    async with httpx.AsyncClient(timeout=60.0) as raw:
+        put = await raw.put(
+            issued["upload_url"],
+            content=content,
+            headers={"Content-Type": content_type},
+        )
+    assert put.status_code in (200, 204), (
+        f"direct S3 PUT failed: {put.status_code} {put.text}"
+    )
+
+    return await client.post(
+        "/api/media/upload",
+        json={"upload_key": issued["upload_key"]},
+        headers=headers,
+    )
+
+
 # =============================================================================
 # Teardown
 # =============================================================================

@@ -708,6 +708,8 @@ export const de: Catalog = {
   "upload.reject.empty": "Diese Datei ist leer, es gibt also nichts zu importieren.",
   "upload.reject.tooLarge":
     "Diese Datei ist {size} groß, über dem Limit von {max} für einen einzelnen Import.",
+  "upload.transferFailed":
+    "Diese Datei konnte nicht gesendet werden. Prüfe deine Verbindung und versuche es erneut.",
   "home.loadFailed":
     "Dein Posteingang konnte nicht geladen werden. Bitte versuche es erneut.",
   "share.unsupportedFile": "Dieser Dateityp wird noch nicht unterstützt.",

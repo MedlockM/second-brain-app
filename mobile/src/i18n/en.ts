@@ -742,6 +742,8 @@ export const en = {
   "upload.reject.empty": "This file is empty, so there is nothing to import.",
   "upload.reject.tooLarge":
     "This file is {size}, over the {max} limit for a single import.",
+  "upload.transferFailed":
+    "This file could not be sent. Check your connection and try again.",
   "home.loadFailed": "Unable to load your inbox. Please try again.",
   "share.unsupportedFile": "This file type is not supported yet.",
   "share.signInLinks": "You must be signed in to save links.",

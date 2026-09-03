@@ -21,6 +21,7 @@ import {
   SharedContentService,
   SharedContentValidationError,
 } from "../services/sharedContentService";
+import { DirectUploadError } from "../services/presignedUpload";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 import {
   getQuotaErrorCode,
@@ -161,6 +162,10 @@ function shareIntentKey(intent: ShareIntent): string {
  * carries the figures ("This import needs 45 minutes and you have 12 left until
  * Sep 12"), and getFriendlyErrorMessage would collapse it into the generic
  * out-of-minutes sentence, dropping every number the user needs.
+ *
+ * A failed transfer to S3 keeps its own wording too, for the opposite reason: it
+ * arrives already translated, and getFriendlyErrorMessage flattens anything that
+ * mentions S3 into the generic error sentence (task-345).
  */
 function toSubmissionError(
   error: unknown,
@@ -172,6 +177,9 @@ function toSubmissionError(
       message: getQuotaErrorMessage(error, quotaErrorCode),
       quotaErrorCode,
     };
+  }
+  if (error instanceof DirectUploadError) {
+    return { message: error.message, quotaErrorCode: null };
   }
   if (error instanceof SharedContentValidationError) {
     return { message: error.message, quotaErrorCode: null };

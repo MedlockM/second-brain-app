@@ -37,6 +37,145 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/media/upload-url:
+    post:
+      operationId: createMediaUploadUrl
+      tags: [media]
+      description: >
+        Issue a presigned S3 PUT for one of the three file-carrying ingestion
+        flows. No endpoint of this API accepts a file body: requests arrive
+        through API Gateway, which base64-encodes the body into the Lambda event,
+        so Lambda's 6 MiB payload ceiling caps any HTTP body at 4 718 592 raw
+        bytes and the gateway refuses anything larger itself, before FastAPI. The
+        client PUTs the bytes straight to S3 and submits the returned key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadUrlRequest'
+      responses:
+        '200':
+          description: Presigned PUT issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadUrlResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/media/upload:
+    post:
+      operationId: ingestUploadedDocument
+      tags: [media]
+      description: >
+        Ingest a document or image already uploaded through upload-url
+        (target=document). The object is moved to its job-scoped key and parsed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadDocumentRequest'
+      responses:
+        '202':
+          description: Document accepted for parsing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadDocumentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '402':
+          $ref: '#/components/responses/InsufficientMinutes'
+        '403':
+          $ref: '#/components/responses/NotAuthorized'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/MissingUpload'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/media/upload-audio:
+    post:
+      operationId: ingestUploadedAudio
+      tags: [media]
+      description: >
+        Ingest an audio file already uploaded through upload-url (target=audio).
+        The duration is read from the object over a presigned GET before the
+        quota debit, so an import that is too long is refused before anything is
+        committed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadAudioRequest'
+      responses:
+        '202':
+          description: Audio accepted for transcription
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadAudioResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '402':
+          $ref: '#/components/responses/InsufficientMinutes'
+        '403':
+          $ref: '#/components/responses/NotAuthorized'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/MissingUpload'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/media/ingest-shared-content:
+    post:
+      operationId: ingestSharedContent
+      tags: [media]
+      description: >
+        Ingest content coming from a share sheet. share_type=text carries the
+        message inline; share_type=audio carries upload_key, the object uploaded
+        through upload-url with target=shared_audio.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestSharedContentRequest'
+      responses:
+        '202':
+          description: Shared content accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestSharedContentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '402':
+          $ref: '#/components/responses/InsufficientMinutes'
+        '403':
+          $ref: '#/components/responses/NotAuthorized'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/MissingUpload'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/media/{media_item_id}:
     get:
       operationId: getMediaStatus
@@ -209,6 +348,128 @@ components:
           type: boolean
         duplicate_of_media_item_id:
           type: string
+    UploadUrlRequest:
+      type: object
+      required: [target, filename, file_size]
+      properties:
+        target:
+          type: string
+          enum: [document, audio, shared_audio]
+          description: >
+            Ingestion flow the file is meant for. Decides the bucket, the accepted
+            formats and the size ceiling.
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Name of the file. Its extension decides the format check.
+        content_type:
+          type: [string, 'null']
+          description: >
+            MIME type the client will send with the PUT. Required for
+            shared_audio, whose format check is MIME-based.
+        file_size:
+          type: integer
+          exclusiveMinimum: 0
+          description: >
+            Size in bytes, checked against the ceiling before a URL is issued so
+            a hopeless transfer never starts. Re-checked from S3 at submission.
+    UploadUrlResponse:
+      type: object
+      required: [upload_url, upload_key, expires_in]
+      properties:
+        upload_url:
+          type: string
+          description: >
+            Presigned S3 PUT URL. Send the raw bytes to it, no form encoding and
+            no Authorization header — the signature is in the URL.
+        upload_key:
+          type: string
+          description: Key to hand back to the ingestion endpoint once the PUT succeeded.
+        expires_in:
+          type: integer
+          description: Validity of the presigned URL, in seconds.
+    UploadDocumentRequest:
+      type: object
+      required: [upload_key]
+      properties:
+        upload_key:
+          type: string
+          description: Key returned by POST /api/media/upload-url for target=document.
+        folder_id:
+          type: [string, 'null']
+        tag_ids:
+          type: array
+          items:
+            type: string
+    UploadDocumentResponse:
+      type: object
+      required: [media_item_id, status, source_platform, file_name]
+      properties:
+        media_item_id: { type: string }
+        status: { type: string }
+        source_platform: { type: string }
+        file_name: { type: string }
+    UploadAudioRequest:
+      type: object
+      required: [upload_key]
+      properties:
+        upload_key:
+          type: string
+          description: Key returned by POST /api/media/upload-url for target=audio.
+        folder_id:
+          type: [string, 'null']
+        tag_ids:
+          type: array
+          items:
+            type: string
+    UploadAudioResponse:
+      type: object
+      required: [media_item_id, status, source_platform]
+      properties:
+        media_item_id: { type: string }
+        status: { type: string }
+        source_platform: { type: string }
+    IngestSharedContentRequest:
+      type: object
+      required: [share_type, source_platform]
+      properties:
+        share_type:
+          type: string
+          enum: [text, audio]
+        source_platform: { type: string }
+        source_app: { type: [string, 'null'] }
+        idempotency_key: { type: [string, 'null'] }
+        locale: { type: [string, 'null'] }
+        text:
+          type: [string, 'null']
+          description: Shared message, required for share_type=text.
+        content_mime_type:
+          type: [string, 'null']
+          description: MIME type of the shared audio, required for share_type=audio.
+        original_name:
+          type: [string, 'null']
+          description: File name as the sharing app knew it, used for the title.
+        upload_key:
+          type: [string, 'null']
+          description: >
+            Key returned by POST /api/media/upload-url for target=shared_audio.
+            Required for share_type=audio.
+        folder_id:
+          type: [string, 'null']
+        tag_ids:
+          type: array
+          items:
+            type: string
+    IngestSharedContentResponse:
+      type: object
+      required: [media_item_id, status, source_platform]
+      properties:
+        media_item_id: { type: string }
+        status: { type: string }
+        source_platform: { type: string }
+        deduplicated: { type: [boolean, 'null'] }
+        duplicate_of_media_item_id: { type: [string, 'null'] }
     MediaStatusResponse:
       type: object
       required: [media_item, processing_job, artifacts]
@@ -446,6 +707,23 @@ components:
             $ref: '#/components/schemas/CanonicalErrorResponse'
     ValidationError:
       description: Payload validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    PayloadTooLarge:
+      description: >
+        Declared or stored size above the ceiling for that target. Pronounced when
+        the presigned URL is requested and again from the stored object at
+        submission — never from an HTTP body, which no upload endpoint carries.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CanonicalErrorResponse'
+    MissingUpload:
+      description: >
+        No object at the submitted upload_key — the PUT never happened, the key
+        expired, or it was already consumed by an earlier submission.
       content:
         application/json:
           schema:

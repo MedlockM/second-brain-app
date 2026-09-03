@@ -702,6 +702,8 @@ export const es: Catalog = {
   "upload.reject.empty": "Este archivo está vacío, así que no hay nada que importar.",
   "upload.reject.tooLarge":
     "Este archivo ocupa {size}, por encima del límite de {max} para una sola importación.",
+  "upload.transferFailed":
+    "No se ha podido enviar este archivo. Comprueba tu conexión e inténtalo de nuevo.",
   "home.loadFailed": "No se ha podido cargar tu bandeja. Inténtalo de nuevo.",
   "share.unsupportedFile": "Este tipo de archivo aún no es compatible.",
   "share.signInLinks": "Debes iniciar sesión para guardar enlaces.",
