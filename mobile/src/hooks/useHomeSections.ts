@@ -19,16 +19,17 @@ import type { Collection } from "../types/organization";
  * spinner. A row with nothing to show is simply absent, which is the same thing
  * the screen does for an empty row and therefore needs no extra state.
  *
- * The collections carry their own `media_count`, which is where the unsorted
- * review button's figure comes from (task-324) — the Home no longer calls the
- * digest endpoint just to put a number on a card.
+ * The collections are fetched for one reason only: they carry their own
+ * `media_count`, which is where the unsorted review button's figure comes from
+ * (task-324) — the Home no longer calls the digest endpoint just to put a number
+ * on a card.
  */
 export interface UseHomeSectionsResult {
   /** "Continue learning", in the order the server returned. Empty hides it. */
   continueLearning: RecentEngagement[];
   /**
-   * The user's collections, feeding the "Recently added" merge and the unsorted
-   * count on the review button.
+   * The user's collections, read for the unsorted count on the review button.
+   * They no longer feed any row of tiles (task-348).
    */
   collections: Collection[];
   /** Refetch both. Never rejects. */
