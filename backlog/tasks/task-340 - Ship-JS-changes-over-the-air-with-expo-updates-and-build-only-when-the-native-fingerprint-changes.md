@@ -3,9 +3,10 @@ id: task-340
 title: >-
   Ship JS changes over the air with expo-updates and build only when the native
   fingerprint changes
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 10:14'
+updated_date: '2026-09-03 10:17'
 labels:
   - mobile
   - release
@@ -277,4 +278,3 @@ flag `expo-updates` (it reports 18 unrelated pre-existing mismatches; bumping
   task-260 closed-testing recruitment.
 - No automated test was added, per the project rule.
 <!-- SECTION:NOTES:END -->
-
