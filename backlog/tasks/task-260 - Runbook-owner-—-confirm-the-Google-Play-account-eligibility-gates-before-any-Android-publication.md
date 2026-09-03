@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-08-13 19:01'
-updated_date: '2026-08-31 09:58'
+updated_date: '2026-09-03 10:14'
 labels:
   - release
   - owner-only
@@ -829,8 +829,11 @@ Si l'exigence s'applique :
 
 1. Notez le nombre exact de testeurs et la durée exigés, tels qu'affichés.
 2. Elle ne s'achète pas et ne se parallélise pas : elle borne par le bas la date de publication Android. Comptez au minimum les 14 jours **plus** le délai de review de la demande d'accès.
-3. Elle nécessite un build Android installable et un groupe de testeurs — donc `task-163` (build Android unique) doit être faite avant de démarrer le compteur, et `task-258` doit avoir désarmé le workflow de build avant qu'un `EXPO_TOKEN` ne soit posé, sous peine de soumissions involontaires.
+3. ~~Elle nécessite un build Android installable et un groupe de testeurs — donc `task-163` (build Android unique) doit être faite avant de démarrer le compteur, et `task-258` doit avoir désarmé le workflow de build avant qu'un `EXPO_TOKEN` ne soit posé, sous peine de soumissions involontaires.~~ **Les deux préalables sont levés au 2026-09-02** : `task-163` et `task-258` sont `Done`, et `EXPO_TOKEN` a été posé le 2026-09-02 à `17:13:47Z` sans risque de soumission involontaire — `mobile-build-distribute.yml` ne se déclenche plus que sur un tag `mobile-v*` ou un `workflow_dispatch`, jamais sur un push de branche.
 4. Reportez la date de démarrage réelle dans `docs/V1_LAUNCH_PLAN.md`, Phase 2.2 : c'est elle qui détermine la date de lancement Android la plus proche.
+5. **Ne démarrez pas le compteur des 14 jours avant que `task-340` ait livré un binaire OTA-capable sur la piste interne** (décision owner du 2026-09-02, « OTA d'abord, closed testing ensuite »). Installer `expo-updates` est un changement natif : tout binaire installé avant n'a pas de runtime d'update, ne recevra jamais d'OTA, et doit être réinstallé une fois. Recruter 12 testeurs d'abord, c'est leur demander une réinstallation en plein milieu des 14 jours continus — exactement ce que Google mesure. L'ordre inverse coûte quelques jours de décalage sur l'horloge et rien d'autre.
+
+   Ce n'est **pas** une dépendance de front-matter, volontairement : cette tâche porte aussi les étapes 1 à 3 (identité, profil de paiement, adresse publique), dont le profil de paiement est le poste le plus urgent du runbook et un bloquant dur pour `task-238`. Les mettre derrière une migration mobile serait retarder l'urgent pour l'ordonner. Seul le **démarrage du test fermé** attend `task-340`.
 
 ## Étape 5 — Consigner le résultat
 

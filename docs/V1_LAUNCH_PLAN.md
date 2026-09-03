@@ -1,10 +1,11 @@
 # V1 Launch Plan — Media Summarizer
 
 > Plan exhaustif des étapes restantes pour mettre l'application en production.
-> Date de rédaction : 2026-05-19. Dernière mise à jour : **2026-09-02**
-> (réconciliation de l'état git — une pile de commits locaux non poussés — et clôture du
-> second client OAuth Android ; la réconciliation de fond avec le worktree, le
-> backlog, la CI et le code date du 2026-08-21). Les gates
+> Date de rédaction : 2026-05-19. Dernière mise à jour : **2026-09-03**
+> (audit CI/CD des six workflows et décisions d'automatisation de la cadence, en
+> Phase 7 point 10 ; la veille : réconciliation de l'état git — une pile de commits
+> locaux non poussés — et clôture du second client OAuth Android ; la réconciliation
+> de fond avec le worktree, le backlog, la CI et le code date du 2026-08-21). Les gates
 > techniques backend qui bloquaient le plan au 2026-07-31 restent **fermés** :
 > source synchronisée, CI verte, HEAD déployé, runtime API isolé, dev et prod
 > dans deux comptes AWS séparés. Ce qui reste est concentré sur **le mobile, le
@@ -123,9 +124,13 @@ bloquant au moins bloquant :
    franchi un Lambda qui répond `401` sur un Bearer invalide.
 4. **Owner-only, sans substitut possible** — les credentials du secret prod
    (`task-252` : 37 clés vivantes à pousser dans une coquille vide), le quota
-   Lambda prod, les vérifications d'éligibilité du compte Google Play — dont un
-   éventuel closed testing de 14 jours qui, s'il s'applique, borne par le bas la
-   date de publication Android.
+   Lambda prod, les vérifications d'éligibilité du compte Google Play (`task-260`).
+   Le closed testing n'est plus une hypothèse : le compte est **personnel** et créé
+   le 2026-06-01, donc l'exigence **s'applique** — 12 testeurs inscrits en continu
+   pendant 14 jours, plus jusqu'à 7 jours de review, soit un plancher calendaire
+   d'environ 21 jours qui borne par le bas la date de publication Android. Le
+   compteur ne doit pas démarrer avant `task-340` (OTA), sans quoi les 12 testeurs
+   devront réinstaller en plein milieu des 14 jours continus.
 5. **Stores et légal** — nom marketing (`task-186`), icônes (`task-180`), domaine
    tranché puis API/privacy/terms réellement hébergés, listings et review accounts.
    **Les screenshots devront montrer l'UI d'après `task-306`/`307`**, pas l'Inbox
@@ -1451,6 +1456,47 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
    qui sont le flow réel (merge local puis push).
 9. Vérifier le rollback Lambda avec deux images API/worker immuables après
    `task-217`, puis documenter l'exercice.
+10. **Automatisation de la cadence — décisions owner du 2026-09-02, trois tâches
+    créées le 2026-09-03.** Trois corvées reviennent à chaque itération : pousser les
+    commits, builder puis soumettre le bundle mobile, lancer `terraform apply`. Audit
+    des six workflows fait le 2026-09-02/03 ; ce qui en sort :
+    - **`git push` ne s'automatise pas.** C'est le déclencheur de toute la chaîne, pas
+      une étape de celle-ci. Il reste manuel par construction, et c'est la seule des
+      trois corvées qui le reste.
+    - **Terraform n'est exécuté par aucun workflow aujourd'hui**, pas même `validate` :
+      `deploy-lambda.yml` ne filtre pas sur `infrastructure/terraform/**`, donc un
+      commit purement Terraform ne déclenche *rien*, et `scripts/tf_plan_guard.sh`
+      (215 lignes, `task-221` §6) n'est appelé par aucun workflow. Décision : **apply
+      automatique sur push `main`, compte dev uniquement**. Prod et `shared/` restent
+      100 % manuels, sur le modèle de `promote-prod`. Le rôle
+      `media-summarizer-gha-deploy` ne peut pas le faire — ni bucket d'état, ni table
+      de lock, ni IAM — et sa maigreur est délibérée (`task-256`) : `task-341` ajoute
+      un **second** rôle, assumable seulement sur `refs/heads/main`, et écrit noir sur
+      blanc qu'il est de fait administrateur sur dev.
+    - **Côté mobile, le seul chemin automatique existant est piégé.** Un tag
+      `mobile-v*` build en profil `production`, dont `EXPO_PUBLIC_API_BASE_URL` vaut
+      `https://api.mediasummarizer.com` — domaine sans zone déléguée du tout
+      (`dig +short mediasummarizer.com NS` est vide au 2026-09-03) — et il soumet le
+      binaire inerte à TestFlight *et* à la piste interne Play dans le même run. Les
+      `EXPO_PUBLIC_*` étant inlinés au bundle, rien ne le signale : c'est exactement ce
+      qui avait rendu l'AAB `versionCode` 4 inutilisable. `task-339` fait échouer ce
+      build avant qu'il ne démarre.
+    - **« Builder seulement quand c'est nécessaire » suppose l'OTA.** Sans lui la
+      question n'a pas de réponse : le build est le seul véhicule, donc toujours
+      nécessaire — et le palier gratuit EAS ne donne que 15 builds Android + 15 iOS par
+      mois, 1 de concurrence. Décision : **`expo-updates`, techno arrêtée, pas de
+      benchmark.** `task-340` pose `runtimeVersion: { policy: "fingerprint" }` et laisse
+      l'empreinte native décider — `eas update` (gratuit, illimité jusqu'à 1 000 MAU)
+      quand seul le JS bouge, `eas build --profile internal --auto-submit` sinon.
+      Déclencheur : push sur `main` touchant `mobile/**`.
+    - **Ordre arrêté : OTA d'abord, closed testing Play ensuite.** Installer
+      `expo-updates` est lui-même un changement natif, donc tout binaire déjà installé
+      est orphelin et doit être réinstallé une fois. Les 12 testeurs de `task-260`
+      étape 4 doivent installer d'emblée un binaire OTA-capable, sinon la
+      réinstallation tombe au milieu des 14 jours continus que Google mesure. Consigné
+      dans `task-260` étape 4 point 5 — volontairement **sans** dépendance de
+      front-matter : les étapes 1 à 3 de ce runbook, dont le profil de paiement urgent
+      et bloquant pour `task-238`, ne doivent pas attendre une migration mobile.
 
 #### Maestro E2E CI — en sommeil depuis le 2026-08-13
 
