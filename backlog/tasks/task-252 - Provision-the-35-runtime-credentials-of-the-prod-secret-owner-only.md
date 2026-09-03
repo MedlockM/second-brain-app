@@ -98,13 +98,30 @@ l'algorithme effectivement utilisé (`utils/auth_utils.py:97`). Ce n'est pas un
 sujet de cette tâche mais **dev reste sous-dimensionné** ; à rotater à
 l'occasion.
 
-Les deux redirect URI valent `https://api.secondbrainlabs.com/api/auth/{apple,google}/callback`
-et **non** l'URL brute de l'API Gateway de prod. Premier réflexe corrigé en
-cours de route : `docs/V1_LAUNCH_PLAN.md:1700-1701` montre que ce Return URL est
-**déjà enregistré** dans le Service ID Apple et que c'est la cible de la Phase
-10 §0bis. Dériver sur `f45y1buebe.execute-api…` aurait exigé un enregistrement
-Apple *et* Google que la Phase 10 retire ensuite — le travail deux fois. Prod
-étant en veille, rien ne casse en attendant que le domaine résolve.
+Les deux redirect URI valent
+`https://f45y1buebe.execute-api.eu-west-3.amazonaws.com/api/auth/{apple,google}/callback`,
+soit l'API Gateway de prod, exactement comme dev pointe sur la sienne.
+
+**Corrigé le 2026-09-03 après signalement de l'owner.** Elles ont d'abord été
+écrites sur `api.secondbrainlabs.com`, en s'appuyant sur ce plan qui donnait ce
+Return URL pour « déjà enregistré » chez Apple. **L'owner ne possède aucun
+domaine** — ni celui-là, ni un autre. `secondbrainlabs.com` appartient à un
+tiers : il résout et renvoie `301` vers `sbl.so`, qui refuse la connexion. La
+correction n'a touché que ces deux clés, les 33 autres empreintes étant
+inchangées après réécriture.
+
+Impact fonctionnel de l'erreur : **nul**, vérifié et non supposé. Ces deux clés
+ne sont lues que par `/{apple,google}/login` et `/{apple,google}/callback`
+(`auth_social.py:180-226` et `:400-445`), le flux **web**. L'app mobile n'appelle
+que `/{apple,google}/native` (`mobile/src/services/authService.ts:84` et `:104`),
+qui valide l'`id_token` contre les audiences natives et n'utilise aucun redirect
+URI. Aucun client web n'existe (`docs/AUTHENTICATION_SETUP.md:14`). Les deux
+valeurs sont donc inertes dans les deux environnements, et le resteront jusqu'à
+ce qu'un flux web existe.
+
+La leçon, elle, n'est pas inerte : **ne jamais déduire d'un plan qu'un domaine est
+détenu**, ni d'une réponse DNS. Cf. Phase 10 §0bis, qui trace comment
+`task-115` (« domaine prévu, à acheter ») s'est transformé en fait acquis.
 
 ### Décisions de l'owner, à ne pas rejouer
 
@@ -168,13 +185,15 @@ il faut dupliquer le compte ou scoper la clé.
 
 ### Ce qui reste ouvert, et où ça vit
 
-- **Le domaine du produit n'est pas tranché.** `secondbrainlabs.com` résout mais
-  renvoie un `301` vers `sbl.so`, `api.secondbrainlabs.com` et
-  `api.mediasummarizer.com` sont en `NXDOMAIN`, et le profil `production` de
-  `mobile/eas.json` pointe encore sur le second. Les deux redirect URI écrites
-  ici supposent `secondbrainlabs.com`. Si l'autre domaine l'emporte, c'est un
-  `put-secret-value` à rejouer — l'étape existe déjà en Phase 10 §0bis, ligne
-  1701.
+- 🛑 **Aucun domaine n'est possédé** (owner, 2026-09-03). Ce n'est pas « le
+  domaine n'est pas tranché » : rien n'a été acheté. `secondbrainlabs.com` est à
+  un tiers, `mediasummarizer.com` et les deux sous-domaines `api.*` sont en
+  `NXDOMAIN`, et le profil `production` de `mobile/eas.json` pointe sur
+  `api.mediasummarizer.com`, qui n'existe pas. Conséquence sur ce secret :
+  `APPLE_REDIRECT_URI` et `GOOGLE_REDIRECT_URI` sont à rejouer par
+  `put-secret-value` le jour d'un achat — l'étape est en Phase 10 §0bis. Le reste
+  du secret n'est pas concerné. **Prérequis dur de la soumission stores**, en
+  revanche : Apple et Google exigent une politique de confidentialité hébergée.
 - **`X_API_BEARER_TOKEN` pourrait être périmé au sens du plan tarifaire.**
   Plusieurs sources tierces affirment que X a supprimé son free tier en février
   2026, une autre le décrit encore actif ; elles se contrediennent. À vérifier
@@ -294,7 +313,7 @@ AWS_PROFILE=prod aws secretsmanager get-secret-value \
 - [x] #4 Les 30 clés recopiées sont identiques à celles de dev ; en particulier GOOGLE_CLIENT_ID, GOOGLE_NATIVE_AUDIENCE_IOS et GOOGLE_NATIVE_AUDIENCE_ANDROID sont égales aux valeurs du profil production de mobile/eas.json
 - [x] #5 Aucune valeur ne porte d'espace final ni de commentaire résiduel, et aucune n'est vide — contrôlé sur les 35 clés après écriture
 - [x] #6 Aucune valeur n'est committée dans le dépôt
-- [x] #7 APPLE_REDIRECT_URI et GOOGLE_REDIRECT_URI sont renseignées avec le domaine prod visé par la Phase 10, et le bloquant qui reste (choix du domaine) est nommé
+- [x] #7 APPLE_REDIRECT_URI et GOOGLE_REDIRECT_URI sont renseignées avec un endpoint qui existe réellement — l'API Gateway de prod, en miroir de dev — et le bloquant qui reste (aucun domaine n'est possédé) est nommé à l'endroit qui porte la bascule
 - [x] #8 Le routage du webhook RevenueCat est tranché et configuré : une intégration par environnement, filtrée sur sandbox d'un côté et production de l'autre
 - [x] #9 Une invocation réelle prouve que prod lit et utilise ces credentials, et non la seule lecture du secret
 <!-- AC:END -->
@@ -347,11 +366,24 @@ version du 2026-09-03 matin ont été corrigées, sourcées auprès des fourniss
   sont lues que par leur propre affectation dans `config.py`. D'où 35 et non 37,
   et le titre renommé.
 
-Deux erreurs commises pendant l'exécution elle-même, corrigées avant clôture et
-notées parce qu'elles se reproduiraient : les redirect URI ont d'abord été
-dérivées sur l'API Gateway brute de prod, alors que le Return URL du domaine
-custom est déjà enregistré chez Apple et que la Phase 10 §0bis le vise — le
-travail aurait été fait deux fois ; et `APIFY_INSTAGRAM_COMMENT_ACTOR_ID` a
-d'abord été recopiée, parce que la liste des clés mortes vient de la tâche et non
-du dépôt.
+Deux erreurs commises pendant l'exécution elle-même, notées parce qu'elles se
+reproduiraient.
+
+`APIFY_INSTAGRAM_COMMENT_ACTOR_ID` a d'abord été recopiée, parce que la liste des
+clés mortes venait de la tâche et non du dépôt. Corrigée avant clôture.
+
+Les redirect URI, elles, ont été **écrites faux et livrées faux** — d'abord
+dérivées sur l'API Gateway de prod, puis « corrigées » vers
+`api.secondbrainlabs.com` au motif que la Phase 10 §0bis le vise et donne le
+Return URL Apple pour déjà enregistré. **L'owner a signalé le même jour qu'il ne
+possède aucun domaine**, et les valeurs sont revenues à l'API Gateway. Le premier
+réflexe était donc le bon, et la « correction » était l'erreur.
+
+Ce qui l'a produite : le plan ne distinguait pas un domaine *visé* d'un domaine
+*détenu*, et une vérification DNS avait paru confirmer la détention. La règle qui
+en sort, écrite en Phase 10 §0bis : **résoudre en DNS ne prouve rien sur la
+propriété.** Corollaire de méthode — un artefact du dépôt qui affirme un fait sur
+un compte tiers n'est pas une source ; seul le dashboard ou l'owner l'est. Ici,
+préférer le miroir de dev (chaque environnement pointe sur son propre gateway)
+n'aurait demandé aucune hypothèse externe du tout.
 <!-- SECTION:NOTES:END -->

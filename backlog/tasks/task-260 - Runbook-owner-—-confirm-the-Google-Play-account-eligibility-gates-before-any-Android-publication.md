@@ -389,22 +389,37 @@ physique**. Quatre champs obligatoires, un facultatif. Valeurs retenues :
 | Champ | Valeur | Motif |
 | --- | --- | --- |
 | Nom de l'entreprise | `Second Brain Labs` | Identique au *Nom du développeur* déjà enregistré en Play Console. Une divergence entre l'éditeur affiché sur la fiche et le nom porté par le reçu génère des litiges. |
-| Site Web (facultatif) | `https://secondbrainlabs.com` | Résout (301 vers `sbl.so`). C'est le levier de l'étape 1 ter : « l'ajout d'un site nous aide à valider votre compte ». |
+| Site Web (facultatif) | ⛔ **laisser vide** | Le champ est facultatif. **Ne PAS y mettre `secondbrainlabs.com` : il appartient à un tiers**, cf. l'avertissement sous ce tableau. Renseigner un site étranger dans un champ que Google affiche aux acheteurs, c'est les envoyer chez quelqu'un d'autre. À remplir quand un domaine sera acheté ; c'est effectivement le levier de l'étape 1 ter (« l'ajout d'un site nous aide à valider votre compte »), donc à reprendre à ce moment-là. |
 | Produits ou services vendus | menu déroulant — entrée la plus proche de *logiciels / contenus ou services numériques* | Options non relevées ; à consigner au moment du choix. |
-| E-mail du service client | `support@secondbrainlabs.com` | **Champ public** : visible des acheteurs sur leurs reçus. Ne jamais y mettre l'e-mail racine du compte. |
+| E-mail du service client | ⛔ **pas `support@secondbrainlabs.com`** — utiliser une adresse que vous contrôlez réellement, quitte à créer un alias sur une boîte existante | **Champ public** : visible des acheteurs sur leurs reçus. Ne jamais y mettre l'e-mail racine du compte, **ni une adresse sur un domaine que vous ne possédez pas** : le courrier des acheteurs partirait chez son propriétaire. |
 | Nom sur les relevés de carte | `Second Brain Labs` | 17 caractères, sous la limite usuelle de 22. Un libellé reconnaissable réduit les contestations — recommandation explicite de la doc Google. |
 
-**Vérifié en DNS le 2026-08-31** : `secondbrainlabs.com` résout **et** porte des
-enregistrements **MX Google Workspace** fonctionnels ; `sbl.so` également. L'alias
-`support@` reste à créer côté Workspace — les MX prouvent que le domaine reçoit du
-courrier, pas que cette boîte existe.
+🛑 **L'owner ne possède aucun domaine (énoncé le 2026-09-03). `secondbrainlabs.com`
+appartient à un tiers.** Les deux champs marqués ⛔ ci-dessus sont **publics** —
+Google les affiche aux acheteurs sur leurs reçus — et les remplir avec ce domaine
+enverrait vos clients et leur courrier chez son propriétaire.
+
+**Ce runbook a affirmé le contraire, et il faut comprendre pourquoi.** Le relevé DNS
+du 2026-08-31 disait : « `secondbrainlabs.com` résout **et** porte des
+enregistrements **MX Google Workspace** fonctionnels », et en concluait que le
+domaine était utilisable, l'alias `support@` restant « à créer côté Workspace ».
+Les deux observations sont vraies ; l'inférence est fausse. **Résoudre en DNS et
+recevoir du courrier prouve que quelqu'un exploite le domaine, pas que c'est
+vous** — et les MX Workspace étaient précisément ceux de son propriétaire. Le
+signal contraire était sous les yeux dans la même ligne : le `301` vers `sbl.so`,
+un domaine étranger, qui refuse aujourd'hui la connexion. La seule preuve de
+propriété d'un domaine est la facture du registrar. Cf. `docs/V1_LAUNCH_PLAN.md`,
+Phase 10 §0bis.
 
 ⚠️ **Anomalie mise au jour par ce champ, à traiter hors de cette tâche.** La politique de
 confidentialité désigne `privacy@mediasummarizer.com` comme adresse d'accès et de
 portabilité des données, sous un mois. Or **`mediasummarizer.com` est en `NXDOMAIN`
-complet** (revérifié le 2026-08-31) : le domaine n'existe pas, l'adresse est morte. Un
-canal RGPD injoignable dans un document légal publié. À rebasculer sur
-`secondbrainlabs.com`. `task-43` est marquée `Done` mais son livrable porte ce défaut.
+complet** (revérifié le 2026-09-03) : le domaine n'existe pas, l'adresse est morte. Un
+canal RGPD injoignable dans un document légal. `task-43` est marquée `Done` mais son
+livrable porte ce défaut. **Ne pas la rebasculer sur `secondbrainlabs.com`** comme
+la version précédente de cette note le prescrivait — ce serait remplacer une
+adresse morte par l'adresse d'un tiers. Attendre l'achat d'un domaine ; le
+document n'est de toute façon pas hébergé, donc pas publié.
 
 **Note à l'owner, hors périmètre Google** : la case juridique cochée fait vendre en
 personne physique. Le formulaire fiscal qui suit le confirmera, et la vente d'abonnements
