@@ -64,6 +64,39 @@ jobs:
       - name: Guard — every env var used by the app is in .env.example
         run: python scripts/check_env_example_complete.py
 
+  # The same job as pr.yml, duplicated for the same reason as the guards above: `main`
+  # is not protected and this project commits straight to it, so a PR-only Terraform
+  # check is a check that almost never runs. terraform-dev.yml covers fmt and the dev
+  # root on a push, but only when the push touched infrastructure/terraform/** — and it
+  # deliberately names no other root, so prod, staging, the shared registry root and the
+  # platform module get their syntax check here or nowhere (task-341).
+  terraform:
+    name: Terraform (fmt + validate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive infrastructure/terraform
+
+      # `-backend=false`: no credentials, no state, no lock — so prod and staging are
+      # syntax-checked without any prod identity being involved.
+      - name: Validate every root and the shared module
+        run: |
+          for ROOT in envs/dev envs/prod envs/staging shared modules/platform; do
+            echo "::group::$ROOT"
+            terraform -chdir="infrastructure/terraform/$ROOT" init -backend=false -input=false
+            terraform -chdir="infrastructure/terraform/$ROOT" validate
+            echo "::endgroup::"
+          done
+
   mobile:
     name: Mobile (lint + typecheck)
     runs-on: ubuntu-latest
