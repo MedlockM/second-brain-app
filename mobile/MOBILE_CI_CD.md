@@ -660,7 +660,7 @@ This is the whole reason the decision rule exists rather than "always build".
 
 A dozen JS-only commits in one day would exhaust a month of build quota. Over OTA
 they cost nothing. Full queue measurements:
-[Why jobs wait](#why-jobs-wait-one-linux-queue-one-slot--measured-2026-090203).
+[Why jobs wait](#why-jobs-wait-one-linux-queue-one-slot--measured-2026-09-0203).
 
 ### Every binary installed before 2026-09-03 has to be replaced once
 
@@ -690,8 +690,9 @@ Measured fingerprints, `eas fingerprint:generate --json --non-interactive
 ### Pinning the EAS CLI
 
 Every workflow that installs the CLI pins an explicit version — `EAS_CLI_VERSION:
-"22.0.0"` in `mobile-ota-or-build.yml`, `mobile-build-distribute.yml` and
-`mobile-store-promote.yml`. **Do not go back to a bare `npm install -g eas-cli`.**
+"22.0.0"` in `mobile-ota-or-build.yml`, `mobile-build-distribute.yml`,
+`mobile-store-promote.yml` and `mobile-build-watch.yml`.
+**Do not go back to a bare `npm install -g eas-cli`.**
 The latest published version is 23.2.0 while the owner's machine runs 22.0.0, so
 CI drifting to latest would put the pipeline on a different major from the machine
 every decision here was verified on.
@@ -700,8 +701,9 @@ The flags each pin protects are named in a comment next to it. For the OTA
 workflow they are the four the decision rule rests on: `fingerprint:generate
 --json` emitting a top-level `hash` on stdout, `build:list --fingerprint-hash`,
 `update --environment`, and `build --auto-submit` remaining compatible with
-`--no-wait`. Bump the pin deliberately, after re-reading `--help` on the new
-version — not by deleting it.
+`--no-wait`. For the watcher it is `build:list --platform all --status errored
+--limit --json`, plus the shape of the rows it returns. Bump the pin
+deliberately, after re-reading `--help` on the new version — not by deleting it.
 
 ## Submit Profiles
 
@@ -1104,6 +1106,11 @@ It runs the same `scripts/mobile_release_check.sh internal` pre-flight, and it
 declares a `concurrency` group so two pushes cannot race two publishes. Decision
 rule and commands: [Shipping JS Over The Air](#shipping-js-over-the-air).
 
+`mobile-build-watch.yml` takes neither kind of entry point: `schedule` every
+30 min plus `workflow_dispatch`, no push and no tag. It cannot spend quota or
+reach a tester — it reads `eas build:list` and opens issues. See
+[Automatic Notifications](#automatic-notifications).
+
 ### What happens on push to `main`, and what still must not
 
 Until 2026-08-13 the `push` trigger of `mobile-build-distribute.yml` combined
@@ -1208,20 +1215,104 @@ side (`eas credentials`), not in GitHub secrets.
 
 ### Automatic Notifications
 
-When a build or submission fails:
-1. **GitHub Step Summary** - Detailed failure info in the workflow run
-2. **Slack notification** - Posted to configured webhook (if `SLACK_WEBHOOK_URL` is set)
-3. **GitHub Issue** - Auto-created for tag-triggered failures, labeled `bug`
+What actually reaches you when something fails, and what does not:
 
-The issue is only labeled `bug` on purpose: `gh issue create` hard-fails on a
-label that does not exist in the repository, and the repo currently only carries
-the 9 default GitHub labels (`gh label list`). The workflow used to pass
-`bug,ci/cd` and the notification job died on it, hiding the actual build failure.
-If you want a dedicated label, create it first
-(`gh label create ci/cd --description "CI/CD pipeline" --color 0e8a16`) and then
-add it to the `--label` flag. The `notify-failure` job declares
-`permissions: issues: write` so the default `GITHUB_TOKEN` is allowed to open
-the issue.
+| Channel | Fires on | State |
+|---|---|---|
+| GitHub Step Summary | any run | works, but only if you open the run |
+| Slack webhook (`notify-failure` in `mobile-build-distribute.yml`) | a failed tag build | **inert** — see below |
+| GitHub issue (`notify-failure` in `mobile-build-distribute.yml`) | a failed `mobile-v*` tag run | works; that path is blocked by the `production` profile's DNS |
+| GitHub issue (`mobile-build-watch.yml`) | an EAS build that errored, whoever started it | works — this is the one that covers the `--no-wait` gap |
+| anything at all | a failed **submission** | **nothing.** Uncovered, deliberately |
+
+**`mobile-ota-or-build.yml` detects nothing by itself.** It starts native builds
+with `--no-wait` — deliberately, because the Free plan's low-priority queue
+served jobs after 3 h+ on 2026-09-02 and EAS keeps a queued job for 30 days, so
+holding a GitHub job open proves nothing (see
+[Why jobs wait](#why-jobs-wait-one-linux-queue-one-slot--measured-2026-09-0203)).
+The consequence is that it reports success the moment a build is *scheduled*: its
+first real run went green in 1 m 18 s while the Android build was still
+`IN_QUEUE` and the iOS one `IN_PROGRESS`. A build that errors twenty minutes
+later has no live job left to fail, and that workflow has no `notify-failure`
+job.
+
+**The Slack branch cannot fire.** `notify-failure` guards it with
+`if: vars.SLACK_WEBHOOK_URL != ''`, and `SLACK_WEBHOOK_URL` is among neither the
+repository's 7 secrets nor its variables (`gh secret list`, `gh variable list`,
+2026-09-03 — the latter returns nothing at all). The step is therefore always
+skipped. Nothing needs fixing there unless a Slack workspace appears; the issue
+is the channel that works.
+
+#### `mobile-build-watch.yml` — the failed-build watcher
+
+Added by task-349. `on: schedule` (every 30 min, at :17 and :47) plus
+`workflow_dispatch`, and nothing else. It runs
+
+```bash
+eas build:list --platform all --status errored --limit 20 --json --non-interactive
+```
+
+and opens **one GitHub issue per errored build id**, carrying the build page URL,
+the platform, `appVersion (appBuildVersion)`, the build profile, the commit hash
+and subject, the `error.errorCode`/`message` EAS attached to the build, and an
+`@MedlockM` mention.
+
+It signals along two separate paths, and **they must not be collapsed into one
+`exit 1`**:
+
+- **an EAS build errored → a GitHub issue, and the run stays green.** Red would be
+  ambiguous: "a build failed" and "the watcher is broken" would give the same run
+  conclusion and the same mail subject, and GitHub's failure mail carries only
+  the run title. The issue is also the deduplication — keyed on the build id, it
+  does not care that GitHub's scheduler drifts 30-60 min and drops runs, which is
+  what would break a timestamp anchor.
+- **the check could not run → the run fails, red, and no issue.** A missing
+  `EXPO_TOKEN`, an Expo API error, an unparseable payload, or any `gh` refusal.
+  Nothing was checked, so nothing can be concluded about the builds.
+
+In the log the two are told apart by their annotations: a detected build failure
+emits `::notice::`, and `::error::` is reserved for the broken check. Same shape
+as Upptime, whose `Uptime CI` run stays green when a monitored site is down.
+
+Two deliberate limits, both documented in the file's header comment:
+
+- **A 48-hour reporting window.** A build that errored longer ago than that is
+  listed in the run summary but gets no issue, so a first run — or a run after a
+  long pause — does not open issues about failures already dealt with. The cutoff
+  is relative to *now*, never to the previous run, so a skipped or doubled tick
+  changes nothing.
+- **Nothing detects the watcher silently stopping.** GitHub disables a scheduled
+  workflow after 60 days without repository activity and mails a warning first.
+  The owner has ruled out a dead-man's-switch or a third-party cron monitor
+  (2026-09-03): solo on the project, watching the inbox is the monitoring. Keep
+  Actions mail on — github.com → avatar → **Settings** → **Notifications** →
+  **Actions** → **Email**.
+
+#### Submission failures stay uncovered, and why
+
+No workflow notices a failed `eas submit`. There is no read-only CLI command for
+a submission: `eas submission:view` does not exist, and `eas submit --latest` is
+not a read — it *creates another submission* (and two overlapping Android
+submissions break each other, see
+[Never let two Android submissions overlap](#never-let-two-android-submissions-overlap)).
+Covering them therefore means either the Expo GraphQL API with an
+`expo-session` secret, or an EAS webhook
+(`eas webhook:create --event BUILD|SUBMIT`) — which needs a public HTTPS
+receiver, because Expo POSTs HMAC-SHA1-signed JSON (`expo-signature`) that no
+Slack or Discord webhook accepts as-is. Both were judged too much machinery for
+today's volume. Revisit only if submission failures become a real concern; until
+then a submission is checked by hand or noticed on the store dashboard.
+
+#### Why an issue is labeled `bug` and nothing else
+
+`gh issue create` hard-fails on a label that does not exist in the repository,
+and the repo currently only carries the 9 default GitHub labels
+(`gh label list`, 2026-09-03). `notify-failure` used to pass `bug,ci/cd` and died
+on it, hiding the actual build failure. If you want a dedicated label, create it
+first (`gh label create ci/cd --description "CI/CD pipeline" --color 0e8a16`) and
+then add it to the `--label` flag of both workflows. Each issue-opening job
+declares `permissions: issues: write` so the default `GITHUB_TOKEN` is allowed to
+open the issue.
 
 ### Monitoring Build Status
 
@@ -1231,6 +1322,9 @@ eas build:list --platform all --limit 10
 
 # View specific build
 eas build:view <build-id>
+
+# What mobile-build-watch.yml runs every 30 min — same command, by hand
+eas build:list --platform all --status errored --limit 20
 
 # View submission status — see the note below, there is no read-only CLI command
 ```

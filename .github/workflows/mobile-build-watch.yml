@@ -1,0 +1,350 @@
+name: Mobile Build Watch
+
+# ---------------------------------------------------------------------------
+# Poll EAS for builds that errored and surface each one as a GitHub issue.
+# Added by task-349.
+#
+# THE SPLIT THIS FILE IMPLEMENTS — two outcomes, two signals. Do NOT collapse
+# them back into one `exit 1`:
+#
+#   an EAS build errored      -> open one GitHub issue, and the run stays GREEN
+#   this check could not run   -> fail the run, RED, and open nothing
+#
+# Why the run does not fail when it finds a failed build:
+#
+#   1. A red run would be an ambiguous signal here, and the mail carries nothing
+#      else. "An EAS build errored" and "the watcher is broken" would produce the
+#      same run conclusion and the same mail subject; GitHub's failure mail
+#      carries only the run title, so a $GITHUB_STEP_SUMMARY that distinguishes
+#      them is invisible at the moment of reading. Red is therefore reserved for
+#      the case where the pipeline really is broken and nothing was checked.
+#   2. The issue *is* the deduplication, for free. Alerting once per failed build
+#      otherwise needs a hand-rolled state machine anchored on the previous run's
+#      timestamp — and GitHub's scheduler drifts 30-60 min under load and drops
+#      runs outright, which breaks a timestamp anchor. An issue keyed on the EAS
+#      build id does not care how many ticks were skipped or doubled.
+#
+# This is the reference shape for a cron workflow that checks a system outside
+# the repository (Upptime does exactly this: a monitored site being down leaves
+# its `Uptime CI` run green and opens an issue; red means the checker broke).
+# It is also already this repository's convention — see the `notify-failure` job
+# of mobile-build-distribute.yml, which opens an issue with `issues: write`.
+#
+# Asymmetry with Upptime worth not copying: an errored build never becomes
+# un-errored, so there is no "resolved" transition to detect and nothing to
+# auto-close. One issue per failed build id; the owner closes it.
+#
+# WHY THIS WORKFLOW EXISTS AT ALL: mobile-ota-or-build.yml starts native builds
+# with `--no-wait` (deliberately — the Free plan's low-priority queue served jobs
+# after 3 h+ on 2026-09-02, and EAS keeps a queued job for 30 days, so holding a
+# GitHub job open proves nothing). That workflow therefore reports success the
+# moment a build is *scheduled*: its first real run went green in 1 m 18 s while
+# the Android build was still IN_QUEUE. A build that errors twenty minutes later
+# has no live job to fail, and the Slack branch in mobile/MOBILE_CI_CD.md cannot
+# fire because SLACK_WEBHOOK_URL is not set. Nothing detected a failed build
+# before this file.
+#
+# In the log, the two paths are told apart by their annotations: a detected build
+# failure emits `::notice::`, and `::error::` is reserved for the broken-check
+# path. Keep it that way.
+#
+# Scope: builds only. Submissions are out — no read-only CLI command exists for
+# one (`eas submission:view` does not exist, and `eas submit --latest` *creates*
+# another submission), so covering them means the Expo GraphQL API or an EAS
+# webhook receiver. The gap is recorded in mobile/MOBILE_CI_CD.md instead of
+# being half-closed here.
+# ---------------------------------------------------------------------------
+
+on:
+  schedule:
+    # Every 30 minutes, and off the top of the hour on purpose: GitHub's
+    # scheduler is most loaded — and drops the most runs — at minute 0.
+    #
+    # Why 30 and not 60: Actions minutes are free on this public repository, so
+    # a tick costs nothing, and because deduplication is keyed on the build id a
+    # doubled detection cannot double-report. A shorter period therefore only
+    # buys resilience to the runs GitHub silently drops. It is not shorter than
+    # 30 min because nothing downstream is faster: a Free-plan build takes tens
+    # of minutes to hours (45-minute build timeout, multi-hour queue waits), so
+    # polling faster would only re-read the same rows.
+    - cron: "17,47 * * * *"
+  # Not decoration: a `schedule` trigger only ever runs on the default branch,
+  # so this is the owner's only way to exercise the file once it is merged.
+  workflow_dispatch:
+
+# One watcher at a time. Two overlapping runs could each see the same errored
+# build before either had opened its issue, and both would open one.
+# `cancel-in-progress: false`: a run takes about a minute, so queueing the next
+# tick behind it is free, and cancelling would lose the log of what was checked.
+concurrency:
+  group: mobile-build-watch
+  cancel-in-progress: false
+
+env:
+  # Node 22+, not 20: eas-cli 22 bundles typescript 7, which no longer exposes
+  # `transpileModule`. `@expo/require-utils` then falls back to Node's
+  # `module.stripTypeScriptTypes`, which only exists from Node 22 -- without it
+  # `app.config.ts` is evaluated as plain JS and every eas command dies on
+  # "Missing initializer in const declaration".
+  NODE_VERSION: "22"
+  # Pinned, never bare `eas-cli`. This workflow relies on `build:list --platform
+  # all --status errored --limit --json --non-interactive` returning a JSON array
+  # whose elements carry `id`, `platform`, `appVersion`, `appBuildVersion`,
+  # `buildProfile`, `gitCommitHash`, `gitCommitMessage`, `completedAt` and
+  # `app.ownerAccount.name`/`app.slug`, plus the `error` object that errored
+  # builds carry (`errorCode`, `message`). Verified against 22.0.0 on 2026-09-03,
+  # which is also what the owner's machine runs. 23.2.0 is already published;
+  # bump this deliberately after re-reading `--help`, not by drifting to latest.
+  EAS_CLI_VERSION: "22.0.0"
+  EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+  # `--limit` defaults to 10 and is capped at 50 (eas-cli 22.0.0 `--help`). 20
+  # gives room for a burst of failures without paging, and costs one query.
+  QUERY_LIMIT: "20"
+  # Builds that errored longer ago than this are listed in the summary but get no
+  # issue. Its only job is to stop a run from doing archaeology on failures the
+  # owner already moved past: on 2026-09-03 the query above still returned two
+  # Android builds that errored on 2026-08-31, ~69 h earlier, on a Gradle error
+  # the owner had long since dealt with. Reporting those would open two stale
+  # issues on the first run.
+  #
+  # This is NOT the timestamp state machine the design rejects: the cutoff is
+  # relative to *now*, not to the previous run, so a skipped or doubled tick
+  # changes nothing. 48 h against a 30-minute period is 96 consecutive missed
+  # ticks of slack — far beyond GitHub's 30-60 min scheduler drift. The gap it
+  # accepts is a watcher stopped for two full days, which is the failure mode the
+  # owner has explicitly chosen to cover by watching their inbox (GitHub mails a
+  # warning before disabling a scheduled workflow for repository inactivity).
+  REPORT_WINDOW_HOURS: "48"
+
+jobs:
+  watch-errored-builds:
+    name: Surface errored EAS builds
+    runs-on: ubuntu-latest
+    # Nothing here waits on a build: it reads a list and writes issues. A run
+    # that has not finished in 10 minutes is hung, and a hung run reports
+    # nothing at all — which is the one outcome worth failing on.
+    timeout-minutes: 10
+    # `issues: write` is needed by `gh issue create` below — same idiom as the
+    # `notify-failure` job of mobile-build-distribute.yml. Everything else stays
+    # read-only: this workflow never pushes, tags or builds.
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      # Fail here rather than 6 steps later inside `eas`. This is the broken-check
+      # path: without the token nothing was checked, so red is correct.
+      - name: Require EXPO_TOKEN
+        run: |
+          if [[ -z "${EXPO_TOKEN}" ]]; then
+            echo "::error::EXPO_TOKEN secret is empty. Create a robot token at" \
+                 "https://expo.dev/settings/access-tokens then run" \
+                 "'gh secret set EXPO_TOKEN'. Every eas command in this workflow" \
+                 "needs it (see mobile/MOBILE_CI_CD.md)."
+            exit 1
+          fi
+          echo "EXPO_TOKEN is present."
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      # Not optional, even though nothing is built here: `eas build:list` reads
+      # mobile/app.config.ts to resolve the project id, and that file imports
+      # `expo/config`. Without node_modules the command dies on "Cannot find
+      # module 'expo/config'" before it ever reaches the API.
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Install EAS CLI ${{ env.EAS_CLI_VERSION }}
+        run: npm install -g "eas-cli@${EAS_CLI_VERSION}"
+
+      # `--status errored` and not `canceled`: cancelling a build is usually a
+      # human act (the owner freeing the single Free-plan concurrency slot), and
+      # nobody needs an issue about their own decision.
+      - name: List errored builds
+        id: query
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          eas build:list \
+            --platform all \
+            --status errored \
+            --limit "${QUERY_LIMIT}" \
+            --json \
+            --non-interactive > "${RUNNER_TEMP}/errored-builds.json"
+          # `jq length` doubles as the parse check: a truncated or non-array
+          # payload fails the step, which is the broken-check path.
+          COUNT=$(jq 'length' "${RUNNER_TEMP}/errored-builds.json")
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+          echo "eas build:list returned ${COUNT} errored build(s) (limit ${QUERY_LIMIT})."
+
+      # The green path. Every failure inside this step (eas, gh, jq, the issue
+      # creation itself) is a broken check and turns the run red via `set -e`:
+      # a GitHub API hiccup must neither masquerade as a build failure nor
+      # swallow one silently. Successfully reporting a failure exits 0.
+      - name: Open an issue per unreported errored build
+        id: report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          BUILDS="${RUNNER_TEMP}/errored-builds.json"
+          KNOWN="${RUNNER_TEMP}/known-issues.json"
+          TOTAL=$(jq 'length' "${BUILDS}")
+          NOW=$(date +%s)
+          CUTOFF=$(( NOW - REPORT_WINDOW_HOURS * 3600 ))
+
+          # Fetched once, outside the loop: the titles of the most recent issues,
+          # open and closed. This is the REST list endpoint, so it needs no
+          # search index — it is the guard behind the search below.
+          gh issue list --repo "${REPO}" --state all --limit 100 --json title > "${KNOWN}"
+
+          CREATED=0
+          SKIPPED_REPORTED=0
+          SKIPPED_OLD=0
+          {
+            echo "## EAS build watch"
+            echo ""
+            echo "Errored builds returned by \`eas build:list\`: **${TOTAL}**"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for (( i = 0; i < TOTAL; i++ )); do
+            BUILD=$(jq -c ".[${i}]" "${BUILDS}")
+            ID=$(printf '%s' "${BUILD}" | jq -r '.id')
+            PLATFORM=$(printf '%s' "${BUILD}" | jq -r '.platform')
+            APP_VERSION=$(printf '%s' "${BUILD}" | jq -r '.appVersion // "unknown"')
+            APP_BUILD_VERSION=$(printf '%s' "${BUILD}" | jq -r '.appBuildVersion // "unknown"')
+            PROFILE=$(printf '%s' "${BUILD}" | jq -r '.buildProfile // "unknown"')
+            COMMIT_HASH=$(printf '%s' "${BUILD}" | jq -r '.gitCommitHash // "unknown"')
+            # First line only, capped: the full message is a whole commit body.
+            COMMIT_SUBJECT=$(printf '%s' "${BUILD}" | jq -r '(.gitCommitMessage // "") | split("\n")[0][0:200]')
+            ERROR_CODE=$(printf '%s' "${BUILD}" | jq -r '.error.errorCode // "unknown"')
+            ERROR_MESSAGE=$(printf '%s' "${BUILD}" | jq -r '.error.message // "no message on the build record"')
+            ENDED_AT=$(printf '%s' "${BUILD}" | jq -r '.completedAt // .updatedAt // .createdAt')
+            # `build:list --json` carries no URL field, so the build page is
+            # composed from the id plus the account and slug on the same record.
+            ACCOUNT=$(printf '%s' "${BUILD}" | jq -r '.app.ownerAccount.name')
+            SLUG=$(printf '%s' "${BUILD}" | jq -r '.app.slug')
+            BUILD_URL="https://expo.dev/accounts/${ACCOUNT}/projects/${SLUG}/builds/${ID}"
+
+            ENDED_EPOCH=$(date -d "${ENDED_AT}" +%s)
+            if (( ENDED_EPOCH < CUTOFF )); then
+              echo "- skipped \`${ID}\` (${PLATFORM}, errored ${ENDED_AT}): older than ${REPORT_WINDOW_HOURS} h" >> "$GITHUB_STEP_SUMMARY"
+              echo "Skipping ${ID} (${PLATFORM}): errored ${ENDED_AT}, outside the ${REPORT_WINDOW_HOURS} h reporting window."
+              SKIPPED_OLD=$(( SKIPPED_OLD + 1 ))
+              continue
+            fi
+
+            # Deduplication, keyed on the EAS build id. Two lookups, both exact:
+            #   - GitHub's issue search over every state. Whether its tokenizer
+            #     matches a hyphenated UUID could not be verified from a
+            #     repository that has zero issues, so it is not trusted alone.
+            #   - the pre-fetched recent titles, which come from the plain list
+            #     endpoint and are matched locally.
+            # `contains($id)` on the title is what makes either lookup exact: the
+            # search API is free to return fuzzy hits and they must not count.
+            SEARCH_HITS=$(gh issue list --repo "${REPO}" --state all --search "${ID}" --limit 50 --json title \
+              | jq -r --arg id "${ID}" '[.[] | select(.title | contains($id))] | length')
+            KNOWN_HITS=$(jq -r --arg id "${ID}" '[.[] | select(.title | contains($id))] | length' "${KNOWN}")
+            if (( SEARCH_HITS > 0 || KNOWN_HITS > 0 )); then
+              echo "- already reported: \`${ID}\` (${PLATFORM})" >> "$GITHUB_STEP_SUMMARY"
+              echo "Build ${ID} already has an issue (search hits ${SEARCH_HITS}, recent-title hits ${KNOWN_HITS}). Skipping."
+              SKIPPED_REPORTED=$(( SKIPPED_REPORTED + 1 ))
+              continue
+            fi
+
+            TITLE="EAS build errored: ${PLATFORM} ${APP_VERSION} (${APP_BUILD_VERSION}) — ${ID}"
+            BODY_FILE="${RUNNER_TEMP}/issue-${ID}.md"
+            {
+              echo "@MedlockM — an EAS build errored, and nothing else in the pipeline says so."
+              echo "\`mobile-ota-or-build.yml\` starts builds with \`--no-wait\` and goes green as"
+              echo "soon as the build is *scheduled*, so this issue is the only signal."
+              echo ""
+              echo "| Field | Value |"
+              echo "|---|---|"
+              echo "| Build page | ${BUILD_URL} |"
+              echo "| Build id | \`${ID}\` |"
+              echo "| Platform | ${PLATFORM} |"
+              echo "| Version | ${APP_VERSION} (${APP_BUILD_VERSION}) |"
+              echo "| Build profile | \`${PROFILE}\` |"
+              echo "| Errored at | ${ENDED_AT} |"
+              echo "| Error code | \`${ERROR_CODE}\` |"
+              echo "| Commit | \`${COMMIT_HASH}\` |"
+              echo "| Commit subject | ${COMMIT_SUBJECT} |"
+              echo ""
+              echo "**EAS error message**"
+              echo ""
+              echo "> ${ERROR_MESSAGE}"
+              echo ""
+              echo "### What to do"
+              echo ""
+              echo "1. Open the build page above and read the failing phase's logs."
+              echo "2. \`mobile/MOBILE_CI_CD.md\` § Troubleshooting covers the recurring causes"
+              echo "   (expired iOS profile, Play version code clash, queue timeout, quota)."
+              echo "3. Close this issue once the cause is known — it is not auto-closed. An"
+              echo "   errored build never becomes un-errored, so there is no resolved state to"
+              echo "   detect; the issue is the record that this failure was seen."
+              echo ""
+              echo "---"
+              echo "Opened by \`.github/workflows/mobile-build-watch.yml\` ([run](${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID}))."
+            } > "${BODY_FILE}"
+
+            # Only `bug`: `gh issue create` hard-fails on a label that does not
+            # exist, and the repository carries just the 9 GitHub defaults
+            # (`gh label list`, 2026-09-03). Create a label before adding it here.
+            ISSUE_URL=$(gh issue create \
+              --repo "${REPO}" \
+              --title "${TITLE}" \
+              --body-file "${BODY_FILE}" \
+              --label "bug")
+            CREATED=$(( CREATED + 1 ))
+            # `::notice::`, not `::error::`: a detected build failure is the green
+            # path. `::error::` in this workflow means the check itself broke.
+            echo "::notice title=EAS build errored::${PLATFORM} ${APP_VERSION} (${APP_BUILD_VERSION}) build ${ID} errored (${ERROR_CODE}). Issue: ${ISSUE_URL}"
+            echo "- **opened** ${ISSUE_URL} for \`${ID}\` (${PLATFORM}, \`${ERROR_CODE}\`)" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          {
+            echo ""
+            echo "Issues opened: **${CREATED}** — already reported: ${SKIPPED_REPORTED} — outside the ${REPORT_WINDOW_HOURS} h window: ${SKIPPED_OLD}"
+            echo ""
+            echo "This run is green whatever those numbers are. A red run from this"
+            echo "workflow means the watcher itself could not run — see the file header."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Done. created=${CREATED} already_reported=${SKIPPED_REPORTED} outside_window=${SKIPPED_OLD}"
+
+      # The red path, and the only one. Reached when EXPO_TOKEN is missing, when
+      # `eas build:list` fails or returns something unparseable, or when `gh`
+      # could not read or create an issue. In every case the conclusion to draw
+      # is the same and it is not "a build failed": nothing was checked.
+      - name: Say that the check could not run
+        if: failure()
+        run: |
+          {
+            echo "## EAS build watch: THE CHECK COULD NOT RUN"
+            echo ""
+            echo "This run is red because **the watcher failed**, not because an EAS build"
+            echo "failed. A build failure opens a GitHub issue and leaves the run green;"
+            echo "there is no issue to look for here."
+            echo ""
+            echo "So no statement can be made about the state of EAS builds over this"
+            echo "interval. Read the failed step above and check for a failed build by hand:"
+            echo ""
+            echo "\`\`\`"
+            echo "cd mobile && eas build:list --platform all --status errored --limit 20"
+            echo "\`\`\`"
+            echo ""
+            echo "Usual causes: an expired or missing \`EXPO_TOKEN\`, an Expo API outage, a"
+            echo "\`gh\` call refused (check the job's \`permissions:\` block still grants"
+            echo "\`issues: write\`), or a \`bug\` label that no longer exists in the repository."
+          } >> "$GITHUB_STEP_SUMMARY"
