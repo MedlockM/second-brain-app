@@ -4,28 +4,33 @@ This document describes the mobile build and distribution pipeline for Media Sum
 
 ## Overview
 
-The pipeline uses **EAS Build** (Expo Application Services) for cloud-based native builds
-and **EAS Submit** for publishing to TestFlight (iOS) and Google Play Internal Testing (Android).
+The pipeline uses **EAS Build** (Expo Application Services) for cloud-based native builds,
+**EAS Submit** for publishing to TestFlight (iOS) and Google Play Internal Testing (Android),
+and **EAS Update** to push JS-only changes to already-installed binaries without a build.
+
+Two workflows, two jobs. They do not overlap.
 
 ```
-Push of a mobile-v* tag         Manual workflow_dispatch
+Push to main touching mobile/    Push of a mobile-v* tag      Manual workflow_dispatch
+    |                                |                            |
+    v                                | profile=production         | profile + submit chosen
+mobile-ota-or-build.yml              | submit=true                | (defaults: preview, false)
+    |                                v                            v
+    +-- per platform:            GitHub Actions (.github/workflows/mobile-build-distribute.yml)
+    |   fingerprint moved?           |
+    |     no  -> eas update          +-- Pre-flight: scripts/mobile_release_check.sh <profile>
+    |            (channel internal)  |     `-- BLOCKS the production profile today (no DNS)
+    |     yes -> eas build           |
+    |            --profile internal  +-- iOS: EAS Build -> EAS Submit -> TestFlight (internal)
+    |            --auto-submit       |
+    |                                +-- Android: EAS Build -> EAS Submit -> Play (internal)
     |                                |
-    | profile=production             | profile + submit chosen by the operator
-    | submit=true                    | (defaults: preview, submit=false)
-    v                                v
-GitHub Actions (.github/workflows/mobile-build-distribute.yml)
-    |
-    +-- Pre-flight: scripts/mobile_release_check.sh <profile>
-    |     `-- BLOCKS the production profile today (no DNS on its API host)
-    |
-    +-- iOS: EAS Build -> EAS Submit -> TestFlight (internal)
-    |
-    +-- Android: EAS Build -> EAS Submit -> Google Play (internal track)
-    |
-    +-- On failure: Slack notification + GitHub Issue (tag runs only)
+    |                                +-- On failure: Slack + GitHub Issue (tag runs only)
 ```
 
-A push to a branch, `main` included, builds nothing — see
+A push to `main` no longer *always* spends a build, and no longer *never* ships either:
+`mobile-ota-or-build.yml` decides per platform from the native fingerprint. Read
+[Shipping JS Over The Air](#shipping-js-over-the-air) for the decision rule and
 [Workflow Triggers](#workflow-triggers) for the full contract.
 
 **Pushing a `mobile-v*` tag fails on purpose today**, in seconds, before any EAS
@@ -83,8 +88,10 @@ Four secrets that used to be listed here are gone, none of them replaced:
 ```bash
 cd mobile
 
-# Install EAS CLI
-npm install -g eas-cli
+# Install EAS CLI — pinned, same version the workflows pin (see
+# "Pinning the EAS CLI" below). A bare `npm install -g eas-cli` puts your laptop
+# on a different major from CI, which is how flag drift goes unnoticed.
+npm install -g eas-cli@22.0.0
 
 # Log in to Expo
 eas login
@@ -411,13 +418,13 @@ never substituted, see [Submit Profiles](#submit-profiles).
 
 ## Build Profiles
 
-| Profile | Purpose | iOS output | Android output | Metro needed |
-|---------|---------|-----------|----------------|--------------|
-| `development` | Local dev with dev client | Dev-client IPA (ad hoc) | Dev-client APK | **Yes** |
-| `development-simulator` | Same, iOS simulator | Simulator build | — | **Yes** |
-| `preview` | Ad hoc share, no store round-trip | IPA (ad hoc, UDID-gated) | APK (shareable) | No |
-| `internal` | Testers via TestFlight / Play internal track | IPA (App Store) | AAB | No |
-| `production` | **Unusable** — see below | IPA (App Store) | AAB | No |
+| Profile | Purpose | iOS output | Android output | Metro needed | Update channel | EAS environment |
+|---------|---------|-----------|----------------|--------------|----------------|-----------------|
+| `development` | Local dev with dev client | Dev-client IPA (ad hoc) | Dev-client APK | **Yes** | none | `development` |
+| `development-simulator` | Same, iOS simulator | Simulator build | — | **Yes** | none (inherited) | `development` (inherited) |
+| `preview` | Ad hoc share, no store round-trip | IPA (ad hoc, UDID-gated) | APK (shareable) | No | `preview` | `preview` |
+| `internal` | Testers via TestFlight / Play internal track | IPA (App Store) | AAB | No | `internal` | `production` |
+| `production` | **Unusable** — see below | IPA (App Store) | AAB | No | `production` | `production` |
 
 `internal` and `production` differ only in `EXPO_PUBLIC_API_BASE_URL`: `internal`
 points at the **dev** API, `production` at a host that does not exist. Every
@@ -479,6 +486,221 @@ this repo:
 
 Until both hold, do not push a `mobile-v*` tag and do not select `production` in
 a manual dispatch.
+
+## Shipping JS Over The Air
+
+`expo-updates` (`~55.0.30`, installed 2026-09-03 by `task-340`) lets a JS-only
+change reach an installed binary without a build. Two fields in `app.config.ts`
+carry the whole mechanism:
+
+```ts
+updates: { url: `https://u.expo.dev/${easProjectId}` },
+runtimeVersion: { policy: "fingerprint" },
+```
+
+`updates.url` is where the app asks for a newer bundle. `runtimeVersion` is what
+stops it from accepting one it cannot run. The `fingerprint` policy makes the
+runtime version a **hash of the native project** — the autolinked native modules,
+the local `modules/google-credential-manager` module, the `ios-share-extension/`
+target, the `expo-share-intent` intent filters, the plugin list, the resolved
+native config. An update is only ever served to a binary whose fingerprint matches
+the one it was published under, so a JS bundle calling into a native module the
+installed app does not have can never reach it.
+
+The project id is declared **once** in `app.config.ts`, as the `easProjectId`
+constant read by both `updates.url` and `extra.eas.projectId`. Do not paste a
+second copy of the UUID: a stale `updates.url` is silent, the app simply polls a
+project that publishes nothing and never updates.
+
+A fingerprint runtime version is independent of `version` and of the
+`autoIncrement` build numbers, which is why it coexists with
+`appVersionSource: "remote"` without interfering. Nothing about version management
+changed.
+
+### One channel per build profile
+
+| Build profile | Channel |
+|---|---|
+| `development` | **none** |
+| `development-simulator` | **none** (inherits `development`) |
+| `preview` | `preview` |
+| `internal` | `internal` |
+| `production` | `production` |
+
+**No two build profiles share a channel**, and the rule matters because the
+failure it prevents is silent: publish to a channel a store binary listens on and
+that JS is on testers' phones minutes later with nobody's approval. The push-to-
+`main` automation therefore targets **`internal` only** — never `production`.
+
+**The two dev-client profiles get no channel, deliberately.** They set
+`developmentClient: true`, which produces a debug binary that fetches its bundle
+from Metro over the local network; `expo-updates` is disabled in debug builds, so
+a channel there would be a value nothing reads. Leaving it unset also keeps the
+"no two profiles on one channel" rule true, which `development-simulator`
+extending `development` would otherwise break by inheritance.
+
+### The decision rule, and the exact commands
+
+Every push to `main` that touches `mobile/` runs
+`.github/workflows/mobile-ota-or-build.yml`. Per platform, three commands:
+
+```bash
+# 1. Hash the native project. Needs NO Expo login. `-e internal` matters:
+#    EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS decides `ios.scheme` in app.config.ts, so
+#    the iOS fingerprint depends on the profile's env block.
+eas fingerprint:generate --json --non-interactive --platform <android|ios> -e internal
+
+# 2. Does a finished `internal` build already run that native surface?
+#    This one DOES need EXPO_TOKEN.
+eas build:list --platform <p> -e internal --status finished \
+  --fingerprint-hash <hash> --limit 1 --json --non-interactive
+
+# 3a. Empty array -> the native surface moved -> spend a build.
+eas build --platform <p> --profile internal --auto-submit --non-interactive --json --no-wait
+
+# 3b. Non-empty -> JS-only change -> publish, cost nothing.
+eas update --channel internal --platform <p> --environment production \
+  --message "<commit subject>" --non-interactive
+```
+
+**Verified against eas-cli 22.0.0 on 2026-09-03**, by running `--help` on the
+binary and by reading its source — not assumed. `--fingerprint-hash` is a real
+filter flag on `build:list`; `-e` means `--build-profile` on `build:list` and
+`fingerprint:generate` but `--profile` on `build`; `--auto-submit` schedules the
+submission server-side the moment the build starts
+(`build/runBuildAndSubmit.js`), which is why it survives `--no-wait` and the
+submission still happens. That is also why the workflow does not wait: the Free
+plan's low-priority queue served jobs after 3 h+ on 2026-09-02, and EAS keeps a
+queued job for 30 days.
+
+The trigger excludes `**/*.md` and `mobile/.maestro/**`. Without those
+exclusions, editing this very file would publish an update whose bundle is
+byte-identical to the previous one. The workflow also declares a `concurrency`
+group so two pushes cannot race two publishes.
+
+**Watch the first runs for one specific mismatch.** The hash the workflow
+computes comes from the CLI on a GitHub runner; the hash recorded on a build is
+computed by the EAS build server. If the two ever diverge, `build:list
+--fingerprint-hash` returns empty forever and every push builds. That fails in the
+safe direction — it spends quota, it does not ship a mismatched update — but it
+defeats the point, so if two consecutive JS-only pushes both build, compare with
+`eas fingerprint:compare` before touching the workflow.
+
+### `--environment` is mandatory on SDK 55, and the two paths disagree on precedence
+
+`eas update --help` on 22.0.0 says of `--environment`: *"Required for projects
+using Expo SDK 55 or greater."* This project is SDK 55.
+
+**Which environment feeds an OTA bundle: `production`.** The `internal` build
+profile declares `"environment": "production"` in `eas.json`, so `eas update
+--environment production` reads the same server-side variables the build reads.
+That key used to be absent and the value was resolved implicitly — eas-cli's
+`resolveSuggestedEnvironmentForBuildProfileConfiguration` maps
+`distribution: "store"` (the default, so `internal` qualifies) to `production`,
+`developmentClient: true` to `development`, and everything else to `preview`. All
+five build profiles now state it explicitly so it cannot drift when a
+`distribution` value changes.
+
+Now the trap, because it is the same silent failure class as the DNS one above.
+`EXPO_PUBLIC_*` values are **inlined into the JS bundle at bundle time**. A build
+bundles on the EAS servers from the profile's `env` block; `eas update` bundles
+**on the runner**, from that process's environment plus the EAS environment. And
+the two merge in opposite orders — read out of eas-cli 22.0.0, not assumed:
+
+| Path | Merge | Winner |
+|---|---|---|
+| `eas build` | `build/evaluateConfigWithEnvVarsAsync.js`: `{ ...serverEnvVars, ...buildProfile.env }` | **`eas.json`** |
+| `eas update` | `utils/expoCli.js` `spawnExpoCommand`: `{ ...process.env, ...serverEnvVars }` | **EAS environment** |
+
+So the two paths inline the same values only while **no `EXPO_PUBLIC_*` key is
+defined on both sides**. Today none is, and that is what makes the setup sound:
+
+- `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS`,
+  `EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB` live **only** in `eas.json`. The workflow
+  copies them out of `build.internal.env` with `jq` into `$GITHUB_ENV` before
+  publishing, so the update path reads them from the one source the build path
+  reads.
+- The RevenueCat keys live **only** in the EAS environments. Both paths get them
+  from the server side, automatically.
+
+If that ever stops holding, the symptom is an update that publishes cleanly,
+installs cleanly, and fails every network call. The workflow catches the common
+case by grepping the export `eas update` leaves in `mobile/dist/` for the expected
+`EXPO_PUBLIC_API_BASE_URL` and failing the run with the rollback command in the
+error message — but it fails **after** the publish, because that is the only point
+at which the real bytes exist.
+
+**Owner check, once, by hand:** `eas env:list production` and confirm it does not
+define any of the three keys above. `eas env:list` needs authentication and has
+neither `--json` nor `--non-interactive` in 22.0.0, so it cannot be a CI gate.
+
+### Rolling back an update
+
+Three commands, all present in 22.0.0. None is wired to run automatically — an
+automatic rollback on a signal nobody has defined would be a second way to ship
+something unreviewed.
+
+| Command | What it does | Reach for it when |
+|---|---|---|
+| `eas update:rollback` | Republishes the update *before* the latest one on the branch. Falls back to a roll-back-to-embedded if there is none. Takes a group id, **required in non-interactive mode** | The previous OTA update was fine and this one is not |
+| `eas update:roll-back-to-embedded` | Publishes a directive that sends clients back to the bundle **baked into the binary** | The whole OTA lineage is suspect, or you want testers on exactly what TestFlight/Play shipped |
+| `eas update:republish` | Re-publishes a specific, named older update group | You know which good update to go back to and it is not simply the previous one |
+
+Run them from `mobile/`. Find the group to name with `eas update:list --channel internal`.
+
+### What the free tier actually gives you
+
+This is the whole reason the decision rule exists rather than "always build".
+
+| | Free tier |
+|---|---|
+| EAS Build | **15 Android + 15 iOS builds per month**, **1 concurrency slot**, low-priority queue (3 h+ waits measured 2026-09-02), 45-minute build timeout |
+| EAS Update | **1 000 MAUs**, **unlimited updates** |
+
+A dozen JS-only commits in one day would exhaust a month of build quota. Over OTA
+they cost nothing. Full queue measurements:
+[Why jobs wait](#why-jobs-wait-one-linux-queue-one-slot--measured-2026-090203).
+
+### Every binary installed before 2026-09-03 has to be replaced once
+
+Installing `expo-updates` is itself a native change, so:
+
+- The fingerprint moved on both platforms. The **first** run of
+  `mobile-ota-or-build.yml` after this lands produces one build per platform. That
+  is the decision logic working, not a bug.
+- Binaries installed **before** it have no updates runtime at all. The TestFlight
+  install (`1.0.0 (2)`) and the Play internal-track install (`1.0.0 (5)`) will
+  **never** receive an OTA. They have to be replaced once, by hand, by whoever
+  holds them.
+
+This is why the sequencing decision of 2026-09-02 puts OTA **before** Play closed
+testing recruitment (`task-260`): the twelve testers should install an OTA-capable
+binary on day one and never reinstall, rather than be asked to reinstall in the
+middle of the 14-day clock.
+
+Measured fingerprints, `eas fingerprint:generate --json --non-interactive
+--platform <p> -e internal`, eas-cli 22.0.0:
+
+| Platform | Before `expo-updates` | After |
+|---|---|---|
+| Android | `cdde50c777525d5ff172cfbb2ad9f95bd40b40d0` | `e53f6e78308ff4aa250fdc1eefa2675bb5329e92` |
+| iOS | `0a282d80eac7580548cc4bc600bf83433a0de793` | `045400802019f4b94fee1bcf46b2963445b94d7c` |
+
+### Pinning the EAS CLI
+
+Every workflow that installs the CLI pins an explicit version — `EAS_CLI_VERSION:
+"22.0.0"` in `mobile-ota-or-build.yml`, `mobile-build-distribute.yml` and
+`mobile-store-promote.yml`. **Do not go back to a bare `npm install -g eas-cli`.**
+The latest published version is 23.2.0 while the owner's machine runs 22.0.0, so
+CI drifting to latest would put the pipeline on a different major from the machine
+every decision here was verified on.
+
+The flags each pin protects are named in a comment next to it. For the OTA
+workflow they are the four the decision rule rests on: `fingerprint:generate
+--json` emitting a top-level `hash` on stdout, `build:list --fingerprint-hash`,
+`update --environment`, and `build --auto-submit` remaining compatible with
+`--no-wait`. Bump the pin deliberately, after re-reading `--help` on the new
+version — not by deleting it.
 
 ## Submit Profiles
 
@@ -733,13 +955,21 @@ build `790af106-040c-4798-9599-68ad5b6f0770`, `1.0.0 (2)`, `distribution: STORE`
 profile `internal`. Its artifact URL **expires 2026-10-01**; submit it before then or
 rebuild.
 
-Also settled: the `internal` profile's environment is a non-issue. `eas env:list` shows
+The `internal` profile's environment is settled, and since 2026-09-03 it is also
+**written down**: `"environment": "production"` in `eas.json`. `eas env:list` shows
 `development`, `preview` and `production` all carrying the *same* RevenueCat keys, and
 `EXPO_PUBLIC_API_BASE_URL` is in **none** of them — it comes only from the profile's own
 `env` block. So `internal` means "dev API, same RevenueCat project as everything else",
 with no hidden collision, and internal testers exercise the dev backend on purpose.
 Nothing reads `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` (grepped), so its absence from
 `preview`/`production` is harmless.
+
+That split — API URL and Google client IDs in `eas.json`, RevenueCat keys in the EAS
+environment — stopped being a detail when OTA landed: it is the invariant that makes a
+build and an update inline the same values, because the two paths merge those two sources
+in **opposite** orders. Do not move a key across the line without reading
+[`--environment` is mandatory on SDK 55](#--environment-is-mandatory-on-sdk-55-and-the-two-paths-disagree-on-precedence)
+first.
 
 Owner side, in order:
 
@@ -844,6 +1074,9 @@ profile, and Apple may take 24-72 h on a recently renewed membership.
 
 ## Workflow Triggers
 
+Two workflows can spend EAS quota or reach a tester, and they take different
+entry points on purpose.
+
 `mobile-build-distribute.yml` spends EAS build quota and can push binaries to the
 stores, so it has exactly two entry points:
 
@@ -859,20 +1092,39 @@ the profile and calling `eas build`. It hard-fails when the profile's
 `production`. A manual dispatch with `profile=production` fails there too, by
 design.
 
-### What no longer happens on push to `main`
+`mobile-ota-or-build.yml` has exactly one:
 
-Until 2026-08-13 the `push` trigger combined `branches: [main]` +
-`paths: ["mobile/**"]` with `tags: ["mobile-v*"]`. GitHub applies `branches` to
-branch pushes and `tags` to tag pushes: the tag filter was an *additional*
-trigger, not an extra condition. Every commit on `main` touching `mobile/`
-therefore started a `production` build on both platforms and an unattended store
-submission. The `branches`/`paths` filters were removed (`task-258`); the `push`
-trigger now only matches `mobile-v*` tags. **Do not re-add a branch filter.**
+| Event | Result |
+|-------|--------|
+| Push to `main` touching `mobile/**` or that workflow file, excluding `**/*.md` and `mobile/.maestro/**` | Per platform: an OTA publish on the `internal` channel if the native fingerprint is unchanged, `eas build --profile internal --auto-submit` if it moved. Never `production`, on either side. Exact commands: [Shipping JS Over The Air](#shipping-js-over-the-air) |
+| Anything else, including a `mobile-v*` tag | Nothing |
 
-Per-commit mobile feedback comes from `pr.yml` / `main.yml` (`npm run typecheck`,
-`npm run lint`) — nothing in the build/distribute pipeline needs to run on every
-commit. To exercise a build outside a release, use `workflow_dispatch` with
-`profile=preview` and `submit=false`:
+It runs the same `scripts/mobile_release_check.sh internal` pre-flight, and it
+declares a `concurrency` group so two pushes cannot race two publishes. Decision
+rule and commands: [Shipping JS Over The Air](#shipping-js-over-the-air).
+
+### What happens on push to `main`, and what still must not
+
+Until 2026-08-13 the `push` trigger of `mobile-build-distribute.yml` combined
+`branches: [main]` + `paths: ["mobile/**"]` with `tags: ["mobile-v*"]`. GitHub
+applies `branches` to branch pushes and `tags` to tag pushes: the tag filter was
+an *additional* trigger, not an extra condition. Every commit on `main` touching
+`mobile/` therefore started a **`production`** build on both platforms and an
+unattended store submission. The `branches`/`paths` filters were removed
+(`task-258`); that workflow's `push` trigger now only matches `mobile-v*` tags.
+**Do not re-add a branch filter to `mobile-build-distribute.yml`.**
+
+What replaced it since 2026-09-03 is not the same thing and does not reopen that
+hole. `mobile-ota-or-build.yml` does trigger on push to `main`, but it is pinned to
+the **`internal`** profile and channel, it spends a build **only** when the native
+fingerprint moved, and it can never touch `production` — no input selects a
+profile, the strings are literal in the workflow. The old failure was "every
+commit ships to production unattended"; this one is "every commit reaches internal
+testers, by the cheapest of the two mechanisms that can".
+
+Per-commit static mobile feedback still comes from `pr.yml` / `main.yml`
+(`npm run typecheck`, `npm run lint`). To exercise a build outside a release, use
+`workflow_dispatch` with `profile=preview` and `submit=false`:
 
 ```bash
 gh workflow run mobile-build-distribute.yml \
@@ -1205,6 +1457,11 @@ Version numbers are managed via EAS remote version source (`appVersionSource: "r
   number automatically, which is what keeps TestFlight from rejecting a duplicate
 - App version (semver) is set in `app.config.ts` (`version` field)
 - To release a new marketing version, update `version` in `app.config.ts`
+
+`runtimeVersion` is **not** part of this. It is `{ policy: "fingerprint" }`, i.e. a
+hash of the native project, and it moves independently of both the semver and the
+build number — which is exactly why it can coexist with `appVersionSource:
+"remote"`. See [Shipping JS Over The Air](#shipping-js-over-the-air).
 
 ## Security Notes
 
