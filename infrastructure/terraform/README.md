@@ -147,6 +147,11 @@ terraform apply tfplan                       # apply the reviewed plan, not a fr
 
 For prod, the same three commands with `AWS_PROFILE=prod` in front of each.
 
+For **dev these three commands normally run themselves**: a push to `main` touching
+`infrastructure/terraform/**` executes exactly this chain in CI (see "Terraform in CI"
+below). Running them by hand on dev is still correct — it is how you inspect a plan
+before it lands, and how the first apply bootstraps the CI role.
+
 Applying the **saved plan file** rather than re-planning is deliberate: it
 guarantees what the guard inspected is exactly what gets applied.
 
@@ -203,6 +208,94 @@ Checking for drift:
 ```bash
 terraform plan -detailed-exitcode      # 0 = no changes, 2 = changes pending
 ```
+
+## Terraform in CI: dev applies itself, prod does not
+
+**Decision of 2026-09-02 (task-341): a push to `main` that touches
+`infrastructure/terraform/**` runs `terraform apply` on `envs/dev`, automatically.
+`shared/` and prod stay manual.**
+
+Before that, nothing in CI ran Terraform — not `apply`, not `plan`, not even `fmt` or
+`validate`. `deploy-lambda.yml` filters on `media_summarizer/**` and two Dockerfiles, so
+a commit touching only `.tf` files triggered no workflow at all, and `tf_plan_guard.sh`
+was called by no pipeline. The cost was concrete: two alarm commits sat unapplied on
+`main` while the dev account quietly was not HEAD, and nothing said so.
+
+| Root | How it is applied | Why |
+|---|---|---|
+| `envs/dev` | automatically, `.github/workflows/terraform-dev.yml` on push to `main` | dev is the environment being worked in; drift there is a bug, not a risk |
+| `envs/prod` | manually, `AWS_PROFILE=prod terraform apply tfplan` | different account, and prod changes get read before they happen |
+| `shared/` | manually | it holds the ECR registry prod pulls from; an automated apply would cross the account boundary |
+| `envs/staging` | manually, if ever | not deployed (see above) |
+
+The pipeline is `fmt -check -recursive` → `init` → `validate` →
+`plan -out=tfplan -lock-timeout=5m` → `scripts/tf_plan_guard.sh dev tfplan` →
+`apply tfplan`. Two properties of that chain are the safety story, and both are easy to
+break by "simplifying" it:
+
+- **The guard runs without `--allow-replace`.** A plan that replaces anything — a queue,
+  a Lambda, a role — fails the run instead of proceeding. `--allow-replace` is precisely
+  the flag that makes a deletion acceptable, and on an unattended apply nothing is. Read
+  the list and apply it by hand.
+- **The apply consumes the saved plan file.** `apply -auto-approve` would compute a
+  fresh plan at apply time and apply *that*, so the guarded diff and the applied diff
+  would be two different things and the gate would be decorative.
+
+`concurrency` uses `cancel-in-progress: false`. The lock table already prevents state
+corruption, but cancelling a run mid-apply kills the process holding the lock without
+releasing it, and somebody then has to `terraform force-unlock <id>` by hand.
+
+`terraform_version` is pinned exactly (`1.9.8`) in the three workflows that run
+Terraform, rather than `latest`: every root only requires `>= 1.9`, which a future 2.x
+would satisfy while changing the CLI under the pipeline.
+
+### The identity: a second role, and it is admin on dev
+
+`envs/dev/gha_terraform.tf` declares `media-summarizer-gha-terraform-dev`, separate from
+the deploy role in the same directory. The deploy role could not be reused: its policy
+grants ECR and `lambda:Update*` and nothing else — no state bucket, no lock table, no
+IAM — so it cannot even `init`, and widening it would have destroyed the narrowness that
+stops a push to `main` overwriting a staging function.
+
+The new role is **administrator on the dev account**, and the file says so in its header
+rather than shipping a long policy that pretends otherwise: this root manages 6 IAM
+roles, 7 policies and 9 attachments, so applying it requires `iam:CreateRole` and
+`iam:PassRole`, and any principal with those can grant itself the rest. What actually
+bounds it: the account boundary (no prod ARN is nameable from dev, and prod's state
+bucket lives in prod's account), the trust policy pinning the OIDC subject to
+`ref:refs/heads/main`, and the workflow naming exactly one root directory.
+
+No new GitHub secret. The role ARN is a literal in the workflow, whose source of truth
+is `terraform -chdir=infrastructure/terraform/envs/dev output gha_terraform_role_arn` —
+an ARN authenticates nobody, and assuming the role needs an OIDC token only GitHub can
+mint for a job on `main`. The workflow asserts `sts get-caller-identity` returns
+`125313707865` before applying, so a wrong literal fails immediately instead of
+confusingly.
+
+### Bootstrap: one local apply, chicken-and-egg
+
+The workflow cannot create the role it has to assume. Run this once, with admin
+credentials, after the workflow lands on `main`:
+
+```bash
+terraform -chdir=infrastructure/terraform/envs/dev plan -out=tfplan
+scripts/tf_plan_guard.sh dev tfplan
+terraform -chdir=infrastructure/terraform/envs/dev apply tfplan
+```
+
+Until then every run of `terraform-dev.yml` fails on `AssumeRoleWithWebIdentity`, which
+is expected rather than broken. That first plan also contains everything else currently
+unapplied, so read it before accepting it.
+
+### A Terraform-only pull request is no longer unchecked
+
+`pr.yml` and `main.yml` both run `terraform fmt -check -recursive` plus
+`terraform init -backend=false` and `terraform validate` over `envs/dev`, `envs/prod`,
+`envs/staging`, `shared/` and `modules/platform/`. `-backend=false` is the point: validate
+needs neither credentials nor state, so prod and staging are syntax-checked without any
+prod identity being involved in a pull request. It is in `main.yml` too because `main` is
+not protected and this project commits straight to it — a PR-only check is a check that
+rarely runs.
 
 Note that `plan -refresh-only -detailed-exitcode` returns `2` even on a freshly
 applied environment with the aws 5.x provider — that is computed-attribute
@@ -390,6 +483,12 @@ This is automated by `.github/workflows/deploy-lambda.yml`: push to main deploys
 | dev | `media-summarizer-gha-deploy` in `125313707865` | jobs with no GitHub environment (push to main) | `envs/dev/gha_oidc.tf` |
 | prod | `media-summarizer-gha-deploy-prod` in `866874944541` | only jobs declaring GitHub environment `production` | `envs/prod/gha_oidc.tf` |
 
+There is a **third** GitHub role in the dev account, `media-summarizer-gha-terraform-dev`
+(`envs/dev/gha_terraform.tf`), which is not a deploy role: it applies infrastructure and
+is admin on dev. See "Terraform in CI" above. The two dev roles are separate on purpose —
+one identity holding the union of "push images" and "apply infrastructure" would have
+made the deploy path as privileged as the apply path.
+
 Both roles are Terraform-managed since task-256. The dev one was created by hand
 in June 2026 and drifted outside every state until then, which is exactly how it
 came to be missing the `tag:GetResources` grant that `deploy-lambda.yml` needs to
@@ -422,6 +521,7 @@ must not be able to mint an artifact that never went through dev.
 | `envs/<env>/main.tf` | Backend key + provider + one `module "platform"` call with the literal environment |
 | `envs/<env>/outputs.tf` | Environment outputs (API endpoint, secret name, ...) |
 | `envs/dev/gha_oidc.tf` | GitHub OIDC provider + push-to-main deploy role in the dev/management account (imported, not created) |
+| `envs/dev/gha_terraform.tf` | The role `terraform-dev.yml` assumes to apply this root. Admin on dev, and its header explains why no narrower scope would be honest |
 | `envs/prod/gha_oidc.tf` | GitHub OIDC provider + prod-only deploy role in the prod account |
 | `shared/ecr.tf` | The one ECR repository shared by all environments, and its cross-account pull policy |
 | `modules/platform/locals.tf` | `local.suffix = "-${var.environment}"` |

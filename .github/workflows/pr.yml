@@ -64,6 +64,46 @@ jobs:
       - name: Guard — every env var used by the app is in .env.example
         run: python scripts/check_env_example_complete.py
 
+  # A Terraform-only change used to be checked by nothing at all: ruff and mypy do not
+  # read .tf files, deploy-lambda.yml does not filter on infrastructure/terraform/**,
+  # and nothing ran fmt, validate or plan. A typo reached the account, or did not reach
+  # it at all — either way the first signal was a human running plan by hand (task-341).
+  terraform:
+    name: Terraform (fmt + validate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # Exact, and the same pin as .github/workflows/terraform-dev.yml. `latest`
+          # would let a future 2.x satisfy `required_version = ">= 1.9"` and change the
+          # CLI under the checks.
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive infrastructure/terraform
+
+      # `-backend=false` is what lets prod and staging be checked from a pull request:
+      # validate needs neither credentials nor state, so no prod identity is involved
+      # anywhere in this job. It still parses the whole config and type-checks every
+      # expression, module call and provider argument.
+      #
+      # modules/platform is in the list even though it declares no backend and no
+      # provider: `terraform plan` there is meant to fail, but validate is exactly the
+      # command that does work on a bare module, and it is where most of the code is.
+      - name: Validate every root and the shared module
+        run: |
+          for ROOT in envs/dev envs/prod envs/staging shared modules/platform; do
+            echo "::group::$ROOT"
+            terraform -chdir="infrastructure/terraform/$ROOT" init -backend=false -input=false
+            terraform -chdir="infrastructure/terraform/$ROOT" validate
+            echo "::endgroup::"
+          done
+
   mobile:
     name: Mobile (lint + typecheck)
     runs-on: ubuntu-latest

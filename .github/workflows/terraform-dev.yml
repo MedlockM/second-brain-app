@@ -1,0 +1,129 @@
+# Apply the dev infrastructure on a push to main (task-341, owner decision of
+# 2026-09-02).
+#
+# Before this workflow existed, `infrastructure/terraform/**` was in no path filter of
+# any workflow: a commit that touched only Terraform triggered nothing at all — no
+# apply, no plan, no validate, no fmt check — so "the dev account" and "HEAD of main"
+# drifted apart silently and only a human running `plan` by hand could notice. Two
+# alarm commits had been sitting unapplied when this was written.
+#
+# SCOPE. This workflow runs Terraform in exactly one directory: the dev root. It names
+# no other root, and that is the boundary, not a convention:
+#
+#   - Production stays a manual `terraform apply` from the owner's machine, by
+#     decision. It also lives in a different AWS account, whose state bucket and lock
+#     table the role assumed here cannot read.
+#   - The root holding the shared ECR registry stays manual too. Prod pulls the images
+#     it runs from that registry, so an automated apply there would reach across the
+#     account boundary the isolation work (task-248) exists to hold.
+#
+# The role assumed below is ADMINISTRATOR on the dev account, because that is what a
+# Terraform apply role for a root that manages 6 IAM roles necessarily is. The
+# reasoning and the three real mitigations are written out in
+# infrastructure/terraform/envs/dev/gha_terraform.tf — read that before widening
+# anything here.
+
+name: Terraform Dev
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infrastructure/terraform/**"
+      - ".github/workflows/terraform-dev.yml"
+  # Re-run an apply without a commit: after a manual `terraform state` operation, or
+  # to confirm the account is back in sync once a failed run has been unpicked.
+  workflow_dispatch:
+
+permissions:
+  id-token: write # mint the OIDC token the role's trust policy checks
+  contents: read
+
+# cancel-in-progress: false, deliberately. The DynamoDB lock table already stops two
+# applies from corrupting the state — the second one waits, then fails. But cancelling
+# a run mid-apply kills the process holding the lock without releasing it, leaving a
+# stale lock that somebody has to `force-unlock` by hand with the lock id from a failed
+# run's log. Two pushes must queue; they must never interrupt each other.
+concurrency:
+  group: terraform-dev
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-3
+  TF_ROOT: infrastructure/terraform/envs/dev
+  # Not a GitHub secret, on purpose. An ARN authenticates nobody: assuming this role
+  # requires an OIDC token whose `sub` is repo:<owner>/<repo>:ref:refs/heads/main, which
+  # only GitHub can mint and only for a job on this branch. The account id 125313707865
+  # is already in the state bucket name, in `allowed_account_ids` and in the import
+  # runbook of gha_oidc.tf. Source of truth for this literal:
+  #   terraform -chdir=infrastructure/terraform/envs/dev output gha_terraform_role_arn
+  TERRAFORM_ROLE_ARN: arn:aws:iam::125313707865:role/media-summarizer-gha-terraform-dev
+  # Pinned exactly, not `latest`. All four roots declare `required_version = ">= 1.9"`,
+  # which a future 2.x would satisfy while changing the CLI under the pipeline's feet;
+  # and `terraform show -json` is parsed by scripts/tf_plan_guard.sh, so the version
+  # here matches the one the owner runs locally rather than floating.
+  TERRAFORM_VERSION: 1.9.8
+
+jobs:
+  apply:
+    name: Plan, gate and apply (dev)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Until the owner has run the one bootstrap apply that creates the role (see the
+      # README section "Terraform in CI"), the step above fails on
+      # AssumeRoleWithWebIdentity. That is expected: the workflow cannot create the
+      # role it needs to assume.
+      - name: Assert the assumed identity is the dev account
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          echo "Assumed role in account $ACCOUNT"
+          test "$ACCOUNT" = "125313707865" || {
+            echo "::error::Expected the dev account 125313707865. Refusing to apply the dev root with another account's credentials."
+            exit 1
+          }
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          # The wrapper re-emits every command's stdout to expose it as a step output.
+          # tf_plan_guard.sh redirects `terraform show -json` into a file and parses it
+          # with jq, so anything the wrapper adds breaks the guard, not the log.
+          terraform_wrapper: false
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive infrastructure/terraform
+
+      - name: Init
+        run: terraform -chdir=$TF_ROOT init -input=false -lock-timeout=5m
+
+      - name: Validate
+        run: terraform -chdir=$TF_ROOT validate
+
+      - name: Plan
+        run: terraform -chdir=$TF_ROOT plan -out=tfplan -input=false -lock-timeout=5m
+
+      # No --allow-replace. The flag is what makes deleting a queue, a Lambda or a role
+      # acceptable, and on an unattended apply nothing should be. A plan that replaces
+      # anything stops here and fetches a human, who reads the list and applies it by
+      # hand. Layer 2 refuses any delete, layer 3 asserts every created name ends in
+      # `-dev`; layer 4 is skipped by passing no other environment, per the README.
+      # The plan file path is resolved relative to the environment directory, so the
+      # bare `tfplan` is correct.
+      - name: Gate the plan
+        run: scripts/tf_plan_guard.sh dev tfplan
+
+      # The SAVED plan, never `apply -auto-approve`. With -auto-approve Terraform
+      # computes a fresh plan at apply time and applies that one, so what runs is a diff
+      # the guard above never saw — which would make the gate decorative.
+      - name: Apply the gated plan
+        run: terraform -chdir=$TF_ROOT apply -input=false -lock-timeout=5m tfplan
