@@ -3,9 +3,10 @@ id: task-351
 title: >-
   Swap the two glassy surfaces from expo-blur to the real Liquid Glass material
   (GlassView)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 13:16'
+updated_date: '2026-09-03 13:59'
 labels:
   - mobile
   - ui
