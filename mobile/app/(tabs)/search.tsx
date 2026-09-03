@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -41,12 +41,13 @@ import {
   COVER_HEIGHT,
 } from "../../src/components/MediaListCard";
 import {
-  MediaContextMenu,
+  AnchoredContextMenu,
   type AnchorRect,
-} from "../../src/components/MediaContextMenu";
-import { MediaRenameDialog } from "../../src/components/MediaRenameDialog";
+} from "../../src/components/AnchoredContextMenu";
+import { RenameDialog } from "../../src/components/RenameDialog";
 import { GlassSurface } from "../../src/components/GlassSurface";
 import { useMediaActions } from "../../src/hooks/useMediaActions";
+import { useCollectionActions } from "../../src/hooks/useCollectionActions";
 import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
 import { Image } from "expo-image";
 import {
@@ -58,6 +59,7 @@ import {
   TouchTarget,
 } from "../../src/constants/theme";
 import type { MediaListItem } from "../../src/types/media";
+import type { Collection } from "../../src/types/organization";
 
 // --- Layout constants ---
 
@@ -72,11 +74,12 @@ const CONTENT_TOP_INSET = SEARCH_BAR_TOP + SEARCH_BAR_HEIGHT + Spacing.md;
 // --- Helper functions ---
 
 /**
- * The lifted copy of a pressed row is inert — the context menu draws it with
- * `pointerEvents="none"` — but `MediaListCard` requires a tap handler, so this
- * is the one it gets.
+ * The lifted copy of a pressed row or tile is inert — the context menu draws it
+ * with `pointerEvents="none"` — but both components require a tap handler, so
+ * these are the ones they get.
  */
 const noopOpenMedia = () => {};
+const noopOpenCollection = () => {};
 
 function getSourceIcon(
   platform: string | null,
@@ -187,12 +190,12 @@ export default function SearchScreen() {
   // Library state. The two halves are fetched by two independent requests and
   // carry their own loading and error flags: one failing must leave the other
   // rendered, with its own retry.
-  const [collections, setCollections] = useState<CollectionNode[]>([]);
-  const [defaultCollection, setDefaultCollection] =
-    useState<CollectionNode | null>(null);
-  // Every node of the tree, roots and children alike: the search filter matches
-  // a nested collection like any other, which the roots-only list cannot do.
-  const [allCollections, setAllCollections] = useState<CollectionNode[]>([]);
+  //
+  // The collections are held as the flat list the endpoint returns, not as the
+  // three pieces of a built tree: a rename then patches one string in one array
+  // and the grid, the filter and the sub-collection counts all follow from it,
+  // where three states would have to be kept in agreement by hand.
+  const [folders, setFolders] = useState<Collection[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(true);
   const [collectionsError, setCollectionsError] = useState<string | null>(null);
   const [media, setMedia] = useState<MediaListItem[]>([]);
@@ -245,11 +248,7 @@ export default function SearchScreen() {
     if (!isAuthenticated) return;
 
     try {
-      const folders = await OrganizationService.getUserCollections();
-      const tree = buildCollectionTree(folders);
-      setCollections(tree.roots);
-      setDefaultCollection(tree.defaultCollection);
-      setAllCollections(Array.from(tree.nodeById.values()));
+      setFolders(await OrganizationService.getUserCollections());
       setCollectionsError(null);
     } catch (err) {
       setCollectionsError(
@@ -297,6 +296,11 @@ export default function SearchScreen() {
       };
     }, [loadCollections, loadMedia]),
   );
+
+  // Rebuilt from the flat list rather than stored: the parent links, the
+  // alphabetical order and the sub-collection counts all come from one pass, so a
+  // renamed collection lands in its new place in the grid on the next render.
+  const collectionTree = useMemo(() => buildCollectionTree(folders), [folders]);
 
   const handleClearQuery = useCallback(() => {
     setQuery("");
@@ -375,26 +379,87 @@ export default function SearchScreen() {
     [],
   );
 
+  // Patched in place rather than refetched: the rename already returned the
+  // stored name, and rebuilding the tree from `folders` puts the tile back in
+  // alphabetical order without a round trip and without moving the scroll.
+  const handleCollectionRenamed = useCallback(
+    (collectionId: string, name: string) => {
+      setFolders((current) =>
+        current.map((folder) =>
+          folder.id === collectionId ? { ...folder, name } : folder,
+        ),
+      );
+    },
+    [],
+  );
+
+  // A delete cannot be patched the same way: the backend took the whole subtree
+  // and moved every source it held to the default collection. So the tiles that
+  // are certainly gone leave at once — the deletion is confirmed, and keeping
+  // them up for the length of a request would show collections that no longer
+  // exist — and both halves are then refetched for what only the server knows:
+  // the new media counts, and which collection each moved source now points at.
+  const handleCollectionDeleted = useCallback(
+    (collectionId: string) => {
+      const deleted = new Set<string>([collectionId]);
+      const collect = (node: CollectionNode) => {
+        for (const child of node.children) {
+          deleted.add(child.id);
+          collect(child);
+        }
+      };
+      const node = collectionTree.nodeById.get(collectionId);
+      if (node) collect(node);
+
+      setFolders((current) =>
+        current.filter((folder) => !deleted.has(folder.id)),
+      );
+      void Promise.all([loadCollections(), loadMedia()]);
+    },
+    [collectionTree, loadCollections, loadMedia],
+  );
+
+  // The long-press menu of a collection tile. Two rows, no Move: reparenting a
+  // collection has no picker anywhere in the app.
+  const collectionActions = useCollectionActions({
+    onDeleted: handleCollectionDeleted,
+    onRenamed: handleCollectionRenamed,
+  });
+
+  // The copy of the pressed tile the menu lifts above its blur. Same component
+  // as the grid tile, laid out on the rect the slot was measured at — hence the
+  // full width and the dropped bottom margin, which that rect excludes.
+  const renderCollectionPreview = useCallback(
+    (collection: CollectionNode) => (
+      <CollectionTile
+        collection={collection}
+        isDefault={collection.is_default === true}
+        onPress={noopOpenCollection}
+        style={styles.collectionTilePreview}
+      />
+    ),
+    [],
+  );
+
   // The default folder holds every media saved without an explicit collection.
-  // It is excluded from `roots` by `buildCollectionTree`, so pin it in front
-  // under its display label -- same pattern as the collections explorer.
+  // It is excluded from `roots` by `buildCollectionTree` (which sorts them), so
+  // pin it in front under its display label -- same pattern as the collections
+  // explorer.
   const sortedCollections = useMemo(() => {
-    const sorted = [...collections].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
-    if (!defaultCollection) return sorted;
-    return [
-      { ...defaultCollection, name: DEFAULT_COLLECTION_LABEL },
-      ...sorted,
-    ];
-  }, [collections, defaultCollection]);
+    const { roots, defaultCollection } = collectionTree;
+    if (!defaultCollection) return roots;
+    return [{ ...defaultCollection, name: DEFAULT_COLLECTION_LABEL }, ...roots];
+  }, [collectionTree]);
 
   // Matched against what is typed, not against the debounced query: the filter
   // is a pass over a list already in memory, so it has no reason to wait on the
-  // network round-trip the hits need.
+  // network round-trip the hits need. Every node of the tree, roots and children
+  // alike: a nested collection matches like any other, which a roots-only list
+  // cannot do.
   const matchingCollections = useMemo(
-    () => filterCollectionsByName(allCollections, query),
-    [allCollections, query],
+    () =>
+      filterCollectionsByName(collectionTree.nodeById.values(), query),
+    [collectionTree, query],
   );
 
   const handleRetrySearch = useCallback(() => {
@@ -443,6 +508,7 @@ export default function SearchScreen() {
             collectionsError={collectionsError}
             onRetryCollections={handleRetryCollections}
             onOpenCollection={handleOpenCollection}
+            onLongPressCollection={collectionActions.open}
             media={media}
             mediaLoading={mediaLoading}
             mediaError={mediaError}
@@ -459,6 +525,7 @@ export default function SearchScreen() {
             collectionsError={collectionsError}
             onRetryCollections={handleRetryCollections}
             onOpenCollection={handleOpenCollection}
+            onLongPressCollection={collectionActions.open}
             results={results}
             totalResults={totalResults}
             isPending={isLoading || settledQuery !== query.trim()}
@@ -512,12 +579,19 @@ export default function SearchScreen() {
 
       {/* Rendered at screen level, outside either body: the menu belongs to the
           screen's state, and mounting it inside a `FlatList` row would tie a
-          modal to a cell the virtualizer is free to recycle. */}
-      <MediaContextMenu
+          modal to a cell the virtualizer is free to recycle. Two instances of
+          one component, one per kind of target — at most one is ever visible,
+          since a long press lands on a row or on a tile. */}
+      <AnchoredContextMenu
         {...mediaActions.menuProps}
         renderPreview={renderMediaPreview}
       />
-      <MediaRenameDialog {...mediaActions.renameProps} />
+      <RenameDialog {...mediaActions.renameProps} />
+      <AnchoredContextMenu
+        {...collectionActions.menuProps}
+        renderPreview={renderCollectionPreview}
+      />
+      <RenameDialog {...collectionActions.renameProps} />
     </View>
   );
 }
@@ -546,6 +620,11 @@ interface LibraryStateProps {
   collectionsError: string | null;
   onRetryCollections: () => void;
   onOpenCollection: (collection: CollectionNode) => void;
+  /** Opens the tile's actions menu. Ignored on the default collection's tile. */
+  onLongPressCollection: (
+    collection: CollectionNode,
+    anchor: AnchorRect,
+  ) => void;
   media: MediaListItem[];
   mediaLoading: boolean;
   mediaError: string | null;
@@ -579,6 +658,7 @@ function LibraryState({
   collectionsError,
   onRetryCollections,
   onOpenCollection,
+  onLongPressCollection,
   media,
   mediaLoading,
   mediaError,
@@ -639,6 +719,7 @@ function LibraryState({
           collectionsError={collectionsError}
           onRetryCollections={onRetryCollections}
           onOpenCollection={onOpenCollection}
+          onLongPressCollection={onLongPressCollection}
           mediaCount={media.length}
         />
       }
@@ -665,6 +746,7 @@ function LibraryHeader({
   collectionsError,
   onRetryCollections,
   onOpenCollection,
+  onLongPressCollection,
   mediaCount,
 }: {
   collections: CollectionNode[];
@@ -672,6 +754,10 @@ function LibraryHeader({
   collectionsError: string | null;
   onRetryCollections: () => void;
   onOpenCollection: (collection: CollectionNode) => void;
+  onLongPressCollection: (
+    collection: CollectionNode,
+    anchor: AnchorRect,
+  ) => void;
   mediaCount: number;
 }) {
   return (
@@ -701,6 +787,7 @@ function LibraryHeader({
               collection={collection}
               isDefault={collection.is_default === true}
               onPress={onOpenCollection}
+              onLongPress={onLongPressCollection}
             />
           ))}
         </View>
@@ -724,6 +811,11 @@ interface SearchResultsStateProps {
   collectionsError: string | null;
   onRetryCollections: () => void;
   onOpenCollection: (collection: CollectionNode) => void;
+  /** Opens the tile's actions menu. Ignored on the default collection's tile. */
+  onLongPressCollection: (
+    collection: CollectionNode,
+    anchor: AnchorRect,
+  ) => void;
   results: SearchHit[];
   totalResults: number;
   /** The hits on screen do not answer what is typed yet. */
@@ -754,6 +846,7 @@ function SearchResultsState({
   collectionsError,
   onRetryCollections,
   onOpenCollection,
+  onLongPressCollection,
   results,
   totalResults,
   isPending,
@@ -812,6 +905,7 @@ function SearchResultsState({
           collectionsError={collectionsError}
           onRetryCollections={onRetryCollections}
           onOpenCollection={onOpenCollection}
+          onLongPressCollection={onLongPressCollection}
           showCollections={showCollections}
           resultCount={!isPending && !error ? totalResults : null}
         />
@@ -832,6 +926,7 @@ function SearchResultsHeader({
   collectionsError,
   onRetryCollections,
   onOpenCollection,
+  onLongPressCollection,
   showCollections,
   resultCount,
 }: {
@@ -840,6 +935,10 @@ function SearchResultsHeader({
   collectionsError: string | null;
   onRetryCollections: () => void;
   onOpenCollection: (collection: CollectionNode) => void;
+  onLongPressCollection: (
+    collection: CollectionNode,
+    anchor: AnchorRect,
+  ) => void;
   showCollections: boolean;
   /** `null` while the count would not describe what is on screen. */
   resultCount: number | null;
@@ -869,6 +968,7 @@ function SearchResultsHeader({
                   collection={collection}
                   isDefault={collection.is_default === true}
                   onPress={onOpenCollection}
+                  onLongPress={onLongPressCollection}
                 />
               ))}
             </View>
@@ -946,20 +1046,64 @@ function CollectionTile({
   collection,
   isDefault,
   onPress,
+  onLongPress,
+  style,
 }: {
   collection: CollectionNode;
   /** The system default folder, tinted apart from the user's own collections. */
   isDefault: boolean;
   onPress: (collection: CollectionNode) => void;
+  /**
+   * Opens the tile's actions menu, with the slot's own window rect: the menu is
+   * anchored to it and redraws the tile there.
+   *
+   * Never wired on the default collection, whatever the caller passes — the
+   * backend refuses to rename or delete it, so the gesture is dropped here rather
+   * than in each of the two grids, and the tile says nothing about a long press
+   * it does not answer.
+   */
+  onLongPress?: (collection: CollectionNode, anchor: AnchorRect) => void;
+  /**
+   * Overrides the slot's outer box. Used by the context menu to redraw this tile
+   * as a lifted copy on the measured rect — nothing else has a reason to touch it.
+   */
+  style?: StyleProp<ViewStyle>;
 }) {
+  const slotRef = useRef<View>(null);
+  const longPress = isDefault ? undefined : onLongPress;
+
+  // Measured on the gesture rather than on layout: the grid rides in the header
+  // of a scrolling list, so the only rect the menu can trust is the one taken
+  // when the press was recognised.
+  const handleLongPress = () => {
+    if (!longPress) return;
+    slotRef.current?.measureInWindow((x, y, width, height) => {
+      longPress(collection, { x, y, width, height });
+    });
+  };
+
   return (
-    <View style={styles.collectionTileSlot}>
+    /* `collapsable={false}`: this view exists only to place the tile in the grid,
+       and Android flattens such a view out of the hierarchy — where
+       `measureInWindow` then has nothing to measure. */
+    <View
+      ref={slotRef}
+      style={[styles.collectionTileSlot, style]}
+      collapsable={false}
+    >
       <Pressable
         style={({ pressed }) => [
           styles.collectionTile,
           pressed && styles.collectionTilePressed,
         ]}
         onPress={() => onPress(collection)}
+        onLongPress={longPress ? handleLongPress : undefined}
+        // The gesture is invisible, so a screen reader is told about it — and
+        // only where it exists. `Pressable` keeps the tap and the long press
+        // exclusive, so opening the menu never also opens the collection.
+        accessibilityHint={
+          longPress ? t("collectionActions.longPressHint") : undefined
+        }
         accessibilityLabel={t("search.openCollectionA11y", {
           name: collection.name,
         })}
@@ -1290,6 +1434,12 @@ const styles = StyleSheet.create({
     width: "33.333%",
     paddingHorizontal: 6,
     marginBottom: Spacing.lg,
+  },
+  // The tile as the context menu redraws it: it fills the rect the slot was
+  // measured at, and drops the bottom margin that rect already excludes.
+  collectionTilePreview: {
+    width: "100%",
+    marginBottom: 0,
   },
   collectionTile: {
     alignItems: "center",

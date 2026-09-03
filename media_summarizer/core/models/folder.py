@@ -17,13 +17,18 @@ UNCATEGORIZED_FOLDER_NAME = "Uncategorized"
 # Maximum nesting depth (root = depth 0, so depth 5 means 6 levels total)
 MAX_FOLDER_DEPTH = 5
 
+# Longest folder name accepted, once trimmed. Named rather than repeated inline:
+# it is the bound the API request models state, the bound the mobile rename field
+# stops at, and the bound ``folder_service.normalize_folder_name`` enforces.
+MAX_FOLDER_NAME_LENGTH = 255
+
 
 class Folder(BaseModel):
     """User folder for organizing media items."""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str = Field(..., min_length=1)
-    name: str = Field(..., min_length=1, max_length=255)
+    name: str = Field(..., min_length=1, max_length=MAX_FOLDER_NAME_LENGTH)
     parent_folder_id: Optional[str] = None  # None means root-level folder
     is_default: bool = Field(default=False)  # True only for the "Uncategorized" folder
 

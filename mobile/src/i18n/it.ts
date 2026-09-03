@@ -65,6 +65,23 @@ export const it: Catalog = {
     "«{title}» verrà rimossa dalla tua libreria. L'operazione non può essere annullata.",
   "mediaActions.deleteFailed":
     "Non è stato possibile eliminare questa fonte. È ancora nella tua libreria.",
+  "collectionActions.longPressHint":
+    "Tocca due volte e tieni premuto per rinominare o eliminare questa raccolta",
+  "collectionActions.rename.label": "Rinomina",
+  "collectionActions.delete.label": "Elimina",
+  "collectionActions.rename.title": "Rinomina questa raccolta",
+  "collectionActions.rename.placeholder": "Nome della raccolta",
+  "collectionActions.renameFailed":
+    "Non è stato possibile rinominare questa raccolta. Il nome non è cambiato.",
+  "collectionActions.deleteTitle": "Eliminare questa raccolta?",
+  "collectionActions.deleteBody":
+    "«{name}» verrà eliminata. Tutte le fonti che contiene passano in {unsorted}: nessuna viene eliminata.",
+  "collectionActions.deleteSubCollections.one":
+    "Anche la sua sottoraccolta viene eliminata, e le fonti al suo interno passano a loro volta in {unsorted}.",
+  "collectionActions.deleteSubCollections.other":
+    "Anche le sue {count} sottoraccolte vengono eliminate, e le fonti al loro interno passano a loro volta in {unsorted}.",
+  "collectionActions.deleteFailed":
+    "Non è stato possibile eliminare questa raccolta. È ancora nella tua libreria.",
   "addSource.title": "Aggiungi alla tua posta in arrivo",
   "addSource.importFile.label": "Importa un file",
   "addSource.importFile.description": "Un PDF, un documento Office, un'immagine o un file audio dal tuo telefono.",

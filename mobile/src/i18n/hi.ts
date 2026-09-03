@@ -65,6 +65,23 @@ export const hi: Catalog = {
     "“{title}” आपकी लाइब्रेरी से हटा दिया जाएगा। इसे पहले जैसा नहीं किया जा सकता।",
   "mediaActions.deleteFailed":
     "यह स्रोत हटाया नहीं जा सका। यह अब भी आपकी लाइब्रेरी में है।",
+  "collectionActions.longPressHint":
+    "इस संग्रह का नाम बदलने या इसे हटाने के लिए दो बार टैप करके दबाए रखें",
+  "collectionActions.rename.label": "नाम बदलें",
+  "collectionActions.delete.label": "हटाएँ",
+  "collectionActions.rename.title": "इस संग्रह का नाम बदलें",
+  "collectionActions.rename.placeholder": "संग्रह का नाम",
+  "collectionActions.renameFailed":
+    "इस संग्रह का नाम नहीं बदला जा सका। नाम पहले जैसा ही है।",
+  "collectionActions.deleteTitle": "यह संग्रह हटाएँ?",
+  "collectionActions.deleteBody":
+    "“{name}” हटा दिया जाएगा। इसमें मौजूद सभी स्रोत {unsorted} में चले जाएँगे — कोई भी स्रोत नहीं हटाया जाएगा।",
+  "collectionActions.deleteSubCollections.one":
+    "इसका {count} उप-संग्रह भी हट जाएगा, और उसमें मौजूद स्रोत भी {unsorted} में चले जाएँगे।",
+  "collectionActions.deleteSubCollections.other":
+    "इसके {count} उप-संग्रह भी हट जाएँगे, और उनमें मौजूद स्रोत भी {unsorted} में चले जाएँगे।",
+  "collectionActions.deleteFailed":
+    "यह संग्रह हटाया नहीं जा सका। यह अब भी आपकी लाइब्रेरी में है।",
   "addSource.title": "अपने इनबॉक्स में जोड़ें",
   "addSource.importFile.label": "फ़ाइल इम्पोर्ट करें",
   "addSource.importFile.description": "आपके फ़ोन से कोई PDF, Office दस्तावेज़, तस्वीर या ऑडियो फ़ाइल।",

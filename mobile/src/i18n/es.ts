@@ -68,6 +68,23 @@ export const es: Catalog = {
     "«{title}» se quitará de tu biblioteca. Esta acción no se puede deshacer.",
   "mediaActions.deleteFailed":
     "No se pudo eliminar esta fuente. Sigue en tu biblioteca.",
+  "collectionActions.longPressHint":
+    "Toca dos veces y mantén para renombrar o eliminar esta colección",
+  "collectionActions.rename.label": "Renombrar",
+  "collectionActions.delete.label": "Eliminar",
+  "collectionActions.rename.title": "Renombrar esta colección",
+  "collectionActions.rename.placeholder": "Nombre de la colección",
+  "collectionActions.renameFailed":
+    "No se pudo renombrar esta colección. Su nombre no ha cambiado.",
+  "collectionActions.deleteTitle": "¿Eliminar esta colección?",
+  "collectionActions.deleteBody":
+    "«{name}» se eliminará. Todas las fuentes que contiene pasan a {unsorted}; no se elimina ninguna.",
+  "collectionActions.deleteSubCollections.one":
+    "Su subcolección también se elimina, y las fuentes que contiene pasan igualmente a {unsorted}.",
+  "collectionActions.deleteSubCollections.other":
+    "Sus {count} subcolecciones también se eliminan, y las fuentes que contienen pasan igualmente a {unsorted}.",
+  "collectionActions.deleteFailed":
+    "No se pudo eliminar esta colección. Sigue en tu biblioteca.",
   "addSource.title": "Añadir a tu bandeja",
   "addSource.importFile.label": "Importar un archivo",
   "addSource.importFile.description":

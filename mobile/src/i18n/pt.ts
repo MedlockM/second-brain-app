@@ -65,6 +65,23 @@ export const pt: Catalog = {
     "«{title}» será removida da sua biblioteca. Não é possível anular esta ação.",
   "mediaActions.deleteFailed":
     "Não foi possível eliminar esta fonte. Continua na sua biblioteca.",
+  "collectionActions.longPressHint":
+    "Toque duas vezes e mantenha para renomear ou eliminar esta coleção",
+  "collectionActions.rename.label": "Renomear",
+  "collectionActions.delete.label": "Eliminar",
+  "collectionActions.rename.title": "Renomear esta coleção",
+  "collectionActions.rename.placeholder": "Nome da coleção",
+  "collectionActions.renameFailed":
+    "Não foi possível renomear esta coleção. O nome não mudou.",
+  "collectionActions.deleteTitle": "Eliminar esta coleção?",
+  "collectionActions.deleteBody":
+    "«{name}» será eliminada. Todas as fontes que contém passam para {unsorted} — nenhuma é eliminada.",
+  "collectionActions.deleteSubCollections.one":
+    "A sua subcoleção também é eliminada, e as fontes que estão nela passam igualmente para {unsorted}.",
+  "collectionActions.deleteSubCollections.other":
+    "As suas {count} subcoleções também são eliminadas, e as fontes que estão nelas passam igualmente para {unsorted}.",
+  "collectionActions.deleteFailed":
+    "Não foi possível eliminar esta coleção. Continua na sua biblioteca.",
   "addSource.title": "Adicionar à sua caixa de entrada",
   "addSource.importFile.label": "Importar um ficheiro",
   "addSource.importFile.description": "Um PDF, um documento Office, uma imagem ou um ficheiro de áudio do seu telemóvel.",

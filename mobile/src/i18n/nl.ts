@@ -65,6 +65,23 @@ export const nl: Catalog = {
     "‘{title}’ wordt uit je bibliotheek gehaald. Dit kan niet ongedaan worden gemaakt.",
   "mediaActions.deleteFailed":
     "Deze bron kon niet worden verwijderd. Ze staat nog in je bibliotheek.",
+  "collectionActions.longPressHint":
+    "Dubbeltik en houd vast om deze collectie te hernoemen of te verwijderen",
+  "collectionActions.rename.label": "Hernoemen",
+  "collectionActions.delete.label": "Verwijderen",
+  "collectionActions.rename.title": "Deze collectie hernoemen",
+  "collectionActions.rename.placeholder": "Naam van de collectie",
+  "collectionActions.renameFailed":
+    "Deze collectie kon niet worden hernoemd. De naam is onveranderd.",
+  "collectionActions.deleteTitle": "Deze collectie verwijderen?",
+  "collectionActions.deleteBody":
+    "‘{name}’ wordt verwijderd. Alle bronnen erin gaan naar {unsorted} — er wordt er geen verwijderd.",
+  "collectionActions.deleteSubCollections.one":
+    "De subcollectie erin wordt ook verwijderd, en de bronnen daarin gaan eveneens naar {unsorted}.",
+  "collectionActions.deleteSubCollections.other":
+    "De {count} subcollecties erin worden ook verwijderd, en de bronnen daarin gaan eveneens naar {unsorted}.",
+  "collectionActions.deleteFailed":
+    "Deze collectie kon niet worden verwijderd. Ze staat nog in je bibliotheek.",
   "addSource.title": "Toevoegen aan je postvak",
   "addSource.importFile.label": "Een bestand importeren",
   "addSource.importFile.description": "Een PDF, een Office-document, een afbeelding of een audiobestand van je telefoon.",

@@ -18,7 +18,7 @@ import {
   TouchTarget,
 } from "../constants/theme";
 import type { MediaListItem, MediaType } from "../types/media";
-import type { AnchorRect } from "./MediaContextMenu";
+import type { AnchorRect } from "./AnchoredContextMenu";
 import { getMediaTypeIcon } from "../lib/mediaTypeDisplay";
 import { t } from "../i18n";
 import { getRelativeTime } from "../lib/relativeTime";

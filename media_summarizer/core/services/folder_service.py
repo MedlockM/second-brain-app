@@ -12,12 +12,39 @@ from typing import Any, Dict, List, Optional
 
 from media_summarizer.core.models.folder import (
     MAX_FOLDER_DEPTH,
+    MAX_FOLDER_NAME_LENGTH,
     Folder,
 )
 from media_summarizer.utils import database_async
 from media_summarizer.utils import user_media as user_media_store
 
 logger = logging.getLogger(__name__)
+
+
+# ---- Naming ----
+
+def normalize_folder_name(raw: Optional[str]) -> str:
+    """Trim a submitted folder name and refuse what cannot become one.
+
+    The folder twin of ``media_rename_service.normalize_title``, and it exists for
+    the same reason: ``Folder.name`` carries its own validator, but pydantic only
+    runs field validators on *construction*, and a rename assigns the attribute on
+    an already-built model. So ``"   "`` used to clear the constraint and store an
+    empty name — a collection the grid then drew as a nameless tile.
+
+    Raises:
+        ValueError: the value is missing, blank once trimmed, or too long.
+    """
+    if raw is None:
+        raise ValueError("A folder name is required")
+    trimmed = " ".join(raw.split())
+    if not trimmed:
+        raise ValueError("A folder name cannot be blank")
+    if len(trimmed) > MAX_FOLDER_NAME_LENGTH:
+        raise ValueError(
+            f"A folder name cannot exceed {MAX_FOLDER_NAME_LENGTH} characters"
+        )
+    return trimmed
 
 
 # ---- Helper: ensure the default folder exists ----
@@ -110,7 +137,7 @@ async def create_folder(
 
     folder = Folder(
         user_id=user_id,
-        name=name,
+        name=normalize_folder_name(name),
         parent_folder_id=parent_folder_id,
     )
     await database_async.create_folder(folder)
@@ -185,7 +212,7 @@ async def update_folder(
     folders_by_id = {f.id: f for f in all_folders}
 
     if name is not None:
-        folder.name = name.strip()
+        folder.name = normalize_folder_name(name)
 
     # Handle parent change (sentinel ... means "no change")
     if parent_folder_id is not ...:

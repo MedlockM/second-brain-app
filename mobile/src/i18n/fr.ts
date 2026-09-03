@@ -76,6 +76,23 @@ export const fr: Catalog = {
     "« {title} » sera retirée de votre bibliothèque. Cette action est irréversible.",
   "mediaActions.deleteFailed":
     "Cette source n'a pas pu être supprimée. Elle est toujours dans votre bibliothèque.",
+  "collectionActions.longPressHint":
+    "Appuyez deux fois et maintenez pour renommer ou supprimer cette collection",
+  "collectionActions.rename.label": "Renommer",
+  "collectionActions.delete.label": "Supprimer",
+  "collectionActions.rename.title": "Renommer cette collection",
+  "collectionActions.rename.placeholder": "Nom de la collection",
+  "collectionActions.renameFailed":
+    "Cette collection n'a pas pu être renommée. Son nom n'a pas changé.",
+  "collectionActions.deleteTitle": "Supprimer cette collection ?",
+  "collectionActions.deleteBody":
+    "« {name} » sera supprimée. Toutes les sources qu'elle contient passent dans {unsorted} — aucune n'est supprimée.",
+  "collectionActions.deleteSubCollections.one":
+    "Sa sous-collection est également supprimée, et les sources qu'elle contient passent aussi dans {unsorted}.",
+  "collectionActions.deleteSubCollections.other":
+    "Ses {count} sous-collections sont également supprimées, et les sources qu'elles contiennent passent aussi dans {unsorted}.",
+  "collectionActions.deleteFailed":
+    "Cette collection n'a pas pu être supprimée. Elle est toujours dans votre bibliothèque.",
   "addSource.title": "Ajouter à votre boîte de réception",
   "addSource.importFile.label": "Importer un fichier",
   "addSource.importFile.description":

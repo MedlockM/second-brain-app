@@ -65,6 +65,23 @@ export const ja: Catalog = {
     "「{title}」をライブラリから削除します。この操作は取り消せません。",
   "mediaActions.deleteFailed":
     "このソースを削除できませんでした。まだライブラリに残っています。",
+  "collectionActions.longPressHint":
+    "ダブルタップして長押しすると、このコレクションの名前変更や削除ができます",
+  "collectionActions.rename.label": "名前を変更",
+  "collectionActions.delete.label": "削除",
+  "collectionActions.rename.title": "このコレクションの名前を変更",
+  "collectionActions.rename.placeholder": "コレクション名",
+  "collectionActions.renameFailed":
+    "このコレクションの名前を変更できませんでした。名前は変わっていません。",
+  "collectionActions.deleteTitle": "このコレクションを削除しますか？",
+  "collectionActions.deleteBody":
+    "「{name}」を削除します。中のソースはすべて {unsorted} に移動し、削除されるものはありません。",
+  "collectionActions.deleteSubCollections.one":
+    "サブコレクション {count} 件も削除され、その中のソースも {unsorted} に移動します。",
+  "collectionActions.deleteSubCollections.other":
+    "サブコレクション {count} 件も削除され、その中のソースも {unsorted} に移動します。",
+  "collectionActions.deleteFailed":
+    "このコレクションを削除できませんでした。まだライブラリに残っています。",
   "addSource.title": "受信箱に追加",
   "addSource.importFile.label": "ファイルを読み込む",
   "addSource.importFile.description": "スマートフォンの PDF、Office 文書、画像、音声ファイル。",
