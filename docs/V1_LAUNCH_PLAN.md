@@ -17,31 +17,33 @@
 > **surface produit** (cf. § 0), retravaillée en profondeur du 2026-08-14 au
 > 2026-08-21.
 
-### État de vérité au 2026-08-21
+### État de vérité au 2026-09-03
 
-- **Source et CI vertes** : `Main Branch Checks` et `Deploy Lambda Functions`
-  sont `success` sur tous les push récents. Le dernier commit poussé est
-  `30cf62c` (2026-08-29T21:10) — c'est lui que le runtime dev exécute.
-- **Une pile de commits locaux non poussés** — `origin/main` est sur `30cf62c`,
-  et le local a continué d'avancer sans push : **49 commits d'avance** au dernier
-  relevé du 2026-09-02. Ce total bouge à chaque commit, donc ne pas s'y fier :
-  le remesurer avec `git ls-remote origin main` puis
-  `git rev-list --count origin/main..HEAD` — c'est la seule mesure fiable,
-  `git status` ne dit rien sur l'état réel du remote.
-  Le nombre qui compte, lui, est stable : **10 de ces commits touchent
-  `media_summarizer/` ou `infrastructure/`**
-  (`git rev-list --count origin/main..HEAD -- media_summarizer/ infrastructure/`),
-  donc le runtime dev n'est pas le HEAD :
-  - le matching événement RevenueCat → abonnement (`task-334`, `2376622`) ;
-  - le `max(trial, paid)` sur le quota d'un abonné (`task-335`, `fedb843`) ;
-  - les fixes translation / artifacts / classifieur LLM (`task-327`, `328`,
-    `330`, `333`) ;
-  - **deux alarmes CloudWatch** (`e2cae8d`, `aebbb73`), qui demandent un
-    `terraform apply` en plus du deploy Lambda déclenché par le push.
+- **Source et CI vertes, et la source est synchronisée côté backend** :
+  `origin/main` est sur `e4051d1` (2026-09-03T13:45), avec `Main Branch Checks`,
+  `Deploy Lambda Functions` et `Terraform Dev` `success`. Le dernier commit qui
+  touche `media_summarizer/` est `3994d3f` (`task-344`, 2026-09-03T13:14) et il
+  **est** dans `origin/main` : le runtime dev exécute donc bien le HEAD backend.
+- **Les commits locaux d'avance ne bloquent plus rien du backend** — 25 au relevé
+  du 2026-09-03, dont **aucun ne touche `media_summarizer/`**. Le total bouge à
+  chaque commit, donc ne pas s'y fier : le remesurer avec `git fetch origin` puis
+  `git rev-list --count origin/main..HEAD`, et surtout regarder *ce qu'ils
+  touchent* —
+  `git rev-list --count origin/main..HEAD -- media_summarizer/ infrastructure/`.
+  `git status` seul ne dit rien de l'état réel du remote. Les quatre commits qui
+  sortent de `mobile/`, `docs/` et `backlog/` sont deux passes de commentaires
+  Terraform prod (`87c5034`, `7c07c3e`) et un workflow mobile (`3125491`,
+  `task-349`).
 
-  Conséquence à ne pas oublier : **les achats sandbox du 2026-09-01/02 ont
-  tourné sur le code d'avant `task-334`**, donc le fix de matching webhook n'a
-  jamais été exercé en vrai. À pousser avant tout re-run E2E.
+  Ce paragraphe a longtemps affirmé le contraire — « 10 commits backend/infra non
+  poussés », « le fix de matching webhook de `task-334` n'a jamais tourné en
+  vrai ». C'était exact au 2026-09-02 et c'est faux depuis les pushes du
+  2026-09-03 : `task-334`, `task-335`, les fixes translation/artifacts/classifieur
+  et les deux alarmes CloudWatch (`e2cae8d`, `aebbb73`) sont poussés, déployés, et
+  l'apply Terraform dev est passé automatiquement (`task-341`). Le re-run E2E de
+  Phase 4 n'attend donc plus de push. Nuance sur les alarmes : elles sont dans le
+  state, pas dans AWS — `enable_alarms` vaut `false` en dev **aussi**, et
+  `describe-alarms` renvoie **0 alarme** dans `eu-west-3` au 2026-09-03.
 - **Runtime API isolé (`task-217`, Done le 2026-08-06)** : image API dédiée,
   reserved concurrency configurable, warm-up EventBridge, health gate de release,
   logs API Gateway enrichis, documenté dans `docs/API_LAMBDA_RUNTIME.md`. Mesure
@@ -220,16 +222,16 @@ un staging ou une soumission.
 | Isolation API Lambda | `task-217` | **Fait (2026-08-06)** — image API ARM64 dédiée (`infrastructure/docker/lambda-api.Dockerfile`), image workers séparée, reserved concurrency configurable, warm-up EventBridge, health gate de release, logs API Gateway enrichis, `docs/API_LAMBDA_RUNTIME.md`. Mesuré le 2026-08-13 : cold 5,2 s / warm 1,0 s |
 | Isolation dev/prod | `task-221` (benchmark, `owner_decision: ok`, option B) → `task-237` → `task-248` | **Fait (2026-08-13)** — `envs/{dev,staging,prod}` sur `modules/platform`, un state par env, 100 % des noms suffixés, `scripts/tf_plan_guard.sh`. Dev reste dans `125313707865`, **prod dans le compte dédié `866874944541`** (organisation `o-7sf5u7j5hd`). `staging` détruit, son répertoire conservé comme référentiel jetable |
 | Nettoyage legacy AWS | `task-249` | **Fait** — 21 tables DynamoDB non suffixées supprimées ; il ne reste que 26 tables `-dev` + la table de lock du state |
-| Sécurité users legacy | `task-222`, `task-224`, `task-253` | **Corrigé et déployé** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email`, `update_user` et `POST /api/v1/auth/verify-email` supprimés. 2026-08-12 (`task-224`) : `endpoints/users.py` et `DELETE /api/v1/users/{user_id}` supprimés au profit de `DELETE /api/account`, qui déduit le compte du token. 2026-08-13 (`task-253`) : le 404 de `DELETE /api/account` en dev est corrigé et un **startup guard** échoue au boot si une route critique n'est pas montée. Le code est déployé (dernier deploy backend vert : `30cf62c`, 2026-08-29T21:10). Les routes citées ici portaient encore le préfixe `/api/v1/`, supprimé depuis par `task-289`. **Reste** : le run E2E complet (Phase 4) |
+| Sécurité users legacy | `task-222`, `task-224`, `task-253` | **Corrigé et déployé** — 2026-08-05 : `create_user`, `get_user`, `get_user_by_email`, `update_user` et `POST /api/v1/auth/verify-email` supprimés. 2026-08-12 (`task-224`) : `endpoints/users.py` et `DELETE /api/v1/users/{user_id}` supprimés au profit de `DELETE /api/account`, qui déduit le compte du token. 2026-08-13 (`task-253`) : le 404 de `DELETE /api/account` en dev est corrigé et un **startup guard** échoue au boot si une route critique n'est pas montée. Le code est déployé (dernier deploy backend vert : `d6ba844`, 2026-09-03T13:41). Les routes citées ici portaient encore le préfixe `/api/v1/`, supprimé depuis par `task-289`. **Reste** : le run E2E complet (Phase 4) |
 | Dérive de dépendances Lambda | `6b22542` | **Corrigé le 2026-08-13, après incident** — l'API dev a répondu 500 sur toutes les routes pendant ~2 h 20 : le startup guard de `task-253` lisait mal `app.routes` sur FastAPI 0.13x, et les Dockerfiles résolvaient `fastapi>=0.104.0` au build (0.141.1 dans l'image contre 0.116.1 dans `uv.lock` et le venv local) — donc irreproductible localement. Les images installent désormais depuis `uv export --frozen`. **Clos le 2026-08-13 par `c05df88`** : la même bascule sur `uv.lock` a été étendue à `api.Dockerfile`, `worker.Dockerfile`, `test-orchestrator.Dockerfile`, `pr.yml` et `main.yml`. Rechute connue depuis : `f06bd62` a dû plafonner `pillow` sous 12.3 pour que l'image worker se construise à nouveau |
 | Suppression/export de compte | `mobile/app/settings/delete-account.tsx`, `media_summarizer/core/services/account_deletion_service.py`, `task-224` | **Fait en code (2026-08-12)** — suppression de compte in-app (Account > Delete Account) branchée sur `DELETE /api/account`, qui purge DynamoDB + S3 + Algolia. Le bouton `Export Data` mort est retiré : l'accès et la portabilité passent par `privacy@mediasummarizer.com` sous un mois, documenté dans la privacy policy. Le bouton `Settings` mort reste à traiter hors `task-224` |
-| Source + CI | `task-223`, `task-227`, `task-228` | **Fait** — `Main Branch Checks` et `Deploy Lambda Functions` verts sur les push récents (dernier : `30cf62c`, 2026-08-29). Reste hors P0 : `Mobile Build & Distribute` (cf. Phase 7), et une pile de commits locaux non poussés (cf. § « État de vérité ») |
+| Source + CI | `task-223`, `task-227`, `task-228` | **Fait** — `Main Branch Checks`, `Deploy Lambda Functions` et `Terraform Dev` verts sur les push récents (dernier : `e4051d1`, 2026-09-03T13:45). Reste hors P0 : `Mobile Build & Distribute`, dont le token n'a jamais authentifié un run réel (cf. Phase 7). Les 25 commits locaux d'avance ne touchent aucun fichier backend (cf. § « État de vérité ») |
 
 ### Bloquants release immédiats
 
 | Zone | Tâches | Statut |
 |---|---|---|
-| Re-run E2E AWS dev | Phase 4 | **Seul gate backend encore ouvert.** Dernier deploy vert : `30cf62c` (2026-08-29T21:10), mais **10 commits backend/infra locaux ne sont pas poussés** (cf. § « État de vérité »). Aucune preuve de `pytest -m e2e` complet depuis le 2026-06-12, alors que `/api/v1/` a disparu, que YouTube et Instagram sont passés en Apify-only et que le contrat média porte désormais cover et créateur. Pousser, puis lancer |
+| Re-run E2E AWS dev | Phase 4 | **Seul gate backend encore ouvert, et plus rien ne le précède.** Le HEAD backend est poussé et déployé (`3994d3f` dans `origin/main`, `Deploy Lambda Functions` vert), donc le run peut partir tel quel. Aucune preuve de `pytest -m e2e` complet depuis le 2026-06-12, alors que `/api/v1/` a disparu, que YouTube et Instagram sont passés en Apify-only, que le quota se compte en minutes et que le contrat média porte désormais cover et créateur |
 | Mobile dev builds | `task-161`, `task-162`, `task-163` | **Clos.** iOS : `task-161` est `Done`, sur une build du 2026-06-11 expirée le 2026-06-25 — le development client reste installé sur l'iPhone owner. Android : keystore (`task-162`), Client IDs et build en place, `task-163` est `Done` au 2026-09-02 |
 | Google OAuth Android | `task-163`, `task-325` | **Clos : le sign in with Google marche sur device, sur l'app installée depuis Play.** Deux clients Android coexistent — celui du 2026-08-13 sur le SHA-1 du keystore EAS (`task-162`, pour les APK posés à la main) et celui relevé le 2026-09-02 sur le SHA-1 Play App Signing (pour tout binaire servi par Play, production incluse). Le flow lui-même a changé le 2026-09-01 (`task-325`) : Google refuse un custom URI scheme pour un client Android, donc l'app signe via **Credential Manager** (module Expo local, `serverClientId` = client Web) et ne lit aucun Client ID Android |
 | Validation device non automatisable | `task-164`, `task-165` | À faire sur devices physiques : Apple Sign-In, Google sheet, Safari/Chrome share |
@@ -515,16 +517,20 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
 ### Phase 1 — Code & repo (jour 1)
 
 1. ~~Créer un repo GitHub.~~ **Fait** : `MedlockM/second-brain-app`, branche par défaut `main`. Historique purgé des secrets, `.venv-311/` et scratchpads ; `.gitignore` durci. Premier push : 2026-05-27 (HEAD `eb22f0e`, 174 commits, 553 fichiers). **Le repo est passé public** : vérifié le 2026-08-13 (`visibility: PUBLIC`). C'est ce qui motive `task-255` et `de3ac86` (purge de l'email de login et de l'identité de compte des fichiers suivis) — désormais, tout identifiant écrit dans un fichier suivi est public.
-2. **GitHub Actions versionnés** : `.github/workflows/pr.yml`, `main.yml`, `deploy-lambda.yml`, `deploy-lambda-env.yml`, `mobile-build-distribute.yml`, `mobile-store-promote.yml`, `mobile-e2e-maestro.yml`.
-3. ⚠️ **Source désynchronisée au 2026-09-02** : les 5 fichiers du fix
+2. **GitHub Actions versionnés — neuf workflows** : `.github/workflows/pr.yml`,
+   `main.yml`, `deploy-lambda.yml`, `terraform-dev.yml` (`task-341`),
+   `mobile-build-distribute.yml`, `mobile-ota-or-build.yml` (`task-340`),
+   `mobile-build-watch.yml` (`task-349`), `mobile-store-promote.yml`,
+   `mobile-e2e-maestro.yml`. `deploy-lambda-env.yml` n'existe plus.
+3. ✅ **Source synchronisée sur le backend au 2026-09-03** : les 5 fichiers du fix
    `uv.lock` (`pr.yml`, `main.yml`, `api.Dockerfile`, `worker.Dockerfile`,
-   `test-orchestrator.Dockerfile`) sont commités depuis `c05df88` — ce point est
-   clos. Mais `main` local porte des dizaines de commits d'avance non poussés,
-   **dont 10 touchent le backend ou l'infra** : `origin/main` est sur `30cf62c`
-   et c'est lui qui est déployé. Détail des 10 dans § « État de vérité ». À pousser.
+   `test-orchestrator.Dockerfile`) sont commités depuis `c05df88`, et
+   `origin/main` (`e4051d1`) contient tout `media_summarizer/`. Les 25 commits
+   locaux d'avance sont du mobile, de la doc et du backlog — cf. § « État de
+   vérité ». À pousser quand même, mais plus aucun gate n'en dépend.
 4. ✅ **CI verte** (`task-223`, `task-227`, `task-228`) :
    - `Main Branch Checks` **success** sur tous les push récents, dont
-     `30cf62c` (2026-08-29) ;
+     `e4051d1` (2026-09-03) ;
    - `ruff check .` en local → `All checks passed!` ;
    - la config ESLint manquante a été ajoutée et les 20 violations react-hooks
      corrigées, `rules` remises en `error` ;
@@ -956,12 +962,11 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 
 #### Reste à faire
 
-1. ⚠️ **Synchroniser et déployer le code courant** — `Deploy Lambda Functions`
-   est vert sur `30cf62c` (2026-08-29T21:10), mais `main` local porte **10
-   commits backend/infra non poussés** (cf. § « État de vérité »). À pousser
-   **avant** le re-run, sinon la suite s'exécute contre un runtime qui n'est pas
-   le HEAD. Deux d'entre eux ajoutent des alarmes CloudWatch : le push déclenche
-   le deploy Lambda, pas le `terraform apply`, qui reste à lancer à la main.
+1. ✅ **Synchroniser et déployer le code courant** — **fait le 2026-09-03**.
+   `origin/main` est sur `e4051d1`, il contient le dernier commit backend
+   (`3994d3f`, `task-344`), `Deploy Lambda Functions` y est vert et `Terraform
+   Dev` a appliqué l'infra dans le même push (`task-341`). Ce point n'est plus un
+   préalable au re-run : le runtime dev **est** le HEAD backend.
 2. ✅ **Fermer `task-217` et revalider le cold start API** — `Done` le
    2026-08-06 ; cold 5,2 s / warm 1,0 s mesurés le 2026-08-13. Le health check
    est utilisable comme gate de release (`task-217` AC #7).
@@ -1431,17 +1436,23 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
 
 ### Phase 7 — CI/CD (jour 6-7)
 
-1. ✅ Workflows versionnés :
+1. ✅ Workflows versionnés — **neuf** :
    - `.github/workflows/pr.yml` — backend `ruff`/`mypy`, mobile `typecheck`/`lint`.
    - `.github/workflows/main.yml` — checks sur push `main`.
    - `.github/workflows/deploy-lambda.yml` — build/push image Lambda + update functions.
+   - `.github/workflows/terraform-dev.yml` — plan gardé + apply sur le compte dev
+     (`task-341`), déclenché par un push `main` touchant `infrastructure/terraform/**`.
    - `.github/workflows/mobile-build-distribute.yml` — EAS build/submit.
+   - `.github/workflows/mobile-ota-or-build.yml` — `eas update` si seul le JS bouge,
+     `eas build --profile internal --auto-submit` sinon (`task-340`).
+   - `.github/workflows/mobile-build-watch.yml` — ouvre une issue GitHub sur build
+     EAS en échec (`task-349`).
    - `.github/workflows/mobile-store-promote.yml` — promotion stores.
    - `.github/workflows/mobile-e2e-maestro.yml` — Maestro Android/iOS.
-2. ⚠️ **État source** : `origin/main` est sur `30cf62c` (2026-08-29) et le local
-   a des dizaines de commits d'avance, **dont 10 backend/infra**
-   (cf. § « État de vérité »). Les runs GitHub portent donc sur un état vieux
-   de quatre jours.
+2. ✅ **État source** : `origin/main` est sur `e4051d1` (2026-09-03T13:45) et
+   contient tout `media_summarizer/`. Les 25 commits locaux d'avance sont du
+   mobile, de la doc et du backlog (cf. § « État de vérité »). Les runs GitHub
+   portent donc sur le HEAD backend.
 3. ✅ **Main checks verts** (`task-223`, `task-227`, `task-228`) : `Main Branch
    Checks` est `success` sur tous les push récents. Le pin sur `uv.lock`
    (`c05df88`) a fermé la dernière faille de ce gate — jusque-là la CI installait
@@ -1489,9 +1500,12 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
 9. Vérifier le rollback Lambda avec deux images API/worker immuables après
    `task-217`, puis documenter l'exercice.
 10. **Automatisation de la cadence — décisions owner du 2026-09-02, trois tâches
-    créées le 2026-09-03.** Trois corvées reviennent à chaque itération : pousser les
-    commits, builder puis soumettre le bundle mobile, lancer `terraform apply`. Audit
-    des six workflows fait le 2026-09-02/03 ; ce qui en sort :
+    créées puis livrées le 2026-09-03** : `task-339`, `task-340` et `task-341` sont
+    toutes `Done`, et `task-349` s'y est ajoutée. Il ne reste donc rien à faire dans
+    ce point — il est conservé pour les décisions qu'il consigne. Trois corvées
+    revenaient à chaque itération : pousser les commits, builder puis soumettre le
+    bundle mobile, lancer `terraform apply`. Audit des six workflows fait le
+    2026-09-02/03 ; ce qui en sort :
     - **`git push` ne s'automatise pas.** C'est le déclencheur de toute la chaîne, pas
       une étape de celle-ci. Il reste manuel par construction, et c'est la seule des
       trois corvées qui le reste.
@@ -1621,10 +1635,14 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
 
 > Le provisioning Terraform de dashboard/alarms a été ajouté (`task-114`, `task-46`), puis adapté à la migration Lambda, puis complété par `task-242` et `task-243`. La validation restante est opérationnelle : réveiller les alarmes en prod et vérifier les signaux CloudWatch réels.
 >
-> **État 2026-08-13** : AWS retourne toujours **0 alarme active**, mais c'est
-> désormais **une conséquence des interrupteurs de coût, pas un trou de
-> provisioning** : `enable_alarms = false` en dev (économie assumée) et les trois
-> interrupteurs à `false` en prod tant qu'elle est en veille. Le réveil est un
+> **État 2026-08-13, reconfirmé le 2026-09-03** : `aws cloudwatch describe-alarms`
+> renvoie **0 alarme** dans `eu-west-3`, contre **1 dashboard** en dev. C'est
+> **une conséquence des interrupteurs de coût, pas un trou de provisioning** :
+> `enable_alarms = false` en dev (économie assumée) et les trois interrupteurs à
+> `false` en prod tant qu'elle est en veille. Corollaire à ne pas manquer : les
+> deux alarmes ajoutées par `e2cae8d`/`aebbb73` existent dans le code et le state,
+> et dans aucun des deux comptes AWS — la chaîne alarme → SNS → e-mail n'a donc
+> jamais été exercée, et se valide en dev avant prod. Le réveil est un
 > `apply` de trois booléens, ~7,20 $/mois (1 topic SNS + 43 alarmes ≈ 3,30 $,
 > 1 dashboard ≈ 3,00 $, 14 mappings SQS ≈ 0,90 $). Le tableau par environnement est
 > dans `infrastructure/terraform/README.md`, section « Cost switches ».
@@ -1923,10 +1941,10 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
 | ~~API interactive indisponible après longue inactivité~~ | **Traité** (`task-217`, 2026-08-06) : image API minimale, reserved concurrency configurable, warm-up EventBridge, health gate de release. Cold 5,2 s / warm 1,0 s au 2026-08-13. |
 | ~~Collision/destruction entre dev/staging/prod~~ | **Traité** (`task-237`, `task-248`) : une racine Terraform par environnement, 100 % des noms suffixés, et surtout **une frontière de compte AWS** entre dev et prod — un plan lancé avec les identifiants de prod ne peut rien toucher dans dev. |
 | ~~CRUD users legacy non authentifié~~ | **Traité** (`task-222`, `task-224`, `task-253`) : surface legacy supprimée, `DELETE /api/account` déduit le compte du token et purge DynamoDB + S3 + Algolia, startup guard contre les routes silencieusement absentes. |
-| État local non poussé sur GitHub | **Aggravation au 2026-09-02** : `origin/main` est resté sur `30cf62c` et le local a des dizaines de commits d'avance — **dont 10 backend/infra**, contre un seul commit d'écart au 2026-08-21. Le runtime dev n'est donc pas le HEAD, et le fix de matching webhook de `task-334` n'a jamais tourné en vrai : les achats sandbox du 2026-09-01/02 ont été traités par le code d'avant. Le risque n'est pas théorique, il se répète — pousser après chaque session de merge, avant tout run E2E. |
+| État local non poussé sur GitHub | **Résorbé côté backend au 2026-09-03** : `origin/main` est sur `e4051d1` et contient tout `media_summarizer/`, donc le runtime dev est le HEAD backend. Les 25 commits d'avance sont du mobile, de la doc et du backlog. Le risque reste réel et se répète — au 2026-09-02 il y avait 10 commits backend/infra en attente, et les achats sandbox du 2026-09-01/02 ont bien tourné sur le code d'avant `task-334`. Pousser après chaque session de merge, et vérifier ce que les commits touchent, pas seulement combien il y en a. |
 | Dérive silencieuse entre l'image Lambda et le lockfile | **Cause de l'incident du 2026-08-13** (API dev 500 sur toutes les routes, ~2 h 20) : les Dockerfiles résolvaient les intervalles de `pyproject.toml` au build, donc chaque build produisait une image différente et aucune exécution locale ne pouvait reproduire le bug. Mitigation : installer depuis `uv export --frozen` — **fait partout depuis `c05df88`** (les trois images et les deux workflows). Le risque n'est pas éteint pour autant : `f06bd62` a dû plafonner `pillow` sous 12.3 pour que l'image worker se construise à nouveau. |
-| Un health check vert lu comme « l'environnement fonctionne » | `GET /api/health/` ne teste que DynamoDB via le rôle IAM. Prod répond `200` avec un secret runtime **vide**. Ne jamais s'en servir comme preuve qu'un environnement est opérationnel — seul un E2E complet l'établit. |
-| Prod ouverte alors qu'elle est en veille | Trois booléens (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) à repasser à `true`, plus le quota de concurrence et le secret runtime. Une prod servant de vrais utilisateurs sans alarmes est une faute ; la veille n'est acceptable qu'avant lancement. |
+| Un health check vert lu comme « l'environnement fonctionne » | `GET /api/health/` ne teste que DynamoDB via le rôle IAM. Prod répondait `200` avec un secret runtime **vide** jusqu'au 2026-09-03 ; le secret est peuplé depuis, mais le `200` ne le prouvait pas et ne prouve toujours rien d'autre. Ne jamais s'en servir comme preuve qu'un environnement est opérationnel — seul un E2E complet l'établit. |
+| Prod ouverte alors qu'elle est en veille | Trois booléens (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) à repasser à `true`. Le quota de concurrence (accordé le 2026-08-13) et le secret runtime (peuplé le 2026-09-03, `task-252`) ne sont plus en cause ; l'apply qui matérialise la réservation bute encore sur la protection de suppression d'`artifact_idempotence-prod`, cf. Phase 9 point 3. Une prod servant de vrais utilisateurs sans alarmes est une faute ; la veille n'est acceptable qu'avant lancement. |
 | CI donnant un faux sentiment de sécurité | Gates verts au 2026-08-21. Rester vigilant sur trois points : ne pas remettre de `|| true`, ne pas mettre le workflow Maestro en sommeil dans les required checks, et pin les outils via `uv.lock` pour que la CI lint avec les mêmes versions que le poste owner. |
 | Build mobile sans secrets runtime | Les trois environnements EAS sont peuplés et portent la vraie clé `goog_` depuis le 2026-09-01, et `EXPO_TOKEN` est posé côté GitHub Actions depuis le 2026-09-02 ; reste `EXPO_PUBLIC_REVENUCAT_APPLE_KEY`, qui n'existe que dans `mobile/.env`. Une variable `EXPO_PUBLIC_*` étant inlinée à la compilation, un placeholder côté EAS produit un binaire silencieusement inerte : l'AAB `versionCode` 4 a dû être jeté pour cette raison. `mobile/.env` gitignored ne constitue pas une configuration de build distante. |
 | Domaine/légal indisponible | Textes légaux rédigés (`docs/compliance/`) mais **non hébergés** : `/privacy` et `/terms` répondent 404 derrière une redirection vers `sbl.so`. Trancher le domaine, héberger, puis vérifier les URLs depuis un réseau externe avant soumission. |
