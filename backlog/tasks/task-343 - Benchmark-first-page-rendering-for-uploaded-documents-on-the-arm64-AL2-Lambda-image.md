@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-09-03 09:12'
-updated_date: '2026-09-03 09:12'
+updated_date: '2026-09-03 10:42'
 labels:
   - benchmark
   - ingestion
@@ -82,3 +82,28 @@ Existing `-dev` rows will not gain a cover retroactively — zero users, zero pr
 - [ ] #8 A cost and effort comparison of the candidate options ends in a single recommendation stated as what the owner would be validating
 - [ ] #9 No production code, contract or Terraform file is modified by this task
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**Mode: initial** (no `docs/research/task-343-*` directory existed, so this is a first pass — not a redo, not a complement).
+
+Deliverable: `docs/research/task-343-document-page-render/README.md`, `owner_decision: pending`, `Decision` and `Validated at` left empty for the owner. No production code, contract, Terraform file, `pyproject.toml`, Dockerfile or mobile component was touched (AC #9).
+
+What the benchmark establishes, and how it was verified:
+
+- **The runtime gate** (AC #2). glibc 2.26 read from the Amazon Linux 2 **aarch64** core repo index rather than asserted; the task-304 Pillow failure at `pyproject.toml:41-48` is named as the precedent and its mechanism (silent `uv` sdist fallback) is what the verification method is built to catch. The host has no arm64 emulation available, so nothing was executed on aarch64 — stated explicitly in §1.2 — and three static checks were used instead: platform-targeted `uv pip compile --python-platform aarch64-manylinux_2_17 --only-binary :all:`, `readelf` inspection of the shipped `.so` (machine, `NEEDED`, versioned GLIBC symbols), and AL2 aarch64 repo metadata for anything that would be `yum install`ed.
+- **PDF**: `pypdfium2` 5.13.0 clears the gate — `manylinux_2_17_aarch64` wheel (3.5 MiB / 8.3 MiB unpacked), bundled `libpdfium.so` is AArch64 and references `GLIBC_2.17` only, no `libstdc++`, no fontconfig, `py3-none` tag, BSD-3/Apache-2.0, same tag on all 12 releases from 5.4.0. Page 1 renders in 3–6 ms independently of page count, peak RSS 41 MiB.
+- **PyMuPDF rejected twice**: AGPL-3.0-or-Artifex-commercial for a closed-source app, and from 1.26.3 its only aarch64 wheel is `manylinux_2_28` — the task-304 trap reproduced live (unconstrained resolution picks 1.28.2 as an 83.8 MiB sdist; `--only-binary` backs off to 1.26.0).
+- **Poppler** exists for AL2 aarch64 but at **0.26.5 (2014)** and needs a subprocess plus a font package; **LibreOffice does not exist at all** on this platform (zero `libreoffice*` packages in the repo index) and the reference Lambda base image is **x86_64-only at 877 MB**.
+- **LlamaParse verified against the live API** (AC #4), not the docs: with the exact fields `llamaparse_resolver._upload_file` sends today and **no** screenshot flag, a DOCX job returns `pages[0].images[0] = {"name": "page_1.jpg", "type": "full_page_screenshot", 2263×3200}` and the image GET answers HTTP 200 `image/jpeg` 236 KB; PPTX likewise at 3000×2250 / 176 KB on the resolver's own base URL. **XLSX returns zero images in four configurations** (v1 default, `premium_mode`, `parse_mode=parse_page_with_agent`, and v2 `tier=agentic` with `images_to_save=["screenshot"]` + `save_output_pdf=true`), which the live OpenAPI schema and the per-sheet pricing corroborate.
+- **All four formats answered** (AC #3): PDF locally, DOCX/PPTX from the already-billed parse, and for XLSX a measured Pillow-drawn first-sheet preview (29 ms, 9.8 KB, no new dependency) with the two priced ways to buy a genuine print-layout page instead (877 MB x86_64 LibreOffice, or ~$1/month of conversion API at launch volume).
+- **Where it runs, cost, quota** (AC #5): the existing branch at `worker.py:347-367`, inside the 512 MB / 600 s budget, +$0.003 per 1,000 PDFs and +$0.011 per 1,000 Office documents at the `eu-west-3` arm64 rate; **no second minute debit** — the single debit stays at `worker.py:200` with its job-keyed idempotency token.
+- **Framing** (AC #6): server-side top-16:9 crop in `cover_capture`, stored 640×360 JPEG q80 (measured 17.8–44.4 KB), which keeps the mobile app unchanged; the client-side `contentPosition` alternative is compared and rejected with the five render sites it would have to touch.
+- **Degraded path** (AC #7): a table of ten exercised cases — encrypted, corrupt, truncated, empty, zip-renamed, 0-page, 200-page, failed screenshot GET, Unstructured fallback, missing Pillow — all returning `None` to the media-type glyph, none failing an ingestion or triggering an SQS retry.
+- **Single recommendation** (AC #8): option A of a six-row cost/effort comparison, with options B and E named as the owner's alternatives.
+
+Three open questions are listed in §9 for the owner to settle in the `Decision` field (XLSX treatment, whether uploaded photos should adopt the same top framing, and the no-backfill confirmation).
+
+**The recommendation awaits the owner's validation.** The task stays `To Do` and the README front-matter stays `owner_decision: pending`; implementation is task-344, which must follow whatever the owner writes in the `Decision` field.
+<!-- SECTION:NOTES:END -->
