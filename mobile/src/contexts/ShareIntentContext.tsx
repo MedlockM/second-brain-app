@@ -34,7 +34,9 @@ import type { SharedFileAttachment } from "../types/sharedContent";
 import type { LocalUploadFile } from "../types/upload";
 import {
   classifyUploadFile,
+  isImageUpload,
   prepareLocalUploadFile,
+  resolveUploadFileName,
 } from "../types/upload";
 
 /**
@@ -42,12 +44,14 @@ import {
  * - "url": Text containing a URL (existing flow)
  * - "text": Plain text with no URL (WhatsApp text message)
  * - "audio": Audio file attachment (WhatsApp voice message)
- * - "file": File imported from the device (task-264)
- * - "photo": Photo just taken with the camera (task-264)
+ * - "file": Document imported from the device (task-264) or shared to the app
+ * - "photo": Picture — a camera capture (task-264), a gallery pick, or an image
+ *   shared from the system share sheet (a screenshot, task-347)
  *
- * The last two are not share intents: they start from a gesture inside the app
- * and reuse this screen so every source picks its collection and tags the same
- * way. They differ only in wording — both submit through the upload endpoints.
+ * The last two split on presentation, not on plumbing: both submit through the
+ * upload endpoints, and only a picture is shown as one. Either can start from a
+ * gesture inside the app or from a share intent, and both reuse the confirmation
+ * screen so every source picks its collection and tags the same way.
  */
 export type ShareContentType = "url" | "text" | "audio" | "file" | "photo";
 
@@ -346,8 +350,17 @@ export function ShareIntentProvider({
           });
           mapped = true;
         } else if (file) {
-          // Non-audio file: classify and route through the upload path
-          const fileName = file.fileName ?? "file";
+          // Non-audio file: classify and route through the upload path.
+          //
+          // The reported name is not always usable — a screenshot shared as raw
+          // image data reaches us with no name, and the extension is the only
+          // thing the backend routes on — so it is resolved against the copied
+          // file's path and MIME type first (task-347).
+          const fileName = resolveUploadFileName({
+            fileName: file.fileName,
+            path: file.path,
+            mimeType: file.mimeType,
+          });
           const classification = classifyUploadFile(fileName);
 
           if (classification) {
@@ -360,9 +373,14 @@ export function ShareIntentProvider({
             });
 
             if ("file" in result) {
-              // File is accepted, route through upload path.
+              // File is accepted, route through upload path. An image is shown
+              // as a picture rather than as a file card, which is the whole
+              // difference between the two content types here.
               // applyLocalUpload clears organization and navigates, so return early.
-              applyLocalUpload(result.file, "file");
+              applyLocalUpload(
+                result.file,
+                isImageUpload(result.file) ? "photo" : "file",
+              );
               return;
             } else {
               // File is rejected (too large, empty, etc.)
