@@ -78,18 +78,20 @@
 - **Production release** : `docs/RELEASE_LOG.md` reste la source de vérité :
   v1.0.0 `Pre-release`, aucun tag (`git tag -l` vide), aucun build production,
   aucune soumission.
-- **Backlog** : **13 tâches non-`Done`** au 2026-09-02 — 62, 118, 145, 164, 165,
-  166, 172, 180, 186, 229, 252, 260, 337. `task-262`, `task-238`, `task-261` et
-  `task-163` sont passées `Done`, et les 26 tâches ouvertes entre le 2026-08-14 et le
-  2026-08-21 (287, 289 à 312) sont toutes closes. `task-212`/`task-213`
-  (architecture LLM) restent **archivées** sur `owner_decision: abandoned`.
-  Aucune des 13 restantes n'est un gate technique : 4 tâches produit V2 / support
+- **Backlog** : **12 tâches non-`Done`** au 2026-09-03 — 62, 118, 145, 164, 165,
+  166, 172, 180, 186, 229, 260, 352. `task-252` (credentials prod) et `task-337`
+  (libellé de quota du paywall) sont passées `Done` le 2026-09-03, `task-352`
+  (menu contextuel ancré sur une tuile de collection) est entrée. `task-262`,
+  `task-238`, `task-261` et `task-163` sont `Done`, et les 26 tâches ouvertes entre
+  le 2026-08-14 et le 2026-08-21 (287, 289 à 312) sont toutes closes.
+  `task-212`/`task-213` (architecture LLM) restent **archivées** sur
+  `owner_decision: abandoned`.
+  Aucune des 12 restantes n'est un gate technique : 4 tâches produit V2 / support
   (62, 118, 145, 229), 3 tâches mobile/device (164, 165, 166), 1 tâche CI en sommeil
-  (172), 4 tâches owner-only stores/branding/prod (180, 186, 252, 260), et
-  `task-337` (alignement du libellé de quota du paywall sur la formulation store).
-  **12 des 13 portent `dispatchable: false` : `task-337` est la seule tâche que le
+  (172), 3 tâches owner-only stores/branding (180, 186, 260), et `task-352` (UI).
+  **11 des 12 portent `dispatchable: false` : `task-352` est la seule tâche que le
   dispatcher peut confier à un agent.** Tout le reste est de la main d'œuvre owner
-  (devices physiques, dashboards stores, credentials).
+  (devices physiques, dashboards stores).
 - **La surface produit a beaucoup bougé depuis le 2026-08-13** — 12 tâches
   livrées qui changent ce que l'utilisateur voit, donc ce que les screenshots
   stores devront montrer (cf. § 0, « Surface produit V1 ») : consommation
