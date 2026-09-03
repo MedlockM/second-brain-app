@@ -3,9 +3,10 @@ id: task-346
 title: >-
   Rebuild the media long-press menu as an iOS Files style anchored context menu,
   and add Rename
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 12:10'
+updated_date: '2026-09-03 10:41'
 labels:
   - mobile
   - feature
@@ -89,6 +90,7 @@ Keep it a plain rename of the user-facing title. Nothing about identity, dedup k
 <!-- AC:END -->
 
 ## Implementation Notes
+
 <!-- SECTION:NOTES:BEGIN -->
 ### What replaced the sheet
 
