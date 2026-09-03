@@ -4,7 +4,7 @@ title: Provision the 37 runtime credentials of the prod secret (owner only)
 status: To Do
 assignee: []
 created_date: '2026-08-13 07:30'
-updated_date: '2026-09-03 11:20'
+updated_date: '2026-09-03 11:40'
 labels:
   - infra
   - security
@@ -79,10 +79,9 @@ Ce qui a été constaté, et qui change la tâche :
   `modules/platform/runtime_env.tf:103` injecte `ENVIRONMENT = "prod"`. Prod aura
   `media_items_prod` sans qu'aucune clé ne le décide.
 
-Le vrai périmètre n'est donc pas « 37 credentials neufs ». C'est **4 valeurs à
-générer, 5 clés à réémettre depuis les mêmes comptes, 18 à recopier parce que
-c'est la seule option correcte, 8 à recopier faute de bénéfice, et 2 bloquées sur
-le domaine.**
+Le vrai périmètre n'est donc pas « 37 credentials neufs ». C'est **5 valeurs à
+créer, 30 à recopier de dev, et 2 valeurs de configuration bloquées sur le
+domaine** (regroupement du 2026-09-03, voir plus bas).
 
 ## État constaté le 2026-08-21 (AWS eu-west-3)
 
@@ -100,89 +99,135 @@ le domaine.**
   D'où la dépendance : sans elle, cette tâche hériterait d'une 38ᵉ clé à créer
   pour rien.
 
-## Les 37 clés, par traitement
+## Les 37 clés, en deux groupes (regroupement du 2026-09-03)
 
-### Groupe A — valeur neuve obligatoire (4)
+Décision de l'owner le 2026-09-03 : ramener les cinq groupes de la version
+précédente à **deux**, avec un critère unique et exécutable — *une clé n'est
+recréée que si la partager avec dev fait courir un risque réel*. Tout le reste se
+recopie. Le raisonnement clé par clé de la section précédente ne change pas ;
+seul le classement est simplifié, pour que la tâche se déroule en deux gestes au
+lieu de cinq.
 
-Secrets **maison**, pas des credentials tiers : aucun compte à ouvrir, un
-`openssl rand -hex 32` suffit. C'est ici qu'est la seule vraie frontière de
-sécurité de la liste.
+Un seul reclassement de fond en découle : **`ALGOLIA_API_KEY` monte dans le
+groupe 2.** Elle était rangée avec quatre clés fournisseur dont le seul bénéfice
+est l'attribution de coût, alors qu'elle est d'une autre nature — c'est
+aujourd'hui la clé **Admin**, portée sur toute l'application Algolia, donc une
+Lambda dev peut effacer l'index prod. Capacité destructive croisée, pas hygiène.
 
-| Clé | Pourquoi |
+Deux arbitrages tranchés par l'owner le 2026-09-03, contre la recommandation
+dans le premier cas — ils sont notés ici pour que personne ne les rejoue :
+
+- **`OPENAI_API_KEY` et `DEEPGRAM_API_KEY` restent en groupe 1.** Un project
+  dédié était gratuit et donnait la seule mesure fiable du coût par utilisateur
+  réel, ce qui touche directement `task-65`. L'owner a préféré s'en tenir au
+  critère : partager ces clés ne crée aucune escalade de privilège, donc pas
+  d'obligation. **Conséquence assumée** : usage et facturation OpenAI/Deepgram
+  restent mélangés entre dev et prod, donc aucun chiffre de coût par user n'est
+  attribuable tant que ça dure, et un emballement de retries en dev consomme le
+  budget prod. À rouvrir quand le pricing devra s'appuyer sur du réel.
+- **Les 3 tokens Apify se recopient**, sans compte payant ni nouveaux comptes
+  free tier. **Conséquence assumée** : dev et prod se partagent les crédits, donc
+  un épuisement en dev **arrête l'ingestion prod**. Acceptable au lancement
+  (zéro user, volume nul) ; le passage payant se décidera sur du volume réel.
+
+### Groupe 2 — créer une valeur neuve pour prod, obligatoire (5)
+
+| Clé | Le risque si on recopie dev |
 |---|---|
-| `JWT_SECRET_KEY` | Partagée, un token émis par dev est **valide en prod**. |
-| `PRICING_ADMIN_SECRET` | Idem pour l'endpoint admin pricing. |
-| `APIFY_WEBHOOK_SECRET` | Bearer de `/api/webhooks/apify`. Auto-contenu : `infrastructure/apify_adapter.py:146-147` l'envoie lui-même à la création du run, rien à coller dans un dashboard. |
-| `REVENUCAT_WEBHOOK_SECRET` | Secret choisi par l'owner et collé dans RevenueCat → Integrations → Webhooks. **Voir la question ouverte plus bas.** |
+| `JWT_SECRET_KEY` | Un token émis par dev est **valide en prod**. Escalade de privilège inter-environnement, la plus directe de la liste. |
+| `PRICING_ADMIN_SECRET` | Idem sur l'endpoint admin pricing : un secret connu côté dev pilote la tarification de prod. |
+| `APIFY_WEBHOOK_SECRET` | Bearer de `/api/webhooks/apify`. Auto-contenu : `infrastructure/apify_adapter.py:146-147` l'envoie lui-même à la création du run, donc rien à coller dans un dashboard — création gratuite, zéro friction. |
+| `REVENUCAT_WEBHOOK_SECRET` | Secret choisi par l'owner et collé dans RevenueCat. **Sous réserve de la question ouverte plus bas** : si le projet n'accepte qu'une seule URL de webhook, la valeur dev devient morte plutôt que distincte. |
+| `ALGOLIA_API_KEY` | **Le seul geste d'isolation Algolia qui compte.** La clé actuelle est Admin sur toute l'application : une Lambda dev peut effacer l'index prod. Algolia autorise un nombre illimité de clés **scopées par index** — une restreinte à `media_items_prod`, une à `media_items_dev`. Ce n'est donc pas « une clé neuve » mais « une clé neuve **et scopée** » : une seconde clé Admin ne résoudrait rien. |
 
-### Groupe B — identiques à dev, et c'est la seule option correcte (18)
+Les quatre premières sont des secrets **maison**, pas des credentials tiers :
+aucun compte à ouvrir, `openssl rand -hex 32` suffit.
 
-`ALGOLIA_APP_ID` · `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` ·
-`APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID` · `APIFY_INSTAGRAM_POST_ACTOR_ID` ·
-`APIFY_INSTAGRAM_REEL_ACTOR_ID` · `APPLE_CLIENT_ID` · `APPLE_TEAM_ID` ·
-`APPLE_KEY_ID` · `APPLE_PRIVATE_KEY` · `APPLE_NATIVE_AUDIENCE` ·
-`GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` · `GOOGLE_NATIVE_AUDIENCE_IOS` ·
-`GOOGLE_NATIVE_AUDIENCE_ANDROID` · `REVENUCAT_API_KEY` · `REVENUCAT_PROJECT_ID` ·
-`DEEPGRAM_MODEL` · `OPENAI_MODEL`
+### Groupe 1 — recopier la valeur de dev (30)
 
-- Les identités Apple/Google/RevenueCat sont **par app**, cf. ci-dessus.
-- Les 4 actor IDs Apify sont des identifiants **publics** de la marketplace.
-- `DEEPGRAM_MODEL` et `OPENAI_MODEL` sont de la configuration, pas des secrets. Les
-  faire diverger est une décision produit (figer prod sur un modèle pinné et
-  laisser dev flotter) et pas une décision de sécurité — à trancher séparément si
-  l'envie vient, pas ici.
-- `ALGOLIA_APP_ID` : le plan Build gratuit d'Algolia, c'est une application. Et
-  l'isolation ne dépend pas de l'App ID, elle dépend de l'index.
-- Deux exceptions possibles mais sans intérêt réel : `APPLE_KEY_ID` /
+Trois raisons distinctes de recopier, qui n'ont pas le même statut : les deux
+premières sont *la seule option correcte*, la troisième est *un arbitrage de
+coût assumé*. Ne pas les confondre en relisant.
+
+**(a) Identités par app, pas par environnement — 14 clés.** Il n'y a **qu'une
+seule app** : un bundle ID (`com.secondbrainlabs.core`), un compte Apple
+Developer, un projet Google Cloud, un projet RevenueCat. Les identités OAuth et
+IAP se rattachent à l'app, pas à l'environnement, donc un backend prod qui
+n'accepterait pas ces audiences refuserait tous les sign-in du binaire publié.
+
+`APPLE_CLIENT_ID` · `APPLE_TEAM_ID` · `APPLE_KEY_ID` · `APPLE_PRIVATE_KEY` ·
+`APPLE_NATIVE_AUDIENCE` · `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` ·
+`GOOGLE_NATIVE_AUDIENCE_IOS` · `GOOGLE_NATIVE_AUDIENCE_ANDROID` ·
+`REVENUCAT_API_KEY` · `REVENUCAT_PROJECT_ID` · `CANNY_BOARD_TOKEN` ·
+`CANNY_SSO_PRIVATE_KEY` · `X_API_BEARER_TOKEN`
+
+- `APPLE_NATIVE_AUDIENCE` vaut littéralement le bundle ID.
+- Canny : le board est **public et unique**, c'est celui où les users postent. Un
+  board « dev » séparé est un contresens.
+- X : le free tier est un projet par compte développeur ; deux apps partageraient
+  le quota de toute façon. Le sujet est le quota, pas l'isolation.
+- Exception possible mais sans intérêt réel : `APPLE_KEY_ID` /
   `APPLE_PRIVATE_KEY` pourraient être une seconde clé Sign in with Apple du même
   team (Apple en autorise plusieurs). Gain : révocation indépendante. À faire
   seulement si c'est gratuit en temps.
 
-### Groupe C — nouvelle clé émise depuis le **même compte** (5)
+**(b) Identifiants publics et configuration, pas des secrets — 7 clés.**
 
-Pas de nouveau compte fournisseur : une clé de plus, gratuite, qui donne la
-révocation indépendante et l'attribution de coût.
+`ALGOLIA_APP_ID` · `APIFY_YOUTUBE_TRANSCRIPT_ACTOR_ID` ·
+`APIFY_TIKTOK_TRANSCRIPT_ACTOR_ID` · `APIFY_INSTAGRAM_POST_ACTOR_ID` ·
+`APIFY_INSTAGRAM_REEL_ACTOR_ID` · `DEEPGRAM_MODEL` · `OPENAI_MODEL`
 
-| Clé | Comment |
-|---|---|
-| `OPENAI_API_KEY` | Un *project* dédié dans la même org : usage et facturation attribués séparément. |
-| `DEEPGRAM_API_KEY` | Idem via un project Deepgram. |
-| `LLAMAPARSE_API_KEY` | Seconde clé du même compte. |
-| `UNSTRUCTURED_API_KEY` | Seconde clé du même compte. |
-| `ALGOLIA_API_KEY` | **Le vrai geste d'isolation Algolia est ici.** Aujourd'hui c'est la clé Admin, portée sur toute l'application : une Lambda dev peut effacer l'index prod. Algolia autorise un nombre illimité de clés **scopées par index** — une restreinte à `media_items_prod` pour prod, une à `media_items_dev` pour dev. |
+- Les 4 actor IDs Apify sont des identifiants **publics** de la marketplace.
+- `ALGOLIA_APP_ID` : le plan Build gratuit, c'est une application. L'isolation ne
+  dépend pas de l'App ID, elle dépend de l'index — et l'index est déjà dérivé
+  d'`ENVIRONMENT`, cf. plus haut.
+- `DEEPGRAM_MODEL` / `OPENAI_MODEL` ne sont pas des clés du tout, c'est de la
+  configuration. Les faire diverger (figer prod sur un modèle pinné, laisser dev
+  flotter) est une décision produit, pas de sécurité — à trancher ailleurs.
 
-### Groupe D — recopier de dev, bénéfice nul ou négatif (8)
+**(c) Une clé neuve était possible ; l'owner a tranché de recopier — 9 clés.**
 
-`PODCASTINDEXORG_API_KEY` · `PODCASTINDEXORG_API_SECRET` · `X_API_BEARER_TOKEN` ·
-`CANNY_BOARD_TOKEN` · `CANNY_SSO_PRIVATE_KEY` · `APIFY_YOUTUBE_API_TOKEN` ·
-`APIFY_TIKTOK_API_TOKEN` · `APIFY_INSTAGRAM_API_TOKEN`
+`OPENAI_API_KEY` · `DEEPGRAM_API_KEY` · `LLAMAPARSE_API_KEY` ·
+`UNSTRUCTURED_API_KEY` · `APIFY_YOUTUBE_API_TOKEN` · `APIFY_TIKTOK_API_TOKEN` ·
+`APIFY_INSTAGRAM_API_TOKEN` · `PODCASTINDEXORG_API_KEY` ·
+`PODCASTINDEXORG_API_SECRET`
 
-- PodcastIndex : gratuit, pas de donnée, pas de facturation à attribuer.
-- X : le free tier est un projet par compte développeur ; deux apps partagent le
-  quota de toute façon. Le sujet ici est le quota, pas l'isolation.
-- Canny : le board est **public et unique**, c'est celui où les users postent. Un
-  board « dev » séparé est un contresens.
-- Les 3 tokens Apify sont **3 comptes distincts**, créés par task-127 pour cumuler
-  les crédits gratuits. En créer trois de plus pour prod veut dire faire tourner
-  la prod sur du free-tier. La vraie question est « prod passe-t-elle sur un compte
-  Apify payant ? » — décision de coût, à trancher hors de cette tâche. Si on
-  recopie, dev et prod se partagent les crédits : acceptable au lancement, à
-  surveiller.
+Contrairement à (a) et (b), recopier ici n'est pas *correct par nature* : c'est un
+choix. Deux cas à ne pas confondre.
 
-### Groupe E — bloquées sur le domaine public (2)
+- **Recréer n'apportait rien** — les 2 clés PodcastIndex : service gratuit, aucune
+  donnée, aucune facturation à attribuer. Recopier est sans conséquence.
+- **Recréer apportait quelque chose de réel** — les 7 autres : une clé de plus
+  depuis le même compte était gratuite et donnait révocation indépendante et
+  attribution de coût. C'est ici que sont les **deux seuls endroits de la liste où
+  dev peut casser prod sans franchir aucune permission** : budget
+  OpenAI/Deepgram commun (et quota LlamaParse/Unstructured), crédits Apify
+  communs. Les deux conséquences sont écrites en tête de section ; ce ne sont pas
+  des détails de forme.
+
+Les 3 tokens Apify sont **3 comptes distincts**, créés par task-127 pour cumuler
+les crédits gratuits.
+
+### Ni l'un ni l'autre : 2 valeurs de configuration bloquées sur le domaine
 
 `APPLE_REDIRECT_URI` · `GOOGLE_REDIRECT_URI`
 
-Elles pointent aujourd'hui sur l'URL brute API Gateway de dev. Un Service ID Apple
-et un client web Google acceptent **plusieurs** Return URLs, donc partager
-`APPLE_CLIENT_ID` / `GOOGLE_CLIENT_ID` entre dev et prod ne pose aucun problème :
-seule la valeur de l'URI diffère.
+Elles ne rentrent dans aucun des deux groupes, et les y forcer serait un piège.
+Leur valeur **doit** différer de dev — mais pas pour une raison de risque : c'est
+une URL d'environnement. Les ranger dans « recopier de dev » produirait exactement
+la panne silencieuse de task-136, une valeur acceptée par Secrets Manager et
+fausse à l'exécution.
+
+Elles pointent aujourd'hui sur l'URL brute API Gateway de dev. Un Service ID
+Apple et un client web Google acceptent **plusieurs** Return URLs, donc partager
+`APPLE_CLIENT_ID` / `GOOGLE_CLIENT_ID` ne pose aucun problème : seule l'URI
+diffère.
 
 Bloquant réel : `api.secondbrainlabs.com` et `api.mediasummarizer.com` sont tous
 deux en NXDOMAIN, et le profil `production` de `mobile/eas.json` pointe encore sur
 le second alors que le plan de lancement vise le premier. Il faut d'abord décider
 quel domaine porte l'API (`docs/V1_LAUNCH_PLAN.md`, Phase 10 étape 0bis). Peupler
-cette tâche en deux passes — les 35 clés indépendantes d'abord, ces 2 ensuite — est
+cette tâche en deux passes — les 35 autres clés d'abord, ces 2 ensuite — est
 parfaitement acceptable, à condition de le noter.
 
 ## Question ouverte à trancher : le webhook RevenueCat
@@ -193,12 +238,19 @@ prod » mais **qui reçoit les events**. Trois issues possibles, à vérifier da
 dashboard avant de peupler :
 
 1. RevenueCat accepte plusieurs intégrations webhook sur le même projet → dev et
-   prod ont chacun leur URL et leur secret, groupe A tel quel.
+   prod ont chacun leur URL et leur secret, **groupe 2 tel quel**.
 2. Une seule URL possible → au lancement, on la bascule sur l'API prod et le
    webhook dev cesse de recevoir. `REVENUCAT_WEBHOOK_SECRET` de dev devient une
    valeur morte, à retirer plutôt qu'à garder « au cas où ».
 3. On accepte de partager la même valeur des deux côtés en attendant → à écrire
-   explicitement dans les notes, parce que ça contredit le groupe A.
+   explicitement dans les notes, **parce que c'est la seule exception au groupe 2
+   et qu'une exception tacite est une régression silencieuse**.
+
+Owner au 2026-09-03 : **pas encore regardé**, la question reste ouverte. Le chemin
+pour trancher est la liste des webhooks du projet (sélecteur de projet en haut de
+la barre latérale → `Integrations` → `Webhooks`) : ce qui répond, c'est la
+présence ou l'absence d'un bouton d'ajout au-dessus de la liste des webhooks
+existants. S'il est là, c'est l'issue 1.
 
 Écrire la réponse constatée dans les notes d'implémentation : c'est l'AC #8.
 
@@ -244,9 +296,9 @@ contient que des placeholders.
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Le secret runtime de prod contient exactement les 37 clés vivantes de dev — aucune absente, et aucune des 3 mortes (ALGOLIA_INDEX_NAME, COOKIE_DOMAIN, APIFY_INSTAGRAM_COMMENT_ACTOR_ID) — vérifié par diff des deux listes de noms de clés
-- [ ] #2 Les 4 clés du groupe A (JWT_SECRET_KEY, PRICING_ADMIN_SECRET, APIFY_WEBHOOK_SECRET, REVENUCAT_WEBHOOK_SECRET) ont une valeur différente de celle de dev, vérifié par comparaison des empreintes des deux secrets et non des valeurs en clair
-- [ ] #3 Les 5 clés du groupe C sont des clés neuves émises depuis le même compte fournisseur, et la clé Algolia de prod est restreinte à l'index media_items_prod — prouvé par un appel réel sur media_items_dev avec la clé prod, qui doit échouer
-- [ ] #4 Les 18 clés du groupe B sont identiques à celles de dev ; en particulier GOOGLE_CLIENT_ID, GOOGLE_NATIVE_AUDIENCE_IOS et GOOGLE_NATIVE_AUDIENCE_ANDROID sont égales aux valeurs du profil production de mobile/eas.json
+- [ ] #2 Les 5 clés du groupe 2 (JWT_SECRET_KEY, PRICING_ADMIN_SECRET, APIFY_WEBHOOK_SECRET, REVENUCAT_WEBHOOK_SECRET, ALGOLIA_API_KEY) ont une valeur différente de celle de dev, vérifié par comparaison des empreintes des deux secrets et non des valeurs en clair
+- [ ] #3 ALGOLIA_API_KEY de prod n'est pas seulement neuve mais restreinte à l'index media_items_prod — prouvé par un appel réel sur media_items_dev avec la clé prod, qui doit échouer ; et la clé Algolia de dev est restreinte symétriquement à media_items_dev, prouvé par un appel réel sur media_items_prod qui doit échouer aussi
+- [ ] #4 Les 30 clés du groupe 1 sont identiques à celles de dev ; en particulier GOOGLE_CLIENT_ID, GOOGLE_NATIVE_AUDIENCE_IOS et GOOGLE_NATIVE_AUDIENCE_ANDROID sont égales aux valeurs du profil production de mobile/eas.json
 - [ ] #5 Aucune valeur ne porte d'espace final ni de commentaire résiduel, vérifié clé par clé sur les valeurs sensibles
 - [ ] #6 Aucune valeur n'est committée dans le dépôt ; seul terraform.tfvars.example est mis à jour, avec des placeholders
 - [ ] #7 APPLE_REDIRECT_URI et GOOGLE_REDIRECT_URI sont soit renseignées avec le domaine prod retenu, soit listées dans les notes comme restant à faire, avec leur bloquant nommé
@@ -280,4 +332,35 @@ Trois erreurs de la version initiale sont corrigées :
 Ajout de la dépendance sur task-312, conformément à la règle « les cleanups
 d'abord » : elle supprime le chemin mort qui lisait `ALGOLIA_SEARCH_API_KEY` et
 évite de créer cette clé pour prod.
+
+2026-09-03 — **Cinq groupes ramenés à deux**, à la demande de l'owner, pour que la
+tâche s'exécute en deux gestes au lieu de cinq. Critère unique : *une clé n'est
+recréée que si la partager avec dev fait courir un risque réel*. L'audit clé par
+clé du 2026-08-21 n'est pas remis en cause — c'est un reclassement, pas une
+révision. Ce qui change :
+
+- **`ALGOLIA_API_KEY` monte en groupe 2** (elle était dans l'ancien groupe C, avec
+  des clés dont le seul bénéfice était l'attribution de coût). Elle est d'une autre
+  nature : clé Admin sur toute l'application, donc dev peut effacer l'index prod.
+  C'est le seul changement de fond du regroupement.
+- **AC #3 réécrite en conséquence** : elle ne porte plus sur « 5 clés neuves du
+  groupe C » mais uniquement sur Algolia, et elle exige désormais la **symétrie**
+  — la clé dev doit être restreinte à `media_items_dev`, pas seulement la clé prod
+  à `media_items_prod`. Sans ça le risque reste ouvert dans le sens qui compte :
+  dev garderait une clé Admin capable d'effacer l'index prod. Cette symétrie était
+  déjà écrite dans la description du 2026-08-21 mais n'était vérifiée par aucun
+  critère.
+- **AC #2 passe de 4 à 5 clés**, **AC #4 de 18 à 30**.
+- **Les 2 redirect URI sortent des groupes.** Les forcer dans « recopier de dev »
+  aurait reproduit la panne silencieuse de task-136 : leur valeur doit différer,
+  mais pour une raison de configuration d'environnement, pas de risque. Elles
+  restent couvertes par l'AC #7, inchangée.
+
+Deux arbitrages tranchés par l'owner le même jour, dont le premier contre la
+recommandation — écrits dans la description pour ne pas être rejoués :
+`OPENAI_API_KEY` / `DEEPGRAM_API_KEY` restent en groupe 1 (donc pas d'attribution
+de coût par environnement, ce qui devra rouvrir quand le pricing s'appuiera sur du
+réel), et les 3 tokens Apify se recopient (donc crédits communs, un épuisement en
+dev arrête l'ingestion prod). La question du webhook RevenueCat n'est pas encore
+regardée dans le dashboard et reste ouverte.
 <!-- SECTION:NOTES:END -->
