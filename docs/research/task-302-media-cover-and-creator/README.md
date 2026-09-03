@@ -479,12 +479,21 @@ No backfill and no migration: existing `-dev` rows stay imageless and creator-le
 | **CloudFront + OAC** | Correct and slightly faster, but adds a distribution, an OAC, and an invalidation story to save a presigned-URL call that already exists in `utils/s3.py:354`. Revisit if cover egress ever leaves the free tier — at 800 MB/month against 100 GB it will not |
 | **A second image field beside `thumbnail_url`** | Explicitly the failure mode named in the task. `thumbnail_url` is already wired from the model through `mirror_job`, the list endpoint and the mobile type; the only thing it needs is a documented two-shape value (`https://…` or `s3://…`) resolved at read time |
 | **A separate `publisher` and `author` pair** | Identical on four sources, empty on three, and it pushes a render-time choice into the schema for a tile that has one second line (§7.3) |
-| **A PDF first-page thumbnail for documents** | Needs a rasteriser (PyMuPDF or Poppler) in the Lambda image, and produces a grey rectangle of text that identifies nothing. The type icon carries more information at a glance |
+| **A PDF first-page thumbnail for documents** | ⚠️ **Superseded on 2026-09-03 — see the note below.** Needs a rasteriser (PyMuPDF or Poppler) in the Lambda image, and produces a grey rectangle of text that identifies nothing. The type icon carries more information at a glance |
 | **Reading an MP3's ID3 `APIC` cover** | Needs `mutagen` on the audio path and only pays off for ripped podcast episodes — which already have a real artwork through the podcast path |
 | **The X author's avatar as a cover** | An avatar is a person, not a subject. It would make every text-only X post look like a profile card, and it is the same category error task-266 fixed for titles |
 | **An unfurl API for covers (Iframely / Microlink)** | ~42 €/month against a 19,0 €/month infra line, for values five of our sources already return in memory; reaches none of the four non-URL sources; free tiers explicitly non-production. Already rejected in task-265 §12 |
 | **An LLM or vision model to caption/select an image** | There is nothing to arbitrate: each source has at most one cover candidate. A model call would be pure cost |
 | **Backfilling existing `-dev` rows** | Zero users, zero production data (`AGENTS.md`). Re-ingest or leave them |
+
+### 11.1 One rejection superseded on 2026-09-03: the document first-page thumbnail
+
+The row above rests on two claims. The owner overrode the second one on 2026-09-03, on visual evidence, and it is now being implemented — **do not cite §11 or §4 row 8 to refuse it**.
+
+- **"Needs a rasteriser in the Lambda image"** — still true, and now known to be harder than this row implies: the worker image is Amazon Linux 2 / glibc 2.26 / arm64, the same constraint that let `task-304` reach `main` without ever running in a Lambda (`pyproject.toml:41-48`). It is a cost to pay, not a reason to refuse.
+- **"Produces a grey rectangle of text that identifies nothing"** — **false as a general claim.** In Apple's Files app, a passport, a carte Vitale, a driving licence and a branded cover page are each identifiable at thumbnail size. What §11 actually predicted is the outcome of *centre-cropping* a portrait page into the 16:9 tile of §6.4, which keeps a horizontal middle band and drops the header, logo and title. The owner's answer is to keep the 16:9 tile and align the crop to the **top** of the page.
+
+Scope set by the owner: **every** uploaded format (PDF, DOCX, PPTX, XLSX), not PDF alone — which makes the Office rendering path, absent from this benchmark, the open question. Carried by `task-343` (benchmark) and `task-344` (implementation). §4 row 8's "structurally impossible" and the stale comment at `workers/document_parsing/worker.py:358-360` are both to be corrected by `task-344`.
 
 ---
 
