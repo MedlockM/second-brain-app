@@ -173,12 +173,14 @@ fi
 # ------------------------------------------------------------------
 BUNDLE_ID="com.secondbrainlabs.core"
 
-# mobile/plugins/withShareExtension.js a été supprimé par task-188 : le partage
-# passe désormais par le plugin officiel expo-share-intent, déclaré dans
-# app.config.ts. Ne pas le remettre ici.
+# One file, and that is the whole story: the share extension is generated at
+# prebuild by the official expo-share-intent plugin, which derives its bundle id
+# from the app's. mobile/plugins/withShareExtension.js was deleted by task-188 and
+# mobile/ios-share-extension/ by task-347 — both were hand-written copies nothing
+# in the build read, and checking them here only made a stale copy look load
+# bearing. Do not add them back.
 BUNDLE_FILES=(
   "mobile/app.config.ts"
-  "mobile/ios-share-extension/Info.plist"
 )
 
 BUNDLE_OK=true

@@ -66,11 +66,71 @@ Careful: `"ios-share-extension"` is **also** an ingestion `source` value sent to
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `iosActivationRules` in `mobile/app.config.ts` declares `NSExtensionActivationSupportsImageWithMaxCount: 1` next to the three existing predicates, and no Movie key is added
-- [ ] #2 `iosShareExtensionName` carries the app name as declared in `expo.name`, so the share-sheet row is no longer labelled "ShareMedia"
-- [ ] #3 In `ShareIntentContext`, a shared image whose reported `fileName` has no usable extension is classified from its `path` or its `mimeType` and no longer reaches the `share.unsupportedFile` branch
-- [ ] #4 A shared image reaches the confirmation screen with `contentType: "photo"` (image preview); other shared files keep `"file"`
-- [ ] #5 `mobile/ios-share-extension/` is deleted, and no file-path reference to it remains in `scripts/`, `mobile/` or `docs/` — while the `source: "ios-share-extension"` values sent to the backend are left untouched
-- [ ] #6 `bash scripts/mobile_release_check.sh` exits 0 and no longer names the deleted plist
-- [ ] #7 `npm run lint` and `npm run typecheck` are clean in `mobile/`
+- [x] #1 `iosActivationRules` in `mobile/app.config.ts` declares `NSExtensionActivationSupportsImageWithMaxCount: 1` next to the three existing predicates, and no Movie key is added
+- [x] #2 `iosShareExtensionName` carries the app name as declared in `expo.name`, so the share-sheet row is no longer labelled "ShareMedia"
+- [x] #3 In `ShareIntentContext`, a shared image whose reported `fileName` has no usable extension is classified from its `path` or its `mimeType` and no longer reaches the `share.unsupportedFile` branch
+- [x] #4 A shared image reaches the confirmation screen with `contentType: "photo"` (image preview); other shared files keep `"file"`
+- [x] #5 `mobile/ios-share-extension/` is deleted, and no file-path reference to it remains in `scripts/`, `mobile/` or `docs/` — while the `source: "ios-share-extension"` values sent to the backend are left untouched
+- [x] #6 `bash scripts/mobile_release_check.sh` exits 0 and no longer names the deleted plist
+- [x] #7 `npm run lint` and `npm run typecheck` are clean in `mobile/`
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Three commits, in the order the causes stack up.
+
+**iOS activation rules and the row label** (`mobile/app.config.ts`).
+`NSExtensionActivationSupportsImageWithMaxCount: 1` sits with the three existing
+predicates; no Movie key. The plugin types `iosActivationRules` as an open record
+and writes it verbatim into the `NSExtensionActivationRule` of the generated
+`ShareExtension-Info.plist`, so nothing else was needed. The app name is now a
+single `appName` constant read by both `expo.name` and `iosShareExtensionName`,
+which is what closes AC #2 permanently: the share-sheet label cannot drift from
+the app name again, and task-186 has one string to change instead of two.
+
+**Handler** (`mobile/src/types/upload.ts`, `mobile/src/contexts/ShareIntentContext.tsx`).
+`resolveUploadFileName({ fileName, path, mimeType })` recovers an extension from
+the copied file's path first, then from the MIME type, and returns the reported
+name untouched when it already routes — an unsupported format still reaches its
+refusal. The MIME map that recovery needs was the local map inside
+`defaultMimeTypeFor`; it is now the module-level `EXTENSION_MIME_TYPES`, read in
+both directions, plus the aliases the platforms really send (`image/x-ms-bmp` is
+what the iOS extension's own MIME table returns for a bitmap). A shared image goes
+through `applyLocalUpload(…, "photo")`, decided by `isImageUpload` on the MIME type
+*or* the extension, because either can be the only usable one (a HEIC share is
+reported as `application/octet-stream`).
+
+**The card** (`mobile/app/share-confirmation.tsx`). The task assumed `isPhoto`
+already produced an image preview — it did not: it swapped the icon for
+`camera-outline` and pushed a hardcoded, untranslated `"Camera capture"` subtitle,
+which becomes plainly false for a shared screenshot. The icon slot now renders the
+picture itself through `expo-image` (already a dependency, already wired by its
+config plugin), with the icon kept as the fallback when the URI cannot be read
+back, and the `isPhoto` prop is gone. The photo/file distinction survives where it
+belongs: the top bar title (`Save Photo` / `Import File`) and the success message
+(`Photo imported. Text extraction will begin shortly.`).
+
+**Legacy.** `mobile/ios-share-extension/` deleted, its line dropped from
+`scripts/mobile_release_check.sh` (the bundle-id check is down to
+`mobile/app.config.ts`, the single place it is declared), and the three doc
+mentions updated. Two occurrences of the string survive on purpose and are not
+live references: a tombstone in the script's comment and one in
+`docs/V1_LAUNCH_PLAN.md`, both saying the directory was deleted by this task —
+the same guard task-188 left for `withShareExtension.js`, which is precisely what
+kept anyone from writing it back. The five `source: "ios-share-extension"` values
+in `ShareIntentContext.tsx` and `sharedContentService.ts` are untouched.
+
+**Verified here.** `bash scripts/mobile_release_check.sh` exits 0 (AC #6),
+`npm run typecheck` clean, `npm run lint` clean — the two remaining warnings are
+pre-existing (`digest.tsx` CARD_WIDTH, `purchaseService.ts` any) and untouched.
+
+**Not verified here, by construction.** The activation rules live in a native
+plist, so nothing about the share-sheet row can be observed from this worktree:
+the fingerprint runtime version moves, an OTA update cannot carry it, and the
+check is a fresh iOS dev build followed by the manual run listed under
+`Owner follow-up:` in the first commit (screenshot → share sheet → row labelled
+"Media Summarizer" → image preview → Save → ingestion). Android is worth the same
+pass: the `image/*` intent filter was already declared, so the handler changes are
+the only variable there.
+<!-- SECTION:NOTES:END -->

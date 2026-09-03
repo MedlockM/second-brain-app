@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../src/contexts/AuthContext";
 import {
@@ -22,7 +23,12 @@ import {
   getQuotaErrorTitle,
   quotaErrorOffersUpgrade,
 } from "../src/lib/quotaError";
-import { formatUploadSize, type LocalUploadFile } from "../src/types/upload";
+import {
+  formatUploadSize,
+  getFileExtension,
+  isImageUpload,
+  type LocalUploadFile,
+} from "../src/types/upload";
 import {
   Colors,
   Typography,
@@ -296,10 +302,7 @@ function ShareContent({
       ) {
         return (
           <>
-            <FilePreviewCard
-              file={intake.uploadFile}
-              isPhoto={intake.contentType === "photo"}
-            />
+            <FilePreviewCard file={intake.uploadFile} />
             <OrganizationControls
               selectedFolder={selectedFolder}
               selectedTags={selectedTags}
@@ -358,11 +361,7 @@ function ShareContent({
       ) {
         return (
           <>
-            <FilePreviewCard
-              file={intake.uploadFile}
-              isPhoto={intake.contentType === "photo"}
-              isSubmitting
-            />
+            <FilePreviewCard file={intake.uploadFile} isSubmitting />
             <OrganizationControls
               selectedFolder={selectedFolder}
               selectedTags={selectedTags}
@@ -518,35 +517,36 @@ function getSuccessMessage(intake: ShareIntakeState): string {
 }
 
 /**
- * Preview card for a file picked from the device or a photo just taken.
- * Shows what is about to be sent — name, size and where it is headed — so the
- * user confirms the right thing before Save.
+ * Preview card for anything headed to the upload endpoints: a file picked from
+ * the device, a photo just taken, an image or a document handed over by the
+ * system share sheet. Shows what is about to be sent — the picture itself for an
+ * image, otherwise name, format and size — so the user confirms the right thing
+ * before Save.
  */
 function FilePreviewCard({
   file,
-  isPhoto,
   isSubmitting = false,
 }: {
   file: LocalUploadFile;
-  isPhoto: boolean;
   isSubmitting?: boolean;
 }) {
-  const isImage = file.mimeType.startsWith("image/");
-  const iconName = isPhoto
-    ? "camera-outline"
+  // A picture identifies itself far better than any label could, so the icon
+  // slot shows the picture itself — a camera capture, a gallery pick or an image
+  // shared from the share sheet alike. The icon stays as the fallback for the
+  // one case that can fail: a URI the app cannot read back.
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const isImage = isImageUpload(file);
+  const showThumbnail = isImage && !thumbnailFailed;
+  const iconName = isImage
+    ? "image-outline"
     : file.kind === "audio"
       ? "musical-notes-outline"
-      : isImage
-        ? "image-outline"
-        : "document-text-outline";
+      : "document-text-outline";
 
   const subtitleParts: string[] = [];
-  if (isPhoto) {
-    subtitleParts.push("Camera capture");
-  }
-  const extension = file.name.split(".").pop();
-  if (!isPhoto && extension) {
-    subtitleParts.push(`.${extension.toLowerCase()}`);
+  const extension = getFileExtension(file.name);
+  if (extension) {
+    subtitleParts.push(`.${extension}`);
   }
   if (file.size !== null) {
     subtitleParts.push(formatUploadSize(file.size));
@@ -564,7 +564,17 @@ function FilePreviewCard({
           </Text>
         </View>
         <View style={styles.previewIconContainer}>
-          <Ionicons name={iconName} size={24} color={Colors.textMuted} />
+          {showThumbnail ? (
+            <Image
+              source={{ uri: file.uri }}
+              style={styles.previewThumbnail}
+              contentFit="cover"
+              onError={() => setThumbnailFailed(true)}
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <Ionicons name={iconName} size={24} color={Colors.textMuted} />
+          )}
         </View>
       </View>
       {isSubmitting && (
@@ -858,6 +868,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceContainerHigh,
     alignItems: "center",
     justifyContent: "center",
+    // The image thumbnail fills this slot edge to edge, so its corners have to
+    // be cut by the container rather than by the image itself.
+    overflow: "hidden",
+  },
+  previewThumbnail: {
+    width: "100%",
+    height: "100%",
   },
   previewSubmitting: {
     flexDirection: "row",
