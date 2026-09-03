@@ -55,12 +55,13 @@
   prod `HTTP 200`. Les 21 tables legacy non suffixées sont supprimées
   (`task-249`) : dev ne porte plus que 26 tables, toutes `-dev`.
 - **Prod est une coquille en veille, volontairement** : `enable_alarms`,
-  `enable_dashboard` et `enable_worker_polling` à `false`, et son secret runtime
-  contient **0 clé**, contre **40 clés dont 37 vivantes** côté dev (recomptées
-  clé par clé le 2026-08-21 par `task-312` ; le « 37 » que ce plan répétait
-  confondait le total et les clés réellement lues). C'est l'objet de `task-252`,
-  owner-only. Le health check répond `200` parce qu'il ne teste que DynamoDB via
-  le rôle IAM — aucune intégration tierce ne fonctionne.
+  `enable_dashboard` et `enable_worker_polling` à `false`. **Son secret runtime
+  est peuplé depuis le 2026-09-03** : 35 clés (`task-252`, `Done`), contre 40
+  côté dev dont 5 mortes qu'on n'a pas recopiées. Le health check répond `200`
+  parce qu'il ne teste que DynamoDB via le rôle IAM, mais un `POST` sur le
+  webhook RevenueCat de prod répond désormais `400 Missing event type` avec le
+  bon Bearer et `401` avec un mauvais — la Lambda lit bien le secret. Ce qui
+  reste en veille, c'est le polling des workers, pas les credentials.
 - **Repo passé PUBLIC** : vérifié le 2026-08-13. Conséquences directes — la
   branch protection n'est plus bloquée par le plan GitHub et est **désormais
   configurée** (`task-257`, régime léger : force-push et suppression refusés,
@@ -125,9 +126,9 @@ bloquant au moins bloquant :
    32 items, `subscriptions-dev` un abonnement iOS actif. Le
    `REVENUCAT_WEBHOOK_SECRET` n'est plus « à confirmer » : 32 requêtes signées ont
    franchi un Lambda qui répond `401` sur un Bearer invalide.
-4. **Owner-only, sans substitut possible** — les credentials du secret prod
-   (`task-252` : 37 clés vivantes à pousser dans une coquille vide), le quota
-   Lambda prod, les vérifications d'éligibilité du compte Google Play (`task-260`).
+4. **Owner-only, sans substitut possible** — le quota
+   Lambda prod et les vérifications d'éligibilité du compte Google Play
+   (`task-260`) ; les credentials du secret prod sont faits (`task-252`, `Done`).
    Le closed testing n'est plus une hypothèse : le compte est **personnel** et créé
    le 2026-06-01, donc l'exigence **s'applique** — 12 testeurs inscrits en continu
    pendant 14 jours, plus jusqu'à 7 jours de review, soit un plancher calendaire
@@ -247,7 +248,7 @@ un staging ou une soumission.
 
 | Zone | Preuve | Statut |
 |---|---|---|
-| Credentials runtime prod | `task-252` (`dispatchable: false`, owner-only) | **Bloquant dur.** Le secret `media-summarizer-runtime-prod` contient **0 clé**, quand dev en porte 40 dont 37 vivantes (recomptées le 2026-08-21, `task-312`) : sans lui, aucune transcription, résumé, résolution, recherche, achat, ni même session utilisateur valide (`JWT_SECRET_KEY`) |
+| Credentials runtime prod | `task-252` (`Done`, `dispatchable: false`, owner-only) | ✅ **FAIT le 2026-09-03.** `media-summarizer-runtime-prod` porte **35 clés**, aucune vide : 30 recopiées de dev, 3 générées pour prod (`JWT_SECRET_KEY`, `PRICING_ADMIN_SECRET`, `REVENUCAT_WEBHOOK_SECRET`), 2 redirect URI dérivées du domaine prod, et 5 clés mortes volontairement absentes. Copie faite de Secret Manager à Secret Manager, vérifiée par empreintes sha256 sans jamais afficher une valeur. Preuve d'exécution : le webhook RevenueCat de prod répond `400 Missing event type` sur le bon Bearer et `401` sur un mauvais, donc la Lambda a fait un cold start et compare contre la valeur écrite. **Réserve connue** : les deux redirect URI visent `api.secondbrainlabs.com`, qui ne résout pas encore — à rejouer si le domaine change (Phase 10 §0bis) |
 | Quota Lambda concurrence prod | quota `L-B99A9384`, 10 → 1000 | ✅ **ACCORDÉ le 2026-08-13**, relevé le 2026-09-03 : `get-service-quota` retourne `Value: 1000.0` sur `866874944541`/eu-west-3, et la demande est `CASE_CLOSED` — déposée à 09:56, fermée à 12:13 le même jour. Le plan a affiché `PENDING` à tort pendant trois semaines. Conséquence appliquée le 2026-09-03 : `api_reserved_concurrency = -1` **retiré** de `envs/prod/main.tf`, ce qui rend au module son défaut non-dev de 10 (990 non réservées, très au-dessus du minimum de 10 qu'AWS impose). **Reste un `terraform apply` prod manuel** pour que la réservation existe réellement |
 | Réveil de prod | `envs/prod/main.tf` | Trois booléens à passer à `true` (`enable_alarms`, `enable_dashboard`, `enable_worker_polling`) — ~7,20 $/mois. Une prod qui sert de vrais utilisateurs sans alarmes est une faute ; la veille n'est valide qu'avant lancement |
 
@@ -268,7 +269,7 @@ un staging ou une soumission.
 | Service | Coût | Pourquoi | Statut |
 |---|---|---|---|
 | **GitHub** (compte + repo **public** depuis le 2026-08-13) | gratuit | Versioning, CI/CD, releases | Bon : source synchronisée, `Main Branch Checks` et `Deploy Lambda Functions` verts sur le HEAD, environnement `production` créé (branche `main` seule autorisée). **Sept secrets Actions** (`AWS_DEPLOY_ROLE_ARN`, les cinq E2E, et `EXPO_TOKEN` depuis le 2026-09-02T17:13:47Z) — plus rien ne manque côté GitHub, la clé App Store Connect et le service account Google Play vivant côté EAS. Branch protection **configurée** sur `main` depuis le 2026-08-13 (`task-257`, régime léger : force-push et suppression refusés, aucun required check) |
-| **AWS** (2 comptes, Organizations `o-7sf5u7j5hd`) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | Bon : dev dans `125313707865` (déployé sur le HEAD), prod dans `866874944541` (199 ressources, health `200`, **en veille** et secret vide). Aucune alarme active — par conception dans les deux environnements, pas par défaut de provisioning |
+| **AWS** (2 comptes, Organizations `o-7sf5u7j5hd`) | usage-based | DynamoDB, S3, SQS, Lambda, EventBridge | Bon : dev dans `125313707865` (déployé sur le HEAD), prod dans `866874944541` (199 ressources, health `200`, **en veille** mais secret runtime peuplé depuis le 2026-09-03). Aucune alarme active — par conception dans les deux environnements, pas par défaut de provisioning |
 | **Apple Developer Program** | $99/an | Publication App Store, TestFlight, IAP sandbox | OK (payé 2026-06-01, validé par Apple ; App ID + Sign in with Apple provisionnés) |
 | **Google Play Console** | $25 one-time | Publication Play Store, Internal Testing, IAP sandbox | Payé 2026-06-01 ; 4 des 7 portes d'éligibilité franchies au 2026-09-01 (appareil Android physique ✅, numéro de téléphone de contact ✅, identité ✅ aucune action due ni échéance, enregistrement du nom de package ✅ — fait par le premier upload d'AAB via Play App Signing, bien avant l'échéance du 2026-09-30). **App Play créée le 2026-08-31** (`com.secondbrainlabs.core`, déclarée *Sans frais*, le nom de package étant le seul champ définitif du formulaire) et **premier AAB uploadé sur la piste de test interne le 2026-09-01**. **Compte marchand créé le 2026-08-31**, IBAN déposé le même jour, **compte bancaire validé par micro-dépôt et passé en `Principal` le 2026-09-01**. **Informations fiscales : W-8BEN approuvé le 2026-09-01** (0 % sur les royalties de droits d'auteur au titre de l'article 12 §1 de la convention France–États-Unis, attestation d'absence d'activité aux États-Unis enregistrée, valide jusqu'au 31 décembre 2029). **Compte marchand donc complet sur ses trois volets.** Restent ouvertes : adresse publique, closed testing (12 testeurs / 14 jours continus + review ≤7 jours = ~21 jours de plancher calendaire) — runbook `task-260`, détail en Phase 2.2 |
 | **Expo / EAS** | gratuit (free tier) | Builds iOS/Android | Partiel : compte/projet OK ; ancienne build iOS expirée. **Deux AAB Android produits le 2026-09-01** (profil `internal`, keystore géré par EAS, API dev) : `versionCode` 4, puis `versionCode` 5 une fois la clé RevenueCat corrigée dans les environnements EAS — le 4 était inexploitable pour la facturation, `EXPO_PUBLIC_*` étant inliné à la compilation. C'est le 5 qui est sur la piste de test interne. Il a fallu corriger un défaut qui rendait *tout* build Release Android impossible, `production` compris : les fichiers `mobile/locales/*.json` étaient plats, donc Expo recopiait les trois clés iOS dans les ressources Android où elles n'existent pas dans la locale par défaut, et `lintVitalRelease` échouait sur 33 erreurs `ExtraTranslation`. Les fichiers sont désormais scindés en sections `ios`/`android`. Les trois environnements EAS **sont peuplés** et portent la vraie clé `goog_` depuis le 2026-09-01. **Un build iOS de distribution store existe aussi** : `790af106`, 1.0.0 (2), commit `ca9cadb`, terminé le 2026-09-01, poussé sur ASC (`6778072060`) par EAS Submit le 2026-09-02 et installé par un beta testeur en TestFlight. Contrairement à ce que ce tableau affirmait, **il porte bien les deux clés RevenueCat et l'API dev** — vérifié le 2026-09-02 en dézippant l'IPA : `Payload/*.app/EXConstants.bundle/app.config` donne `apiBaseUrl: https://jji077bi8e.execute-api.eu-west-3.amazonaws.com`, `revenueCatAppleKey: appl_…`, `revenueCatGoogleKey: goog_…`. `mobile/eas.json` n'en déclare aucune, mais le profil résout les variables de l'environnement EAS, et les valeurs partent dans le manifeste (`extra` de `app.config.ts`), pas dans le bundle JS — les chercher dans `main.jsbundle` ne prouve rien, c'est `EXConstants.bundle/app.config` qu'il faut lire. La CI Maestro injecte la clé Test Store par l'environnement |
@@ -294,16 +295,31 @@ Architecture cible : tous les secrets sont consolidés dans une entrée
 au cold start et injectent chaque clé du JSON comme variable d'environnement —
 le code lit toujours via `os.getenv(...)` sans changement.
 
-**État réel au 2026-08-13** : l'isolation Terraform est faite (`task-237`) et le
-secret prod **existe** en tant que coquille dans le compte `866874944541`, mais
-il contient **0 clé** — c'est l'objet de `task-252` (owner uniquement,
-`dispatchable: false`). Dans le compte dev, `aws secretsmanager list-secrets` ne
-renvoie que `media-summarizer-runtime-dev` (**40 clés, dont 37 vivantes** —
-recomptées clé par clé le 2026-08-21 par `task-312`, qui a corrigé le « 37 »
-répété jusque-là ici et dans `docs/DEVBOX_SETUP.md`) et
-`media-summarizer-devbox-mobile-env`. `media-summarizer-runtime-staging` a été
-supprimé sans fenêtre de récupération par `task-248`, donc son nom est libre si un
-staging jetable doit être remonté un jour.
+**État réel au 2026-09-03** : l'isolation Terraform est faite (`task-237`) et les
+**deux secrets sont peuplés**. Dans le compte dev,
+`aws secretsmanager list-secrets` ne renvoie que
+`media-summarizer-runtime-dev` (**40 clés, dont 5 mortes** : `ALGOLIA_INDEX_NAME`,
+`COOKIE_DOMAIN`, `APIFY_INSTAGRAM_COMMENT_ACTOR_ID`, `REVENUCAT_API_KEY`,
+`REVENUCAT_PROJECT_ID` — aucune n'a de lecteur dans le dépôt) et
+`media-summarizer-devbox-mobile-env`. Dans le compte `866874944541`,
+`media-summarizer-runtime-prod` porte les **35 clés vivantes** depuis le
+2026-09-03 (`task-252`, `Done`).
+
+**Trois valeurs seulement diffèrent volontairement entre les deux
+environnements** : `JWT_SECRET_KEY`, `PRICING_ADMIN_SECRET` et
+`REVENUCAT_WEBHOOK_SECRET`. Le critère n'est pas « cette clé risque-t-elle de
+fuiter » — les deux secrets sont des objets AWS distincts dans deux comptes
+distincts, donc recopier une valeur ne crée aucun lien vivant. Le critère est
+« partager cette valeur fait-il qu'une action en dev modifie automatiquement
+prod » : c'est vrai d'un secret de signature (un token émis par dev serait accepté
+par prod) et du secret d'un webhook (chaque intégration RevenueCat porte son
+propre en-tête `Authorization`). Ça ne l'est pas d'une clé de fournisseur dont le
+quota est porté par le compte, où une clé neuve ne répare rien. Les conséquences
+assumées — crédits Apify et Deepgram communs, rate limits OpenAI communs, clé
+Algolia Admin non scopée par index — sont listées clé par clé dans `task-252`.
+
+`media-summarizer-runtime-staging` a été supprimé sans fenêtre de récupération par
+`task-248`, donc son nom est libre si un staging jetable doit être remonté un jour.
 
 Bootstrap : `terraform -chdir=infrastructure/terraform/envs/<env> apply`. Il n'y a
 plus de `terraform.tfvars` à copier (task-237 : un root module par environnement,
@@ -794,7 +810,7 @@ EXPO_PUBLIC_API_BASE_URL=https://api.<your-domain>
   bien déployé ;
 - dev ne porte plus que **26 tables DynamoDB**, toutes suffixées `-dev`, plus la
   table de lock du state — les 21 tables legacy sont supprimées (`task-249`) ;
-- secrets dev : `media-summarizer-runtime-dev` (40 clés, dont 37 vivantes) et
+- secrets dev : `media-summarizer-runtime-dev` (40 clés, dont 5 mortes) et
   `media-summarizer-devbox-mobile-env` ;
 - **0 alarme CloudWatch active**, mais c'est désormais **voulu** :
   `enable_alarms = false` dans `envs/dev/main.tf` (économie assumée en dev) et les
@@ -835,12 +851,14 @@ livré :
 - Les images Lambda sont tirées de l'ECR de **dev** (`125313707865`) : il a fallu
   trois statements pour l'autoriser (principal de service Lambda de prod, root du
   compte consommateur, et l'autorisation côté IAM prod).
-- `database: connected` alors que le secret runtime est **vide** — la route de
-  santé ne teste que DynamoDB via les noms de tables injectés par Terraform, pas
-  les credentials tiers. Ne jamais lire ce `200` comme « prod fonctionne ».
-- Un prérequis de lancement en découle : `task-252` (37 credentials vivants). Le
-  second, le quota Lambda `L-B99A9384` (10 → 1000), est **accordé depuis le
-  2026-08-13** (relevé le 2026-09-03).
+- `database: connected` répondait `200` alors que le secret runtime était encore
+  **vide** — la route de santé ne teste que DynamoDB via les noms de tables
+  injectés par Terraform, pas les credentials tiers. Ne jamais lire ce `200`
+  comme « prod fonctionne » ; le secret est peuplé depuis le 2026-09-03, mais ce
+  n'est pas ce health check qui le prouve.
+- Les deux prérequis de lancement qui en découlaient sont levés : `task-252`
+  (35 credentials, faits le 2026-09-03) et le quota Lambda `L-B99A9384`
+  (10 → 1000), **accordé depuis le 2026-08-13** (relevé le 2026-09-03).
 
 ### Phase 4 — Tests d'intégration contre AWS dev (jour 3-4) — **NON VALIDÉE, RE-RUN COMPLET REQUIS**
 
@@ -1140,13 +1158,18 @@ Phase 4 a déclenché une cascade de fixes infra/backend :
 **Ordre d'exécution** — `task-262` était le préalable des deux autres, elle est
 faite :
 
-1. ✅ **`REVENUCAT_WEBHOOK_SECRET`** (owner, fait — constaté le 2026-08-13) : la
-   valeur est en place dans `.env` et dans `media-summarizer-runtime-dev` (40 clés
-   intactes), les deux identiques, et le Lambda déployé la charge. Le gate est
-   franchi : le webhook répond `401` sur un token invalide, plus `500`. **Seul
-   reste à confirmer visuellement** que la même valeur figure dans RevenueCat →
-   Integrations → Webhooks avec l'URL `…/api/webhooks/revenucat` — l'API v2 ne
-   lisant pas les webhooks (`404`), aucun agent ne peut le vérifier.
+1. ✅ **`REVENUCAT_WEBHOOK_SECRET`** (owner, fait — constaté le 2026-08-13,
+   complété le 2026-09-03) : la valeur est en place dans `.env` et dans
+   `media-summarizer-runtime-dev` (40 clés intactes), les deux identiques, et le
+   Lambda déployé la charge. Le gate est franchi : 32 événements réels reçus, et
+   le webhook répond `401` sur un token invalide, plus `500`. **Le routage est
+   désormais explicite** (`task-252`, 2026-09-03) : `Integrations` → `Webhooks`
+   porte **deux intégrations**, celle de dev restreinte aux *sandbox purchases* et
+   une seconde vers l'API prod restreinte aux *production purchases*, chacune avec
+   son propre secret. Le toggle `HMAC webhook signing` reste **désactivé** des deux
+   côtés — le backend compare l'en-tête `Authorization` en clair
+   (`revenucat_webhook.py:653`) et n'implémente pas HMAC ; l'activer casserait le
+   webhook.
    Pour mémoire, si cette valeur doit être changée un jour : `put-secret-value`
    remplace tout le JSON, donc passer par `jq` sur la valeur courante et vérifier
    `jq 'length'` = 40 avant push, puis forcer un cold start de
@@ -1642,9 +1665,12 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
 
 0. ✅ **Isolation débloquée** : `task-237` + `task-248`, cf. Phase 3.
 1. ✅ **L'environnement cible existe** : 199 ressources dans le compte
-   `866874944541`, health `HTTP 200`. Il est en veille et son secret est vide.
-2. **Peupler le secret runtime prod** (`task-252`, owner) puis réveiller les trois
-   interrupteurs de coût. Sans ça, aucune des étapes suivantes n'a de sens.
+   `866874944541`, health `HTTP 200`. Il est en veille.
+2. ✅ **Secret runtime prod peuplé** le 2026-09-03 (`task-252`, `Done`) : 35 clés,
+   dont 3 secrets de signature propres à prod. **Reste à réveiller les trois
+   interrupteurs de coût** (`enable_alarms`, `enable_dashboard`,
+   `enable_worker_polling`) — sans eux, aucun worker ne consomme de file, donc les
+   étapes 5 et 7 ci-dessous ne mesureraient rien.
 3. ✅ **Plafond de concurrence levé** : quota `L-B99A9384` accordé le 2026-08-13
    (`Value: 1000.0`, demande `CASE_CLOSED`). `api_reserved_concurrency = -1`
    retiré de `envs/prod/main.tf` le 2026-09-03 ; **il reste à rappliquer**
@@ -1669,8 +1695,12 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
 4. Créer le vrai endpoint/domaine prod (`api.secondbrainlabs.com`, cf. Phase 10
    §0bis) et l'injecter dans EAS + Maestro.
 5. Tester depuis un device physique avec une URL réelle de chaque source.
-6. Vérifier qu'aucun credential de dev n'a été recopié dans prod (`task-252`
-   l'interdit explicitement).
+6. Vérifier que les **3 secrets de signature** de prod (`JWT_SECRET_KEY`,
+   `PRICING_ADMIN_SECRET`, `REVENUCAT_WEBHOOK_SECRET`) diffèrent bien de ceux de
+   dev — c'est le seul cloisonnement que `task-252` exige. Le reste des clés est
+   recopié **volontairement** : ne pas relire cette ligne comme une interdiction
+   de recopier, elle l'a été jusqu'au 2026-09-03 et c'était une erreur d'analyse.
+   Contrôler par empreintes sha256, jamais en affichant les valeurs.
 7. Charger 50-100 URLs en parallèle pour vérifier le scaling SQS / Lambda —
    **après l'apply du point 3**, sinon la mesure ne mesure que le throttling.
 8. Vérifier RevenueCat sandbox → backend webhook contre prod.
@@ -1698,7 +1728,7 @@ macOS). iOS ne redevient donc **jamais** un required check par PR : Android sur
    - Créer/valider le DNS Cloudflare ou Route53 selon la zone réellement utilisée. Si Cloudflare reste le DNS autoritaire, créer le CNAME vers le `target_domain_name` exposé par Terraform.
    - `terraform apply` puis vérifier `curl https://api.secondbrainlabs.com/api/auth/apple/callback` → HTTP 302.
    - **Apple Developer Portal** → Identifiers → Service IDs → `com.secondbrainlabs.core.signinwithapple` → Configure → ajouter Domain `secondbrainlabs.com` (déjà présent) et Return URL `https://api.secondbrainlabs.com/api/auth/apple/callback` (déjà présent), **retirer** les entrées `jji077bi8e.execute-api.*` ajoutées en Phase 5.
-   - **AWS Secrets Manager** → mettre à jour `APPLE_REDIRECT_URI` vers `https://api.secondbrainlabs.com/api/auth/apple/callback`.
+   - **AWS Secrets Manager** → ✅ **déjà fait côté prod** le 2026-09-03 (`task-252`) : `APPLE_REDIRECT_URI` et `GOOGLE_REDIRECT_URI` du secret prod valent déjà `https://api.secondbrainlabs.com/api/auth/{apple,google}/callback`, et non l'URL brute de l'API Gateway — précisément pour ne pas avoir à enregistrer puis retirer une Return URL chez Apple et Google. **Si un autre domaine est retenu à l'étape ci-dessus, ces deux valeurs sont à rejouer.** Le secret dev garde son propre gateway, c'est correct.
    - **`mobile/eas.json`** → profile `development` et `preview` :
      `EXPO_PUBLIC_API_BASE_URL` repasse à
      `https://api.secondbrainlabs.com`. Attention : le profile `production`
@@ -1762,9 +1792,15 @@ Les comptes principaux sont largement provisionnés. Les blocages restants sont 
   `~/.aws/config`. **Irréversibles** : une organisation ne se supprime qu'après
   sortie de tous ses comptes membres, et un compte AWS ne se supprime pas avant
   90 jours de fermeture
-- [ ] **Les 37 credentials runtime vivants du secret prod** (`task-252`, owner uniquement,
-  `dispatchable: false`) — prod est une coquille vide sans eux : ni transcription,
-  ni résumé, ni résolution, ni recherche, ni achat, ni session utilisateur valide
+- [x] **Les 35 credentials runtime du secret prod** (`task-252`, `Done` le
+  2026-09-03, owner uniquement, `dispatchable: false`) — 30 recopiés de dev,
+  3 secrets de signature générés pour prod, 2 redirect URI dérivées du domaine
+  prod, 5 clés mortes écartées. Prouvé par une requête réelle sur le webhook
+  RevenueCat de prod (`400` avec le bon Bearer, `401` avec un mauvais), pas par la
+  seule lecture du secret. Reste ouvert et hors périmètre de cette case : la clé
+  Algolia Admin n'est scopée par index dans aucun des deux environnements, et
+  Apify/OpenAI/Deepgram partagent leurs quotas entre dev et prod (conséquences
+  assumées, détaillées dans `task-252`)
 - [x] **Quota Lambda concurrence du compte prod** : quota `L-B99A9384` (10 → 1000)
   **accordé le 2026-08-13** ; `api_reserved_concurrency = -1` retiré de
   `envs/prod/main.tf` le 2026-09-03. Action restante, non bloquante pour le

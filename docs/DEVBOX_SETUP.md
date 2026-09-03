@@ -43,7 +43,7 @@ Son voisin `~/.aws/config` n'en est pas une : il ne contient aucun secret et vit
 dans le repo (`infrastructure/aws/config.example`, §4).
 
 Et si vous vous demandez pourquoi `credentials` ne peut pas rejoindre Secrets
-Manager comme les 37 credentials tiers : lire un secret exige d'être déjà
+Manager comme les 35 credentials tiers : lire un secret exige d'être déjà
 authentifié auprès d'AWS, or c'est précisément ce que ce fichier fournit. Un
 coffre ne peut pas contenir sa propre clé. La sortie de cette impasse est AWS IAM
 Identity Center (`aws sso login`, credentials temporaires dans
@@ -192,7 +192,7 @@ print("skipped:", ", ".join(skipped) or "none")
 chmod 600 .env
 ```
 
-Le secret dev contient 40 clés, dont **37 vivantes** — les trois autres sont
+Le secret dev contient 40 clés, dont **35 vivantes** — les cinq autres sont
 mortes, personne ne les lit. Une seule valeur est vide, `COOKIE_DOMAIN`, et c'est
 précisément une des mortes ; `REVENUCAT_WEBHOOK_SECRET` **est renseignée** depuis
 le 2026-08-13. L'injection saute normalement deux noms, tous deux morts :
@@ -205,10 +205,17 @@ le 2026-08-13. L'injection saute normalement deux noms, tous deux morts :
   `media_items_{ENVIRONMENT}`, calculé par `utils/algolia_client.py`. Elle traîne
   dans le secret depuis task-205 ; inoffensive, mais ne pas la reconstituer.
 
-La troisième morte, `APIFY_INSTAGRAM_COMMENT_ACTOR_ID`, n'apparaît **pas** dans
-`skipped:` : elle est encore déclarée dans `.env.example`, donc injectée. Le
-Comment Scraper a disparu du resolver Instagram avec task-173 ; la clé ne sert
-plus à rien mais ne casse rien.
+Les trois autres mortes n'apparaissent **pas** dans `skipped:` : elles sont encore
+déclarées dans `.env.example`, donc injectées.
+
+- `APIFY_INSTAGRAM_COMMENT_ACTOR_ID` — le Comment Scraper a disparu du resolver
+  Instagram avec task-173 ; la clé ne sert plus à rien mais ne casse rien.
+- `REVENUCAT_API_KEY` et `REVENUCAT_PROJECT_ID` — **mortes au sens du runtime**
+  (relevé le 2026-09-03) : `config.py:84` et `:86` les affectent et aucun autre
+  code ne les consomme. `REVENUCAT_API_KEY` reste néanmoins utile **à vous**,
+  depuis le `.env`, comme bearer de l'API v2 RevenueCat pour inspecter le
+  dashboard (`docs/REVENUECAT_ENTITLEMENTS.md`). C'est un credential
+  d'outillage, pas de runtime — d'où son absence du secret prod (`task-252`).
 
 Tout autre nom listé par `skipped:` est un vrai manque à investiguer.
 

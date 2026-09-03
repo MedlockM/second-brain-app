@@ -17,14 +17,26 @@
 #     --secret-id media-summarizer-runtime-<env> \
 #     --secret-string file://runtime-secrets.json   # then delete the local file
 #
-# Each environment MUST get its own third-party credentials: RevenueCat sandbox
-# vs live, a distinct JWT_SECRET_KEY, and separate Apify / Deepgram / OpenAI keys
-# (at minimum for cost attribution).
+# The two secrets are SEPARATE AWS objects in separate accounts: copying a value
+# from dev to prod creates no live link, and changing dev's copy later does not
+# touch prod. So a per-environment value is only warranted when SHARING the value
+# is what couples the environments. That is the case for exactly three keys, and
+# prod holds its own (task-252): JWT_SECRET_KEY and PRICING_ADMIN_SECRET, because
+# a shared signing secret means a token minted by dev is accepted by prod; and
+# REVENUCAT_WEBHOOK_SECRET, because each RevenueCat webhook integration carries
+# its own Authorization header (dev's is filtered to sandbox purchases, prod's to
+# production purchases).
 #
-# Algolia needs no such variable: the index name is not configurable. The code
-# derives it as media_items_{ENVIRONMENT} (utils/algolia_client.py), so the
-# environments are separated structurally and cannot be pointed at each other's
-# index by a secret value.
+# Everything else is copied from dev, deliberately. Third-party quotas that are
+# shared (Apify credits are per user, OpenAI rate limits and Deepgram credits are
+# per project) stay shared whether or not the keys differ — a fresh key repairs
+# nothing there, only a second account or project would. task-252 lists the
+# accepted consequences key by key.
+#
+# Algolia needs no index variable: the code derives it as
+# media_items_{ENVIRONMENT} (utils/algolia_client.py), so the environments write
+# to separate indices structurally. The Admin key is nonetheless account-wide;
+# scoping each environment's key to its own index is an open item on task-252.
 
 resource "aws_secretsmanager_secret" "runtime" {
   name        = "${var.project_name}-runtime${local.suffix}"

@@ -124,8 +124,12 @@ module "platform" {
   # secret shell and the owner populates it once out-of-band with
   #   aws secretsmanager put-secret-value --secret-id media-summarizer-runtime-prod ...
   # so no third-party credential is ever written to the Terraform state. Prod's
-  # 37 credentials are task-252, owner-only: they must be distinct from dev's
-  # (RevenueCat live, its own JWT_SECRET_KEY, its own Algolia index).
+  # 35 credentials were populated on 2026-09-03 (task-252, owner-only). Only
+  # three values differ from dev by design — JWT_SECRET_KEY, PRICING_ADMIN_SECRET
+  # and REVENUCAT_WEBHOOK_SECRET — because sharing those is what would let a dev
+  # action reach prod. Everything else is copied from dev deliberately; see the
+  # comment in modules/platform/secrets.tf for why a fresh key repairs nothing
+  # when the third party's quota is account-wide.
 }
 
 variable "shared_ecr_repository_url" {

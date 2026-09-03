@@ -88,7 +88,7 @@ Write the *outcome* and the *way to retrieve the value*, not the value:
 
 **Resource identifiers that Terraform needs are not secrets and must stay.** AWS account IDs already appear in `allowed_account_ids`, state-bucket names and IAM ARNs across `infrastructure/terraform/`, so redacting them from a task note protects nothing and desynchronises the note from the code. Same for resource names, table names, region, ARNs and log-group names. The line is: *does this value let someone authenticate, reset a credential, or impersonate the owner?* If yes, it never gets written down. If it is just a name a `terraform plan` would print anyway, write it.
 
-If a task genuinely cannot be documented without a secret, say so in the note and point to task-252 (`Provision the 37 runtime credentials of the prod secret`) — the owner holds those values.
+If a task genuinely cannot be documented without a secret, say so in the note and point to task-252 (`Provision the 35 runtime credentials of the prod secret`) — the owner holds those values.
 
 Before you commit, grep your own diff. If you added an email, a token-shaped string or a support id, remove it before `git add`.
 
