@@ -272,10 +272,11 @@ mint for a job on `main`. The workflow asserts `sts get-caller-identity` returns
 `125313707865` before applying, so a wrong literal fails immediately instead of
 confusingly.
 
-### Bootstrap: one local apply, chicken-and-egg
+### Bootstrap: one local apply, chicken-and-egg — done 2026-09-03
 
-The workflow cannot create the role it has to assume. Run this once, with admin
-credentials, after the workflow lands on `main`:
+The workflow cannot create the role it has to assume. Until that role exists every run
+of `terraform-dev.yml` fails on `AssumeRoleWithWebIdentity`, which is expected rather
+than broken. The bootstrap is one local apply with admin credentials:
 
 ```bash
 terraform -chdir=infrastructure/terraform/envs/dev plan -out=tfplan
@@ -283,9 +284,18 @@ scripts/tf_plan_guard.sh dev tfplan
 terraform -chdir=infrastructure/terraform/envs/dev apply tfplan
 ```
 
-Until then every run of `terraform-dev.yml` fails on `AssumeRoleWithWebIdentity`, which
-is expected rather than broken. That first plan also contains everything else currently
-unapplied, so read it before accepting it.
+**It was run on 2026-09-03 and the loop is closed.** That plan was `7 to add, 0 to
+change, 0 to destroy`: the role and its admin attachment, three log metric filters
+(`llm_generation_failed` for `artifact_generator` and `transcript_translation`,
+`revenucat_subscription_unmatched`) and the two upload-staging S3 lifecycle rules
+task-345 depends on — everything that had accumulated unapplied while
+`infrastructure/terraform/**` triggered no workflow at all. The first CI run then went
+green in 50 s with no diff left to apply, which is what proves the OIDC trust policy and
+the hardcoded ARN agree.
+
+Do not delete this section once it reads as history: the same chicken-and-egg returns
+verbatim the day a second environment is put under an automated apply, and the sequence
+above is the answer.
 
 ### A Terraform-only pull request is no longer unchecked
 
