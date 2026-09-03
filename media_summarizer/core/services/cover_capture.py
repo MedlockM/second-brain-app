@@ -15,6 +15,17 @@ The stored object is a downscaled JPEG bounded by ``COVER_MAX_EDGE`` on both
 sides, so a 16:9 thumbnail becomes 640x360 and a 9:16 reel cover becomes
 360x640. The crop to the tile's ratio is the client's job (``contentFit:
 "cover"``), which keeps this side free of any layout decision.
+
+**One exception, and only one: a rendered document page** (``capture_document_page``,
+task-344). That principle was written for a cover that already exists with
+someone else's framing -- a re-hosted Instagram thumbnail, a user's photo --
+where cropping destroys information we did not create. A page render has no
+pre-existing framing: we choose the raster region, so choosing it *is* the
+render, and the owner's decision on task-343 §6.2 is to choose the **top** 16:9
+band server-side. The stored derivative is then exactly ``COVER_TILE_WIDTH`` x
+``COVER_TILE_HEIGHT``, which makes the clients' ``contentFit="cover"`` an exact
+fit: every component that renders a cover inherits the framing, including the
+next one somebody writes.
 """
 
 from __future__ import annotations
@@ -51,6 +62,12 @@ COVER_MAX_SOURCE_BYTES = int(os.environ.get("COVER_MAX_SOURCE_BYTES", str(12 * 1
 COVER_MAX_EDGE = 640
 COVER_JPEG_QUALITY = 80
 COVER_CONTENT_TYPE = "image/jpeg"
+
+# The tile a document page is framed into (task-344): the 16:9 of task-302 §6.4,
+# at 640x360 it still covers the largest tile (`HomeTile`, 200x113) on a 3x
+# display, for 10-45 KB stored.
+COVER_TILE_WIDTH = 640
+COVER_TILE_HEIGHT = 360
 
 EVENT_CAPTURE_FAILED = "media_cover.capture_failed"
 EVENT_CAPTURED = "media_cover.captured"
@@ -106,6 +123,63 @@ def _downscale_to_jpeg(payload: bytes) -> Optional[bytes]:
             return buffer.getvalue()
     except Exception as exc:  # noqa: BLE001 - an undecodable payload is not an error
         logger.warning("Cover payload could not be decoded: %s", exc)
+        return None
+
+
+def _frame_top_16x9_jpeg(payload: bytes) -> Optional[bytes]:
+    """Frame a rendered page as the tile: top 16:9 band, 640x360, JPEG q80.
+
+    Top-aligned, not centred: the top 40 % of a portrait A4 is the letterhead,
+    the logo, the title and the first lines of body text -- everything that makes
+    the document recognisable at 112x63 -- while a centre band keeps a strip of
+    body text and drops all of it (task-302 §11.1, task-343 §6.1).
+
+    A source *wider* than 16:9 has no top band to take: it keeps its full height
+    and is cropped horizontally on its centre, which is the same rule read the
+    other way round.
+
+    ``None`` when the payload is not a decodable image, like every other cover
+    path here.
+    """
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        logger.warning("Pillow is not installed in this image; cover skipped")
+        return None
+
+    try:
+        with Image.open(BytesIO(payload)) as opened:
+            image = ImageOps.exif_transpose(opened) or opened
+            if image.mode not in ("RGB", "L"):
+                image = image.convert("RGB")
+            width, height = image.size
+            if width < 1 or height < 1:
+                return None
+
+            band_height = round(width * COVER_TILE_HEIGHT / COVER_TILE_WIDTH)
+            if band_height <= height:
+                image = image.crop((0, 0, width, band_height))
+            else:
+                band_width = round(height * COVER_TILE_WIDTH / COVER_TILE_HEIGHT)
+                left = max(0, (width - band_width) // 2)
+                image = image.crop((left, 0, left + min(band_width, width), height))
+
+            # Unconditional, so the stored object is exactly 16:9 whatever the
+            # rounding above did. Both producers render well above 640 px wide.
+            image = image.resize(
+                (COVER_TILE_WIDTH, COVER_TILE_HEIGHT), Image.Resampling.LANCZOS
+            )
+            buffer = BytesIO()
+            image.save(
+                buffer,
+                format="JPEG",
+                quality=COVER_JPEG_QUALITY,
+                optimize=True,
+                progressive=True,
+            )
+            return buffer.getvalue()
+    except Exception as exc:  # noqa: BLE001 - an undecodable render is not an error
+        logger.warning("Page render could not be framed: %s", exc)
         return None
 
 
@@ -234,6 +308,44 @@ async def capture_from_s3(
             "Media cover built from stored upload",
             media_item_id=media_item_id,
             source="s3",
+            bytes_stored=len(jpeg),
+        )
+    return locator
+
+
+async def capture_document_page(
+    *,
+    page_image: bytes,
+    media_item_id: Optional[str],
+) -> Optional[str]:
+    """Store a rendered document page as the media's cover (task-344).
+
+    ``page_image`` is the render of page 1: the full-page screenshot of the
+    LlamaParse job for a PDF, a DOCX or a PPTX, or the drawn first-sheet grid for
+    a spreadsheet. It is framed to the top 16:9 band and stored at the same
+    ``covers/{media_item_id}.jpg`` as every other cover -- one object per library
+    row, so a re-ingestion overwrites in place and there is no second field and no
+    second bucket to read.
+
+    ``None`` on any failure, which leaves the row without a cover and the tile on
+    its media-type glyph.
+    """
+    if not media_item_id or not page_image:
+        return None
+
+    jpeg = _frame_top_16x9_jpeg(page_image)
+    if not jpeg:
+        return None
+
+    locator = await _store(media_item_id=media_item_id, jpeg=jpeg)
+    if locator:
+        log_event(
+            logger,
+            logging.INFO,
+            EVENT_CAPTURED,
+            "Media cover built from a rendered document page",
+            media_item_id=media_item_id,
+            source="document_page",
             bytes_stored=len(jpeg),
         )
     return locator

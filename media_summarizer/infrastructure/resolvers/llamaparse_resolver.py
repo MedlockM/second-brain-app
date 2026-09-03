@@ -10,6 +10,8 @@ Environment variables:
     LLAMAPARSE_TIMEOUT_SECONDS: Request timeout (default 120)
     LLAMAPARSE_POLL_INTERVAL: Polling interval in seconds (default 2.0)
     LLAMAPARSE_MAX_POLLS: Maximum number of poll attempts (default 60)
+    LLAMAPARSE_PAGE_IMAGE_TIMEOUT_SECONDS: Page-image fetch timeout (default 20)
+    LLAMAPARSE_PAGE_IMAGE_MAX_BYTES: Page-image size ceiling (default 8 MB)
 """
 
 from __future__ import annotations
@@ -36,6 +38,22 @@ LLAMAPARSE_API_KEY = os.environ.get("LLAMAPARSE_API_KEY", "")
 LLAMAPARSE_TIMEOUT_SECONDS = int(os.environ.get("LLAMAPARSE_TIMEOUT_SECONDS", "120"))
 LLAMAPARSE_POLL_INTERVAL = float(os.environ.get("LLAMAPARSE_POLL_INTERVAL", "2.0"))
 LLAMAPARSE_MAX_POLLS = int(os.environ.get("LLAMAPARSE_MAX_POLLS", "60"))
+
+# Page-image (cover) fetch, task-344. Two extra GETs on a job that is already
+# finished and already billed. A full-page screenshot measured 176 KB and 236 KB
+# on task-343 §4.1 and 1.0 MB on a text-dense A4 DOCX during the implementation,
+# so the ceiling is set well above the observed range: it exists to keep a
+# surprising payload out of a 512 MB worker, not to filter normal pages.
+LLAMAPARSE_PAGE_IMAGE_TIMEOUT_SECONDS = float(
+    os.environ.get("LLAMAPARSE_PAGE_IMAGE_TIMEOUT_SECONDS", "20")
+)
+LLAMAPARSE_PAGE_IMAGE_MAX_BYTES = int(
+    os.environ.get("LLAMAPARSE_PAGE_IMAGE_MAX_BYTES", str(8 * 1024 * 1024))
+)
+# The image kind LlamaParse gives a paginated document: one entry per page,
+# rendered from the layout. Embedded illustrations carry other types and must
+# never be mistaken for a page render -- a logo is not a cover.
+_FULL_PAGE_SCREENSHOT_TYPE = "full_page_screenshot"
 
 
 class LlamaParseResolver(DocumentParserPort):
@@ -265,3 +283,98 @@ class LlamaParseResolver(DocumentParserPort):
             metadata=metadata,
             provider=self.provider_name,
         )
+
+    async def fetch_first_page_screenshot(self, job_id: str) -> Optional[bytes]:
+        """Download the render of page 1 of a finished job. ``None`` if there is none.
+
+        LlamaParse rasterises every page of a paginated document while parsing it
+        and keeps the images on the job -- with the exact fields ``_upload_file``
+        already sends, no screenshot flag needed (task-343 §4.1). So the cover of
+        a PDF, a DOCX or a PPTX is an artefact we have already paid for: two GETs
+        on a job that is complete, no new credit, no second parse.
+
+        A spreadsheet has no page to photograph and returns no image in any mode
+        or tier (task-343 §4.2); ``None`` here is the normal answer for an XLSX,
+        and the caller draws the sheet instead.
+
+        Best-effort like every cover path: this never raises. A missing image, an
+        expired result, a non-200 or an oversized payload all return ``None`` and
+        the tile keeps its media-type glyph.
+        """
+        if not job_id or not self._api_key:
+            return None
+
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Accept": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=LLAMAPARSE_PAGE_IMAGE_TIMEOUT_SECONDS
+            ) as client:
+                image_name = await self._first_page_image_name(client, headers, job_id)
+                if not image_name:
+                    return None
+                return await self._download_page_image(
+                    client, headers, job_id, image_name
+                )
+        except Exception as exc:  # noqa: BLE001 - a cover never fails an ingestion
+            logger.warning(
+                "LlamaParse page screenshot unavailable for job %s: %s",
+                job_id,
+                type(exc).__name__,
+            )
+            return None
+
+    async def _first_page_image_name(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict,
+        job_id: str,
+    ) -> Optional[str]:
+        """Name of the page-1 full-page screenshot on a finished job."""
+        response = await client.get(
+            f"{LLAMAPARSE_API_URL}/job/{job_id}/result/json", headers=headers
+        )
+        response.raise_for_status()
+        pages = response.json().get("pages") or []
+        if not isinstance(pages, list) or not pages:
+            return None
+
+        first_page = pages[0]
+        if not isinstance(first_page, dict):
+            return None
+        for image in first_page.get("images") or []:
+            if not isinstance(image, dict):
+                continue
+            if image.get("type") != _FULL_PAGE_SCREENSHOT_TYPE:
+                continue
+            name = str(image.get("name") or "").strip()
+            if name:
+                return name
+        return None
+
+    async def _download_page_image(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict,
+        job_id: str,
+        image_name: str,
+    ) -> Optional[bytes]:
+        """Fetch one page image, bounded in size."""
+        url = f"{LLAMAPARSE_API_URL}/job/{job_id}/result/image/{image_name}"
+        async with client.stream("GET", url, headers=headers) as response:
+            response.raise_for_status()
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in response.aiter_bytes():
+                total += len(chunk)
+                if total > LLAMAPARSE_PAGE_IMAGE_MAX_BYTES:
+                    logger.warning(
+                        "LlamaParse page image exceeds %s bytes; cover skipped",
+                        LLAMAPARSE_PAGE_IMAGE_MAX_BYTES,
+                    )
+                    return None
+                chunks.append(chunk)
+        payload = b"".join(chunks)
+        return payload or None

@@ -1379,12 +1379,12 @@ async def upload_document(
             label=label_for_file_name(file_name),
             file_name_candidates=[file_name],
         )
-        # No cover here even for a photo: this handler never sees the bytes. The
-        # parsing worker builds the thumbnail from the object itself once it sits
-        # at its canonical key, and mirrors it back (task-302 §4, rows 9-10). A PDF or
-        # a DOCX never gets one -- `ParseResult` carries no image and there is no
-        # page rasteriser in the runtime. No creator either: an uploaded file has
-        # no publisher we can read.
+        # No cover here, for any format: this handler never sees the bytes. The
+        # parsing worker builds it once the object sits at its canonical key and
+        # the parse is done, and mirrors it back -- the photo itself for a capture
+        # or a gallery pick (task-302 §4, rows 9-10), the render of page 1 for a
+        # document (task-344). No creator either: an uploaded file has no publisher
+        # we can read.
 
         # Durable library entry first (task-240, task-218 §4.3): the job, the S3
         # object and the queue message are operational and may be retried; what

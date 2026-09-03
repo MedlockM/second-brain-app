@@ -3,10 +3,12 @@ Document parsing ingestion worker.
 
 Polls the document-parsing-queue, downloads the uploaded file from S3,
 parses it via LlamaParse (primary) with fallback to Unstructured API,
-uploads the resulting markdown to the transcript bucket, and emits a
-completion event to continue the downstream LLM pipeline.
+uploads the resulting markdown to the transcript bucket, writes the media's
+cover, and emits a completion event to continue the downstream LLM pipeline.
 
 Owner decision (task-90): LlamaParse free tier API cloud -> fallback Unstructured API.
+Owner decision (task-343): the cover of an uploaded file is the render of its
+first page -- see `_capture_cover`.
 """
 
 from __future__ import annotations
@@ -31,7 +33,12 @@ from media_summarizer.core.ports.document_parser import (
     ParseError,
     ParseResult,
 )
-from media_summarizer.core.services import cover_capture, provider_pool_guard, quota_enforcer
+from media_summarizer.core.services import (
+    cover_capture,
+    provider_pool_guard,
+    quota_enforcer,
+    sheet_preview,
+)
 from media_summarizer.infrastructure.resolvers.llamaparse_resolver import (
     LlamaParseResolver,
 )
@@ -61,8 +68,11 @@ DOCUMENT_PARSING_VISIBILITY_TIMEOUT = int(
     os.environ.get("DOCUMENT_PARSING_VISIBILITY_TIMEOUT", "600")
 )
 
-# Resolvers (instantiated at module level for reuse across messages)
-_llamaparse: DocumentParserPort = LlamaParseResolver()
+# Resolvers (instantiated at module level for reuse across messages). The primary
+# is held as its concrete type because the cover reads back one of its artefacts
+# (`fetch_first_page_screenshot`), which is a LlamaParse capability rather than a
+# parsing contract: nothing else on this path paginates a document.
+_llamaparse = LlamaParseResolver()
 _unstructured: DocumentParserPort = UnstructuredResolver()
 
 # Formats whose parsed output is OCR of a picture rather than a structured
@@ -75,6 +85,18 @@ _IMAGE_FORMATS = frozenset(
         DocumentFormat.IMAGE_TIFF,
         DocumentFormat.IMAGE_BMP,
         DocumentFormat.IMAGE_HEIF,
+    }
+)
+
+# Formats LlamaParse paginates, and therefore rasterises: it renders every page
+# of these to a JPEG while parsing, on the very request `_upload_file` already
+# sends (task-343 §4.1). Their cover is that render, fetched from the finished
+# job. XLSX is deliberately absent -- see `_render_document_page`.
+_PAGINATED_FORMATS = frozenset(
+    {
+        DocumentFormat.PDF,
+        DocumentFormat.DOCX,
+        DocumentFormat.PPTX,
     }
 )
 
@@ -214,6 +236,89 @@ async def _record_document_consumption(
     )
 
 
+async def _render_document_page(
+    *,
+    document_format: DocumentFormat,
+    result: ParseResult,
+) -> Optional[bytes]:
+    """The render of page 1 of a parsed document, or ``None`` if there is none.
+
+    Two mechanisms, no rasteriser in this image (owner decision on task-343,
+    option B of §8):
+
+    - **PDF, DOCX, PPTX**: the full-page screenshot the LlamaParse job we have
+      just polled already produced. Nothing is asked for and nothing is billed --
+      the artefact exists on the job whether or not we fetch it (§4.3). A document
+      the Unstructured fallback parsed has no such artefact and keeps its glyph
+      (§5.4), which is the same best-effort contract, not a new failure mode.
+    - **XLSX**: drawn from the parsed table, because no provider on this path
+      rasterises a spreadsheet (§4.2).
+    """
+    if document_format == DocumentFormat.XLSX:
+        return sheet_preview.render_first_sheet_preview(result.markdown_content)
+
+    if document_format not in _PAGINATED_FORMATS:
+        return None
+    if result.provider != _llamaparse.provider_name:
+        return None
+    job_id = str(result.metadata.get("job_id") or "").strip()
+    if not job_id:
+        return None
+    return await _llamaparse.fetch_first_page_screenshot(job_id)
+
+
+async def _capture_cover(
+    *,
+    media_item_id: Optional[str],
+    document_format: DocumentFormat,
+    document_s3_key: str,
+    result: ParseResult,
+) -> Optional[str]:
+    """Build the cover of an uploaded file. ``None`` leaves the tile on its glyph.
+
+    An image *is* its own cover and is already in our bucket, so it is only
+    downscaled (task-302 §4, rows 9-10). Every other format gets the render of its
+    first page, framed to the top 16:9 band server-side.
+
+    Nothing here can fail an ingestion: `cover_capture` returns ``None`` rather
+    than raising by contract, and the guard below extends that to anything the
+    render path could throw unexpectedly. No quota is touched either -- the parse
+    was charged once, before this point, and the render adds no billed call.
+    """
+    if not media_item_id:
+        return None
+
+    try:
+        if document_format in _IMAGE_FORMATS:
+            return await cover_capture.capture_from_s3(
+                bucket=DOCUMENT_BUCKET,
+                key=document_s3_key,
+                media_item_id=media_item_id,
+            )
+
+        page_image = await _render_document_page(
+            document_format=document_format,
+            result=result,
+        )
+        if not page_image:
+            return None
+        return await cover_capture.capture_document_page(
+            page_image=page_image,
+            media_item_id=media_item_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - a cover is a display detail
+        log_event(
+            logger,
+            logging.WARNING,
+            "media_cover.document_render_failed",
+            "Document cover could not be built; the tile keeps its type glyph",
+            media_item_id=media_item_id,
+            document_format=document_format.value,
+            error_type=type(exc).__name__,
+        )
+        return None
+
+
 async def process_document_parsing_message(message_body: Dict[str, Any]) -> None:
     """
     Process a single document parsing message.
@@ -350,21 +455,21 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
                 )
                 if parsed_title:
                     job.title = parsed_title
-            else:
-                # A camera capture or a gallery pick *is* its own cover, and it
-                # is already in our bucket -- but at up to 50 MB it is unservable
-                # as a list thumbnail, so a downscaled derivative is written to
-                # the covers bucket (task-302 §4, rows 9-10). Nothing is
-                # downloaded from a third party here. A PDF or a DOCX gets no
-                # cover: `ParseResult` carries no image and there is no page
-                # rasteriser in this runtime.
-                cover_locator = await cover_capture.capture_from_s3(
-                    bucket=DOCUMENT_BUCKET,
-                    key=str(document_s3_key),
-                    media_item_id=job.media_item_id,
-                )
-                if cover_locator:
-                    job.media_image = cover_locator
+
+            # Every uploaded file gets a cover (task-344): the photo itself for a
+            # camera capture or a gallery pick, and the render of page 1 for a
+            # document -- the LlamaParse full-page screenshot for a PDF, a DOCX or
+            # a PPTX, the drawn first-sheet grid for a spreadsheet. Nothing is
+            # downloaded from a third party, nothing is billed twice, and a
+            # failure leaves the tile on its media-type glyph.
+            cover_locator = await _capture_cover(
+                media_item_id=job.media_item_id,
+                document_format=document_format,
+                document_s3_key=str(document_s3_key),
+                result=result,
+            )
+            if cover_locator:
+                job.media_image = cover_locator
             job.source_platform = "document"
             job.media_type = "document"
             job.mark_completed()
