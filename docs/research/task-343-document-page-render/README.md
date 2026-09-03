@@ -1,13 +1,37 @@
 ---
-owner_decision: pending   # pending | ok | abandoned | redo | more
+owner_decision: ok   # pending | ok | abandoned | redo | more
 ---
 
 # Benchmark: first-page rendering for uploaded documents on the arm64 AL2 Lambda image
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture)_
-**Validated at**: _(date ISO à remplir par l'owner)_
+**Decision**: **Option B of §8, not the recommended option A.** Build the cover for all four formats with **no new rasteriser in the image**: the LlamaParse `full_page_screenshot` for **PDF, DOCX and PPTX** alike, the Pillow-drawn first-sheet grid of §3.7 for **XLSX**, and the server-side top-aligned 16:9 crop to 640×360 JPEG q80 of §6 for all of them. **`pypdfium2` is not to be added** — no pin in `pyproject.toml`, no change to the Dockerfile.
+
+Why B over A, since §8 recommends A:
+
+1. **One fetch mechanism instead of two renderers.** `job_id` is already carried in `ParseResult.metadata` (`llamaparse_resolver.py:258`), so the screenshot route is available to the worker for *any* format LlamaParse paginates. The implementation becomes one resolver method plus one XLSX drawing helper — two code paths, not three.
+2. **No new native dependency on the manylinux floor.** This repository has been bitten twice by it: `pillow` is pinned `<12.3` for exactly that reason (`pyproject.toml:41-48`), and §3.2 documents PyMuPDF moving to `manylinux_2_28` at 1.26.3. `pypdfium2` looks safe today (`py3-none`, 12/12 releases at `manylinux_2_17`), but the cheapest way not to own that risk is not to take the dependency for a display detail.
+3. **Nothing large is ever held in memory.** The LlamaParse path downloads a ~240 KB JPEG; the pdfium path would pull the S3 object, and §5.2 notes that `COVER_MAX_SOURCE_BYTES` (12 MB) is **not** enforced on `capture_from_s3` while documents are accepted up to 50 MB. Option B removes the need to write that bound at all.
+4. **The coupling A avoids is already accepted.** DOCX and PPTX have no alternative on arm64 (§3.4: no LibreOffice for AL2 aarch64), so Office covers already depend on LlamaParse winning over the Unstructured fallback. Putting PDF on the same mechanism widens that dependency, it does not open a new class of failure — and the contract is best-effort with a media-type glyph either way (§7). The rest of the gap is noise: 1.7 s inside a worker that already spends 5–15 s in the parse, and $0.011 against $0.003 per thousand documents.
+
+Accepted as stated in the benchmark, and not to be relitigated by task-344:
+
+- **XLSX gets the synthesised first-sheet grid** (§9 question 1, first branch). §4.2 settles that no LlamaParse mode or tier renders a spreadsheet and that the API bills sheets rather than pages, so there is no page-1 image to fetch for this format — the drawn grid is the only option that costs neither 877 MB nor a new provider.
+- **The 16:9 top crop is applied server-side in `cover_capture`** (§6.2), setting aside the "the crop is the client's job" principle of `cover_capture.py:14-18` for document renders only, because we author that image rather than re-frame someone else's. **No mobile file changes.**
+- **The cover stays best-effort**: every failure path returns `None`, the tile falls back to its media-type glyph, no ingestion fails and no SQS retry is triggered (§7). No second quota debit and no new quota gate (§5.4).
+- **No backfill** (§9 question 3): existing `-dev` document rows keep their glyph until re-ingested.
+
+Two follow-ups this decision deliberately leaves out of task-344:
+
+- **Uploaded images keep their current framing** (§9 question 2, answered "no for now"): a photographed passport stays full-frame and centre-cropped by the client. Out of the benchmark's stated scope; revisit as its own task if the inconsistency shows up in a real screenshot.
+- **If PDF covers turn out to be missing often** because LlamaParse loses to the Unstructured fallback more than anecdotally, adding pdfium then costs one pin plus one helper, and the PDF branch is already isolated by this design. That is the escape hatch, not a plan.
+
+Also to be corrected by task-344, per §10: task-302 §4 row 8's "structurally impossible", and the now-stale comment at `workers/document_parsing/worker.py:358-360`.
+
+Note on the evidence, kept visible: **no candidate was executed on aarch64** for this benchmark (§1.2 — no `binfmt_misc` handler on the owner's host). Qualification rests on platform-targeted resolution, ELF symbol inspection and distribution metadata. Option B is the variant least exposed to that gap, since it adds no native binary to the image.
+
+**Validated at**: 2026-09-03
 
 ---
 
