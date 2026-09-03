@@ -52,11 +52,42 @@ Each collection tile also draws a mosaic of covers borrowed from the media list 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `buildRecentlyAdded` in `mobile/app/(tabs)/inbox.tsx` takes only the media list and the pending shares, and no code path builds a `kind: "collection"` tile for the "Recently added" row
-- [ ] #2 The row still puts the pending shares at the head, then the media newest-first on `created_at`, capped at `RECENTLY_ADDED_LIMIT`
-- [ ] #3 `indexCoversByCollection` and `MAX_COLLECTION_PREVIEWS` are deleted from `inbox.tsx` and no reference to either remains in `mobile/`
-- [ ] #4 `Collection.created_at` is deleted from `mobile/src/types/organization.ts` and from `toCollection` in `mobile/src/services/organizationService.ts`, while `FolderResponse.created_at` is left as is
-- [ ] #5 `useHomeSections` still fetches the collections and the unsorted review button still reads `media_count` off them; the hook's doc comment no longer says they feed "Recently added"
-- [ ] #6 The `collection` variant of `HomeTileItem`, its renderer in `mobile/src/components/HomeTile.tsx` and the `collection` branch of `handleTilePress` are unchanged, and no file under `media_summarizer/` is modified
-- [ ] #7 `npm run lint` and `npm run typecheck` are clean in `mobile/`
+- [x] #1 `buildRecentlyAdded` in `mobile/app/(tabs)/inbox.tsx` takes only the media list and the pending shares, and no code path builds a `kind: "collection"` tile for the "Recently added" row
+- [x] #2 The row still puts the pending shares at the head, then the media newest-first on `created_at`, capped at `RECENTLY_ADDED_LIMIT`
+- [x] #3 `indexCoversByCollection` and `MAX_COLLECTION_PREVIEWS` are deleted from `inbox.tsx` and no reference to either remains in `mobile/`
+- [x] #4 `Collection.created_at` is deleted from `mobile/src/types/organization.ts` and from `toCollection` in `mobile/src/services/organizationService.ts`, while `FolderResponse.created_at` is left as is
+- [x] #5 `useHomeSections` still fetches the collections and the unsorted review button still reads `media_count` off them; the hook's doc comment no longer says they feed "Recently added"
+- [x] #6 The `collection` variant of `HomeTileItem`, its renderer in `mobile/src/components/HomeTile.tsx` and the `collection` branch of `handleTilePress` are unchanged, and no file under `media_summarizer/` is modified
+- [x] #7 `npm run lint` and `npm run typecheck` are clean in `mobile/`
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`buildRecentlyAdded` is now `(media, pending)`. The pending tiles keep the head
+position, the media are mapped, sorted desc on `toTimestamp(created_at)` and the
+concatenation is sliced at `RECENTLY_ADDED_LIMIT` — the two-source `dated` array
+became a single chained map/sort/map over the media list, since only one kind of
+tile is dated now. `toTimestamp` stays, it is what that sort reads.
+
+Deleted in the same run: `indexCoversByCollection`, `MAX_COLLECTION_PREVIEWS`,
+the `collections` argument and its `useMemo` dependency, the `Collection` type
+import in `inbox.tsx` (nothing else in the file named the type), `Collection.created_at`
+and the line filling it in `toCollection`. `FolderResponse.created_at` is
+untouched: it declares the `GET /api/folders` payload. A grep over `mobile/` for
+`created_at` confirms `inbox.tsx` held the only read of the collection field, and
+`toCollection` is the only place a `Collection` is constructed, so removing the
+field breaks no literal.
+
+Comments corrected rather than left lying: the `buildRecentlyAdded` header, the
+screen header paragraph on the two sources (it now says `useHomeSections` brings
+the engagement row and the collections behind the unsorted count, not a row of
+tiles), and both `collections` doc blocks in `useHomeSections.ts`. `HomeTile.tsx`
+is untouched — its "one component for both rows alike" and its fixed-height
+rationale mentioning a collection tile beside a media tile both stay true, since
+"Continue learning" still mixes the two kinds.
+
+Not verified here, by construction: the visual check on a dev build (owner note
+in the description) and the Maestro flow. Nothing under `media_summarizer/` was
+modified, and no automated test was added.
+<!-- SECTION:NOTES:END -->

@@ -46,7 +46,6 @@ import {
 import { HOME_BLOCK_GAP } from "../../src/constants/homeRhythm";
 import type { MediaListItem, MediaType } from "../../src/types/media";
 import type { RecentEngagement } from "../../src/types/engagements";
-import type { Collection } from "../../src/types/organization";
 
 /**
  * Home screen — the unsorted review entry point and two horizontal
@@ -62,11 +61,11 @@ import type { Collection } from "../../src/types/organization";
  * held by the entry into the triage of the default collection, which is the one
  * thing on this screen with a backlog behind it.
  *
- * Two sources feed it and each fails alone: the media list comes from
- * `useMediaPolling`, the engagement row and the collections from
- * `useHomeSections`. Only the very first media fetch may show a full-screen
- * spinner; no row ever shows one, because a row with nothing to say is simply
- * absent.
+ * Two sources feed it and each fails alone: "Recently added" comes from the
+ * media list `useMediaPolling` holds, while `useHomeSections` brings the
+ * engagement row and the collections behind the unsorted count. Only the very
+ * first media fetch may show a full-screen spinner; no row ever shows one,
+ * because a row with nothing to say is simply absent.
  *
  * Also hosts the ingestion gestures (task-264): a camera button that shoots
  * straight away, and an "add" button opening the choice between a file and a
@@ -80,9 +79,6 @@ import type { Collection } from "../../src/types/organization";
  * extra tile is a cover to fetch on a screen that already has two rows.
  */
 const RECENTLY_ADDED_LIMIT = 12;
-
-/** Covers borrowed from a collection's members to draw its mosaic. */
-const MAX_COLLECTION_PREVIEWS = 4;
 
 export default function InboxScreen() {
   // The screen's copy is resolved on render, so it redraws with the language.
@@ -177,8 +173,8 @@ export default function InboxScreen() {
   );
 
   const recentTiles = useMemo(
-    () => buildRecentlyAdded(items, collections, pendingLocalItems),
-    [items, collections, pendingLocalItems],
+    () => buildRecentlyAdded(items, pendingLocalItems),
+    [items, pendingLocalItems],
   );
 
   /**
@@ -463,21 +459,20 @@ function toEngagementTile(entry: RecentEngagement): HomeTileItem {
 }
 
 /**
- * "Recently added": the newest saves and the newest collections in one row.
+ * "Recently added": what just arrived to read, and nothing else.
  *
  * Pending shares come first whatever their age — they are what the user just
  * did, and keeping them at the head is what makes a share visible on return from
  * the confirmation screen while the backend catches up.
  *
- * Media and collections are then interleaved on their own timestamps
- * (`created_at` on both sides) and the whole thing is capped. A collection's
- * mosaic borrows covers from the media list already in hand rather than issuing
- * one request per collection: the row is a decoration, and a decoration does not
- * get to multiply round trips.
+ * The media follow, newest-first on `created_at`, and the whole row is capped.
+ * Collections do not appear here (task-348): a folder is not something that just
+ * arrived to read, and one created from the confirmation screen used to double
+ * every filed save into two tiles. They keep their place in "Continue learning",
+ * where picking a reading back up is the point.
  */
 function buildRecentlyAdded(
   media: MediaListItem[],
-  collections: Collection[],
   pending: InboxItem[],
 ): HomeTileItem[] {
   const pendingTiles: HomeTileItem[] = pending.map((local) => ({
@@ -488,14 +483,11 @@ function buildRecentlyAdded(
     failed: local.state === "failed",
   }));
 
-  const coversByCollection = indexCoversByCollection(media);
-  const dated: { at: number; tile: HomeTileItem }[] = [];
-
-  for (const item of media) {
-    dated.push({
+  const mediaTiles = media
+    .map((item) => ({
       at: toTimestamp(item.created_at),
       tile: {
-        kind: "media",
+        kind: "media" as const,
         id: item.media_item_id,
         title: item.title ?? null,
         creator: item.creator_name ?? null,
@@ -503,52 +495,11 @@ function buildRecentlyAdded(
         cacheKey: `${item.media_item_id}:${item.updated_at}`,
         mediaType: (item.media_type ?? "unknown") as MediaType,
       },
-    });
-  }
+    }))
+    .sort((a, b) => b.at - a.at)
+    .map((entry) => entry.tile);
 
-  for (const collection of collections) {
-    dated.push({
-      at: toTimestamp(collection.created_at),
-      tile: {
-        kind: "collection",
-        id: collection.id,
-        name: collection.name,
-        itemCount: collection.media_count,
-        previewImages: coversByCollection.get(collection.id) ?? [],
-      },
-    });
-  }
-
-  dated.sort((a, b) => b.at - a.at);
-
-  return [...pendingTiles, ...dated.map((entry) => entry.tile)].slice(
-    0,
-    RECENTLY_ADDED_LIMIT,
-  );
-}
-
-/**
- * Up to four member covers per collection, taken from the media list the screen
- * already holds — one pass over it rather than one scan per collection.
- *
- * Best-effort by construction: the list endpoint is capped, so a collection
- * whose members all fall outside it draws the accent surface instead, which is a
- * designed state and not a degraded one. The media list arrives newest-first, so
- * the covers kept are the collection's newest.
- */
-function indexCoversByCollection(media: MediaListItem[]): Map<string, string[]> {
-  const byCollection = new Map<string, string[]>();
-  for (const item of media) {
-    const collectionId = item.folder_id;
-    if (!collectionId) continue;
-    const cover = item.media_image?.trim();
-    if (!cover) continue;
-    const covers = byCollection.get(collectionId) ?? [];
-    if (covers.length >= MAX_COLLECTION_PREVIEWS) continue;
-    covers.push(cover);
-    byCollection.set(collectionId, covers);
-  }
-  return byCollection;
+  return [...pendingTiles, ...mediaTiles].slice(0, RECENTLY_ADDED_LIMIT);
 }
 
 function toTimestamp(value?: string | null): number {

@@ -62,7 +62,6 @@ function toCollection(folder: FolderResponse): Collection {
     parent_id: folder.parent_folder_id ?? null,
     parent_folder_id: folder.parent_folder_id ?? null,
     is_default: folder.is_default,
-    created_at: folder.created_at,
     updated_at: folder.updated_at,
     media_count: folder.media_count ?? 0,
   };
