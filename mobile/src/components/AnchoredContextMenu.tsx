@@ -1,14 +1,21 @@
 /**
- * What a long press on a media vignette opens: a context menu anchored to the
- * row that was pressed, on the shape of the iOS Files menu.
+ * What a long press on something in Library opens: a context menu anchored to
+ * the thing that was pressed, on the shape of the iOS Files menu.
  *
- * The row is measured with `measureInWindow` at long-press time and the rect is
- * handed here, which is what makes the menu *anchored* rather than pinned to the
- * bottom edge: the card is placed just under the vignette, or just above it when
- * the vignette sits too low for the card to fit underneath. A copy of the row is
+ * The pressed view is measured with `measureInWindow` at long-press time and the
+ * rect is handed here, which is what makes the menu *anchored* rather than pinned
+ * to the bottom edge: the card is placed just under the view, or just above it
+ * when the view sits too low for the card to fit underneath. A copy of the view is
  * redrawn at that rect, slightly enlarged, above the blurred backdrop — so the
- * pressed item and the menu are the only sharp things on screen and the gesture
+ * pressed thing and the menu are the only sharp things on screen and the gesture
  * visibly names its target.
+ *
+ * One component for every target, and deliberately so: a media row offers Move,
+ * Rename and Delete, a collection tile offers Rename and Delete, and a second
+ * file re-implementing the backdrop, the lifted preview and the up/down geometry
+ * for the second of those is exactly what this generalization avoids. The target
+ * is therefore a type parameter and the rows are data — an ordered list of
+ * actions, from which the card's height is derived.
  *
  * Rebuilt in JS on purpose (task-346). A system `UIMenu` cannot be styled, and
  * the ready-made shape fails on two counts beyond that. `Link.Menu` and
@@ -19,11 +26,12 @@
  * needs no gesture library either: it is one scale-and-fade with no continuous
  * gesture, which the `Animated` API of React Native core does.
  *
- * The orchestration — which media is targeted, the destructive confirmation, the
- * network calls — belongs to `useMediaActions`; this file is the surface only.
+ * The orchestration — which thing is targeted, the destructive confirmation, the
+ * network calls — belongs to `useMediaActions` / `useCollectionActions`; this file
+ * is the surface only.
  */
 
-import { useEffect, useMemo, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -48,12 +56,11 @@ import {
 } from "../constants/theme";
 import { t } from "../i18n";
 import { GlassSurface } from "./GlassSurface";
-import type { MediaListItem } from "../types/media";
 
 /**
- * Window-space rectangle of the pressed row, straight out of
+ * Window-space rectangle of the pressed view, straight out of
  * `measureInWindow`. The menu is placed against it and the lifted copy of the
- * row is drawn on it, so both come from one measurement.
+ * view is drawn on it, so both come from one measurement.
  */
 export interface AnchorRect {
   x: number;
@@ -62,23 +69,55 @@ export interface AnchorRect {
   height: number;
 }
 
-export interface MediaContextMenuProps {
+/** One line of the menu, as the hook that owns the behaviour declares it. */
+export interface ContextMenuAction {
+  /** Stable identity of the row, for its React key. */
+  key: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  /**
+   * Tinted `Colors.error`, and preceded by the card's one hairline.
+   *
+   * The divider is derived from this rather than declared a second time: its
+   * whole job is to separate the destructive action from the reversible ones, so
+   * a menu cannot end up with a line in a place that means nothing.
+   */
+  destructive?: boolean;
+  /** Spinner in place of the glyph: this row's own call is in flight. */
+  isBusy?: boolean;
+  /**
+   * The menu fades out first and the action runs one frame later.
+   *
+   * What a row that opens something else needs — the collection picker is pushed
+   * on the navigator, the rename dialog is another modal — because a modal still
+   * up sits over whatever appears underneath it. The destructive row sets this
+   * false: it owns the menu while its confirmation and its spinner are on screen.
+   */
+  closesMenu: boolean;
+  testID: string;
+}
+
+export interface AnchoredContextMenuProps<T> {
   visible: boolean;
-  /** The media the long press landed on; `null` before any press. */
-  item: MediaListItem | null;
-  /** Where that row sits on screen, measured when the press was recognised. */
+  /** The thing the long press landed on; `null` before any press. */
+  target: T | null;
+  /** Where that view sits on screen, measured when the press was recognised. */
   anchor: AnchorRect | null;
   /**
-   * Redraws the pressed row for the copy lifted above the blur.
+   * Redraws the pressed view for the copy lifted above the blur.
    *
-   * The surface supplies it because only it knows what its rows look like — the
-   * library list and the sources list of a collection do not share a component.
-   * The redrawn row must carry no outer margin: it is laid out on the measured
-   * rect, and `measureInWindow` reports a box margins are already outside of.
+   * The surface supplies it because only it knows what its rows and tiles look
+   * like — the library list, the collections grid and the sources list of a
+   * collection do not share a component. The redrawn view must carry no outer
+   * margin: it is laid out on the measured rect, and `measureInWindow` reports a
+   * box margins are already outside of.
    */
-  renderPreview: (item: MediaListItem) => ReactNode;
-  /** A deletion is in flight: the rows are inert and Delete shows a spinner. */
-  isDeleting: boolean;
+  renderPreview: (target: T) => ReactNode;
+  /** The rows, top to bottom. Two or three today; the card sizes itself. */
+  actions: readonly ContextMenuAction[];
+  /** A call is in flight: every row is inert until it answers. */
+  isBusy: boolean;
   /**
    * The menu has finished dismissing and `visible` can go false.
    *
@@ -86,9 +125,8 @@ export interface MediaContextMenuProps {
    * menu needs to stay mounted while it fades.
    */
   onClose: () => void;
-  onMove: () => void;
-  onRename: () => void;
-  onDelete: () => void;
+  /** Names the card and its backdrop for a flow, e.g. `media-actions`. */
+  testIDPrefix: string;
 }
 
 /** Wide enough for the longest label in any catalogue, narrow like the iOS one. */
@@ -96,20 +134,11 @@ const MENU_WIDTH = 240;
 const ROW_HEIGHT = TouchTarget.minimum;
 const CARD_PADDING_VERTICAL = Spacing.xs;
 
-/**
- * Known before layout, and exactly — every row is a fixed `ROW_HEIGHT` and the
- * card has no other content. The up/down decision has to be made in the same
- * frame the menu appears, so measuring the card first (and flipping it after)
- * would show the menu in the wrong place for one frame.
- */
-const MENU_HEIGHT =
-  ROW_HEIGHT * 3 + CARD_PADDING_VERTICAL * 2 + StyleSheet.hairlineWidth;
-
-/** Breathing room between the lifted vignette and the card. */
+/** Breathing room between the lifted view and the card. */
 const MENU_GAP = Spacing.sm;
 /** Smallest distance the card keeps from any screen edge. */
 const SCREEN_EDGE = Spacing.md;
-/** How much the pressed row grows as it lifts. Enough to read, not a jump. */
+/** How much the pressed view grows as it lifts. Enough to read, not a jump. */
 const PREVIEW_SCALE = 1.04;
 
 /**
@@ -129,23 +158,41 @@ const CARD_MIN_OPACITY = 0.05;
 const OPEN_DURATION = 160;
 const CLOSE_DURATION = 120;
 
-export function MediaContextMenu({
+/**
+ * Exactly how tall the card will be, known before it is laid out.
+ *
+ * Every row is a fixed `ROW_HEIGHT` and the card holds nothing else, so the
+ * height is a sum rather than a measurement — which it has to be: the up/down
+ * decision is made in the same frame the menu appears, and measuring the card
+ * first would show it in the wrong place for one frame.
+ */
+function measureCard(actions: readonly ContextMenuAction[]): number {
+  const dividers = actions.filter(
+    (action, index) => action.destructive === true && index > 0,
+  ).length;
+  return (
+    ROW_HEIGHT * actions.length +
+    CARD_PADDING_VERTICAL * 2 +
+    StyleSheet.hairlineWidth * dividers
+  );
+}
+
+export function AnchoredContextMenu<T>({
   visible,
-  item,
+  target,
   anchor,
   renderPreview,
-  isDeleting,
+  actions,
+  isBusy,
   onClose,
-  onMove,
-  onRename,
-  onDelete,
-}: MediaContextMenuProps): React.JSX.Element | null {
+  testIDPrefix,
+}: AnchoredContextMenuProps<T>): React.JSX.Element | null {
   const insets = useSafeAreaInsets();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   // One value drives the whole appearance: the backdrop opacity, the lift of the
-  // vignette and the scale of the card. Not a ref — it is created once and read
-  // during render, which is what `useMemo` is for.
+  // pressed view and the scale of the card. Not a ref — it is created once and
+  // read during render, which is what `useMemo` is for.
   const progress = useMemo(() => new Animated.Value(0), []);
 
   // Reset before playing: a menu closed by its own exit ends at 0, but one the
@@ -161,22 +208,24 @@ export function MediaContextMenu({
     }).start();
   }, [visible, progress]);
 
-  if (!visible || !item || !anchor) return null;
+  if (!visible || target === null || !anchor) return null;
 
-  // Downwards whenever the card fits under the vignette, upwards otherwise: a
-  // row near the end of a list must not push the menu off screen.
+  const menuHeight = measureCard(actions);
+
+  // Downwards whenever the card fits under the pressed view, upwards otherwise:
+  // a row near the end of a list must not push the menu off screen.
   const roomBelow = screenHeight - insets.bottom - SCREEN_EDGE;
-  const opensDown = anchor.y + anchor.height + MENU_GAP + MENU_HEIGHT <= roomBelow;
+  const opensDown = anchor.y + anchor.height + MENU_GAP + menuHeight <= roomBelow;
   const preferredTop = opensDown
     ? anchor.y + anchor.height + MENU_GAP
-    : anchor.y - MENU_GAP - MENU_HEIGHT;
+    : anchor.y - MENU_GAP - menuHeight;
   const top = clamp(
     preferredTop,
     insets.top + SCREEN_EDGE,
-    Math.max(insets.top + SCREEN_EDGE, roomBelow - MENU_HEIGHT),
+    Math.max(insets.top + SCREEN_EDGE, roomBelow - menuHeight),
   );
-  // Left-aligned on the vignette, like the Files menu, then held inside the
-  // gutters so a row that starts near the right edge does not push it out.
+  // Left-aligned on the pressed view, like the Files menu, then held inside the
+  // gutters so a tile that starts near the right edge does not push it out.
   const left = clamp(anchor.x, SCREEN_EDGE, screenWidth - SCREEN_EDGE - MENU_WIDTH);
 
   const previewScale = progress.interpolate({
@@ -202,16 +251,14 @@ export function MediaContextMenu({
    * is what makes the fade-out possible without a second piece of state tracking
    * whether the modal is still on screen.
    *
-   * Move and Rename both open something else (the collection picker is pushed on
-   * the navigator, the rename dialog is another modal) and a modal still up sits
-   * over whatever appears underneath it. So the action waits one frame past the
-   * close, by which time the unmount has been committed. One code path on both
-   * platforms, unlike waiting on iOS's `onDismiss`, which Android never fires.
+   * A row that opens something else waits one frame past the close, by which time
+   * the unmount has been committed. One code path on both platforms, unlike
+   * waiting on iOS's `onDismiss`, which Android never fires.
    */
   const requestClose = (action?: () => void) => {
-    // A deletion in flight owns the menu: hiding it would strand the spinner and
-    // leave the user unsure whether the call went out.
-    if (isDeleting) return;
+    // A call in flight owns the menu: hiding it would strand the spinner and
+    // leave the user unsure whether the request went out.
+    if (isBusy) return;
     Animated.timing(progress, {
       toValue: 0,
       duration: CLOSE_DURATION,
@@ -228,8 +275,8 @@ export function MediaContextMenu({
     <Modal
       visible
       transparent
-      // The appearance is animated here, anchored to the vignette; the platform
-      // transitions would slide or fade the whole screen instead.
+      // The appearance is animated here, anchored to the pressed view; the
+      // platform transitions would slide or fade the whole screen instead.
       animationType="none"
       statusBarTranslucent
       onRequestClose={() => requestClose()}
@@ -266,10 +313,10 @@ export function MediaContextMenu({
           onPress={() => requestClose()}
           accessibilityLabel={t("common.dismiss")}
           accessibilityRole="button"
-          testID="media-actions-backdrop"
+          testID={`${testIDPrefix}-backdrop`}
         />
 
-        {/* The pressed row, redrawn on its own rect and lifted. Inert: a tap on
+        {/* The pressed view, redrawn on its own rect and lifted. Inert: a tap on
             it is a tap on the backdrop, which is what dismisses the menu. */}
         <Animated.View
           pointerEvents="none"
@@ -284,7 +331,7 @@ export function MediaContextMenu({
             },
           ]}
         >
-          {renderPreview(item)}
+          {renderPreview(target)}
         </Animated.View>
 
         <Animated.View
@@ -298,35 +345,31 @@ export function MediaContextMenu({
               transformOrigin: opensDown ? "top left" : "bottom left",
             },
           ]}
-          testID="media-actions-menu"
+          testID={`${testIDPrefix}-menu`}
         >
           <GlassSurface style={styles.card}>
-            <MenuRow
-              icon="folder-outline"
-              label={t("mediaActions.move.label")}
-              onPress={() => requestClose(onMove)}
-              disabled={isDeleting}
-              testID="media-actions-move"
-            />
-            <MenuRow
-              icon="pencil-outline"
-              label={t("mediaActions.rename.label")}
-              onPress={() => requestClose(onRename)}
-              disabled={isDeleting}
-              testID="media-actions-rename"
-            />
-            {/* The one line in the card, and the only thing separating the
-                destructive action from the reversible ones. */}
-            <View style={styles.divider} />
-            <MenuRow
-              icon="trash-outline"
-              label={t("mediaActions.delete.label")}
-              onPress={onDelete}
-              disabled={isDeleting}
-              isBusy={isDeleting}
-              destructive
-              testID="media-actions-delete"
-            />
+            {actions.map((action, index) => (
+              <Fragment key={action.key}>
+                {/* The one line in the card, and the only thing separating the
+                    destructive action from the reversible ones. */}
+                {action.destructive && index > 0 ? (
+                  <View style={styles.divider} />
+                ) : null}
+                <MenuRow
+                  icon={action.icon}
+                  label={action.label}
+                  onPress={
+                    action.closesMenu
+                      ? () => requestClose(action.onPress)
+                      : action.onPress
+                  }
+                  disabled={isBusy}
+                  isBusy={action.isBusy}
+                  destructive={action.destructive}
+                  testID={action.testID}
+                />
+              </Fragment>
+            ))}
           </GlassSurface>
         </Animated.View>
       </View>
@@ -337,9 +380,8 @@ export function MediaContextMenu({
 /**
  * One line of the menu: a glyph, a label, nothing else.
  *
- * No description, no circled icon, no chevron — none of the three actions opens
- * a submenu, and the compactness is what makes this read as a context menu
- * rather than a sheet.
+ * No description, no circled icon, no chevron — no action opens a submenu, and
+ * the compactness is what makes this read as a context menu rather than a sheet.
  */
 function MenuRow({
   icon,

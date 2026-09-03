@@ -41,6 +41,21 @@ interface FolderListResponse {
   folders: FolderResponse[];
 }
 
+interface FolderDeleteResponse {
+  deleted_folders: number;
+  moved_media_count: number;
+  default_folder_id: string;
+}
+
+/** What deleting a collection actually did, in the vocabulary of the UI. */
+export interface CollectionDeletion {
+  /** The collection itself plus every sub-collection under it. */
+  deleted_collections: number;
+  /** Items reassigned to the default collection. None were deleted. */
+  moved_media_count: number;
+  default_collection_id: string;
+}
+
 function toTag(tag: TagListResponse["tags"][number]): Tag {
   return {
     id: tag.id,
@@ -188,5 +203,52 @@ export class OrganizationService {
       body: { name, parent_folder_id: parentId ?? null },
     });
     return toCollection(response);
+  }
+
+  /**
+   * Rename a collection, and only rename it.
+   *
+   * The body carries `name` alone on purpose: `PUT /api/folders/:id` decides
+   * whether to reparent by looking at whether `parent_folder_id` is *present* in
+   * the JSON (`payload.model_fields_set`), so sending it as `null` would move the
+   * collection to the root as a side effect of a rename.
+   *
+   * PUT /api/folders/:id
+   */
+  static async renameCollection(
+    collectionId: string,
+    name: string,
+  ): Promise<Collection> {
+    const response = await apiRequest<FolderResponse>(
+      `/api/folders/${encodeURIComponent(collectionId)}`,
+      {
+        method: "PUT",
+        body: { name },
+      },
+    );
+    return toCollection(response);
+  }
+
+  /**
+   * Delete a collection and its sub-collections.
+   *
+   * No media is destroyed: the backend reassigns every item of the deleted
+   * subtree to the default collection first, and answers with how many folders
+   * went and how many items moved.
+   *
+   * DELETE /api/folders/:id
+   */
+  static async deleteCollection(
+    collectionId: string,
+  ): Promise<CollectionDeletion> {
+    const response = await apiRequest<FolderDeleteResponse>(
+      `/api/folders/${encodeURIComponent(collectionId)}`,
+      { method: "DELETE" },
+    );
+    return {
+      deleted_collections: response.deleted_folders,
+      moved_media_count: response.moved_media_count,
+      default_collection_id: response.default_folder_id,
+    };
   }
 }

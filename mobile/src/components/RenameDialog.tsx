@@ -1,16 +1,21 @@
 /**
- * Where a rename is typed: one field, prefilled with the title the media has
- * now, and the two answers a naming prompt can get.
+ * Where a rename is typed: one field, prefilled with the name the thing has now,
+ * and the two answers a naming prompt can get.
  *
- * A centred dialog rather than a full screen. The rename is a one-field edit
+ * A centred dialog rather than a full screen. A rename is a one-field edit
  * reached from a context menu, and pushing a route for it would take the user
  * away from the list they were filing — the list stays visible behind the scrim,
  * which is what makes the new name land somewhere recognisable.
  *
+ * One dialog for every target. A media title and a collection name differ in
+ * three things and nothing else: the heading, the placeholder and the ceiling the
+ * field stops at (120 for a title, 255 for a collection name), so all three are
+ * props and there is no second copy of this card.
+ *
  * A failure is reported *inside* the dialog rather than through an alert: the
  * field keeps what was typed, so retrying is one tap and nothing has to be
- * typed twice. The message is handed down already translated by
- * `useMediaActions`, which owns the call.
+ * typed twice. The message is handed down already translated by the hook that
+ * owns the call.
  */
 
 import {
@@ -34,40 +39,47 @@ import {
 } from "../constants/theme";
 import { t } from "../i18n";
 
-/**
- * The server's own ceiling (`MAX_TITLE_LENGTH` in
- * `media_summarizer/core/media_ingestion/title_derivation.py`), mirrored here so
- * the field stops accepting characters the `PATCH` would reject.
- */
-const MAX_TITLE_LENGTH = 120;
-
-export interface MediaRenameDialogProps {
+export interface RenameDialogProps {
   visible: boolean;
+  /** Names what is being renamed, e.g. `Rename this collection`. */
+  heading: string;
+  placeholder: string;
   /**
-   * What the field shows. Held by `useMediaActions`, which seeds it with the
-   * media's current title when the dialog is opened — so every opening starts
-   * from the stored name rather than from a draft left over from a cancelled
-   * rename, and no state here has to be resynchronised behind the props.
+   * The server's own ceiling for this kind of name, so the field stops accepting
+   * characters the write would reject.
+   */
+  maxLength: number;
+  /**
+   * What the field shows. Held by the hook, which seeds it with the current name
+   * when the dialog is opened — so every opening starts from the stored name
+   * rather than from a draft left over from a cancelled rename, and no state here
+   * has to be resynchronised behind the props.
    */
   value: string;
   onChangeText: (value: string) => void;
-  /** The `PATCH` is in flight: the field is locked and Save shows a spinner. */
+  /** The write is in flight: the field is locked and Save shows a spinner. */
   isSaving: boolean;
   /** Translated failure of the last attempt, or `null`. */
   errorMessage: string | null;
   onClose: () => void;
-  onSubmit: (title: string) => void;
+  onSubmit: (name: string) => void;
+  /** Names the dialog and its controls for a flow, e.g. `media-rename`. */
+  testIDPrefix: string;
 }
 
-export function MediaRenameDialog({
+export function RenameDialog({
   visible,
+  heading,
+  placeholder,
+  maxLength,
   value,
   onChangeText,
   isSaving,
   errorMessage,
   onClose,
   onSubmit,
-}: MediaRenameDialogProps): React.JSX.Element {
+  testIDPrefix,
+}: RenameDialogProps): React.JSX.Element {
   const trimmed = value.trim();
   const canSubmit = trimmed.length > 0 && !isSaving;
 
@@ -101,27 +113,27 @@ export function MediaRenameDialog({
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           pointerEvents="box-none"
         >
-          <View style={styles.card} testID="media-rename-dialog">
-            <Text style={styles.title}>{t("mediaActions.rename.title")}</Text>
+          <View style={styles.card} testID={`${testIDPrefix}-dialog`}>
+            <Text style={styles.title}>{heading}</Text>
 
             <TextInput
               style={styles.input}
               value={value}
               onChangeText={onChangeText}
-              placeholder={t("mediaActions.rename.placeholder")}
+              placeholder={placeholder}
               placeholderTextColor={Colors.textMuted}
               autoFocus
               selectTextOnFocus
               editable={!isSaving}
-              maxLength={MAX_TITLE_LENGTH}
+              maxLength={maxLength}
               returnKeyType="done"
               onSubmitEditing={handleSubmit}
-              accessibilityLabel={t("mediaActions.rename.title")}
-              testID="media-rename-input"
+              accessibilityLabel={heading}
+              testID={`${testIDPrefix}-input`}
             />
 
             {errorMessage ? (
-              <Text style={styles.error} testID="media-rename-error">
+              <Text style={styles.error} testID={`${testIDPrefix}-error`}>
                 {errorMessage}
               </Text>
             ) : null}
@@ -136,7 +148,7 @@ export function MediaRenameDialog({
                 disabled={isSaving}
                 accessibilityLabel={t("common.cancel")}
                 accessibilityRole="button"
-                testID="media-rename-cancel"
+                testID={`${testIDPrefix}-cancel`}
               >
                 <Text style={styles.secondaryLabel}>{t("common.cancel")}</Text>
               </Pressable>
@@ -152,7 +164,7 @@ export function MediaRenameDialog({
                 accessibilityLabel={t("common.save")}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: !canSubmit }}
-                testID="media-rename-save"
+                testID={`${testIDPrefix}-save`}
               >
                 {isSaving ? (
                   <ActivityIndicator size="small" color={Colors.onPrimary} />

@@ -10,6 +10,9 @@
  * alone knows: how to drop a row from the list it holds, and how to put a new
  * title on one.
  *
+ * `useCollectionActions` is the sibling of this hook for a collection tile, and
+ * both feed the same `AnchoredContextMenu` and the same `RenameDialog`.
+ *
  * Moving is delegated whole to the existing `/media/collection` picker: it takes
  * `mediaItemId` / `currentCollectionId`, creates a collection on the fly, and
  * issues the `PATCH /api/media/:id` itself. Both callers refetch on focus, so
@@ -26,10 +29,17 @@ import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 import { t } from "../i18n";
 import type { MediaListItem } from "../types/media";
 import type {
+  AnchoredContextMenuProps,
   AnchorRect,
-  MediaContextMenuProps,
-} from "../components/MediaContextMenu";
-import type { MediaRenameDialogProps } from "../components/MediaRenameDialog";
+} from "../components/AnchoredContextMenu";
+import type { RenameDialogProps } from "../components/RenameDialog";
+
+/**
+ * The server's own ceiling (`MAX_TITLE_LENGTH` in
+ * `media_summarizer/core/media_ingestion/title_derivation.py`), mirrored here so
+ * the field stops accepting characters the `PATCH` would reject.
+ */
+const MAX_TITLE_LENGTH = 120;
 
 /** The one media the open menu is about. */
 interface MediaActionTarget {
@@ -42,7 +52,10 @@ interface MediaActionTarget {
 }
 
 /** What the surfaces spread onto the menu, minus what only they can answer. */
-type MenuProps = Omit<MediaContextMenuProps, "renderPreview">;
+type MenuProps = Omit<
+  AnchoredContextMenuProps<MediaListItem>,
+  "renderPreview"
+>;
 
 export interface MediaActionsController {
   /**
@@ -50,10 +63,10 @@ export interface MediaActionsController {
    * row that was pressed — the menu is anchored to it.
    */
   open: (item: MediaListItem, anchor: AnchorRect) => void;
-  /** Spread onto `<MediaContextMenu />`, alongside a `renderPreview`. */
+  /** Spread onto `<AnchoredContextMenu />`, alongside a `renderPreview`. */
   menuProps: MenuProps;
-  /** Spread onto `<MediaRenameDialog />`. */
-  renameProps: MediaRenameDialogProps;
+  /** Spread onto `<RenameDialog />`. */
+  renameProps: RenameDialogProps;
 }
 
 export function useMediaActions(options: {
@@ -243,22 +256,53 @@ export function useMediaActions(options: {
     open,
     menuProps: {
       visible: isMenuVisible,
-      item: target?.item ?? null,
+      target: target?.item ?? null,
       anchor,
-      isDeleting,
+      actions: [
+        {
+          key: "move",
+          icon: "folder-outline",
+          label: t("mediaActions.move.label"),
+          onPress: handleMove,
+          closesMenu: true,
+          testID: "media-actions-move",
+        },
+        {
+          key: "rename",
+          icon: "pencil-outline",
+          label: t("mediaActions.rename.label"),
+          onPress: handleRename,
+          closesMenu: true,
+          testID: "media-actions-rename",
+        },
+        {
+          key: "delete",
+          icon: "trash-outline",
+          label: t("mediaActions.delete.label"),
+          onPress: handleDelete,
+          destructive: true,
+          isBusy: isDeleting,
+          // The confirmation and the spinner both live in the menu, so it stays.
+          closesMenu: false,
+          testID: "media-actions-delete",
+        },
+      ],
+      isBusy: isDeleting,
       onClose: closeMenu,
-      onMove: handleMove,
-      onRename: handleRename,
-      onDelete: handleDelete,
+      testIDPrefix: "media-actions",
     },
     renameProps: {
       visible: isRenameVisible,
+      heading: t("mediaActions.rename.title"),
+      placeholder: t("mediaActions.rename.placeholder"),
+      maxLength: MAX_TITLE_LENGTH,
       value: renameDraft,
       onChangeText: changeRenameDraft,
       isSaving: isRenaming,
       errorMessage: renameError,
       onClose: closeRename,
       onSubmit: submitRename,
+      testIDPrefix: "media-rename",
     },
   };
 }

@@ -65,6 +65,23 @@ export const ar: Catalog = {
     "سيُزال «{title}» من مكتبتك، ولا يمكن التراجع عن ذلك.",
   "mediaActions.deleteFailed":
     "لم يتم حذف هذا المصدر. ما زال موجودًا في مكتبتك.",
+  "collectionActions.longPressHint":
+    "انقر نقرًا مزدوجًا مع الاستمرار لإعادة تسمية هذه المجموعة أو حذفها",
+  "collectionActions.rename.label": "إعادة تسمية",
+  "collectionActions.delete.label": "حذف",
+  "collectionActions.rename.title": "إعادة تسمية هذه المجموعة",
+  "collectionActions.rename.placeholder": "اسم المجموعة",
+  "collectionActions.renameFailed":
+    "لم تتم إعادة تسمية هذه المجموعة. اسمها لم يتغيّر.",
+  "collectionActions.deleteTitle": "حذف هذه المجموعة؟",
+  "collectionActions.deleteBody":
+    "سيتم حذف «{name}». كل المصادر الموجودة داخلها ستنتقل إلى {unsorted}، ولن يُحذف أي منها.",
+  "collectionActions.deleteSubCollections.one":
+    "ستُحذف أيضًا مجموعتها الفرعية، وستنتقل المصادر الموجودة داخلها إلى {unsorted} كذلك.",
+  "collectionActions.deleteSubCollections.other":
+    "ستُحذف أيضًا {count} مجموعة فرعية، وستنتقل المصادر الموجودة داخلها إلى {unsorted} كذلك.",
+  "collectionActions.deleteFailed":
+    "لم يتم حذف هذه المجموعة. ما زالت موجودة في مكتبتك.",
   "addSource.title": "إضافة إلى صندوق الوارد",
   "addSource.importFile.label": "استيراد ملف",
   "addSource.importFile.description": "ملف PDF أو مستند Office أو صورة أو ملف صوتي من هاتفك.",
@@ -651,4 +668,10 @@ export const ar: Catalog = {
   "artifact.cardCount.two": "بطاقتان",
   "artifact.cardCount.few": "{count} بطاقات",
   "artifact.cardCount.many": "{count} بطاقة",
+  "collectionActions.deleteSubCollections.two":
+    "ستُحذف أيضًا مجموعتان فرعيتان، وستنتقل المصادر الموجودة داخلهما إلى {unsorted} كذلك.",
+  "collectionActions.deleteSubCollections.few":
+    "ستُحذف أيضًا {count} مجموعات فرعية، وستنتقل المصادر الموجودة داخلها إلى {unsorted} كذلك.",
+  "collectionActions.deleteSubCollections.many":
+    "ستُحذف أيضًا {count} مجموعة فرعية، وستنتقل المصادر الموجودة داخلها إلى {unsorted} كذلك.",
 };

@@ -69,6 +69,23 @@ export const de: Catalog = {
     "„{title}“ wird aus deiner Bibliothek entfernt. Das lässt sich nicht rückgängig machen.",
   "mediaActions.deleteFailed":
     "Diese Quelle konnte nicht gelöscht werden. Sie ist weiterhin in deiner Bibliothek.",
+  "collectionActions.longPressHint":
+    "Zweimal tippen und halten, um diese Sammlung umzubenennen oder zu löschen",
+  "collectionActions.rename.label": "Umbenennen",
+  "collectionActions.delete.label": "Löschen",
+  "collectionActions.rename.title": "Diese Sammlung umbenennen",
+  "collectionActions.rename.placeholder": "Name der Sammlung",
+  "collectionActions.renameFailed":
+    "Diese Sammlung konnte nicht umbenannt werden. Ihr Name ist unverändert.",
+  "collectionActions.deleteTitle": "Diese Sammlung löschen?",
+  "collectionActions.deleteBody":
+    "„{name}“ wird gelöscht. Alle darin enthaltenen Quellen wandern nach {unsorted} – keine davon wird gelöscht.",
+  "collectionActions.deleteSubCollections.one":
+    "Ihre Untersammlung wird ebenfalls gelöscht, und die Quellen darin wandern ebenfalls nach {unsorted}.",
+  "collectionActions.deleteSubCollections.other":
+    "Ihre {count} Untersammlungen werden ebenfalls gelöscht, und die Quellen darin wandern ebenfalls nach {unsorted}.",
+  "collectionActions.deleteFailed":
+    "Diese Sammlung konnte nicht gelöscht werden. Sie ist weiterhin in deiner Bibliothek.",
   "addSource.title": "Zu deinem Posteingang hinzufügen",
   "addSource.importFile.label": "Datei importieren",
   "addSource.importFile.description":

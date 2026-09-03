@@ -61,6 +61,20 @@ export const zh: Catalog = {
   "mediaActions.deleteTitle": "删除此来源？",
   "mediaActions.deleteBody": "“{title}”将从你的资料库中移除，且无法撤销。",
   "mediaActions.deleteFailed": "无法删除此来源，它仍在你的资料库中。",
+  "collectionActions.longPressHint": "双击并长按可重命名或删除此收藏集",
+  "collectionActions.rename.label": "重命名",
+  "collectionActions.delete.label": "删除",
+  "collectionActions.rename.title": "重命名此收藏集",
+  "collectionActions.rename.placeholder": "收藏集名称",
+  "collectionActions.renameFailed": "无法重命名此收藏集，名称未更改。",
+  "collectionActions.deleteTitle": "删除此收藏集？",
+  "collectionActions.deleteBody":
+    "“{name}”将被删除。其中的来源都会移到 {unsorted}，不会删除任何来源。",
+  "collectionActions.deleteSubCollections.one":
+    "其中的 {count} 个子收藏集也会被删除，里面的来源同样移到 {unsorted}。",
+  "collectionActions.deleteSubCollections.other":
+    "其中的 {count} 个子收藏集也会被删除，里面的来源同样移到 {unsorted}。",
+  "collectionActions.deleteFailed": "无法删除此收藏集，它仍在你的资料库中。",
   "addSource.title": "添加到收件箱",
   "addSource.importFile.label": "导入文件",
   "addSource.importFile.description": "手机里的 PDF、Office 文档、图片或音频文件。",

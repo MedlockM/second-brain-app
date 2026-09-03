@@ -8,10 +8,11 @@ import logging
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
+from media_summarizer.core.models.folder import MAX_FOLDER_NAME_LENGTH
 from media_summarizer.core.services import folder_service
 
 logger = logging.getLogger(__name__)
@@ -21,20 +22,52 @@ router = APIRouter()
 
 # ---------- Request / Response models ----------
 
+#: What both request models say about a folder name, and what the validator below
+#: enforces: ``min_length=1`` alone lets ``"   "`` through, and the service used to
+#: store whatever ``strip()`` left of it.
+_NAME_DESCRIPTION = (
+    "Folder name. Trimmed, with runs of whitespace collapsed; 1 to "
+    f"{MAX_FOLDER_NAME_LENGTH} characters once trimmed. A blank or "
+    "whitespace-only value is refused."
+)
+
+
 class CreateFolderRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255, description="Folder name")
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_FOLDER_NAME_LENGTH,
+        description=_NAME_DESCRIPTION,
+    )
     parent_folder_id: Optional[str] = Field(
         None, description="Parent folder ID (null for root-level)"
     )
 
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        return folder_service.normalize_folder_name(value)
+
 
 class UpdateFolderRequest(BaseModel):
     name: Optional[str] = Field(
-        None, min_length=1, max_length=255, description="New folder name"
+        None,
+        min_length=1,
+        max_length=MAX_FOLDER_NAME_LENGTH,
+        description=_NAME_DESCRIPTION,
     )
     parent_folder_id: Optional[str] = Field(
         None, description="New parent folder ID (null to move to root)"
     )
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: Optional[str]) -> Optional[str]:
+        # ``None`` is "the body says nothing about the name", which is how a
+        # move-only update reaches here; only a *submitted* name is bounded.
+        if value is None:
+            return None
+        return folder_service.normalize_folder_name(value)
 
     class Config:
         # Allow explicit null to distinguish "move to root" from "no change"

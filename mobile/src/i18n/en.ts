@@ -94,6 +94,30 @@ export const en = {
   "mediaActions.deleteFailed":
     "This source could not be deleted. It is still in your library.",
 
+  // --- Long-press actions on a collection tile in Library ---
+  // Two rows, no Move: reparenting a collection has no picker anywhere yet.
+  "collectionActions.longPressHint":
+    "Double tap and hold to rename or delete this collection",
+  "collectionActions.rename.label": "Rename",
+  "collectionActions.delete.label": "Delete",
+  "collectionActions.rename.title": "Rename this collection",
+  "collectionActions.rename.placeholder": "Collection name",
+  "collectionActions.renameFailed":
+    "This collection could not be renamed. Its name is unchanged.",
+  "collectionActions.deleteTitle": "Delete this collection?",
+  // `{unsorted}` is the display label of the default collection, which the tile
+  // itself shows: what the sources are about to land in, named the same way.
+  "collectionActions.deleteBody":
+    "“{name}” will be deleted. Every source it holds moves to {unsorted} — none of them is deleted.",
+  // Appended to the line above when the collection has a subtree, because that is
+  // the part a tile showing one folder glyph cannot tell.
+  "collectionActions.deleteSubCollections.one":
+    "Its {count} sub-collection is deleted too, and the sources inside it move to {unsorted} as well.",
+  "collectionActions.deleteSubCollections.other":
+    "Its {count} sub-collections are deleted too, and the sources inside them move to {unsorted} as well.",
+  "collectionActions.deleteFailed":
+    "This collection could not be deleted. It is still in your library.",
+
   // --- Add-source sheet ---
   "addSource.title": "Add to your inbox",
   "addSource.importFile.label": "Import a file",

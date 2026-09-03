@@ -25,10 +25,10 @@ import {
 } from "../../../src/components/ArtifactTile";
 import { ArtifactsPanel } from "../../../src/components/ArtifactsPanel";
 import {
-  MediaContextMenu,
+  AnchoredContextMenu,
   type AnchorRect,
-} from "../../../src/components/MediaContextMenu";
-import { MediaRenameDialog } from "../../../src/components/MediaRenameDialog";
+} from "../../../src/components/AnchoredContextMenu";
+import { RenameDialog } from "../../../src/components/RenameDialog";
 import { ScreenTabs, type ScreenTab } from "../../../src/components/ScreenTabs";
 import { useMediaActions } from "../../../src/hooks/useMediaActions";
 import { describeArtifactRefusal } from "../../../src/lib/artifactRefusal";
@@ -338,11 +338,11 @@ export default function CollectionDetailScreen() {
       {/* Screen level, outside the list: the menu belongs to the screen's
           state, and mounting it inside a row would tie a modal to a cell the
           virtualizer is free to recycle. */}
-      <MediaContextMenu
+      <AnchoredContextMenu
         {...mediaActions.menuProps}
         renderPreview={renderSourcePreview}
       />
-      <MediaRenameDialog {...mediaActions.renameProps} />
+      <RenameDialog {...mediaActions.renameProps} />
     </SafeAreaView>
   );
 }
