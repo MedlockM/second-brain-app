@@ -89,6 +89,47 @@ paths:
           $ref: '#/components/responses/MediaNotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+    patch:
+      operationId: patchMediaItem
+      tags: [media]
+      description: >
+        Partial update of one library item: where it is filed, what it is called,
+        or both. Which fields the body carries drives the dispatch, not their
+        value, so an explicit "folder_id": null (move to Uncategorized) stays
+        distinguishable from a body that says nothing about the folder. A body
+        carrying neither field is refused with 400. Renaming also refreshes the
+        title denormalized onto that media's search chunks; that refresh is
+        best-effort and never fails the request. The implementation spells this
+        path parameter media_id, which carries the same durable library id.
+      parameters:
+        - name: media_item_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchMediaRequest'
+      responses:
+        '200':
+          description: Item updated; the response reports only what the patch touched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchMediaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/SessionExpired'
+        '404':
+          $ref: '#/components/responses/MediaNotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/media/{media_item_id}/artifacts:
     post:
       operationId: createMediaArtifact
@@ -240,6 +281,47 @@ components:
         grace_days:
           type: integer
           minimum: 0
+    PatchMediaRequest:
+      type: object
+      description: >
+        Both properties are optional and independent, but at least one must be
+        present: an empty body updates nothing and is refused with 400.
+      minProperties: 1
+      properties:
+        folder_id:
+          type: [string, 'null']
+          description: >
+            Destination collection, null meaning Uncategorized. Absent means the
+            patch does not touch the folder.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: >
+            New user-facing title. Trimmed with runs of whitespace collapsed, then
+            bounded to 1..120 characters (MAX_TITLE_LENGTH, the same ceiling
+            ingestion derives titles under). Blank or whitespace-only is refused
+            with 422.
+    PatchMediaResponse:
+      type: object
+      required: [status, media_id]
+      properties:
+        status: { type: string }
+        media_id:
+          type: string
+          description: Durable library id that was updated.
+        folder_id:
+          type: [string, 'null']
+          description: >
+            The folder the item now sits in. Absent on a title-only patch.
+        previous_folder_id:
+          type: [string, 'null']
+          description: >
+            The folder it left. Absent on a title-only patch.
+        title:
+          type: string
+          description: >
+            The stored title, normalized. Absent when the patch did not touch it.
     ArtifactCreateRequest:
       type: object
       required: [artifact_type]

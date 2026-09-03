@@ -52,12 +52,14 @@ export const pt: Catalog = {
   "mediaCard.a11yByCreator": "{title} de {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} de {domain}",
   "mediaCard.longPressHint":
-    "Toque duas vezes e mantenha para mover ou eliminar esta fonte",
-  "mediaActions.eyebrow": "Gerir fonte",
+    "Toque duas vezes e mantenha para mover, renomear ou eliminar esta fonte",
   "mediaActions.move.label": "Mover",
-  "mediaActions.move.description": "Colocar esta fonte noutra coleção.",
+  "mediaActions.rename.label": "Renomear",
   "mediaActions.delete.label": "Eliminar",
-  "mediaActions.delete.description": "Remover esta fonte da sua biblioteca.",
+  "mediaActions.rename.title": "Renomear esta fonte",
+  "mediaActions.rename.placeholder": "Nome da fonte",
+  "mediaActions.renameFailed":
+    "Não foi possível renomear esta fonte. O nome não mudou.",
   "mediaActions.deleteTitle": "Eliminar esta fonte?",
   "mediaActions.deleteBody":
     "«{title}» será removida da sua biblioteca. Não é possível anular esta ação.",

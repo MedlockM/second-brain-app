@@ -56,14 +56,14 @@ export const de: Catalog = {
   "mediaCard.a11yByCreator": "{title} von {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} von {domain}",
   "mediaCard.longPressHint":
-    "Zweimal tippen und halten, um diese Quelle zu verschieben oder zu löschen",
-  "mediaActions.eyebrow": "Quelle verwalten",
+    "Zweimal tippen und halten, um diese Quelle zu verschieben, umzubenennen oder zu löschen",
   "mediaActions.move.label": "Verschieben",
-  "mediaActions.move.description":
-    "Diese Quelle in eine andere Sammlung legen.",
+  "mediaActions.rename.label": "Umbenennen",
   "mediaActions.delete.label": "Löschen",
-  "mediaActions.delete.description":
-    "Diese Quelle aus deiner Bibliothek entfernen.",
+  "mediaActions.rename.title": "Diese Quelle umbenennen",
+  "mediaActions.rename.placeholder": "Name der Quelle",
+  "mediaActions.renameFailed":
+    "Diese Quelle konnte nicht umbenannt werden. Ihr Name ist unverändert.",
   "mediaActions.deleteTitle": "Diese Quelle löschen?",
   "mediaActions.deleteBody":
     "„{title}“ wird aus deiner Bibliothek entfernt. Das lässt sich nicht rückgängig machen.",

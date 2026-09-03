@@ -63,14 +63,14 @@ export const fr: Catalog = {
   "mediaCard.a11yByCreator": "{title} par {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} de {domain}",
   "mediaCard.longPressHint":
-    "Appuyez deux fois et maintenez pour déplacer ou supprimer cette source",
-  "mediaActions.eyebrow": "Gérer la source",
+    "Appuyez deux fois et maintenez pour déplacer, renommer ou supprimer cette source",
   "mediaActions.move.label": "Déplacer",
-  "mediaActions.move.description":
-    "Placer cette source dans une autre collection.",
+  "mediaActions.rename.label": "Renommer",
   "mediaActions.delete.label": "Supprimer",
-  "mediaActions.delete.description":
-    "Retirer cette source de votre bibliothèque.",
+  "mediaActions.rename.title": "Renommer cette source",
+  "mediaActions.rename.placeholder": "Nom de la source",
+  "mediaActions.renameFailed":
+    "Cette source n'a pas pu être renommée. Son nom n'a pas changé.",
   "mediaActions.deleteTitle": "Supprimer cette source ?",
   "mediaActions.deleteBody":
     "« {title} » sera retirée de votre bibliothèque. Cette action est irréversible.",

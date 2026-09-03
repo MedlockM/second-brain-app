@@ -80,6 +80,22 @@ export interface DeleteMediaResponse {
 }
 
 /**
+ * Response shape for PATCH /api/media/:mediaItemId.
+ * Matches `PatchMediaResponse` on the backend.
+ *
+ * The endpoint patches a folder, a title, or both, and only answers the halves
+ * the request actually touched — a rename leaves `folder_id` absent.
+ */
+export interface PatchMediaResponse {
+  status: string;
+  media_id: string;
+  folder_id?: string | null;
+  previous_folder_id?: string | null;
+  /** The stored title, trimmed by the server. Absent on a folder-only patch. */
+  title?: string | null;
+}
+
+/**
  * Media ingestion service for mobile.
  * Uses the canonical /api/media/* endpoints.
  * Shared by both Android share intent and iOS share extension flows.
@@ -147,6 +163,29 @@ export class MediaService {
     return apiRequest<DeleteMediaResponse>(
       `/api/media/${encodeURIComponent(mediaItemId)}`,
       { method: "DELETE" },
+    );
+  }
+
+  /**
+   * Give one library item a new user-facing title.
+   *
+   * The server trims the value, collapses whitespace runs and refuses a blank
+   * one, so the stored title is what the response carries — never the raw string
+   * that was typed. It is also what refreshes the title denormalized on that
+   * media's search records, which is why this is one call and not two.
+   *
+   * `folder_id` is deliberately not sent: the endpoint dispatches on the fields
+   * present in the body, so a rename must not mention the folder at all.
+   *
+   * PATCH /api/media/:mediaItemId
+   */
+  static async renameMedia(
+    mediaItemId: string,
+    title: string,
+  ): Promise<PatchMediaResponse> {
+    return apiRequest<PatchMediaResponse>(
+      `/api/media/${encodeURIComponent(mediaItemId)}`,
+      { method: "PATCH", body: { title } },
     );
   }
 }

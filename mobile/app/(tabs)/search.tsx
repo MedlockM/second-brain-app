@@ -42,7 +42,11 @@ import {
   COVER_WIDTH,
   COVER_HEIGHT,
 } from "../../src/components/MediaListCard";
-import { MediaActionsSheet } from "../../src/components/MediaActionsSheet";
+import {
+  MediaContextMenu,
+  type AnchorRect,
+} from "../../src/components/MediaContextMenu";
+import { MediaRenameDialog } from "../../src/components/MediaRenameDialog";
 import { useMediaActions } from "../../src/hooks/useMediaActions";
 import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
 import { Image } from "expo-image";
@@ -67,6 +71,13 @@ const SEARCH_BAR_TOP = Spacing.sm;
 const CONTENT_TOP_INSET = SEARCH_BAR_TOP + SEARCH_BAR_HEIGHT + Spacing.md;
 
 // --- Helper functions ---
+
+/**
+ * The lifted copy of a pressed row is inert — the context menu draws it with
+ * `pointerEvents="none"` — but `MediaListCard` requires a tap handler, so this
+ * is the one it gets.
+ */
+const noopOpenMedia = () => {};
 
 function getSourceIcon(
   platform: string | null,
@@ -328,10 +339,41 @@ export default function SearchScreen() {
     );
   }, []);
 
-  // The long-press menu of a library row. Only the deletion has to be reflected
-  // here: a moved media stays in `All media` whatever collection it lands in,
-  // and the focus refetch above already brings its new folder back.
-  const mediaActions = useMediaActions({ onDeleted: handleMediaDeleted });
+  // Patched in place rather than refetched: the rename already returned the
+  // stored title, and reloading the whole list to learn one string would also
+  // scroll the user's position out from under them.
+  const handleMediaRenamed = useCallback(
+    (mediaItemId: string, title: string) => {
+      setMedia((current) =>
+        current.map((item) =>
+          item.media_item_id === mediaItemId ? { ...item, title } : item,
+        ),
+      );
+    },
+    [],
+  );
+
+  // The long-press menu of a library row. A move needs nothing here: a moved
+  // media stays in `All media` whatever collection it lands in, and the focus
+  // refetch above already brings its new folder back.
+  const mediaActions = useMediaActions({
+    onDeleted: handleMediaDeleted,
+    onRenamed: handleMediaRenamed,
+  });
+
+  // The copy of the pressed row the menu lifts above its blur. Same component
+  // as the list row, with the list margins dropped: it is laid out on the rect
+  // the row was measured at, which margins sit outside of.
+  const renderMediaPreview = useCallback(
+    (item: MediaListItem) => (
+      <MediaListCard
+        item={item}
+        onPress={noopOpenMedia}
+        style={styles.mediaPreviewCard}
+      />
+    ),
+    [],
+  );
 
   // The default folder holds every media saved without an explicit collection.
   // It is excluded from `roots` by `buildCollectionTree`, so pin it in front
@@ -456,10 +498,14 @@ export default function SearchScreen() {
         </GlassSurface>
       </View>
 
-      {/* Rendered at screen level, outside either body: the sheet belongs to the
+      {/* Rendered at screen level, outside either body: the menu belongs to the
           screen's state, and mounting it inside a `FlatList` row would tie a
           modal to a cell the virtualizer is free to recycle. */}
-      <MediaActionsSheet {...mediaActions.sheetProps} />
+      <MediaContextMenu
+        {...mediaActions.menuProps}
+        renderPreview={renderMediaPreview}
+      />
+      <MediaRenameDialog {...mediaActions.renameProps} />
     </View>
   );
 }
@@ -522,7 +568,7 @@ interface LibraryStateProps {
   onRetryMedia: () => void;
   onOpenMedia: (mediaItemId: string) => void;
   /** Opens the row's actions menu. Library only — search results have none. */
-  onLongPressMedia: (item: MediaListItem) => void;
+  onLongPressMedia: (item: MediaListItem, anchor: AnchorRect) => void;
   isRefreshing: boolean;
   onRefresh: () => void;
 }
@@ -1178,6 +1224,12 @@ const styles = StyleSheet.create({
   libraryListContent: {
     paddingTop: CONTENT_TOP_INSET,
     paddingBottom: Spacing.xxl,
+  },
+  // The row as the context menu redraws it: the list margins are what the
+  // measured rect already excludes, so keeping them would shift the copy.
+  mediaPreviewCard: {
+    marginHorizontal: 0,
+    marginBottom: 0,
   },
   libraryHeader: {
     paddingHorizontal: Spacing.md,

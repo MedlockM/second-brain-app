@@ -13,7 +13,7 @@ import os
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.api.dependencies.media_access import get_media_for_user
@@ -52,6 +52,7 @@ from media_summarizer.api.models.media_contracts import (
 )
 from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
 from media_summarizer.core.media_ingestion.title_derivation import (
+    MAX_TITLE_LENGTH,
     derive_media_title,
     label_for_file_name,
 )
@@ -68,6 +69,7 @@ from media_summarizer.core.services import (
     cover_capture,
     folder_service,
     media_deletion_service,
+    media_rename_service,
     media_search_service,
     quota_enforcer,
     tag_service,
@@ -265,20 +267,53 @@ class MediaItemResponse(BaseModel):
     provider: Optional[str] = None
 
 
-# ---------- Folder assignment models ----------
+# ---------- Media update models ----------
 
 class PatchMediaRequest(BaseModel):
+    """Partial update of one library item: its folder, its title, or both.
+
+    Which fields the caller *sent* is what drives the dispatch, so an explicit
+    ``"folder_id": null`` (move to Uncategorized) stays distinguishable from a
+    body that says nothing about the folder. An empty body updates nothing and is
+    refused rather than answered with a success that changed no row.
+    """
+
     folder_id: Optional[str] = Field(
         None,
         description="Folder ID to assign the media to (null for Uncategorized)",
     )
+    title: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=MAX_TITLE_LENGTH,
+        description=(
+            "New user-facing title. Trimmed, with runs of whitespace collapsed; "
+            f"1 to {MAX_TITLE_LENGTH} characters once trimmed, which is the same "
+            "ceiling the ingestion pipeline derives titles under. A blank or "
+            "whitespace-only value is refused."
+        ),
+    )
+
+    @field_validator("title")
+    @classmethod
+    def _validate_title(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return media_rename_service.normalize_title(value)
 
 
 class PatchMediaResponse(BaseModel):
     status: str = "success"
     media_id: str
-    folder_id: str
+    folder_id: Optional[str] = Field(
+        None,
+        description="The folder the item now sits in. Absent on a title-only patch.",
+    )
     previous_folder_id: Optional[str] = None
+    title: Optional[str] = Field(
+        None,
+        description="The stored title, trimmed. Absent when the patch did not touch it.",
+    )
 
 
 # ---------- Deletion models ----------
@@ -1729,18 +1764,44 @@ async def patch_media(
     payload: PatchMediaRequest,
     current_user: AuthUser = Depends(get_current_user),
 ) -> PatchMediaResponse:
-    """Update a media item. Currently supports changing the folder assignment."""
-    try:
-        result = await folder_service.assign_folder_to_media(
-            user_id=current_user.id,
-            media_id=media_id,
-            folder_id=payload.folder_id,
+    """Update one library item: move it to a folder, rename it, or both.
+
+    The two halves are independent use cases and are dispatched as such — a
+    folder move to ``folder_service``, a rename to ``media_rename_service``,
+    which also refreshes the title denormalized on the search index.
+    """
+    sent = payload.model_fields_set
+    wants_folder = "folder_id" in sent
+    wants_title = "title" in sent
+    if not wants_folder and not wants_title:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nothing to update: send folder_id, title, or both",
         )
-        return PatchMediaResponse(
-            status="success",
-            media_id=result["media_id"],
-            folder_id=result["folder_id"],
-            previous_folder_id=result["previous_folder_id"],
+
+    response = PatchMediaResponse(status="success", media_id=media_id)
+    try:
+        if wants_folder:
+            result = await folder_service.assign_folder_to_media(
+                user_id=current_user.id,
+                media_id=media_id,
+                folder_id=payload.folder_id,
+            )
+            response.media_id = result["media_id"]
+            response.folder_id = result["folder_id"]
+            response.previous_folder_id = result["previous_folder_id"]
+
+        if wants_title:
+            response.title = await media_rename_service.rename_media_for_user(
+                user_id=current_user.id,
+                media_item_id=media_id,
+                title=payload.title or "",
+            )
+
+        return response
+    except media_rename_service.MediaNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found"
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

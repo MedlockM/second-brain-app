@@ -52,12 +52,14 @@ export const ar: Catalog = {
   "mediaCard.a11yByCreator": "{title} بواسطة {creator}، {type}",
   "mediaCard.a11yFromDomain": "{title}، {type} من {domain}",
   "mediaCard.longPressHint":
-    "انقر نقرًا مزدوجًا مع الاستمرار لنقل هذا المصدر أو حذفه",
-  "mediaActions.eyebrow": "إدارة المصدر",
+    "انقر نقرًا مزدوجًا مع الاستمرار لنقل هذا المصدر أو إعادة تسميته أو حذفه",
   "mediaActions.move.label": "نقل",
-  "mediaActions.move.description": "ضع هذا المصدر في مجموعة أخرى.",
+  "mediaActions.rename.label": "إعادة تسمية",
   "mediaActions.delete.label": "حذف",
-  "mediaActions.delete.description": "أزل هذا المصدر من مكتبتك.",
+  "mediaActions.rename.title": "إعادة تسمية هذا المصدر",
+  "mediaActions.rename.placeholder": "اسم المصدر",
+  "mediaActions.renameFailed":
+    "لم يتم إعادة تسمية هذا المصدر. اسمه لم يتغيّر.",
   "mediaActions.deleteTitle": "حذف هذا المصدر؟",
   "mediaActions.deleteBody":
     "سيُزال «{title}» من مكتبتك، ولا يمكن التراجع عن ذلك.",

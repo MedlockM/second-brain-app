@@ -19,6 +19,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from algoliasearch.http.exceptions import RequestException
+from algoliasearch.search.models.browse_params_object import BrowseParamsObject
 
 from media_summarizer.utils.algolia_client import (
     configure_shared_index_settings,
@@ -184,6 +185,63 @@ def index_transcript(
             f"Failed to index transcript for media_item_id={media_item_id}: {e}"
         )
         raise
+
+
+def update_media_title(*, user_id: str, media_item_id: str, title: str) -> int:
+    """Refresh the denormalized ``title`` on every chunk of one media item.
+
+    The title is copied onto each chunk at indexing time, and it is both a
+    searchable and a highlighted attribute, so a rename that stops at DynamoDB
+    leaves the search matching on the old name *and* displaying it. This patches
+    the attribute in place rather than re-indexing: the transcript text has not
+    changed, and re-chunking it would mean reading it back from S3.
+
+    Chunks are selected by the same ``media_item_id`` predicate
+    :func:`_delete_chunks_for_media` uses, with ``user_id`` added as defence in
+    depth. Algolia has no update-by-query, so the objectIDs are browsed first and
+    then patched in one batch.
+
+    Returns:
+        How many chunks were patched. Zero is a legitimate answer: a media whose
+        transcript never reached the index has nothing to refresh.
+    """
+    client = get_client()
+    index_name = get_shared_index_name()
+
+    object_ids: List[str] = []
+
+    def _collect(response: Any) -> None:
+        for hit in response.hits:
+            object_id = getattr(hit, "object_id", None)
+            if object_id:
+                object_ids.append(object_id)
+
+    client.browse_objects(
+        index_name=index_name,
+        aggregator=_collect,
+        browse_params=BrowseParamsObject(
+            query="",
+            filters=f"media_item_id:{media_item_id} AND user_id:{user_id}",
+            attributes_to_retrieve=["objectID"],
+            hits_per_page=1000,
+        ),
+    )
+
+    if not object_ids:
+        logger.info(
+            f"No indexed chunk to retitle for media_item_id={media_item_id}"
+        )
+        return 0
+
+    client.partial_update_objects(
+        index_name=index_name,
+        objects=[{"objectID": object_id, "title": title} for object_id in object_ids],
+    )
+    logger.info(
+        f"Retitled {len(object_ids)} search chunks for "
+        f"media_item_id={media_item_id}"
+    )
+    return len(object_ids)
 
 
 def _delete_chunks_for_media(client: Any, index_name: str, media_item_id: str) -> None:

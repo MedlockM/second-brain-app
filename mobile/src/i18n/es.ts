@@ -55,12 +55,14 @@ export const es: Catalog = {
   "mediaCard.a11yByCreator": "{title} de {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} de {domain}",
   "mediaCard.longPressHint":
-    "Toca dos veces y mantén para mover o eliminar esta fuente",
-  "mediaActions.eyebrow": "Gestionar fuente",
+    "Toca dos veces y mantén para mover, renombrar o eliminar esta fuente",
   "mediaActions.move.label": "Mover",
-  "mediaActions.move.description": "Poner esta fuente en otra colección.",
+  "mediaActions.rename.label": "Renombrar",
   "mediaActions.delete.label": "Eliminar",
-  "mediaActions.delete.description": "Quitar esta fuente de tu biblioteca.",
+  "mediaActions.rename.title": "Renombrar esta fuente",
+  "mediaActions.rename.placeholder": "Nombre de la fuente",
+  "mediaActions.renameFailed":
+    "No se pudo renombrar esta fuente. Su nombre no ha cambiado.",
   "mediaActions.deleteTitle": "¿Eliminar esta fuente?",
   "mediaActions.deleteBody":
     "«{title}» se quitará de tu biblioteca. Esta acción no se puede deshacer.",

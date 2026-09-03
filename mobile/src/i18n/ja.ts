@@ -52,12 +52,14 @@ export const ja: Catalog = {
   "mediaCard.a11yByCreator": "{title}（{creator}）、{type}",
   "mediaCard.a11yFromDomain": "{title}、{domain} の {type}",
   "mediaCard.longPressHint":
-    "ダブルタップして長押しすると、このソースを移動または削除できます",
-  "mediaActions.eyebrow": "ソースの管理",
+    "ダブルタップして長押しすると、このソースを移動、名前変更、削除できます",
   "mediaActions.move.label": "移動",
-  "mediaActions.move.description": "このソースを別のコレクションに入れます。",
+  "mediaActions.rename.label": "名前を変更",
   "mediaActions.delete.label": "削除",
-  "mediaActions.delete.description": "このソースをライブラリから削除します。",
+  "mediaActions.rename.title": "このソースの名前を変更",
+  "mediaActions.rename.placeholder": "ソース名",
+  "mediaActions.renameFailed":
+    "このソースの名前を変更できませんでした。名前は変わっていません。",
   "mediaActions.deleteTitle": "このソースを削除しますか？",
   "mediaActions.deleteBody":
     "「{title}」をライブラリから削除します。この操作は取り消せません。",

@@ -77,14 +77,17 @@ export const en = {
   "mediaType.link": "LINK",
   "mediaCard.a11yByCreator": "{title} by {creator}, {type}",
   "mediaCard.a11yFromDomain": "{title}, {type} from {domain}",
-  "mediaCard.longPressHint": "Double tap and hold to move or delete this source",
+  "mediaCard.longPressHint":
+    "Double tap and hold to move, rename or delete this source",
 
   // --- Long-press actions on a media vignette in Library ---
-  "mediaActions.eyebrow": "Manage source",
   "mediaActions.move.label": "Move",
-  "mediaActions.move.description": "Put this source in another collection.",
+  "mediaActions.rename.label": "Rename",
   "mediaActions.delete.label": "Delete",
-  "mediaActions.delete.description": "Remove this source from your library.",
+  "mediaActions.rename.title": "Rename this source",
+  "mediaActions.rename.placeholder": "Source name",
+  "mediaActions.renameFailed":
+    "This source could not be renamed. Its name is unchanged.",
   "mediaActions.deleteTitle": "Delete this source?",
   "mediaActions.deleteBody":
     "“{title}” will be removed from your library. This cannot be undone.",
