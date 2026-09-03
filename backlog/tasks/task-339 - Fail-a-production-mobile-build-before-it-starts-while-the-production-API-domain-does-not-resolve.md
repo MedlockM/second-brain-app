@@ -1,11 +1,12 @@
 ---
 id: task-339
 title: >-
-  Fail a production mobile build before it starts while the production API domain
-  does not resolve
-status: To Do
+  Fail a production mobile build before it starts while the production API
+  domain does not resolve
+status: Done
 assignee: []
 created_date: '2026-09-03 10:14'
+updated_date: '2026-09-03 08:36'
 labels:
   - mobile
   - release
