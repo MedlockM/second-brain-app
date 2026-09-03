@@ -3,9 +3,10 @@ id: task-352
 title: >-
   Open the anchored context menu on a long press on a collection tile in Library
   — Rename and Delete
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 14:30'
+updated_date: '2026-09-03 15:47'
 labels:
   - mobile
   - feature
