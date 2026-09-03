@@ -3,10 +3,10 @@ id: task-344
 title: >-
   Render a first-page cover for uploaded documents per validated benchmark
   (task-343)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 09:12'
-updated_date: '2026-09-03 09:12'
+updated_date: '2026-09-03 11:15'
 labels:
   - ingestion
   - backend
