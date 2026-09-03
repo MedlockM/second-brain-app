@@ -10,6 +10,13 @@ on:
     paths:
       - "media_summarizer/**"
       - "pyproject.toml"
+      # uv.lock, not just pyproject.toml: both Dockerfiles `COPY pyproject.toml
+      # uv.lock` and install from the lock, so the pinned versions -- not the
+      # pyproject ranges -- are what ends up in the image. A `uv lock
+      # --upgrade-package X` touches this file alone, and without it here that
+      # bump deployed nothing while CI and the owner's machine both linted
+      # against the new version.
+      - "uv.lock"
       - "infrastructure/docker/lambda-api.Dockerfile"
       - "infrastructure/docker/lambda.Dockerfile"
       - ".github/workflows/deploy-lambda.yml"
@@ -62,6 +69,7 @@ jobs:
               - 'media_summarizer/infrastructure/resolvers/**'
               - 'media_summarizer/*.py'
               - 'pyproject.toml'
+              - 'uv.lock'
               - 'infrastructure/docker/lambda-api.Dockerfile'
               - '.github/workflows/deploy-lambda.yml'
             workers:
@@ -71,6 +79,7 @@ jobs:
               - 'media_summarizer/infrastructure/**'
               - 'media_summarizer/*.py'
               - 'pyproject.toml'
+              - 'uv.lock'
               - 'infrastructure/docker/lambda.Dockerfile'
               - '.github/workflows/deploy-lambda.yml'
 
