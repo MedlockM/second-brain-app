@@ -3,9 +3,10 @@ id: task-345
 title: >-
   Fix uploads rejected with 413 by API Gateway — move the three multipart
   endpoints to presigned S3 PUT
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 09:27'
+updated_date: '2026-09-03 10:32'
 labels:
   - bug
   - mobile
@@ -74,6 +75,7 @@ The size ceilings should become truthful rather than decorative: the value the A
 <!-- AC:END -->
 
 ## Implementation Notes
+
 <!-- SECTION:NOTES:BEGIN -->
 All 10 acceptance criteria are met. No binary reaches the API any more, on any route.
 
