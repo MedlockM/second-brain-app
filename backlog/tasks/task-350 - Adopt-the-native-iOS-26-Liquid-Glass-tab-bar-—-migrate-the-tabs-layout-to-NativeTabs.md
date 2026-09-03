@@ -3,9 +3,10 @@ id: task-350
 title: >-
   Adopt the native iOS 26 Liquid Glass tab bar — migrate the tabs layout to
   NativeTabs
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-03 13:07'
+updated_date: '2026-09-03 13:43'
 labels:
   - mobile
   - ui
