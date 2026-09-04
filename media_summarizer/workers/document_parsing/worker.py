@@ -8,7 +8,9 @@ cover, and emits a completion event to continue the downstream LLM pipeline.
 
 Owner decision (task-90): LlamaParse free tier API cloud -> fallback Unstructured API.
 Owner decision (task-343): the cover of an uploaded file is the render of its
-first page -- see `_capture_cover`.
+first page -- see `_capture_page_cover`. A photo has no page to render: it *is*
+its own cover, so `_capture_photo_cover` writes it before the parse rather than
+after it (task-353).
 """
 
 from __future__ import annotations
@@ -267,35 +269,62 @@ async def _render_document_page(
     return await _llamaparse.fetch_first_page_screenshot(job_id)
 
 
-async def _capture_cover(
+async def _capture_photo_cover(
     *,
     media_item_id: Optional[str],
-    document_format: DocumentFormat,
-    document_s3_key: str,
-    result: ParseResult,
+    file_path: str,
 ) -> Optional[str]:
-    """Build the cover of an uploaded file. ``None`` leaves the tile on its glyph.
+    """The cover of a photo: the photo itself, downscaled (task-302 §4, rows 9-10).
 
-    An image *is* its own cover and is already in our bucket, so it is only
-    downscaled (task-302 §4, rows 9-10). Every other format gets the render of its
-    first page, framed to the top 16:9 band server-side.
+    Called **before** the parse, on the file the worker has just downloaded, and
+    persisted right away: a camera capture or a gallery pick needs nothing from
+    the OCR to be displayable, so making its tile wait for the parse was making it
+    wait for the one slow step it does not depend on (task-353).
 
-    Nothing here can fail an ingestion: `cover_capture` returns ``None`` rather
-    than raising by contract, and the guard below extends that to anything the
-    render path could throw unexpectedly. No quota is touched either -- the parse
-    was charged once, before this point, and the render adds no billed call.
+    ``None`` leaves the tile on its media-type glyph, and nothing here can fail an
+    ingestion: `cover_capture` returns ``None`` rather than raising by contract,
+    and the guard below extends that to anything unexpected.
     """
     if not media_item_id:
         return None
 
     try:
-        if document_format in _IMAGE_FORMATS:
-            return await cover_capture.capture_from_s3(
-                bucket=DOCUMENT_BUCKET,
-                key=document_s3_key,
-                media_item_id=media_item_id,
-            )
+        return await cover_capture.capture_from_file(
+            file_path=file_path,
+            media_item_id=media_item_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - a cover is a display detail
+        log_event(
+            logger,
+            logging.WARNING,
+            "media_cover.document_render_failed",
+            "Photo cover could not be built; the tile keeps its type glyph",
+            media_item_id=media_item_id,
+            error_type=type(exc).__name__,
+        )
+        return None
 
+
+async def _capture_page_cover(
+    *,
+    media_item_id: Optional[str],
+    document_format: DocumentFormat,
+    result: ParseResult,
+) -> Optional[str]:
+    """The cover of a parsed document: the render of its first page.
+
+    Unlike a photo, this one genuinely cannot be built earlier -- the page image
+    only exists once LlamaParse has rasterised the document, or once the parsed
+    table can be drawn for a spreadsheet -- so it stays where it has to be, on the
+    completion path. Framed to the top 16:9 band server-side.
+
+    No quota is touched: the parse was charged once, before this point, and the
+    render adds no billed call.
+    """
+    if not media_item_id:
+        return None
+
+    try:
         page_image = await _render_document_page(
             document_format=document_format,
             result=result,
@@ -381,6 +410,23 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
             if not os.path.exists(local_path) or os.path.getsize(local_path) == 0:
                 raise ValueError("Downloaded document file is empty or missing")
 
+            # A photo is its own cover, and here it is already on disk -- so the
+            # image is written now and mirrored onto the library row by this job
+            # update, while the item is still `processing`. Before task-353 the
+            # very same capture ran after the parse, in the update that carried
+            # `mark_completed`, which is why a shared photo showed the paperclip
+            # glyph for the whole of its processing and the picture only at the
+            # end of it. A document has nothing to show at this point: its first
+            # page does not exist until the parse has rendered it.
+            if job and document_format in _IMAGE_FORMATS:
+                photo_cover = await _capture_photo_cover(
+                    media_item_id=job.media_item_id,
+                    file_path=local_path,
+                )
+                if photo_cover:
+                    job.media_image = photo_cover
+                    await database_async.update_processing_job(job)
+
             # Parse with fallback
             start_time = time.time()
             result = await parse_document_with_fallback(
@@ -456,20 +502,21 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
                 if parsed_title:
                     job.title = parsed_title
 
-            # Every uploaded file gets a cover (task-344): the photo itself for a
-            # camera capture or a gallery pick, and the render of page 1 for a
-            # document -- the LlamaParse full-page screenshot for a PDF, a DOCX or
-            # a PPTX, the drawn first-sheet grid for a spreadsheet. Nothing is
-            # downloaded from a third party, nothing is billed twice, and a
-            # failure leaves the tile on its media-type glyph.
-            cover_locator = await _capture_cover(
-                media_item_id=job.media_item_id,
-                document_format=document_format,
-                document_s3_key=str(document_s3_key),
-                result=result,
-            )
-            if cover_locator:
-                job.media_image = cover_locator
+            # A document's cover is the render of page 1 (task-344): the
+            # LlamaParse full-page screenshot for a PDF, a DOCX or a PPTX, the
+            # drawn first-sheet grid for a spreadsheet. It can only be built here,
+            # because the render is an output of the parse. Photos are not
+            # captured a second time -- theirs was written before the parse.
+            # Nothing is downloaded from a third party, nothing is billed twice,
+            # and a failure leaves the tile on its media-type glyph.
+            if document_format not in _IMAGE_FORMATS:
+                page_cover = await _capture_page_cover(
+                    media_item_id=job.media_item_id,
+                    document_format=document_format,
+                    result=result,
+                )
+                if page_cover:
+                    job.media_image = page_cover
             job.source_platform = "document"
             job.media_type = "document"
             job.mark_completed()

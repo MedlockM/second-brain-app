@@ -90,8 +90,13 @@ def cover_key(media_item_id: str) -> str:
     return f"covers/{media_item_id}.jpg"
 
 
-def _downscale_to_jpeg(payload: bytes) -> Optional[bytes]:
+def _downscale_to_jpeg(source: bytes | str) -> Optional[bytes]:
     """Decode, downscale and re-encode as JPEG. ``None`` if it is not an image.
+
+    ``source`` is either the bytes of an image or the path of a file holding one.
+    A path is handed to Pillow as-is rather than read first: that is what keeps a
+    50 MB phone photo out of the worker's heap, and it is the shape the document
+    path uses since it builds the cover from the file it has already downloaded.
 
     Pillow is imported inside the function: it ships only in the worker image
     (``pyproject.toml``, ``worker`` extra), and the API image must stay able to
@@ -104,7 +109,7 @@ def _downscale_to_jpeg(payload: bytes) -> Optional[bytes]:
         return None
 
     try:
-        with Image.open(BytesIO(payload)) as opened:
+        with Image.open(BytesIO(source) if isinstance(source, bytes) else source) as opened:
             # EXIF orientation: a phone capture is otherwise stored sideways.
             image = ImageOps.exif_transpose(opened) or opened
             if image.mode not in ("RGB", "L"):
@@ -275,27 +280,30 @@ async def capture_from_url(
     return locator
 
 
-async def capture_from_s3(
+async def capture_from_file(
     *,
-    bucket: str,
-    key: str,
+    file_path: str,
     media_item_id: Optional[str],
 ) -> Optional[str]:
-    """Build a cover from an object we already hold (a camera or gallery photo).
+    """Build a cover from a file we already hold (a camera or gallery photo).
 
     The original stays where it is; only a downscaled derivative is written to
     the covers bucket, because the source can be up to 50 MB and would be
     unservable as a list thumbnail.
+
+    A path rather than a bucket/key pair on purpose: the only caller is the
+    document parsing worker, which has just downloaded the upload to build its
+    cover *before* parsing it, so re-fetching the same object from S3 would add a
+    second transfer of up to 50 MB between the user's save and the moment their
+    tile shows the picture (task-353).
     """
-    if not media_item_id or not bucket or not key:
+    if not media_item_id or not file_path:
         return None
-    try:
-        payload = await s3.download_file_to_memory(bucket=bucket, key=key)
-    except Exception as exc:  # noqa: BLE001 - best-effort by contract
-        logger.warning("Cover source could not be read from S3: %s", type(exc).__name__)
+    if not os.path.isfile(file_path):
+        logger.warning("Cover source is not a readable file; cover skipped")
         return None
 
-    jpeg = _downscale_to_jpeg(payload)
+    jpeg = _downscale_to_jpeg(file_path)
     if not jpeg:
         return None
 
@@ -307,7 +315,7 @@ async def capture_from_s3(
             EVENT_CAPTURED,
             "Media cover built from stored upload",
             media_item_id=media_item_id,
-            source="s3",
+            source="file",
             bytes_stored=len(jpeg),
         )
     return locator
