@@ -56,3 +56,22 @@ Un `docs/research/task-XXX-<description-courte>/README.md` avec le front-matter 
 - [ ] #6 Recommandation finale argumentée avec compromis explicites, dans un README portant `owner_decision: pending` en front-matter
 - [ ] #7 Aucun fichier de `mobile/` n'est modifié par cette tâche
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Dispatch 2026-09-04, mode **initial** (aucun dossier `docs/research/task-357-*` n'existait, aucun `README.owner-rejected-*`, aucune `complement-request-*`).
+
+Livrable : `docs/research/task-357-legal-pages-hosting/README.md` (front-matter `owner_decision: pending`, section `Owner Validation` laissée vide pour l'owner).
+
+Contenu produit :
+- **§0, deux affirmations du dépôt corrigées.** (a) L'obligation de liens sur l'écran d'achat ne vient pas de la guideline 3.1.2 mais de l'**ADPLA Schedule 2 §3.8(b)** (« Links to Your Privacy Policy and Terms of Use must be accessible within Your Licensed Application »), complétée par les guidelines 5.1.1(i) et 2.1(a) ; Google n'exige **aucun** lien vers des conditions d'utilisation et accepte du *texte* in-app. (b) La prémisse « une URL embarquée ne se corrige que par une nouvelle version » est fausse pour les constantes JS (EAS Update, `runtimeVersion: fingerprint`) et vraie seulement pour les URL de métadonnées App Store Connect (Privacy Policy URL et Support URL ne sont pas éditables sans nouvelle version).
+- **§1**, grille de 12 critères extraite des textes normatifs : aucun ne porte sur le nom d'hôte. §1bis : sans EULA personnalisée, l'EULA standard d'Apple s'applique, donc le périmètre minimal publiable est **une** page.
+- **§2**, règle écrite contre pratique constatée, avec un encadré d'honnêteté : **aucun rapport de refus daté n'a pu être obtenu** (moteurs de recherche tous en défi anti-robot / 429 / hors sujet depuis cet environnement). Les CGU des hébergeurs remplacent l'anecdote.
+- **§3**, tableau comparatif de **7 options** couvrant les 5 familles demandées (domaine acheté + Cloudflare Pages ; tout-AWS Route53/S3/CloudFront ; `*.pages.dev` ; `*.github.io` ; générateur hébergé ; service de site tiers ; document publié).
+- **§4** coûts douze mois par poste, **§5** chemins de clics exacts (Cloudflare, App Store Connect, Play Console), **§6** ce qu'un générateur achète réellement, **§7** adresse de contact de confidentialité (4 formes comparées ; aucune adresse réelle écrite, le dépôt étant public), **§8** coût de déménagement par option, **§9** liste explicite de ce qui n'a pas pu être vérifié, **§10** sources datées du 2026-09-04.
+
+Recommandation : **option A1** — acheter un `.com`, zone chez Cloudflare, deux pages statiques sur Cloudflare Pages depuis le dépôt, adresse de contact via Cloudflare Email Routing ; **~11 $ sur douze mois**, hébergement, TLS, DNS et transfert d'e-mail à 0 $. Compromis acceptés listés dans le README (renouvellement annuel, DNS hors Terraform, variante A2 tout-AWS écartée, absence de preuve de terrain).
+
+**La recommandation attend la validation de l'owner** : `owner_decision` reste `pending`, la tâche reste `To Do`, et aucune case d'AC n'est cochée. Aucun fichier de `mobile/` n'a été modifié (AC#7) — la tâche d'implémentation liée est task-358.
+<!-- SECTION:NOTES:END -->
