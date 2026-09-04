@@ -8,9 +8,13 @@
 #
 # With a build profile (`preview`, `internal`, `production`, …) the script acts
 # as a gate on that profile: the host of its EXPO_PUBLIC_API_BASE_URL must
-# resolve, otherwise the run fails. That is the form CI uses, because
-# EXPO_PUBLIC_* values are inlined into the JS bundle at build time — a host
-# with no DNS ships a binary that installs fine and fails every network call.
+# resolve, otherwise the run fails. That is the form CI uses, because the value
+# is frozen into the artifact at build time — a host with no DNS ships a binary
+# that installs fine and fails every network call.
+#
+# This gate is about DNS only. What the *published update* ends up serving to
+# devices is a different question, checked after the fact by
+# scripts/mobile_ota_manifest_check.sh.
 #
 # Without an argument nothing is gated on DNS: a non-resolving host is reported
 # as a warning so the script stays usable as a plain local pre-flight.
@@ -230,14 +234,15 @@ else
 fi
 
 # ------------------------------------------------------------------
-# 6. The API base URL a build would inline actually resolves
+# 6. The API base URL a build would freeze into the artifact actually resolves
 #
-# EXPO_PUBLIC_* variables are inlined into the JS bundle by Expo's babel
-# transform at build time. A host with no DNS therefore produces a binary that
-# builds, submits and installs without a single signal, then fails every
-# network call — the failure that made AAB versionCode 4 unusable. Gate on it
-# before `eas build` spends one of the 15 monthly builds of the free tier and
-# before `eas submit` pushes the artifact to a store.
+# EXPO_PUBLIC_API_BASE_URL is read once, at config time, into `extra.apiBaseUrl`
+# (mobile/app.config.ts), which a build writes into the manifest embedded in the
+# binary. A host with no DNS therefore produces a binary that builds, submits and
+# installs without a single signal, then fails every network call — the failure
+# that made AAB versionCode 4 unusable. Gate on it before `eas build` spends one
+# of the 15 monthly builds of the free tier and before `eas submit` pushes the
+# artifact to a store.
 #
 # `getent hosts` on purpose, not `dig`/`nslookup`: those come from dnsutils,
 # which is not installed on `ubuntu-latest`. getent is glibc, always present,
@@ -300,7 +305,8 @@ elif [ -n "${PROFILE}" ]; then
       ;;
     __NO_URL__)
       fail "Build profile '${PROFILE}' sets no EXPO_PUBLIC_API_BASE_URL in mobile/eas.json"
-      printf "       The build would silently fall back to the default baked into app.config.ts.\n"
+      printf "       There is no fallback host: app.config.ts throws rather than resolve a\n"
+      printf "       config without it, so the build would die later and less clearly.\n"
       ERRORS=$((ERRORS + 1))
       ;;
     *)
@@ -310,7 +316,7 @@ elif [ -n "${PROFILE}" ]; then
       else
         fail "API host '${API_HOST}' of profile '${PROFILE}' resolves to no address"
         printf "       EXPO_PUBLIC_API_BASE_URL=%s (mobile/eas.json)\n" "${API_URL}"
-        printf "       That value is inlined into the JS bundle: the build would succeed, the\n"
+        printf "       That value is frozen into the artifact: the build would succeed, the\n"
         printf "       submission would succeed, and every network call of the installed app\n"
         printf "       would fail on DNS. Refusing to build.\n"
         ERRORS=$((ERRORS + 1))
