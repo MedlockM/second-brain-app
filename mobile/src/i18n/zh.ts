@@ -587,4 +587,9 @@ export const zh: Catalog = {
   "transcript.translating": "正在翻译文字记录…",
   "transcript.translationFailed": "翻译失败，显示原始文字记录。",
   "paywall.subtitle": "每个方案的功能都一样，区别只在每月的转写时长。",
+  "startupError.title": "应用无法启动",
+  "startupError.body": "启动过程中发生意外错误。重试通常就能恢复。",
+  "startupError.retryA11y": "重新尝试启动应用",
+  "startupError.showDetails": "显示技术详情",
+  "startupError.hideDetails": "隐藏技术详情",
 };

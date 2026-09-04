@@ -597,4 +597,10 @@ export const it: Catalog = {
   "transcript.translating": "Traduzione della trascrizione…",
   "transcript.translationFailed": "La traduzione non è riuscita. Viene mostrata la trascrizione originale.",
   "paywall.subtitle": "Ogni piano fa tutto. Cambia solo il tempo di trascrizione mensile.",
+  "startupError.title": "L'app non è riuscita ad avviarsi",
+  "startupError.body":
+    "Un errore inatteso ha interrotto l'avvio dell'app. Di solito basta riprovare.",
+  "startupError.retryA11y": "Riprova ad avviare l'app",
+  "startupError.showDetails": "Mostra i dettagli tecnici",
+  "startupError.hideDetails": "Nascondi i dettagli tecnici",
 };

@@ -598,4 +598,10 @@ export const hi: Catalog = {
   "transcript.translating": "ट्रांसक्रिप्ट अनूदित हो रहा है…",
   "transcript.translationFailed": "अनुवाद विफल रहा। मूल ट्रांसक्रिप्ट दिखाया जा रहा है।",
   "paywall.subtitle": "हर प्लान में सब कुछ मिलता है। सिर्फ़ महीने का ट्रांसक्रिप्शन समय बदलता है।",
+  "startupError.title": "ऐप शुरू नहीं हो सका",
+  "startupError.body":
+    "ऐप शुरू होते समय एक अनपेक्षित त्रुटि आ गई। दोबारा कोशिश करने से आमतौर पर काम बन जाता है।",
+  "startupError.retryA11y": "ऐप को फिर से शुरू करने की कोशिश करें",
+  "startupError.showDetails": "तकनीकी विवरण दिखाएँ",
+  "startupError.hideDetails": "तकनीकी विवरण छिपाएँ",
 };
