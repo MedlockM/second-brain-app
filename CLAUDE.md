@@ -4,7 +4,7 @@ Instructions specific to Claude working on this repository. Read `AGENTS.md` fir
 
 ## Nothing is deployed yet — scope tasks as deletions, not migrations
 
-Full rule in `AGENTS.md`, section "Nothing is deployed yet". The fact: **the app has never shipped** — not on the App Store, not on Google Play, not in TestFlight. Zero users besides the owner, zero production data, zero active subscriptions; AWS `prod` is a dormant shell that has never served traffic. There is no installed base.
+Full rule in `AGENTS.md`, section "Nothing is deployed yet". The fact: **the app has never shipped to a store** — not on the App Store, not on Google Play. It *is* in TestFlight since 2026-09-02 and on Android's internal track, with beta testers filing feedback; zero production data, zero paying customers, zero active subscriptions; AWS `prod` is a dormant shell that has never served traffic. **There is still no installed base**, because a tester updates on demand and holds only the build they last installed — so nothing has to be bridged. Do not argue from "there are no users"; argue from "nothing is in the wild that we cannot re-issue".
 
 This changes how you *write* tasks, not just how they are implemented:
 

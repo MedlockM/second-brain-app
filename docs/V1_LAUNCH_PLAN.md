@@ -1509,6 +1509,18 @@ sont rattachés aux entitlements de tier comme n'importe quel autre produit.
     - **`git push` ne s'automatise pas.** C'est le déclencheur de toute la chaîne, pas
       une étape de celle-ci. Il reste manuel par construction, et c'est la seule des
       trois corvées qui le reste.
+      **Amendement du 2026-09-04 — le triage des feedbacks beta.** Le dispositif
+      décrit dans `mobile/MOBILE_CI_CD.md`, section *Beta Feedback*, fait pousser une
+      session Claude après un « go » de l'owner sur une amélioration donnée. La
+      décision du 2026-09-02 est donc **amendée, pas contournée** : `git push` cesse
+      d'être une commande tapée au terminal pour devenir la conséquence directe d'un
+      go humain, tracé au registre `docs/testflight-feedback-log.md`. Ce que la
+      décision protégeait — qu'aucun robot ne décide seul d'expédier — tient
+      intégralement : le run de 9h00 ne commite pas, ne pousse pas, ne merge pas, et
+      ses propositions vivent sur des branches `feedback/*` qui n'atteignent `main`
+      que par un merge que l'owner a demandé. Le silence n'est jamais un go. Écrit ici
+      pour qu'une prochaine session ne lise pas une contradiction entre les deux
+      documents.
     - **Terraform n'est exécuté par aucun workflow aujourd'hui**, pas même `validate` :
       `deploy-lambda.yml` ne filtre pas sur `infrastructure/terraform/**`, donc un
       commit purement Terraform ne déclenche *rien*, et `scripts/tf_plan_guard.sh`

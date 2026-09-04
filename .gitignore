@@ -170,6 +170,12 @@ localstack-data/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
+# Captures d'écran et crash logs des beta testeurs, tirés d'App Store Connect
+# par scripts/testflight_feedback.py. Jamais commités : le dépôt est public, et
+# un crash log porte des chemins de conteneur et des identifiants d'incident.
+# L'owner a déjà ces pièces dans TestFlight.
+.testflight-feedback/
+
 # =============================================================================
 # Scratchpads / one-off planning docs at repo root
 # =============================================================================

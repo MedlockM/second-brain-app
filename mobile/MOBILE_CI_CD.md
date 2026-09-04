@@ -1092,6 +1092,189 @@ Registering a device with Expo does not register it with Apple: the device only
 lands on the Apple Developer Portal when it is first included in a provisioning
 profile, and Apple may take 24-72 h on a recently renewed membership.
 
+## Beta Feedback — reading it, and the 09:00 triage
+
+TestFlight testers file feedback through two native iOS channels: the sheet iOS
+offers after a crash, and the modal raised by a screenshot taken inside the app.
+Both land in App Store Connect under **TestFlight → Crashes** and **TestFlight →
+Screenshots** (French UI: *Pannes* and *Captures d'écran*), where nobody reads them
+unless they open the console. A daily job now collects them, prepares one branch per
+distinct problem, and asks the owner for a go/no-go from their phone. **A go means a
+merge on `main`**, which re-enters the OTA-or-build chain documented above.
+
+### What the API actually allows (verified by call, 2026-09-04)
+
+These are answers from real requests, not from Apple's docs. Do not re-derive them.
+
+| Fact | Consequence |
+|---|---|
+| Feedback collections are readable **only through the app path**: `GET /v1/apps/<app-id>/betaFeedback{Crash,Screenshot}Submissions` → 200. The root path → **403**, `GET_COLLECTION` not permitted (only `DELETE` and `GET_INSTANCE`) | There is no `filter[app]`. Always go through the app. |
+| `include=crashLog` → **400**, `The relationship 'crashLog' cannot be included`. Only `build` and `tester` are includable | A crash's text needs a second call: `GET /v1/betaFeedbackCrashSubmissions/<id>/crashLog` → `betaCrashLogs.attributes.logText` |
+| `filter[createdDate]` → **400**, not a valid filter type | **No date filter exists.** Windowing is client-side: `sort=-createdDate` (the only accepted sort), `limit` ≤ 200, follow `links.next`. `filter[build]` and `filter[build.preReleaseVersion]` do work |
+| Screenshot URLs are presigned and expire (~6 days) | Download the image at analysis time. Never store or reference the URL |
+| Rate limit is **per key** (`X-Rate-Limit`, ~3500 req/rolling hour) | This key is shared with EAS Submit and RevenueCat. A run costs ~10 requests; nothing may poll |
+
+The existing key is enough: the *App Store Connect API* key of the three-`.p8` table
+above is **Admin**, and Apple's documented minimum for reading feedback is *App
+Manager*. No new key to generate.
+
+### The MCP server, for interactive queries
+
+Registered at **user scope**, deliberately not in the repo: `.mcp.json` is tracked and
+the repo is public, and `.claude/settings.local.json` is gitignored so it is absent
+from agent worktrees — a `${VAR}` depending on it would break for implementers. User
+scope also means both `claude` and `claude-bedrock` see the server, since they share
+`~/.claude/settings.json`.
+
+```
+claude mcp add --scope user asc-testflight \
+  --env ASC_KEY_ID=<key-id> \
+  --env ASC_ISSUER_ID=<issuer-id> \
+  --env ASC_PRIVATE_KEY_PATH=$HOME/.appstoreconnect/private_keys/AuthKey_<key-id>.p8 \
+  --env ASC_READ_ONLY=true \
+  --env ASC_REDACT_PII=1 \
+  -- npx -y @erayendes/asc-mcp@2.3.0 testflight
+```
+
+Placeholders only — as everywhere in this repo, the command is written down and the
+values are not. Retrieve the Issuer ID without touching the Apple console, through
+Expo's GraphQL API (`account.byName(...).appStoreConnectApiKeys[].issuerIdentifier`),
+using the pattern documented above.
+
+Three choices in that command are load-bearing:
+
+- **`ASC_READ_ONLY=true`** — the feedback endpoints accept `DELETE`, and the key is
+  Admin over the whole account. Read-only is a safety property, not a convenience.
+- **`ASC_REDACT_PII=1`** — strips `email`/`firstName`/`lastName` before the data
+  reaches the model. The repo is public; this makes leaking a tester's identity
+  structurally improbable rather than merely forbidden.
+- **The pinned version.** A floating `npx -y` on a single-contributor package is a
+  free supply-chain surface.
+
+Why this server: the most-starred alternative (`JoshuaRileyDev/app-store-connect-mcp-server`,
+331★) has been **archived since 2025-09-02 and does not expose crashes at all** —
+grep its `dist/src/handlers/beta.js` for `betaFeedbackCrashSubmissions`, zero hits.
+That is the trap of this niche: the *Crashes* tab is exactly the half that goes
+missing. `@erayendes/asc-mcp` vendors Apple's OpenAPI spec 4.4.1 with a `spec-watch`
+workflow that tracks Apple's silent changes.
+
+### The automated run
+
+The MCP serves interactive questions ("show me this week's feedback"). The automated
+run uses `scripts/testflight_feedback.py`, which does the three things no MCP can:
+client-side windowing (no date filter exists), downloading screenshots before their
+URLs expire, and resolving each feedback's originating build against the current one —
+a report on build 4 while 6 is live may already be fixed, and the report must say so.
+
+`scripts/testflight_triage.sh` is the timer's entry point, shaped like
+`scripts/dispatch_backlog.sh` including its fatal guards. It ends in
+`claude-bedrock --agent feedback-triage`. Two deliberate divergences from the
+dispatcher:
+
+- **No dirty-tree guard.** The dispatcher demands a clean tree because it merges.
+  This run never commits, pushes, merges, or touches the main checkout — and it fires
+  at 09:00, possibly mid-work. Refusing to run on a dirty tree would turn a harmless
+  run into a daily failure.
+- **A `flock` on `.testflight-feedback/triage.lock`**, so a catch-up firing cannot
+  overlap a run still in progress.
+
+`scripts/testflight_feedback.py --check-credentials` mints a token and exits without
+spending an API call — the wrapper uses it to fail fast rather than burning an agent
+run to discover a missing key.
+
+**Deduplication is anchored on feedback ids, never on a last-run timestamp** — the
+convention set in `.github/workflows/mobile-build-watch.yml`, because a scheduler
+drifts and drops runs while an identifier does not. The two memories are:
+
+- a live `feedback/*` branch = a proposal awaiting decision;
+- a line in `docs/testflight-feedback-log.md` = a decided feedback.
+
+Neither ⇒ new. So a missed morning catches itself up, a no-go never comes back, and
+there is no state file to maintain.
+
+**Grouping is the model's judgement, and nothing else's.** Two testers can describe
+one bug in entirely different words, and two lexically similar reports can target two
+different screens — both of which happened on the first real batch. The collector
+therefore groups nothing; it returns raw text and local image paths, and the agent
+reads every comment *and looks at every screenshot* before deciding.
+
+### The 24/7 session — the phone bridge, and the only writer of `main`
+
+`./scripts/testflight_session.sh {start|stop|restart|status|logs}` manages a
+background **Pro** session (`claude agents`, not a terminal to leave open) whose
+procedure lives in `.claude/agents/feedback-decisions.md`. It receives the report,
+which is what pushes the notification (Claude pushes when it needs a decision to
+continue), and executes the owner's go/no-go. The triage run itself is on Bedrock, so
+the heavy work never touches the Pro quota; cross-session `SendMessage` crosses that
+authentication boundary — verified.
+
+Four things about its launch command are non-obvious, each established by breaking it
+first. They are documented in the script's header; the summary:
+
+1. **`env -u CLAUDE_CODE_USE_BEDROCK -u AWS_BEARER_TOKEN_BEDROCK -u ANTHROPIC_MODEL`** —
+   started from a `claude-bedrock` session it inherits these and the "Pro" session
+   actually runs on Bedrock, defeating the whole split.
+2. **`--model claude-opus-5`, the full id and not the `opus` alias.** `claude` and
+   `claude-bedrock` share `~/.claude.json`, whose `clientDataCacheSlots` remembers the
+   last model used — `us.anthropic.claude-opus-5` under Bedrock, which the Claude.ai
+   API rejects. The session starts, displays "Claude Pro", then every turn dies on
+   *"issue with the selected model"*. The explicit id bypasses the cache.
+3. **`--name` and `--remote-control` both, with the same label.**
+   `--remote-control [name]` names only the phone-side session; the cross-session
+   address that `ListAgents` shows and `SendMessage` takes comes from `--name`.
+   Without it the name is auto-generated from conversation content and changes on
+   every relaunch, so the 09:00 run would lose its target.
+4. **`--agent feedback-decisions`** — a session that lives for days gets its context
+   compacted. The go/no-go procedure must be an agent definition, re-read every turn,
+   not a start prompt that evaporates.
+
+If the session is down, the run leaves the report on disk and **exits non-zero**, so
+the failure is visible in `systemctl --user status testflight-triage`. Nothing is
+lost: the branches are the memory, and the next run picks the proposal back up.
+
+### The trigger — a user systemd timer
+
+`~/.config/systemd/user/testflight-triage.{service,timer}`, machine-local. Three
+settings carry the design:
+
+- **`OnCalendar=*-*-* 09:00`** — the hour as asked, exactly. A Claude in-session cron
+  applies ±30 min of jitter and expires after 7 days.
+- **`Persistent=true`** — this machine sleeps, so the 09:00 slot is regularly missed;
+  the run then fires on wake. This is what makes "leave the PC on 24/7" unnecessary:
+  the catch-up is structural. (`WakeSystem=true` is *not* used — it needs
+  `CAP_WAKE_ALARM`, out of reach for a user timer.)
+- **`Environment=PATH=…`** with the nvm bin directory. A user service does **not**
+  inherit the login shell's PATH, and `npx` is needed by the user-scope MCP server
+  that `claude` starts regardless. The node version is pinned in that path on
+  purpose; the script warns about a missing `npx` rather than failing obscurely.
+
+Also `TimeoutStartSec=0` (the 90 s default would kill the service mid-fix),
+`After=network-online.target` (on wake, DNS is not ready yet), and
+`loginctl enable-linger` so the timer survives a logout. Read the run with
+`journalctl --user -u testflight-triage -n 200`.
+
+**One local fragility worth knowing.** `~/.local/bin/claude` symlinks into
+`~/snap/code/<rev>/.local/share/claude/versions/<version>` — the CLI was installed
+from a VS Code snap shell, where `$HOME` is remapped. snapd keeps two revisions, so
+two VS Code refreshes prune the target and the symlink dangles while still satisfying
+`command -v`. `testflight_triage.sh` therefore checks `readlink -f` is executable and
+names this cause in its error message. Reinstalling the CLI from a plain terminal is
+the durable fix.
+
+### Privacy — hard rules
+
+The repo is public and `main` refuses force-pushes: what lands there stays there.
+
+- **Never a tester's email or name**, in any file, commit message, report or ledger.
+  `ASC_REDACT_PII=1` on the MCP, and the collector serialises only whitelisted fields
+  so the data never reaches the model in the first place.
+- **Screenshots stay local and gitignored** (`.testflight-feedback/`). The owner
+  already has them in TestFlight.
+- **A crash `logText` is never pasted into a tracked file** — it carries container
+  paths and incident identifiers. Only the diagnosis drawn from it is written.
+- The `.p8`, the Key ID and the Issuer ID appear in no tracked file. The docs give
+  the command and the way to retrieve the values.
+
 ## Workflow Triggers
 
 Two workflows can spend EAS quota or reach a tester, and they take different

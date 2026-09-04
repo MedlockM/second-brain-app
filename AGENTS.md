@@ -94,7 +94,9 @@ Before you commit, grep your own diff. If you added an email, a token-shaped str
 
 ## Nothing is deployed yet — delete legacy instead of bridging it
 
-**The app has never shipped.** It is not on the App Store, not on Google Play, not in TestFlight, not in Internal Testing. There are **zero users other than the owner**, zero production data, zero paying customers, zero active subscriptions. AWS `prod` exists but is a dormant shell that has never served traffic, and its runtime secret is empty. The only live environment is `-dev`, whose contents are the owner's own test fixtures.
+**The app has never shipped to a store.** It is not on the App Store and not on Google Play — the single `appStoreVersions` entry sits in `PREPARE_FOR_SUBMISSION`. There are **zero production data, zero paying customers, zero active subscriptions**. AWS `prod` exists but is a dormant shell that has never served traffic, and its runtime secret is empty. The only live environment is `-dev`, whose contents are the owner's own test fixtures.
+
+*Corrected 2026-09-04: this paragraph used to say "not in TestFlight, not in Internal Testing… zero users other than the owner", which is now false.* iOS has been in TestFlight since 2026-09-02 and Android on its internal track since 2026-09-01 (`mobile/MOBILE_CI_CD.md`), builds have been installed, and beta testers file feedback that `scripts/testflight_triage.sh` now processes. **The rule below is unchanged**, because what makes it true was never the literal absence of users: a TestFlight tester updates on demand and holds at most the build they last installed, so there is still **no installed base to protect** — no old data shape in the wild, no client you cannot re-issue, nothing to migrate. Delete legacy rather than bridging it, exactly as before. What you may no longer write is *"there are no users"* as the argument.
 
 So there is **no installed base to protect**, and every argument that starts with "but existing users would…" is false here. Two migration reflexes that are correct in a shipped product are *wrong* in this repo:
 
