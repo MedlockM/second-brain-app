@@ -659,6 +659,55 @@ at which the real bytes exist.
 define any of the three keys above. `eas env:list` needs authentication and has
 neither `--json` nor `--non-interactive` in 22.0.0, so it cannot be a CI gate.
 
+#### 2026-09-04 — that grep is a false positive here, and it has never once passed
+
+The first OTA this workflow ever actually published failed the check on both
+platforms, twice in a row. The publish itself was fine both times. **The check is
+wrong for this project**, for a structural reason:
+
+- no application file reads `process.env.EXPO_PUBLIC_API_BASE_URL`. The only
+  reader is `app.config.ts:312`, at *config* time, which puts the value in
+  `extra.apiBaseUrl`; the app reads `extra.apiBaseUrl` (`src/constants/config.ts:10`);
+- so the URL travels in the **update manifest**, not in the JS bundle. Nothing
+  inlines it into `mobile/dist/`, which is exactly where the step greps. The
+  premise "`EXPO_PUBLIC_*` values are inlined into the JS bundle" holds only for
+  keys the *application code* dereferences, and this one is not.
+
+Verified against the servers rather than argued — the manifest EAS actually
+serves the `internal` channel, fetched with `curl` on
+`https://u.expo.dev/<projectId>` with the `expo-platform` / `expo-runtime-version`
+/ `expo-channel-name` headers:
+
+| Platform | Runtime version | `extra.apiBaseUrl` served |
+|---|---|---|
+| ios | `c1dcf637…6982252` | `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com` |
+| android | `24f20990…907b859` | `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com` |
+
+Zero occurrences of `api.mediasummarizer.com` in either manifest. **The shipped
+updates were correct; the gate was not.** No rollback was performed, and none was
+warranted. Until the step is fixed, every JS-only push turns the workflow red
+*after* publishing a perfectly good update — a false alarm on the one channel
+that is supposed to mean "stop".
+
+**The EAS `production` environment now defines `EXPO_PUBLIC_API_BASE_URL`**
+(added by the owner in expo.dev on 2026-09-04, value
+`https://jji077bi8e.execute-api.eu-west-3.amazonaws.com`), which the "Owner
+check" above asks you to confirm is *not* the case. It was added to chase this
+false positive and fixes nothing. It also breaks the invariant this section
+rests on — the key is now defined on **both** sides:
+
+- `eas build` keeps `eas.json` (`api.mediasummarizer.com` on the `production`
+  profile), `eas update` now takes the EAS environment (the dev API) — the two
+  paths disagree on the `production` channel;
+- the `internal` channel is unaffected: same value on both sides.
+
+Nothing ships from the `production` channel today, so the practical impact is
+nil — but this is precisely the trap described above, now armed. Removing it
+restores the invariant: **expo.dev → Projects → `second-brain-app` → left
+sidebar "Environment variables" → row `EXPO_PUBLIC_API_BASE_URL` → the "⋮" menu
+at the end of the row → "Delete variable"**, or
+`eas env:delete production --variable-name EXPO_PUBLIC_API_BASE_URL`.
+
 ### Rolling back an update
 
 Three commands, all present in 22.0.0. None is wired to run automatically — an
@@ -670,6 +719,14 @@ something unreviewed.
 | `eas update:rollback` | Republishes the update *before* the latest one on the branch. Falls back to a roll-back-to-embedded if there is none. Takes a group id, **required in non-interactive mode** | The previous OTA update was fine and this one is not |
 | `eas update:roll-back-to-embedded` | Publishes a directive that sends clients back to the bundle **baked into the binary** | The whole OTA lineage is suspect, or you want testers on exactly what TestFlight/Play shipped |
 | `eas update:republish` | Re-publishes a specific, named older update group | You know which good update to go back to and it is not simply the previous one |
+
+**None of the three runs from a fresh checkout.** `update:roll-back-to-embedded`
+resolves the installed `expo-updates` to check it is >= 0.19.0, and answers
+`The expo-updates package must have a version >= 0.19.0` — misleadingly — when
+the package is simply absent from `mobile/node_modules`. `package.json` pinning
+`~55.0.30` is not enough. Run `npm install` in `mobile/` **before** you need the
+rollback, not during the incident. `eas env:list` and `eas update:list`, by
+contrast, work without it.
 
 Run them from `mobile/`. Find the group to name with `eas update:list --channel internal`.
 
