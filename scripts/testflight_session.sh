@@ -51,6 +51,11 @@ claude_pro() {
   env -u CLAUDE_CODE_USE_BEDROCK -u AWS_BEARER_TOKEN_BEDROCK -u ANTHROPIC_MODEL claude "$@"
 }
 
+# `claude agents --json` rend deux identifiants distincts et non interchangeables :
+# `sessionId` (l'UUID complet, qui identifie la conversation) et `id` (les 8 premiers
+# caractères, présent uniquement sur les sessions d'arrière-plan). `logs`, `stop` et
+# `attach` n'acceptent que le second — passer l'UUID donne « No job matching ». On
+# résout donc toujours `id` pour piloter, et `sessionId` seulement pour l'affichage.
 session_field() {
   claude_pro agents --json 2>/dev/null \
     | SESSION_NAME="${SESSION_NAME}" FIELD="$1" python3 -c '
@@ -86,13 +91,13 @@ start_session() {
 }
 
 stop_session() {
-  local sid
-  sid="$(session_field sessionId)"
-  if [ -z "${sid}" ]; then
+  local job
+  job="$(session_field id)"
+  if [ -z "${job}" ]; then
     echo "Aucune session « ${SESSION_NAME} » en cours."
     return 0
   fi
-  claude_pro stop "${sid}"
+  claude_pro stop "${job}"
 }
 
 case "${1:-status}" in
@@ -108,14 +113,14 @@ case "${1:-status}" in
     start_session
     ;;
   logs)
-    sid="$(session_field sessionId)"
-    if [ -z "${sid}" ]; then
+    job="$(session_field id)"
+    if [ -z "${job}" ]; then
       echo "Aucune session « ${SESSION_NAME} » en cours." >&2
       exit 1
     fi
     # Le rendu TUI est truffé de séquences ANSI ; on les retire pour rendre le
     # journal lisible dans un pipe.
-    claude_pro logs "${sid}" 2>&1 | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g'
+    claude_pro logs "${job}" 2>&1 | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g'
     ;;
   status)
     sid="$(session_field sessionId)"
