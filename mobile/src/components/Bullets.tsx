@@ -10,13 +10,21 @@
  * screen with no scroll of its own, so a bullet that runs long is clipped rather
  * than allowed to push the action bar away. It is a safety net — the prompt bounds
  * bullet length upstream — and the artifact screen, which scrolls freely, leaves
- * it unset.
+ * it unset. The cap is the caller's to work out, not this component's: the triage
+ * card measures what its box can hold and passes the answer down.
  */
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Colors, Spacing, Typography } from "../constants/theme";
+
+/**
+ * The one gap this list uses, between a dot and its text and between two rows
+ * alike. `Spacing` has no 10 and the two have always been the same value, so it is
+ * named once here rather than spelled `Spacing.sm + 2` twice.
+ */
+const BULLET_GAP = Spacing.sm + 2;
 
 export function Bullets({
   items,
@@ -28,7 +36,7 @@ export function Bullets({
   numberOfLines?: number;
 }): React.JSX.Element {
   return (
-    <View>
+    <View style={styles.list}>
       {items.map((item, i) => (
         <View key={`bullet-${i}`} style={styles.bulletRow}>
           {variant === "check" ? (
@@ -51,11 +59,22 @@ export function Bullets({
 }
 
 const styles = StyleSheet.create({
+  /**
+   * `rowGap` on the list rather than a `marginBottom` on every row.
+   *
+   * React Native has no `:last-child`, so a per-row margin also hangs under the
+   * last bullet: the list measured 10 pt taller than the text it draws, and the
+   * space it added below itself belonged to no one. Harmless on the artifact
+   * screen, which scrolls; not harmless on the triage card, which sizes this list
+   * against the room its box has left and needs the two numbers to agree.
+   */
+  list: {
+    rowGap: BULLET_GAP,
+  },
   bulletRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    marginBottom: Spacing.sm + 2,
-    gap: Spacing.sm + 2,
+    columnGap: BULLET_GAP,
   },
   bulletDot: {
     width: 6,
