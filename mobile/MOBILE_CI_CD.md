@@ -755,28 +755,36 @@ Zero occurrences of `api.mediasummarizer.com` in either manifest. **The shipped
 updates were correct; the gate was not.** No rollback was performed, and none was
 warranted.
 
-##### Still to undo: `EXPO_PUBLIC_API_BASE_URL` on the EAS `production` environment
+##### Settled: `EXPO_PUBLIC_API_BASE_URL` is no longer on the EAS `production` environment
 
-**The EAS `production` environment defines `EXPO_PUBLIC_API_BASE_URL`** (added by
-the owner in expo.dev on 2026-09-04, value
-`https://jji077bi8e.execute-api.eu-west-3.amazonaws.com`), which the "Owner
-check" above asks you to confirm is *not* the case. It was added to chase the
-false positive described above and fixed nothing. It also breaks the invariant
-this section rests on — the key is defined on **both** sides:
+It was added by the owner in expo.dev on 2026-09-04 while chasing the false
+positive described above, and it fixed nothing — the updates were already
+correct. It also broke the invariant this section rests on, by defining the key
+on **both** sides: `eas build` keeps `eas.json`, `eas update` takes the EAS
+environment, so the two paths would have disagreed on the `production` channel.
+Nothing ships from that channel today, so nothing was ever served wrong.
 
-- `eas build` keeps `eas.json` (`api.mediasummarizer.com` on the `production`
-  profile), `eas update` now takes the EAS environment (the dev API) — the two
-  paths disagree on the `production` channel;
-- the `internal` channel is unaffected: same value on both sides.
+**Deleted the same day**, once the real cause was established, with
+`eas env:delete production --variable-name EXPO_PUBLIC_API_BASE_URL`. Verified
+straight after: the `production` environment is back to its five keys
+(`EXPO_PUBLIC_FEEDBACK_URL`, the two Google client IDs, the two RevenueCat
+keys), none of which is also in `eas.json`. The "Owner check" above holds again.
 
-Nothing ships from the `production` channel today, so the practical impact is
-nil — but this is precisely the trap described above, now armed, and the fix to
-the gate does not make it harmless: it makes it *loud* (the runtime version would
-diverge and the manifest fetch would 404), which is not the same as absent.
-Removing it restores the invariant: **expo.dev → Projects → `second-brain-app` →
-left sidebar "Environment variables" → row `EXPO_PUBLIC_API_BASE_URL` → the "⋮"
-menu at the end of the row → "Delete variable"**, or
-`eas env:delete production --variable-name EXPO_PUBLIC_API_BASE_URL`.
+Through the UI, had it been done by hand: **expo.dev → Projects →
+`second-brain-app` → left sidebar "Environment variables" → row
+`EXPO_PUBLIC_API_BASE_URL` → the "⋮" menu at the end of the row → "Delete
+variable"**.
+
+One practical catch, worth knowing before the next incident: **`eas env:delete`
+resolves the app config first**, so with the fallback host now gone it refuses to
+run unless `EXPO_PUBLIC_API_BASE_URL` is set in the calling shell — the variable
+you are deleting. Load the profile's block the way the workflow does before
+reaching for any `eas` command locally:
+
+```bash
+cd mobile
+set -a; eval "$(jq -r '.build.internal.env | to_entries[] | "\(.key)=\"\(.value)\""' eas.json)"; set +a
+```
 
 ### Rolling back an update
 
