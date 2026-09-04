@@ -189,8 +189,10 @@ Two consequences, both already applied:
 - The three `submit` profiles in `eas.json` carry **no** `serviceAccountKeyPath`.
   A path there takes precedence over the stored key, so re-adding one would send
   `eas submit` looking for a local file that no longer exists.
-- The workflow no longer writes a key file, and `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY`
-  is no longer a required secret.
+- **Neither** workflow writes a key file — not `mobile-build-distribute.yml`, and not
+  `mobile-store-promote.yml`, whose step was missed on 2026-09-01 and removed on
+  2026-09-04. `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY` is not a required secret and no longer
+  exists; the step that survived was writing an empty file over the resolved key.
 
 To redo it from scratch, the steps that actually exist in the current consoles:
 
@@ -275,8 +277,13 @@ disposition and the flags to read back: `docs/REVENUECAT_ENTITLEMENTS.md`.
 > ID** and the **Issuer ID** are also needed and are not recoverable from the
 > file — both are readable from **App Store Connect → Users and Access →
 > Integrations → App Store Connect API** (the issuer ID is shared by the whole
-> team, the key ID sits on the key's row). Neither is written down here: the repo
-> is public.
+> team, the key ID sits on the key's row). The **Issuer ID is not written down
+> here**, and no `.p8` is in the repo: it is public. The **Key ID is** written
+> down, in the filename Apple generates — that is what tells the three files apart
+> on disk, and on its own it authenticates nothing, since a request needs all
+> three of key ID, issuer ID and private key. *This paragraph claimed until
+> 2026-09-04 that neither was recorded, while the table above has always carried
+> the key ID in a filename.*
 
 > **Answer `n` to "Generate a new App Store Connect API Key?"** when a key already
 > exists. `Y` makes EAS mint a *second* key through Apple and keep it server-side —

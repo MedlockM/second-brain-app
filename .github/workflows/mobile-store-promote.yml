@@ -157,10 +157,14 @@ jobs:
       - name: Install EAS CLI ${{ env.EAS_CLI_VERSION }}
         run: npm install -g "eas-cli@${EAS_CLI_VERSION}"
 
-      - name: Write Google Play service account key
-        working-directory: mobile
-        run: |
-          echo '${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY }}' > google-services-key.json
+      # No service account key is written here. Since 2026-09-01 the Google Play
+      # key lives on the EAS servers (uploaded through `eas credentials`), and the
+      # `submit` profiles in eas.json no longer carry `serviceAccountKeyPath`, so
+      # `eas submit` resolves it by itself. Writing a local key file again would
+      # shadow the stored one and reintroduce a secret this workflow does not need.
+      # `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY` was deleted from the repository secrets,
+      # so the step that used to be here wrote an empty file that could only break
+      # the submit it was meant to enable.
 
       - name: Get latest production build
         id: build
@@ -193,11 +197,6 @@ jobs:
             --latest
           echo "- Rollout: ${{ github.event.inputs.android_rollout_percentage }}%" >> $GITHUB_STEP_SUMMARY
           echo "- Status: Submitted to production track" >> $GITHUB_STEP_SUMMARY
-
-      - name: Clean up service account key
-        if: always()
-        working-directory: mobile
-        run: rm -f google-services-key.json
 
       - name: Post summary
         run: |
