@@ -63,12 +63,11 @@ from datetime import datetime, timezone
 from enum import Enum
 from io import BytesIO
 from typing import Any, Dict, Optional
-from urllib.parse import parse_qs, urlsplit
 
 from media_summarizer.core.media_ingestion.media_metadata import (
     normalize_cover_url,
     select_creator,
-    youtube_thumbnail_url,
+    youtube_video_id,
 )
 from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.core.services import quota_enforcer
@@ -134,8 +133,8 @@ _APIFY_TITLE_FIELDS = ("title", "video_title", "videoTitle", "name")
 
 # Same story for the channel and the cover: neither actor declares them in
 # its output schema, so every known spelling is probed and a miss simply
-# leaves the field empty -- for the cover, `youtube_thumbnail_url` then
-# rebuilds a deterministic `i.ytimg.com` URL from the video id (task-304).
+# leaves the field empty -- for the cover, the deterministic `i.ytimg.com` URL
+# the resolver already stored at submission time stays in place (task-353).
 _APIFY_CREATOR_FIELDS = ("channel", "channel_name", "channelName", "author", "uploader")
 _APIFY_THUMBNAIL_FIELDS = ("thumbnail", "thumbnail_url", "thumbnailUrl", "cover")
 
@@ -232,21 +231,15 @@ def _apify_actor_id_for_api(actor_id: str) -> str:
 
 
 def _extract_video_id(normalized_url: str) -> str:
-    split = urlsplit((normalized_url or "").strip())
-    host = (split.hostname or "").lower()
-    path = split.path or ""
-    parts = [segment for segment in path.split("/") if segment]
-    query = parse_qs(split.query)
+    """The video id, or a non-retryable ingestion error when the URL has none.
 
-    if host in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
-        if path == "/watch":
-            video_id = (query.get("v") or [""])[0].strip()
-            if video_id:
-                return video_id
-        if len(parts) >= 2 and parts[0] in {"shorts", "embed", "live"}:
-            return parts[1].strip()
-    if host in {"youtu.be", "www.youtu.be"} and parts:
-        return parts[0].strip()
+    The parsing itself lives in ``media_metadata.youtube_video_id``, which the
+    resolver uses to derive the submission-time cover: one parser, so the id this
+    worker works on is by construction the id that cover points at.
+    """
+    video_id = youtube_video_id(normalized_url)
+    if video_id:
+        return video_id
     raise YouTubeIngestionError(
         "youtube_unavailable",
         details="missing_video_id",
@@ -880,11 +873,9 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
     if apify_title:
         job.title = apify_title
 
-    # Neither transcript actor declares a thumbnail or a channel in its
-    # output schema, but the video id was parsed from the URL long before
-    # this branch -- so the cover is the deterministic `i.ytimg.com` one
-    # (task-302 §4, row 2). All known channel spellings are probed and a
-    # missing one simply leaves the field empty.
+    # Neither transcript actor declares a thumbnail or a channel in its output
+    # schema. All known channel spellings are probed and a missing one simply
+    # leaves the field empty.
     apify_creator = select_creator(
         [apify_result.get("creator")],
         title=job.title,
@@ -892,9 +883,13 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
     if apify_creator:
         job.creator_name = apify_creator
 
-    apify_cover = normalize_cover_url(
-        apify_result.get("thumbnail")
-    ) or youtube_thumbnail_url(video_id)
+    # An actor that *does* return a thumbnail upgrades the cover; there is no
+    # fallback to rebuild here, because the deterministic `i.ytimg.com` URL was
+    # written onto the library row at submission time and is what the tile has
+    # been showing since (task-353). Rebuilding it at completion would only
+    # re-write the value it already holds -- and would keep the audio-fallback
+    # branch, which never reaches this line, coverless.
+    apify_cover = normalize_cover_url(apify_result.get("thumbnail"))
     if apify_cover:
         job.media_image = apify_cover
 

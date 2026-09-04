@@ -26,6 +26,10 @@ from media_summarizer.core.media_ingestion.domain import (
 from media_summarizer.core.media_ingestion.errors import (
     UnsupportedUrlError,
 )
+from media_summarizer.core.media_ingestion.media_metadata import (
+    youtube_thumbnail_url,
+    youtube_video_id,
+)
 from media_summarizer.core.media_ingestion.ports import ContentResolverPort
 from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.utils.language_codes import normalize_language_code
@@ -274,6 +278,12 @@ class YouTubeResolver(ContentResolverPort):
             media_type=MediaType.YOUTUBE_VIDEO,
             source_platform=SourcePlatform.YOUTUBE,
             resolver_key=self.key,
+            # The cover is the one source of metadata this deferred resolver can
+            # produce without calling anything: `i.ytimg.com` is addressed by the
+            # video id, which is in the URL. Emitting it here is what puts the
+            # image on the library row at submission time instead of at the end
+            # of the transcript run, minutes later (task-353).
+            cover_url=youtube_thumbnail_url(youtube_video_id(context.normalized_url)),
             metadata=metadata,
         )
         log_event(

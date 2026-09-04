@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from typing import Iterable, Optional, Sequence, Tuple
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from media_summarizer.core.media_ingestion.title_derivation import (
     _normalize_for_comparison,
@@ -83,6 +83,14 @@ _CREATOR_PLACEHOLDER_RES = (
 _ALLOWED_COVER_SCHEMES = frozenset({"http", "https"})
 
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+# Hosts whose `/watch?v=`, `/shorts/`, `/embed/` and `/live/` forms all carry the
+# video id in the URL itself. `youtu.be` puts it in the first path segment.
+_YOUTUBE_HOSTS = frozenset(
+    {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}
+)
+_YOUTUBE_SHORT_HOSTS = frozenset({"youtu.be", "www.youtu.be"})
+_YOUTUBE_ID_PATH_PREFIXES = frozenset({"shorts", "embed", "live"})
 
 
 def normalize_creator_name(raw: Optional[str]) -> Optional[str]:
@@ -192,13 +200,44 @@ def largest_thumbnail(thumbnails: Optional[Iterable[dict]]) -> Optional[str]:
     return best
 
 
+def youtube_video_id(url: Optional[str]) -> Optional[str]:
+    """The video id carried by a YouTube URL, or ``None`` when there is none.
+
+    Pure parsing, like everything else in this module, and the *only* YouTube id
+    parser in the codebase: the ingestion worker calls it too, so the id the
+    submission derives its cover from and the id the worker fetches a transcript
+    for can never diverge.
+
+    ``None`` rather than an exception, because the first caller is the resolver:
+    an URL the router classified as YouTube but whose id cannot be read must
+    still be submitted -- it just starts without a cover.
+    """
+    split = urlsplit((url or "").strip())
+    host = (split.hostname or "").lower()
+    path = split.path or ""
+    parts = [segment for segment in path.split("/") if segment]
+
+    if host in _YOUTUBE_HOSTS:
+        if path == "/watch":
+            candidate = (parse_qs(split.query).get("v") or [""])[0].strip()
+            if candidate:
+                return candidate
+        if len(parts) >= 2 and parts[0] in _YOUTUBE_ID_PATH_PREFIXES:
+            return parts[1].strip() or None
+    if host in _YOUTUBE_SHORT_HOSTS and parts:
+        return parts[0].strip() or None
+    return None
+
+
 def youtube_thumbnail_url(video_id: Optional[str]) -> Optional[str]:
     """Deterministic ``i.ytimg.com`` cover for a video id, or ``None``.
 
     ``hqdefault`` rather than ``maxresdefault``: the high-resolution variant is
     absent on older and low-resolution uploads, and a 404 here is a blank tile.
-    Used by the Apify branch, whose transcript actors declare no thumbnail in
-    their output schema but where the id has already been parsed from the URL.
+
+    No network and no provider: the id is in the URL, so a YouTube save carries
+    its cover from the moment it is submitted rather than from the end of its
+    transcription (task-353).
     """
     if not video_id:
         return None
