@@ -21,13 +21,22 @@ name: Mobile Build & Distribute
 #                                    store from a manual run requires ticking
 #                                    `submit` explicitly.
 #
-# A push to a branch (including `main`) builds NOTHING. Until 2026-08-13 the
-# `push` block mixed `branches: [main]` + `paths: [mobile/**]` with
-# `tags: [mobile-v*]`; GitHub treats those as two independent triggers, not as a
-# conjunction, so every commit touching `mobile/` fired a production build on
-# both platforms and an unattended store submission. Static mobile checks on
+# A push to a branch (including `main`) builds nothing THROUGH THIS FILE. Until
+# 2026-08-13 the `push` block mixed `branches: [main]` + `paths: [mobile/**]`
+# with `tags: [mobile-v*]`; GitHub treats those as two independent triggers, not
+# as a conjunction, so every commit touching `mobile/` fired a production build
+# on both platforms and an unattended store submission. Static mobile checks on
 # `main` live in pr.yml / main.yml (typecheck + lint); nothing here needs to run
 # per-commit. Do not re-add a branch filter to the `push` trigger.
+#
+# READ THE SCOPE OF THAT SENTENCE. It is about this workflow, NOT about the
+# repository: since task-340, `mobile-ota-or-build.yml` DOES trigger on a push to
+# `main` touching `mobile/**` (minus `.md` and `.maestro/`), and on a moved native
+# fingerprint it runs `eas build --profile internal --auto-submit` per platform —
+# so that push does reach TestFlight and the Play `internal` track with no manual
+# dispatch. Read as repo-wide, this comment produces the opposite advice, which
+# is exactly what happened on 2026-09-04. The authoritative trigger matrix is
+# mobile/MOBILE_CI_CD.md, "Workflow Triggers" / "What happens on push to `main`".
 #
 # Owner prerequisite: the `EXPO_TOKEN` repository secret must exist, otherwise
 # every `eas` call fails with "An Expo user account is required to proceed".
