@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors, Typography, Spacing, BorderRadius } from "../constants/theme";
-import type { MediaType, SourcePlatform } from "../types/media";
+import type { MediaType } from "../types/media";
 import { getMediaTypeIcon } from "../lib/mediaTypeDisplay";
 import { t, tCount } from "../i18n";
 
@@ -82,9 +82,10 @@ export const TILE_HEIGHT =
 const MAX_MOSAIC_IMAGES = 4;
 
 /**
- * What a tile can hold. Three shapes rather than one loose bag of optional
- * fields: a collection has no creator and a pending share has no cover, and
- * making that explicit is what keeps the rendering branches honest.
+ * What a tile can hold. Two shapes rather than one loose bag of optional fields:
+ * a media item has a creator and one cover of its own where a collection has an
+ * item count and borrows its members', and making that explicit is what keeps
+ * the rendering branches honest.
  */
 export type HomeTileItem =
   | {
@@ -110,14 +111,6 @@ export type HomeTileItem =
       itemCount: number;
       /** Up to four covers of its newest items. Possibly empty. */
       previewImages: string[];
-    }
-  | {
-      kind: "pending";
-      id: string;
-      /** The shared URL, shown as-is while the backend catches up. */
-      url: string;
-      sourcePlatform?: SourcePlatform;
-      failed: boolean;
     };
 
 interface HomeTileProps {
@@ -130,9 +123,6 @@ export function HomeTile({ item, onPress }: HomeTileProps): React.JSX.Element {
     <Pressable
       style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}
       onPress={() => onPress(item)}
-      // A pending share is not navigable yet, but it stays focusable so the row
-      // does not develop a hole for screen readers between two real tiles.
-      disabled={item.kind === "pending"}
       accessibilityLabel={describeTile(item)}
       accessibilityRole="button"
     >
@@ -159,20 +149,6 @@ function TileCover({ item }: { item: HomeTileItem }): React.JSX.Element {
 
   if (item.kind === "collection") {
     return <CollectionMosaic item={item} />;
-  }
-
-  if (item.kind === "pending") {
-    return (
-      <View style={styles.cover}>
-        <Ionicons
-          name={
-            item.failed ? "alert-circle" : getSourcePlatformIcon(item.sourcePlatform)
-          }
-          size={32}
-          color={item.failed ? Colors.error : Colors.textMuted}
-        />
-      </View>
-    );
   }
 
   const uri = item.imageUrl?.trim() ?? "";
@@ -291,7 +267,6 @@ function CollectionMosaic({
 
 function tileTitle(item: HomeTileItem): string {
   if (item.kind === "collection") return item.name;
-  if (item.kind === "pending") return item.url;
   // The backend stores a non-empty, human-readable title (task-266); the guard
   // covers the window before an item's metadata has resolved.
   return item.title?.trim() || t("common.untitled");
@@ -299,9 +274,6 @@ function tileTitle(item: HomeTileItem): string {
 
 function tileSubtitle(item: HomeTileItem): string {
   if (item.kind === "collection") return formatItemCount(item.itemCount);
-  if (item.kind === "pending") {
-    return item.failed ? t("home.tile.saveFailed") : t("home.tile.saving");
-  }
   return item.creator?.trim() ?? "";
 }
 
@@ -325,36 +297,9 @@ function describeTile(item: HomeTileItem): string {
       count: formatItemCount(item.itemCount),
     });
   }
-  if (item.kind === "pending") {
-    return item.failed
-      ? t("home.tile.a11ySaveFailed", { url: item.url })
-      : t("home.tile.a11ySaving", { url: item.url });
-  }
   const creator = item.creator?.trim();
   const title = item.title?.trim() || t("common.untitled");
   return creator ? t("home.tile.a11yByCreator", { title, creator }) : title;
-}
-
-function getSourcePlatformIcon(
-  platform?: SourcePlatform,
-): keyof typeof Ionicons.glyphMap {
-  switch (platform) {
-    case "spotify":
-    case "apple_podcasts":
-    case "deezer":
-    case "rss":
-    case "podcast_index":
-      return "headset-outline";
-    case "youtube":
-      return "play-circle-outline";
-    case "instagram":
-    case "tiktok":
-      return "videocam-outline";
-    case "x":
-      return "chatbubble-outline";
-    default:
-      return "link-outline";
-  }
 }
 
 // --- Styles ---

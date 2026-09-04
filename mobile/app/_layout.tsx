@@ -7,7 +7,6 @@ import { I18nProvider } from "../src/i18n";
 import { AuthProvider, useAuth } from "../src/contexts/AuthContext";
 import { UserPreferencesProvider } from "../src/contexts/UserPreferencesContext";
 import { ShareIntentProvider } from "../src/contexts/ShareIntentContext";
-import { InboxProvider } from "../src/contexts/InboxContext";
 import { PurchasesProvider } from "../src/contexts/PurchasesContext";
 import { Colors } from "../src/constants/theme";
 
@@ -67,7 +66,6 @@ function SplashGate(): null {
  * 5. PurchasesProvider - manages IAP state.
  * 6. ShareIntentProvider (our custom) - consumes the package's context, maps
  *    to our ShareIntakeState, handles auth gating and navigation.
- * 7. InboxProvider - manages inbox state.
  *
  * `SplashGate` is mounted right under AuthProvider, the shallowest place that has
  * everything it needs to know the bootstrap is over.
@@ -83,14 +81,13 @@ export default function RootLayout() {
         <UserPreferencesProvider>
           <PurchasesProvider>
             <ShareIntentProvider>
-              <InboxProvider>
-                <StatusBar style="dark" backgroundColor={Colors.background} />
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    contentStyle: { backgroundColor: Colors.background },
-                  }}
-                >
+              <StatusBar style="dark" backgroundColor={Colors.background} />
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: Colors.background },
+                }}
+              >
                 <Stack.Screen
                   name="onboarding/language"
                   options={{
@@ -202,8 +199,7 @@ export default function RootLayout() {
                   }}
                 />
               </Stack>
-            </InboxProvider>
-          </ShareIntentProvider>
+            </ShareIntentProvider>
         </PurchasesProvider>
       </UserPreferencesProvider>
       </AuthProvider>

@@ -18,7 +18,6 @@ import { useFocusEffect } from "expo-router";
 import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { usePurchases } from "../../src/contexts/PurchasesContext";
 import { useMediaPolling } from "../../src/hooks/useMediaPolling";
-import type { InboxItem } from "../../src/contexts/InboxContext";
 import { useHomeSections } from "../../src/hooks/useHomeSections";
 import { t, tCount, useTranslation } from "../../src/i18n";
 import { AddSourceSheet } from "../../src/components/AddSourceSheet";
@@ -114,7 +113,6 @@ export default function InboxScreen() {
   const [isSourceSheetVisible, setSourceSheetVisible] = useState(false);
   const {
     items,
-    pendingLocalItems,
     isLoading,
     isRefreshing,
     error,
@@ -153,10 +151,9 @@ export default function InboxScreen() {
     (item: HomeTileItem) => {
       if (item.kind === "media") {
         router.push(`/media/${item.id}`);
-      } else if (item.kind === "collection") {
+      } else {
         router.push(`/media/collections/${item.id}`);
       }
-      // A pending share has no id to open yet; its tile is disabled.
     },
     [router],
   );
@@ -197,10 +194,7 @@ export default function InboxScreen() {
     [continueLearning],
   );
 
-  const recentTiles = useMemo(
-    () => buildRecentlyAdded(items, pendingLocalItems),
-    [items, pendingLocalItems],
-  );
+  const recentTiles = useMemo(() => buildRecentlyAdded(items), [items]);
 
   /**
    * How many media are waiting in the default collection.
@@ -231,7 +225,7 @@ export default function InboxScreen() {
 
   // Error state — only when the media list failed *and* has nothing cached. The
   // other two sections are decorations on a screen that cannot show its content.
-  if (error && items.length === 0 && pendingLocalItems.length === 0) {
+  if (error && items.length === 0) {
     return (
       <SafeAreaView testID="inbox-screen" style={styles.container} edges={["top"]}>
         <View style={styles.centeredContainer}>
@@ -492,28 +486,18 @@ function toEngagementTile(entry: RecentEngagement): HomeTileItem {
 /**
  * "Recently added": what just arrived to read, and nothing else.
  *
- * Pending shares come first whatever their age — they are what the user just
- * did, and keeping them at the head is what makes a share visible on return from
- * the confirmation screen while the backend catches up.
+ * Newest-first on `created_at`, and the whole row is capped. What makes a share
+ * appear here before its processing is over is the backend, which emits a cover
+ * as soon as it has one (task-353) — the row has no client-side optimistic tile
+ * of its own, and the local-inbox path that would have fed one is gone
+ * (task-356).
  *
- * The media follow, newest-first on `created_at`, and the whole row is capped.
  * Collections do not appear here (task-348): a folder is not something that just
  * arrived to read, and one created from the confirmation screen used to double
  * every filed save into two tiles. They keep their place in "Continue learning",
  * where picking a reading back up is the point.
  */
-function buildRecentlyAdded(
-  media: MediaListItem[],
-  pending: InboxItem[],
-): HomeTileItem[] {
-  const pendingTiles: HomeTileItem[] = pending.map((local) => ({
-    kind: "pending",
-    id: local.localId,
-    url: local.url,
-    sourcePlatform: local.sourcePlatform,
-    failed: local.state === "failed",
-  }));
-
+function buildRecentlyAdded(media: MediaListItem[]): HomeTileItem[] {
   const mediaTiles = media
     .map((item) => ({
       at: toTimestamp(item.created_at),
@@ -530,7 +514,7 @@ function buildRecentlyAdded(
     .sort((a, b) => b.at - a.at)
     .map((entry) => entry.tile);
 
-  return [...pendingTiles, ...mediaTiles].slice(0, RECENTLY_ADDED_LIMIT);
+  return mediaTiles.slice(0, RECENTLY_ADDED_LIMIT);
 }
 
 function toTimestamp(value?: string | null): number {

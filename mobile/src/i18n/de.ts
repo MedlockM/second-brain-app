@@ -22,11 +22,7 @@ export const de: Catalog = {
   "trial.lastDay": "Kostenlose Testphase - letzter Tag",
   "trial.daysLeft.one": "Kostenlose Testphase - noch {count} Tag",
   "trial.daysLeft.other": "Kostenlose Testphase - noch {count} Tage",
-  "home.tile.saving": "Speichern …",
-  "home.tile.saveFailed": "Konnte nicht gespeichert werden",
   "home.tile.a11yCollection": "Sammlung {name}, {count}",
-  "home.tile.a11ySaving": "{url}, wird gespeichert",
-  "home.tile.a11ySaveFailed": "{url} konnte nicht gespeichert werden",
   "home.tile.a11yByCreator": "{title} von {creator}",
   "quota.warning.trial":
     "Du hast {percent} % der Minuten deiner kostenlosen Testphase verbraucht.",

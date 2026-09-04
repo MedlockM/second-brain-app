@@ -29,11 +29,7 @@ export const fr: Catalog = {
   "trial.lastDay": "Essai gratuit - dernier jour",
   "trial.daysLeft.one": "Essai gratuit - {count} jour restant",
   "trial.daysLeft.other": "Essai gratuit - {count} jours restants",
-  "home.tile.saving": "Enregistrement…",
-  "home.tile.saveFailed": "Enregistrement impossible",
   "home.tile.a11yCollection": "Collection {name}, {count}",
-  "home.tile.a11ySaving": "{url}, en cours d'enregistrement",
-  "home.tile.a11ySaveFailed": "{url} n'a pas pu être enregistré",
   "home.tile.a11yByCreator": "{title} par {creator}",
   "quota.warning.trial":
     "Vous avez utilisé {percent} % des minutes de votre essai gratuit.",

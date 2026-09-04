@@ -38,11 +38,7 @@ export const en = {
   "trial.daysLeft.other": "Free Trial - {count} days left",
 
   // --- Home tiles ---
-  "home.tile.saving": "Saving…",
-  "home.tile.saveFailed": "Could not be saved",
   "home.tile.a11yCollection": "Collection {name}, {count}",
-  "home.tile.a11ySaving": "{url}, being saved",
-  "home.tile.a11ySaveFailed": "{url} could not be saved",
   "home.tile.a11yByCreator": "{title} by {creator}",
 
   // --- Minutes warning ---

@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useInbox, InboxItem } from "../contexts/InboxContext";
 import { MediaService } from "../services/mediaService";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 import { t } from "../i18n";
@@ -9,8 +8,6 @@ import type { MediaListItem } from "../types/media";
 export interface UseMediaPollingResult {
   /** Backend media items */
   items: MediaListItem[];
-  /** Optimistic local items not yet confirmed by backend */
-  pendingLocalItems: InboxItem[];
   /** Whether the initial fetch is in progress */
   isLoading: boolean;
   /** Whether a pull-to-refresh is in progress (drives RefreshControl) */
@@ -31,11 +28,9 @@ export interface UseMediaPollingResult {
  * V1 design: no recurring network requests while the inbox is open.
  * - Fetches once on mount
  * - Exposes refresh() for pull-to-refresh and focus-based refetch
- * - Merges with InboxContext for optimistic UI from share intent
  */
 export function useMediaPolling(): UseMediaPollingResult {
   const { isAuthenticated } = useAuth();
-  const { items: localInboxItems } = useInbox();
 
   const [backendItems, setBackendItems] = useState<MediaListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -111,20 +106,8 @@ export function useMediaPolling(): UseMediaPollingResult {
     };
   }, [isAuthenticated, fetchMedia]);
 
-  /**
-   * Compute pending local items that are not yet in the backend response.
-   * These are items the user just shared but the backend hasn't returned them yet.
-   */
-  const pendingLocalItems = localInboxItems.filter((localItem) => {
-    if (!localItem.mediaItemId) return true; // Not yet submitted
-    return !backendItems.some(
-      (bi) => bi.media_item_id === localItem.mediaItemId,
-    );
-  });
-
   return {
     items: backendItems,
-    pendingLocalItems,
     isLoading,
     isRefreshing,
     error,

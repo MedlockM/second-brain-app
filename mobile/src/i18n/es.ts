@@ -22,11 +22,7 @@ export const es: Catalog = {
   "trial.lastDay": "Prueba gratuita - último día",
   "trial.daysLeft.one": "Prueba gratuita - queda {count} día",
   "trial.daysLeft.other": "Prueba gratuita - quedan {count} días",
-  "home.tile.saving": "Guardando…",
-  "home.tile.saveFailed": "No se ha podido guardar",
   "home.tile.a11yCollection": "Colección {name}, {count}",
-  "home.tile.a11ySaving": "{url}, guardándose",
-  "home.tile.a11ySaveFailed": "{url} no se ha podido guardar",
   "home.tile.a11yByCreator": "{title} de {creator}",
   "quota.warning.trial":
     "Has usado el {percent} % de los minutos de tu prueba gratuita.",
