@@ -222,29 +222,30 @@ jobs:
             --message "${MESSAGE}" \
             --non-interactive
 
-      # The failure this catches is the silent one: EXPO_PUBLIC_* values are
-      # inlined at bundle time, so an update published with an empty API base URL
-      # builds, uploads and installs with no error anywhere, and then every
-      # network call of the updated app fails. `eas update` leaves its export in
-      # dist/, so the published bytes can be checked directly. Hermes bytecode is
-      # binary, hence `grep -a`.
-      - name: Verify the published bundle inlined the API base URL
+      # The failure this catches is the silent one: an update whose API base URL
+      # is empty or points somewhere else publishes, uploads and installs with no
+      # error anywhere, and then every network call of the updated app fails.
+      #
+      # It reads the value where the value actually lives — the **manifest** EAS
+      # now serves on the channel. No application file dereferences
+      # `process.env.EXPO_PUBLIC_API_BASE_URL`: app.config.ts reads it at config
+      # time into `extra.apiBaseUrl`, and the app reads
+      # `Constants.expoConfig.extra.apiBaseUrl`, which expo-constants resolves
+      # from `manifest.extra.expoClient`. Nothing inlines it into `mobile/dist/`,
+      # which is what the previous version of this step grepped — so it failed
+      # every OTA it ever gated (2026-09-04, twice on both platforms, on updates
+      # whose served manifests were correct).
+      #
+      # The runtime version to ask for is the fingerprint hash computed above:
+      # `runtimeVersion: { policy: "fingerprint" }` makes them the same string,
+      # verified against the manifests u.expo.dev served for run 33879183625.
+      - name: Verify the served manifest carries the internal API base URL
         if: steps.decision.outputs.route == 'update'
-        working-directory: mobile
         run: |
-          set -euo pipefail
-          if grep -raqF "${EXPO_PUBLIC_API_BASE_URL}" dist/; then
-            echo "The published bundle inlines ${EXPO_PUBLIC_API_BASE_URL}."
-          else
-            echo "::error::The update just published to the \"internal\" channel does not" \
-                 "contain ${EXPO_PUBLIC_API_BASE_URL}. It is ALREADY LIVE and every network" \
-                 "call of the updated app will fail. Roll it back now:" \
-                 "cd mobile && eas update:rollback (or eas update:roll-back-to-embedded" \
-                 "--channel internal --platform ${{ matrix.platform }}), then check whether" \
-                 "the EAS \"production\" environment defines EXPO_PUBLIC_API_BASE_URL and" \
-                 "overrides the value from eas.json (eas env:list production)."
-            exit 1
-          fi
+          bash scripts/mobile_ota_manifest_check.sh \
+            --profile internal \
+            --platform ${{ matrix.platform }} \
+            --runtime-version "${{ steps.fingerprint.outputs.hash }}"
 
       # `--auto-submit` picks the submit profile named after the build profile,
       # i.e. `internal` -> TestFlight + Play internal track. It is scheduled
