@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-06-10 05:39'
-updated_date: '2026-09-02 11:34'
+updated_date: '2026-09-04 10:45'
 labels:
   - phase-5
   - mobile
@@ -120,9 +120,32 @@ Le PDF est pourtant une cible d'ingestion supportée (`mobile/src/types/upload.t
 
 **Tranché par l'owner le 2026-09-02 : P1 bloquant.** Sous-ticket `task-338`, ajouté aux dépendances de cette tâche. AC#5 ne peut donc pas être cochée avant que `task-338` soit résolue *et* vérifiée sur device — ce qui exige un nouveau build EAS, contrairement à AC#3 et AC#4 : un changement d'intent filter vit dans le manifest.
 
+### Session de test du 2026-09-04 : AC#5 reste ouverte, le partage de fichier échoue encore
+
+L'owner a rejoué le check device de `task-338` sur le binaire installé, le `versionCode` **8** (commit `50ad6f5`). Deux symptômes, une cause dominante, plus un vrai bug backend révélé au passage.
+
+**Ce que les logs prouvent.** `/aws/lambda/media-summarizer-api-dev` porte exactement trois `POST /api/media/upload` entre 08:18 et 08:21 UTC, tous trois en **500**, chacun précédé d'un `api.validation_error` (`validation_error_count: 1`) puis d'une `Unhandled exception` de type **`UnicodeDecodeError`**. Aucun `POST /api/media/upload-url` sur la journée.
+
+**1. Le binaire est plus vieux que le contrat d'API — cause suffisante des deux symptômes.** `task-345` (merge `57b3c9e`, 2026-09-03) a sorti les octets de l'API : le client demande une URL presignée à `POST /api/media/upload-url`, PUT sur S3, puis poste du JSON `{upload_key, folder_id, tag_ids}`. Le `versionCode` 8 est antérieur (`git merge-base --is-ancestor 57b3c9e 50ad6f5` → faux) : il poste encore du multipart, que l'endpoint refuse. D'où l'absence totale d'appel à `upload-url` dans les logs. **Tout partage de document ou d'image depuis ce binaire échoue, quelle que soit l'app source.**
+
+Le `versionCode` **9** (commit `519d8ba`) porte `task-345` et a bien terminé sur EAS le 2026-09-03T12:07:31Z — mais il n'est jamais arrivé sur la piste interne : sa soumission Play a échoué (relevé le 2026-09-04, `SUBMISSION_SERVICE_ANDROID_UNKNOWN_ERROR`, « Fastlane supply failed »). Le device est donc resté sur 8. C'est ce qui explique l'asymétrie avec iOS, dont le build `1.0.0 (4)` — même commit — a été livré : `task-164` est passée.
+
+**2. Le cas Drive a en plus un problème de nom de fichier, corrigé par `task-347` et présent dans aucun build.** Drive partage un `content://` dont le `DISPLAY_NAME` ne porte pas toujours d'extension exploitable. `classifyUploadFile` n'a que l'extension comme discriminant, donc l'intake tombe en `status: "invalid"` **pendant la validation**, avant tout appui sur Enregistrer — ce qui correspond au « l'erreur apparaît dès que le modal s'ouvre ». `resolveUploadFileName` (`mobile/src/types/upload.ts:221`, `task-347`, commit `da55059`) récupère l'extension depuis le `path` puis depuis le `mimeType` ; il n'est **ni dans le 8 ni dans le 9** (`git merge-base --is-ancestor da55059 519d8ba` → faux).
+
+À noter pour la lecture des symptômes : `status: "invalid"` affiche « Impossible d'enregistrer ce contenu » et `status: "error"` « Échec de l'enregistrement » (`mobile/app/share-confirmation.tsx:287` et `:449`). Les deux titres se ressemblent à l'usage, mais seul le second implique qu'une requête a été envoyée.
+
+**3. Bug backend réel, corrigé dans la même session.** Le 500 n'était pas le refus de validation : c'était le handler censé répondre 422 qui mourait. `jsonable_encoder` encode les `bytes` avec un `o.decode()` nu (`fastapi/encoders.py:59`), or Pydantic met le corps multipart brut dans `input` — un PDF ou un JPEG lève `UnicodeDecodeError` **à l'intérieur** de `validation_exception_handler`. Conséquence : le client recevait un 500 opaque au lieu du seul message utile, que `upload_key` manquait. `_renderable_value` dans `media_summarizer/api/error_handling.py` neutralise désormais bytes, exceptions et chaînes trop longues, récursivement, avec un dernier recours qui conserve `loc`/`msg`/`type`. Même famille de bug que celui déjà rencontré sur `POST /api/artifacts` via `ctx["error"]`.
+
 ### Reste à faire pour clore cette tâche
 
-Une seule chose, AC#5, et elle ne demande aucune nouvelle validation manuelle des flows déjà couverts : attendre la résolution de `task-338`, puis rejouer sur le `versionCode` 7 le check device décrit dans ses Owner notes.
+AC#5 seule, et elle ne demande pas de rejouer AC#1 à AC#4. Il faut un binaire qui porte **à la fois** `task-345` et `task-347`, puis le check device des Owner notes de `task-338` : PDF depuis « Mes fichiers », photo et PDF depuis Drive, et un `.zip` pour vérifier que le refus reste propre.
+
+**Un nouveau build native est obligatoire — l'OTA ne peut pas servir de raccourci**, bien que les deux correctifs client soient du JS pur. Mesuré le 2026-09-04 :
+
+- le `versionCode` **8**, celui installé, n'a **ni `runtimeVersion` ni canal** côté EAS : il est antérieur à `task-340`, donc son binaire ne porte pas `updates.url` et ne demandera jamais de bundle à personne ;
+- le `versionCode` **9** est bien à jour d'EAS Update (runtime `e53f6e78…`, canal `internal`), mais le fingerprint natif de `HEAD` vaut `e9ba0880…` en Android et `819da548…` en iOS, et **aucun** build `internal` terminé ne porte l'un ou l'autre (`eas build:list --fingerprint-hash` → 0 des deux côtés). `mobile/app.config.ts` et `mobile/package.json` ont bougé depuis `519d8ba` — revendication des images dans la feuille de partage iOS (`4d6951b`), suppression de l'extension de partage écrite à la main (`8450448`), et le matériau Liquid Glass (`task-350`, `task-351`). La politique `fingerprint` d'`app.config.ts:144` refuse par construction de servir ce bundle aux binaires existants.
+
+**Le build et la soumission ne demandent aucune action manuelle** : `mobile-ota-or-build.yml` se déclenche au push sur `main` dès qu'un fichier `mobile/**` hors `.md` et hors `.maestro/` change, décide par plateforme, et sur route `build` lance `eas build --profile internal --auto-submit` — TestFlight et la piste `internal` de Play. Le seul angle mort est la **soumission** : `--no-wait` rend le run vert immédiatement, `mobile-build-watch.yml` ne surveille que `--status errored` des *builds*, donc un échec de soumission comme celui du `versionCode` 9 n'ouvre aucune issue et ne se voit qu'en consultant EAS.
 
 ### Question SHA-1 — tranchée (fait owner relevé le 2026-09-02)
 

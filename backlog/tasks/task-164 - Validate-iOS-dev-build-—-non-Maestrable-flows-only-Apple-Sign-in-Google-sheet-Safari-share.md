@@ -3,10 +3,10 @@ id: task-164
 title: >-
   Validate iOS dev build — non-Maestrable flows only (Apple Sign-in, Google
   sheet, Safari share)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-06-10 05:39'
-updated_date: '2026-06-10 05:57'
+updated_date: '2026-09-04 10:30'
 labels:
   - phase-5
   - mobile
@@ -46,9 +46,9 @@ Phase 5 du V1_LAUNCH_PLAN. La majorité des flows V1 sont validés automatiqueme
 
 Coche chaque case. Pour chaque KO, ouvre un sous-ticket bug avec format `task-XXX [ios] <description>` et label `bug, mobile, ios`.
 
-- [ ] **Sign in with Apple** : tap "Continue with Apple" sur l'écran auth → modal natif Apple (Touch ID / Face ID) → user créé/lié côté backend → atterrit sur l'inbox.
-- [ ] **Continue with Google** : tap "Continue with Google" → `ASWebAuthenticationSession` s'ouvre → choisis le compte test → user créé/lié → inbox.
-- [ ] **Share intent depuis Safari** : ouvre un article Wikipedia dans Safari → bouton Share → sélectionne "Second Brain" → l'écran share-confirm s'affiche avec l'URL → submit → toast de confirmation. Vérifie ensuite dans l'inbox que la vignette est apparue.
+- [x] **Sign in with Apple** : tap "Continue with Apple" sur l'écran auth → modal natif Apple (Touch ID / Face ID) → user créé/lié côté backend → atterrit sur l'inbox.
+- [x] **Continue with Google** : tap "Continue with Google" → `ASWebAuthenticationSession` s'ouvre → choisis le compte test → user créé/lié → inbox.
+- [x] **Share intent depuis Safari** : ouvre un article Wikipedia dans Safari → bouton Share → sélectionne "Second Brain" → l'écran share-confirm s'affiche avec l'URL → submit → toast de confirmation. Vérifie ensuite dans l'inbox que la vignette est apparue.
 
 ## Tout le reste
 
@@ -64,8 +64,30 @@ Tout le reste (auth email/password, optimistic insert inbox, polling detail scre
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Sign in with Apple crée/lie un user iOS et atterrit sur l'inbox
-- [ ] #2 Continue with Google (ASWebAuthenticationSession) crée/lie un user iOS et atterrit sur l'inbox
-- [ ] #3 Share intent depuis Safari atteint share-confirm, soumet sans erreur, et la vignette apparaît dans l'inbox
-- [ ] #4 Tous les bugs P0/P1 détectés ont un sous-ticket et sont résolus avant clôture
+- [x] #1 Sign in with Apple crée/lie un user iOS et atterrit sur l'inbox
+- [x] #2 Continue with Google (ASWebAuthenticationSession) crée/lie un user iOS et atterrit sur l'inbox
+- [x] #3 Share intent depuis Safari atteint share-confirm, soumet sans erreur, et la vignette apparaît dans l'inbox
+- [x] #4 Tous les bugs P0/P1 détectés ont un sous-ticket et sont résolus avant clôture
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Validé à la main par l'owner le **2026-09-04** sur le binaire TestFlight installé.
+Les trois flows passent : Sign in with Apple, Continue with Google
+(`ASWebAuthenticationSession`), et le partage d'une URL depuis Safari jusqu'à la
+vignette dans l'inbox. **Aucun bug P0/P1 détecté** — AC#4 est satisfaite sans
+sous-ticket.
+
+Deux binaires iOS étaient disponibles au moment du test (`1.0.0 (3)` = commit
+`58e07c4`, `1.0.0 (4)` = commit `519d8ba`) ; le résultat ne dépend pas duquel a été
+utilisé, car rien entre les deux commits ne touche l'auth sociale ni le partage
+d'URL — l'écart porte sur les uploads presignés (task-345) et les couvertures
+(task-344).
+
+Deux chemins cités dans la description sont périmés (tâche de validation, pas de
+code : non corrigés) — les boutons sociaux sont dans
+`mobile/src/components/SocialAuthButtons.tsx` et non `mobile/app/(auth)/login.tsx`,
+et l'écran de confirmation est `mobile/app/share-confirmation.tsx` et non
+`share-confirm.tsx`.
+<!-- SECTION:NOTES:END -->
