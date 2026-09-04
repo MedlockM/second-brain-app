@@ -20,11 +20,11 @@ mobile-ota-or-build.yml              | submit=true                | (defaults: p
     |   fingerprint moved?           |
     |     no  -> eas update          +-- Pre-flight: scripts/mobile_release_check.sh <profile>
     |            (channel internal)  |     `-- BLOCKS the production profile today (no DNS)
+    |            then verify the     |
+    |            served manifest     +-- iOS: EAS Build -> EAS Submit -> TestFlight (internal)
     |     yes -> eas build           |
-    |            --profile internal  +-- iOS: EAS Build -> EAS Submit -> TestFlight (internal)
+    |            --profile internal  +-- Android: EAS Build -> EAS Submit -> Play (internal)
     |            --auto-submit       |
-    |                                +-- Android: EAS Build -> EAS Submit -> Play (internal)
-    |                                |
     |                                +-- On failure: Slack + GitHub Issue (tag runs only)
 ```
 
@@ -469,12 +469,13 @@ its halves are missing:
   `execute-api` host is *not* the fix: it would silently redefine "production" as
   "the dev backend".
 
-Why that combination is a trap rather than a stale value: `EXPO_PUBLIC_*`
-variables are **inlined into the JS bundle at build time** by Expo's babel
-transform. A wrong value produces no build error, no submission error and no
-runtime signal — the store accepts the artifact and every network call of the
-installed app fails on DNS. That is exactly what made AAB `versionCode` 4
-unusable.
+Why that combination is a trap rather than a stale value: the API URL is **frozen
+into the artifact at build time**. `app.config.ts` reads
+`EXPO_PUBLIC_API_BASE_URL` once, at config time, into `extra.apiBaseUrl`, and a
+build writes that into the manifest embedded in the binary — so a wrong value
+produces no build error, no submission error and no runtime signal. The store
+accepts the artifact and every network call of the installed app fails on DNS.
+That is exactly what made AAB `versionCode` 4 unusable.
 
 And it was one command away: a `mobile-v*` tag push resolves
 `PROFILE="production"` **and** `SUBMIT="true"`, so a single tag built two inert
@@ -498,6 +499,25 @@ bash scripts/mobile_release_check.sh production   # fails today
 bash scripts/mobile_release_check.sh internal     # passes
 bash scripts/mobile_release_check.sh              # general pre-flight, DNS as a warning
 ```
+
+**There is no fallback host, deliberately (task-354).** `app.config.ts` and
+`src/constants/config.ts` both used to default to `https://api.mediasummarizer.com`
+when `EXPO_PUBLIC_API_BASE_URL` was unset — the `api.` host of a domain **this
+project does not own**, as the empty `NS` answer above shows. A missing variable
+would therefore have addressed authenticated requests, access tokens included, to
+a host controlled by whoever holds that domain, silently. Both defaults are gone:
+
+- `app.config.ts` throws when the variable is empty, so config resolution fails
+  and no bundle, no build and no update can be produced without it. Every
+  legitimate caller supplies it — `eas build` and `eas update` from the build
+  profile's `env` block, a local `expo start` from `mobile/.env`, and
+  `mobile-e2e-maestro.yml` on every job that prebuilds.
+- `Config.API_BASE_URL` throws at startup if a manifest somehow carries no
+  `extra.apiBaseUrl`, rather than pointing the app somewhere else.
+
+Keeping `api.mediasummarizer.com` as the `production` profile's declared value is
+a separate matter and stays: it is a *declared, gated* target the DNS check above
+refuses to build, not a silent default.
 
 **Two conditions unblock the `mobile-v*` path**, both owner work and neither in
 this repo:
@@ -627,17 +647,22 @@ five build profiles now state it explicitly so it cannot drift when a
 `distribution` value changes.
 
 Now the trap, because it is the same silent failure class as the DNS one above.
-`EXPO_PUBLIC_*` values are **inlined into the JS bundle at bundle time**. A build
-bundles on the EAS servers from the profile's `env` block; `eas update` bundles
-**on the runner**, from that process's environment plus the EAS environment. And
-the two merge in opposite orders — read out of eas-cli 22.0.0, not assumed:
+`EXPO_PUBLIC_*` values are **resolved at bundle time**, and where they end up
+depends on who reads them: a key the *application code* dereferences is inlined
+into the JS bundle by Expo's babel transform, while a key `app.config.ts` reads —
+`EXPO_PUBLIC_API_BASE_URL` is one — lands in `extra` and travels in the manifest.
+Either way the resolution happens where the bundling happens, and the two paths
+bundle in different places: a build bundles on the EAS servers from the profile's
+`env` block; `eas update` bundles **on the runner**, from that process's
+environment plus the EAS environment. And the two merge in opposite orders — read
+out of eas-cli 22.0.0, not assumed:
 
 | Path | Merge | Winner |
 |---|---|---|
 | `eas build` | `build/evaluateConfigWithEnvVarsAsync.js`: `{ ...serverEnvVars, ...buildProfile.env }` | **`eas.json`** |
 | `eas update` | `utils/expoCli.js` `spawnExpoCommand`: `{ ...process.env, ...serverEnvVars }` | **EAS environment** |
 
-So the two paths inline the same values only while **no `EXPO_PUBLIC_*` key is
+So the two paths resolve the same values only while **no `EXPO_PUBLIC_*` key is
 defined on both sides**. Today none is, and that is what makes the setup sound:
 
 - `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS`,
@@ -649,34 +674,77 @@ defined on both sides**. Today none is, and that is what makes the setup sound:
   from the server side, automatically.
 
 If that ever stops holding, the symptom is an update that publishes cleanly,
-installs cleanly, and fails every network call. The workflow catches the common
-case by grepping the export `eas update` leaves in `mobile/dist/` for the expected
-`EXPO_PUBLIC_API_BASE_URL` and failing the run with the rollback command in the
-error message — but it fails **after** the publish, because that is the only point
-at which the real bytes exist.
+installs cleanly, and fails every network call. The workflow catches it by asking
+the update server what it now serves on the channel and comparing that against the
+profile's declared URL — `scripts/mobile_ota_manifest_check.sh`, described just
+below. It runs **after** the publish, because that is the only point at which a
+served manifest exists; the failure message carries the two rollback commands.
 
 **Owner check, once, by hand:** `eas env:list production` and confirm it does not
 define any of the three keys above. `eas env:list` needs authentication and has
 neither `--json` nor `--non-interactive` in 22.0.0, so it cannot be a CI gate.
 
-#### 2026-09-04 — that grep is a false positive here, and it has never once passed
+#### The guard reads the served manifest, not `mobile/dist/`
 
-The first OTA this workflow ever actually published failed the check on both
-platforms, twice in a row. The publish itself was fine both times. **The check is
-wrong for this project**, for a structural reason:
+`scripts/mobile_ota_manifest_check.sh` is the step that gates a publish. It reads
+the API URL **where the value actually lives**, and that place is not the JS
+bundle:
 
-- no application file reads `process.env.EXPO_PUBLIC_API_BASE_URL`. The only
-  reader is `app.config.ts:312`, at *config* time, which puts the value in
-  `extra.apiBaseUrl`; the app reads `extra.apiBaseUrl` (`src/constants/config.ts:10`);
-- so the URL travels in the **update manifest**, not in the JS bundle. Nothing
-  inlines it into `mobile/dist/`, which is exactly where the step greps. The
-  premise "`EXPO_PUBLIC_*` values are inlined into the JS bundle" holds only for
-  keys the *application code* dereferences, and this one is not.
+- no application file dereferences `process.env.EXPO_PUBLIC_API_BASE_URL`.
+  `app.config.ts` reads it at *config* time into `extra.apiBaseUrl`, and the app
+  reads `Constants.expoConfig.extra.apiBaseUrl` (`src/constants/config.ts`);
+- `expo-constants` resolves `Constants.expoConfig` from
+  `manifest.extra.expoClient` (`node_modules/expo-constants/build/Constants.js`),
+  so the served path to check is `.extra.expoClient.extra.apiBaseUrl` — literally
+  the string the running app concatenates its request URLs from.
 
-Verified against the servers rather than argued — the manifest EAS actually
-serves the `internal` channel, fetched with `curl` on
-`https://u.expo.dev/<projectId>` with the `expo-platform` / `expo-runtime-version`
-/ `expo-channel-name` headers:
+So the script fetches `https://u.expo.dev/<projectId>` with the `expo-platform`,
+`expo-channel-name` and `expo-runtime-version` headers, extracts the `manifest`
+part of the response and compares that one field against
+`build.<profile>.env.EXPO_PUBLIC_API_BASE_URL` in `eas.json` (following
+`extends`). Three shapes of failure, all exit 1: a mismatch, an absent
+`apiBaseUrl`, and no manifest served at all. It retries three times, 5 s apart,
+for CDN propagation.
+
+Two implementation facts worth not rediscovering:
+
+- the response is `multipart/mixed` **even without protocol-version headers**
+  (measured 2026-09-04): CRLF-delimited parts named `manifest` and `extensions`,
+  each one line of compact JSON. The extractor accepts a bare JSON body too,
+  which is what makes `--manifest-file <path>` usable to check a capture — or a
+  fabricated manifest, to prove the guard still fails.
+- the runtime version to ask for is the **native fingerprint hash** the workflow
+  already computed. `runtimeVersion: { policy: "fingerprint" }` makes the two the
+  same string; verified against the manifests `u.expo.dev` served for the two
+  fingerprints of run `33879183625`.
+
+That equality is also what makes this guard catch the precedence trap above.
+`extra` is part of the fingerprint — `@expo/fingerprint` only drops it under
+`SourceSkips.ExpoConfigExtraSection`, which nothing here sets — so an `eas update`
+that resolved a *different* API URL publishes under a *different* runtime version.
+Asking for the profile's own fingerprint then comes back **404**, and the script
+reports it as a failure that names the EAS-environment override as the likely
+cause.
+
+```bash
+# What CI runs, after `eas update`:
+bash scripts/mobile_ota_manifest_check.sh --profile internal --platform ios \
+     --runtime-version "$(cd mobile && eas fingerprint:generate --json \
+        --non-interactive --platform ios -e internal | jq -r .hash)"
+
+# Offline, on a capture or a hand-written manifest:
+bash scripts/mobile_ota_manifest_check.sh --profile internal --platform ios \
+     --manifest-file /tmp/manifest.json
+```
+
+##### 2026-09-04 — what the previous version of this step did
+
+It ran `grep -raqF "${EXPO_PUBLIC_API_BASE_URL}" dist/`. Per the above, nothing
+inlines that value into `mobile/dist/`, so the check was looking in a place the
+value cannot be: **it failed every OTA it ever gated** — the first two publishes
+this workflow ever made, twice in a row, on both platforms. The publishes were
+fine. Measured on the manifests the `internal` channel was actually serving at
+the time:
 
 | Platform | Runtime version | `extra.apiBaseUrl` served |
 |---|---|---|
@@ -685,16 +753,16 @@ serves the `internal` channel, fetched with `curl` on
 
 Zero occurrences of `api.mediasummarizer.com` in either manifest. **The shipped
 updates were correct; the gate was not.** No rollback was performed, and none was
-warranted. Until the step is fixed, every JS-only push turns the workflow red
-*after* publishing a perfectly good update — a false alarm on the one channel
-that is supposed to mean "stop".
+warranted.
 
-**The EAS `production` environment now defines `EXPO_PUBLIC_API_BASE_URL`**
-(added by the owner in expo.dev on 2026-09-04, value
+##### Still to undo: `EXPO_PUBLIC_API_BASE_URL` on the EAS `production` environment
+
+**The EAS `production` environment defines `EXPO_PUBLIC_API_BASE_URL`** (added by
+the owner in expo.dev on 2026-09-04, value
 `https://jji077bi8e.execute-api.eu-west-3.amazonaws.com`), which the "Owner
-check" above asks you to confirm is *not* the case. It was added to chase this
-false positive and fixes nothing. It also breaks the invariant this section
-rests on — the key is now defined on **both** sides:
+check" above asks you to confirm is *not* the case. It was added to chase the
+false positive described above and fixed nothing. It also breaks the invariant
+this section rests on — the key is defined on **both** sides:
 
 - `eas build` keeps `eas.json` (`api.mediasummarizer.com` on the `production`
   profile), `eas update` now takes the EAS environment (the dev API) — the two
@@ -702,10 +770,12 @@ rests on — the key is now defined on **both** sides:
 - the `internal` channel is unaffected: same value on both sides.
 
 Nothing ships from the `production` channel today, so the practical impact is
-nil — but this is precisely the trap described above, now armed. Removing it
-restores the invariant: **expo.dev → Projects → `second-brain-app` → left
-sidebar "Environment variables" → row `EXPO_PUBLIC_API_BASE_URL` → the "⋮" menu
-at the end of the row → "Delete variable"**, or
+nil — but this is precisely the trap described above, now armed, and the fix to
+the gate does not make it harmless: it makes it *loud* (the runtime version would
+diverge and the manifest fetch would 404), which is not the same as absent.
+Removing it restores the invariant: **expo.dev → Projects → `second-brain-app` →
+left sidebar "Environment variables" → row `EXPO_PUBLIC_API_BASE_URL` → the "⋮"
+menu at the end of the row → "Delete variable"**, or
 `eas env:delete production --variable-name EXPO_PUBLIC_API_BASE_URL`.
 
 ### Rolling back an update
@@ -1042,16 +1112,18 @@ rebuild.
 The `internal` profile's environment is settled, and since 2026-09-03 it is also
 **written down**: `"environment": "production"` in `eas.json`. `eas env:list` shows
 `development`, `preview` and `production` all carrying the *same* RevenueCat keys, and
-`EXPO_PUBLIC_API_BASE_URL` is in **none** of them — it comes only from the profile's own
-`env` block. So `internal` means "dev API, same RevenueCat project as everything else",
+`EXPO_PUBLIC_API_BASE_URL` in **none** of them — it comes only from the profile's own
+`env` block. (One exception since 2026-09-04, and it is meant to be undone:
+[`EXPO_PUBLIC_API_BASE_URL` on the EAS `production` environment](#still-to-undo-expo_public_api_base_url-on-the-eas-production-environment).)
+So `internal` means "dev API, same RevenueCat project as everything else",
 with no hidden collision, and internal testers exercise the dev backend on purpose.
 Nothing reads `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` (grepped), so its absence from
 `preview`/`production` is harmless.
 
 That split — API URL and Google client IDs in `eas.json`, RevenueCat keys in the EAS
 environment — stopped being a detail when OTA landed: it is the invariant that makes a
-build and an update inline the same values, because the two paths merge those two sources
-in **opposite** orders. Do not move a key across the line without reading
+build and an update resolve the same values, because the two paths merge those two
+sources in **opposite** orders. Do not move a key across the line without reading
 [`--environment` is mandatory on SDK 55](#--environment-is-mandatory-on-sdk-55-and-the-two-paths-disagree-on-precedence)
 first.
 

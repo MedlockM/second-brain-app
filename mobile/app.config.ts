@@ -121,6 +121,30 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS,
   );
 
+  // The API every request of the app is addressed to, and the single place it is
+  // read from the environment: it goes into `extra.apiBaseUrl` below, which the
+  // app reads through `Constants.expoConfig` (src/constants/config.ts).
+  //
+  // **No fallback, on purpose.** This used to default to the `api.` host of
+  // `mediasummarizer.com`, a domain the project does not own (no delegated zone
+  // at all — MOBILE_CI_CD.md) — so a missing variable would silently have sent
+  // authenticated requests, access tokens included, to a host controlled by
+  // someone else. A missing configuration has to be loud, so config resolution
+  // fails outright: no bundle, no build, no update can be produced without it.
+  //
+  // Nothing legitimate resolves this config without it: `eas build` and
+  // `eas update` take it from the build profile's `env` block in eas.json, a
+  // local `expo start` from mobile/.env, and mobile-e2e-maestro.yml sets it on
+  // every job that prebuilds.
+  const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  if (!apiBaseUrl) {
+    throw new Error(
+      "EXPO_PUBLIC_API_BASE_URL is not set and there is no fallback host. " +
+        "Set it in the build profile's `env` block in mobile/eas.json (that is " +
+        "what CI reads), or in mobile/.env for a local run.",
+    );
+  }
+
   const expoConfig: ExpoConfig = {
     ...config,
     name: appName,
@@ -308,9 +332,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ],
     ],
     extra: {
-      apiBaseUrl:
-        process.env.EXPO_PUBLIC_API_BASE_URL ||
-        "https://api.mediasummarizer.com",
+      apiBaseUrl,
       googleClientIdWeb: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB || "",
       googleClientIdIos: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || "",
       // No Android client ID: Credential Manager takes the *Web* client ID as
