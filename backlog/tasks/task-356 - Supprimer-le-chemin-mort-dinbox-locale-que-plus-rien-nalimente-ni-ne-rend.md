@@ -1,9 +1,10 @@
 ---
 id: task-356
 title: Supprimer le chemin mort d'inbox locale que plus rien n'alimente ni ne rend
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-04 15:22'
+updated_date: '2026-09-04 15:43'
 labels:
   - mobile
   - cleanup
