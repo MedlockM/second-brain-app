@@ -3,9 +3,10 @@ id: task-355
 title: >-
   Rattraper une erreur JS de démarrage au lieu de laisser le process mourir, y
   compris sur un lancement sans UI
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-04 15:20'
+updated_date: '2026-09-04 15:57'
 labels:
   - mobile
   - bug
