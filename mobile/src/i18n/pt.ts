@@ -601,4 +601,10 @@ export const pt: Catalog = {
   "transcript.translating": "A traduzir a transcrição…",
   "transcript.translationFailed": "A tradução falhou. A mostrar a transcrição original.",
   "paywall.subtitle": "Todos os planos fazem tudo. Só muda o tempo de transcrição mensal.",
+  "startupError.title": "Não foi possível iniciar a aplicação",
+  "startupError.body":
+    "Um erro inesperado interrompeu o início da aplicação. Normalmente, basta tentar novamente.",
+  "startupError.retryA11y": "Tentar iniciar a aplicação novamente",
+  "startupError.showDetails": "Mostrar detalhes técnicos",
+  "startupError.hideDetails": "Ocultar detalhes técnicos",
 };

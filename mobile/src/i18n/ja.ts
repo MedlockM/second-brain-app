@@ -599,4 +599,10 @@ export const ja: Catalog = {
   "transcript.translating": "文字起こしを翻訳中…",
   "transcript.translationFailed": "翻訳に失敗しました。元の文字起こしを表示しています。",
   "paywall.subtitle": "どのプランでもすべての機能を使えます。違うのは毎月の文字起こし時間だけです。",
+  "startupError.title": "アプリを起動できませんでした",
+  "startupError.body":
+    "予期しないエラーで起動が中断されました。もう一度試すと、たいてい復帰できます。",
+  "startupError.retryA11y": "アプリの起動をもう一度試す",
+  "startupError.showDetails": "技術的な詳細を表示",
+  "startupError.hideDetails": "技術的な詳細を隠す",
 };

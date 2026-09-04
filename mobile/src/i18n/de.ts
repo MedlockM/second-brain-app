@@ -738,4 +738,10 @@ export const de: Catalog = {
     "Die Übersetzung ist fehlgeschlagen. Es wird das Originaltranskript angezeigt.",
   "paywall.subtitle":
     "Jeder Tarif kann alles. Nur die monatliche Transkriptionszeit ändert sich.",
+  "startupError.title": "Die App konnte nicht starten",
+  "startupError.body":
+    "Ein unerwarteter Fehler hat den Start der App unterbrochen. Ein neuer Versuch genügt meistens.",
+  "startupError.retryA11y": "Erneut versuchen, die App zu starten",
+  "startupError.showDetails": "Technische Details anzeigen",
+  "startupError.hideDetails": "Technische Details ausblenden",
 };

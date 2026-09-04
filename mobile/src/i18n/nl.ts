@@ -601,4 +601,10 @@ export const nl: Catalog = {
   "transcript.translating": "Transcript wordt vertaald…",
   "transcript.translationFailed": "De vertaling is mislukt. Het oorspronkelijke transcript wordt getoond.",
   "paywall.subtitle": "Elk abonnement kan alles. Alleen de maandelijkse transcriptietijd verschilt.",
+  "startupError.title": "De app kon niet starten",
+  "startupError.body":
+    "Een onverwachte fout heeft het opstarten van de app onderbroken. Opnieuw proberen helpt meestal.",
+  "startupError.retryA11y": "Probeer de app opnieuw te starten",
+  "startupError.showDetails": "Technische details weergeven",
+  "startupError.hideDetails": "Technische details verbergen",
 };

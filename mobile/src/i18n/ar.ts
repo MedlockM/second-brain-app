@@ -674,4 +674,10 @@ export const ar: Catalog = {
     "ستُحذف أيضًا {count} مجموعات فرعية، وستنتقل المصادر الموجودة داخلها إلى {unsorted} كذلك.",
   "collectionActions.deleteSubCollections.many":
     "ستُحذف أيضًا {count} مجموعة فرعية، وستنتقل المصادر الموجودة داخلها إلى {unsorted} كذلك.",
+  "startupError.title": "لم يتمكّن التطبيق من البدء",
+  "startupError.body":
+    "أدّى خطأ غير متوقع إلى مقاطعة بدء التطبيق. عادةً ما تكفي المحاولة مرة أخرى للعودة.",
+  "startupError.retryA11y": "إعادة محاولة بدء التطبيق",
+  "startupError.showDetails": "إظهار التفاصيل التقنية",
+  "startupError.hideDetails": "إخفاء التفاصيل التقنية",
 };

@@ -781,4 +781,12 @@ export const en = {
     "Translation failed. Showing original transcript.",
   "paywall.subtitle":
     "Every plan does all of it. Only the monthly transcription time changes.",
+
+  // --- The fallback the app shows instead of dying on a JavaScript error ---
+  "startupError.title": "The app couldn't start",
+  "startupError.body":
+    "An unexpected error interrupted the app while it was starting. Trying again usually gets you back in.",
+  "startupError.retryA11y": "Try starting the app again",
+  "startupError.showDetails": "Show technical details",
+  "startupError.hideDetails": "Hide technical details",
 } as const;

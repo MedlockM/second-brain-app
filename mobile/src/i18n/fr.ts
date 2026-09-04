@@ -749,4 +749,10 @@ export const fr: Catalog = {
     "La traduction a échoué. Affichage de la transcription originale.",
   "paywall.subtitle":
     "Chaque formule fait tout. Seul le temps de transcription mensuel change.",
+  "startupError.title": "L'application n'a pas pu démarrer",
+  "startupError.body":
+    "Une erreur inattendue a interrompu le démarrage de l'application. Un nouvel essai suffit généralement à repartir.",
+  "startupError.retryA11y": "Réessayer de démarrer l'application",
+  "startupError.showDetails": "Afficher les détails techniques",
+  "startupError.hideDetails": "Masquer les détails techniques",
 };

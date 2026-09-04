@@ -733,4 +733,10 @@ export const es: Catalog = {
     "La traducción ha fallado. Se muestra la transcripción original.",
   "paywall.subtitle":
     "Todos los planes lo hacen todo. Solo cambia el tiempo de transcripción mensual.",
+  "startupError.title": "La aplicación no pudo iniciarse",
+  "startupError.body":
+    "Un error inesperado ha interrumpido el inicio de la aplicación. Normalmente basta con volver a intentarlo.",
+  "startupError.retryA11y": "Volver a intentar iniciar la aplicación",
+  "startupError.showDetails": "Mostrar detalles técnicos",
+  "startupError.hideDetails": "Ocultar detalles técnicos",
 };
