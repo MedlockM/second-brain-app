@@ -1375,9 +1375,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: Spacing.xl,
   },
+  // The grid owns the space *between* its rows, and separately the space after
+  // its last one -- two gaps a per-tile bottom margin used to conflate, which is
+  // what made the rows drift apart: the margin had to be large enough to break
+  // from the next section heading, so every row inherited a section-sized gap.
+  //
+  // Only `rowGap`: the columns are sized in percentages, so a `columnGap` would
+  // push 3 x 33.333% + 2 x gap past the line and wrap the third tile away. The
+  // column gutter stays the slot's own horizontal padding.
   collectionsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
+    rowGap: Spacing.sm,
+    marginBottom: Spacing.xl,
   },
   // The search body's content container spaces its children itself, so the
   // heading above the hits drops the bottom margin it carries in the library.
@@ -1433,18 +1443,19 @@ const styles = StyleSheet.create({
   collectionTileSlot: {
     width: "33.333%",
     paddingHorizontal: 6,
-    marginBottom: Spacing.lg,
   },
   // The tile as the context menu redraws it: it fills the rect the slot was
-  // measured at, and drops the bottom margin that rect already excludes.
+  // measured at, which the grid's own row gap falls outside of.
   collectionTilePreview: {
     width: "100%",
-    marginBottom: 0,
   },
+  // No height of its own: the box hugs the icon and the label, so a name that
+  // fits on one line no longer leaves the height of a second one empty beneath
+  // it, and a name that needs two still gets them. Tiles of the same row keep
+  // aligning -- each slot stretches to the tallest tile of its row and holds its
+  // content at the top.
   collectionTile: {
     alignItems: "center",
-    justifyContent: "flex-start",
-    minHeight: 112,
     paddingVertical: Spacing.sm,
   },
   collectionTilePressed: {
