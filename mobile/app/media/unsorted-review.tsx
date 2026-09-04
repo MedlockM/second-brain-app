@@ -27,6 +27,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -69,6 +70,13 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
  * anyone makes in a sitting, and the next pass picks up where this one stopped.
  */
 const QUEUE_LIMIT = 100;
+
+/**
+ * The most lines the triage card ever gives one bullet, and the value it starts
+ * from before measuring. Past three a bullet stops being glanceable, and three is
+ * what the blurb prompt's lengths need on a 390 pt-wide screen.
+ */
+const MAX_BULLET_LINES = 3;
 
 export default function UnsortedReviewScreen(): React.JSX.Element {
   // Copy resolved on render: the screen redraws with the interface language.
@@ -536,20 +544,117 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
  * The card never scrolls. Its first shape wrapped a prose paragraph in a nested
  * vertical `ScrollView`, which failed at the one job of this screen: a summary you
  * have to scroll is not a summary you can decide on, and the nested scroller stole
- * swipes meant for the pager. The blurb is now a hook and a few bullets, and
- * `numberOfLines` caps each one, so the card fits whatever the model wrote and the
- * action bar stays put.
+ * swipes meant for the pager. The blurb is now a hook and a few bullets, and the
+ * card gives each bullet as many lines as it can actually spare, so it fits
+ * whatever the model wrote and the action bar stays put.
  *
- * Those caps are a backstop and nothing more: the prompt asks for lengths the card
- * can actually render (~65 characters a bullet over two lines), so an ellipsis here
- * means the model overran, not that the layout is doing its job. Raising the cap
- * instead of shortening the text is the wrong fix — a clipped bullet carries less
- * than a shorter one.
+ * That last part is measured, not assumed, and it took a TestFlight report to get
+ * there. A fixed `numberOfLines={3}` is not a fit: three lines a bullet is what the
+ * prompt's lengths need on a 390 pt-wide screen, where the blurb box has room for
+ * about twelve. Narrow the screen — an iPhone 13 in Display Zoom is 320 pt — and
+ * the same 65-character bullet wraps onto three lines while the box loses height,
+ * so a three-line hook and four bullets want ~327 pt of a 295 pt box. Nothing
+ * clamped them: the box is `flex: 1` inside a card whose height the pager fixes,
+ * and `flexShrink` is 0 by default in React Native, so the list ran past the
+ * padding and the last line came to rest on the frame with its descenders outside
+ * it — "collé à l'encadrement sans espacement", in the tester's words.
+ *
+ * So `fitBullets` lowers the per-bullet cap by one and lets the layout re-measure,
+ * until the list fits the room the box has left with its bottom padding intact.
+ * The text that no longer fits is paid for with an ellipsis, spread evenly over the
+ * bullets rather than taken out of any one of them. Two alternatives are worse for
+ * a triage pass: dropping the bullets that do not fit loses whole topics where
+ * clipping only loses the tail of a fragment whose head still names one
+ * ("Limites : …"), and tightening the type or the line height would write a
+ * per-screen exception into a design system that fixes body text at 16/1.6. A
+ * second scroll axis inside the pager is not on the table at all — see above.
+ *
+ * The caps stay a backstop and not a layout mechanism: the prompt asks for lengths
+ * the card can render, so an ellipsis on a roomy screen still means the model
+ * overran. Raising `MAX_BULLET_LINES` instead of shortening the text is the wrong
+ * fix — a clipped bullet carries less than a shorter one.
  */
 function ReviewCard({ item }: { item: MediaListItem }): React.JSX.Element {
   // Kept per card rather than per screen: a cover that failed on one media says
   // nothing about the next one's.
   const [coverFailed, setCoverFailed] = useState(false);
+
+  const [bulletLines, setBulletLines] = useState(MAX_BULLET_LINES);
+
+  /**
+   * The measurements `fitBullets` works from, in refs and not in state.
+   *
+   * Refs because they are inputs to a decision, not things to render: holding them
+   * in state would redraw the card once per measurement for nothing. And the
+   * decision runs from the layout handlers rather than from an effect watching
+   * them — `react-hooks/set-state-in-effect` is an error in this project, and a
+   * layout event is exactly where a layout-driven `setState` belongs.
+   */
+  const boxHeight = useRef<number | null>(null);
+  const hookHeight = useRef<number | null>(null);
+  const listHeight = useRef<number | null>(null);
+  /** The room the cap currently in force was fitted against. */
+  const fittedRoom = useRef<number | null>(null);
+
+  /**
+   * Shrink the bullets by one line if they overrun the box, one measurement at a
+   * time.
+   *
+   * Called from all three layout handlers, so whichever of them fires last in a
+   * layout pass is the one that has the full picture — the order they arrive in is
+   * not guaranteed and does not matter. Each shrink re-lays out the list, which
+   * fires its handler again, which is how this converges: three passes at worst,
+   * and at one line a bullet `Math.max` returns the value already held and React
+   * stops re-rendering.
+   *
+   * Deliberately monotonic. It only ever shrinks within a given box, so the sole
+   * way back up is a box that actually grew — a live text-size change, say — which
+   * resets the cap rather than leaving the list stuck at what an earlier, smaller
+   * box could take.
+   */
+  const fitBullets = useCallback(() => {
+    const box = boxHeight.current;
+    const hook = hookHeight.current;
+    const list = listHeight.current;
+    if (box === null || hook === null || list === null) return;
+
+    // The box reports its own height, padding included, and what separates the
+    // hook from the list is the box's own `gap`.
+    const room = box - 2 * Spacing.md - hook - Spacing.sm;
+
+    if (fittedRoom.current !== null && room > fittedRoom.current + 1) {
+      fittedRoom.current = room;
+      setBulletLines(MAX_BULLET_LINES);
+      return;
+    }
+    fittedRoom.current = room;
+
+    if (list > room) setBulletLines((prev) => Math.max(1, prev - 1));
+  }, []);
+
+  const handleBlurbLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      boxHeight.current = event.nativeEvent.layout.height;
+      fitBullets();
+    },
+    [fitBullets],
+  );
+
+  const handleHookLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      hookHeight.current = event.nativeEvent.layout.height;
+      fitBullets();
+    },
+    [fitBullets],
+  );
+
+  const handleBulletsLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      listHeight.current = event.nativeEvent.layout.height;
+      fitBullets();
+    },
+    [fitBullets],
+  );
 
   const mediaType = (item.media_type ?? "unknown") as MediaType;
   const coverUrl = item.media_image?.trim() ?? "";
@@ -617,14 +722,24 @@ function ReviewCard({ item }: { item: MediaListItem }): React.JSX.Element {
           </View>
         </View>
 
-        <View style={styles.blurbCard}>
+        <View style={styles.blurbCard} onLayout={handleBlurbLayout}>
           {hook ? (
             <>
-              <Text style={styles.blurbHook} numberOfLines={3}>
+              <Text
+                style={styles.blurbHook}
+                numberOfLines={3}
+                onLayout={handleHookLayout}
+              >
                 {hook}
               </Text>
+              {/* The wrapper is there to be measured. `Bullets` is shared with the
+                  artifact screen, which has no use for a layout callback, so the
+                  one screen that needs the height reads it from a view of its own
+                  rather than putting an `onLayout` prop on the component. */}
               {points.length > 0 ? (
-                <Bullets items={points} numberOfLines={3} />
+                <View onLayout={handleBulletsLayout}>
+                  <Bullets items={points} numberOfLines={bulletLines} />
+                </View>
               ) : null}
             </>
           ) : (
@@ -784,6 +899,10 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     gap: Spacing.sm,
+    // The floor under `fitBullets`: at one line a bullet it stops shrinking, and on
+    // a box too small even for that the spill is cut by the frame instead of being
+    // drawn over the white card behind it.
+    overflow: "hidden",
   },
   blurbHook: {
     fontSize: Typography.body.fontSize,
