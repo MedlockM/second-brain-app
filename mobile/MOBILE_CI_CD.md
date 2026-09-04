@@ -130,7 +130,11 @@ profile applied to the app target — *"has app ID `com.secondbrainlabs.core.sha
 which does not match the bundle ID `com.secondbrainlabs.core` (in target
 'MediaSummarizer')"* — and Sign In with Apple gone with the swapped entitlements.
 Nothing catches this before the build: the config resolves, the prebuild succeeds,
-and one EAS slot is spent. Hence the label "Media Summarizer Share".
+and one EAS slot is spent. Hence the label "Media Summarizer Share", which strips to
+`MediaSummarizerShare`. Closed the same day: with it, iOS `1.0.0 (6)` (commit
+`919f47a`) built in 7 min 38 s, auto-submitted, and the owner installed it from
+TestFlight — the first iOS binary of this project to carry a share extension whose
+target name differs from the app's.
 
 Both share a single **Distribution Certificate** (valid to 2027-06-10), but each
 needs **its own Provisioning Profile**, and a profile is specific to a distribution
