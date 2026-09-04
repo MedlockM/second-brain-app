@@ -141,7 +141,7 @@ reduced to an auth smoke test and tagged `skipped`.
 
 ### iOS share extension
 
-The iOS share extension (`ShareMedia`) is a separate native extension process.
+The iOS share extension (`MediaSummarizerShare`) is a separate native extension process.
 Maestro **cannot** reliably:
 - Trigger the native iOS share sheet from a third-party app
 - Interact with the share extension UI rendered in a separate process

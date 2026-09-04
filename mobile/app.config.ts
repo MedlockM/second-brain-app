@@ -33,21 +33,32 @@ import {
  */
 const easProjectId = "fad6e877-590d-4143-bbaa-fdd013b01c43";
 
-/**
- * The app name, declared once because two things render it and they must never
- * disagree: `expo.name` (the launcher label, modulo the `locales/*.json`
- * overrides) and `iosShareExtensionName`, which expo-share-intent writes into the
- * extension's `CFBundleDisplayName` — the label under the icon in the iOS share
- * sheet. It used to read "ShareMedia" there, a name that appears nowhere else in
- * the product, so the row was unfindable even when iOS did offer it (task-347).
- *
- * The extension's bundle id is derived from the app's (`<appId>.share-extension`,
- * expo-share-intent/plugin/.../constants.js) and not from this string, so
- * changing it needs no new App ID and no new provisioning profile. What it does
- * change is the Xcode target name and the generated `ios/<Name>/` directory
- * (non-alphanumerics stripped), both of which live under the gitignored `ios/`.
- */
+/** The launcher label, modulo the `locales/*.json` overrides. */
 const appName = "Media Summarizer";
+
+/**
+ * The label under the icon in the iOS share sheet: expo-share-intent writes this
+ * string verbatim into the extension's `CFBundleDisplayName`
+ * (`writeIosShareExtensionFiles.js`). It used to read "ShareMedia", a name that
+ * appears nowhere else in the product, so the row was unfindable even when iOS
+ * did offer it (task-347) — hence a label that starts with the app's name.
+ *
+ * **It must never strip down to the app's own Xcode target name.** The same
+ * option also names the native target and the generated `ios/<Name>/` directory,
+ * with non-alphanumerics removed (`getShareExtensionName`, .../ios/constants.js),
+ * and EAS resolves iOS build credentials *per target name*. task-347 set this to
+ * `appName`, which strips to `MediaSummarizer` — identical to the app target — so
+ * the app target got handed the extension's provisioning profile and its
+ * entitlements. iOS build 5 died on it (`XCODE_BUILD_ERROR`: profile app ID
+ * `…core.share-extension` "does not match the bundle ID com.secondbrainlabs.core",
+ * plus a vanished Sign In with Apple capability). The failure is invisible locally
+ * and costs a full EAS build slot, so keep the stripped forms distinct:
+ * "Media Summarizer Share" → `MediaSummarizerShare` ≠ `MediaSummarizer`.
+ *
+ * The extension's bundle id derives from the app's (`<appId>.share-extension`) and
+ * not from this string, so a rename needs no new App ID and no new profile.
+ */
+const iosShareExtensionName = "Media Summarizer Share";
 
 const googleReservedClientScheme = (clientId?: string): string | null => {
   const suffix = ".apps.googleusercontent.com";
@@ -254,8 +265,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       [
         "expo-share-intent",
         {
-          // The label under the icon in the iOS share sheet. See `appName`.
-          iosShareExtensionName: appName,
+          // Share-sheet label *and* native target name. See the constant: the
+          // stripped form must not collide with the app target.
+          iosShareExtensionName,
           // These predicates *are* the share sheet: iOS evaluates them against
           // the items being shared and only renders the row when one matches
           // (they become the `NSExtensionActivationRule` of the generated

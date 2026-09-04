@@ -157,4 +157,4 @@ When filling out App Store Connect, answer as follows:
 - No advertising SDKs are present in the app
 - No third-party analytics SDKs that track across apps
 - Authentication tokens are stored in iOS Keychain via expo-secure-store
-- The share extension (ShareMedia) accesses the same App Group data but does not independently collect or transmit data; it passes URLs to the main app's processing pipeline
+- The share extension (MediaSummarizerShare) accesses the same App Group data but does not independently collect or transmit data; it passes URLs to the main app's processing pipeline

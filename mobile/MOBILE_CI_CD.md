@@ -117,7 +117,20 @@ they are not interchangeable:
 | Target | Bundle identifier |
 |---|---|
 | `MediaSummarizer` | `com.secondbrainlabs.core` |
-| `ShareMedia` | `com.secondbrainlabs.core.share-extension` |
+| `MediaSummarizerShare` | `com.secondbrainlabs.core.share-extension` |
+
+**The two target names must never be equal**, because that left column is the key
+EAS resolves credentials by. The extension's target name is not written anywhere
+directly: expo-share-intent derives it from `iosShareExtensionName` in
+`app.config.ts` by stripping non-alphanumerics, and the app's from `expo.name` the
+same way. task-347 set `iosShareExtensionName` to the app name so the share-sheet
+row would be findable; both then stripped to `MediaSummarizer`, and iOS build 5
+(2026-09-04, commit `5fbab97`) died in `XCODE_BUILD_ERROR` with the extension's
+profile applied to the app target — *"has app ID `com.secondbrainlabs.core.share-extension`,
+which does not match the bundle ID `com.secondbrainlabs.core` (in target
+'MediaSummarizer')"* — and Sign In with Apple gone with the swapped entitlements.
+Nothing catches this before the build: the config resolves, the prebuild succeeds,
+and one EAS slot is spent. Hence the label "Media Summarizer Share".
 
 Both share a single **Distribution Certificate** (valid to 2027-06-10), but each
 needs **its own Provisioning Profile**, and a profile is specific to a distribution
