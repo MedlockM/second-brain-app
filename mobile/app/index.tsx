@@ -1,7 +1,5 @@
-import { useEffect } from "react";
 import { Redirect } from "expo-router";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
-import * as SplashScreen from "expo-splash-screen";
 import { useAuth } from "../src/contexts/AuthContext";
 import { useUserPreferences } from "../src/contexts/UserPreferencesContext";
 import { LANGUAGE_ONBOARDING_ROUTE } from "../src/constants/routes";
@@ -29,12 +27,6 @@ import { Colors } from "../src/constants/theme";
 export default function Index() {
   const { isLoading, isAuthenticated } = useAuth();
   const { needsLanguageOnboarding } = useUserPreferences();
-
-  useEffect(() => {
-    if (!isLoading) {
-      SplashScreen.hideAsync();
-    }
-  }, [isLoading]);
 
   if (isLoading) {
     return (

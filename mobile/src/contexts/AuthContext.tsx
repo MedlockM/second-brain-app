@@ -272,7 +272,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
     };
 
-    void initAuth();
+    // The bootstrap has to end whatever happens. The native splash screen is held
+    // until `isLoading` goes false (`SplashGate` in `app/_layout.tsx`), so a
+    // keychain read that rejects — which a launch on a locked device can produce,
+    // and a share arriving at a phone in a pocket is exactly that — would
+    // otherwise leave the app stuck behind the splash for good. "No session to
+    // restore" is the honest landing: the tokens stay in the keychain, so the next
+    // start tries again, and meanwhile the login screen is reachable.
+    void initAuth().catch(() => {
+      setState(SIGNED_OUT_STATE);
+    });
   }, [scheduleRefresh]);
 
   // Revalidate on every return to the foreground, independently of the timer:
