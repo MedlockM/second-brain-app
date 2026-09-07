@@ -3,9 +3,10 @@ id: task-368
 title: >-
   Benchmark des chemins de livraison de notifications push mobiles pour le
   Digest
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-06 16:12'
+updated_date: '2026-09-07 14:44'
 labels:
   - benchmark
   - mobile
