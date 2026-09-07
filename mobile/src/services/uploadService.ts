@@ -5,9 +5,9 @@
  * - `POST /api/media/upload` for documents and images (LlamaParse, OCR)
  * - `POST /api/media/upload-audio` for audio (Deepgram)
  *
- * Both accept the same `folder_id` / `tag_ids` organization fields as
- * `ingest-url` and `ingest-shared-content`, so an import lands in the collection
- * and tags the user picked on the confirmation screen.
+ * Both accept the same `folder_id` organization field as `ingest-url` and
+ * `ingest-shared-content`, so an import lands in the collection the user picked
+ * on the confirmation screen.
  *
  * The file itself never goes through the API (task-345): `stageUpload` sends it
  * straight to S3 through a presigned PUT, and these calls only carry the
@@ -25,16 +25,13 @@ import type {
 
 export interface UploadOrganizationOptions {
   folderId?: string | null;
-  tagIds?: string[];
 }
 
 function organizationBody(options: UploadOrganizationOptions): {
   folder_id: string | null;
-  tag_ids: string[] | null;
 } {
   return {
     folder_id: options.folderId ?? null,
-    tag_ids: options.tagIds && options.tagIds.length > 0 ? options.tagIds : null,
   };
 }
 

@@ -59,7 +59,6 @@ export class SharedContentService {
       sourceApp?: string;
       locale?: string;
       folderId?: string | null;
-      tagIds?: string[];
     } = {},
   ): Promise<IngestSharedContentResponse> {
     // Validate text
@@ -88,8 +87,6 @@ export class SharedContentService {
       text: trimmed,
       locale: options.locale ?? null,
       folder_id: options.folderId ?? null,
-      tag_ids:
-        options.tagIds && options.tagIds.length > 0 ? options.tagIds : null,
     });
   }
 
@@ -103,7 +100,6 @@ export class SharedContentService {
       sourceApp?: string;
       locale?: string;
       folderId?: string | null;
-      tagIds?: string[];
     } = {},
   ): Promise<IngestSharedContentResponse> {
     // Validate MIME type
@@ -155,8 +151,6 @@ export class SharedContentService {
       upload_key: uploadKey,
       locale: options.locale ?? null,
       folder_id: options.folderId ?? null,
-      tag_ids:
-        options.tagIds && options.tagIds.length > 0 ? options.tagIds : null,
     });
   }
 

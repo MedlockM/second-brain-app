@@ -1,6 +1,6 @@
 # Media Summarizer
 
-Plateforme "second cerveau" : enregistrer n'importe quel média en un share, l'organiser dans des dossiers et tags, générer à la demande des artefacts IA (résumé, notes, flashcards).
+Plateforme "second cerveau" : enregistrer n'importe quel média en un share, l'organiser dans des dossiers, générer à la demande des artefacts IA (résumé, notes, flashcards).
 
 ## Documentation
 

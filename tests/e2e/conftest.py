@@ -3,8 +3,7 @@
 These tests hit a real backend API (default: AWS dev) and create real DynamoDB
 records, S3 objects, and SQS messages. The session-scoped `test_user` fixture
 takes care of teardown — it deletes the user, their auth tokens, processing
-jobs, media artifacts, tags and folders at the end of the session, succeed or
-fail.
+jobs, media artifacts and folders at the end of the session, succeed or fail.
 
 Configuration:
 - API_BASE_URL env var (default: AWS dev URL).
@@ -33,7 +32,6 @@ os.environ.setdefault("USERS_TABLE", "users-dev")
 os.environ.setdefault("PROCESSING_JOBS_TABLE", "processing_jobs-dev")
 os.environ.setdefault("AUTH_TOKENS_TABLE", "auth_tokens-dev")
 os.environ.setdefault("USER_FOLDERS_TABLE", "user_folders-dev")
-os.environ.setdefault("USER_TAGS_TABLE", "user_tags-dev")
 os.environ.setdefault("USER_RSS_FEEDS_TABLE", "user_rss_feeds-dev")
 
 import asyncio
@@ -232,7 +230,7 @@ async def _teardown_user(client: httpx.AsyncClient, user: Dict[str, str]) -> Non
        deletion flow rather than only the test-side shortcut.
     2. ``scripts/delete_e2e_account.py`` (task-247), which sweeps both -dev and
        unsuffixed tables and removes every child row (auth tokens, processing
-       jobs, artifacts, tags, folders, submissions, usage counters), reusing the
+       jobs, artifacts, folders, submissions, usage counters), reusing the
        same logic as purge_e2e_accounts.py (task-246).
 
     Step 2 always runs, whatever step 1 answered: the API purge is not the

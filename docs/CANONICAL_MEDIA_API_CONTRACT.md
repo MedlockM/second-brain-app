@@ -95,14 +95,13 @@ Request (`IngestUrlRequest`):
   "locale": "fr-FR",
   "transcript_language": "fr",
   "idempotency_key": "mobile-share-4b7e8d",
-  "folder_id": "folder_01JQ8X8J5S3H3CXX8V70M9M3K7",
-  "tag_ids": ["tag_01JQ8X8J5S3H3CXX8V70M9M3K7"]
+  "folder_id": "folder_01JQ8X8J5S3H3CXX8V70M9M3K7"
 }
 ```
 
-`transcript_language`, `folder_id`, and `tag_ids` are optional. When `folder_id` is omitted or `null`,
-the backend assigns the user's default Uncategorized folder. Provided folder and
-tag IDs must belong to the authenticated user.
+`transcript_language` and `folder_id` are optional. When `folder_id` is omitted or `null`,
+the backend assigns the user's default Uncategorized folder. A provided folder id
+must belong to the authenticated user.
 
 `transcript_language` is a **per-submission override**. When omitted, the backend defaults to the
 authenticated user's `reading_language` preference (set during onboarding, editable in Settings via
@@ -671,7 +670,6 @@ API. Ceilings are `MAX_UPLOAD_SIZE_BYTES` (50 MB) for `document` and `audio`,
 | --- | --- | --- | --- |
 | `upload_key` | string | yes | Key returned by `upload-url` for `target=document`. Extension must be in `DocumentFormat.supported_extensions()`: `pdf`, `docx`, `pptx`, `xlsx`, `jpg`, `jpeg`, `png`, `tiff`, `tif`, `bmp`, `heif`, `heic`. Images go through OCR. |
 | `folder_id` | string \| null | no | Destination collection. Omitted or null means the user's default Uncategorized folder. |
-| `tag_ids` | string[] \| null | no | e.g. `["tag_01JQ...","tag_01JR..."]`. |
 
 Response (`UploadDocumentResponse`, `202 Accepted`):
 ```json
@@ -691,7 +689,6 @@ Response (`UploadDocumentResponse`, `202 Accepted`):
 | --- | --- | --- | --- |
 | `upload_key` | string | yes | Key returned by `upload-url` for `target=audio`. Extension must be one of `.mp3`, `.m4a`, `.aac`, `.ogg`, `.wav`, `.flac`, `.opus`. Transcribed by Deepgram. |
 | `folder_id` | string \| null | no | Same semantics as above. |
-| `tag_ids` | string[] \| null | no | Same semantics as above. |
 
 Response (`UploadAudioResponse`, `202 Accepted`):
 ```json
@@ -704,13 +701,11 @@ Response (`UploadAudioResponse`, `202 Accepted`):
 
 ### Shared semantics
 
-- `folder_id` and `tag_ids` are validated against the caller **before** the quota check, so an
-  unusable folder or tag costs nothing to the user's allowance. An id that does not exist or belongs
-  to someone else is `400 Folder not found` / `400 Tag(s) not found`, and more than
-  `MAX_TAGS_PER_MEDIA` distinct tags is `400` — identical wording and status to `ingest-url`.
-  Duplicates are collapsed.
-- Both fields land on the durable library row through `save_media_for_user`, never on the processing
-  job — organization belongs to what the user saved, not to the pipeline working for it.
+- `folder_id` is validated against the caller **before** the quota check, so an unusable folder
+  costs nothing to the user's allowance. An id that does not exist or belongs to someone else is
+  `400 Folder not found` — identical wording and status to `ingest-url`.
+- It lands on the durable library row through `save_media_for_user`, never on the processing job —
+  organization belongs to what the user saved, not to the pipeline working for it.
 - An `upload_key` that does not start with `uploads/{caller_id}/` is `403`, decided on the key alone
   **before any S3 call**, so these endpoints cannot be used to probe another user's objects.
 - An `upload_key` with no object behind it is `422` naming the missing upload: the transfer either

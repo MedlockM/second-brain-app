@@ -94,7 +94,6 @@ _USER_PARTITION_TABLES: Tuple[Tuple[str, Optional[str]], ...] = (
 # through a ``user-index`` GSI. Value is the table's partition key attribute.
 _USER_INDEX_TABLES: Tuple[Tuple[str, str], ...] = (
     ("USER_FOLDERS_TABLE", "id"),
-    ("USER_TAGS_TABLE", "id"),
     ("USER_RSS_FEEDS_TABLE", "id"),
     ("SUBSCRIPTIONS_TABLE", "id"),
     ("BUG_REPORTS_TABLE", "id"),

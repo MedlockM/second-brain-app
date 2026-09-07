@@ -70,7 +70,7 @@ import type { RecentEngagement } from "../../src/types/engagements";
  * Also hosts the ingestion gestures (task-264): a camera button that shoots
  * straight away, and an "add" button opening the choice between a file and a
  * gallery photo. All three hand the result to the share confirmation screen,
- * where the collection and tags are picked before sending.
+ * where the collection is picked before sending.
  */
 
 /**

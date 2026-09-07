@@ -3,7 +3,7 @@
 
 Why this script exists: `database_async.delete_user()` deletes only the `users`
 row, so every E2E run since June 2026 left its auth tokens, processing jobs,
-artifacts, tags, folders, submissions and usage counters behind (task-246).
+artifacts, folders, submissions and usage counters behind (task-246).
 This script deletes the children FIRST, then the `users` row, so no orphan can
 survive a partial run.
 
@@ -112,7 +112,6 @@ def select_accounts(
 CHILD_TABLES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("auth_tokens", "gsi", ("id",)),
     ("processing_jobs", "gsi", ("id",)),
-    ("user_tags", "gsi", ("id",)),
     ("user_folders", "gsi", ("id",)),
     ("user_usage_monthly", "pk", ("user_id", "period")),
 )

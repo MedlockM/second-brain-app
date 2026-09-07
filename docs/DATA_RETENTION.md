@@ -13,8 +13,8 @@ Source: §6.1 and §6.4 of
 
 The incident that produced the `user_media` table was a *processing* retention
 clock (`processing_jobs.expire_at`) applied to *user-owned* data: expiring a job
-row deleted the user's media entry, its folder and its tags, because every
-library read resolved through that job. Two months of saves disappeared.
+row deleted the user's media entry and its folder, because every library read
+resolved through that job. Two months of saves disappeared.
 
 So the two clocks are now separate, structurally and not by convention:
 
@@ -89,7 +89,7 @@ Three tiers, three explicit windows
 | AWS Backup snapshots (weekly) | **90 days** | the table itself lost or corrupted beyond PITR; a mistake noticed a month later | `start-restore-job` from vault `media-summarizer-library-<env>` → new table |
 | S3 exports (monthly, DYNAMODB_JSON) | **365 days** | the vault lost; readable without DynamoDB (Athena); monthly audit copy | re-import or query in place |
 
-Covered stores: `user_media`, `user_folders`, `user_tags`, `media_artifacts` —
+Covered stores: `user_media`, `user_folders`, `media_artifacts` —
 the user-owned ones. The operational tables are deliberately excluded: losing
 them costs a re-run, not a library.
 

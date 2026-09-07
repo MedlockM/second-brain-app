@@ -1539,8 +1539,8 @@ async def complete_artifact_generation(
     await media_artifacts.update_media_artifact(record)
 
     # Only this type, and only at media scope: ``scope_id`` is the library row's
-    # media id there, whereas at collection scope it is a folder or tag id and the
-    # copy would address a row that does not exist.
+    # media id there, whereas at collection scope it is a folder id and the copy
+    # would address a row that does not exist.
     if (
         record.artifact_type == MediaArtifactType.REVIEW_BLURB
         and record.scope == ArtifactScope.MEDIA

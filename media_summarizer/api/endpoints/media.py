@@ -64,7 +64,6 @@ from media_summarizer.api.models.media_contracts import (
 from media_summarizer.api.models.media_contracts import (
     TranscriptStatus as CanonicalTranscriptStatus,
 )
-from media_summarizer.core.constants import MAX_TAGS_PER_MEDIA
 from media_summarizer.core.media_ingestion.title_derivation import (
     MAX_TITLE_LENGTH,
     derive_media_title,
@@ -87,7 +86,6 @@ from media_summarizer.core.services import (
     media_rename_service,
     media_search_service,
     quota_enforcer,
-    tag_service,
 )
 from media_summarizer.core.services.artifact_service import (
     latest_internal_artifact_status,
@@ -395,21 +393,17 @@ async def _resolve_media_organization(
     *,
     user_id: str,
     folder_id: Optional[str],
-    tag_ids: Optional[List[str]],
-) -> tuple[Optional[str], Optional[List[str]]]:
-    """Validate the folder/tags a submission asks for and return them resolved.
+) -> Optional[str]:
+    """Validate the folder a submission asks for and return it resolved.
 
     Single dialect of "where does this save go", shared by every ingestion
     entrypoint (URL, shared content, document upload, audio upload) so a mobile
-    gesture cannot end up with a weaker check than another. Enforces:
+    gesture cannot end up with a weaker check than another. Enforces that the
+    folder exists and belongs to the caller.
 
-    - the folder exists and belongs to the caller
-    - the tags exist and belong to the caller
-    - at most ``MAX_TAGS_PER_MEDIA`` distinct tags
-
-    Returns ``(resolved_folder_id, unique_tag_ids)``, both ``None`` when nothing
-    was asked for — ``save_media_for_user`` then falls back to the user's default
-    folder. Raises ``HTTPException`` 400 on any violation.
+    Returns the resolved folder id, or ``None`` when nothing was asked for —
+    ``save_media_for_user`` then falls back to the user's default folder. Raises
+    ``HTTPException`` 400 on any violation.
     """
     resolved_folder_id: Optional[str] = None
     requested_folder_id = folder_id.strip() if folder_id else None
@@ -422,24 +416,7 @@ async def _resolve_media_organization(
             )
         resolved_folder_id = folder.id
 
-    if not tag_ids:
-        return resolved_folder_id, None
-
-    unique_tag_ids = list(dict.fromkeys(tag_ids))
-    if len(unique_tag_ids) > MAX_TAGS_PER_MEDIA:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot assign more than {MAX_TAGS_PER_MEDIA} tags",
-        )
-    user_tags = await database_async.get_tags_by_user_id(user_id)
-    user_tag_ids = {t.id for t in user_tags}
-    invalid_ids = [tid for tid in unique_tag_ids if tid not in user_tag_ids]
-    if invalid_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Tag(s) not found: {', '.join(invalid_ids)}",
-        )
-    return resolved_folder_id, unique_tag_ids
+    return resolved_folder_id
 
 
 class IngestUrlRequest(BaseModel):
@@ -456,9 +433,6 @@ class IngestUrlRequest(BaseModel):
     idempotency_key: Optional[str] = Field(None, description="Client idempotency key")
     folder_id: Optional[str] = Field(
         None, description="Optional folder ID to assign to the media item"
-    )
-    tag_ids: Optional[List[str]] = Field(
-        None, description="Optional list of tag IDs to associate with the media item at ingestion time"
     )
 
 
@@ -517,9 +491,6 @@ class UploadDocumentRequest(BaseModel):
     folder_id: Optional[str] = Field(
         None, description="Optional folder ID to assign to the media item"
     )
-    tag_ids: Optional[List[str]] = Field(
-        None, description="Optional list of tag IDs to associate with the media item"
-    )
 
 
 class UploadAudioRequest(BaseModel):
@@ -528,9 +499,6 @@ class UploadAudioRequest(BaseModel):
     )
     folder_id: Optional[str] = Field(
         None, description="Optional folder ID to assign to the media item"
-    )
-    tag_ids: Optional[List[str]] = Field(
-        None, description="Optional list of tag IDs to associate with the media item"
     )
 
 
@@ -556,9 +524,6 @@ class IngestSharedContentRequest(BaseModel):
     )
     folder_id: Optional[str] = Field(
         None, description="Optional folder ID to assign to the media item"
-    )
-    tag_ids: Optional[List[str]] = Field(
-        None, description="Optional list of tag IDs to associate with the media item"
     )
 
 
@@ -658,21 +623,6 @@ class DeleteMediaResponse(BaseModel):
     )
 
 
-# ---------- Tag assignment models ----------
-
-class PatchMediaTagsRequest(BaseModel):
-    tag_ids: List[str] = Field(
-        ..., description="List of tag IDs to assign to the media item (replaces existing)"
-    )
-
-
-class PatchMediaTagsResponse(BaseModel):
-    status: str = "success"
-    media_id: str
-    tag_ids: List[str]
-    previous_tag_ids: List[str]
-
-
 # ---------- Search / List models ----------
 
 class MediaSearchItem(BaseModel):
@@ -700,7 +650,6 @@ class MediaSearchItem(BaseModel):
     media_type: Optional[str] = None
     status: Optional[str] = None
     folder_id: Optional[str] = None
-    tag_ids: List[str] = Field(default_factory=list)
     source_url: Optional[str] = None
     media_image: Optional[str] = None
     created_at: str
@@ -1056,7 +1005,6 @@ def _build_processing_job_contract(
 @router.get("", response_model=MediaSearchResponse)
 async def search_media(
     q: Optional[str] = None,
-    tags: Optional[str] = None,
     folder_id: Optional[str] = None,
     source: Optional[str] = None,
     type: Optional[str] = None,
@@ -1070,7 +1018,6 @@ async def search_media(
 
     Query Parameters:
         q: Text search on title (case-insensitive substring match)
-        tags: Comma-separated tag IDs to filter by (any match)
         folder_id: Filter by folder (includes sub-folders)
         source: Filter by source platform (youtube, tiktok, web, audio, etc.)
         type: Filter by media type (video, article, podcast, audio)
@@ -1083,14 +1030,8 @@ async def search_media(
             the default.
     """
     try:
-        # Parse comma-separated tags
-        tag_list: Optional[List[str]] = None
-        if tags:
-            tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-
         filters = SearchFilters(
             q=q,
-            tags=tag_list,
             folder_id=folder_id,
             source=source,
             media_type=type,
@@ -1162,11 +1103,10 @@ async def ingest_url(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-        # Where the save goes: folder and tags must belong to the caller.
-        resolved_folder_id, unique_tag_ids = await _resolve_media_organization(
+        # Where the save goes: the folder must belong to the caller.
+        resolved_folder_id = await _resolve_media_organization(
             user_id=user.id,
             folder_id=payload.folder_id,
-            tag_ids=payload.tag_ids,
         )
 
         # A share link carries an opaque redirect code, not a media id, so
@@ -1205,7 +1145,6 @@ async def ingest_url(
             transcript_language=transcript_language,
             idempotency_key=payload.idempotency_key,
             folder_id=resolved_folder_id,
-            tag_ids=unique_tag_ids,
         )
         command = IngestUrlCommand(
             user=UserContext(user_id=current_user.id, user_email=user.email),
@@ -1388,7 +1327,7 @@ async def upload_document(
     parsed using LlamaParse (primary) with fallback to Unstructured API, and fed
     into the downstream LLM pipeline.
 
-    `folder_id` and `tag_ids` are optional and place the resulting library row
+    `folder_id` is optional and places the resulting library row
     exactly like every other ingestion entrypoint does.
 
     Returns 202 Accepted with the media_item_id to poll for status.
@@ -1410,11 +1349,10 @@ async def upload_document(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
         # Where the save goes (task-264). Validated before the quota check so an
-        # unusable folder or tag costs nothing to the user's allowance.
-        resolved_folder_id, resolved_tag_ids = await _resolve_media_organization(
+        # unusable folder costs nothing to the user's allowance.
+        resolved_folder_id = await _resolve_media_organization(
             user_id=user.id,
             folder_id=payload.folder_id,
-            tag_ids=payload.tag_ids,
         )
 
         # Consumption check before processing. A document costs a minute per five
@@ -1463,7 +1401,6 @@ async def upload_document(
             source_platform="document",
             media_type="document",
             folder_id=resolved_folder_id,
-            tag_ids=resolved_tag_ids,
         )
 
         # Create processing job
@@ -1560,7 +1497,7 @@ async def upload_audio(
     to its job-scoped key, then a pre-signed GET URL is generated and sent to the
     Deepgram transcription worker.
 
-    `folder_id` and `tag_ids` are optional and place the resulting library row
+    `folder_id` is optional and places the resulting library row
     exactly like every other ingestion entrypoint does.
 
     Returns 202 Accepted with the media_item_id to poll for status.
@@ -1583,11 +1520,10 @@ async def upload_audio(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
         # Where the save goes (task-264). Validated before the quota check so an
-        # unusable folder or tag costs nothing to the user's allowance.
-        resolved_folder_id, resolved_tag_ids = await _resolve_media_organization(
+        # unusable folder costs nothing to the user's allowance.
+        resolved_folder_id = await _resolve_media_organization(
             user_id=user.id,
             folder_id=payload.folder_id,
-            tag_ids=payload.tag_ids,
         )
 
         # Consumption check. The file is already in S3, so its real duration is read
@@ -1640,10 +1576,10 @@ async def upload_audio(
             title=media_title,
         )
 
-        # Durable library entry first (task-240, task-218 §4.3). The folder and
-        # tags are organization, so they land on the library row -- never on the
-        # job -- and the row is written before the job so nothing user-owned
-        # depends on the pipeline.
+        # Durable library entry first (task-240, task-218 §4.3). The folder is
+        # organization, so it lands on the library row -- never on the job -- and
+        # the row is written before the job so nothing user-owned depends on the
+        # pipeline.
         durable_media_item_id = await save_media_for_user(
             user_id=user.id,
             media_key=media_key,
@@ -1651,7 +1587,6 @@ async def upload_audio(
             source_platform="audio",
             media_type="audio",
             folder_id=resolved_folder_id,
-            tag_ids=resolved_tag_ids,
         )
         job.media_item_id = durable_media_item_id
 
@@ -1825,11 +1760,10 @@ async def ingest_shared_content(
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-        # Where the save goes: folder and tags must belong to the caller.
-        resolved_folder_id, unique_tag_ids = await _resolve_media_organization(
+        # Where the save goes: the folder must belong to the caller.
+        resolved_folder_id = await _resolve_media_organization(
             user_id=user.id,
             folder_id=payload.folder_id,
-            tag_ids=payload.tag_ids,
         )
 
         # Branch based on share_type
@@ -1930,7 +1864,6 @@ async def ingest_shared_content(
             staged_audio_s3_key=staged_audio_s3_key,
             audio_duration_seconds=shared_audio_duration_seconds,
             folder_id=resolved_folder_id,
-            tag_ids=unique_tag_ids,
         )
         command = IngestSharedContentCommand(
             user=UserContext(user_id=current_user.id, user_email=user.email),
@@ -2193,35 +2126,6 @@ async def patch_media(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update media item",
-        )
-
-
-@router.patch("/{media_id}/tags", response_model=PatchMediaTagsResponse)
-async def patch_media_tags(
-    media_id: str,
-    payload: PatchMediaTagsRequest,
-    current_user: AuthUser = Depends(get_current_user),
-) -> PatchMediaTagsResponse:
-    """Associate or dissociate tags on a media item (replaces existing tag list)."""
-    try:
-        result = await tag_service.set_media_tags(
-            user_id=current_user.id,
-            media_id=media_id,
-            tag_ids=payload.tag_ids,
-        )
-        return PatchMediaTagsResponse(
-            status="success",
-            media_id=result["media_id"],
-            tag_ids=result["tag_ids"],
-            previous_tag_ids=result["previous_tag_ids"],
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error setting tags on media {media_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update media tags",
         )
 
 

@@ -281,7 +281,7 @@ export const fr: Catalog = {
   "plan.highlight.generate":
     "Générez {list} à la demande, par élément ou par collection",
   "plan.highlight.organise":
-    "Organisez en collections et en tags, cherchez dans tout, digest quotidien",
+    "Organisez en collections, cherchez dans tout, digest quotidien",
   "plan.includes.capture.title": "Enregistrez tout, depuis n'importe quelle app",
   "plan.includes.capture.links":
     "Partagez un lien depuis n'importe quelle app, ou collez-le : vidéos YouTube, épisodes de podcast depuis Apple Podcasts, Spotify, Deezer ou n'importe quel flux RSS, TikToks, reels et publications photo Instagram, publications X, articles de presse et n'importe quelle page web.",
@@ -300,7 +300,7 @@ export const fr: Catalog = {
     "Chaque génération est conservée : vous pouvez y revenir ou en demander une nouvelle plus tard.",
   "plan.includes.organise.title": "Retrouvez-le des mois plus tard",
   "plan.includes.organise.file":
-    "Classez n'importe quoi en collections et en tags, au moment de l'enregistrer ou plus tard.",
+    "Classez n'importe quoi en collections, au moment de l'enregistrer ou plus tard.",
   "plan.includes.organise.search":
     "Recherche plein texte dans tout ce que vous avez enregistré, transcriptions comprises.",
   "plan.includes.organise.digest":
@@ -383,7 +383,7 @@ export const fr: Catalog = {
   "deleteAccount.warningBody":
     "Supprimer votre compte l'efface définitivement, avec tout ce que vous avez enregistré. Nous ne pouvons pas le restaurer ensuite, même sur demande.",
   "deleteAccount.erasedHeading": "Ce qui est effacé",
-  "deleteAccount.erased.library": "Votre bibliothèque, vos dossiers et vos tags",
+  "deleteAccount.erased.library": "Votre bibliothèque et vos dossiers",
   "deleteAccount.erased.artifacts":
     "Toutes vos transcriptions, résumés, notes et cartes mémo",
   "deleteAccount.erased.schedule": "Votre planning de révision et vos digests",
@@ -509,16 +509,6 @@ export const fr: Catalog = {
     "Ce que vous enregistrez apparaîtra ici dans le prochain digest.",
   "digest.emptyWeeklyHint":
     "Ce que vous enregistrez cette semaine apparaîtra ici lundi.",
-  "tags.selectedCount.one": "{count} tag",
-  "tags.selectedCount.other": "{count} tags",
-  "tags.saveA11y": "Enregistrer les tags",
-  "tags.removeA11y": "Retirer {name}",
-  "tags.addPlaceholder": "Ajouter un tag",
-  "tags.createA11y": "Créer le tag « {name} »",
-  "tags.otherHeading": "AUTRES",
-  "tags.loadFailed": "Impossible de charger les tags",
-  "tags.createFailed": "Impossible de créer le tag",
-  "tags.saveFailed": "Impossible d'enregistrer les tags",
   "collectionPicker.title": "Collection",
   "collectionPicker.saveA11y": "Enregistrer la sélection",
   "collectionPicker.searchPlaceholder": "Rechercher",
@@ -698,9 +688,7 @@ export const fr: Catalog = {
   "share.uploadingAudio": "Envoi de l'audio…",
   "share.uploadingFile": "Envoi du fichier…",
   "share.whatsappText": "Message texte WhatsApp",
-  "share.tags": "Tags",
   "share.chooseCollection": "Choisir une collection",
-  "share.chooseTags": "Choisir des tags",
   "share.success.duplicate": "Ce contenu était déjà dans votre boîte de réception.",
   "share.success.audio":
     "Audio enregistré. La transcription va bientôt commencer.",

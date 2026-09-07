@@ -275,7 +275,7 @@ export const de: Catalog = {
   "plan.highlight.generate":
     "Erstelle {list} auf Abruf, pro Element oder pro Sammlung",
   "plan.highlight.organise":
-    "Ordne in Sammlungen und Tags, durchsuche alles, täglicher Digest",
+    "Ordne in Sammlungen, durchsuche alles, täglicher Digest",
   "plan.includes.capture.title": "Speichere alles, aus jeder App",
   "plan.includes.capture.links":
     "Teile einen Link aus jeder App oder füge ihn ein: YouTube-Videos, Podcast-Folgen von Apple Podcasts, Spotify, Deezer oder jedem RSS-Feed, TikToks, Instagram-Reels und -Fotobeiträge, X-Beiträge, Nachrichtenartikel und jede Webseite.",
@@ -294,7 +294,7 @@ export const de: Catalog = {
     "Jede Erstellung bleibt erhalten, du kannst also darauf zurückkommen oder später eine neue anfordern.",
   "plan.includes.organise.title": "Finde es Monate später wieder",
   "plan.includes.organise.file":
-    "Lege alles in Sammlungen und Tags ab, beim Speichern oder jederzeit danach.",
+    "Lege alles in Sammlungen ab, beim Speichern oder jederzeit danach.",
   "plan.includes.organise.search":
     "Volltextsuche über alles, was du je gespeichert hast, Transkripte inbegriffen.",
   "plan.includes.organise.digest":
@@ -376,7 +376,7 @@ export const de: Catalog = {
   "deleteAccount.warningBody":
     "Dein Konto zu löschen, entfernt es dauerhaft, zusammen mit allem, was du gespeichert hast. Wir können es danach nicht wiederherstellen, auch nicht auf Anfrage.",
   "deleteAccount.erasedHeading": "Was gelöscht wird",
-  "deleteAccount.erased.library": "Deine Bibliothek, Ordner und Tags",
+  "deleteAccount.erased.library": "Deine Bibliothek und Ordner",
   "deleteAccount.erased.artifacts":
     "Alle Transkripte, Zusammenfassungen, Notizen und Lernkarten",
   "deleteAccount.erased.schedule": "Dein Wiederholungsplan und deine Digests",
@@ -499,16 +499,6 @@ export const de: Catalog = {
     "Was du speicherst, erscheint hier im nächsten Digest.",
   "digest.emptyWeeklyHint":
     "Was du diese Woche speicherst, erscheint hier am Montag.",
-  "tags.selectedCount.one": "{count} Tag",
-  "tags.selectedCount.other": "{count} Tags",
-  "tags.saveA11y": "Tags speichern",
-  "tags.removeA11y": "{name} entfernen",
-  "tags.addPlaceholder": "Tag hinzufügen",
-  "tags.createA11y": "Tag „{name}“ erstellen",
-  "tags.otherHeading": "WEITERE",
-  "tags.loadFailed": "Tags konnten nicht geladen werden",
-  "tags.createFailed": "Tag konnte nicht erstellt werden",
-  "tags.saveFailed": "Tags konnten nicht gespeichert werden",
   "collectionPicker.title": "Sammlung",
   "collectionPicker.saveA11y": "Auswahl speichern",
   "collectionPicker.searchPlaceholder": "Suchen",
@@ -686,9 +676,7 @@ export const de: Catalog = {
   "share.uploadingAudio": "Audio wird hochgeladen …",
   "share.uploadingFile": "Datei wird hochgeladen …",
   "share.whatsappText": "WhatsApp-Textnachricht",
-  "share.tags": "Tags",
   "share.chooseCollection": "Sammlung wählen",
-  "share.chooseTags": "Tags wählen",
   "share.success.duplicate": "Dieser Inhalt war schon in deinem Posteingang.",
   "share.success.audio":
     "Audio gespeichert. Die Transkription beginnt in Kürze.",

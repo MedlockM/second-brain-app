@@ -1,15 +1,6 @@
 /**
- * Types for tags and collections (media organization).
+ * Types for collections (media organization).
  */
-
-export interface Tag {
-  id: string;
-  name: string;
-  count: number;
-  color?: string | null;
-  created_at?: string;
-  updated_at?: string;
-}
 
 export interface Collection {
   id: string;

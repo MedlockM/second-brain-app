@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from media_summarizer.core.models.processing_job import JobStatus, ProcessingJob
 from media_summarizer.core.models.user_media import (
@@ -116,7 +116,6 @@ async def save_media_for_user(
     thumbnail_url: Optional[str] = None,
     language: Optional[str] = None,
     folder_id: Optional[str] = None,
-    tag_ids: Optional[List[str]] = None,
     job_id: Optional[str] = None,
     processing_status: Optional[UserMediaStatus] = UserMediaStatus.PENDING,
 ) -> str:
@@ -161,7 +160,6 @@ async def save_media_for_user(
         thumbnail_url=thumbnail_url,
         language=language,
         folder_id=resolved_folder_id,
-        tag_ids=list(tag_ids or []),
         saved_at=now,
         updated_at=now,
         processing_status=processing_status,

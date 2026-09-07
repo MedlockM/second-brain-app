@@ -16,7 +16,7 @@ convention, because both were violated in the incident this table exists to fix:
 
   I1  ``create`` holds the module's only ``put_item``. Every other
       mutation is an attribute-level ``update_item``, so a metadata refresh can
-      never overwrite the folder or tags a user set from another device.
+      never overwrite the folder a user set from another device.
 
   I2  ``purge_at`` and ``deleted_at`` are rejected by the generic update helper.
       Exactly two functions in the codebase touch them, both here (task-243, §6.2),
@@ -673,7 +673,6 @@ async def update_organization(
     user_id: str,
     media_item_id: str,
     folder_id: Optional[str] = None,
-    tag_ids: Optional[List[str]] = None,
     saved_at: Optional[datetime] = None,
 ) -> bool:
     """Update the user-authored organization of a row.
@@ -684,8 +683,6 @@ async def update_organization(
     is read, never written: it is the second half of the composite key.
     """
     attributes: Dict[str, Any] = {}
-    if tag_ids is not None:
-        attributes["tag_ids"] = list(tag_ids)
     if folder_id is not None:
         attributes["folder_id"] = folder_id
         if saved_at is None:

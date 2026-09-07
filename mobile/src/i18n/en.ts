@@ -321,7 +321,7 @@ export const en = {
   "plan.highlight.generate":
     "Generate {list} on demand, per item or per collection",
   "plan.highlight.organise":
-    "Organise in collections and tags, search everything, daily digest",
+    "Organise in collections, search everything, daily digest",
   "plan.includes.capture.title": "Save anything, from any app",
   "plan.includes.capture.links":
     "Share a link from any app, or paste one: YouTube videos, podcast episodes from Apple Podcasts, Spotify, Deezer or any RSS feed, TikToks, Instagram reels and photo posts, X posts, news articles and any web page.",
@@ -340,7 +340,7 @@ export const en = {
     "Every generation is kept, so you can come back to it or ask for a fresh one later.",
   "plan.includes.organise.title": "Find it again months later",
   "plan.includes.organise.file":
-    "File anything into collections and tags, at the moment you save it or any time after.",
+    "File anything into collections, at the moment you save it or any time after.",
   "plan.includes.organise.search":
     "Full-text search across everything you have ever saved, transcripts included.",
   "plan.includes.organise.digest":
@@ -428,7 +428,7 @@ export const en = {
   "deleteAccount.warningBody":
     "Deleting your account erases it permanently, along with everything you saved. We cannot restore it afterwards, not even on request.",
   "deleteAccount.erasedHeading": "What gets erased",
-  "deleteAccount.erased.library": "Your library, folders and tags",
+  "deleteAccount.erased.library": "Your library and folders",
   "deleteAccount.erased.artifacts":
     "Every transcript, summary, note and flashcard",
   "deleteAccount.erased.schedule": "Your review schedule and digests",
@@ -558,17 +558,6 @@ export const en = {
     "What you save shows up here in the next digest.",
   "digest.emptyWeeklyHint":
     "What you save this week shows up here on Monday.",
-  // --- Tag picker ---
-  "tags.selectedCount.one": "{count} tag",
-  "tags.selectedCount.other": "{count} tags",
-  "tags.saveA11y": "Save tags",
-  "tags.removeA11y": "Remove {name}",
-  "tags.addPlaceholder": "Add a tag",
-  "tags.createA11y": "Create tag \"{name}\"",
-  "tags.otherHeading": "OTHERS",
-  "tags.loadFailed": "Failed to load tags",
-  "tags.createFailed": "Failed to create tag",
-  "tags.saveFailed": "Failed to save tags",
   // --- Collection picker (modal) ---
   "collectionPicker.title": "Collection",
   "collectionPicker.saveA11y": "Save selection",
@@ -747,9 +736,7 @@ export const en = {
   "share.uploadingAudio": "Uploading audio...",
   "share.uploadingFile": "Uploading file...",
   "share.whatsappText": "WhatsApp text message",
-  "share.tags": "Tags",
   "share.chooseCollection": "Choose collection",
-  "share.chooseTags": "Choose tags",
   "share.success.duplicate": "This content was already in your inbox.",
   "share.success.audio": "Audio saved. Transcription will begin shortly.",
   "share.success.text": "Text saved to your inbox.",

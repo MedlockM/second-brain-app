@@ -1,5 +1,5 @@
 import { apiRequest } from "./apiClient";
-import type { Tag, Collection } from "../types/organization";
+import type { Collection } from "../types/organization";
 import type { MediaListItem, MediaSortDirection } from "../types/media";
 
 interface MediaListResponse {
@@ -8,16 +8,6 @@ interface MediaListResponse {
   total: number;
   next_cursor?: string | null;
   has_more: boolean;
-}
-
-interface TagListResponse {
-  tags: {
-    id: string;
-    name: string;
-    color?: string | null;
-    created_at: string;
-    updated_at: string;
-  }[];
 }
 
 interface FolderResponse {
@@ -56,20 +46,6 @@ export interface CollectionDeletion {
   default_collection_id: string;
 }
 
-function toTag(tag: TagListResponse["tags"][number]): Tag {
-  return {
-    id: tag.id,
-    name: tag.name,
-    color: tag.color ?? null,
-    created_at: tag.created_at,
-    updated_at: tag.updated_at,
-    // Genuinely zero: `GET /api/tags` exposes no per-tag count, unlike
-    // `/api/folders`. Not the same defect as the folder one fixed above — do not
-    // "fix" this one by symmetry without adding the count server-side first.
-    count: 0,
-  };
-}
-
 function toCollection(folder: FolderResponse): Collection {
   return {
     id: folder.id,
@@ -83,53 +59,10 @@ function toCollection(folder: FolderResponse): Collection {
 }
 
 /**
- * Service for tags and collections management.
+ * Service for collections management.
  * Collections in the UI map to backend folders.
  */
 export class OrganizationService {
-  /**
-   * Fetch all tags for the authenticated user.
-   * GET /api/tags
-   */
-  static async getUserTags(): Promise<Tag[]> {
-    const response = await apiRequest<TagListResponse>("/api/tags", {
-      method: "GET",
-    });
-    return response.tags.map(toTag);
-  }
-
-  /**
-   * Create a user tag.
-   * POST /api/tags
-   */
-  static async createTag(name: string): Promise<Tag> {
-    const response = await apiRequest<TagListResponse["tags"][number]>(
-      "/api/tags",
-      {
-        method: "POST",
-        body: { name },
-      },
-    );
-    return toTag(response);
-  }
-
-  /**
-   * Update the tags on a specific media item.
-   * PATCH /api/media/:id/tags
-   */
-  static async updateMediaTags(
-    mediaItemId: string,
-    tagIds: string[],
-  ): Promise<void> {
-    return apiRequest<void>(
-      `/api/media/${encodeURIComponent(mediaItemId)}/tags`,
-      {
-        method: "PATCH",
-        body: { tag_ids: tagIds },
-      },
-    );
-  }
-
   /**
    * Fetch all collections for the authenticated user.
    * GET /api/folders

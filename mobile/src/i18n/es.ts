@@ -268,7 +268,7 @@ export const es: Catalog = {
   "plan.highlight.generate":
     "Genera {list} bajo demanda, por elemento o por colección",
   "plan.highlight.organise":
-    "Organiza en colecciones y etiquetas, busca en todo, resumen diario",
+    "Organiza en colecciones, busca en todo, resumen diario",
   "plan.includes.capture.title": "Guarda cualquier cosa, desde cualquier app",
   "plan.includes.capture.links":
     "Comparte un enlace desde cualquier app, o pégalo: vídeos de YouTube, episodios de pódcast de Apple Podcasts, Spotify, Deezer o cualquier feed RSS, TikToks, reels y publicaciones de fotos de Instagram, publicaciones de X, artículos de prensa y cualquier página web.",
@@ -288,7 +288,7 @@ export const es: Catalog = {
     "Cada generación se conserva, así que puedes volver a ella o pedir una nueva más adelante.",
   "plan.includes.organise.title": "Encuéntralo meses después",
   "plan.includes.organise.file":
-    "Archiva cualquier cosa en colecciones y etiquetas, en el momento de guardarla o más tarde.",
+    "Archiva cualquier cosa en colecciones, en el momento de guardarla o más tarde.",
   "plan.includes.organise.search":
     "Búsqueda de texto completo en todo lo que has guardado, transcripciones incluidas.",
   "plan.includes.organise.digest":
@@ -370,7 +370,7 @@ export const es: Catalog = {
   "deleteAccount.warningBody":
     "Eliminar tu cuenta la borra de forma permanente, junto con todo lo que hayas guardado. No podemos restaurarla después, ni siquiera si lo pides.",
   "deleteAccount.erasedHeading": "Qué se borra",
-  "deleteAccount.erased.library": "Tu biblioteca, carpetas y etiquetas",
+  "deleteAccount.erased.library": "Tu biblioteca y tus carpetas",
   "deleteAccount.erased.artifacts":
     "Todas tus transcripciones, resúmenes, apuntes y tarjetas",
   "deleteAccount.erased.schedule": "Tu calendario de repaso y tus resúmenes",
@@ -493,16 +493,6 @@ export const es: Catalog = {
     "Lo que guardes aparecerá aquí en el próximo resumen.",
   "digest.emptyWeeklyHint":
     "Lo que guardes esta semana aparecerá aquí el lunes.",
-  "tags.selectedCount.one": "{count} etiqueta",
-  "tags.selectedCount.other": "{count} etiquetas",
-  "tags.saveA11y": "Guardar las etiquetas",
-  "tags.removeA11y": "Quitar {name}",
-  "tags.addPlaceholder": "Añadir una etiqueta",
-  "tags.createA11y": "Crear la etiqueta «{name}»",
-  "tags.otherHeading": "OTRAS",
-  "tags.loadFailed": "No se han podido cargar las etiquetas",
-  "tags.createFailed": "No se ha podido crear la etiqueta",
-  "tags.saveFailed": "No se han podido guardar las etiquetas",
   "collectionPicker.title": "Colección",
   "collectionPicker.saveA11y": "Guardar la selección",
   "collectionPicker.searchPlaceholder": "Buscar",
@@ -681,9 +671,7 @@ export const es: Catalog = {
   "share.uploadingAudio": "Subiendo el audio…",
   "share.uploadingFile": "Subiendo el archivo…",
   "share.whatsappText": "Mensaje de texto de WhatsApp",
-  "share.tags": "Etiquetas",
   "share.chooseCollection": "Elegir una colección",
-  "share.chooseTags": "Elegir etiquetas",
   "share.success.duplicate": "Este contenido ya estaba en tu bandeja.",
   "share.success.audio":
     "Audio guardado. La transcripción empezará en breve.",

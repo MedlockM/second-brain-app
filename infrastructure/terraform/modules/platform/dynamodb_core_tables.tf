@@ -384,47 +384,6 @@ output "media_watchers_table_name" {
   description = "Media watchers table name"
 }
 
-# User tags table (private per-user tags for media labeling)
-resource "aws_dynamodb_table" "user_tags_v1" {
-  name         = "user_tags${local.suffix}"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "id"
-
-  attribute {
-    name = "id"
-    type = "S"
-  }
-  attribute {
-    name = "user_id"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name            = "user-index"
-    hash_key        = "user_id"
-    projection_type = "ALL"
-  }
-
-  tags = {
-    Name = "user_tags${local.suffix}"
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
-
-  deletion_protection_enabled = true
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-output "user_tags_table_name" {
-  value       = aws_dynamodb_table.user_tags_v1.name
-  description = "User tags table name"
-}
-
 # User folders table (hierarchical media organization)
 #
 # A collection row also carries `last_engaged_at` (task-303, Option A), and that
