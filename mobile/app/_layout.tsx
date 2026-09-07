@@ -10,6 +10,7 @@ import { ShareIntentProvider } from "../src/contexts/ShareIntentContext";
 import { PurchasesProvider } from "../src/contexts/PurchasesContext";
 import { StartupErrorGate } from "../src/components/StartupErrorGate";
 import { StartupErrorScreen } from "../src/components/StartupErrorScreen";
+import { usePushNotifications } from "../src/hooks/usePushNotifications";
 import {
   clearStartupFailure,
   installStartupErrorGuard,
@@ -63,6 +64,24 @@ function SplashGate(): null {
     });
   }, [isLoading]);
 
+  return null;
+}
+
+/**
+ * Registers this device for Digest push notifications, and routes a tap on one.
+ *
+ * Next to `SplashGate` and for the same reason: it has to be mounted for every
+ * entry point, including a cold start driven by a share — which never mounts the
+ * `/` route — and including a cold start driven by the notification tap it is
+ * itself there to handle.
+ *
+ * Renders nothing, exposes nothing, and blocks nothing. A user who declines the
+ * permission, or a build with no push capability behind it, reaches exactly the
+ * same app: see `src/services/pushNotificationService.ts`.
+ */
+function PushNotificationGate(): null {
+  const { user } = useAuth();
+  usePushNotifications(user?.id ?? null);
   return null;
 }
 
@@ -134,7 +153,8 @@ export default function RootLayout() {
  *    to our ShareIntakeState, handles auth gating and navigation.
  *
  * `SplashGate` is mounted right under AuthProvider, the shallowest place that has
- * everything it needs to know the bootstrap is over.
+ * everything it needs to know the bootstrap is over. `PushNotificationGate` sits
+ * beside it, at the same depth and for the same reason.
  */
 function AppProviders() {
   return (
@@ -142,6 +162,7 @@ function AppProviders() {
       <I18nProvider>
       <AuthProvider>
         <SplashGate />
+        <PushNotificationGate />
         <UserPreferencesProvider>
           <PurchasesProvider>
             <ShareIntentProvider>

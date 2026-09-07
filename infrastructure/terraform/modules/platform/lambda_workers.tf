@@ -88,6 +88,15 @@ locals {
       queue_arn   = aws_sqs_queue.transcript_translation.arn
       handler     = "media_summarizer.workers.lambda_handlers.transcript_translation_handler"
     }
+    # Two HTTP calls to Expo and a handful of DynamoDB reads. 60s and 256MB is the
+    # smallest envelope in this map, and it is the right one: the work is waiting
+    # on a third party, not computing.
+    push_notification = {
+      memory_size = 256
+      timeout     = 60
+      queue_arn   = aws_sqs_queue.push_notification.arn
+      handler     = "media_summarizer.workers.lambda_handlers.push_notification_handler"
+    }
   }
 }
 

@@ -40,4 +40,18 @@ export const Config = {
   REVENUCAT_APPLE_KEY: (extra.revenueCatAppleKey as string) || "",
   REVENUCAT_GOOGLE_KEY: (extra.revenueCatGoogleKey as string) || "",
   FEEDBACK_URL: (extra.feedbackUrl as string) || "",
+  /**
+   * The EAS project this binary belongs to, which `getExpoPushTokenAsync` needs
+   * in order to ask Expo for a push token (`pushNotificationService.ts`).
+   *
+   * Read from the manifest rather than hardcoded a third time: app.config.ts
+   * already writes the same constant into `extra.eas.projectId` and into
+   * `updates.url`, and a copy here could only ever drift from those.
+   *
+   * Empty rather than throwing, unlike the API host above: a build with no
+   * project id registers no device and the app works exactly as it does for
+   * someone who declined the permission — whereas a build with no API host can
+   * do nothing at all.
+   */
+  EAS_PROJECT_ID: (extra.eas?.projectId as string) || "",
 } as const;

@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { AppState } from "react-native";
 import { AuthService } from "../services/authService";
+import { unregisterCurrentDevice } from "../services/pushNotificationService";
 import { SessionManager } from "../services/sessionManager";
 import { TokenStorage } from "../services/tokenStorage";
 import { AuthUser, LoginRequest, RegisterRequest } from "../types/auth";
@@ -361,6 +362,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     clearRefreshTimer();
+    // Before the session is torn down, because unregistering needs it. Without
+    // this the device stays registered under the account that just signed out,
+    // and a second account signing in on the same phone would register the same
+    // token again — putting the first account's Digest notification on a screen
+    // the second one is looking at.
+    //
+    // Best-effort: a sign-out is never blocked by it and never fails because of
+    // it. Offline, the row survives until the account is deleted or the token
+    // stops being claimed for ninety days, which the backend sweeps.
+    try {
+      await unregisterCurrentDevice();
+    } catch {
+      // Deliberately silent — there is nothing the user could do about it.
+    }
     await AuthService.logout();
     setState(SIGNED_OUT_STATE);
   }, [clearRefreshTimer]);

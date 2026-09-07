@@ -112,33 +112,58 @@ async def list_digests_for_user(
         raise
 
 
-async def list_all_users_with_digest_enabled() -> List[str]:
+async def mark_digest_published(
+    user_id: str, digest_type: DigestType, period_key: str
+) -> bool:
+    """Claim the right to notify this period. ``True`` if this call won it.
+
+    This is the whole of the send's idempotency, and it is a *conditional* write
+    rather than a read followed by a write for a reason: the schedule fires 72
+    times a day, and a retried Lambda invocation can put two ticks in flight over
+    the same account at once. Read-then-write would let both see
+    ``published_at is None`` and both enqueue a notification;
+    ``attribute_not_exists(published_at)`` lets exactly one through and answers
+    ``False`` to the other.
+
+    ``attribute_exists(user_id)`` is the second half of the condition and guards a
+    different invariant: an ``update_item`` on an absent key would *create* the
+    row, and an empty period must never materialise one (see the module docstring
+    of ``core/services/digest_service.py``).
+
+    The caller enqueues only after this returns ``True``, so the marker is claimed
+    before the message leaves. A crash in between costs that one notification —
+    the digest itself is already stored and the app shows it on next launch —
+    which is the right way round: a lost notification is a non-event, a duplicate
+    one is a defect the user sees.
     """
-    List all user IDs that have digests enabled (or have no settings row, which means enabled by default).
-    For production scale, this would need pagination. Fine for V1.
-    """
+    digest_key = f"{digest_type.value}#{period_key}"
+    now = datetime.now(timezone.utc).isoformat()
     try:
         session = get_session()
         async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
-            table = await dynamodb.Table(USER_DIGEST_SETTINGS_TABLE)
-            # Scan for users who explicitly disabled (we need to exclude them)
-            disabled_users = set()
-            scan_kwargs = {}
-            while True:
-                resp = await table.scan(**scan_kwargs)
-                for item in resp.get("Items", []):
-                    if not item.get("digest_enabled", True):
-                        disabled_users.add(item["user_id"])
-                last_key = resp.get("LastEvaluatedKey")
-                if not last_key:
-                    break
-                scan_kwargs["ExclusiveStartKey"] = last_key
-            return list(disabled_users)
+            table = await dynamodb.Table(USER_DIGESTS_TABLE)
+            await table.update_item(
+                Key={"user_id": user_id, "digest_key": digest_key},
+                UpdateExpression="SET published_at = :now, updated_at = :now",
+                ConditionExpression=(
+                    "attribute_exists(user_id) AND attribute_not_exists(published_at)"
+                ),
+                ExpressionAttributeValues={":now": now},
+            )
+            _log_dynamodb_success(
+                "mark_digest_published",
+                table=USER_DIGESTS_TABLE,
+                user_id=user_id,
+                digest_key=digest_key,
+            )
+            return True
     except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            # Already announced, or no row for this period. Both mean "not mine
+            # to send", and neither is an error.
+            return False
         _log_dynamodb_error(
-            "list_all_users_with_digest_enabled",
-            e,
-            table=USER_DIGEST_SETTINGS_TABLE,
+            "mark_digest_published", e, table=USER_DIGESTS_TABLE, user_id=user_id
         )
         raise
 

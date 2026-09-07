@@ -30,8 +30,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone, tzinfo
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from media_summarizer.core.models.digest import (
     DigestMediaItem,
@@ -52,8 +53,35 @@ DAILY_SEND_TIME = time(hour=18, minute=30)
 WEEKLY_SEND_TIME = time(hour=9, minute=30)
 
 
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+def resolve_zone(iana_timezone: Optional[str]) -> tzinfo:
+    """The zone to resolve a *read* in, falling back to UTC when there is none.
+
+    The fallback is for reading only, and the asymmetry is deliberate. A screen
+    has to render something, so an account whose zone has not been reported yet
+    reads its digest in UTC — off by a few hours, never empty. A **notification**
+    for that same account is not sent at all (see ``workers/digest/scheduler.py``):
+    guessing the moment to interrupt someone is worse than not interrupting them,
+    and the app reports its zone on every foreground pass, so the state is
+    short-lived by construction.
+
+    An unknown name gets the same treatment as an absent one. The field is gated
+    by ``normalize_iana_timezone`` on the way in, so this only fires if the
+    runtime's tz database is older than the one that accepted the value.
+    """
+    if not iana_timezone:
+        return timezone.utc
+    try:
+        return ZoneInfo(iana_timezone)
+    except Exception:
+        logger.warning(
+            "Unknown IANA zone %r; reading the digest in UTC", iana_timezone
+        )
+        return timezone.utc
+
+
+def local_now(iana_timezone: Optional[str]) -> datetime:
+    """``now`` carried in the account's own zone, which is what the windows read."""
+    return datetime.now(resolve_zone(iana_timezone))
 
 
 @dataclass(frozen=True)
@@ -68,21 +96,30 @@ class DigestWindow:
     period_key: str
     start: datetime
     end: datetime
+    #: The local instant this period's notification is due at — the last 18:30, or
+    #: the last Monday 09:30. Always in the past, since both resolvers step back a
+    #: period when the upcoming send has not happened yet.
+    #:
+    #: Distinct from ``end`` because the two coincide only for the daily window.
+    #: The weekly one ends on the Monday at 00:00 and is announced nine and a half
+    #: hours later, so a scheduler reading ``end`` as the send instant would notify
+    #: the whole world's Sunday nights at midnight.
+    send_at: datetime
 
 
 def resolve_daily_window(now: datetime) -> DigestWindow:
     """The 24 hours the last 18:30 send announced.
 
     ``now`` carries the zone the send is scheduled in, and the window is derived
-    from it — nothing here reads a clock of its own. Today's callers pass UTC.
-    task-367 stores ``User.iana_timezone``, so localising the digest is exactly
-    ``resolve_daily_window(datetime.now(ZoneInfo(user.iana_timezone)))`` at the
-    call site, with no change here — and it belongs to the task that owns the
-    send, which must also decide what to do with an account whose zone is absent.
+    from it — nothing here reads a clock of its own. Every caller now passes
+    ``local_now(user.iana_timezone)`` (task-369), so the window is the user's
+    18:30 and not UTC's; ``resolve_zone`` documents what an account with no zone
+    gets.
 
     The ``period_key`` is the local date of the send, so the digest announced on
     the evening of the 12th is ``2026-05-12`` even though most of its content was
-    saved on the 11th.
+    saved on the 11th. It is therefore per-user by construction: two accounts in
+    different zones legitimately hold different keys for the same evening.
     """
     send = now.replace(
         hour=DAILY_SEND_TIME.hour,
@@ -97,6 +134,7 @@ def resolve_daily_window(now: datetime) -> DigestWindow:
         period_key=send.date().isoformat(),
         start=send - timedelta(days=1),
         end=send,
+        send_at=send,
     )
 
 
@@ -127,6 +165,7 @@ def resolve_weekly_window(now: datetime) -> DigestWindow:
         period_key=f"{iso_year}-W{iso_week:02d}",
         start=week_start,
         end=week_start + timedelta(days=7),
+        send_at=send,
     )
 
 
@@ -159,7 +198,7 @@ async def _collect_window_items(
     ]
 
 
-async def _get_or_assemble(
+async def get_or_assemble_for_window(
     user_id: str, digest_type: DigestType, window: DigestWindow
 ) -> DigestRecord:
     """The stored capture of a period, assembling it on first read.
@@ -168,6 +207,11 @@ async def _get_or_assemble(
     read of a period freezes the list, and every later read returns that list
     verbatim. Re-deriving it would be harmless — the window is entirely in the
     past, so it can no longer change — but it would cost a library scan per open.
+
+    Public because the send path resolves its own window: the scheduler has to
+    know whether a period is *due* before it assembles it, so it computes the
+    window itself and hands it here rather than going through the two wrappers
+    below. Assembly stays in one place either way.
     """
     existing = await digest_db.get_digest(user_id, digest_type, window.period_key)
     if existing is not None:
@@ -187,17 +231,27 @@ async def _get_or_assemble(
     return record
 
 
-async def get_or_assemble_daily_digest(user_id: str) -> DigestRecord:
-    """The daily digest currently live for this user."""
-    return await _get_or_assemble(
-        user_id, DigestType.DAILY, resolve_daily_window(_now_utc())
+async def get_or_assemble_daily_digest(
+    user_id: str, *, iana_timezone: Optional[str]
+) -> DigestRecord:
+    """The daily digest currently live for this user.
+
+    ``iana_timezone`` is keyword-only and has no default on purpose: it is the
+    difference between the period the notification announced and a different one,
+    and a caller that forgets it has to fail at import rather than answer the
+    wrong day.
+    """
+    return await get_or_assemble_for_window(
+        user_id, DigestType.DAILY, resolve_daily_window(local_now(iana_timezone))
     )
 
 
-async def get_or_assemble_weekly_digest(user_id: str) -> DigestRecord:
+async def get_or_assemble_weekly_digest(
+    user_id: str, *, iana_timezone: Optional[str]
+) -> DigestRecord:
     """The weekly digest currently live for this user."""
-    return await _get_or_assemble(
-        user_id, DigestType.WEEKLY, resolve_weekly_window(_now_utc())
+    return await get_or_assemble_for_window(
+        user_id, DigestType.WEEKLY, resolve_weekly_window(local_now(iana_timezone))
     )
 
 

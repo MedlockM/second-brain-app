@@ -33,6 +33,7 @@
     "expo-image-picker": "~55.0.20",
     "expo-linking": "~55.0.15",
     "expo-localization": "~55.0.18",
+    "expo-notifications": "~55.0.23",
     "expo-router": "~55.0.16",
     "expo-secure-store": "~55.0.14",
     "expo-share-intent": "~6.1.1",

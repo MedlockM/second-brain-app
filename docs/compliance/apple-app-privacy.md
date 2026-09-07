@@ -48,6 +48,13 @@ This document describes the App Privacy disclosures required for the Apple App S
 | Data Type | Collected | Linked to Identity | Used for Tracking |
 |-----------|-----------|-------------------|-------------------|
 | User ID | Yes | Yes | No |
+| Device ID | Yes | Yes | No |
+
+**Description of Device ID:** the Expo push notification token, collected only if
+the user allows notifications, and used only to deliver that account's daily and
+weekly digest alerts to that device. It is not an advertising identifier, it is
+never shared for tracking, and it is deleted at sign-out, at account deletion, and
+after 90 days without the app registering it again.
 
 **Purpose:** App Functionality
 

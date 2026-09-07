@@ -33,6 +33,7 @@ locals {
     REVENUCAT_EVENTS_TABLE        = aws_dynamodb_table.revenucat_events.name
     BUG_REPORTS_TABLE             = aws_dynamodb_table.bug_reports.name
     USER_RSS_FEEDS_TABLE          = aws_dynamodb_table.user_rss_feeds.name
+    USER_PUSH_TOKENS_TABLE        = aws_dynamodb_table.user_push_tokens.name
   }
 
   # Every table this environment owns, plus its indexes, matched through the
@@ -67,6 +68,7 @@ locals {
     SEARCH_INDEXING_QUEUE         = aws_sqs_queue.search_indexing.name
     RSS_FEED_POLL_QUEUE           = aws_sqs_queue.rss_feed_poll.name
     TRANSCRIPT_TRANSLATION_QUEUE  = aws_sqs_queue.transcript_translation.name
+    PUSH_NOTIFICATION_QUEUE       = aws_sqs_queue.push_notification.name
 
     # Canonical name settled by task-143: every producer and the single consumer
     # read EPISODE_COMPLETED_EVENTS_QUEUE. Enforced by a guard in

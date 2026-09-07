@@ -65,6 +65,13 @@ resource "aws_iam_policy" "lambda_worker" {
           aws_sqs_queue.media_completed_events.arn,
           aws_sqs_queue.instagram_ingestion.arn,
           aws_sqs_queue.transcript_translation.arn,
+          # Both directions on one queue (task-369): the digest scheduler sends
+          # to it, and the push notification worker both receives from it and
+          # sends its own delayed receipt check back onto it.
+          #
+          # Deliberately absent from the API policy below: registering a device
+          # writes DynamoDB only, and the API never produces a notification.
+          aws_sqs_queue.push_notification.arn,
         ]
       },
       {

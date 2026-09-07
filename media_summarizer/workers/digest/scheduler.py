@@ -1,50 +1,98 @@
-"""
-Digest scheduler worker.
+"""Digest scheduler: the producer of Digest push notifications.
 
-Designed to be invoked by a cron/scheduler (e.g. EventBridge Scheduler, CloudWatch Events).
+Invoked by EventBridge on a fixed UTC grid (see
+``infrastructure/terraform/modules/platform/lambda_digest_scheduler.tf``) and,
+on every tick, answers one question per account: *is a Digest period due for
+this person right now, in their own zone?*
 
-Responsibilities:
-1. Capture daily/weekly digests for all users with digest enabled
-2. Publish the weekly digest (stamp ``published_at`` + send push notification)
+**Why a sweep and not a per-user schedule.** The daily Digest goes out at 18:30
+and the weekly one on Monday at 09:30 — both in the *user's* local time, so
+there is no single UTC instant to fire at. One EventBridge schedule per account
+does not scale and one Lambda per zone is 400-odd rules to maintain. Instead a
+single tick runs often enough that every local send instant falls inside one of
+its passes, and the tick itself decides who is due. Task-368's benchmark
+measured that across the 498 zones of the IANA database, 18:30 local and Monday
+09:30 local only ever land on UTC minutes :00, :30 and :45 — the grid is chosen
+to cover them with room to spare.
 
-It generates nothing. There used to be a third responsibility here — pre-generating
-a ``summary_short`` per upcoming digest item, staggered to spare the LLM — and it
-went with the payload it fed (task-366): the digest shows the media page, whose AI
-tab offers its tiles to generate on demand like anywhere else.
+**Dueness is a grace window, not an equality.** A period is due when its send
+instant is behind us by less than ``SEND_GRACE`` and nothing has been announced
+for it yet. Matching the minute exactly would be tighter but brittle in both
+directions: a tick that fails and is retried a minute late would drop the
+notification entirely, and a future zone at an offset the grid does not cover
+would go permanently silent. With a grace window, the worst case is a
+notification a few minutes late.
 
-Usage:
-  uv run python -m media_summarizer.workers.digest.scheduler [--mode daily|weekly]
+**One notification per period per account, whatever the sweep does.** The
+guarantee does not come from this module's control flow — 72 passes a day, plus
+Lambda retries, make that unprovable. It comes from
+``digest_db.mark_digest_published``, a conditional write on ``published_at``
+that exactly one caller can win. The message is enqueued only by that winner.
+
+**Three ways an account produces nothing**, all silent and all normal: the
+period holds no media (nothing was captured, so there is nothing to announce and
+no row is even written), the account has never reported an IANA zone (guessing
+when to interrupt someone is worse than not interrupting them, and the app
+reports its zone on every foreground pass so the state is short-lived), or the
+settings say no.
+
+Usage (a single tick, same as the Lambda does):
+  uv run python -m media_summarizer.workers.digest.scheduler
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import sys
-from datetime import datetime, timezone
-from typing import List
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
-from media_summarizer.core.models.digest import DigestRecord
+from media_summarizer.core.models.digest import DigestType
 from media_summarizer.core.services import digest_service
-from media_summarizer.utils import digest_db, sqs
+from media_summarizer.utils import digest_db, push_token_db, sqs
+from media_summarizer.utils.env import required_env
+from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
-# Push notification queue for the weekly digest.
-#
-# Deliberately OPTIONAL, unlike every other queue name in the codebase. Real push
-# notifications are post-V1 (task-102 keeps this producer alive for then), so
-# Terraform does not create the queue in any environment and the variable is
-# unset everywhere. It used to default to the literal "push-notification-queue",
-# which meant every weekly digest tried to publish to a queue that did not exist
-# and logged an error. When the queue is provisioned, inject
-# PUSH_NOTIFICATION_QUEUE and this producer starts working with no code change.
-PUSH_NOTIFICATION_QUEUE = os.environ.get("PUSH_NOTIFICATION_QUEUE", "").strip()
+#: Where the notification goes once a period is claimed. Consumed by
+#: ``workers/push_notification_worker.py``.
+PUSH_NOTIFICATION_QUEUE = required_env("PUSH_NOTIFICATION_QUEUE")
+
+#: How late a send instant may be and still be worth announcing.
+#:
+#: An hour is long enough to absorb a failed tick, a cold start and a clock skew,
+#: and short enough that a notification never arrives in a context where it reads
+#: as wrong — 19:30 for an 18:30 Digest is a late notification, 23:00 would be a
+#: bug. Nothing is lost past the grace: the Digest is stored and the tab shows it.
+SEND_GRACE = timedelta(hours=1)
+
+#: Event source of the scheduled token purge, set by the EventBridge target in
+#: ``lambda_digest_scheduler.tf``. Routed on in ``handle_event``.
+PURGE_EVENT_SOURCE = "media-summarizer.push-token-purge"
 
 
-async def _get_all_user_ids() -> List[str]:
-    """Get all user IDs from the users table. Fine for V1 scale."""
+@dataclass(frozen=True)
+class _Account:
+    """An account the sweep can reason about: an id and a zone to read it in."""
+
+    user_id: str
+    iana_timezone: str
+
+
+async def _list_accounts_with_timezone() -> List[_Account]:
+    """Every account that has reported an IANA zone, as one Scan.
+
+    Accounts with no zone are dropped here rather than later, so the rest of the
+    tick never has to carry an ``Optional`` it must not fall back on.
+
+    A full Scan per tick is the right shape at this scale: the projection is two
+    short attributes, and 72 ticks a day over a few thousand accounts stays in
+    cents per month. Above roughly five thousand accounts, task-368's benchmark
+    documents the escape hatch — a GSI on the zone name, queried only for the
+    zones whose local time is currently a send instant.
+    """
     from media_summarizer.utils.database_async import (
         USERS_TABLE,
         _dynamodb_client_kwargs,
@@ -52,187 +100,219 @@ async def _get_all_user_ids() -> List[str]:
     )
 
     session = get_session()
-    user_ids = []
+    accounts: List[_Account] = []
     async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
         table = await dynamodb.Table(USERS_TABLE)
-        scan_kwargs = {"ProjectionExpression": "id"}
+        # `id` needs no alias; `iana_timezone` is not a reserved word either, but
+        # the alias costs nothing and survives a rename.
+        scan_kwargs: Dict[str, Any] = {
+            "ProjectionExpression": "id, #tz",
+            "ExpressionAttributeNames": {"#tz": "iana_timezone"},
+        }
         while True:
             resp = await table.scan(**scan_kwargs)
             for item in resp.get("Items", []):
-                user_ids.append(item["id"])
+                zone = (item.get("iana_timezone") or "").strip()
+                if not zone:
+                    continue
+                accounts.append(_Account(user_id=item["id"], iana_timezone=zone))
             last_key = resp.get("LastEvaluatedKey")
             if not last_key:
                 break
             scan_kwargs["ExclusiveStartKey"] = last_key
-    return user_ids
+    return accounts
 
 
-async def _is_digest_enabled(user_id: str) -> bool:
-    """Check if digest is enabled for a user (True by default)."""
-    settings = await digest_db.get_user_digest_settings(user_id)
-    if settings is None:
-        return True  # Active by default
-    return settings.digest_enabled
+def _is_due(window: digest_service.DigestWindow, now_local: datetime) -> bool:
+    """Is this window's send instant recent enough to still announce?
 
-
-async def assemble_daily_digests() -> int:
+    ``send_at`` is always in the past — the resolvers step back a period when the
+    upcoming send has not happened — so this is really "how long ago", and the
+    lower bound only guards against a caller that hands in a window resolved from
+    a different clock.
     """
-    Capture the daily digest of every user with the daily digest enabled.
-    Returns the number of digests captured.
+    since_send = now_local - window.send_at
+    return timedelta(0) <= since_send <= SEND_GRACE
 
-    The period is not a parameter: the service resolves the window the last 18:30
-    send announced, so running this worker twice in the same evening captures the
-    same list once and reads it back the second time.
+
+def _notification_message(
+    account: _Account,
+    digest_type: DigestType,
+    period_key: str,
+    item_count: int,
+) -> Dict[str, Any]:
+    """The queue message for one notification.
+
+    The body is a count and nothing else, deliberately. Expo's push service is a
+    third party that relays the payload and whose staff can see it while
+    debugging, so nothing about *what* the user saved travels: no title, no
+    source, no excerpt. The count is enough to make the notification worth
+    opening, and everything past that is behind the user's own authentication.
+
+    ``data`` is what the app routes on when the notification is opened — the
+    Digest tab to select, and the period so a stale notification opened days
+    later is still legible in logs.
     """
-    logger.info("Starting daily digest assembly")
+    plural = "item" if item_count == 1 else "items"
+    if digest_type is DigestType.DAILY:
+        title = "Your daily digest is ready"
+        body = f"You saved {item_count} {plural} today."
+    else:
+        title = "Your weekly digest is ready"
+        body = f"You saved {item_count} {plural} last week."
 
-    user_ids = await _get_all_user_ids()
-    assembled = 0
-
-    for user_id in user_ids:
-        if not await _is_digest_enabled(user_id):
-            continue
-
-        settings = await digest_service.get_user_digest_settings(user_id)
-        if not settings.daily_digest_enabled:
-            continue
-
-        try:
-            digest = await digest_service.get_or_assemble_daily_digest(user_id)
-            assembled += 1
-            logger.debug(
-                "Daily digest assembled for user %s (%s): %d items",
-                user_id,
-                digest.period_key,
-                len(digest.media_items),
-            )
-        except Exception as exc:
-            logger.error(
-                "Failed to assemble daily digest for user %s: %s", user_id, exc
-            )
-
-    logger.info("Daily digest assembly complete: %d digests assembled", assembled)
-    return assembled
-
-
-async def assemble_and_publish_weekly_digests() -> int:
-    """
-    Capture and publish the weekly digest of every user.
-    Sends a push notification for each digest published by this run.
-    Returns the number of digests published.
-    """
-    logger.info("Starting weekly digest assembly and publication")
-
-    user_ids = await _get_all_user_ids()
-    published = 0
-
-    for user_id in user_ids:
-        if not await _is_digest_enabled(user_id):
-            continue
-
-        settings = await digest_service.get_user_digest_settings(user_id)
-        if not settings.weekly_digest_enabled:
-            continue
-
-        try:
-            digest = await digest_service.get_or_assemble_weekly_digest(user_id)
-
-            # Publish once, and only a period that holds something. `published_at`
-            # is the whole record of that: set means the notification went out.
-            if digest.published_at is None and digest.media_items:
-                digest.published_at = datetime.now(timezone.utc).isoformat()
-                await digest_db.save_digest(digest)
-
-                # Send push notification for weekly digest
-                await _send_weekly_digest_push_notification(user_id, digest)
-                published += 1
-
-                logger.info(
-                    "Weekly digest published for user %s: %d items",
-                    user_id,
-                    len(digest.media_items),
-                )
-        except Exception as exc:
-            logger.error(
-                "Failed to publish weekly digest for user %s: %s", user_id, exc
-            )
-
-    logger.info("Weekly digest publication complete: %d digests published", published)
-    return published
-
-
-async def _send_weekly_digest_push_notification(
-    user_id: str, digest: DigestRecord
-) -> None:
-    """Send a push notification to the user about their weekly digest.
-
-    No-op while PUSH_NOTIFICATION_QUEUE is unset (the V1 default): the digest is
-    still assembled and published, users just discover it by polling.
-    """
-    if not PUSH_NOTIFICATION_QUEUE:
-        logger.debug(
-            "PUSH_NOTIFICATION_QUEUE unset; skipping push for user %s (weekly digest %s)",
-            user_id,
-            digest.period_key,
-        )
-        return
-
-    item_count = len(digest.media_items)
-    message = {
-        "user_id": user_id,
-        "notification_type": "weekly_digest_published",
-        "title": "Your weekly digest is ready",
-        "body": f"You have {item_count} {'item' if item_count == 1 else 'items'} in your weekly digest.",
+    return {
+        "notification_type": "send",
+        "user_id": account.user_id,
+        "title": title,
+        "body": body,
         "data": {
-            "digest_type": "weekly",
-            "period_key": digest.period_key,
-            "item_count": item_count,
+            "digest_type": digest_type.value,
+            "period_key": period_key,
         },
     }
 
-    try:
-        await sqs.send_message(
-            queue_name=PUSH_NOTIFICATION_QUEUE,
-            message_body=message,
-        )
-        logger.info(
-            "Push notification queued for user %s (weekly digest %s)",
-            user_id,
-            digest.period_key,
-        )
-    except Exception as exc:
-        logger.error(
-            "Failed to queue push notification for user %s: %s", user_id, exc
-        )
 
+async def _notify_if_due(
+    account: _Account,
+    digest_type: DigestType,
+    window: digest_service.DigestWindow,
+    now_local: datetime,
+) -> bool:
+    """Announce one period for one account, if there is anything to announce.
 
-async def run(mode: str = "all") -> None:
+    Returns whether a message was enqueued. The order of the checks is the point:
+    the cheap local ones first, the settings read next, the library assembly only
+    for a period actually due, and the conditional claim last — right before the
+    enqueue, so the window in which a crash could duplicate a notification is a
+    single SQS call wide.
     """
-    Main entry point for the digest scheduler.
+    if not _is_due(window, now_local):
+        return False
 
-    Modes:
-    - daily: Capture daily digests
-    - weekly: Capture and publish weekly digests (with push notification)
-    - all: Run both, in order
+    settings = await digest_service.get_user_digest_settings(account.user_id)
+    if not settings.digest_enabled:
+        return False
+    if digest_type is DigestType.DAILY and not settings.daily_digest_enabled:
+        return False
+    if digest_type is DigestType.WEEKLY and not settings.weekly_digest_enabled:
+        return False
+
+    digest = await digest_service.get_or_assemble_for_window(
+        account.user_id, digest_type, window
+    )
+    if not digest.media_items:
+        # Nothing captured in the period. No row was written and none is needed:
+        # there is no "nothing today" notification.
+        return False
+
+    if not await digest_db.mark_digest_published(
+        account.user_id, digest_type, window.period_key
+    ):
+        # Another tick already claimed this period. This is the normal outcome of
+        # every pass after the first one inside the grace window.
+        return False
+
+    await sqs.send_message(
+        queue_name=PUSH_NOTIFICATION_QUEUE,
+        message_body=_notification_message(
+            account, digest_type, window.period_key, len(digest.media_items)
+        ),
+    )
+    log_event(
+        logger,
+        logging.INFO,
+        "digest.notification.queued",
+        "Digest notification queued",
+        user_id=account.user_id,
+        queue=PUSH_NOTIFICATION_QUEUE,
+        digest_type=digest_type.value,
+        period_key=window.period_key,
+        item_count=len(digest.media_items),
+    )
+    return True
+
+
+async def run_tick() -> int:
+    """One sweep over every account with a zone. Returns notifications queued.
+
+    A failure on one account is logged and skipped rather than raised: one
+    account's broken settings row must not cost the whole world its Digest. The
+    tick as a whole only fails on something that would fail for everyone — the
+    Scan itself, or the queue being unreachable.
     """
-    logger.info("Digest scheduler starting in mode: %s", mode)
+    accounts = await _list_accounts_with_timezone()
+    queued = 0
 
-    if mode in ("daily", "all"):
-        await assemble_daily_digests()
+    for account in accounts:
+        try:
+            now_local = digest_service.local_now(account.iana_timezone)
+            for digest_type, window in (
+                (DigestType.DAILY, digest_service.resolve_daily_window(now_local)),
+                (DigestType.WEEKLY, digest_service.resolve_weekly_window(now_local)),
+            ):
+                if await _notify_if_due(account, digest_type, window, now_local):
+                    queued += 1
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "digest.notification.failed",
+                "Digest notification sweep failed for one account",
+                user_id=account.user_id,
+                error_type=type(exc).__name__,
+                exc_info=exc,
+            )
 
-    if mode in ("weekly", "all"):
-        await assemble_and_publish_weekly_digests()
+    log_event(
+        logger,
+        logging.INFO,
+        "digest.sweep.completed",
+        "Digest notification sweep completed",
+        account_count=len(accounts),
+        queued=queued,
+    )
+    return queued
 
-    logger.info("Digest scheduler finished (mode: %s)", mode)
+
+async def run_token_purge() -> int:
+    """Drop push tokens no device has claimed in ninety days.
+
+    Here rather than in its own Lambda because it is the same concern on the same
+    schedule granularity, and a second container image for one Scan is not worth
+    the deploy surface. A token is otherwise deleted the moment Expo reports the
+    device is gone (``DeviceNotRegistered``); this catches the devices that stop
+    reporting without Expo ever noticing — a phone wiped, an app uninstalled with
+    the notification permission already off.
+    """
+    deleted = await push_token_db.delete_stale_tokens()
+    log_event(
+        logger,
+        logging.INFO,
+        "push_token.purge.completed",
+        "Stale push tokens purged",
+        deleted_count=deleted,
+        retention_days=push_token_db.STALE_TOKEN_DAYS,
+    )
+    return deleted
+
+
+def handle_event(event: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Lambda entry point, routing on the EventBridge target's ``source``.
+
+    Two schedules share this function: the frequent Digest sweep and the daily
+    token purge. Called from ``workers/lambda_handlers.py`` so the cold-start
+    secret load happens once and in one place, exactly like
+    ``media_lifecycle_handler``.
+    """
+    source = (event or {}).get("source") if isinstance(event, dict) else None
+    if source == PURGE_EVENT_SOURCE:
+        return {"deleted_tokens": asyncio.run(run_token_purge())}
+    return {"queued_notifications": asyncio.run(run_tick())}
 
 
 if __name__ == "__main__":
     from media_summarizer.utils.logging_config import setup_logging
 
     setup_logging("digest-scheduler")
-
-    mode = "all"
-    if len(sys.argv) > 1 and sys.argv[1] == "--mode" and len(sys.argv) > 2:
-        mode = sys.argv[2]
-
-    asyncio.run(run(mode))
+    asyncio.run(run_tick())
