@@ -3,9 +3,10 @@ id: task-365
 title: >-
   Extraire CompletedDetailView de la route média vers un composant partagé, avec
   chrome optionnel
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-06 15:41'
+updated_date: '2026-09-07 00:00'
 labels:
   - mobile
   - refactor
@@ -59,11 +60,58 @@ La vérification visuelle que la page média est inchangée demande un build : e
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CompletedDetailView et ses styles et sous-composants privés vivent dans mobile/src/components/, exportés depuis ce module, et mobile/app/media/[id].tsx ne les définit plus mais les importe
-- [ ] #2 Le composant n'utilise plus useLocalSearchParams ni aucun accès aux paramètres de route : sa seule source de donnée est la prop mediaData
-- [ ] #3 Une prop optionnelle permet de ne pas rendre le SafeAreaView ni le header interne, et son absence reproduit exactement le rendu actuel de la route média
-- [ ] #4 Les états non-completed de la route (chargement, erreur, processing, timeout, échec) restent dans mobile/app/media/[id].tsx
-- [ ] #5 Aucun testID n'est retiré ni renommé, et aucune valeur de couleur, d'espacement ou de rayon n'est modifiée pendant le déplacement
-- [ ] #6 Aucun réexport de compatibilité ni alias n'est laissé dans mobile/app/media/[id].tsx : le composant n'existe qu'à un seul endroit
-- [ ] #7 npx tsc --noEmit et ESLint passent sur les fichiers mobile modifiés
+- [x] #1 CompletedDetailView et ses styles et sous-composants privés vivent dans mobile/src/components/, exportés depuis ce module, et mobile/app/media/[id].tsx ne les définit plus mais les importe
+- [x] #2 Le composant n'utilise plus useLocalSearchParams ni aucun accès aux paramètres de route : sa seule source de donnée est la prop mediaData
+- [x] #3 Une prop optionnelle permet de ne pas rendre le SafeAreaView ni le header interne, et son absence reproduit exactement le rendu actuel de la route média
+- [x] #4 Les états non-completed de la route (chargement, erreur, processing, timeout, échec) restent dans mobile/app/media/[id].tsx
+- [x] #5 Aucun testID n'est retiré ni renommé, et aucune valeur de couleur, d'espacement ou de rayon n'est modifiée pendant le déplacement
+- [x] #6 Aucun réexport de compatibilité ni alias n'est laissé dans mobile/app/media/[id].tsx : le composant n'existe qu'à un seul endroit
+- [x] #7 npx tsc --noEmit et ESLint passent sur les fichiers mobile modifiés
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Déplacement pur, en trois fichiers.
+
+`mobile/src/components/CompletedDetailView.tsx` (nouveau) porte `CompletedDetailView`,
+son sous-composant privé `SourceChip`, `resolveSourceLink` / le type `SourceLink`,
+`MediaDetailTabKey` / `MEDIA_DETAIL_TABS`, `buildInitialArtifactStates`, les trois
+constantes de polling, et les 18 styles qu'ils utilisent. Le corps de la fonction est
+identique à l'octet près à ce qu'il était dans la route, hors les trois changements
+demandés : la signature exportée, le header rendu sous condition, et le conteneur.
+
+`mobile/src/components/MediaDetailHeader.tsx` (nouveau) porte l'ex-`Header` de la route,
+verbatim (seuls le nom exporté et l'annotation de retour changent), avec ses trois styles.
+Il lui fallait son propre module parce que **deux** hôtes le rendent : les états de cycle
+de vie de la route, et `CompletedDetailView`. Le laisser dans l'un ou l'autre aurait fait
+importer un composant de page depuis une route, ou une route depuis une vue.
+
+Chrome optionnel : prop `showChrome?: boolean`, défaut `true`. À `true` un `DetailContainer`
+privé rend le `SafeAreaView edges={["top"]}` et le header, ce qui est exactement l'arbre
+actuel de la route — dont l'appel n'a pas changé. À `false` le conteneur est un `View` nu
+portant le même `styles.container` (un second safe area imbriqué ajouterait l'inset du haut
+deux fois) et le header n'est pas rendu. `onBack` reste requis dans les deux cas : c'est
+aussi ce que `useMediaActions` appelle après une suppression, quand il n'y a plus rien à
+montrer.
+
+`useTranslation()` reste dans la route seule, pas ajouté au composant : aucun composant de
+`src/components/` ne s'y abonne, tous utilisent le `t()` nu et comptent sur l'écran hôte.
+
+Vérifications :
+- `npx tsc --noEmit` : aucune sortie.
+- `npm run lint` sur tout `mobile/` : 0 erreur, 2 warnings préexistants dans des fichiers
+  non touchés (`app/(tabs)/digest.tsx`, `src/services/purchaseService.ts`).
+- Diff mécanique des `StyleSheet` avant/après : 31 entrées avant, 31 après, aucune clé
+  perdue ni ajoutée, aucune valeur modifiée. `container` est le seul dupliqué (route et
+  vue en ont chacune besoin), à valeurs identiques.
+- `testID` : les trois (`media-header-actions`, `media-ai-refusal`,
+  `media-ai-history-empty`) sont présents à l'identique.
+- Aucun `useLocalSearchParams` / `usePathname` / `useSegments` dans les deux nouveaux
+  fichiers ; la route est le seul lecteur du segment d'URL.
+- La route n'exporte plus que `MediaDetailScreen` par défaut : ni réexport ni alias.
+
+Non vérifié, hors de portée d'un worktree : le rendu visuel. Un refactor à rendu constant
+ne se prouve qu'à l'écran, et cela demande un build — c'est la vérification owner annoncée
+dans la description.
+<!-- SECTION:NOTES:END -->
