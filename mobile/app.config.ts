@@ -286,6 +286,19 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       // JS-side loader with no disk cache, which is the whole reason it was
       // chosen over React Native's `Image`.
       "expo-image",
+      // Digest notifications (task-369). The bare string is the whole of the
+      // native configuration, and that is the point of going through the Expo
+      // push service rather than APNs and FCM directly: the plugin writes the
+      // iOS `aps-environment` entitlement and the Android notification manifest
+      // entries, Expo's own servers hold the APNs key and the FCM service
+      // account, and the sandbox-versus-production routing — five build profiles
+      // here, two of them Debug — is decided on their side rather than in ours.
+      //
+      // It moves the fingerprint (a new autolinked native module, a new
+      // entitlement, a new manifest permission), so notifications cannot reach an
+      // already-installed build over the air: both platforms need a new EAS
+      // build. See the runtimeVersion comment above.
+      "expo-notifications",
       [
         "expo-share-intent",
         {

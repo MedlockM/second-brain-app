@@ -144,6 +144,10 @@ transcript_translation_handler = _build_handler(
     "media_summarizer.workers.transcript_translation_worker"
 )
 
+push_notification_handler = _build_handler(
+    "media_summarizer.workers.push_notification_worker"
+)
+
 
 # ---------------------------------------------------------------------------
 # Non-SQS handlers
@@ -161,4 +165,18 @@ def media_lifecycle_handler(event: dict[str, Any], context: Any) -> dict[str, An
     import importlib
 
     module = importlib.import_module("media_summarizer.workers.cleanup.media_lifecycle")
+    return module.handle_event(event)
+
+
+def digest_scheduler_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """Digest notification sweep and stale push-token purge (task-369).
+
+    Two EventBridge schedules point here and the module routes on the event's
+    ``source``: the frequent sweep that decides whose local 18:30 or Monday 09:30
+    just passed, and a daily purge of tokens no device has claimed in ninety days.
+    Not an SQS handler — it is the *producer* of the push notification queue.
+    """
+    import importlib
+
+    module = importlib.import_module("media_summarizer.workers.digest.scheduler")
     return module.handle_event(event)

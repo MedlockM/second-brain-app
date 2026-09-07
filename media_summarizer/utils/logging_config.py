@@ -53,6 +53,13 @@ _SENSITIVE_FIELD_NAMES = {
     "jwt",
     "openai_api_key",
     "password",
+    # Anyone holding a device's push token can push to that device, so it is a
+    # credential and not an identifier. Both spellings are listed because the
+    # match is on the exact field name: the generic "token" below would not catch
+    # either, and nothing in the push path is supposed to log one in the first
+    # place — this is the net under that rule, not the rule.
+    "push_token",
+    "expo_push_token",
     "refresh_token",
     "secret",
     "token",

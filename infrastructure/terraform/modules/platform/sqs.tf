@@ -368,6 +368,51 @@ resource "aws_sqs_queue" "transcript_translation" {
 }
 
 # =============================================================================
+# Push Notifications (task-369: Digest notifications via the Expo Push Service)
+#
+# Produced by the digest scheduler, consumed by push_notification_worker.py. The
+# queue carries two message shapes: a `send`, and the `receipt_check` the send
+# re-enqueues onto this same queue with DelaySeconds=900 to read Expo's receipts
+# fifteen minutes later. Hence a visibility timeout well above the worker's own
+# HTTP timeout, and hence one queue rather than two.
+# =============================================================================
+
+resource "aws_sqs_queue" "push_notification_dlq" {
+  name                      = "push-notification-dlq${local.suffix}"
+  message_retention_seconds = 1209600 # 14 days
+
+  # The message body holds Expo push tokens (a `receipt_check` carries the
+  # mapping from ticket to device). Encryption at rest is explicit on both this
+  # queue and its DLQ rather than left to the account default, because a DLQ is
+  # the copy that sits around for two weeks.
+  sqs_managed_sse_enabled = true
+
+  tags = {
+    Name = "push-notification-dlq${local.suffix}"
+  }
+}
+
+resource "aws_sqs_queue" "push_notification" {
+  name = "push-notification-queue${local.suffix}"
+  # Two HTTP round trips to Expo at 20s each, plus the token reads and deletes.
+  # 180s is generous by design: a timeout that expires mid-send would redeliver a
+  # notification the user already got, which is the one failure mode this feature
+  # must not have.
+  visibility_timeout_seconds = 180
+  message_retention_seconds  = 1209600
+  sqs_managed_sse_enabled    = true
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.push_notification_dlq.arn
+    maxReceiveCount     = 3
+  })
+
+  tags = {
+    Name = "push-notification-queue${local.suffix}"
+  }
+}
+
+# =============================================================================
 # Outputs
 # =============================================================================
 
@@ -387,6 +432,7 @@ output "queue_urls" {
     rss_feed_poll           = aws_sqs_queue.rss_feed_poll.url
     media_completed_events  = aws_sqs_queue.media_completed_events.url
     transcript_translation  = aws_sqs_queue.transcript_translation.url
+    push_notification       = aws_sqs_queue.push_notification.url
   }
 }
 
@@ -406,5 +452,6 @@ output "dlq_arns" {
     rss_feed_poll           = aws_sqs_queue.rss_feed_poll_dlq.arn
     media_completed_events  = aws_sqs_queue.media_completed_events_dlq.arn
     transcript_translation  = aws_sqs_queue.transcript_translation_dlq.arn
+    push_notification       = aws_sqs_queue.push_notification_dlq.arn
   }
 }

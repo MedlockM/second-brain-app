@@ -69,6 +69,11 @@ async def get_daily_digest(
 
     No date parameter: the period is the 24 hours the last 18:30 send announced,
     and picking another one would answer a digest no notification ever named.
+
+    The zone comes off the session profile, so the period resolved here is the
+    same one the scheduler resolved when it sent the notification. Reading it in
+    UTC — which is what this did before task-369 — made the screen disagree with
+    the notification by the user's whole offset.
     """
     token = bind_log_context(user_id=current_user.id)
     try:
@@ -80,7 +85,9 @@ async def get_daily_digest(
                 detail="Daily digest is disabled for this user",
             )
 
-        digest = await digest_service.get_or_assemble_daily_digest(current_user.id)
+        digest = await digest_service.get_or_assemble_daily_digest(
+            current_user.id, iana_timezone=current_user.iana_timezone
+        )
 
         log_event(
             logger,
@@ -138,7 +145,9 @@ async def get_weekly_digest(
                 detail="Weekly digest is disabled for this user",
             )
 
-        digest = await digest_service.get_or_assemble_weekly_digest(current_user.id)
+        digest = await digest_service.get_or_assemble_weekly_digest(
+            current_user.id, iana_timezone=current_user.iana_timezone
+        )
 
         log_event(
             logger,

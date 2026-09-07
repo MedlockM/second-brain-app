@@ -88,6 +88,10 @@ _USER_PARTITION_TABLES: Tuple[Tuple[str, Optional[str]], ...] = (
     ("USER_DIGESTS_TABLE", "digest_key"),
     ("USER_DIGEST_SETTINGS_TABLE", None),
     ("FOLLOWS_TABLE", "feed_id"),
+    # One row per device registered for Digest notifications. Deleting the
+    # account has to take the push tokens with it, or the devices of a deleted
+    # account stay addressable — device data held with no account left to serve.
+    ("USER_PUSH_TOKENS_TABLE", "push_token"),
 )
 
 # Tables that own the user's rows under their own primary key and expose them
