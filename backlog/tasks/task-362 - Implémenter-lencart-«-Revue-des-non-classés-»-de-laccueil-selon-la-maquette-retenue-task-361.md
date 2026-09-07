@@ -3,9 +3,10 @@ id: task-362
 title: >-
   Implémenter l'encart « Revue des non classés » de l'accueil selon la maquette
   retenue (task-361)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-06 13:41'
+updated_date: '2026-09-07 00:00'
 labels:
   - mobile
   - ui
