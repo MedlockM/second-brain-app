@@ -3,7 +3,7 @@ id: task-366
 title: >-
   Digest V1 : carrousel de pages Média de la période, sans génération
   d'artefacts
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-06 15:41'
 updated_date: '2026-09-07 14:30'
