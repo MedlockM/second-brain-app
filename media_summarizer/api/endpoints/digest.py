@@ -11,16 +11,14 @@ Provides:
 from __future__ import annotations
 
 import logging
-from datetime import date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from media_summarizer.api.dependencies.auth import get_current_user
 from media_summarizer.core.models.auth import AuthUser
-from media_summarizer.core.models.digest import DigestMediaItem
-from media_summarizer.core.services import cover_capture, digest_service
+from media_summarizer.core.services import digest_service
 from media_summarizer.utils.logging_config import bind_log_context, log_event, reset_log_context
 
 router = APIRouter()
@@ -30,28 +28,20 @@ logger = logging.getLogger(__name__)
 # ---------- Request/Response Models ----------
 
 
-class DigestMediaItemResponse(BaseModel):
-    media_item_id: str
-    title: Optional[str] = None
-    thumbnail_url: Optional[str] = None
-    creator_name: Optional[str] = None
-    media_type: Optional[str] = None
-    source_platform: Optional[str] = None
-    summary_short_artifact_id: Optional[str] = None
-    summary_short_status: str = "pending"
-    added_at: str
-
-
 class DigestResponse(BaseModel):
-    user_id: str
+    """A digest as the client consumes it: which period, and which media.
+
+    The whole payload is an ordered list of media ids, because the client renders
+    the media page of each one. Anything this response could say about a media
+    (its title, its cover, an excerpt of a summary) that page already says, from
+    ``GET /api/media/{id}`` — and would say better, since it cannot go stale
+    against a rename.
+    """
+
     digest_type: str
     period_key: str
-    status: str
-    media_items: List[DigestMediaItemResponse]
-    item_count: int
-    created_at: str
-    updated_at: str
-    published_at: Optional[str] = None
+    #: The media of the period, oldest first.
+    media_item_ids: List[str]
 
 
 class DigestSettingsResponse(BaseModel):
@@ -70,44 +60,15 @@ class DigestSettingsUpdateRequest(BaseModel):
 # ---------- Endpoints ----------
 
 
-
-async def _digest_items_response(
-    media_items: List[DigestMediaItem],
-) -> List[DigestMediaItemResponse]:
-    """Project digest items, signing any re-hosted cover on the way out.
-
-    Same rule as the list and detail endpoints: a client never sees the
-    ``s3://`` locator a re-hosted cover is stored as, and a hotlinked URL passes
-    through untouched (task-302 §5.5).
-    """
-    return [
-        DigestMediaItemResponse(
-            media_item_id=mi.media_item_id,
-            title=mi.title,
-            thumbnail_url=await cover_capture.resolve_cover_url(mi.thumbnail_url),
-            creator_name=mi.creator_name,
-            media_type=mi.media_type,
-            source_platform=mi.source_platform,
-            summary_short_artifact_id=mi.summary_short_artifact_id,
-            summary_short_status=mi.summary_short_status,
-            added_at=mi.added_at,
-        )
-        for mi in media_items
-    ]
-
-
 @router.get("/digest/daily", response_model=DigestResponse)
 async def get_daily_digest(
-    target_date: Optional[str] = Query(
-        None,
-        description="Target date in YYYY-MM-DD format. Defaults to today.",
-        alias="date",
-    ),
     current_user: AuthUser = Depends(get_current_user),
 ):
     """
-    Get the daily digest for the authenticated user.
-    Contains Summary Short for each media item added that day.
+    Get the daily digest currently live for the authenticated user.
+
+    No date parameter: the period is the 24 hours the last 18:30 send announced,
+    and picking another one would answer a digest no notification ever named.
     """
     token = bind_log_context(user_id=current_user.id)
     try:
@@ -119,20 +80,7 @@ async def get_daily_digest(
                 detail="Daily digest is disabled for this user",
             )
 
-        # Parse target date
-        parsed_date: Optional[date] = None
-        if target_date:
-            try:
-                parsed_date = date.fromisoformat(target_date)
-            except ValueError:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid date format. Use YYYY-MM-DD.",
-                )
-
-        digest = await digest_service.get_or_assemble_daily_digest(
-            current_user.id, parsed_date
-        )
+        digest = await digest_service.get_or_assemble_daily_digest(current_user.id)
 
         log_event(
             logger,
@@ -145,15 +93,9 @@ async def get_daily_digest(
         )
 
         return DigestResponse(
-            user_id=digest.user_id,
             digest_type=digest.digest_type.value,
             period_key=digest.period_key,
-            status=digest.status.value,
-            media_items=await _digest_items_response(digest.media_items),
-            item_count=len(digest.media_items),
-            created_at=digest.created_at,
-            updated_at=digest.updated_at,
-            published_at=digest.published_at,
+            media_item_ids=[mi.media_item_id for mi in digest.media_items],
         )
 
     except HTTPException:
@@ -178,15 +120,13 @@ async def get_daily_digest(
 
 @router.get("/digest/weekly", response_model=DigestResponse)
 async def get_weekly_digest(
-    week: Optional[str] = Query(
-        None,
-        description="Target week in YYYY-Wnn format (e.g. 2026-W18). Defaults to current week.",
-    ),
     current_user: AuthUser = Depends(get_current_user),
 ):
     """
-    Get the weekly digest for the authenticated user.
-    Contains Summary Short for each media item added that week.
+    Get the weekly digest currently live for the authenticated user.
+
+    No week parameter, for the same reason as the daily one: the period is the
+    Monday-to-Sunday week the last Monday 09:30 send announced.
     """
     token = bind_log_context(user_id=current_user.id)
     try:
@@ -198,25 +138,7 @@ async def get_weekly_digest(
                 detail="Weekly digest is disabled for this user",
             )
 
-        # Validate week format if provided
-        if week:
-            try:
-                parts = week.split("-W")
-                if len(parts) != 2:
-                    raise ValueError()
-                int(parts[0])
-                w = int(parts[1])
-                if w < 1 or w > 53:
-                    raise ValueError()
-            except (ValueError, IndexError):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid week format. Use YYYY-Wnn (e.g. 2026-W18).",
-                )
-
-        digest = await digest_service.get_or_assemble_weekly_digest(
-            current_user.id, week
-        )
+        digest = await digest_service.get_or_assemble_weekly_digest(current_user.id)
 
         log_event(
             logger,
@@ -229,15 +151,9 @@ async def get_weekly_digest(
         )
 
         return DigestResponse(
-            user_id=digest.user_id,
             digest_type=digest.digest_type.value,
             period_key=digest.period_key,
-            status=digest.status.value,
-            media_items=await _digest_items_response(digest.media_items),
-            item_count=len(digest.media_items),
-            created_at=digest.created_at,
-            updated_at=digest.updated_at,
-            published_at=digest.published_at,
+            media_item_ids=[mi.media_item_id for mi in digest.media_items],
         )
 
     except HTTPException:

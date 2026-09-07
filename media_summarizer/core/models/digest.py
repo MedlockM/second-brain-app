@@ -27,39 +27,38 @@ class DigestType(str, Enum):
     WEEKLY = "weekly"
 
 
-class DigestStatus(str, Enum):
-    PENDING = "pending"  # Digest is being assembled (summary_short generation in progress)
-    READY = "ready"  # All summary_shorts are generated, digest is consultable
-    PUBLISHED = "published"  # Digest has been published (push notification sent for weekly)
-
-
 class DigestMediaItem(BaseModel):
-    """A media item included in a digest with its summary_short status."""
+    """One media of a digest: which page to show, and when it was saved.
+
+    Nothing else. The client renders the media page itself for each entry, so a
+    digest carries no projection of the media -- no title, no cover, no summary
+    and no artifact status. Whatever the media page shows tomorrow, the digest
+    shows too, without this model knowing about it.
+
+    ``added_at`` is what the order is by, kept on the record so a stored digest
+    states its own chronology instead of relying on the list happening to be
+    sorted.
+    """
 
     media_item_id: str
-    title: Optional[str] = None
-    # The digest card has rendered `thumbnail_url` since it was written, while
-    # this contract never carried the field -- so the image slot was always
-    # empty (task-302 §2.5). Both halves now exist.
-    thumbnail_url: Optional[str] = None
-    creator_name: Optional[str] = None
-    media_type: Optional[str] = None
-    source_platform: Optional[str] = None
-    summary_short_artifact_id: Optional[str] = None
-    summary_short_status: str = "pending"  # pending, ready, failed
     added_at: str = Field(default_factory=lambda: _now_utc().isoformat())
 
 
 class DigestRecord(BaseModel):
-    """A single digest (daily or weekly) for a user."""
+    """A single digest (daily or weekly) for a user.
+
+    There is no ``status``: the only state a digest ever had was "has the
+    notification for this period gone out", which is exactly what
+    ``published_at`` says, and saying it twice is how the two disagree.
+    """
 
     user_id: str
     digest_type: DigestType
     period_key: str  # e.g. "2026-04-29" for daily, "2026-W18" for weekly
     media_items: List[DigestMediaItem] = Field(default_factory=list)
-    status: DigestStatus = DigestStatus.PENDING
     created_at: str = Field(default_factory=lambda: _now_utc().isoformat())
     updated_at: str = Field(default_factory=lambda: _now_utc().isoformat())
+    #: When the notification announcing this period went out. ``None`` until it does.
     published_at: Optional[str] = None
 
     @property
@@ -74,7 +73,6 @@ class DigestRecord(BaseModel):
             "digest_type": self.digest_type.value,
             "period_key": self.period_key,
             "media_items": [mi.model_dump() for mi in self.media_items],
-            "status": self.status.value,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -91,7 +89,6 @@ class DigestRecord(BaseModel):
             digest_type=DigestType(item["digest_type"]),
             period_key=item["period_key"],
             media_items=media_items,
-            status=DigestStatus(item.get("status", "pending")),
             created_at=item.get("created_at", _now_utc().isoformat()),
             updated_at=item.get("updated_at", _now_utc().isoformat()),
             published_at=item.get("published_at"),

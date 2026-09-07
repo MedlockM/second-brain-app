@@ -1,331 +1,204 @@
 """
-Digest service: assembles daily/weekly digests and triggers summary_short pre-generation.
+Digest service: captures the ordered list of media a period held.
 
-Key design decisions:
-- Summary Short artifacts are pre-generated in a staggered manner (not burst)
-- Existing summary_short artifacts are reused via the artifact idempotence system
-- Digests are assembled from the user's media items added in the target period
-- No email is sent; everything is in-app
+What a digest *is*, since task-366: the ids of the media saved in one period,
+oldest first. The client renders each one as the media page itself, so nothing is
+pre-computed here — no summary, no theme, no statistic, and above all **no
+artifact generation**. Assembling a digest costs one library query and never
+debits a quota. A generation started from the digest is one the user asked for,
+on the media page, exactly as anywhere else in the app.
+
+Two rules carry the whole design.
+
+**A period ends at a send instant that is already past.** The daily digest is the
+24 hours before the last 18:30 local; the weekly one is the Monday-to-Sunday week
+that closed before the last Monday 09:30 local. Neither window can still be
+filling up, so what the screen shows is exactly what the notification announced —
+which a window recomputed as "the last 24 hours" could never be: opened at 21:00
+it would show 21:00−24h, a different set from the one announced at 18:30. Between
+midnight and 18:30 the screen therefore shows yesterday's capture, and that is
+the intended reading, not a staleness bug.
+
+**An empty period is not stored.** Nothing was announced and there is nothing to
+show, so the assembly returns an unsaved empty record: the tab shows its empty
+state, no row accumulates for the days a user saved nothing, and the next read
+re-derives the same emptiness. There is no fallback to an older, fuller period
+and no automatic switch to the weekly tab.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
-from typing import List, Optional, Tuple
+from dataclasses import dataclass
+from datetime import datetime, time, timedelta, timezone
+from typing import List, Optional
 
 from media_summarizer.core.models.digest import (
     DigestMediaItem,
     DigestRecord,
-    DigestStatus,
     DigestType,
     UserDigestSettings,
 )
-from media_summarizer.core.models.media_artifact import (
-    ArtifactScope,
-    MediaArtifactStatus,
-    MediaArtifactType,
-    build_scope_key,
-)
-from media_summarizer.core.services.durable_media_service import resolve_job_for_record
-from media_summarizer.utils import database_async, digest_db, media_artifacts
+from media_summarizer.utils import digest_db
 from media_summarizer.utils import user_media as user_media_store
 
 logger = logging.getLogger(__name__)
 
 
-def _today_utc() -> date:
-    return datetime.now(timezone.utc).date()
+#: When the daily digest notification goes out, in the user's local time.
+DAILY_SEND_TIME = time(hour=18, minute=30)
+
+#: When the weekly digest notification goes out: Monday, local time.
+WEEKLY_SEND_TIME = time(hour=9, minute=30)
 
 
-def _current_week_key(d: Optional[date] = None) -> str:
-    """Return ISO week key like '2026-W18'."""
-    target = d or _today_utc()
-    iso_year, iso_week, _ = target.isocalendar()
-    return f"{iso_year}-W{iso_week:02d}"
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def _daily_period_key(d: Optional[date] = None) -> str:
-    """Return daily period key like '2026-04-29'."""
-    target = d or _today_utc()
-    return target.isoformat()
+@dataclass(frozen=True)
+class DigestWindow:
+    """The period one notification announced.
+
+    Half-open, ``[start, end)``, and that matters: a media saved at exactly the
+    send instant belongs to the *next* period, so every media is announced once
+    and none is skipped between two consecutive digests.
+    """
+
+    period_key: str
+    start: datetime
+    end: datetime
 
 
-def _week_date_range(week_key: str) -> Tuple[date, date]:
-    """Convert a week key like '2026-W18' to (monday, sunday) date range."""
-    year_str, week_str = week_key.split("-W")
-    year = int(year_str)
-    week = int(week_str)
-    # ISO week: Monday is day 1
-    monday = date.fromisocalendar(year, week, 1)
-    sunday = date.fromisocalendar(year, week, 7)
-    return monday, sunday
+def resolve_daily_window(now: datetime) -> DigestWindow:
+    """The 24 hours the last 18:30 send announced.
+
+    ``now`` carries the zone the send is scheduled in, and the window is derived
+    from it — nothing here reads a clock of its own. Today's callers pass UTC.
+    task-367 stores ``User.iana_timezone``, so localising the digest is exactly
+    ``resolve_daily_window(datetime.now(ZoneInfo(user.iana_timezone)))`` at the
+    call site, with no change here — and it belongs to the task that owns the
+    send, which must also decide what to do with an account whose zone is absent.
+
+    The ``period_key`` is the local date of the send, so the digest announced on
+    the evening of the 12th is ``2026-05-12`` even though most of its content was
+    saved on the 11th.
+    """
+    send = now.replace(
+        hour=DAILY_SEND_TIME.hour,
+        minute=DAILY_SEND_TIME.minute,
+        second=0,
+        microsecond=0,
+    )
+    if send > now:
+        # Before this evening's send: the digest currently live is yesterday's.
+        send -= timedelta(days=1)
+    return DigestWindow(
+        period_key=send.date().isoformat(),
+        start=send - timedelta(days=1),
+        end=send,
+    )
 
 
-async def _get_media_items_for_period(
-    user_id: str, start_date: date, end_date: date
+def resolve_weekly_window(now: datetime) -> DigestWindow:
+    """The Monday-to-Sunday week the last Monday 09:30 send announced.
+
+    The week *before* that send, never the one in progress: the ISO week the send
+    happens in is nine hours old when the notification leaves, so announcing it
+    would announce almost nothing.
+    """
+    send = now.replace(
+        hour=WEEKLY_SEND_TIME.hour,
+        minute=WEEKLY_SEND_TIME.minute,
+        second=0,
+        microsecond=0,
+    ) - timedelta(days=now.weekday())  # weekday() is 0 on Monday
+    if send > now:
+        # Monday, before 09:30: the digest currently live is the previous send's.
+        send -= timedelta(days=7)
+
+    # `send` is a Monday, so the week that closed starts seven days before it and
+    # ends where the send's own week starts.
+    week_start = (send - timedelta(days=7)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    iso_year, iso_week, _ = week_start.isocalendar()
+    return DigestWindow(
+        period_key=f"{iso_year}-W{iso_week:02d}",
+        start=week_start,
+        end=week_start + timedelta(days=7),
+    )
+
+
+async def _collect_window_items(
+    user_id: str, window: DigestWindow
 ) -> List[DigestMediaItem]:
+    """Every library row saved inside the window, oldest first.
+
+    One query, whatever the period holds. There is deliberately no job lookup any
+    more: the digest used to drop an item without a transcript because it existed
+    to serve a pre-generated summary of it, and it now shows the media page, which
+    states for itself where an item stands. So "saved in the period" is the whole
+    of the rule, which is also what makes it checkable against ``user_media-dev``
+    with one query.
     """
-    Retrieve library items saved by the user in the given date range.
-
-    Reads the durable ``user_media`` library and keys the digest on
-    ``media_item_id`` (task-220). That id is the same one the artifact table uses,
-    so ``_check_summary_short_status`` and the mobile deep link both resolve. The
-    job is still consulted, but only to answer "is there a transcript to summarize":
-    an item whose job has expired cannot produce a new summary_short and therefore
-    has no place in a digest that exists to serve one.
-    """
-    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
-    end_dt = datetime.combine(
-        end_date, datetime.max.time().replace(microsecond=0), tzinfo=timezone.utc
-    )
-
-    media_items: List[DigestMediaItem] = []
-    for record in await user_media_store.list_library_for_user(user_id):
-        if not (start_dt <= record.saved_at <= end_dt):
-            continue
-        job = await resolve_job_for_record(record)
-        if job is None or not getattr(job, "transcription_s3_key", None):
-            continue
-
-        media_items.append(
-            DigestMediaItem(
-                media_item_id=record.media_item_id,
-                title=record.title,
-                thumbnail_url=record.thumbnail_url,
-                creator_name=record.creator_name,
-                media_type=record.media_type,
-                source_platform=record.source_platform,
-                added_at=record.saved_at.isoformat(),
-            )
+    records = [
+        record
+        for record in await user_media_store.list_library_for_user(user_id)
+        if window.start <= record.saved_at < window.end
+    ]
+    # Sorted on the datetime, not on the serialised string: two rows written with
+    # different offsets would compare wrong as text.
+    records.sort(key=lambda record: record.saved_at)
+    return [
+        DigestMediaItem(
+            media_item_id=record.media_item_id,
+            added_at=record.saved_at.isoformat(),
         )
-
-    return media_items
-
-
-async def _check_summary_short_status(
-    user_id: str, media_item_id: str
-) -> Tuple[str, Optional[str]]:
-    """
-    Check whether the digest's summary_short for this media item is available.
-    Returns (status, artifact_id) where status is 'ready', 'pending', or 'none'.
-
-    Reads the scope history newest-first and takes the first summary_short it
-    finds, which is the latest one. The digest is a snapshot of a day, so "the
-    most recent short summary" is the right answer even though several may exist
-    now that the model is append-only (task-270).
-    """
-    media = await user_media_store.get_user_media(user_id, media_item_id)
-    if media is None:
-        return "none", None
-
-    records, _ = await media_artifacts.list_artifacts_by_scope(
-        scope_key=build_scope_key(
-            user_id=user_id,
-            scope=ArtifactScope.MEDIA,
-            scope_id=media.media_key,
-        )
-    )
-    for record in records:
-        if record.artifact_type == MediaArtifactType.SUMMARY_SHORT:
-            if record.status == MediaArtifactStatus.READY:
-                return "ready", record.artifact_id
-            if record.status in (
-                MediaArtifactStatus.QUEUED,
-                MediaArtifactStatus.GENERATING,
-            ):
-                return "pending", record.artifact_id
-    return "none", None
+        for record in records
+    ]
 
 
-async def get_or_assemble_daily_digest(
-    user_id: str, target_date: Optional[date] = None
+async def _get_or_assemble(
+    user_id: str, digest_type: DigestType, window: DigestWindow
 ) -> DigestRecord:
-    """
-    Get or assemble the daily digest for a user.
-    If the digest already exists, return it (with updated summary_short statuses).
-    If not, create it from the user's media items for the day.
-    """
-    target = target_date or _today_utc()
-    period_key = _daily_period_key(target)
+    """The stored capture of a period, assembling it on first read.
 
-    # Check if digest already exists
-    existing = await digest_db.get_digest(user_id, DigestType.DAILY, period_key)
-    if existing:
-        # Refresh summary_short statuses if digest is not yet ready
-        if existing.status != DigestStatus.PUBLISHED:
-            existing = await _refresh_digest_statuses(existing)
+    The capture is what makes the screen agree with the notification: the first
+    read of a period freezes the list, and every later read returns that list
+    verbatim. Re-deriving it would be harmless — the window is entirely in the
+    past, so it can no longer change — but it would cost a library scan per open.
+    """
+    existing = await digest_db.get_digest(user_id, digest_type, window.period_key)
+    if existing is not None:
         return existing
 
-    # Assemble new digest
-    media_items = await _get_media_items_for_period(user_id, target, target)
-
-    # Check summary_short status for each item
-    for item in media_items:
-        status, artifact_id = await _check_summary_short_status(
-            user_id, item.media_item_id
-        )
-        item.summary_short_status = status
-        item.summary_short_artifact_id = artifact_id
-
-    # Determine overall status
-    all_ready = all(mi.summary_short_status == "ready" for mi in media_items)
-    digest_status = DigestStatus.READY if (all_ready or not media_items) else DigestStatus.PENDING
-
+    media_items = await _collect_window_items(user_id, window)
     record = DigestRecord(
         user_id=user_id,
-        digest_type=DigestType.DAILY,
-        period_key=period_key,
+        digest_type=digest_type,
+        period_key=window.period_key,
         media_items=media_items,
-        status=digest_status,
     )
-    await digest_db.save_digest(record)
-    return record
-
-
-async def get_or_assemble_weekly_digest(
-    user_id: str, week_key: Optional[str] = None
-) -> DigestRecord:
-    """
-    Get or assemble the weekly digest for a user.
-    If the digest already exists, return it (with updated summary_short statuses).
-    If not, create it from the user's media items for the week.
-    """
-    target_week = week_key or _current_week_key()
-    period_key = target_week
-
-    # Check if digest already exists
-    existing = await digest_db.get_digest(user_id, DigestType.WEEKLY, period_key)
-    if existing:
-        if existing.status != DigestStatus.PUBLISHED:
-            existing = await _refresh_digest_statuses(existing)
-        return existing
-
-    # Assemble new digest
-    monday, sunday = _week_date_range(target_week)
-    media_items = await _get_media_items_for_period(user_id, monday, sunday)
-
-    # Check summary_short status for each item
-    for item in media_items:
-        status, artifact_id = await _check_summary_short_status(
-            user_id, item.media_item_id
-        )
-        item.summary_short_status = status
-        item.summary_short_artifact_id = artifact_id
-
-    # Determine overall status
-    all_ready = all(mi.summary_short_status == "ready" for mi in media_items)
-    digest_status = DigestStatus.READY if (all_ready or not media_items) else DigestStatus.PENDING
-
-    record = DigestRecord(
-        user_id=user_id,
-        digest_type=DigestType.WEEKLY,
-        period_key=period_key,
-        media_items=media_items,
-        status=digest_status,
-    )
-    await digest_db.save_digest(record)
-    return record
-
-
-async def _refresh_digest_statuses(record: DigestRecord) -> DigestRecord:
-    """Refresh summary_short statuses for all media items in a digest."""
-    changed = False
-    for item in record.media_items:
-        status, artifact_id = await _check_summary_short_status(
-            record.user_id, item.media_item_id
-        )
-        if status != item.summary_short_status or artifact_id != item.summary_short_artifact_id:
-            item.summary_short_status = status
-            item.summary_short_artifact_id = artifact_id
-            changed = True
-
-    if changed:
-        all_ready = all(mi.summary_short_status == "ready" for mi in record.media_items)
-        if all_ready and record.media_items:
-            record.status = DigestStatus.READY
+    # An empty period is not written. See the module docstring: there is nothing
+    # to announce and nothing to show, and a row per silent day is pure noise.
+    if media_items:
         await digest_db.save_digest(record)
-
     return record
 
 
-async def trigger_summary_short_generation(
-    user_id: str, media_item_id: str
-) -> Optional[str]:
-    """
-    Trigger summary_short generation for a library item if not already generated.
-    Uses the artifact service's idempotence system to avoid duplicates.
-
-    ``user_id`` is now required: ``media_item_id`` is a durable library id, so the
-    owner comes from the library key rather than from a processing job that may no
-    longer exist.
-
-    Returns the artifact_id if generation was triggered or already exists, None on error.
-    """
-    from media_summarizer.core.services.artifact_service import (
-        ArtifactScopeEmptyError,
-        ArtifactServiceError,
-        ArtifactTranscriptNotReadyError,
-        commit_artifact_generation,
-        enforce_scope_ceilings,
-        plan_artifact_generation,
-        resolve_scope_sources,
+async def get_or_assemble_daily_digest(user_id: str) -> DigestRecord:
+    """The daily digest currently live for this user."""
+    return await _get_or_assemble(
+        user_id, DigestType.DAILY, resolve_daily_window(_now_utc())
     )
 
-    media = await user_media_store.get_user_media(user_id, media_item_id)
-    if media is None or media.is_deleted:
-        logger.warning(
-            "Cannot trigger summary_short for %s: no library row", media_item_id
-        )
-        return None
 
-    job = await resolve_job_for_record(media)
-    if job is None or not getattr(job, "transcription_s3_key", None):
-        logger.debug(
-            "Cannot trigger summary_short for %s: no transcript", media_item_id
-        )
-        return None
-
-    # Resolve the owner's reading language so the digest summary is produced in
-    # the user's language (common detect+translate step, task-192).
-    reading_language: Optional[str] = None
-    try:
-        user = await database_async.get_user_by_id(user_id)
-        if user is not None:
-            reading_language = user.reading_language
-    except Exception:  # pragma: no cover - non-fatal lookup
-        reading_language = None
-
-    try:
-        resolution = await resolve_scope_sources(
-            user_id=user_id,
-            scope=ArtifactScope.MEDIA,
-            scope_id=media_item_id,
-            reading_language=reading_language,
-        )
-        enforce_scope_ceilings(resolution)
-        plan = await plan_artifact_generation(
-            user_id=user_id,
-            scope=ArtifactScope.MEDIA,
-            scope_id=media_item_id,
-            content_scope_id=media.media_key,
-            artifact_type=MediaArtifactType.SUMMARY_SHORT,
-            resolution=resolution,
-        )
-        # The outcome is not acted on here: whether the generation was queued or
-        # an existing artifact already covered this item, the digest wants the id
-        # of the artifact that answers it.
-        record, _outcome = await commit_artifact_generation(plan)
-        return record.artifact_id
-    except (
-        ArtifactScopeEmptyError,
-        ArtifactTranscriptNotReadyError,
-        ArtifactServiceError,
-    ) as exc:
-        logger.warning(
-            "Failed to trigger summary_short for %s: %s", media_item_id, exc
-        )
-        return None
+async def get_or_assemble_weekly_digest(user_id: str) -> DigestRecord:
+    """The weekly digest currently live for this user."""
+    return await _get_or_assemble(
+        user_id, DigestType.WEEKLY, resolve_weekly_window(_now_utc())
+    )
 
 
 async def get_user_digest_settings(user_id: str) -> UserDigestSettings:

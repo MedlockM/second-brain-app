@@ -780,6 +780,12 @@ export function CompletedDetailView({
         // The tab bar is child index 1: it stays pinned while a long transcript
         // scrolls under it, so switching to AI never requires scrolling back up.
         stickyHeaderIndices={[1]}
+        // One axis per drag, which is what makes this page swipeable when the
+        // Digest nests it in a horizontal pager: a drag that starts sideways is
+        // not half-absorbed here as a diagonal scroll before the pager takes it.
+        // Never a constraint on the route, where this is the only scrollable and
+        // there is nothing horizontal to lock out.
+        directionalLockEnabled
       >
         {/* Hero Title & Metadata */}
         <View style={styles.heroSection}>
