@@ -453,9 +453,39 @@ recentemente »), pour que la largeur restante soit celle du vrai écran.
 
 ## Choix de l'owner
 
-À remplir par l'owner après lecture de `code.html` ; c'est ce que lira la tâche
-d'implémentation.
+- **Variante retenue** : **F · Layering Principle — « Deck tactile »**, dans
+  `code2.html` et non dans `code.html`.
+- **Date** : 2026-09-07
+- **Écarts demandés par rapport à la variante** : aucun.
 
-- **Variante retenue** : _(A / B / C, ou « un tour de plus » avec les consignes)_
-- **Date** :
-- **Écarts demandés par rapport à la variante** :
+### Où lire la variante retenue
+
+L'owner a fait produire un second tour de quatre directions — D « Bento
+compact », E « Dock connecté », F « Deck tactile », G « Carte encre » — dans
+`code2.html`. **C'est F qui est retenue.** A, B et C, décrites en détail plus
+haut dans ce README, sont abandonnées : tout ce qui précède la présente section
+documente un tour qui n'a pas été suivi, et ne contraint pas l'implémentation.
+
+F rend la pile par **trois surfaces décalées**, qui disent la destination par la
+forme : ce qui attend est un paquet de cartes à passer en revue. Elle n'ajoute
+ni illustration ni retour au bac à courrier, et ses couches reprennent les
+surfaces du thème plutôt qu'une teinte propre à l'encart — c'est le Layering
+Principle d'Amber Clarity appliqué littéralement, d'où son nom.
+
+Ce que le tour D–G corrige par rapport à A–C, et qui vaut pour F : les chevrons
+trop pâles, et le compteur qui redevient le geste au lieu d'être un badge.
+
+### Le risque que l'implémentation doit surveiller
+
+La maquette l'énonce elle-même : F est **la plus décorative des quatre pistes**,
+et sa pile peut concurrencer visuellement les vraies cartes de média situées
+juste en dessous sur l'accueil. L'encart doit rester lisible comme une annonce
+au-dessus de la liste, pas comme une carte de plus dans la liste. Si l'arbitrage
+se pose au montage, c'est cette hiérarchie qui tranche.
+
+### Ce que le choix de F ne rouvre pas
+
+Les invariants posés plus haut tiennent quelle que soit la variante : le libellé
+n'est pas en discussion, `HOME_BLOCK_GAP` reste `Spacing.lg` (24), l'encart
+s'efface entièrement à 0, et le libellé du lecteur d'écran reste bâti comme
+aujourd'hui.

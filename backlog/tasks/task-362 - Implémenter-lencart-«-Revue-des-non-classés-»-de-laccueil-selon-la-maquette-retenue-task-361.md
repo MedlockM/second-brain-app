@@ -19,7 +19,7 @@ priority: medium
 <!-- SECTION:DESCRIPTION:BEGIN -->
 ## Ce qu'il faut lire d'abord
 
-`mobile-design-mockups/home_unsorted_review_card/README.md` : **la variante retenue par l'owner y est notée, et c'est elle qui fait foi**. La maquette (`code.html` du même dossier) montre le rendu, le README dit pourquoi. Ne rien redessiner ici et ne pas préférer une autre variante à celle qui est cochée — si le README ne désigne aucune variante, la tâche s'arrête et le dit, elle ne tranche pas à la place de l'owner.
+`mobile-design-mockups/home_unsorted_review_card/README.md` : **la variante retenue par l'owner y est notée, et c'est elle qui fait foi**. La maquette montre le rendu, le README dit pourquoi — et **le README désigne lui-même le fichier à ouvrir** : l'owner a retenu une variante du second tour, qui est dans `code2.html` et non dans `code.html`. `code.html` porte le premier tour (A, B, C), abandonné ; ne pas s'y référer. Ne rien redessiner ici et ne pas préférer une autre variante à celle qui est cochée — si le README ne désigne aucune variante, la tâche s'arrête et le dit, elle ne tranche pas à la place de l'owner.
 
 ## Ce que la tâche remplace
 

@@ -1,0 +1,1219 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Revue des non classés — exploration 02</title>
+  <!--
+    Exploration complémentaire de task-361.
+
+    Le document est autonome : aucune police, image, feuille de style ou icône
+    n'est chargée à distance. Les couleurs, espacements, rayons, tailles et
+    ombres des encarts viennent de mobile/src/constants/theme.ts. Les glyphes
+    sont les contours Ionicons déjà extraits de la fonte embarquée par l'app.
+
+    Les quatre variantes conservent :
+    - le libellé décidé « Revue des non classés » ;
+    - la carte entière comme cible unique ;
+    - le compteur non plafonné et la disparition à zéro ;
+    - marginHorizontal = Spacing.md et HOME_BLOCK_GAP = Spacing.lg ;
+    - un libellé non tronqué dans les catalogues longs ;
+    - aucune bordure de division pleine largeur.
+  -->
+  <style>
+    :root {
+      /* Colors — mobile/src/constants/theme.ts */
+      --primary: #ffcb05;
+      --on-primary: #1c1b1a;
+      --background: #fcf9f6;
+      --surface: #ffffff;
+      --surface-container: #f1edea;
+      --surface-container-high: #ebe7e5;
+      --surface-container-low: #f7f3f0;
+      --text-main: #2b2d42;
+      --text-muted: #8d99ae;
+      --text-subtle: #5c6880;
+      --outline: #78776f;
+      --outline-variant: #c8c7bd;
+      --highlight: #fff0b3;
+      --primary-05: rgba(255, 203, 5, 0.05);
+
+      /* Spacing — mobile/src/constants/theme.ts */
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 16px;
+      --space-lg: 24px;
+      --space-xl: 32px;
+      --space-xxl: 48px;
+
+      /* BorderRadius — mobile/src/constants/theme.ts */
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --radius-full: 9999px;
+
+      /* TouchTarget — mobile/src/constants/theme.ts */
+      --touch-minimum: 48px;
+      --touch-comfortable: 56px;
+      --touch-large: 64px;
+
+      /* Shadows.soft — mobile/src/constants/theme.ts */
+      --shadow-soft: 0 8px 24px rgba(43, 45, 66, 0.04);
+
+      --home-block-gap: var(--space-lg);
+      --device-width: 390px;
+      --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background: var(--surface-container-high);
+      color: var(--text-main);
+      font-family: var(--font-system);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    button { font: inherit; }
+
+    .page {
+      width: min(100%, 1440px);
+      margin: 0 auto;
+      padding: var(--space-xl) var(--space-lg) var(--space-xxl);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-xl);
+      align-items: end;
+      margin-bottom: var(--space-xl);
+    }
+
+    .eyebrow,
+    .variant-index {
+      margin: 0 0 var(--space-sm);
+      color: var(--text-subtle);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      line-height: 1.4;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 760px;
+      margin: 0;
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -.5px;
+      line-height: 1.08;
+    }
+
+    .lede {
+      max-width: 720px;
+      margin: var(--space-md) 0 0;
+      color: var(--text-subtle);
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    .hero-mark {
+      display: grid;
+      width: 112px;
+      height: 112px;
+      place-items: center;
+      border-radius: var(--radius-full);
+      background: var(--primary);
+      color: var(--on-primary);
+    }
+
+    .hero-mark svg { width: var(--space-xxl); height: var(--space-xxl); }
+
+    .guardrails {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+      margin-top: var(--space-lg);
+    }
+
+    .guardrail {
+      display: inline-flex;
+      min-height: var(--space-xl);
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-xs) var(--space-md);
+      border-radius: var(--radius-full);
+      background: var(--surface-container-low);
+      color: var(--text-subtle);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .guardrail::before {
+      width: var(--space-sm);
+      height: var(--space-sm);
+      border-radius: var(--radius-full);
+      background: var(--primary);
+      content: "";
+    }
+
+    .lab-controls {
+      position: sticky;
+      z-index: 20;
+      top: var(--space-sm);
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-md);
+      align-items: end;
+      padding: var(--space-md);
+      margin-bottom: var(--space-xl);
+      border-radius: var(--radius-xl);
+      background: rgba(252, 249, 246, .9);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .control-group {
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      margin: 0;
+    }
+
+    .control-group legend {
+      padding: 0;
+      margin-bottom: var(--space-xs);
+      color: var(--text-subtle);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .segmented {
+      display: inline-flex;
+      gap: var(--space-xs);
+      padding: var(--space-xs);
+      border-radius: var(--radius-full);
+      background: var(--surface-container);
+    }
+
+    .choice {
+      min-width: var(--touch-minimum);
+      min-height: var(--touch-minimum);
+      padding: 0 var(--space-md);
+      border: 0;
+      border-radius: var(--radius-full);
+      background: transparent;
+      color: var(--text-subtle);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: background-color 160ms ease, color 160ms ease,
+        transform 160ms ease;
+    }
+
+    .choice:hover { background: var(--surface-container-low); }
+    .choice:active { transform: scale(.96); }
+    .choice[aria-pressed="true"] {
+      background: var(--primary);
+      color: var(--on-primary);
+    }
+
+    .choice:focus-visible,
+    .review-card:focus-visible,
+    summary:focus-visible {
+      outline: 3px solid var(--text-main);
+      outline-offset: 3px;
+    }
+
+    .live-status {
+      align-self: center;
+      margin-inline-start: auto;
+      color: var(--text-subtle);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .section-intro {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-lg);
+      align-items: end;
+      margin-bottom: var(--space-lg);
+    }
+
+    .section-intro h2,
+    .decision h2 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .section-intro p {
+      max-width: 660px;
+      margin: 0;
+      color: var(--text-subtle);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .variant-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-lg);
+    }
+
+    .variant {
+      min-width: 0;
+      overflow: hidden;
+      border-radius: var(--radius-xl);
+      background: var(--surface);
+    }
+
+    .variant-copy {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-lg);
+      align-items: start;
+      padding: var(--space-lg);
+    }
+
+    .variant h3 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      line-height: 1.25;
+    }
+
+    .variant-summary {
+      max-width: 56ch;
+      margin: var(--space-sm) 0 0;
+      color: var(--text-subtle);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .recommendation {
+      display: inline-flex;
+      min-height: var(--space-xl);
+      align-items: center;
+      padding: var(--space-xs) var(--space-md);
+      border-radius: var(--radius-full);
+      background: var(--primary);
+      color: var(--on-primary);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .device-stage {
+      display: grid;
+      min-height: 368px;
+      place-items: start center;
+      padding: var(--space-lg);
+      overflow: hidden;
+      background: var(--surface-container);
+    }
+
+    .device {
+      width: min(100%, var(--device-width));
+      overflow: hidden;
+      border-radius: var(--radius-xl);
+      background: var(--background);
+      color: var(--text-main);
+      box-shadow: var(--shadow-soft);
+      direction: ltr;
+      transition: width 220ms ease;
+    }
+
+    .safe-area { height: var(--space-xl); }
+
+    .home-block { margin-top: var(--home-block-gap); }
+
+    .review-card {
+      position: relative;
+      width: calc(100% - (var(--space-md) * 2));
+      margin: 0 var(--space-md);
+      border: 0;
+      color: inherit;
+      cursor: pointer;
+      text-align: start;
+      transition: transform 180ms cubic-bezier(.2, .8, .2, 1),
+        opacity 180ms ease, background-color 180ms ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .review-card:active,
+    .force-pressed .review-card {
+      opacity: .9;
+      transform: scale(.98);
+    }
+
+    .force-focus .review-card {
+      outline: 3px solid var(--text-main);
+      outline-offset: 3px;
+    }
+
+    .icon {
+      display: block;
+      flex: 0 0 auto;
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    .icon-18 { width: 18px; height: 18px; }
+    .icon-22 { width: 22px; height: 22px; }
+    .directional { transition: transform 160ms ease; }
+    [dir="rtl"] .directional { transform: scaleX(-1); }
+
+    .review-title {
+      min-width: 0;
+      color: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .numeric {
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    /* D — Bento compact. 72 = TouchTarget.comfortable + Spacing.md. */
+    .card-bento {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) var(--touch-minimum);
+      gap: var(--space-sm);
+      align-items: stretch;
+      min-height: 88px;
+      padding: var(--space-sm);
+      border-radius: var(--radius-xl);
+      background: var(--surface-container);
+    }
+
+    .bento-metric {
+      display: grid;
+      min-height: 72px;
+      align-content: center;
+      justify-items: center;
+      gap: var(--space-xs);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      color: var(--text-main);
+    }
+
+    .bento-metric .numeric {
+      max-width: 68px;
+      overflow: hidden;
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -.5px;
+      line-height: 1;
+      text-overflow: ellipsis;
+    }
+
+    .bento-copy {
+      display: grid;
+      min-width: 0;
+      align-content: center;
+      gap: var(--space-sm);
+    }
+
+    .bento-symbol {
+      display: inline-flex;
+      width: var(--space-xl);
+      height: var(--space-lg);
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-full);
+      background: var(--primary-05);
+      color: var(--text-main);
+    }
+
+    .bento-action {
+      display: grid;
+      width: var(--touch-minimum);
+      min-height: var(--touch-minimum);
+      align-self: stretch;
+      place-items: center;
+      border-radius: var(--radius-lg);
+      background: var(--primary);
+      color: var(--on-primary);
+    }
+
+    /* E — Dock connecté. Un bouton, malgré la terminaison visuelle. */
+    .card-dock {
+      display: grid;
+      grid-template-columns: var(--touch-minimum) minmax(0, 1fr) auto;
+      gap: var(--space-sm);
+      align-items: center;
+      min-height: 72px;
+      padding: var(--space-sm);
+      border-radius: var(--radius-full);
+      background: var(--surface-container-low);
+    }
+
+    .dock-icon {
+      display: grid;
+      width: var(--touch-minimum);
+      height: var(--touch-minimum);
+      place-items: center;
+      border-radius: var(--radius-full);
+      background: var(--surface-container-high);
+      color: var(--text-main);
+    }
+
+    .dock-copy { min-width: 0; }
+
+    .dock-terminal {
+      display: flex;
+      min-width: 80px;
+      min-height: var(--touch-comfortable);
+      align-items: center;
+      justify-content: flex-end;
+      gap: var(--space-sm);
+      padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-md);
+      border-radius: var(--radius-full);
+      background: var(--primary);
+      color: var(--on-primary);
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    [dir="rtl"] .dock-terminal {
+      padding: var(--space-xs) var(--space-md) var(--space-xs) var(--space-xs);
+    }
+
+    .dock-arrow {
+      display: grid;
+      width: var(--touch-minimum);
+      height: var(--touch-minimum);
+      place-items: center;
+      border-radius: var(--radius-full);
+      background: var(--on-primary);
+      color: var(--primary);
+    }
+
+    /* F — Deck tactile. Les pseudo-surfaces font la pile, sans ombre. */
+    .card-deck {
+      isolation: isolate;
+      display: grid;
+      grid-template-columns: var(--touch-minimum) minmax(0, 1fr) auto;
+      gap: var(--space-md);
+      align-items: center;
+      min-height: 88px;
+      padding: var(--space-md);
+      border-radius: var(--radius-xl);
+      background: var(--surface);
+    }
+
+    .card-deck::before,
+    .card-deck::after {
+      position: absolute;
+      border-radius: var(--radius-xl);
+      content: "";
+      pointer-events: none;
+    }
+
+    .card-deck::before {
+      z-index: -2;
+      inset: var(--space-sm) calc(var(--space-xs) * -1) calc(var(--space-sm) * -1) var(--space-sm);
+      background: var(--surface-container-high);
+    }
+
+    .card-deck::after {
+      z-index: -1;
+      inset: var(--space-xs) calc(var(--space-xs) / -2) calc(var(--space-xs) * -1) var(--space-xs);
+      background: var(--surface-container);
+    }
+
+    [dir="rtl"] .card-deck::before {
+      inset: var(--space-sm) var(--space-sm) calc(var(--space-sm) * -1) calc(var(--space-xs) * -1);
+    }
+
+    [dir="rtl"] .card-deck::after {
+      inset: var(--space-xs) var(--space-xs) calc(var(--space-xs) * -1) calc(var(--space-xs) / -2);
+    }
+
+    .deck-icon {
+      position: relative;
+      display: grid;
+      width: var(--touch-minimum);
+      height: var(--touch-minimum);
+      place-items: center;
+      border-radius: var(--radius-lg);
+      background: var(--primary-05);
+      color: var(--text-main);
+    }
+
+    .deck-count {
+      position: absolute;
+      inset-inline-end: calc(var(--space-sm) * -1);
+      inset-block-end: calc(var(--space-sm) * -1);
+      display: grid;
+      min-width: var(--space-lg);
+      min-height: var(--space-lg);
+      place-items: center;
+      padding: 0 6px;
+      border-radius: var(--radius-full);
+      background: var(--primary);
+      color: var(--on-primary);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .deck-copy { min-width: 0; }
+
+    .deck-arrow {
+      display: grid;
+      width: var(--touch-minimum);
+      height: var(--touch-minimum);
+      place-items: center;
+      border-radius: var(--radius-full);
+      background: var(--text-main);
+      color: var(--surface);
+    }
+
+    /* G — Carte encre. Contraste maximal, sans ombre ni filet. */
+    .card-ink {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) var(--touch-minimum);
+      gap: var(--space-md);
+      align-items: center;
+      min-height: 104px;
+      padding: var(--space-md);
+      border-radius: var(--radius-xl);
+      background: var(--text-main);
+      color: var(--surface);
+    }
+
+    .ink-copy {
+      display: grid;
+      min-width: 0;
+      gap: var(--space-sm);
+    }
+
+    .ink-top {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+    }
+
+    .ink-symbol {
+      display: grid;
+      width: var(--space-xl);
+      height: var(--space-xl);
+      place-items: center;
+      border-radius: var(--radius-full);
+      background: var(--primary);
+      color: var(--on-primary);
+    }
+
+    .ink-count {
+      color: var(--primary);
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -.5px;
+      line-height: 1;
+    }
+
+    .card-ink .review-title { color: var(--surface); }
+
+    .ink-arrow {
+      display: grid;
+      width: var(--touch-minimum);
+      height: var(--touch-minimum);
+      place-items: center;
+      border-radius: var(--radius-full);
+      background: var(--primary);
+      color: var(--on-primary);
+    }
+
+    /* Contexte de l'accueil, inchangé entre toutes les variantes. */
+    .recent-header {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: 0 var(--space-lg) var(--space-md);
+    }
+
+    .recent-header .icon { color: var(--primary); }
+
+    .recent-title {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text-main);
+      font-size: 20px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tile-row {
+      display: flex;
+      gap: var(--space-md);
+      padding: 0 var(--space-md) var(--space-lg);
+      overflow: hidden;
+    }
+
+    .tile {
+      width: 200px;
+      flex: 0 0 200px;
+    }
+
+    .tile-cover {
+      height: 113px;
+      border-radius: var(--radius-lg);
+      background: var(--surface-container-high);
+    }
+
+    .tile-line {
+      width: 100%;
+      height: var(--space-sm);
+      margin-top: var(--space-sm);
+      border-radius: var(--radius-sm);
+      background: var(--surface-container-high);
+    }
+
+    .tile-line.short {
+      width: 56%;
+      background: var(--surface-container);
+    }
+
+    .variant-notes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-lg);
+      padding: var(--space-lg);
+    }
+
+    .note-label {
+      margin: 0 0 var(--space-sm);
+      color: var(--text-subtle);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .variant-notes p:not(.note-label) {
+      margin: 0;
+      color: var(--text-subtle);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .variant-notes strong { color: var(--text-main); }
+
+    .decision {
+      margin-top: var(--space-xl);
+      padding: var(--space-lg);
+      border-radius: var(--radius-xl);
+      background: var(--surface);
+    }
+
+    .decision > p {
+      max-width: 760px;
+      margin: var(--space-sm) 0 var(--space-lg);
+      color: var(--text-subtle);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .comparison-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: separate;
+      border-spacing: 0 var(--space-sm);
+      font-size: 13px;
+    }
+
+    th {
+      padding: 0 var(--space-md) var(--space-xs);
+      color: var(--text-subtle);
+      font-weight: 600;
+      text-align: start;
+    }
+
+    td {
+      padding: var(--space-md);
+      background: var(--surface-container-low);
+      color: var(--text-subtle);
+      line-height: 1.5;
+    }
+
+    td:first-child {
+      border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+      color: var(--text-main);
+      font-weight: 700;
+    }
+
+    td:last-child { border-radius: 0 var(--radius-lg) var(--radius-lg) 0; }
+
+    details {
+      margin-top: var(--space-md);
+      border-radius: var(--radius-xl);
+      background: var(--surface-container-low);
+    }
+
+    summary {
+      min-height: var(--touch-minimum);
+      padding: var(--space-md);
+      cursor: pointer;
+      color: var(--text-main);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .details-body {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-md);
+      padding: 0 var(--space-md) var(--space-md);
+    }
+
+    .details-body p {
+      margin: 0;
+      color: var(--text-subtle);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .details-body strong { color: var(--text-main); }
+
+    @media (max-width: 1020px) {
+      .variant-grid { grid-template-columns: 1fr; }
+      .device-stage { min-height: auto; }
+    }
+
+    @media (max-width: 720px) {
+      .page { padding: var(--space-lg) var(--space-md) var(--space-xl); }
+      .hero { grid-template-columns: 1fr; }
+      .hero-mark { display: none; }
+      .lab-controls { position: static; }
+      .live-status { width: 100%; margin-inline-start: 0; }
+      .section-intro { display: block; }
+      .section-intro p { margin-top: var(--space-sm); }
+      .variant-copy { grid-template-columns: 1fr; }
+      .recommendation { justify-self: start; }
+      .device-stage { padding: var(--space-md); }
+      .variant-notes { grid-template-columns: 1fr; }
+      .details-body { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 390px) {
+      .segmented { width: 100%; overflow-x: auto; }
+      .choice { flex: 1 0 auto; }
+      .control-group { width: 100%; }
+      .device-stage { padding: var(--space-sm); }
+      .card-bento {
+        grid-template-columns: 64px minmax(0, 1fr) var(--touch-minimum);
+      }
+      .bento-metric .numeric { max-width: 60px; }
+      .card-deck { gap: var(--space-sm); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Géométrie exacte des glyphes Ionicons embarqués par l'app. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <symbol id="ion-layers-outline" viewBox="0 0 512 512"><path d="M246 49Q269 47 286 53Q292 55 369 90Q446 125 449 128Q464 138 463.5 153.5Q463 169 448 178Q443 180 417.5 192Q392 204 392 204.5Q392 205 419 217Q446 229 449 231Q471 246 462 267Q458 275 448 281Q445 284 419.5 295.5Q394 307 394 307.5Q394 308 421 321.5Q448 335 452 338Q470 353 462 371Q458 379 448 386Q446 387 373 420.5Q300 454 291 458Q261 470 229 460Q223 459 146 424Q69 389 64 386Q55 380 51 370Q46 360 50.5 349.5Q55 339 67 333Q72 330 96.5 319.5Q121 309 121 308.5Q121 308 118.5 307Q116 306 112 304.5Q108 303 103 300Q64 282 58 277Q53 272 51 267Q44 253 54 239Q60 232 94 217Q101 213 107.5 210.5Q114 208 117.5 206Q121 204 121 204Q121 204 97 193Q64 178 58 173Q50 166 49 157Q45 140 62 128Q67 125 144.5 89.5Q222 54 225 53Q234 50 246 49ZM270 81Q256 78 242 81Q237 83 161.5 117Q86 151 85 152Q85 152 90 154.5Q95 157 104 161Q113 165 123 170Q163 188 169 191Q229 219 237 221Q254 227 274 222Q281 220 340 192Q344 190 383.5 172.5Q423 155 426 153L428 152L423 150Q419 148 347.5 115.5Q276 83 270 81ZM164 224 160 222 123 239Q86 255 85 256L162 292Q173 297 203 311Q233 324 240 326Q256 330 272 326Q281 324 345 294Q351 291 389 274Q400 269 408.5 265Q417 261 422 258.5Q427 256 427 256Q426 255 389.5 238.5Q353 222 352 222Q351 222 321 236Q291 250 285 252Q255 261 226 251Q220 249 194 237.5Q168 226 164 224ZM391 342Q391 342 391 342Q355 325 354.5 325Q354 325 323.5 339Q293 353 286 355Q256 366 225 355Q218 353 189.5 339.5Q161 326 160 327Q159 327 122.5 343Q86 359 85 360Q85 360 120.5 376.5Q156 393 193.5 410Q231 427 236 429Q242 431 256 431Q270 431 275 430Q279 428 317 411Q355 394 391 377Q427 360 427 360Q426 359 391 342Z"/></symbol>
+    <symbol id="ion-albums-outline" viewBox="0 0 512 512"><path d="M140 65Q141 64 257 64H374L377 67Q383 72 384 78Q385 92 371 95Q367 96 256 96Q145 96 141 95Q129 93 128.5 81Q128 69 140 65ZM108 112Q111 112 257 112H404L408 114Q416 119 416 128Q416 137 408 142L405 144H256H107L104 142Q91 134 98 120Q101 114 108 112ZM80 162Q85 161 255.5 160.5Q426 160 431 162Q443 165 452 175Q461 185 463 197Q464 202 464 304Q464 388 463.5 402Q463 416 459 423Q453 437 439 444Q433 446 429 447Q424 448 256 448Q88 448 83 447Q79 446 73 444Q59 437 53 423Q49 416 48.5 402Q48 388 48 304Q48 202 49 197Q51 185 60 175Q69 165 80 162ZM425 194Q425 194 425 194Q422 192 256 192Q90 192 87 193.5Q84 195 82.5 197.5Q81 200 80 303Q80 303 80 407L82 410Q84 412 86 414Q86 414 89 416H256H423L426 414Q428 412 430 410Q430 410 432 407V303Q431 200 429.5 197.5Q428 195 425 194Z"/></symbol>
+    <symbol id="ion-checkmark-done-outline" viewBox="0 0 512 512"><path d="M363 113Q373 110 379 117Q387 125 382 134Q381 137 313 215.5Q245 294 242 297Q236 301 228.5 299Q221 297 217.5 291Q214 285 218 278Q219 275 287 196.5Q355 118 358 115Q360 114 363 113ZM460 113Q471 110 477 118Q483 127 478 136Q476 138 362.5 267.5Q249 397 248 398Q242 401 235 399Q232 398 181.5 348Q131 298 130 295Q126 288 130 281Q134 274 142 272Q148 272 154 276.5Q160 281 195 317L239 360L242 358Q245 355 349.5 235Q454 115 456 114Q458 113 460 113ZM41 274Q41 274 41 274Q47 271 54 274Q57 275 106 323.5Q155 372 158 376Q163 385 156 394Q149 403 139 399Q136 398 85.5 347.5Q35 297 33.5 294.5Q32 292 32 288Q32 284 34 281Q36 276 41 274Z"/></symbol>
+    <symbol id="ion-chevron-forward" viewBox="0 0 512 512"><path d="M179 89Q179 89 179 89Q187 87 195 91Q198 92 273 167Q335 228 343.5 238Q352 248 352 256Q352 264 343.5 274Q335 284 273 345Q213 405 203 414Q193 423 186 424Q177 425 169.5 419Q162 413 161 404Q159 396 163 389Q164 386 229 321Q229 321 294 256L229 191Q164 126 163 123Q159 116 161 108Q163 92 179 89Z"/></symbol>
+    <symbol id="ion-arrow-forward" viewBox="0 0 512 512"><path d="M262 89Q262 89 262 89Q270 87 279 91Q283 93 357.5 168Q432 243 434 248Q436 253 436 257Q435 265 426 275Q417 285 356 345Q281 420 276 422Q271 424 268 424Q260 424 253 418Q240 408 245 392Q247 388 300 334.5Q353 281 353 280.5Q353 280 223 280Q223 280 93 279L90 277Q82 274 79 267Q74 258 77 248.5Q80 239 89 235Q89 235 93 233L224 232H354L301 178Q247 125 246 121Q242 111 246.5 101.5Q251 92 262 89Z"/></symbol>
+    <symbol id="ion-sparkles" viewBox="0 0 512 512"><path d="M82 1Q87 -1 92.5 1Q98 3 100 7Q102 9 110.5 31Q119 53 120 55Q121 57 143 65.5Q165 74 169 76Q175 79 175.5 87Q176 95 170 99Q168 101 145 110Q122 119 120.5 120.5Q119 122 110 145Q101 168 99 170Q95 176 87.5 175.5Q80 175 76 170Q74 167 65.5 144Q57 121 55 120Q53 119 30.5 110Q8 101 6 100Q0 96 0 88Q0 82 5 77Q7 75 30.5 66Q54 57 55.5 55.5Q57 54 66 31Q76 4 82 1ZM392 34Q400 30 407 34Q411 36 414 41.5Q417 47 426 72Q439 104 440.5 105Q442 106 471 117Q505 130 508 134Q512 139 511.5 145.5Q511 152 506 156Q503 159 473.5 170Q444 181 442 182Q439 184 425 219Q416 243 413 248.5Q410 254 405 255Q396 258 389 251Q386 248 374.5 218.5Q363 189 362 186Q360 183 356.5 181.5Q353 180 318 166Q293 157 290 151Q284 141 293 132Q295 130 327 118Q359 106 360.5 104.5Q362 103 374 72Q386 41 387.5 38.5Q389 36 392 34ZM200 130Q200 130 200 130Q214 125 225 136Q225 136 230 140L251 195Q272 249 274 251.5Q276 254 279 255.5Q282 257 333.5 277Q385 297 388 299Q394 303 398 310Q402 320 398 330Q394 338 387 342Q385 343 333.5 363Q282 383 279 384.5Q276 386 274 388.5Q272 391 251 445Q251 445 230 500L225 504Q218 512 208 512Q195 512 188 502Q186 499 165 444.5Q144 390 141.5 387Q139 384 86.5 364Q34 344 30 343Q23 339 18 331Q14 322 17 313Q20 304 28 299Q31 297 83.5 277Q136 257 138.5 255Q141 253 142.5 251.5Q144 250 164.5 196Q185 142 187 139Q192 132 200 130Z"/></symbol>
+  </svg>
+
+  <div class="page">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Task-361 · Exploration 02</p>
+        <h1>Le compteur devient le geste, pas un badge.</h1>
+        <p class="lede">
+          Le premier tour a bien cadré le problème, mais aucune piste ne réunit
+          encore compacité, deux lignes, nombre instantanément lisible et action
+          contrastée. Ces quatre variantes explorent précisément ce point.
+        </p>
+        <div class="guardrails" aria-label="Contraintes préservées">
+          <span class="guardrail">Tokens de theme.ts</span>
+          <span class="guardrail">HOME_BLOCK_GAP · 24</span>
+          <span class="guardrail">390 / 320 pt</span>
+          <span class="guardrail">FR · DE · PT · AR</span>
+          <span class="guardrail">100 % hors ligne</span>
+        </div>
+      </div>
+      <div class="hero-mark" aria-hidden="true">
+        <svg class="icon"><use href="#ion-layers-outline"/></svg>
+      </div>
+    </header>
+
+    <section class="lab-controls" aria-label="Réglages communs de la maquette">
+      <fieldset class="control-group">
+        <legend>Largeur</legend>
+        <div class="segmented">
+          <button class="choice" type="button" data-control="width" data-value="390" aria-pressed="true">390</button>
+          <button class="choice" type="button" data-control="width" data-value="320" aria-pressed="false">320</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="control-group">
+        <legend>Catalogue</legend>
+        <div class="segmented">
+          <button class="choice" type="button" data-control="locale" data-value="fr" aria-pressed="true">FR</button>
+          <button class="choice" type="button" data-control="locale" data-value="de" aria-pressed="false">DE</button>
+          <button class="choice" type="button" data-control="locale" data-value="pt" aria-pressed="false">PT</button>
+          <button class="choice" type="button" data-control="locale" data-value="ar" aria-pressed="false">AR</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="control-group">
+        <legend>Compteur</legend>
+        <div class="segmented">
+          <button class="choice" type="button" data-control="count" data-value="3" aria-pressed="false">3</button>
+          <button class="choice" type="button" data-control="count" data-value="128" aria-pressed="true">128</button>
+          <button class="choice" type="button" data-control="count" data-value="1042" aria-pressed="false">1042</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="control-group">
+        <legend>État</legend>
+        <div class="segmented">
+          <button class="choice" type="button" data-control="state" data-value="rest" aria-pressed="true">Repos</button>
+          <button class="choice" type="button" data-control="state" data-value="pressed" aria-pressed="false">Pressé</button>
+          <button class="choice" type="button" data-control="state" data-value="focus" aria-pressed="false">Focus</button>
+        </div>
+      </fieldset>
+
+      <output class="live-status" id="live-status" aria-live="polite">390 pt · FR · 128 · repos</output>
+    </section>
+
+    <main>
+      <div class="section-intro">
+        <h2>Quatre directions neuves</h2>
+        <p>
+          Tous les aperçus reçoivent les mêmes données. Le cadre suivant est
+          toujours « Ajouts récents » avec le rythme réel de l'accueil.
+        </p>
+      </div>
+
+      <div class="variant-grid">
+        <article class="variant">
+          <div class="variant-copy">
+            <div>
+              <p class="variant-index">D · Mini-bento</p>
+              <h3>Bento compact</h3>
+              <p class="variant-summary">
+                Un bloc pour la mesure, un pour le sens, un pour l'entrée. La
+                hiérarchie est immédiate sans transformer l'encart en KPI.
+              </p>
+            </div>
+            <span class="recommendation">Recommandée</span>
+          </div>
+          <div class="device-stage">
+            <div class="device">
+              <div class="safe-area"></div>
+              <div class="home-block">
+                <button class="review-card card-bento" type="button">
+                  <span class="bento-metric">
+                    <span class="numeric" data-count>128</span>
+                  </span>
+                  <span class="bento-copy">
+                    <span class="bento-symbol" aria-hidden="true">
+                      <svg class="icon icon-18"><use href="#ion-layers-outline"/></svg>
+                    </span>
+                    <span class="review-title" data-title>Revue des non classés</span>
+                  </span>
+                  <span class="bento-action" aria-hidden="true">
+                    <svg class="icon directional"><use href="#ion-chevron-forward"/></svg>
+                  </span>
+                </button>
+              </div>
+              <div class="home-block">
+                <div class="recent-header">
+                  <svg class="icon icon-18" aria-hidden="true"><use href="#ion-sparkles"/></svg>
+                  <span class="recent-title" data-recent>Ajouts récents</span>
+                </div>
+                <div class="tile-row" aria-hidden="true">
+                  <div class="tile"><div class="tile-cover"></div><div class="tile-line"></div><div class="tile-line short"></div></div>
+                  <div class="tile"><div class="tile-cover"></div><div class="tile-line"></div><div class="tile-line short"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="variant-notes">
+            <div>
+              <p class="note-label">Pourquoi elle avance</p>
+              <p><strong>88 px, deux lignes, nombre en 32 px.</strong> Les paliers tonals font le découpage ; aucun filet ni aucune ombre.</p>
+            </div>
+            <div>
+              <p class="note-label">Ce qu'elle risque</p>
+              <p>La terminaison ambre peut sembler être un second bouton. L'implémentation doit garder une cible Pressable unique.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="variant">
+          <div class="variant-copy">
+            <div>
+              <p class="variant-index">E · Formes connectées</p>
+              <h3>Dock connecté</h3>
+              <p class="variant-summary">
+                Une ligne très compacte et une terminaison fusionnée qui réunit
+                le nombre et l'affordance au lieu de les disperser.
+              </p>
+            </div>
+          </div>
+          <div class="device-stage">
+            <div class="device">
+              <div class="safe-area"></div>
+              <div class="home-block">
+                <button class="review-card card-dock" type="button">
+                  <span class="dock-icon" aria-hidden="true">
+                    <svg class="icon icon-22"><use href="#ion-layers-outline"/></svg>
+                  </span>
+                  <span class="dock-copy">
+                    <span class="review-title" data-title>Revue des non classés</span>
+                  </span>
+                  <span class="dock-terminal" aria-hidden="true">
+                    <span class="numeric" data-count>128</span>
+                    <span class="dock-arrow">
+                      <svg class="icon directional"><use href="#ion-arrow-forward"/></svg>
+                    </span>
+                  </span>
+                </button>
+              </div>
+              <div class="home-block">
+                <div class="recent-header">
+                  <svg class="icon icon-18" aria-hidden="true"><use href="#ion-sparkles"/></svg>
+                  <span class="recent-title" data-recent>Ajouts récents</span>
+                </div>
+                <div class="tile-row" aria-hidden="true">
+                  <div class="tile"><div class="tile-cover"></div><div class="tile-line"></div><div class="tile-line short"></div></div>
+                  <div class="tile"><div class="tile-cover"></div><div class="tile-line"></div><div class="tile-line short"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="variant-notes">
+            <div>
+              <p class="note-label">Pourquoi elle avance</p>
+              <p><strong>72 px et aucune troncature.</strong> L'ambre n'est plus un chevron pâle : il forme une action nette en fin de ligne.</p>
+            </div>
+            <div>
+              <p class="note-label">Ce qu'elle risque</p>
+              <p>Le rayon full est plus « contrôle » qu'« éditorial » ; à quatre chiffres, la terminaison prend vite de la largeur.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="variant">
+          <div class="variant-copy">
+            <div>
+              <p class="variant-index">F · Layering Principle</p>
+              <h3>Deck tactile</h3>
+              <p class="variant-summary">
+                Trois surfaces décalées racontent la pile de cartes qui attend,
+                sans revenir au bac à courrier ni ajouter une illustration.
+              </p>
+            </div>
+          </div>
+          <div class="device-stage">
+            <div class="device">
+              <div class="safe-area"></div>
+              <div class="home-block">
+                <button class="review-card card-deck" type="button">
+                  <span class="deck-icon" aria-hidden="true">
+                    <svg class="icon icon-22"><use href="#ion-albums-outline"/></svg>
+                    <span class="deck-count numeric" data-count>128</span>
+                  </span>
+                  <span class="deck-copy">
+                    <span class="review-title" data-title>Revue des non classés</span>
+                  </span>
+                  <span class="deck-arrow" aria-hidden="true">
+                    <svg class="icon directional"><use href="#ion-chevron-forward"/></svg>
+                  </span>
+                </button>
+              </div>
+              <div class="home-block">
+                <div class="recent-header">
+                  <svg class="icon icon-18" aria-hidden="true"><use href="#ion-sparkles"/></svg>
+                  <span class="recent-title" data-recent>Ajouts récents</span>
+                </div>
+                <div class="tile-row" aria-hidden="true">
+                  <div class="tile"><div class="tile-cover"></div><div class="tile-line"></div><div class="tile-line short"></div></div>
+                  <div class="tile"><div class="tile-cover"></div><div class="tile-line"></div><div class="tile-line short"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="variant-notes">
+            <div>
+              <p class="note-label">Pourquoi elle avance</p>
+              <p><strong>La forme explique la destination.</strong> Les couches reprennent les surfaces du thème et rendent l'encart propre à l'app.</p>
+            </div>
+            <div>
+              <p class="note-label">Ce qu'elle risque</p>
+              <p>La pile est la plus décorative des pistes et peut concurrencer les vraies cartes de média juste dessous.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="variant">
+          <div class="variant-copy">
+            <div>
+              <p class="variant-index">G · Contraste focal</p>
+              <h3>Carte encre</h3>
+              <p class="variant-summary">
+                Une surface sombre unique fait de la revue l'action principale,
+                tandis que l'ambre reste strictement réservé au geste.
+              </p>
+            </div>
+          </div>
+          <div class="device-stage">
+            <div class="device">
+              <div class="safe-area"></div>
+              <div class="home-block">
+                <button class="review-card card-ink" type="button">
+                  <span class="ink-copy">
+                    <span class="ink-top">
+                      <span class="ink-symbol" aria-hidden="true">
+                        <svg class="icon icon-18"><use href="#ion-checkmark-done-outline"/></svg>
+                      </span>
+                      <span class="ink-count numeric" data-count>128</span>
+                    </span>
+                    <span class="review-title" data-title>Revue des non classés</span>
+                  </span>
+                  <span class="ink-arrow" aria-hidden="true">
+                    <svg class="icon directional"><use href="#ion-arrow-forward"/></svg>
+                  </span>
+                </button>
+              </div>
+              <div class="home-block">
+                <div class="recent-header">
+                  <svg class="icon icon-18" aria-hidden="true"><use href="#ion-sparkles"/></svg>
+                  <span class="recent-title" data-recent>Ajouts récents</span>
+                </div>
+                <div class="tile-row" aria-hidden="true">
+                  <div class="tile"><div class="tile-cover"></div><div class="tile-line"></div><div class="tile-line short"></div></div>
+                  <div class="tile"><div class="tile-cover"></div><div class="tile-line"></div><div class="tile-line short"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="variant-notes">
+            <div>
+              <p class="note-label">Pourquoi elle avance</p>
+              <p><strong>La meilleure séparation sans ombre.</strong> Le contraste remplace bordure, callout et décoration superflue.</p>
+            </div>
+            <div>
+              <p class="note-label">Ce qu'elle risque</p>
+              <p>C'est la plus autoritaire. Elle revendique le statut d'action principale et peut surclasser le reste de l'accueil.</p>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <section class="decision">
+        <h2>Lecture rapide</h2>
+        <p>
+          D est le meilleur compromis produit. E est la plus compacte, F la plus
+          identitaire, G la plus affirmée. Les quatre corrigent les chevrons trop
+          faibles du premier tour en les plaçant sur une vraie surface contrastée.
+        </p>
+        <div class="comparison-wrap">
+          <table>
+            <thead>
+              <tr><th>Variante</th><th>Hauteur</th><th>Compteur</th><th>Emphase</th><th>Point fort</th><th>Coût</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>D · Bento</td><td>88 px</td><td>32 px, isolé</td><td>Forte mais calme</td><td>Équilibre global</td><td>Peut suggérer deux cibles</td></tr>
+              <tr><td>E · Dock</td><td>72 px</td><td>16 px, terminal</td><td>Moyenne</td><td>Compacité</td><td>Largeur à 1042</td></tr>
+              <tr><td>F · Deck</td><td>88 px + 8</td><td>Sticker 13 px</td><td>Moyenne</td><td>Signature visuelle</td><td>Plus décorative</td></tr>
+              <tr><td>G · Encre</td><td>104 px</td><td>32 px, ambre</td><td>Très forte</td><td>Contraste / CTA</td><td>Hiérarchie dominante</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <details>
+          <summary>Règles et références qui portent ce tour</summary>
+          <div class="details-body">
+            <p><strong>Amber Clarity.</strong> No-Line Rule, Layering Principle, ambre réservé aux interactions de valeur et teinte primaire limitée à 5 %.</p>
+            <p><strong>Material 3 Expressive.</strong> Typographie flexible, contraste de formes et composants connectés — sans prétendre que l'encart est un vrai split button.</p>
+            <p><strong>Apple HIG.</strong> Une action principale visuellement explicite, une cible d'au moins 44 pt et un état pressé perceptible.</p>
+            <p><strong>Références produit.</strong> Les tuiles chiffrées de Rappels iOS, les grandes pills de NotebookLM et la pile Feed / Inbox / Later de Readwise Reader.</p>
+            <p><strong>Accessibilité.</strong> Les glyphes fonctionnels sont textMain/onPrimary/surface ; l'ambre clair et textMuted ne portent plus seuls l'affordance.</p>
+            <p><strong>Localisation.</strong> Les vrais libellés DE, PT et AR sont pilotables ; le chevron s'inverse en RTL, le compteur n'est jamais plafonné.</p>
+          </div>
+        </details>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const catalogues = {
+        fr: { title: "Revue des non classés", recent: "Ajouts récents", dir: "ltr", label: "FR" },
+        de: { title: "Unsortiertes durchgehen", recent: "Kürzlich hinzugefügt", dir: "ltr", label: "DE" },
+        pt: { title: "Revisão dos não organizados", recent: "Adicionados recentemente", dir: "ltr", label: "PT" },
+        ar: { title: "مراجعة غير المصنّف", recent: "أُضيف مؤخرًا", dir: "rtl", label: "AR" }
+      };
+
+      const state = { width: "390", locale: "fr", count: "128", state: "rest" };
+      const stateLabels = { rest: "repos", pressed: "pressé", focus: "focus" };
+
+      function render() {
+        const catalogue = catalogues[state.locale];
+        document.documentElement.style.setProperty("--device-width", `${state.width}px`);
+        document.body.classList.toggle("force-pressed", state.state === "pressed");
+        document.body.classList.toggle("force-focus", state.state === "focus");
+
+        document.querySelectorAll(".device").forEach((device) => {
+          device.dir = catalogue.dir;
+          device.lang = state.locale;
+        });
+        document.querySelectorAll("[data-title]").forEach((node) => { node.textContent = catalogue.title; });
+        document.querySelectorAll("[data-recent]").forEach((node) => { node.textContent = catalogue.recent; });
+        document.querySelectorAll("[data-count]").forEach((node) => { node.textContent = state.count; });
+        document.querySelectorAll(".review-card").forEach((button) => {
+          button.setAttribute("aria-label", `${catalogue.title}, ${state.count}`);
+        });
+        document.querySelectorAll("[data-control]").forEach((button) => {
+          button.setAttribute("aria-pressed", String(state[button.dataset.control] === button.dataset.value));
+        });
+
+        document.getElementById("live-status").textContent =
+          `${state.width} pt · ${catalogue.label} · ${state.count} · ${stateLabels[state.state]}`;
+      }
+
+      document.querySelectorAll("[data-control]").forEach((button) => {
+        button.addEventListener("click", () => {
+          state[button.dataset.control] = button.dataset.value;
+          render();
+        });
+      });
+
+      render();
+    })();
+  </script>
+</body>
+</html>
