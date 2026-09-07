@@ -5,12 +5,12 @@ every ingestion would then import the digest graph — digest records, digest
 settings, weekly assembly, the push producer — to write one triage card. This module
 imports the artifact service and the library store, nothing else.
 
-The shape is deliberately the same as ``digest_service.trigger_summary_short_generation``:
-``resolve_scope_sources`` → ``enforce_scope_ceilings`` → ``plan_artifact_generation``
-→ ``commit_artifact_generation``. Like it, **no quota is debited**: the allowance is
-spent by what the *user* asks for, and the endpoint in ``api/endpoints/artifacts.py``
-is the only place that debits it. A background artifact nobody requested must not
-eat into what the user paid for.
+It is the only background generation left in the codebase, since the digest stopped
+pre-generating anything (task-366). The chain is ``resolve_scope_sources`` →
+``enforce_scope_ceilings`` → ``plan_artifact_generation`` → ``commit_artifact_generation``,
+and **no quota is debited**: the allowance is spent by what the *user* asks for, and
+the endpoint in ``api/endpoints/artifacts.py`` is the only place that debits it. A
+background artifact nobody requested must not eat into what the user paid for.
 """
 
 from __future__ import annotations

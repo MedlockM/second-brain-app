@@ -21,7 +21,6 @@ from .billing import (
 from .digest import (
     DigestMediaItem,
     DigestRecord,
-    DigestStatus,
     DigestType,
     UserDigestSettings,
 )
@@ -64,7 +63,6 @@ __all__ = [
     "Tag",
     "DigestRecord",
     "DigestType",
-    "DigestStatus",
     "DigestMediaItem",
     "UserDigestSettings",
     "UserMediaRecord",

@@ -4,13 +4,16 @@ Digest scheduler worker.
 Designed to be invoked by a cron/scheduler (e.g. EventBridge Scheduler, CloudWatch Events).
 
 Responsibilities:
-1. Pre-generate summary_short artifacts for media items that will appear in digests
-   (staggered, not burst - processes items one by one with delay between them)
-2. Assemble daily/weekly digests for all users with digest enabled
-3. Publish weekly digest (mark as published + send push notification)
+1. Capture daily/weekly digests for all users with digest enabled
+2. Publish the weekly digest (stamp ``published_at`` + send push notification)
+
+It generates nothing. There used to be a third responsibility here — pre-generating
+a ``summary_short`` per upcoming digest item, staggered to spare the LLM — and it
+went with the payload it fed (task-366): the digest shows the media page, whose AI
+tab offers its tiles to generate on demand like anywhere else.
 
 Usage:
-  uv run python -m media_summarizer.workers.digest.scheduler [--mode daily|weekly|pre-generate]
+  uv run python -m media_summarizer.workers.digest.scheduler [--mode daily|weekly]
 """
 
 from __future__ import annotations
@@ -22,18 +25,11 @@ import sys
 from datetime import datetime, timezone
 from typing import List
 
-from media_summarizer.core.models.digest import (
-    DigestRecord,
-    DigestStatus,
-)
+from media_summarizer.core.models.digest import DigestRecord
 from media_summarizer.core.services import digest_service
 from media_summarizer.utils import digest_db, sqs
-from media_summarizer.utils import user_media as user_media_store
 
 logger = logging.getLogger(__name__)
-
-# Stagger delay between summary_short generation requests (seconds)
-STAGGER_DELAY_SECONDS = float(os.environ.get("DIGEST_STAGGER_DELAY_SECONDS", "2.0"))
 
 # Push notification queue for the weekly digest.
 #
@@ -79,60 +75,18 @@ async def _is_digest_enabled(user_id: str) -> bool:
     return settings.digest_enabled
 
 
-async def pre_generate_summary_shorts() -> int:
-    """
-    Pre-generate summary_short artifacts for all media items that will appear
-    in upcoming digests. Staggered to avoid LLM burst.
-
-    Returns the number of generation requests triggered.
-    """
-    logger.info("Starting pre-generation of summary_short artifacts for digests")
-
-    user_ids = await _get_all_user_ids()
-    today = datetime.now(timezone.utc).date()
-    triggered = 0
-
-    for user_id in user_ids:
-        if not await _is_digest_enabled(user_id):
-            continue
-
-        # Today's library items, read from the durable table so the ids match the
-        # ones the digest and the artifact table use (task-220). The transcript
-        # check stays inside trigger_summary_short_generation, which is the only
-        # place that needs the pipeline row.
-        start_dt = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
-        end_dt = datetime.combine(
-            today, datetime.max.time().replace(microsecond=0), tzinfo=timezone.utc
-        )
-
-        for record in await user_media_store.list_library_for_user(user_id):
-            if not (start_dt <= record.saved_at <= end_dt):
-                continue
-
-            # Trigger summary_short generation (idempotent - skips if already exists)
-            artifact_id = await digest_service.trigger_summary_short_generation(
-                user_id, record.media_item_id
-            )
-            if artifact_id:
-                triggered += 1
-                # Stagger to avoid burst
-                await asyncio.sleep(STAGGER_DELAY_SECONDS)
-
-    logger.info(
-        "Pre-generation complete: %d summary_short requests triggered", triggered
-    )
-    return triggered
-
-
 async def assemble_daily_digests() -> int:
     """
-    Assemble daily digests for all users with digest enabled.
-    Returns the number of digests assembled.
+    Capture the daily digest of every user with the daily digest enabled.
+    Returns the number of digests captured.
+
+    The period is not a parameter: the service resolves the window the last 18:30
+    send announced, so running this worker twice in the same evening captures the
+    same list once and reads it back the second time.
     """
     logger.info("Starting daily digest assembly")
 
     user_ids = await _get_all_user_ids()
-    today = datetime.now(timezone.utc).date()
     assembled = 0
 
     for user_id in user_ids:
@@ -144,13 +98,13 @@ async def assemble_daily_digests() -> int:
             continue
 
         try:
-            digest = await digest_service.get_or_assemble_daily_digest(user_id, today)
+            digest = await digest_service.get_or_assemble_daily_digest(user_id)
             assembled += 1
             logger.debug(
-                "Daily digest assembled for user %s: %d items, status=%s",
+                "Daily digest assembled for user %s (%s): %d items",
                 user_id,
+                digest.period_key,
                 len(digest.media_items),
-                digest.status.value,
             )
         except Exception as exc:
             logger.error(
@@ -163,16 +117,13 @@ async def assemble_daily_digests() -> int:
 
 async def assemble_and_publish_weekly_digests() -> int:
     """
-    Assemble and publish weekly digests for all users.
-    Sends push notification for each published weekly digest.
+    Capture and publish the weekly digest of every user.
+    Sends a push notification for each digest published by this run.
     Returns the number of digests published.
     """
     logger.info("Starting weekly digest assembly and publication")
 
     user_ids = await _get_all_user_ids()
-    today = datetime.now(timezone.utc).date()
-    iso_year, iso_week, _ = today.isocalendar()
-    week_key = f"{iso_year}-W{iso_week:02d}"
     published = 0
 
     for user_id in user_ids:
@@ -184,13 +135,11 @@ async def assemble_and_publish_weekly_digests() -> int:
             continue
 
         try:
-            digest = await digest_service.get_or_assemble_weekly_digest(
-                user_id, week_key
-            )
+            digest = await digest_service.get_or_assemble_weekly_digest(user_id)
 
-            # Only publish if not already published and has content
-            if digest.status != DigestStatus.PUBLISHED and digest.media_items:
-                digest.status = DigestStatus.PUBLISHED
+            # Publish once, and only a period that holds something. `published_at`
+            # is the whole record of that: set means the notification went out.
+            if digest.published_at is None and digest.media_items:
                 digest.published_at = datetime.now(timezone.utc).isoformat()
                 await digest_db.save_digest(digest)
 
@@ -262,15 +211,11 @@ async def run(mode: str = "all") -> None:
     Main entry point for the digest scheduler.
 
     Modes:
-    - pre-generate: Only pre-generate summary_short artifacts
-    - daily: Assemble daily digests
-    - weekly: Assemble and publish weekly digests (with push notification)
-    - all: Run all steps in order
+    - daily: Capture daily digests
+    - weekly: Capture and publish weekly digests (with push notification)
+    - all: Run both, in order
     """
     logger.info("Digest scheduler starting in mode: %s", mode)
-
-    if mode in ("pre-generate", "all"):
-        await pre_generate_summary_shorts()
 
     if mode in ("daily", "all"):
         await assemble_daily_digests()

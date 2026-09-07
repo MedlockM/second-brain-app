@@ -11,10 +11,9 @@ Guard rails (env), because this spends real money on a real provider and the onl
 thing standing between a typo and the whole library is this script:
 
   - ``REVIEW_BLURB_BACKFILL_DELAY_SECONDS`` (float, default 2.0)
-        Pause after each *triggered* generation. Same role as
-        ``DIGEST_STAGGER_DELAY_SECONDS`` in the digest scheduler: the artifact queue
-        and the provider see a trickle instead of a burst, so a backfill cannot
-        starve the interactive generations a user is waiting on.
+        Pause after each *triggered* generation, so the artifact queue and the
+        provider see a trickle instead of a burst and a backfill cannot starve the
+        interactive generations a user is waiting on.
   - ``REVIEW_BLURB_BACKFILL_LIMIT`` (int, default 25)
         Hard ceiling on the number of generations triggered in one run. Deliberately
         small: the intended use is to run it, read the count, and run it again. Rows
