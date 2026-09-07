@@ -48,4 +48,19 @@ export class UserPreferencesService {
       body: { reading_language: language },
     });
   }
+
+  /**
+   * Report the device's IANA time zone.
+   *
+   * Unlike the reading language, this is never asked of the user: the OS knows
+   * the answer, and `useDeviceTimezoneSync` sends it on every return to the
+   * foreground so a user who travels sees their Digest follow. `zone` must be
+   * an IANA name ("Europe/Paris") — the backend answers 400 on a UTC offset.
+   */
+  static async updateTimezone(zone: string): Promise<AuthUser> {
+    return apiRequest<AuthUser>("/api/auth/me", {
+      method: "PATCH",
+      body: { iana_timezone: zone },
+    });
+  }
 }

@@ -3,6 +3,7 @@ import {
   UserPreferencesService,
   ReadingLanguageCode,
 } from "../services/userPreferencesService";
+import { useDeviceTimezoneSync } from "../hooks/useDeviceTimezoneSync";
 import { useAuth } from "./AuthContext";
 
 interface UserPreferencesContextValue {
@@ -35,6 +36,16 @@ export function UserPreferencesProvider({
   // or from local state after a successful update
   const readingLanguage = localReadingLanguage ?? user?.reading_language ?? null;
   const needsLanguageOnboarding = !readingLanguage;
+
+  // The device's time zone is the other account preference the backend stores,
+  // and the only one the user is never asked about: the OS knows it, so it is
+  // reported silently on every foreground pass. Exposed through no context value
+  // on purpose — nothing in the interface reads it, only the Digest schedule
+  // does, server-side.
+  useDeviceTimezoneSync({
+    userId: user?.id ?? null,
+    storedTimezone: user?.iana_timezone ?? null,
+  });
 
   const updateReadingLanguage = useCallback(
     async (language: ReadingLanguageCode) => {
