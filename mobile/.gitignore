@@ -22,7 +22,15 @@ web-build/
 .env.local
 
 # Google Play service account (written by CI, never commit)
-google-services-key.json
 
 # Metro bundler
 .metro-health-check*
+
+# Firebase / FCM credentials — jamais dans le dépôt (public).
+# `google-services.json` porte la config client Firebase et une clé d'API.
+# `*-firebase-adminsdk-*.json` est le compte de service FCM v1 : il contient une
+# clé privée RSA et n'a rien à faire ici — il se téléverse sur EAS et se garde
+# hors du dépôt.
+google-services.json
+google-services-key.json
+*-firebase-adminsdk-*.json

@@ -25,7 +25,6 @@ credentials.*
 *.jks
 *.mobileprovision
 media-summarizer-app_accessKeys.csv
-google-services-key.json
 
 # Auth scratchpads (test runs)
 jwt_full.txt
@@ -197,3 +196,12 @@ temp/
 maestro-ios-reports/
 .maestro-android-passed
 maestro-android-reports/
+
+# Firebase / FCM credentials — jamais dans le dépôt (public).
+# `google-services.json` porte la config client Firebase et une clé d'API.
+# `*-firebase-adminsdk-*.json` est le compte de service FCM v1 : il contient une
+# clé privée RSA et n'a rien à faire ici — il se téléverse sur EAS et se garde
+# hors du dépôt.
+google-services.json
+google-services-key.json
+*-firebase-adminsdk-*.json

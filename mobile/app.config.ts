@@ -258,6 +258,14 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       },
     },
     android: {
+      // Firebase client config, required for an Android device to obtain an FCM
+      // token — including through the Expo push service (task-368 §2). The file
+      // is deliberately NOT in the repository: it carries an API key and this
+      // repo is public, so it is gitignored. Fetch it from the Firebase console
+      // (Project settings > Your apps > Android > google-services.json) and
+      // drop it at mobile/google-services.json. EAS Build reads it from the
+      // EAS secret of the same name; a local prebuild reads it from disk.
+      googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json",
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#fcf9f6",
