@@ -5,6 +5,17 @@
 export const Colors = {
   primary: "#ffcb05",
   onPrimary: "#1c1b1a",
+  /**
+   * The amber wash the system prescribes for a tinted surface — "Signature
+   * Textures: Use a 5% opacity tint of the Primary color (Amber) for callouts
+   * and blockquotes to create a 'highlighted' tactile feel".
+   *
+   * It is a token because the one place that used it wrote the value inline, and
+   * at 10% rather than the prescribed 5% (the Home unsorted-review card, before
+   * task-362). A tint of the primary belongs beside the primary it derives from,
+   * not in one screen's `StyleSheet`.
+   */
+  primaryTint: "rgba(255, 203, 5, 0.05)",
 
   background: "#fcf9f6",
   surface: "#ffffff",
