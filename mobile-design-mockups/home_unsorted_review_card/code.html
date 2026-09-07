@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revue des non classés — trois variantes de l'encart d'accueil</title>
+<!--
+  Maquette autonome : aucune balise <link>, <script> ni <img>, donc aucune requête
+  réseau. Deux conséquences voulues :
+
+  1. Police. L'app ne charge aucune police (aucun `useFonts`, aucun `fontFamily`
+     dans mobile/app et mobile/src hors le "serif" du digest), donc elle rend en
+     police système : SF Pro sur iOS, Roboto sur Android. La pile déclarée plus
+     bas est le repli système équivalent — plus fidèle que d'aller chercher Plus
+     Jakarta Sans chez Google Fonts, que l'app n'embarque pas.
+  2. Icônes. Chaque glyphe est le contour exact extrait de la fonte que l'app
+     utilise (@expo/vector-icons, Ionicons.ttf, 512 unités/em), reporté dans un
+     <symbol> en viewBox 0 0 512 512. Ce ne sont pas des approximations dessinées
+     à la main : c'est la géométrie que RN affiche.
+
+  Toutes les couleurs, rayons, ombres, espacements et tailles de texte viennent de
+  mobile/src/constants/theme.ts, repris tel quel dans les variables CSS ci-dessous.
+-->
+<style>
+  :root {
+    /* --- Colors (theme.ts) --- */
+    --primary: #ffcb05;
+    --on-primary: #1c1b1a;
+    --background: #fcf9f6;
+    --surface: #ffffff;
+    --surface-container: #f1edea;
+    --surface-container-high: #ebe7e5;
+    --surface-container-low: #f7f3f0;
+    --text-main: #2b2d42;
+    --text-muted: #8d99ae;
+    --text-subtle: #5c6880;
+    --outline-variant: #c8c7bd;
+    --highlight: #fff0b3;
+    /* Teinte ambre en 5 %, la valeur que DESIGN.md prescrit ("Signature
+       Textures"). L'encart actuel est à 10 %, et en littéral dans inbox.tsx. */
+    --primary-05: rgba(255, 203, 5, 0.05);
+    --primary-10: rgba(255, 203, 5, 0.1);
+
+    /* --- Spacing (theme.ts) --- */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 32px;
+    --space-xxl: 48px;
+
+    /* --- BorderRadius (theme.ts) --- */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-full: 9999px;
+
+    /* --- TouchTarget (theme.ts) --- */
+    --touch-minimum: 48px;
+    --touch-comfortable: 56px;
+    --touch-large: 64px;
+
+    /* --- Shadows.soft (theme.ts) : #2b2d42, offset y 8, opacité .04, rayon 24 --- */
+    --shadow-soft: 0 8px 24px rgba(43, 45, 66, 0.04);
+
+    /* HOME_BLOCK_GAP (mobile/src/constants/homeRhythm.ts) = Spacing.lg.
+       Aucune variante n'y touche : c'est le no-go owner du 2026-09-04. */
+    --home-block-gap: var(--space-lg);
+
+    /* La pastille d'icône de l'encart actuel mesure 40, valeur qui n'est pas un
+       token. Exprimée ici comme la somme de deux tokens, à porter telle quelle
+       dans l'implémentation. */
+    --icon-pill: calc(var(--space-lg) + var(--space-md)); /* 40 */
+
+    /* Hauteur de la bordure hairline de RN sur un écran 2x, pour rendre l'encart
+       actuel à l'identique. Aucune variante n'en pose. */
+    --hairline: 0.5px;
+
+    --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: var(--space-xl) var(--space-lg) var(--space-xxl);
+    /* Le chrome de la page (fond, titres, légendes) n'est pas la maquette : il
+       n'est là que pour porter les cadres. Il utilise quand même les mêmes
+       tokens, pour qu'aucune couleur étrangère au système n'entre dans l'œil au
+       moment de juger — et le palier le plus foncé de la famille, pour qu'aucun
+       remplissage de variante ne se confonde avec le fond de la page. */
+    background: var(--surface-container-high);
+    color: var(--text-main);
+    font-family: var(--font-system);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1 {
+    font-size: 32px; /* Typography.display */
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin: 0 0 var(--space-sm);
+  }
+  h2 {
+    font-size: 20px; /* Typography.headline */
+    font-weight: 600;
+    margin: var(--space-xxl) 0 var(--space-xs);
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: var(--space-lg) 0 var(--space-sm);
+  }
+  p, li {
+    font-size: 16px; /* Typography.body */
+    line-height: 1.6; /* DESIGN.md : 1.6x sur tout le corps de texte */
+    color: var(--text-main);
+    margin: 0 0 var(--space-sm);
+    max-width: 78ch;
+  }
+  .lede { color: var(--text-subtle); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px; /* Typography.small */
+    background: var(--surface-container-low);
+    border-radius: var(--radius-sm);
+    padding: 1px 4px;
+  }
+
+  .panel {
+    background: var(--surface);
+    border-radius: var(--radius-xl);
+    padding: var(--space-lg);
+    margin-bottom: var(--space-lg);
+  }
+
+  /* --- Légende des tokens --- */
+  .swatches { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin: 0; padding: 0; list-style: none; }
+  .swatch {
+    display: flex; align-items: center; gap: var(--space-sm);
+    background: var(--surface-container-low);
+    border-radius: var(--radius-full);
+    padding: var(--space-xs) var(--space-md) var(--space-xs) var(--space-xs);
+    font-size: 13px; color: var(--text-subtle);
+  }
+  .swatch i {
+    width: var(--space-lg); height: var(--space-lg);
+    border-radius: var(--radius-full);
+    display: block;
+  }
+
+  /* --- Grille de cellules --- */
+  .cells { display: flex; flex-wrap: wrap; gap: var(--space-lg); align-items: flex-start; }
+  .cell { display: flex; flex-direction: column; gap: var(--space-sm); }
+  .caption {
+    font-size: 13px; font-weight: 500; color: var(--text-subtle);
+    margin: 0; max-width: 390px;
+  }
+  .caption b { color: var(--text-main); font-weight: 600; }
+
+  /* --- Cadre téléphone : la largeur logique du device, fond = Colors.background --- */
+  .frame {
+    width: 390px;
+    background: var(--background);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    padding-bottom: var(--space-lg);
+  }
+  .frame.narrow { width: 320px; }
+  /* Ce que SafeAreaView edges={["top"]} réserve. Le premier bloc de la colonne
+     porte ensuite son propre HOME_BLOCK_GAP sous cette zone. */
+  .safe-area { height: var(--space-xl); }
+
+  /* Un bloc de la colonne d'accueil : il déclare l'espace au-dessus de lui, et
+     rien en dessous (convention homeRhythm.ts). */
+  .block { margin-top: var(--home-block-gap); }
+
+  /* Contexte : l'en-tête de section et la rangée de tuiles qui suivent l'encart,
+     rendus avec leurs vraies mesures (inbox.tsx / HomeTile.tsx) pour qu'on juge
+     l'encart dans son voisinage et non isolé. */
+  .section-header {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 0 var(--space-lg) var(--space-md);
+  }
+  .section-header span { font-size: 20px; font-weight: 600; color: var(--text-main); }
+  .tile-row { display: flex; gap: var(--space-md); padding: 0 var(--space-md); overflow: hidden; }
+  .tile { width: 200px; flex: 0 0 200px; }
+  .tile .cover { height: 113px; border-radius: var(--radius-lg); background: var(--surface-container-high); }
+  .tile .line { height: 12px; border-radius: var(--radius-sm); background: var(--surface-container-high); margin-top: var(--space-sm); }
+  .tile .line.short { width: 55%; background: var(--surface-container); }
+
+  /* --- Icônes --- */
+  .ic { display: block; flex: 0 0 auto; fill: currentColor; }
+  .ic-18 { width: 18px; height: 18px; }
+  .ic-20 { width: 20px; height: 20px; }
+  .ic-22 { width: 22px; height: 22px; }
+  .amber { color: var(--primary); }
+  .ink { color: var(--text-main); }
+  .muted { color: var(--text-muted); }
+
+  /* ================================================================
+     État actuel — UnsortedReviewButton, valeurs exactes d'inbox.tsx
+     ================================================================ */
+  .card-now {
+    display: flex; align-items: center;
+    margin: 0 var(--space-md);
+    padding: 20px; /* Spacing.md + 4, tel quel dans inbox.tsx */
+    min-height: var(--touch-comfortable);
+    background: var(--surface);
+    border-radius: var(--radius-xl);
+    border: var(--hairline) solid var(--outline-variant); /* StyleSheet.hairlineWidth */
+    box-shadow: var(--shadow-soft);
+  }
+  .card-now .pill {
+    width: var(--icon-pill); height: var(--icon-pill);
+    border-radius: var(--radius-lg);
+    background: var(--primary-10); /* littéral rgba(255,203,5,0.1) dans le code */
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card-now .label {
+    flex: 1; margin-inline-start: var(--space-md);
+    font-size: 16px; font-weight: 700; color: var(--text-main);
+  }
+  .card-now .right { display: flex; align-items: center; gap: var(--space-sm); }
+  .badge-now {
+    min-width: var(--space-lg);
+    padding: 2px 6px; /* Spacing.xs + 2 en horizontal */
+    border-radius: var(--radius-full);
+    background: var(--surface-container-high);
+    font-size: 13px; font-weight: 700; color: var(--text-main);
+    text-align: center;
+  }
+
+  /* ================================================================
+     Variante A — « Pastille tonale »
+     Aucune bordure, aucune ombre, aucune teinte : un bloc tonal et rien
+     d'autre. Rayon full, hauteur TouchTarget.comfortable.
+     ================================================================ */
+  .card-a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    margin: 0 var(--space-md);
+    padding: 0 var(--space-md);
+    min-height: var(--touch-comfortable);
+    background: var(--surface-container);
+    border-radius: var(--radius-full);
+  }
+  .card-a .label {
+    flex: 1; min-width: 0;
+    margin-inline-start: var(--space-sm); /* 8 + gap 8 = 16 depuis l'icône */
+    font-size: 16px; font-weight: 600; color: var(--text-main);
+    /* Grammaire du list item une ligne : on tronque, on ne passe pas à 2 lignes. */
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .card-a .count {
+    font-size: 16px; font-weight: 600; color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ================================================================
+     Variante B — « Encart callout ambre »
+     Le composant "Callout Aside" de DESIGN.md (barre 4px primaire + fond
+     primaire 5 %) employé comme coque de l'encart. Libellé sur 2 lignes max,
+     compteur en Metadata Chip.
+     ================================================================ */
+  .card-b {
+    position: relative;
+    display: flex; align-items: center; gap: var(--space-sm);
+    margin: 0 var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    padding-inline-start: calc(var(--space-md) + var(--space-xs));
+    min-height: var(--touch-comfortable);
+    background: var(--primary-05);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+  }
+  .card-b .bar {
+    position: absolute; inset-block: 0; inset-inline-start: 0;
+    width: var(--space-xs); /* les 4px du Callout Aside */
+    background: var(--primary);
+  }
+  .card-b .label {
+    flex: 1; min-width: 0;
+    margin-inline-start: var(--space-sm);
+    font-size: 16px; font-weight: 600; color: var(--text-main);
+    /* 2 lignes, comme aujourd'hui : le libellé long passe à la ligne au lieu
+       d'être coupé. */
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+  .chip-b {
+    min-width: var(--space-lg);
+    padding: 2px 6px;
+    border-radius: var(--radius-full);
+    background: var(--surface);
+    /* Le seul filet que DESIGN.md prescrit explicitement : "Metadata Chips …
+       a very subtle outline-variant". Échelle chip, pas division de layout. */
+    border: var(--hairline) solid var(--outline-variant);
+    font-size: 13px; font-weight: 700; color: var(--text-main);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ================================================================
+     Variante C — « Compteur en display »
+     Carte surface, ombre soft conservée et assumée, teinte d'icône ramenée à
+     5 %, compteur en Typography.display.
+     ================================================================ */
+  .card-c {
+    display: flex; flex-direction: column; gap: var(--space-md);
+    margin: 0 var(--space-md);
+    padding: var(--space-md);
+    background: var(--surface);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-soft);
+  }
+  .card-c .top { display: flex; align-items: center; justify-content: space-between; }
+  .card-c .pill {
+    width: var(--icon-pill); height: var(--icon-pill);
+    border-radius: var(--radius-lg);
+    background: var(--primary-05); /* 5 %, la valeur de la règle */
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card-c .count {
+    font-size: 32px; font-weight: 700; letter-spacing: -0.5px; line-height: 1;
+    color: var(--text-main);
+    font-variant-numeric: tabular-nums;
+  }
+  .card-c .bottom { display: flex; align-items: center; gap: var(--space-sm); }
+  .card-c .label {
+    flex: 1; min-width: 0;
+    font-size: 16px; font-weight: 600; color: var(--text-main);
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .spec { margin: 0; padding: 0; list-style: none; }
+  .spec li {
+    font-size: 13px; line-height: 1.6; color: var(--text-subtle);
+    margin: 0; padding-inline-start: var(--space-md); position: relative;
+  }
+  .spec li::before {
+    content: ""; position: absolute; inset-inline-start: 0; top: 9px;
+    width: var(--space-xs); height: var(--space-xs);
+    border-radius: var(--radius-full); background: var(--primary);
+  }
+  .spec b { color: var(--text-main); font-weight: 600; }
+  .cols { display: flex; flex-wrap: wrap; gap: var(--space-lg); }
+  .cols > * { flex: 1 1 340px; }
+</style>
+</head>
+<body>
+
+<!-- Contours Ionicons extraits de la fonte embarquée par l'app
+     (@expo/vector-icons/…/Fonts/Ionicons.ttf, 512 unités/em) : géométrie
+     identique à ce que rend <Ionicons name="…" />. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="ion-file-tray-outline" viewBox="0 0 512 512"><path d="M115 65Q121 64 259 64H396L403 66Q434 75 445 106Q446 111 463 192L481 273L480 333Q480 394 479 398Q468 439 429 447Q422 448 256 448Q90 448 83 447Q44 439 33 398Q32 394 32 333L31 273L49 192Q66 111 67 106Q76 82 96 71Q105 67 115 65ZM400 100 395 97H257Q147 97 131 97Q115 97 110 101Q102 106 98 115Q97 118 82.5 185.5Q68 253 68 255Q68 256 131 256Q183 256 191 256.5Q199 257 203 261Q207 265 208 275Q209 289 217 300Q227 314 244 318Q276 327 295 299Q302 289 304 275Q305 265 309 261Q313 257 321 256.5Q329 256 381 256Q444 256 444 255Q444 253 429.5 186Q415 119 414 116Q411 105 400 100ZM178 289Q178 289 178 289Q178 288 121 288Q121 288 64 288V340Q64 382 65 388.5Q66 395 70 402Q75 410 85 414Q85 414 90 416H256H422L427 414Q437 410 442 402Q446 395 447 388.5Q448 382 448 340Q448 340 448 288H391Q334 288 334 289Q326 318 306 334Q284 352 256 352Q228 352 206 334Q186 319 178 289Z"/></symbol>
+  <symbol id="ion-layers-outline" viewBox="0 0 512 512"><path d="M246 49Q269 47 286 53Q292 55 369 90Q446 125 449 128Q464 138 463.5 153.5Q463 169 448 178Q443 180 417.5 192Q392 204 392 204.5Q392 205 419 217Q446 229 449 231Q471 246 462 267Q458 275 448 281Q445 284 419.5 295.5Q394 307 394 307.5Q394 308 421 321.5Q448 335 452 338Q470 353 462 371Q458 379 448 386Q446 387 373 420.5Q300 454 291 458Q261 470 229 460Q223 459 146 424Q69 389 64 386Q55 380 51 370Q46 360 50.5 349.5Q55 339 67 333Q72 330 96.5 319.5Q121 309 121 308.5Q121 308 118.5 307Q116 306 112 304.5Q108 303 103 300Q64 282 58 277Q53 272 51 267Q44 253 54 239Q60 232 94 217Q101 213 107.5 210.5Q114 208 117.5 206Q121 204 121 204Q121 204 97 193Q64 178 58 173Q50 166 49 157Q45 140 62 128Q67 125 144.5 89.5Q222 54 225 53Q234 50 246 49ZM270 81Q256 78 242 81Q237 83 161.5 117Q86 151 85 152Q85 152 90 154.5Q95 157 104 161Q113 165 123 170Q163 188 169 191Q229 219 237 221Q254 227 274 222Q281 220 340 192Q344 190 383.5 172.5Q423 155 426 153L428 152L423 150Q419 148 347.5 115.5Q276 83 270 81ZM164 224 160 222 123 239Q86 255 85 256L162 292Q173 297 203 311Q233 324 240 326Q256 330 272 326Q281 324 345 294Q351 291 389 274Q400 269 408.5 265Q417 261 422 258.5Q427 256 427 256Q426 255 389.5 238.5Q353 222 352 222Q351 222 321 236Q291 250 285 252Q255 261 226 251Q220 249 194 237.5Q168 226 164 224ZM391 342Q391 342 391 342Q355 325 354.5 325Q354 325 323.5 339Q293 353 286 355Q256 366 225 355Q218 353 189.5 339.5Q161 326 160 327Q159 327 122.5 343Q86 359 85 360Q85 360 120.5 376.5Q156 393 193.5 410Q231 427 236 429Q242 431 256 431Q270 431 275 430Q279 428 317 411Q355 394 391 377Q427 360 427 360Q426 359 391 342Z"/></symbol>
+  <symbol id="ion-albums-outline" viewBox="0 0 512 512"><path d="M140 65Q141 64 257 64H374L377 67Q383 72 384 78Q385 92 371 95Q367 96 256 96Q145 96 141 95Q129 93 128.5 81Q128 69 140 65ZM108 112Q111 112 257 112H404L408 114Q416 119 416 128Q416 137 408 142L405 144H256H107L104 142Q91 134 98 120Q101 114 108 112ZM80 162Q85 161 255.5 160.5Q426 160 431 162Q443 165 452 175Q461 185 463 197Q464 202 464 304Q464 388 463.5 402Q463 416 459 423Q453 437 439 444Q433 446 429 447Q424 448 256 448Q88 448 83 447Q79 446 73 444Q59 437 53 423Q49 416 48.5 402Q48 388 48 304Q48 202 49 197Q51 185 60 175Q69 165 80 162ZM425 194Q425 194 425 194Q422 192 256 192Q90 192 87 193.5Q84 195 82.5 197.5Q81 200 80 303Q80 303 80 407L82 410Q84 412 86 414Q86 414 89 416H256H423L426 414Q428 412 430 410Q430 410 432 407V303Q431 200 429.5 197.5Q428 195 425 194Z"/></symbol>
+  <symbol id="ion-checkmark-done-outline" viewBox="0 0 512 512"><path d="M363 113Q373 110 379 117Q387 125 382 134Q381 137 313 215.5Q245 294 242 297Q236 301 228.5 299Q221 297 217.5 291Q214 285 218 278Q219 275 287 196.5Q355 118 358 115Q360 114 363 113ZM460 113Q471 110 477 118Q483 127 478 136Q476 138 362.5 267.5Q249 397 248 398Q242 401 235 399Q232 398 181.5 348Q131 298 130 295Q126 288 130 281Q134 274 142 272Q148 272 154 276.5Q160 281 195 317L239 360L242 358Q245 355 349.5 235Q454 115 456 114Q458 113 460 113ZM41 274Q41 274 41 274Q47 271 54 274Q57 275 106 323.5Q155 372 158 376Q163 385 156 394Q149 403 139 399Q136 398 85.5 347.5Q35 297 33.5 294.5Q32 292 32 288Q32 284 34 281Q36 276 41 274Z"/></symbol>
+  <symbol id="ion-chevron-forward" viewBox="0 0 512 512"><path d="M179 89Q179 89 179 89Q187 87 195 91Q198 92 273 167Q335 228 343.5 238Q352 248 352 256Q352 264 343.5 274Q335 284 273 345Q213 405 203 414Q193 423 186 424Q177 425 169.5 419Q162 413 161 404Q159 396 163 389Q164 386 229 321Q229 321 294 256L229 191Q164 126 163 123Q159 116 161 108Q163 92 179 89Z"/></symbol>
+  <symbol id="ion-arrow-forward" viewBox="0 0 512 512"><path d="M262 89Q262 89 262 89Q270 87 279 91Q283 93 357.5 168Q432 243 434 248Q436 253 436 257Q435 265 426 275Q417 285 356 345Q281 420 276 422Q271 424 268 424Q260 424 253 418Q240 408 245 392Q247 388 300 334.5Q353 281 353 280.5Q353 280 223 280Q223 280 93 279L90 277Q82 274 79 267Q74 258 77 248.5Q80 239 89 235Q89 235 93 233L224 232H354L301 178Q247 125 246 121Q242 111 246.5 101.5Q251 92 262 89Z"/></symbol>
+  <symbol id="ion-sparkles" viewBox="0 0 512 512"><path d="M82 1Q87 -1 92.5 1Q98 3 100 7Q102 9 110.5 31Q119 53 120 55Q121 57 143 65.5Q165 74 169 76Q175 79 175.5 87Q176 95 170 99Q168 101 145 110Q122 119 120.5 120.5Q119 122 110 145Q101 168 99 170Q95 176 87.5 175.5Q80 175 76 170Q74 167 65.5 144Q57 121 55 120Q53 119 30.5 110Q8 101 6 100Q0 96 0 88Q0 82 5 77Q7 75 30.5 66Q54 57 55.5 55.5Q57 54 66 31Q76 4 82 1ZM392 34Q400 30 407 34Q411 36 414 41.5Q417 47 426 72Q439 104 440.5 105Q442 106 471 117Q505 130 508 134Q512 139 511.5 145.5Q511 152 506 156Q503 159 473.5 170Q444 181 442 182Q439 184 425 219Q416 243 413 248.5Q410 254 405 255Q396 258 389 251Q386 248 374.5 218.5Q363 189 362 186Q360 183 356.5 181.5Q353 180 318 166Q293 157 290 151Q284 141 293 132Q295 130 327 118Q359 106 360.5 104.5Q362 103 374 72Q386 41 387.5 38.5Q389 36 392 34ZM200 130Q200 130 200 130Q214 125 225 136Q225 136 230 140L251 195Q272 249 274 251.5Q276 254 279 255.5Q282 257 333.5 277Q385 297 388 299Q394 303 398 310Q402 320 398 330Q394 338 387 342Q385 343 333.5 363Q282 383 279 384.5Q276 386 274 388.5Q272 391 251 445Q251 445 230 500L225 504Q218 512 208 512Q195 512 188 502Q186 499 165 444.5Q144 390 141.5 387Q139 384 86.5 364Q34 344 30 343Q23 339 18 331Q14 322 17 313Q20 304 28 299Q31 297 83.5 277Q136 257 138.5 255Q141 253 142.5 251.5Q144 250 164.5 196Q185 142 187 139Q192 132 200 130Z"/></symbol>
+</svg>
+
+<header>
+  <h1>« Revue des non classés » — trois variantes de l'encart d'accueil</h1>
+  <p class="lede">
+    task-361. Chaque cadre fait la largeur logique du device (390 pt, et 320 pt
+    pour la colonne Display&nbsp;Zoom) et rend l'encart dans son voisinage réel :
+    la zone sûre au-dessus, puis l'encart, puis l'écart d'accueil et l'en-tête de
+    section. Les valeurs viennent de <code>mobile/src/constants/theme.ts</code>,
+    les icônes de la fonte Ionicons que l'app embarque. Aucune ressource
+    distante : le fichier s'ouvre seul, hors ligne, et rend à l'identique.
+    L'argumentaire complet — règles citées, implémentations de référence, ce que
+    chaque variante abandonne — est dans <code>README.md</code>, à côté.
+  </p>
+</header>
+
+<section class="panel">
+  <h3>Les tokens employés, et rien d'autre</h3>
+  <ul class="swatches">
+    <li class="swatch"><i style="background:var(--primary)"></i> primary #ffcb05</li>
+    <li class="swatch"><i style="background:var(--background)"></i> background #fcf9f6</li>
+    <li class="swatch"><i style="background:var(--surface)"></i> surface #ffffff</li>
+    <li class="swatch"><i style="background:var(--surface-container)"></i> surfaceContainer #f1edea</li>
+    <li class="swatch"><i style="background:var(--surface-container-high)"></i> surfaceContainerHigh #ebe7e5</li>
+    <li class="swatch"><i style="background:var(--surface-container-low)"></i> surfaceContainerLow #f7f3f0</li>
+    <li class="swatch"><i style="background:var(--text-main)"></i> textMain #2b2d42</li>
+    <li class="swatch"><i style="background:var(--text-subtle)"></i> textSubtle #5c6880</li>
+    <li class="swatch"><i style="background:var(--text-muted)"></i> textMuted #8d99ae</li>
+    <li class="swatch"><i style="background:var(--outline-variant)"></i> outlineVariant #c8c7bd</li>
+    <li class="swatch"><i style="background:var(--primary-05)"></i> primary 5&nbsp;%</li>
+    <li class="swatch"><i style="background:var(--primary-10)"></i> primary 10&nbsp;% (actuel)</li>
+  </ul>
+  <p class="caption" style="margin-top:var(--space-md);max-width:78ch">
+    Typographie : 32/700/-0.5 (display), 20/600 (headline), 16 (body), 14/500
+    (label), 13 (small). Espacements 4 / 8 / 16 / 24 / 32 / 48. Rayons 4 / 8 / 12
+    / 16 / full. Cibles tactiles 48 / 56 / 64. Ombre <code>soft</code> :
+    0 8px 24px rgba(43,45,66,.04).
+  </p>
+</section>
+
+<h2>État actuel — la référence, pas une variante</h2>
+<p class="lede">
+  <code>UnsortedReviewButton</code>, <code>mobile/app/(tabs)/inbox.tsx</code>.
+  Rendu ici avec ses valeurs exactes : carte <code>surface</code>, bordure
+  hairline <code>outlineVariant</code>, <code>Shadows.soft</code>, pastille ambre
+  à 10&nbsp;% en littéral, glyphe <code>file-tray-outline</code> — celui-là même
+  que porte l'onglet Accueil dans la barre d'onglets.
+</p>
+<div class="cells">
+  <div class="cell">
+    <p class="caption"><b>Actuel</b> · FR « Tri des non classés » · 12</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-now">
+          <span class="pill"><svg class="ic ic-22 amber"><use href="#ion-file-tray-outline"/></svg></span>
+          <span class="label">Tri des non classés</span>
+          <span class="right">
+            <span class="badge-now">12</span>
+            <svg class="ic ic-20 amber"><use href="#ion-chevron-forward"/></svg>
+          </span>
+        </div>
+      </div>
+      <div class="block">
+        <div class="section-header">
+          <svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg>
+          <span>Ajouts récents</span>
+        </div>
+        <div class="tile-row">
+          <div class="tile"><div class="cover"></div><div class="line"></div><div class="line short"></div></div>
+          <div class="tile"><div class="cover"></div><div class="line"></div><div class="line short"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cell" style="max-width:390px">
+    <p class="caption"><b>Ce qui se voit dans ce cadre</b></p>
+    <ul class="spec">
+      <li>La bordure hairline fait le tour de la carte : une <b>division de layout au filet</b>, ce que la No-Line&nbsp;Rule exclut.</li>
+      <li>La pastille est à <b>10&nbsp;%</b> quand la règle « Signature Textures » dit 5&nbsp;%, et la valeur est écrite en dur, hors token.</li>
+      <li><code>Shadows.soft</code> sur l'encart, alors que la même ombre est déjà sur les deux boutons flottants du même écran : elle ne distingue plus rien.</li>
+      <li>Le glyphe est celui de l'onglet où l'on se trouve déjà (<code>file-tray-outline</code> / <code>sf="tray"</code>) : il n'informe pas.</li>
+      <li>Le bandeau de quota juste au-dessus, dans le même écran, est lui un simple bloc tonal sans filet ni ombre : l'encart est l'exception de sa propre colonne.</li>
+    </ul>
+  </div>
+</div>
+
+<h2>Les trois variantes, côte à côte</h2>
+<p class="lede">
+  Même état pour les trois — FR, compteur à 12 — et même contexte, pour que la
+  comparaison porte sur la coque, l'icône et le traitement du compteur.
+</p>
+<div class="cells">
+
+  <div class="cell">
+    <p class="caption"><b>A — Pastille tonale</b> · aucun filet, aucune ombre, aucune teinte</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-a">
+          <svg class="ic ic-22 amber"><use href="#ion-layers-outline"/></svg>
+          <span class="label">Revue des non classés</span>
+          <span class="count">12</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block">
+        <div class="section-header">
+          <svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg>
+          <span>Ajouts récents</span>
+        </div>
+        <div class="tile-row">
+          <div class="tile"><div class="cover"></div><div class="line"></div><div class="line short"></div></div>
+          <div class="tile"><div class="cover"></div><div class="line"></div><div class="line short"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption"><b>B — Encart callout ambre</b> · barre 4&nbsp;px + fond primaire 5&nbsp;%</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-b">
+          <span class="bar"></span>
+          <svg class="ic ic-22 ink"><use href="#ion-albums-outline"/></svg>
+          <span class="label">Revue des non classés</span>
+          <span class="chip-b">12</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block">
+        <div class="section-header">
+          <svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg>
+          <span>Ajouts récents</span>
+        </div>
+        <div class="tile-row">
+          <div class="tile"><div class="cover"></div><div class="line"></div><div class="line short"></div></div>
+          <div class="tile"><div class="cover"></div><div class="line"></div><div class="line short"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption"><b>C — Compteur en display</b> · le chiffre en 32&nbsp;px, ombre assumée</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-c">
+          <div class="top">
+            <span class="pill"><svg class="ic ic-22 ink"><use href="#ion-checkmark-done-outline"/></svg></span>
+            <span class="count">12</span>
+          </div>
+          <div class="bottom">
+            <span class="label">Revue des non classés</span>
+            <svg class="ic ic-20 amber"><use href="#ion-arrow-forward"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="block">
+        <div class="section-header">
+          <svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg>
+          <span>Ajouts récents</span>
+        </div>
+        <div class="tile-row">
+          <div class="tile"><div class="cover"></div><div class="line"></div><div class="line short"></div></div>
+          <div class="tile"><div class="cover"></div><div class="line"></div><div class="line short"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<h2>A — « Pastille tonale »</h2>
+<div class="cols">
+  <div class="panel">
+    <h3>Ce que la variante pose</h3>
+    <ul class="spec">
+      <li>Coque : <b>surfaceContainer</b> #f1edea, <b>BorderRadius.full</b>, hauteur <b>TouchTarget.comfortable</b> (56), aucune bordure, aucune ombre.</li>
+      <li>Icône : <b><code>layers-outline</code></b> 22 px en <code>Colors.primary</code>, sans pastille — la teinte à 10&nbsp;% disparaît au lieu d'être corrigée.</li>
+      <li>Libellé : 16 px / 600, <code>textMain</code>, <b>une ligne, tronquée</b>.</li>
+      <li>Compteur : chiffre nu 16 px / 600 en <code>textSubtle</code> (#5c6880, le gris fait pour être lu) ; chevron 20 px en <code>textMuted</code>.</li>
+      <li>Marges : <code>Spacing.md</code> à gauche et à droite, <code>HOME_BLOCK_GAP</code> au-dessus. Inchangées.</li>
+    </ul>
+  </div>
+  <div class="panel">
+    <h3>Ce qu'elle abandonne</h3>
+    <ul class="spec">
+      <li>La prééminence : elle se lit comme un <b>contrôle</b>, pas comme une annonce. Un utilisateur qui ne cherche pas le tri peut passer devant.</li>
+      <li>Les deux lignes de libellé : DE et PT sont coupés à 320 pt (visible ci-dessous, dernière colonne).</li>
+      <li>L'ambre comme accent de valeur : il ne reste qu'un glyphe ambre décoratif, à faible contraste sur un fond clair — le sens est porté par le libellé et par le chiffre gris.</li>
+    </ul>
+  </div>
+</div>
+<div class="cells">
+
+  <div class="cell">
+    <p class="caption">FR · <b>3</b> (un chiffre)</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-a">
+          <svg class="ic ic-22 amber"><use href="#ion-layers-outline"/></svg>
+          <span class="label">Revue des non classés</span>
+          <span class="count">3</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Ajouts récents</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">FR · <b>128</b> (trois chiffres)</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-a">
+          <svg class="ic ic-22 amber"><use href="#ion-layers-outline"/></svg>
+          <span class="label">Revue des non classés</span>
+          <span class="count">128</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Ajouts récents</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">DE « Unsortiertes durchgehen » · <b>128</b></p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-a">
+          <svg class="ic ic-22 amber"><use href="#ion-layers-outline"/></svg>
+          <span class="label">Unsortiertes durchgehen</span>
+          <span class="count">128</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Kürzlich hinzugefügt</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">PT « Revisão dos não organizados » · <b>9</b></p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-a">
+          <svg class="ic ic-22 amber"><use href="#ion-layers-outline"/></svg>
+          <span class="label">Revisão dos não organizados</span>
+          <span class="count">9</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Adicionados recentemente</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">FR · <b>1042</b> — le compteur n'est pas plafonné (<code>media_count</code>)</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-a">
+          <svg class="ic ic-22 amber"><use href="#ion-layers-outline"/></svg>
+          <span class="label">Revue des non classés</span>
+          <span class="count">1042</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Ajouts récents</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">DE · <b>128</b> · <b>320 pt</b> (Display Zoom) — le libellé est coupé</p>
+    <div class="frame narrow">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-a">
+          <svg class="ic ic-22 amber"><use href="#ion-layers-outline"/></svg>
+          <span class="label">Unsortiertes durchgehen</span>
+          <span class="count">128</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Kürzlich hinzugefügt</span></div></div>
+    </div>
+  </div>
+
+</div>
+
+<h2>B — « Encart callout ambre »</h2>
+<div class="cols">
+  <div class="panel">
+    <h3>Ce que la variante pose</h3>
+    <ul class="spec">
+      <li>Coque : le <b>Callout Aside</b> du système — barre verticale de <code>Spacing.xs</code> (4) en <code>Colors.primary</code>, fond primaire à <b>5&nbsp;%</b>, <b>BorderRadius.xl</b>, aucune bordure, aucune ombre.</li>
+      <li>Icône : <b><code>albums-outline</code></b> 22 px en <code>textMain</code> — l'ambre est déjà dans la coque, un glyphe ambre par-dessus n'aurait plus de contraste.</li>
+      <li>Libellé : 16 px / 600, <b>deux lignes maximum</b> — il passe à la ligne au lieu d'être coupé.</li>
+      <li>Compteur : <b>Metadata Chip</b> — pastille <code>surface</code>, rayon full, filet <code>outlineVariant</code> à l'échelle du chip, 13 px / 700 en <code>textMain</code>.</li>
+      <li>Chevron 20 px en <code>textMuted</code>. Marges et écart d'accueil inchangés.</li>
+    </ul>
+  </div>
+  <div class="panel">
+    <h3>Ce qu'elle abandonne</h3>
+    <ul class="spec">
+      <li>La carte blanche : l'encart ne ressemble plus aux cartes de médias de l'app, il ressemble à un <b>bandeau</b>.</li>
+      <li>L'ambre comme signal d'action : la couleur sert ici à annoncer un <b>arriéré</b>. Si l'ambre veut dire à la fois « appuie ici » et « tu as du retard », il ne veut plus dire grand-chose.</li>
+      <li>La discrétion de la disparition : à 0 l'encart s'efface, et c'est une bande colorée qui disparaît — un saut visuel plus grand que celui d'une ligne tonale.</li>
+    </ul>
+  </div>
+</div>
+<div class="cells">
+
+  <div class="cell">
+    <p class="caption">FR · <b>3</b> (un chiffre)</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-b">
+          <span class="bar"></span>
+          <svg class="ic ic-22 ink"><use href="#ion-albums-outline"/></svg>
+          <span class="label">Revue des non classés</span>
+          <span class="chip-b">3</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Ajouts récents</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">FR · <b>128</b> (trois chiffres)</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-b">
+          <span class="bar"></span>
+          <svg class="ic ic-22 ink"><use href="#ion-albums-outline"/></svg>
+          <span class="label">Revue des non classés</span>
+          <span class="chip-b">128</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Ajouts récents</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">DE « Unsortiertes durchgehen » · <b>128</b></p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-b">
+          <span class="bar"></span>
+          <svg class="ic ic-22 ink"><use href="#ion-albums-outline"/></svg>
+          <span class="label">Unsortiertes durchgehen</span>
+          <span class="chip-b">128</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Kürzlich hinzugefügt</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">PT « Revisão dos não organizados » · <b>9</b></p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-b">
+          <span class="bar"></span>
+          <svg class="ic ic-22 ink"><use href="#ion-albums-outline"/></svg>
+          <span class="label">Revisão dos não organizados</span>
+          <span class="chip-b">9</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Adicionados recentemente</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">FR · <b>1042</b> — le chip s'allonge, il ne casse pas</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-b">
+          <span class="bar"></span>
+          <svg class="ic ic-22 ink"><use href="#ion-albums-outline"/></svg>
+          <span class="label">Revue des non classés</span>
+          <span class="chip-b">1042</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Ajouts récents</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">DE · <b>128</b> · <b>320 pt</b> (Display Zoom) — deux lignes, rien de coupé</p>
+    <div class="frame narrow">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-b">
+          <span class="bar"></span>
+          <svg class="ic ic-22 ink"><use href="#ion-albums-outline"/></svg>
+          <span class="label">Unsortiertes durchgehen</span>
+          <span class="chip-b">128</span>
+          <svg class="ic ic-20 muted"><use href="#ion-chevron-forward"/></svg>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Kürzlich hinzugefügt</span></div></div>
+    </div>
+  </div>
+
+</div>
+
+<h2>C — « Compteur en display »</h2>
+<div class="cols">
+  <div class="panel">
+    <h3>Ce que la variante pose</h3>
+    <ul class="spec">
+      <li>Coque : carte <code>surface</code>, <b>BorderRadius.xl</b>, <code>padding: Spacing.md</code>, aucune bordure, <b><code>Shadows.soft</code> conservée</b> et argumentée (voir README).</li>
+      <li>Compteur : <b>Typography.display</b> — 32 px / 700 / -0,5 — en <code>textMain</code>. Trois ou quatre chiffres tiennent sans badge ni troncature.</li>
+      <li>Icône : <b><code>checkmark-done-outline</code></b> 22 px en <code>textMain</code>, dans une pastille 40 (= <code>Spacing.lg + Spacing.md</code>), rayon <code>lg</code>, fond primaire à <b>5&nbsp;%</b> exactement.</li>
+      <li>Libellé : 16 px / 600 sur la seconde ligne, deux lignes maximum ; affordance <code>arrow-forward</code> 20 px en <code>Colors.primary</code>.</li>
+      <li>Marges et <code>HOME_BLOCK_GAP</code> inchangés ; seule la <em>hauteur propre</em> de l'encart augmente (≈ 108 sur une ligne de libellé, ≈ 128 sur deux, contre ≈ 80 aujourd'hui et 56 pour A).</li>
+    </ul>
+  </div>
+  <div class="panel">
+    <h3>Ce qu'elle abandonne</h3>
+    <ul class="spec">
+      <li>La compacité : c'est la plus haute des trois, et le haut de l'accueil est l'endroit le plus cher de l'app.</li>
+      <li>Le chevron : l'app dit « on entre ici » avec <code>chevron-forward</code> partout ailleurs ; ici c'est une flèche.</li>
+      <li>La neutralité : 128 en 32 px, c'est un <b>reproche</b>. La variante dramatise l'arriéré, et c'est le prix de sa lisibilité.</li>
+    </ul>
+  </div>
+</div>
+<div class="cells">
+
+  <div class="cell">
+    <p class="caption">FR · <b>3</b> (un chiffre)</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-c">
+          <div class="top">
+            <span class="pill"><svg class="ic ic-22 ink"><use href="#ion-checkmark-done-outline"/></svg></span>
+            <span class="count">3</span>
+          </div>
+          <div class="bottom">
+            <span class="label">Revue des non classés</span>
+            <svg class="ic ic-20 amber"><use href="#ion-arrow-forward"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Ajouts récents</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">FR · <b>128</b> (trois chiffres)</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-c">
+          <div class="top">
+            <span class="pill"><svg class="ic ic-22 ink"><use href="#ion-checkmark-done-outline"/></svg></span>
+            <span class="count">128</span>
+          </div>
+          <div class="bottom">
+            <span class="label">Revue des non classés</span>
+            <svg class="ic ic-20 amber"><use href="#ion-arrow-forward"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Ajouts récents</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">DE « Unsortiertes durchgehen » · <b>128</b></p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-c">
+          <div class="top">
+            <span class="pill"><svg class="ic ic-22 ink"><use href="#ion-checkmark-done-outline"/></svg></span>
+            <span class="count">128</span>
+          </div>
+          <div class="bottom">
+            <span class="label">Unsortiertes durchgehen</span>
+            <svg class="ic ic-20 amber"><use href="#ion-arrow-forward"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Kürzlich hinzugefügt</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">PT « Revisão dos não organizados » · <b>9</b></p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-c">
+          <div class="top">
+            <span class="pill"><svg class="ic ic-22 ink"><use href="#ion-checkmark-done-outline"/></svg></span>
+            <span class="count">9</span>
+          </div>
+          <div class="bottom">
+            <span class="label">Revisão dos não organizados</span>
+            <svg class="ic ic-20 amber"><use href="#ion-arrow-forward"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Adicionados recentemente</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">FR · <b>1042</b> — quatre chiffres tiennent en display</p>
+    <div class="frame">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-c">
+          <div class="top">
+            <span class="pill"><svg class="ic ic-22 ink"><use href="#ion-checkmark-done-outline"/></svg></span>
+            <span class="count">1042</span>
+          </div>
+          <div class="bottom">
+            <span class="label">Revue des non classés</span>
+            <svg class="ic ic-20 amber"><use href="#ion-arrow-forward"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Ajouts récents</span></div></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <p class="caption">DE · <b>128</b> · <b>320 pt</b> (Display Zoom)</p>
+    <div class="frame narrow">
+      <div class="safe-area"></div>
+      <div class="block">
+        <div class="card-c">
+          <div class="top">
+            <span class="pill"><svg class="ic ic-22 ink"><use href="#ion-checkmark-done-outline"/></svg></span>
+            <span class="count">128</span>
+          </div>
+          <div class="bottom">
+            <span class="label">Unsortiertes durchgehen</span>
+            <svg class="ic ic-20 amber"><use href="#ion-arrow-forward"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="block"><div class="section-header"><svg class="ic ic-18 amber"><use href="#ion-sparkles"/></svg><span>Kürzlich hinzugefügt</span></div></div>
+    </div>
+  </div>
+
+</div>
+
+<h2>Ce qu'aucune variante ne touche</h2>
+<div class="panel">
+  <ul class="spec">
+    <li><b><code>HOME_BLOCK_GAP</code> reste <code>Spacing.lg</code> (24)</b>, et reste déclaré au-dessus du bloc et nulle part en dessous. Les trois cadres côte à côte le montrent : l'écart entre l'encart et « Ajouts récents » est le même dans les trois.</li>
+    <li><b>Les marges de section ne bougent pas</b> : <code>Spacing.md</code> (16) en horizontal pour l'encart, <code>Spacing.lg</code> (24) pour l'en-tête de section, <code>Spacing.md</code> pour la rangée de tuiles.</li>
+    <li>Motif : le retour TestFlight <code>AE3J09ClZ0T9VY8Jc5SnCRc</code> est classé <code>declined</code> le 2026-09-04 dans <code>docs/testflight-feedback-log.md</code> — « fausse alerte, on ne touche à rien ». Le rythme vertical de l'accueil est fermé ; seule la <em>hauteur propre</em> de l'encart varie d'une variante à l'autre, ce qui n'est pas le même sujet.</li>
+    <li>L'encart continue de disparaître entièrement à 0, comme aujourd'hui. Aucune variante ne propose d'état vide.</li>
+  </ul>
+</div>
+
+</body>
+</html>
