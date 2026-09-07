@@ -3,9 +3,10 @@ id: task-371
 title: >-
   Instrumenter les échecs de téléversement présigné pour rendre leur cause
   identifiable
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-06 21:45'
+updated_date: '2026-09-07 10:16'
 labels:
   - bug
 dependencies: []
