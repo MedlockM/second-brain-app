@@ -217,8 +217,22 @@ o <feedback-id> — rien d'exploitable
 X <feedback-id> — échec: raison
 
 Rapport: .testflight-feedback/report-<date>.md
-Délivré à: <session> | NON DÉLIVRÉ
+Délivré à: TestFlight Feedback | non requis | NON DÉLIVRÉ
 ```
+
+**La ligne `Délivré à:` est un contrat, pas une phrase.** `scripts/testflight_triage.sh` la lit
+— la dernière du run, ancrée en début de ligne — pour décider s'il sort en échec. Exactement trois
+valeurs :
+
+| Valeur | Sens | Sortie du wrapper |
+|---|---|---|
+| `TestFlight Feedback` | le rapport est arrivé à la session | succès |
+| `non requis` | rien de nouveau et rien en attente : matin silencieux voulu | succès |
+| `NON DÉLIVRÉ` | un rapport existe mais personne n'a été prévenu | **échec, exit 1** |
+
+N'écris jamais `NON DÉLIVRÉ` ailleurs que sur cette ligne, pas même pour en parler : le contrôle du
+2026-09-07 a échoué parce qu'une synthèse *expliquait* le mécanisme en citant la chaîne. Pour parler
+du cas, dis « non délivré » en toutes lettres minuscules, ou décris-le sans le nommer.
 
 Avant de terminer, contrôle que ton run a bien été invisible pour l'owner : `git status --porcelain`
 ne doit rien montrer que tu aies introduit, et `git rev-parse --short HEAD` doit être inchangé

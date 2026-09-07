@@ -202,13 +202,24 @@ fi
 # et systemd a quand même enregistré `Result=success` : l'échec de délivrance était
 # invisible dans `systemctl --user status`, qui est exactement l'endroit où il
 # devait se voir. Le verdict se lit donc dans la sortie, pas dans le code de retour.
-# Un matin sans rien de neuf ne délivre rien, et c'est le comportement voulu : la
-# Phase 2 dit explicitement de rester silencieuse. Ce n'est un échec que s'il y avait
-# un rapport à remettre — d'où la condition sur son existence.
-TODAY_REPORT=".testflight-feedback/report-$(date +%F).md"
-if [ "${DELIVER}" = true ] && [ -f "${TODAY_REPORT}" ] && grep -qi "NON DÉLIVRÉ" "${RUN_LOG}"; then
+# Le verdict se lit sur la ligne « Délivré à: » du bloc de synthèse de la Phase 7,
+# jamais en cherchant une chaîne dans la prose du run. La première version de ce
+# contrôle faisait exactement ça, et le run de contrôle du 2026-09-07 l'a piégée de la
+# façon la plus nette possible : l'agent, qui n'avait rien à délivrer, a écrit une
+# phrase *expliquant* que la chaîne « NON DÉLIVRÉ » ferait échouer le wrapper — et l'a
+# donc fait échouer. Une synthèse parle du dispositif autant qu'elle en rend compte ;
+# seule une ligne structurée est un signal.
+#
+# Trois valeurs possibles, définies en Phase 7 de feedback-triage.md :
+#   « Délivré à: TestFlight Feedback »  le rapport est arrivé          → succès
+#   « Délivré à: non requis »           rien à délivrer, matin calme   → succès
+#   « Délivré à: NON DÉLIVRÉ »          rapport orphelin sur disque    → échec
+DELIVERY_LINE="$(grep -aoE '^[[:space:]]*Délivré à:.*' "${RUN_LOG}" | tail -1 || true)"
+
+if [ "${DELIVER}" = true ] && printf '%s' "${DELIVERY_LINE}" | grep -qi "NON DÉLIVRÉ"; then
   echo "" >&2
   echo "Error: rapport NON DÉLIVRÉ — il est sur disque, mais personne n'a été prévenu." >&2
+  echo "  ${DELIVERY_LINE}" >&2
   echo "  Remède : ./scripts/testflight_session.sh start, puis relancer le triage." >&2
   exit 1
 fi
