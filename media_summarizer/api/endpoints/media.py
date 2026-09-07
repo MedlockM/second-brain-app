@@ -1018,7 +1018,7 @@ async def search_media(
 
     Query Parameters:
         q: Text search on title (case-insensitive substring match)
-        folder_id: Filter by folder (includes sub-folders)
+        folder_id: Filter by folder (includes subfolders)
         source: Filter by source platform (youtube, tiktok, web, audio, etc.)
         type: Filter by media type (video, article, podcast, audio)
         status_filter: Filter by job status (pending, completed, failed, etc.)

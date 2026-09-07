@@ -38,7 +38,7 @@ export const en = {
   "trial.daysLeft.other": "Free Trial - {count} days left",
 
   // --- Home tiles ---
-  "home.tile.a11yCollection": "Collection {name}, {count}",
+  "home.tile.a11yFolder": "Folder {name}, {count}",
   "home.tile.a11yByCreator": "{title} by {creator}",
 
   // --- Minutes warning ---
@@ -52,7 +52,7 @@ export const en = {
   "quota.seePlans": "See plans",
   "quota.dismissWarning": "Dismiss the minutes warning",
 
-  // --- AI artifacts, shared between the media and collection scopes ---
+  // --- AI artifacts, shared between the media and folder scopes ---
   "artifacts.sourceCount.one": "{count} source",
   "artifacts.sourceCount.other": "{count} sources",
   "artifacts.status.queued": "Queued",
@@ -94,32 +94,32 @@ export const en = {
   "mediaActions.deleteFailed":
     "This source could not be deleted. It is still in your library.",
 
-  // --- Actions on a collection: long press in Library, `…` on its own page ---
-  // Two rows, no Move: reparenting a collection has no picker anywhere yet.
-  "collectionActions.longPressHint":
-    "Double tap and hold to rename or delete this collection",
-  "collectionActions.rename.label": "Rename",
-  "collectionActions.delete.label": "Delete",
-  // Same control on the header of a collection's page. Absent on the default
-  // collection, whose rename and delete the backend both refuse.
-  "collectionActions.moreA11y": "Actions for this collection",
-  "collectionActions.rename.title": "Rename this collection",
-  "collectionActions.rename.placeholder": "Collection name",
-  "collectionActions.renameFailed":
-    "This collection could not be renamed. Its name is unchanged.",
-  "collectionActions.deleteTitle": "Delete this collection?",
-  // `{unsorted}` is the display label of the default collection, which the tile
+  // --- Actions on a folder: long press in Library, `…` on its own page ---
+  // Two rows, no Move: reparenting a folder has no picker anywhere yet.
+  "folderActions.longPressHint":
+    "Double tap and hold to rename or delete this folder",
+  "folderActions.rename.label": "Rename",
+  "folderActions.delete.label": "Delete",
+  // Same control on the header of a folder's page. Absent on the default
+  // folder, whose rename and delete the backend both refuse.
+  "folderActions.moreA11y": "Actions for this folder",
+  "folderActions.rename.title": "Rename this folder",
+  "folderActions.rename.placeholder": "Folder name",
+  "folderActions.renameFailed":
+    "This folder could not be renamed. Its name is unchanged.",
+  "folderActions.deleteTitle": "Delete this folder?",
+  // `{unsorted}` is the display label of the default folder, which the tile
   // itself shows: what the sources are about to land in, named the same way.
-  "collectionActions.deleteBody":
+  "folderActions.deleteBody":
     "“{name}” will be deleted. Every source it holds moves to {unsorted} — none of them is deleted.",
-  // Appended to the line above when the collection has a subtree, because that is
+  // Appended to the line above when the folder has a subtree, because that is
   // the part a tile showing one folder glyph cannot tell.
-  "collectionActions.deleteSubCollections.one":
-    "Its {count} sub-collection is deleted too, and the sources inside it move to {unsorted} as well.",
-  "collectionActions.deleteSubCollections.other":
-    "Its {count} sub-collections are deleted too, and the sources inside them move to {unsorted} as well.",
-  "collectionActions.deleteFailed":
-    "This collection could not be deleted. It is still in your library.",
+  "folderActions.deleteSubfolders.one":
+    "Its {count} subfolder is deleted too, and the sources inside it move to {unsorted} as well.",
+  "folderActions.deleteSubfolders.other":
+    "Its {count} subfolders are deleted too, and the sources inside them move to {unsorted} as well.",
+  "folderActions.deleteFailed":
+    "This folder could not be deleted. It is still in your library.",
 
   // --- Add-source sheet ---
   "addSource.title": "Add to your inbox",
@@ -253,14 +253,14 @@ export const en = {
     "This is too long for a single import on your plan. Split it into shorter parts.",
 
   // --- Artifact refusals ---
-  "artifacts.refusal.collectionEmpty":
-    "This collection has no source with a transcript yet. Add media, or wait for the ones you saved to finish processing.",
+  "artifacts.refusal.folderEmpty":
+    "This folder has no source with a transcript yet. Add media, or wait for the ones you saved to finish processing.",
   "artifacts.refusal.mediaEmpty":
     "This item has no transcript yet, so there is nothing to generate from.",
   "artifacts.refusal.tooManySources":
-    "This collection has {count} sources, over the {max} a single generation can read. Generate on a smaller sub-collection instead.",
+    "This folder has {count} sources, over the {max} a single generation can read. Generate on a smaller subfolder instead.",
   "artifacts.refusal.tooMuchText":
-    "There is too much text here for one generation. Generate on a smaller sub-collection instead.",
+    "There is too much text here for one generation. Generate on a smaller subfolder instead.",
   // A translation the provider refused for good, as opposed to one still
   // running: nothing is coming, so the copy must not invite a retry in a moment.
   "artifacts.refusal.translationFailed":
@@ -306,8 +306,8 @@ export const en = {
     "A video that already has subtitles we can buy costs {duration}, however long it is.",
   "plan.legend.documents":
     "A PDF, an Office document or a photo we read the text off costs 1 min per {pages} pages.",
-  "plan.legend.collections":
-    "A generation over a whole collection costs 1 min per {sources} items in it. On a single item it is free.",
+  "plan.legend.folders":
+    "A generation over a whole folder costs 1 min per {sources} items in it. On a single item it is free.",
   "plan.legend.free":
     "Articles, web pages, TikToks and Instagram photo posts cost nothing at all: they are not transcribed.",
   "plan.legend.overLimit":
@@ -319,9 +319,9 @@ export const en = {
   "plan.highlight.read":
     "Read the full transcript, translated into your reading language",
   "plan.highlight.generate":
-    "Generate {list} on demand, per item or per collection",
+    "Generate {list} on demand, per item or per folder",
   "plan.highlight.organise":
-    "Organise in collections, search everything, daily digest",
+    "Organise in folders, search everything, daily digest",
   "plan.includes.capture.title": "Save anything, from any app",
   "plan.includes.capture.links":
     "Share a link from any app, or paste one: YouTube videos, podcast episodes from Apple Podcasts, Spotify, Deezer or any RSS feed, TikToks, Instagram reels and photo posts, X posts, news articles and any web page.",
@@ -334,13 +334,13 @@ export const en = {
     "Transcripts are translated into your reading language, {count} to choose from, and you can change it whenever you like.",
   "plan.includes.generate.title": "Turn it into something you keep",
   "plan.includes.generate.onDemand": "On any item, on demand: {list}.",
-  "plan.includes.generate.collection":
-    "Run the same generations across a whole collection to get one synthesis of everything you filed in it.",
+  "plan.includes.generate.folder":
+    "Run the same generations across a whole folder to get one synthesis of everything you filed in it.",
   "plan.includes.generate.kept":
     "Every generation is kept, so you can come back to it or ask for a fresh one later.",
   "plan.includes.organise.title": "Find it again months later",
   "plan.includes.organise.file":
-    "File anything into collections, at the moment you save it or any time after.",
+    "File anything into folders, at the moment you save it or any time after.",
   "plan.includes.organise.search":
     "Full-text search across everything you have ever saved, transcripts included.",
   "plan.includes.organise.digest":
@@ -490,11 +490,11 @@ export const en = {
   "mediaType.unknownSource": "Unknown",
   "search.placeholder": "Search your library...",
   "search.clearA11y": "Clear search query",
-  "search.collections": "Collections",
+  "search.folders": "Folders",
   "search.allMedia": "All media",
-  "search.noCollections":
-    "No collections yet. Organize media into collections when you save them.",
-  "search.openCollectionA11y": "Open collection {name}",
+  "search.noFolders":
+    "No folders yet. Organize media into folders when you save them.",
+  "search.openFolderA11y": "Open folder {name}",
   "search.resultCount.one": "{count} result",
   "search.resultCount.other": "{count} results",
   "search.endOfResults": "End of results",
@@ -504,10 +504,10 @@ export const en = {
   "search.emptyLibraryHint":
     "Share a link from any app, or import a file from the Inbox, and it shows up here.",
   "search.failed": "Search failed",
-  "search.collectionsLoadFailed": "Unable to load your collections.",
+  "search.foldersLoadFailed": "Unable to load your folders.",
   "search.libraryLoadFailed": "Unable to load your library.",
   "search.retryLibraryA11y": "Retry loading your library",
-  "search.retryCollectionsA11y": "Retry loading collections",
+  "search.retryFoldersA11y": "Retry loading folders",
   "search.retrySearchA11y": "Retry the search",
   // --- Bottom tab bar ---
   "tabs.home": "Home",
@@ -524,8 +524,8 @@ export const en = {
   "home.empty": "Your shared media will appear here.",
   "home.emptyHint":
     "Share a link from any app, or tap + to import a file or take a photo.",
-  "home.untitledCollection": "Collection",
-  // --- Unsorted review (triage of the default collection) ---
+  "home.untitledFolder": "Folder",
+  // --- Unsorted review (triage of the default folder) ---
   "unsortedReview.title": "Unsorted review",
   "unsortedReview.position": "{current} / {total}",
   "unsortedReview.positionA11y": "Source {current} of {total}",
@@ -540,7 +540,7 @@ export const en = {
   "unsortedReview.deepen": "Deepen",
   "unsortedReview.deepenA11y": "Open {title}",
   "unsortedReview.save": "Save",
-  "unsortedReview.saveA11y": "Save {title} to a collection",
+  "unsortedReview.saveA11y": "Save {title} to a folder",
   "unsortedReview.doneTitle": "Nothing left to sort",
   "unsortedReview.doneBody": "Everything that was waiting has been dealt with.",
   // --- Digest tab ---
@@ -558,31 +558,31 @@ export const en = {
     "What you save shows up here in the next digest.",
   "digest.emptyWeeklyHint":
     "What you save this week shows up here on Monday.",
-  // --- Collection picker (modal) ---
-  "collectionPicker.title": "Collection",
-  "collectionPicker.saveA11y": "Save selection",
-  "collectionPicker.searchPlaceholder": "Search",
-  "collectionPicker.unsorted": "Unsorted",
-  "collectionPicker.myCollections": "My collections",
-  "collectionPicker.createA11y": "Create new collection",
-  "collectionPicker.namePlaceholder": "Collection name",
-  "collectionPicker.confirm": "Confirm",
-  "collectionPicker.collapse": "Collapse",
-  "collectionPicker.expand": "Expand",
-  "collectionPicker.noMatches": "No collections match your search",
-  "collectionPicker.loadFailed": "Failed to load collections",
-  "collectionPicker.saveFailed": "Failed to save collection",
-  "collectionPicker.createFailed": "Failed to create collection",
+  // --- Folder picker (modal) ---
+  "folderPicker.title": "Folder",
+  "folderPicker.saveA11y": "Save selection",
+  "folderPicker.searchPlaceholder": "Search",
+  "folderPicker.unsorted": "Unsorted",
+  "folderPicker.myFolders": "My folders",
+  "folderPicker.createA11y": "Create new folder",
+  "folderPicker.namePlaceholder": "Folder name",
+  "folderPicker.confirm": "Confirm",
+  "folderPicker.collapse": "Collapse",
+  "folderPicker.expand": "Expand",
+  "folderPicker.noMatches": "No folders match your search",
+  "folderPicker.loadFailed": "Failed to load folders",
+  "folderPicker.saveFailed": "Failed to save folder",
+  "folderPicker.createFailed": "Failed to create folder",
 
-  // --- Collections explorer ---
-  "collections.loading": "Loading collections...",
-  "collections.loadFailed": "Unable to load your collections. Please try again.",
-  "collections.empty": "No collections yet",
-  "collections.emptyHint":
-    "Organize media into collections when you save them to find them here.",
-  "collections.emptyFolder": "Empty",
-  "collections.childCount.one": "{count} collection",
-  "collections.childCount.other": "{count} collections",
+  // --- Folders explorer ---
+  "folders.loading": "Loading folders...",
+  "folders.loadFailed": "Unable to load your folders. Please try again.",
+  "folders.empty": "No folders yet",
+  "folders.emptyHint":
+    "Organize media into folders when you save them to find them here.",
+  "folders.emptySubtitle": "Empty",
+  "folders.childCount.one": "{count} folder",
+  "folders.childCount.other": "{count} folders",
   // --- Media detail ---
   "media.tab.reader": "Reader",
   "media.tab.ai": "AI",
@@ -602,22 +602,22 @@ export const en = {
   "media.processing.generating": "Generating text...",
   "media.transcriptLoadFailed": "Unable to load the text right now.",
   "media.movedToNamed": "Moved to \"{name}\"",
-  "media.movedToCollection": "Moved to collection",
-  "media.removedFromCollection": "Removed from collection",
+  "media.movedToFolder": "Moved to folder",
+  "media.removedFromFolder": "Removed from folder",
   "media.openFailed": "Couldn't open {host}",
-  "media.moveToCollectionA11y": "Move to collection",
+  "media.moveToFolderA11y": "Move to folder",
 
-  // --- Collection detail ---
-  "collection.tab.sources": "Sources",
-  "collection.tab.ai": "AI",
-  "collection.sectionsA11y": "Collection sections",
-  "collection.loadFailed": "Unable to load this collection. Please try again.",
-  "collection.retryA11y": "Retry loading collection",
-  "collection.artifactsLoadFailed":
+  // --- Folder detail ---
+  "folder.tab.sources": "Sources",
+  "folder.tab.ai": "AI",
+  "folder.sectionsA11y": "Folder sections",
+  "folder.loadFailed": "Unable to load this folder. Please try again.",
+  "folder.retryA11y": "Retry loading folder",
+  "folder.artifactsLoadFailed":
     "Unable to load generated content. Please try again.",
-  "collection.empty": "This collection is empty",
-  "collection.emptyHint":
-    "Media you save into this collection will show up here.",
+  "folder.empty": "This folder is empty",
+  "folder.emptyHint":
+    "Media you save into this folder will show up here.",
   // --- Bug report ---
   "bugReport.subject": "Subject",
   "bugReport.subjectPlaceholder": "Brief summary of the issue",
@@ -736,7 +736,7 @@ export const en = {
   "share.uploadingAudio": "Uploading audio...",
   "share.uploadingFile": "Uploading file...",
   "share.whatsappText": "WhatsApp text message",
-  "share.chooseCollection": "Choose collection",
+  "share.chooseFolder": "Choose folder",
   "share.success.duplicate": "This content was already in your inbox.",
   "share.success.audio": "Audio saved. Transcription will begin shortly.",
   "share.success.text": "Text saved to your inbox.",

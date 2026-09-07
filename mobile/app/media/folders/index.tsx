@@ -15,11 +15,11 @@ import { OrganizationService } from "../../../src/services/organizationService";
 import { MediaService } from "../../../src/services/mediaService";
 import { getFriendlyErrorMessage } from "../../../src/lib/getFriendlyErrorMessage";
 import {
-  buildCollectionTree,
-  DEFAULT_COLLECTION_LABEL,
-  DEFAULT_COLLECTION_TINT,
-  type CollectionNode,
-} from "../../../src/lib/collectionTree";
+  buildFolderTree,
+  DEFAULT_FOLDER_LABEL,
+  DEFAULT_FOLDER_TINT,
+  type FolderNode,
+} from "../../../src/lib/folderTree";
 import {
   Colors,
   Typography,
@@ -33,24 +33,24 @@ import { ScreenHeader, HeaderIconButton } from "../../../src/components/ScreenHe
 import type { MediaListItem } from "../../../src/types/media";
 
 /**
- * Collections explorer — root view.
+ * Folders explorer — root view.
  *
- * Lists the user's collections as folders (file-explorer style). Nested
- * collections are reachable by drilling into a folder via the dedicated
+ * Lists the user's folders as folders (file-explorer style). Nested
+ * folders are reachable by drilling into a folder via the dedicated
  * `[id]` screen. The default folder is surfaced as a dedicated "Unsorted"
  * entry so unsorted media stay reachable.
  *
  * Handles loading / error / empty states (AC#5).
  */
-export default function CollectionsExplorerScreen() {
+export default function FoldersExplorerScreen() {
   // Copy resolved on render: redraw when the interface language changes.
   useTranslation();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
 
-  const [roots, setRoots] = useState<CollectionNode[]>([]);
-  const [defaultCollection, setDefaultCollection] =
-    useState<CollectionNode | null>(null);
+  const [roots, setRoots] = useState<FolderNode[]>([]);
+  const [defaultFolder, setDefaultFolder] =
+    useState<FolderNode | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,8 +58,8 @@ export default function CollectionsExplorerScreen() {
     if (!isAuthenticated) return;
     setError(null);
     try {
-      const [collections, mediaResponse] = await Promise.all([
-        OrganizationService.getUserCollections(),
+      const [folders, mediaResponse] = await Promise.all([
+        OrganizationService.getUserFolders(),
         MediaService.listMedia(),
       ]);
 
@@ -72,13 +72,13 @@ export default function CollectionsExplorerScreen() {
         );
       }
 
-      const tree = buildCollectionTree(collections, directCountById);
+      const tree = buildFolderTree(folders, directCountById);
       setRoots(tree.roots);
-      setDefaultCollection(tree.defaultCollection);
+      setDefaultFolder(tree.defaultFolder);
     } catch (err) {
       setError(
         getFriendlyErrorMessage(err, {
-          fallback: t("collections.loadFailed"),
+          fallback: t("folders.loadFailed"),
         }),
       );
     }
@@ -101,11 +101,11 @@ export default function CollectionsExplorerScreen() {
     if (router.canGoBack()) router.back();
   }, [router]);
 
-  const handleOpenCollection = useCallback(
-    (collection: CollectionNode) => {
+  const handleOpenFolder = useCallback(
+    (folder: FolderNode) => {
       router.push({
-        pathname: "/media/collections/[id]",
-        params: { id: collection.id, name: collection.name },
+        pathname: "/media/folders/[id]",
+        params: { id: folder.id, name: folder.name },
       });
     },
     [router],
@@ -118,14 +118,14 @@ export default function CollectionsExplorerScreen() {
 
   // Default folder gets pinned to the top of the list, under its display label.
   const listData = useMemo(() => {
-    if (!defaultCollection) return roots;
-    return [{ ...defaultCollection, name: DEFAULT_COLLECTION_LABEL }, ...roots];
-  }, [defaultCollection, roots]);
+    if (!defaultFolder) return roots;
+    return [{ ...defaultFolder, name: DEFAULT_FOLDER_LABEL }, ...roots];
+  }, [defaultFolder, roots]);
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScreenHeader
-        title={t("search.collections")}
+        title={t("search.folders")}
         leading={
           <HeaderIconButton
             icon="arrow-back"
@@ -138,7 +138,7 @@ export default function CollectionsExplorerScreen() {
       {isLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.centeredText}>{t("collections.loading")}</Text>
+          <Text style={styles.centeredText}>{t("folders.loading")}</Text>
         </View>
       ) : error ? (
         <View style={styles.centered}>
@@ -152,7 +152,7 @@ export default function CollectionsExplorerScreen() {
           <Pressable
             style={styles.retryButton}
             onPress={handleRetry}
-            accessibilityLabel={t("search.retryCollectionsA11y")}
+            accessibilityLabel={t("search.retryFoldersA11y")}
             accessibilityRole="button"
           >
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
@@ -167,7 +167,7 @@ export default function CollectionsExplorerScreen() {
             <FolderRow
               node={item}
               isDefault={item.is_default === true}
-              onPress={handleOpenCollection}
+              onPress={handleOpenFolder}
             />
           )}
           contentContainerStyle={styles.listContent}
@@ -182,10 +182,10 @@ export default function CollectionsExplorerScreen() {
 // --- Sub-components ---
 
 interface FolderRowProps {
-  node: CollectionNode;
-  /** The system default folder, tinted apart from the user's own collections. */
+  node: FolderNode;
+  /** The system default folder, tinted apart from the user's own folders. */
   isDefault: boolean;
-  onPress: (node: CollectionNode) => void;
+  onPress: (node: FolderNode) => void;
 }
 
 function FolderRow({ node, isDefault, onPress }: FolderRowProps) {
@@ -195,17 +195,17 @@ function FolderRow({ node, isDefault, onPress }: FolderRowProps) {
     subtitleParts.push(tCount("common.itemCount", node.directMediaCount));
   }
   if (childCount > 0) {
-    subtitleParts.push(tCount("collections.childCount", childCount));
+    subtitleParts.push(tCount("folders.childCount", childCount));
   }
   const subtitle = subtitleParts.length
     ? subtitleParts.join(" · ")
-    : t("collections.emptyFolder");
+    : t("folders.emptySubtitle");
 
   return (
     <Pressable
       style={({ pressed }) => [styles.folderCard, pressed && styles.folderCardPressed]}
       onPress={() => onPress(node)}
-      accessibilityLabel={t("search.openCollectionA11y", { name: node.name })}
+      accessibilityLabel={t("search.openFolderA11y", { name: node.name })}
       accessibilityRole="button"
     >
       <View
@@ -217,7 +217,7 @@ function FolderRow({ node, isDefault, onPress }: FolderRowProps) {
         <Ionicons
           name="folder"
           size={26}
-          color={isDefault ? DEFAULT_COLLECTION_TINT : Colors.primary}
+          color={isDefault ? DEFAULT_FOLDER_TINT : Colors.primary}
         />
       </View>
       <View style={styles.folderTextSection}>
@@ -240,8 +240,8 @@ function EmptyState() {
         color={Colors.textMuted}
         style={styles.centeredIcon}
       />
-      <Text style={styles.emptyTitle}>{t("collections.empty")}</Text>
-      <Text style={styles.emptyHint}>{t("collections.emptyHint")}</Text>
+      <Text style={styles.emptyTitle}>{t("folders.empty")}</Text>
+      <Text style={styles.emptyHint}>{t("folders.emptyHint")}</Text>
     </View>
   );
 }

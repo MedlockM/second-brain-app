@@ -213,8 +213,8 @@ async def user_holds_media(
     scoped to a single owner and ignores processing entirely. A media the user
     already holds costs them nothing to file again, whether or not a job runs.
 
-    Scoped to the user and to nothing else: every folder, every collection and
-    every processing status counts as held, because the rule is about owning the
+    Scoped to the user and to nothing else: every folder and every processing
+    status counts as held, because the rule is about owning the
     content, not about where it was filed. Soft-deleted rows do not count -- a
     user who deleted an item no longer holds it, so re-saving it debits again.
 

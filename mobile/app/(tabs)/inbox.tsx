@@ -28,7 +28,7 @@ import {
   TILE_GAP,
   type HomeTileItem,
 } from "../../src/components/HomeTile";
-import { buildCollectionTree } from "../../src/lib/collectionTree";
+import { buildFolderTree } from "../../src/lib/folderTree";
 import {
   capturePhotoToImport,
   pickFileToImport,
@@ -58,19 +58,19 @@ import type { RecentEngagement } from "../../src/types/engagements";
  *
  * The Daily Digest card that used to sit at the top is gone too (task-324): it
  * pushed the Digest tab, which is one tap away in the tab bar. Its place is now
- * held by the entry into the triage of the default collection, which is the one
+ * held by the entry into the triage of the default folder, which is the one
  * thing on this screen with a backlog behind it.
  *
  * Two sources feed it and each fails alone: "Recently added" comes from the
  * media list `useMediaPolling` holds, while `useHomeSections` brings the
- * engagement row and the collections behind the unsorted count. Only the very
+ * engagement row and the folders behind the unsorted count. Only the very
  * first media fetch may show a full-screen spinner; no row ever shows one,
  * because a row with nothing to say is simply absent.
  *
  * Also hosts the ingestion gestures (task-264): a camera button that shoots
  * straight away, and an "add" button opening the choice between a file and a
  * gallery photo. All three hand the result to the share confirmation screen,
- * where the collection is picked before sending.
+ * where the folder is picked before sending.
  */
 
 /**
@@ -120,7 +120,7 @@ export default function InboxScreen() {
     refetch,
     retry,
   } = useMediaPolling();
-  const { continueLearning, collections, refresh: refreshSections } =
+  const { continueLearning, folders, refresh: refreshSections } =
     useHomeSections();
 
   // Silent refetch when the screen gains focus (multi-device sync). Uses the
@@ -152,7 +152,7 @@ export default function InboxScreen() {
       if (item.kind === "media") {
         router.push(`/media/${item.id}`);
       } else {
-        router.push(`/media/collections/${item.id}`);
+        router.push(`/media/folders/${item.id}`);
       }
     },
     [router],
@@ -197,17 +197,17 @@ export default function InboxScreen() {
   const recentTiles = useMemo(() => buildRecentlyAdded(items), [items]);
 
   /**
-   * How many media are waiting in the default collection.
+   * How many media are waiting in the default folder.
    *
-   * Read off the collections `useHomeSections` already fetched, so the figure
-   * costs no request of its own. `buildCollectionTree` is what identifies the
+   * Read off the folders `useHomeSections` already fetched, so the figure
+   * costs no request of its own. `buildFolderTree` is what identifies the
    * folder — by its `is_default` flag, never by its label: the stored name is
    * `Uncategorized`, the UI says "Unsorted", and matching on either is what
    * task-297 ruled out.
    */
   const unsortedCount = useMemo(
-    () => buildCollectionTree(collections).defaultCollection?.media_count ?? 0,
-    [collections],
+    () => buildFolderTree(folders).defaultFolder?.media_count ?? 0,
+    [folders],
   );
 
   // Loading state — the only spinner on this screen, and only on the very first
@@ -358,7 +358,7 @@ interface UnsortedReviewButtonProps {
 }
 
 /**
- * The entry into the triage of the default collection — variant **F, "Layering
+ * The entry into the triage of the default folder — variant **F, "Layering
  * Principle — Deck tactile"** of `mobile-design-mockups/home_unsorted_review_card/`
  * (the second round, in `code2.html`), retained by the owner on 2026-09-07 with
  * no requested deviation.
@@ -491,11 +491,11 @@ function EmptyState() {
  * only maps the wire shape onto the tile shape — and keeps the order it came in.
  */
 function toEngagementTile(entry: RecentEngagement): HomeTileItem {
-  if (entry.kind === "collection") {
+  if (entry.kind === "folder") {
     return {
-      kind: "collection",
+      kind: "folder",
       id: entry.id,
-      name: entry.title?.trim() || t("home.untitledCollection"),
+      name: entry.title?.trim() || t("home.untitledFolder"),
       itemCount: entry.item_count ?? 0,
       previewImages: entry.preview_images ?? [],
     };
@@ -522,7 +522,7 @@ function toEngagementTile(entry: RecentEngagement): HomeTileItem {
  * of its own, and the local-inbox path that would have fed one is gone
  * (task-356).
  *
- * Collections do not appear here (task-348): a folder is not something that just
+ * Folders do not appear here (task-348): a folder is not something that just
  * arrived to read, and one created from the confirmation screen used to double
  * every filed save into two tiles. They keep their place in "Continue learning",
  * where picking a reading back up is the point.
@@ -677,7 +677,7 @@ const styles = StyleSheet.create({
     minWidth: Spacing.lg,
     minHeight: Spacing.lg,
     // Grows inwards from that corner: the count is `media_count` of the default
-    // collection, with no clamp on the client, so four digits have to fit.
+    // folder, with no clamp on the client, so four digits have to fit.
     paddingHorizontal: Spacing.sm,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.primary,

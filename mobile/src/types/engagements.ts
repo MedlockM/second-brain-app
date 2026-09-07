@@ -7,8 +7,8 @@
  * handler.
  */
 
-/** What was engaged with. The artifact API calls a collection a "folder". */
-export type EngagementKind = "media" | "collection";
+/** What was engaged with: a single media item, or a whole folder. */
+export type EngagementKind = "media" | "folder";
 
 export interface RecordEngagementRequest {
   kind: EngagementKind;
@@ -17,12 +17,12 @@ export interface RecordEngagementRequest {
 
 /**
  * One tile of the "Continue learning" row, already render-ready: the server
- * merges media and collections, sorts them newest first, caps the list and signs
+ * merges media and folders, sorts them newest first, caps the list and signs
  * every cover, so the client joins nothing.
  */
 export interface RecentEngagement {
   kind: EngagementKind;
-  /** Media item id, or collection id — whichever `kind` says. */
+  /** Media item id, or folder id — whichever `kind` says. */
   id: string;
   title?: string | null;
   engaged_at: string;
@@ -32,9 +32,9 @@ export interface RecentEngagement {
   image_url?: string | null;
   /** Media only: drives the fallback icon when there is no cover. */
   media_type?: string | null;
-  /** Collections only: items stored directly in the collection. */
+  /** Folders only: items stored directly in the folder. */
   item_count?: number | null;
-  /** Collections only: up to four covers of its newest items, possibly empty. */
+  /** Folders only: up to four covers of its newest items, possibly empty. */
   preview_images: string[];
 }
 

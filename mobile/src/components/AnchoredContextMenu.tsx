@@ -11,7 +11,7 @@
  * visibly names its target.
  *
  * One component for every target, and deliberately so: a media row offers Move,
- * Rename and Delete, a collection tile offers Rename and Delete, and a second
+ * Rename and Delete, a folder tile offers Rename and Delete, and a second
  * file re-implementing the backdrop, the lifted preview and the up/down geometry
  * for the second of those is exactly what this generalization avoids. The target
  * is therefore a type parameter and the rows are data — an ordered list of
@@ -27,7 +27,7 @@
  * gesture, which the `Animated` API of React Native core does.
  *
  * The orchestration — which thing is targeted, the destructive confirmation, the
- * network calls — belongs to `useMediaActions` / `useCollectionActions`; this file
+ * network calls — belongs to `useMediaActions` / `useFolderActions`; this file
  * is the surface only.
  */
 
@@ -89,7 +89,7 @@ export interface ContextMenuAction {
   /**
    * The menu fades out first and the action runs one frame later.
    *
-   * What a row that opens something else needs — the collection picker is pushed
+   * What a row that opens something else needs — the folder picker is pushed
    * on the navigator, the rename dialog is another modal — because a modal still
    * up sits over whatever appears underneath it. The destructive row sets this
    * false: it owns the menu while its confirmation and its spinner are on screen.
@@ -108,8 +108,8 @@ export interface AnchoredContextMenuProps<T> {
    * Redraws the pressed view for the copy lifted above the blur.
    *
    * The surface supplies it because only it knows what its rows and tiles look
-   * like — the library list, the collections grid and the sources list of a
-   * collection do not share a component. The redrawn view must carry no outer
+   * like — the library list, the folders grid and the sources list of a
+   * folder do not share a component. The redrawn view must carry no outer
    * margin: it is laid out on the measured rect, and `measureInWindow` reports a
    * box margins are already outside of.
    */

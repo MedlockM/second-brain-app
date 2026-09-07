@@ -4,14 +4,14 @@ Consumption enforcement for the validated V1 model.
 One unit is metered: the **minute**. A minute is a minute of media we pay a
 transcription provider to process, plus the three flat conversions of the model
 (a bought caption set counts 1, five document pages count 1, five sources of a
-collection generation count 1). Everything that is not transcription — articles,
+folder generation count 1). Everything that is not transcription — articles,
 web pages, TikToks, Instagram photo posts, single-item AI generations — is
 unlimited and debits nothing.
 
 The rule that keeps the accounting honest: **the meter follows the provider call,
 not the URL**. An API endpoint only ever *checks*; the debit happens at the place
 that spends provider money (the Deepgram gate, the paid caption fetch, the
-document parse, the collection generation). That is what makes "the same import
+document parse, the folder generation). That is what makes "the same import
 charged twice" and "a transcription nobody charged" unrepresentable rather than
 merely fixed.
 
@@ -193,13 +193,13 @@ async def minutes_for_document_pages(page_count: int) -> int:
     return max(1, ceil(max(1, page_count) / pages_per_minute))
 
 
-async def minutes_for_collection_sources(source_count: int) -> int:
-    """Minutes charged for a generation over a collection: one per five sources.
+async def minutes_for_folder_sources(source_count: int) -> int:
+    """Minutes charged for a generation over a folder: one per five sources.
 
     A generation over a *single item* is free — its LLM cost is already inside
     what the item cost to ingest.
     """
-    sources_per_minute = await _conversion("collection_sources_per_minute", 5)
+    sources_per_minute = await _conversion("folder_sources_per_minute", 5)
     return max(1, ceil(max(1, source_count) / sources_per_minute))
 
 
@@ -746,7 +746,7 @@ async def check_generation_allowed(
     """Gate an AI generation.
 
     A generation over a single item is free: its LLM cost is already inside what
-    the item cost to ingest. A generation over a collection is the only AI action
+    the item cost to ingest. A generation over a folder is the only AI action
     whose cost scales with the content behind it, so it converts to minutes at one
     per five sources.
 
@@ -755,7 +755,7 @@ async def check_generation_allowed(
     try:
         snapshot = await get_entitlement_snapshot(user_id)
         minutes_needed = (
-            await minutes_for_collection_sources(source_count)
+            await minutes_for_folder_sources(source_count)
             if scope == "folder"
             else 0
         )
@@ -1001,9 +1001,9 @@ async def record_generation(
     source_count: int,
     idempotency_token: str,
 ) -> int:
-    """Charge one AI generation: nothing over a single item, minutes over a collection."""
+    """Charge one AI generation: nothing over a single item, minutes over a folder."""
     minutes = (
-        await minutes_for_collection_sources(source_count) if scope == "folder" else 0
+        await minutes_for_folder_sources(source_count) if scope == "folder" else 0
     )
     return await _debit(
         user_id,

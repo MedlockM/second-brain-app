@@ -97,9 +97,9 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
         # LlamaParse bills at least one credit per page: five pages of document are
         # worth about one minute of transcription budget.
         "document_pages_per_minute": 5,
-        # A generation over a collection is the only AI action that scales with the
+        # A generation over a folder is the only AI action that scales with the
         # amount of content behind it. Single-item generations are free.
-        "collection_sources_per_minute": 5,
+        "folder_sources_per_minute": 5,
     },
     # --- Usage gauge (what the app shows before the wall) ---
     "usage_gauge": {

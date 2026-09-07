@@ -53,7 +53,7 @@ export class EngagementService {
   }
 
   /**
-   * The "Continue learning" row: media and collections merged, newest first,
+   * The "Continue learning" row: media and folders merged, newest first,
    * already capped and with every cover signed.
    * GET /api/engagements/recent
    *

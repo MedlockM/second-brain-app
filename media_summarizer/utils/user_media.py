@@ -318,7 +318,7 @@ async def list_for_user_by_media_key(
 async def list_for_folder(user_id: str, folder_id: Optional[str]) -> List[UserMediaRecord]:
     """One folder's direct contents, via the folder LSI.
 
-    Direct contents only: sub-folder inclusion is a folder-tree concern and is
+    Direct contents only: subfolder inclusion is a folder-tree concern and is
     resolved by the caller, which then unions several calls or filters the full
     library. ``folder_id=None`` returns the rows that sit outside any folder.
     """

@@ -3,7 +3,7 @@ import { Spacing } from "./theme";
 /**
  * The one vertical gap between two stacked blocks of the Home screen (task-332).
  *
- * The convention is the one task-290 settled on for the media and collection
+ * The convention is the one task-290 settled on for the media and folder
  * screens: **each block declares the space above itself, none declares space
  * below it.** A block that declares both writes its own rhythm — and the Home
  * column had two of those, so the gap above the first row heading came out of a

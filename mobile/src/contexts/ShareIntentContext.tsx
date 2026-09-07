@@ -51,7 +51,7 @@ import {
  * The last two split on presentation, not on plumbing: both submit through the
  * upload endpoints, and only a picture is shown as one. Either can start from a
  * gesture inside the app or from a share intent, and both reuse the confirmation
- * screen so every source picks its collection the same way.
+ * screen so every source picks its folder the same way.
  */
 export type ShareContentType = "url" | "text" | "audio" | "file" | "photo";
 
@@ -739,7 +739,7 @@ export function ShareIntentProvider({
    * Start an import from a file picked or captured on the device (task-264).
    *
    * The confirmation screen is opened right away: a photo goes from the shutter
-   * to the collection step with nothing in between, and the actual upload only
+   * to the folder step with nothing in between, and the actual upload only
    * happens when the user hits Save.
    */
   const startLocalUpload = useCallback(

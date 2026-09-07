@@ -1,20 +1,20 @@
 /**
- * "Which collection?" — the one answer to that question in the app.
+ * "Which folder?" — the one answer to that question in the app.
  *
- * Search bar, the optional "Unsorted" destination, then "My collections" as a
+ * Search bar, the optional "Unsorted" destination, then "My folders" as a
  * navigable tree with an inline way to create one. Extracted from
- * `app/media/collection.tsx` so the share flow, the media detail screen and the
+ * `app/media/folder.tsx` so the share flow, the media detail screen and the
  * unsorted-review triage all ask it the same way instead of each growing its own
  * list; the screen keeps the header (back / title / save), which is the only
  * part that legitimately differs between hosts.
  *
  * The tree, and not a flat list of breadcrumbs: the picker is also how someone
- * browses what they already have, and a nested collection reads as nested here.
+ * browses what they already have, and a nested folder reads as nested here.
  *
  * Selection is reported, never applied: the host owns what "selected" means —
  * an immediate assignment in the sheet, a deferred one behind Save on the media
  * screen. Creation is the exception, since it has to hit the backend to produce
- * an id; the created collection is handed back through `onCollectionCreated` and
+ * an id; the created folder is handed back through `onFolderCreated` and
  * the host decides whether it becomes the selection.
  */
 
@@ -39,17 +39,17 @@ import {
 } from "../constants/theme";
 import { t } from "../i18n";
 import {
-  DEFAULT_COLLECTION_TINT,
-  buildCollectionTree,
-  type CollectionNode,
-} from "../lib/collectionTree";
+  DEFAULT_FOLDER_TINT,
+  buildFolderTree,
+  type FolderNode,
+} from "../lib/folderTree";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 import { OrganizationService } from "../services/organizationService";
-import type { Collection } from "../types/organization";
+import type { Folder } from "../types/organization";
 
-export interface CollectionPickerViewProps {
+export interface FolderPickerViewProps {
   /** The user's folders, flat, as the backend returns them. */
-  collections: Collection[];
+  folders: Folder[];
   /** Currently picked destination; `null` is "Unsorted". */
   selectedId: string | null;
   /**
@@ -64,47 +64,47 @@ export interface CollectionPickerViewProps {
   /** Banner shown above the list. The host owns it, including failures it caused. */
   error?: string | null;
   /** A destination was picked. `null` means "Unsorted". */
-  onSelect: (collectionId: string | null) => void;
-  /** A collection was created here; the host refreshes its own list from it. */
-  onCollectionCreated: (collection: Collection) => void;
+  onSelect: (folderId: string | null) => void;
+  /** A folder was created here; the host refreshes its own list from it. */
+  onFolderCreated: (folder: Folder) => void;
   /** Creation failed; the message is ready to display. */
   onCreateFailed: (message: string) => void;
 }
 
-export function CollectionPickerView({
-  collections,
+export function FolderPickerView({
+  folders,
   selectedId,
   showUnsorted = true,
   busy = false,
   isLoading = false,
   error = null,
   onSelect,
-  onCollectionCreated,
+  onFolderCreated,
   onCreateFailed,
-}: CollectionPickerViewProps): React.JSX.Element {
+}: FolderPickerViewProps): React.JSX.Element {
   const createInputRef = useRef<TextInput>(null);
 
   const [searchText, setSearchText] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [newCollectionName, setNewCollectionName] = useState("");
+  const [newFolderName, setNewFolderName] = useState("");
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
   // What the user has *folded*, not what is unfolded: the tree opens fully and
-  // stays that way unless someone closes a branch, so a collection three levels
+  // stays that way unless someone closes a branch, so a folder three levels
   // down is visible without a hunt.
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
   const roots = useMemo(
-    () => buildCollectionTree(collections).roots,
-    [collections],
+    () => buildFolderTree(folders).roots,
+    [folders],
   );
 
-  const handleToggleExpand = useCallback((collectionId: string) => {
+  const handleToggleExpand = useCallback((folderId: string) => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(collectionId)) {
-        next.delete(collectionId);
+      if (next.has(folderId)) {
+        next.delete(folderId);
       } else {
-        next.add(collectionId);
+        next.add(folderId);
       }
       return next;
     });
@@ -112,18 +112,18 @@ export function CollectionPickerView({
 
   const handleShowCreateInput = useCallback(() => {
     setIsCreating(true);
-    setNewCollectionName("");
+    setNewFolderName("");
     setTimeout(() => createInputRef.current?.focus(), 100);
   }, []);
 
   const handleCancelCreate = useCallback(() => {
     setIsCreating(false);
-    setNewCollectionName("");
+    setNewFolderName("");
     Keyboard.dismiss();
   }, []);
 
   const handleConfirmCreate = useCallback(async () => {
-    const name = newCollectionName.trim();
+    const name = newFolderName.trim();
     if (!name || isSubmittingCreate) {
       handleCancelCreate();
       return;
@@ -131,57 +131,57 @@ export function CollectionPickerView({
     Keyboard.dismiss();
     setIsSubmittingCreate(true);
     try {
-      const created = await OrganizationService.createCollection(name);
+      const created = await OrganizationService.createFolder(name);
       setIsCreating(false);
-      setNewCollectionName("");
-      onCollectionCreated(created);
+      setNewFolderName("");
+      onFolderCreated(created);
     } catch (err) {
       onCreateFailed(
         getFriendlyErrorMessage(err, {
-          fallback: t("collectionPicker.createFailed"),
+          fallback: t("folderPicker.createFailed"),
         }),
       );
     } finally {
       setIsSubmittingCreate(false);
     }
   }, [
-    newCollectionName,
+    newFolderName,
     isSubmittingCreate,
     handleCancelCreate,
-    onCollectionCreated,
+    onFolderCreated,
     onCreateFailed,
   ]);
 
-  const displayCollections = useMemo(
-    () => filterCollections(roots, searchText),
+  const displayFolders = useMemo(
+    () => filterFolders(roots, searchText),
     [roots, searchText],
   );
 
-  const renderCollectionItem = (
-    collection: CollectionNode,
+  const renderFolderItem = (
+    folder: FolderNode,
     depth: number,
   ): React.ReactNode => {
-    const hasChildren = collection.children.length > 0;
-    const isExpanded = !collapsedIds.has(collection.id);
-    const isSelected = selectedId === collection.id;
+    const hasChildren = folder.children.length > 0;
+    const isExpanded = !collapsedIds.has(folder.id);
+    const isSelected = selectedId === folder.id;
 
     return (
-      <View key={collection.id}>
+      <View key={folder.id}>
         <Pressable
           style={({ pressed }) => [
-            styles.collectionRow,
+            styles.folderRow,
             { paddingStart: Spacing.md + depth * 40 },
-            isSelected && styles.collectionRowSelected,
-            pressed && styles.collectionRowSelected,
+            isSelected && styles.folderRowSelected,
+            pressed && styles.folderRowSelected,
             busy && styles.rowDisabled,
           ]}
-          onPress={() => onSelect(collection.id)}
+          onPress={() => onSelect(folder.id)}
           disabled={busy}
           accessibilityRole="radio"
           accessibilityState={{ selected: isSelected }}
-          accessibilityLabel={collection.name}
+          accessibilityLabel={folder.name}
         >
-          <View style={styles.collectionRowLeft}>
+          <View style={styles.folderRowLeft}>
             <Ionicons
               name="folder"
               size={depth === 0 ? 24 : 20}
@@ -190,29 +190,29 @@ export function CollectionPickerView({
             />
             <Text
               style={[
-                styles.collectionName,
-                isSelected && styles.collectionNameSelected,
+                styles.folderName,
+                isSelected && styles.folderNameSelected,
               ]}
               numberOfLines={1}
             >
-              {collection.name}
+              {folder.name}
             </Text>
           </View>
-          <View style={styles.collectionRowRight}>
-            {collection.media_count > 0 && (
-              <Text style={styles.collectionCount}>
-                {collection.media_count}
+          <View style={styles.folderRowRight}>
+            {folder.media_count > 0 && (
+              <Text style={styles.folderCount}>
+                {folder.media_count}
               </Text>
             )}
             {hasChildren && (
               <Pressable
-                onPress={() => handleToggleExpand(collection.id)}
+                onPress={() => handleToggleExpand(folder.id)}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 accessibilityRole="button"
                 accessibilityLabel={
                   isExpanded
-                    ? t("collectionPicker.collapse")
-                    : t("collectionPicker.expand")
+                    ? t("folderPicker.collapse")
+                    : t("folderPicker.expand")
                 }
               >
                 <Ionicons
@@ -234,8 +234,8 @@ export function CollectionPickerView({
 
         {hasChildren && isExpanded && (
           <View>
-            {collection.children.map((child) =>
-              renderCollectionItem(child, depth + 1),
+            {folder.children.map((child) =>
+              renderFolderItem(child, depth + 1),
             )}
           </View>
         )}
@@ -249,7 +249,7 @@ export function CollectionPickerView({
         <Ionicons name="search" size={20} color={Colors.textMuted} />
         <TextInput
           style={styles.searchInput}
-          placeholder={t("collectionPicker.searchPlaceholder")}
+          placeholder={t("folderPicker.searchPlaceholder")}
           placeholderTextColor={Colors.textMuted}
           value={searchText}
           onChangeText={setSearchText}
@@ -290,16 +290,16 @@ export function CollectionPickerView({
               disabled={busy}
               accessibilityRole="radio"
               accessibilityState={{ selected: selectedId === null }}
-              accessibilityLabel={t("collectionPicker.unsorted")}
+              accessibilityLabel={t("folderPicker.unsorted")}
             >
               <View style={styles.unsortedLeft}>
                 <Ionicons
                   name="file-tray-outline"
                   size={24}
-                  color={DEFAULT_COLLECTION_TINT}
+                  color={DEFAULT_FOLDER_TINT}
                 />
                 <Text style={styles.unsortedLabel} numberOfLines={1}>
-                  {t("collectionPicker.unsorted")}
+                  {t("folderPicker.unsorted")}
                 </Text>
               </View>
               <View style={styles.unsortedRight}>
@@ -316,14 +316,14 @@ export function CollectionPickerView({
 
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>
-              {t("collectionPicker.myCollections")}
+              {t("folderPicker.myFolders")}
             </Text>
             <Pressable
               style={styles.addButton}
               onPress={handleShowCreateInput}
               disabled={busy || isCreating}
-              testID="collection-picker-new-collection"
-              accessibilityLabel={t("collectionPicker.createA11y")}
+              testID="folder-picker-new-folder"
+              accessibilityLabel={t("folderPicker.createA11y")}
               accessibilityRole="button"
             >
               <Ionicons name="add" size={22} color={Colors.primary} />
@@ -336,10 +336,10 @@ export function CollectionPickerView({
               <TextInput
                 ref={createInputRef}
                 style={styles.createInput}
-                placeholder={t("collectionPicker.namePlaceholder")}
+                placeholder={t("folderPicker.namePlaceholder")}
                 placeholderTextColor={Colors.textMuted}
-                value={newCollectionName}
-                onChangeText={setNewCollectionName}
+                value={newFolderName}
+                onChangeText={setNewFolderName}
                 returnKeyType="done"
                 onSubmitEditing={() => void handleConfirmCreate()}
                 autoCapitalize="sentences"
@@ -353,7 +353,7 @@ export function CollectionPickerView({
                     onPress={() => void handleConfirmCreate()}
                     style={styles.createAction}
                     accessibilityRole="button"
-                    accessibilityLabel={t("collectionPicker.confirm")}
+                    accessibilityLabel={t("folderPicker.confirm")}
                   >
                     <Ionicons name="checkmark" size={20} color={Colors.primary} />
                   </Pressable>
@@ -370,17 +370,17 @@ export function CollectionPickerView({
             </View>
           )}
 
-          <View style={styles.collectionsContainer}>
-            {displayCollections.length === 0 ? (
+          <View style={styles.foldersContainer}>
+            {displayFolders.length === 0 ? (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyText}>
                   {searchText
-                    ? t("collectionPicker.noMatches")
-                    : t("collections.empty")}
+                    ? t("folderPicker.noMatches")
+                    : t("folders.empty")}
                 </Text>
               </View>
             ) : (
-              displayCollections.map((col) => renderCollectionItem(col, 0))
+              displayFolders.map((col) => renderFolderItem(col, 0))
             )}
           </View>
         </ScrollView>
@@ -394,15 +394,15 @@ export function CollectionPickerView({
  * a parent that only survives through a child keeps that child's filtered
  * subtree, so the trail down to the match stays visible.
  */
-function filterCollections(
-  nodes: CollectionNode[],
+function filterFolders(
+  nodes: FolderNode[],
   query: string,
-): CollectionNode[] {
+): FolderNode[] {
   if (!query.trim()) return nodes;
   const lower = query.toLowerCase();
-  return nodes.reduce<CollectionNode[]>((acc, node) => {
+  return nodes.reduce<FolderNode[]>((acc, node) => {
     const nameMatch = node.name.toLowerCase().includes(lower);
-    const filteredChildren = filterCollections(node.children, query);
+    const filteredChildren = filterFolders(node.children, query);
     if (nameMatch || filteredChildren.length > 0) {
       acc.push({
         ...node,
@@ -512,14 +512,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  collectionsContainer: {
+  foldersContainer: {
     backgroundColor: Colors.surfaceContainerLow,
     borderRadius: 24,
     overflow: "hidden",
     ...Shadows.soft,
     paddingVertical: Spacing.sm,
   },
-  collectionRow: {
+  folderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -528,16 +528,16 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     marginHorizontal: Spacing.sm,
   },
-  collectionRowSelected: {
+  folderRowSelected: {
     backgroundColor: Colors.surfaceContainerHigh,
   },
-  collectionRowLeft: {
+  folderRowLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
     flex: 1,
   },
-  collectionName: {
+  folderName: {
     // The row's left half is already `flex: 1`; this is what lets the name give
     // ground inside it instead of pushing the count and chevron off the row.
     flexShrink: 1,
@@ -545,16 +545,16 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Colors.textMain,
   },
-  collectionNameSelected: {
+  folderNameSelected: {
     fontWeight: "600",
     color: Colors.primary,
   },
-  collectionRowRight: {
+  folderRowRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
   },
-  collectionCount: {
+  folderCount: {
     fontSize: Typography.label.fontSize,
     color: Colors.textMuted,
   },

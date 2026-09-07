@@ -6,7 +6,7 @@
  * - `POST /api/media/upload-audio` for audio (Deepgram)
  *
  * Both accept the same `folder_id` organization field as `ingest-url` and
- * `ingest-shared-content`, so an import lands in the collection the user picked
+ * `ingest-shared-content`, so an import lands in the folder the user picked
  * on the confirmation screen.
  *
  * The file itself never goes through the API (task-345): `stageUpload` sends it

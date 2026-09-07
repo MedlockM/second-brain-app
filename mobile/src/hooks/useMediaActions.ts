@@ -5,16 +5,16 @@
  * Lives here rather than in the menu component so every surface offering those
  * actions shares one implementation of the destructive path and of the rename
  * instead of three that can drift apart: the `All media` list of the library tab,
- * the sources list inside a collection, and the `…` in the header of a media
+ * the sources list inside a folder, and the `…` in the header of a media
  * item's own page. Each surface only supplies what it alone knows — how to drop a
  * row from the list it holds and how to put a new title on one, or, on a detail
  * screen holding no list, how to leave once the thing it shows is gone.
  *
- * `useCollectionActions` is the sibling of this hook for a collection, and both
+ * `useFolderActions` is the sibling of this hook for a folder, and both
  * feed the same `AnchoredContextMenu` and the same `RenameDialog`.
  *
- * Moving is delegated whole to the existing `/media/collection` picker: it takes
- * `mediaItemId` / `currentCollectionId`, creates a collection on the fly, and
+ * Moving is delegated whole to the existing `/media/folder` picker: it takes
+ * `mediaItemId` / `currentFolderId`, creates a folder on the fly, and
  * issues the `PATCH /api/media/:id` itself. Every caller refetches on focus, so
  * the surface already reflects the move by the time the picker is popped — there
  * is nothing to report back. Renaming is the opposite case: it never leaves the
@@ -44,7 +44,7 @@ const MAX_TITLE_LENGTH = 120;
 
 /**
  * All this hook needs of the media it acts on: an id to write to, a name to seed
- * the rename field with, and the collection the picker should preselect.
+ * the rename field with, and the folder the picker should preselect.
  *
  * Both shapes the app holds satisfy it — the `MediaListItem` of a library row and
  * the `MediaItemContract` of the detail screen — which is what lets one hook serve
@@ -153,9 +153,9 @@ export function useMediaActions<
     params.set("mode", "move");
     params.set("mediaItemId", target.mediaItemId);
     if (target.folderId) {
-      params.set("currentCollectionId", target.folderId);
+      params.set("currentFolderId", target.folderId);
     }
-    router.push(`/media/collection?${params.toString()}`);
+    router.push(`/media/folder?${params.toString()}`);
   }, [router, target]);
 
   const handleRename = useCallback(() => {
