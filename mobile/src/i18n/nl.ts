@@ -590,6 +590,9 @@ export const nl: Catalog = {
   "upload.reject.empty": "Dit bestand is leeg, er valt dus niets te importeren.",
   "upload.reject.tooLarge": "Dit bestand is {size}, meer dan de limiet van {max} voor één import.",
   "upload.transferFailed": "Dit bestand kon niet worden verzonden. Controleer je verbinding en probeer het opnieuw.",
+  "upload.diagnostics.title": "Technische details",
+  "upload.diagnostics.hint":
+    "Voeg deze regel toe als je het probleem meldt: hij noemt de stap die is mislukt.",
   "home.loadFailed": "Je postvak kon niet worden geladen. Probeer het opnieuw.",
   "share.unsupportedFile": "Dit bestandstype wordt nog niet ondersteund.",
   "share.signInLinks": "Je moet ingelogd zijn om links op te slaan.",

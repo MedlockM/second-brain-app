@@ -580,6 +580,8 @@ export const zh: Catalog = {
   "upload.reject.empty": "这个文件是空的，没有可导入的内容。",
   "upload.reject.tooLarge": "这个文件为 {size}，超过了单次导入 {max} 的上限。",
   "upload.transferFailed": "这个文件发送失败。请检查网络连接后重试。",
+  "upload.diagnostics.title": "技术详情",
+  "upload.diagnostics.hint": "如果反馈这个问题，请附上这一行：它说明了失败的环节。",
   "home.loadFailed": "无法加载你的收件箱，请重试。",
   "share.unsupportedFile": "暂不支持这种文件类型。",
   "share.signInLinks": "需要登录后才能保存链接。",

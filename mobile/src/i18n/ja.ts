@@ -588,6 +588,9 @@ export const ja: Catalog = {
   "upload.reject.empty": "このファイルは空のため、読み込むものがありません。",
   "upload.reject.tooLarge": "このファイルは {size} で、1 回の読み込みの上限 {max} を超えています。",
   "upload.transferFailed": "このファイルを送信できませんでした。通信状況を確認して、もう一度お試しください。",
+  "upload.diagnostics.title": "技術的な詳細",
+  "upload.diagnostics.hint":
+    "問題を報告する場合は、この行を添えてください。失敗した処理の段階が分かります。",
   "home.loadFailed": "受信箱を読み込めませんでした。もう一度お試しください。",
   "share.unsupportedFile": "このファイル形式にはまだ対応していません。",
   "share.signInLinks": "リンクを保存するにはサインインが必要です。",

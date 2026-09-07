@@ -590,6 +590,9 @@ export const pt: Catalog = {
   "upload.reject.empty": "Este ficheiro está vazio, por isso não há nada para importar.",
   "upload.reject.tooLarge": "Este ficheiro tem {size}, acima do limite de {max} para uma única importação.",
   "upload.transferFailed": "Não foi possível enviar este ficheiro. Verifique a sua ligação e tente novamente.",
+  "upload.diagnostics.title": "Detalhes técnicos",
+  "upload.diagnostics.hint":
+    "Inclua esta linha se comunicar o problema: indica o passo que falhou.",
   "home.loadFailed": "Não foi possível carregar a sua caixa de entrada. Tente novamente.",
   "share.unsupportedFile": "Este tipo de ficheiro ainda não é suportado.",
   "share.signInLinks": "Tem de ter sessão iniciada para guardar ligações.",

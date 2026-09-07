@@ -18,6 +18,26 @@
  * Everything that fails between the device and S3 surfaces as `DirectUploadError`
  * with an already-translated message: S3 answers XML no user should read, and its
  * status codes describe the signature, not what the user did.
+ *
+ * That message alone was not enough to fix anything (task-371). The PUT does not
+ * traverse API Gateway, so a transfer that dies here leaves **no server-side
+ * trace at all** — on 2026-09-06 the API signed a URL, no `/api/media/upload`
+ * followed, and the only record of the failure was a sentence saying "check your
+ * connection", identical for all three ways this can fail. So every
+ * `DirectUploadError` now carries `diagnostics`: which step was reached, the
+ * status S3 answered, the S3 error code, and the bytes and MIME type that were
+ * sent. There is no telemetry channel in this app, so that detail is rendered on
+ * the failure screen — the only place a tester can read it from.
+ *
+ * Two rules govern what may go in there:
+ *
+ * - **Never the presigned URL, never any part of its signature.** The query
+ *   string is a bearer credential for the object. Captured error messages are
+ *   run through `redactUrls`, and the S3 body is never surfaced whole — only its
+ *   `<Code>` element, because the `SignatureDoesNotMatch` body embeds
+ *   `StringToSign`, `CanonicalRequest` and the access key id.
+ * - **Stable ASCII, not translated copy.** The values are read off a screenshot
+ *   by whoever fixes the bug, whatever language the reporter's interface is in.
  */
 
 import { t } from "../i18n";
@@ -33,26 +53,147 @@ interface UploadUrlResponse {
 }
 
 /**
+ * Which step of the transfer failed.
+ *
+ * - `read_file` — the local file could not be read into a blob, so nothing was
+ *   ever sent and the picker's URI is the suspect.
+ * - `put_network` — the PUT never came back with a response: no connectivity, a
+ *   dropped socket, a request the OS killed.
+ * - `put_rejected` — S3 answered, and refused. This is the one a status code and
+ *   an error code actually qualify.
+ */
+export type UploadFailureStage = "read_file" | "put_network" | "put_rejected";
+
+/** Everything known about a failed transfer, at the moment it failed. */
+export interface UploadFailureDiagnostics {
+  stage: UploadFailureStage;
+  /** Scheme of the local URI (`file`, `content`, `ph`…); the path is dropped. */
+  uriScheme?: string;
+  /** MIME type declared for the object — what the API signed the PUT for. */
+  contentType?: string;
+  /** Bytes handed to the PUT. Absent when the file could never be read. */
+  bytes?: number;
+  /** Status S3 answered with. Absent when no response ever arrived. */
+  status?: number;
+  /** `<Code>` extracted from S3's XML error body, when it held one. */
+  s3Code?: string;
+  /** Set when reading the body itself failed — a `Response` is consumed once. */
+  bodyUnread?: boolean;
+  /** Name and message of the thrown error, URLs stripped, truncated. */
+  cause?: string;
+}
+
+/** How much of a thrown message is worth keeping on a failure screen. */
+const MAX_CAUSE_LENGTH = 120;
+
+/**
+ * Strip anything URL-shaped.
+ *
+ * A presigned URL carries `X-Amz-Signature` in its query string: it is a
+ * credential for the object, and it must not reach the screen through a caught
+ * error message. React Native's `fetch` rejects with a bare "Network request
+ * failed" today, but that is an implementation detail of the engine, not a
+ * guarantee — so the redaction is unconditional.
+ */
+function redactUrls(text: string): string {
+  return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "[url]");
+}
+
+function describeCause(error: unknown): string {
+  const raw =
+    error instanceof Error
+      ? `${error.name}${error.message ? `: ${error.message}` : ""}`
+      : String(error);
+  return redactUrls(raw).slice(0, MAX_CAUSE_LENGTH);
+}
+
+/** The scheme of a local URI, which is the part that says how it was obtained. */
+function uriScheme(uri: string): string {
+  const match = /^([a-z][a-z0-9+.-]*):/i.exec(uri);
+  return match ? match[1].toLowerCase() : "none";
+}
+
+/**
+ * The `<Code>` of an S3 error body — `SignatureDoesNotMatch`, `EntityTooLarge`,
+ * `RequestTimeout` — and nothing else from that body, ever.
+ *
+ * The shape is constrained on purpose: it bounds what an unexpected body can put
+ * on screen to a short identifier.
+ */
+function extractS3ErrorCode(body: string): string | undefined {
+  const match = /<Code>\s*([A-Za-z][A-Za-z0-9_.-]{0,63})\s*<\/Code>/.exec(body);
+  return match ? match[1] : undefined;
+}
+
+/**
+ * Read an error response, never throwing.
+ *
+ * `text()` can reject on its own — a truncated body, a stream the engine already
+ * released — and that rejection must not replace the diagnosis with an exception
+ * of its own. `null` means "unreadable", which the diagnosis reports as such
+ * while keeping the step and the status it already knows.
+ */
+async function readErrorBody(response: Response): Promise<string | null> {
+  try {
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
+
+/** One line, meant to be read off a screenshot and typed into a bug report. */
+function formatDiagnostics(diagnostics: UploadFailureDiagnostics): string {
+  const parts = [`stage=${diagnostics.stage}`];
+  if (diagnostics.status !== undefined) {
+    parts.push(`status=${diagnostics.status}`);
+    if (diagnostics.s3Code) {
+      parts.push(`s3=${diagnostics.s3Code}`);
+    } else {
+      parts.push(diagnostics.bodyUnread ? "s3=unread" : "s3=none");
+    }
+  }
+  if (diagnostics.bytes !== undefined) parts.push(`bytes=${diagnostics.bytes}`);
+  if (diagnostics.contentType) parts.push(`type=${diagnostics.contentType}`);
+  if (diagnostics.uriScheme) parts.push(`uri=${diagnostics.uriScheme}`);
+  if (diagnostics.cause) parts.push(`cause=${diagnostics.cause}`);
+  return parts.join(" · ");
+}
+
+/**
  * A transfer that never reached S3, or that S3 refused.
  *
  * Carries a message that is already translated, so callers must render it as-is
  * rather than pass it through `getFriendlyErrorMessage` — whose critical-pattern
  * rules would flatten anything mentioning S3 into the generic error sentence.
+ *
+ * `detail` is the technical half: the same sentence is shown for all three
+ * failures, and this is what tells them apart. Callers render it *under* the
+ * message, never in place of it.
  */
 export class DirectUploadError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly diagnostics: UploadFailureDiagnostics;
+  readonly detail: string;
+
+  constructor(diagnostics: UploadFailureDiagnostics) {
+    super(t("upload.transferFailed"));
     this.name = "DirectUploadError";
+    this.diagnostics = diagnostics;
+    this.detail = formatDiagnostics(diagnostics);
   }
 }
 
 /** Read a local file (file:// or content://) as a blob backed by the native side. */
-async function readLocalFile(uri: string): Promise<Blob> {
+async function readLocalFile(uri: string, contentType: string): Promise<Blob> {
   try {
     const response = await fetch(uri);
     return await response.blob();
-  } catch {
-    throw new DirectUploadError(t("upload.transferFailed"));
+  } catch (error) {
+    throw new DirectUploadError({
+      stage: "read_file",
+      uriScheme: uriScheme(uri),
+      contentType,
+      cause: describeCause(error),
+    });
   }
 }
 
@@ -68,13 +209,28 @@ async function putToS3(
       headers: { "Content-Type": contentType },
       body: blob,
     });
-  } catch {
-    throw new DirectUploadError(t("upload.transferFailed"));
+  } catch (error) {
+    throw new DirectUploadError({
+      stage: "put_network",
+      bytes: blob.size,
+      contentType,
+      cause: describeCause(error),
+    });
   }
   if (!response.ok) {
-    // An expired signature reads 403, a truncated body 400, and the body is XML.
-    // None of that is actionable: the answer is always "send it again".
-    throw new DirectUploadError(t("upload.transferFailed"));
+    // An expired signature reads 403 and a truncated body 400, and the answer is
+    // the same "send it again" either way — but which of the two it was decides
+    // what gets fixed, so the status and the S3 code are kept. Still a single
+    // attempt: retrying is the user's tap, not this function's business.
+    const body = await readErrorBody(response);
+    throw new DirectUploadError({
+      stage: "put_rejected",
+      status: response.status,
+      s3Code: body === null ? undefined : extractS3ErrorCode(body),
+      bodyUnread: body === null,
+      bytes: blob.size,
+      contentType,
+    });
   }
 }
 
@@ -92,7 +248,7 @@ export async function stageUpload(params: {
   mimeType: string;
   size?: number | null;
 }): Promise<string> {
-  const blob = await readLocalFile(params.uri);
+  const blob = await readLocalFile(params.uri, params.mimeType);
   const fileSize =
     params.size && params.size > 0 ? params.size : blob.size || 1;
 

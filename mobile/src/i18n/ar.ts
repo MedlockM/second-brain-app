@@ -589,6 +589,9 @@ export const ar: Catalog = {
   "upload.reject.empty": "هذا الملف فارغ، فلا شيء لاستيراده.",
   "upload.reject.tooLarge": "حجم هذا الملف {size}، وهو يتجاوز حد {max} للاستيراد الواحد.",
   "upload.transferFailed": "تعذّر إرسال هذا الملف. تحقّق من اتصالك وحاول مرة أخرى.",
+  "upload.diagnostics.title": "تفاصيل تقنية",
+  "upload.diagnostics.hint":
+    "أرفق هذا السطر إذا أبلغت عن المشكلة: فهو يحدّد الخطوة التي فشلت.",
   "home.loadFailed": "تعذّر تحميل صندوق الوارد. يرجى المحاولة مرة أخرى.",
   "share.unsupportedFile": "هذا النوع من الملفات غير مدعوم بعد.",
   "share.signInLinks": "يجب تسجيل الدخول لحفظ الروابط.",

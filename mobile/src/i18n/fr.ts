@@ -735,6 +735,9 @@ export const fr: Catalog = {
     "Ce fichier fait {size}, au-delà de la limite de {max} pour un import unique.",
   "upload.transferFailed":
     "Ce fichier n'a pas pu être envoyé. Vérifiez votre connexion et réessayez.",
+  "upload.diagnostics.title": "Détails techniques",
+  "upload.diagnostics.hint":
+    "Joignez cette ligne si vous signalez le problème : elle nomme l'étape qui a échoué.",
   "home.loadFailed":
     "Impossible de charger votre boîte de réception. Veuillez réessayer.",
   "share.unsupportedFile": "Ce type de fichier n'est pas encore pris en charge.",

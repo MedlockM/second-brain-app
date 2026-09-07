@@ -591,6 +591,9 @@ export const hi: Catalog = {
   "upload.reject.empty": "यह फ़ाइल ख़ाली है, इसलिए इम्पोर्ट करने को कुछ नहीं है।",
   "upload.reject.tooLarge": "यह फ़ाइल {size} की है, जो एक इम्पोर्ट की {max} सीमा से ज़्यादा है।",
   "upload.transferFailed": "यह फ़ाइल भेजी नहीं जा सकी। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+  "upload.diagnostics.title": "तकनीकी विवरण",
+  "upload.diagnostics.hint":
+    "समस्या की शिकायत करते समय यह पंक्ति साथ भेजें: यह बताती है कि कौन-सा चरण विफल हुआ।",
   "home.loadFailed": "आपका इनबॉक्स लोड नहीं हो सका। कृपया फिर से कोशिश करें।",
   "share.unsupportedFile": "इस तरह की फ़ाइल अभी समर्थित नहीं है।",
   "share.signInLinks": "लिंक सहेजने के लिए साइन इन करना ज़रूरी है।",
