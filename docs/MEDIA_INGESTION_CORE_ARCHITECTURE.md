@@ -45,9 +45,9 @@ Not allowed:
 
 ## Consumption enforcement (task-288, per the validated model of task-287)
 
-**One unit is metered: the minute.** A minute is a minute of media we pay a transcription provider to process, plus three flat conversions — a bought caption set counts 1, five document pages count 1, five sources of a collection generation count 1. Everything else (articles, web pages, TikToks, Instagram photo posts, single-item AI generations) is unlimited and costs nothing.
+**One unit is metered: the minute.** A minute is a minute of media we pay a transcription provider to process, plus three flat conversions — a bought caption set counts 1, five document pages count 1, five sources of a folder generation count 1. Everything else (articles, web pages, TikToks, Instagram photo posts, single-item AI generations) is unlimited and costs nothing.
 
-**The meter follows the provider call, not the URL.** An API endpoint only ever *checks*; the debit happens where provider money is spent — the Deepgram gate (`audio_quota_gate`), the paid caption fetch, the document parse, the collection generation. That is what makes "a transcription nobody charged" and "the same import charged twice" unrepresentable rather than merely fixed. There is no per-platform category map and therefore no platform that can be exempt.
+**The meter follows the provider call, not the URL.** An API endpoint only ever *checks*; the debit happens where provider money is spent — the Deepgram gate (`audio_quota_gate`), the paid caption fetch, the document parse, the folder generation. That is what makes "a transcription nobody charged" and "the same import charged twice" unrepresentable rather than merely fixed. There is no per-platform category map and therefore no platform that can be exempt.
 
 All submission entry points (`POST /api/media/ingest-url`, `POST /api/media/upload`, `POST /api/podcasts/submit`, and `media_submission.submit_media_for_user`) call `check_submission_allowed` before creating a job, with the minutes the import will cost when its duration is already known.
 

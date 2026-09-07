@@ -1,5 +1,5 @@
 /**
- * Unsorted review — the triage pass over the default collection.
+ * Unsorted review — the triage pass over the default folder.
  *
  * One media per page, oldest first, with three ways out: throw it away, open it
  * to have a proper look, or file it. Swipe left and right to move through the
@@ -53,14 +53,14 @@ import {
 } from "../../src/components/MediaListCard";
 import { Bullets } from "../../src/components/Bullets";
 import { PaginationDots } from "../../src/components/PaginationDots";
-import { CollectionSaveSheet } from "../../src/components/CollectionSaveSheet";
-import { buildCollectionTree } from "../../src/lib/collectionTree";
+import { FolderSaveSheet } from "../../src/components/FolderSaveSheet";
+import { buildFolderTree } from "../../src/lib/folderTree";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
 import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
 import { MediaService } from "../../src/services/mediaService";
 import { OrganizationService } from "../../src/services/organizationService";
 import type { MediaListItem, MediaType } from "../../src/types/media";
-import type { Collection } from "../../src/types/organization";
+import type { Folder } from "../../src/types/organization";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -102,7 +102,7 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
   );
 
   const [items, setItems] = useState<MediaListItem[]>([]);
-  const [collections, setCollections] = useState<Collection[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -116,27 +116,27 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
     setIsLoading(true);
     setError(null);
     try {
-      // The folder list is what gives the default collection's id, and the save
+      // The folder list is what gives the default folder's id, and the save
       // sheet needs the same list to offer destinations — one read serves both.
-      const folders = await OrganizationService.getUserCollections();
+      const folders = await OrganizationService.getUserFolders();
       // `is_default`, never the label: the stored name is `Uncategorized`, the UI
       // says "Unsorted", and matching on either is what task-297 forbade.
-      const { defaultCollection } = buildCollectionTree(folders);
+      const { defaultFolder } = buildFolderTree(folders);
 
       let queue: MediaListItem[] = [];
-      if (defaultCollection) {
-        const page = await OrganizationService.getCollectionMedia(
-          defaultCollection.id,
+      if (defaultFolder) {
+        const page = await OrganizationService.getFolderMedia(
+          defaultFolder.id,
           { limit: QUEUE_LIMIT, sort: "asc" },
         );
         // The backend `folder_id` filter is inclusive of sub-folders, so the
         // exact id is re-checked here: a triage of "unsorted" must not hand out
         // media the user has already filed somewhere below it.
-        queue = page.filter((item) => item.folder_id === defaultCollection.id);
+        queue = page.filter((item) => item.folder_id === defaultFolder.id);
       }
 
       if (!isMountedRef.current) return;
-      setCollections(folders);
+      setFolders(folders);
       setItems(queue);
       setActiveIndex(0);
     } catch (err) {
@@ -284,8 +284,8 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
     setSaveTargetId(current.media_item_id);
   }, [current, isMutating]);
 
-  const handleCollectionCreated = useCallback((collection: Collection) => {
-    setCollections((prev) => [...prev, collection]);
+  const handleFolderCreated = useCallback((folder: Folder) => {
+    setFolders((prev) => [...prev, folder]);
   }, []);
 
   const handleSaved = useCallback(
@@ -523,12 +523,12 @@ export default function UnsortedReviewScreen(): React.JSX.Element {
         </>
       )}
 
-      <CollectionSaveSheet
+      <FolderSaveSheet
         visible={saveTargetId !== null}
         mediaItemId={saveTargetId}
-        collections={collections}
+        folders={folders}
         onClose={() => setSaveTargetId(null)}
-        onCollectionCreated={handleCollectionCreated}
+        onFolderCreated={handleFolderCreated}
         onSaved={handleSaved}
       />
     </View>

@@ -11,7 +11,7 @@
  * The route keeps what belongs to a route: the fetch, and the loading,
  * processing, timeout and failure states of the item on its way here.
  *
- * `useRouter()` stays — the collection picker and an artifact are pushed the
+ * `useRouter()` stays — the folder picker and an artifact are pushed the
  * same way from a route as from a pager. What does not stay is any read of the
  * URL segment.
  */
@@ -187,14 +187,14 @@ export function CompletedDetailView({
   const router = useRouter();
   const { media_item, processing_job } = mediaData;
 
-  // --- Collection state ---
+  // --- Folder state ---
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(
     media_item.folder_id ?? null,
   );
   const previousFolderIdRef = useRef<string | null>(currentFolderId);
 
   // Toast feedback state. The tone only swaps the glyph and its colour: one
-  // surface carries both the collection confirmations and a failed source open,
+  // surface carries both the folder confirmations and a failed source open,
   // instead of a second banner for errors.
   const [toast, setToast] = useState<{
     message: string;
@@ -225,12 +225,12 @@ export function CompletedDetailView({
     [toastOpacity],
   );
 
-  // Refresh collection state when returning from the collection picker
+  // Refresh folder state when returning from the folder picker
   useFocusEffect(
     useCallback(() => {
       if (!isAuthenticated) return;
 
-      const refreshCollection = async () => {
+      const refreshFolder = async () => {
         try {
           const response = await MediaService.getMediaStatus(
             media_item.media_item_id,
@@ -238,24 +238,24 @@ export function CompletedDetailView({
           const newFolderId = response.media_item.folder_id ?? null;
           setCurrentFolderId(newFolderId);
 
-          // Show toast if collection changed
+          // Show toast if folder changed
           if (newFolderId !== previousFolderIdRef.current) {
             if (newFolderId) {
-              // Fetch collection name for the toast
+              // Fetch folder name for the toast
               try {
-                const collections =
-                  await OrganizationService.getUserCollections();
-                const found = collections.find((c) => c.id === newFolderId);
+                const folders =
+                  await OrganizationService.getUserFolders();
+                const found = folders.find((c) => c.id === newFolderId);
                 showToast(
                   found
                     ? t("media.movedToNamed", { name: found.name })
-                    : t("media.movedToCollection"),
+                    : t("media.movedToFolder"),
                 );
               } catch {
-                showToast(t("media.movedToCollection"));
+                showToast(t("media.movedToFolder"));
               }
             } else {
-              showToast(t("media.removedFromCollection"));
+              showToast(t("media.removedFromFolder"));
             }
             previousFolderIdRef.current = newFolderId;
           }
@@ -264,7 +264,7 @@ export function CompletedDetailView({
         }
       };
 
-      void refreshCollection();
+      void refreshFolder();
     }, [isAuthenticated, media_item.media_item_id, showToast]),
   );
 
@@ -275,14 +275,14 @@ export function CompletedDetailView({
     };
   }, []);
 
-  const handleCollectionPress = useCallback(() => {
+  const handleFolderPress = useCallback(() => {
     const params = new URLSearchParams();
     params.set("mode", "move");
     params.set("mediaItemId", media_item.media_item_id);
     if (currentFolderId) {
-      params.set("currentCollectionId", currentFolderId);
+      params.set("currentFolderId", currentFolderId);
     }
-    router.push(`/media/collection?${params.toString()}`);
+    router.push(`/media/folder?${params.toString()}`);
   }, [router, media_item.media_item_id, currentFolderId]);
 
   // The title as this screen shows it: whatever the library row holds, and
@@ -366,7 +366,7 @@ export function CompletedDetailView({
       if (!mountedRef.current) return;
       setHistoryError(
         getFriendlyErrorMessage(err, {
-          fallback: t("collection.artifactsLoadFailed"),
+          fallback: t("folder.artifactsLoadFailed"),
         }),
       );
     }
@@ -755,8 +755,8 @@ export function CompletedDetailView({
       {showChrome ? (
         <MediaDetailHeader
           onBack={onBack}
-          collectionId={currentFolderId}
-          onCollectionPress={handleCollectionPress}
+          folderId={currentFolderId}
+          onFolderPress={handleFolderPress}
           onActionsPress={(anchor) => mediaActions.open(menuTarget, anchor)}
         />
       ) : null}
@@ -826,7 +826,7 @@ export function CompletedDetailView({
         {/* Tab content. Artifact polling and the transcript fetch both live in
             this component, so neither stops when its tab is hidden. Each branch
             carries the page gutter itself — `ArtifactsPanel` owns the one it
-            shares with the collection screen. */}
+            shares with the folder screen. */}
         {activeTab === "reader" ? (
           <View style={styles.readerContent}>
             {/* What this source is about, before the source itself. */}

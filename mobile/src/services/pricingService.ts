@@ -49,7 +49,7 @@ export interface PricingFreeTrial {
 export interface PricingUnitConversion {
   captions_minutes: number | null;
   document_pages_per_minute: number | null;
-  collection_sources_per_minute: number | null;
+  folder_sources_per_minute: number | null;
 }
 
 export interface PublicPricing {

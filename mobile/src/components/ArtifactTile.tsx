@@ -2,8 +2,8 @@
  * One AI artifact type, as a full-width tile carrying its own state.
  *
  * Shared because the same five tiles are offered from two places: the "AI" tab
- * of a media item (`app/media/[id].tsx`) and the AI tab of a collection. The
- * component is deliberately free of any media/collection notion — it takes a
+ * of a media item (`app/media/[id].tsx`) and the AI tab of a folder. The
+ * component is deliberately free of any media/folder notion — it takes a
  * label, a glyph, the state of that artifact and one callback.
  *
  * The label sits in its own column so a secondary metadata line (generation
@@ -59,7 +59,7 @@ export type ArtifactTileState = {
   /**
    * Whether a generation of this type would produce anything. False once an
    * artifact already covers the scope's current sources — one per type for a
-   * media item, and for a collection until its contents change. A failed entry
+   * media item, and for a folder until its contents change. A failed entry
    * leaves it true: there is nothing to reuse, and the backend reruns it.
    */
   generationAvailable: boolean;

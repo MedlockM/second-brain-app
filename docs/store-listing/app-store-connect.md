@@ -108,7 +108,7 @@ That was the wording here until 2026-09-02, taken from the app's own
 `pricing_config_service.DEFAULT_PRICING_CONFIG` (`unit_conversion`) is what settles
 it. **Metered**: audio and video at their real length; a video whose captions are
 bought, 1 min flat; **a PDF, an Office document or a photo read for its text, 1 min
-per 5 pages**; a generation over a whole collection, 1 min per 5 items. **Free and
+per 5 pages**; a generation over a whole folder, 1 min per 5 items. **Free and
 unlimited** (`plan.legend.free`, verbatim): « Articles, web pages, TikToks and
 Instagram photo posts cost nothing at all: they are not transcribed », plus
 single-item generations and reading the library.
@@ -132,7 +132,7 @@ split rather than pasted into one line.
   web pages cost no minutes, and reading your library is unlimited. »** That is
   also the Account tab's hint under the usage gauge (`SubscriptionStatusCard`), so
   the two screens cannot drift. "Cover", not "only cover": documents and
-  collection-wide generations debit minutes too.
+  folder-wide generations debit minutes too.
 - The exhaustive free list — TikToks and Instagram photo posts included — stays in
   `plan.legend.free`, behind `See exactly what is included`, with the four
   conversion sentences.

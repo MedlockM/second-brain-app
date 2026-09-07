@@ -122,8 +122,8 @@ async def get_public_pricing():
                 "document_pages_per_minute": unit_conversion.get(
                     "document_pages_per_minute"
                 ),
-                "collection_sources_per_minute": unit_conversion.get(
-                    "collection_sources_per_minute"
+                "folder_sources_per_minute": unit_conversion.get(
+                    "folder_sources_per_minute"
                 ),
             },
             "currency": "EUR",

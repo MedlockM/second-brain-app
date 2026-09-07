@@ -22,7 +22,7 @@ export const es: Catalog = {
   "trial.lastDay": "Prueba gratuita - último día",
   "trial.daysLeft.one": "Prueba gratuita - queda {count} día",
   "trial.daysLeft.other": "Prueba gratuita - quedan {count} días",
-  "home.tile.a11yCollection": "Colección {name}, {count}",
+  "home.tile.a11yFolder": "Carpeta {name}, {count}",
   "home.tile.a11yByCreator": "{title} de {creator}",
   "quota.warning.trial":
     "Has usado el {percent} % de los minutos de tu prueba gratuita.",
@@ -65,24 +65,24 @@ export const es: Catalog = {
     "«{title}» se quitará de tu biblioteca. Esta acción no se puede deshacer.",
   "mediaActions.deleteFailed":
     "No se pudo eliminar esta fuente. Sigue en tu biblioteca.",
-  "collectionActions.longPressHint":
-    "Toca dos veces y mantén para renombrar o eliminar esta colección",
-  "collectionActions.rename.label": "Renombrar",
-  "collectionActions.delete.label": "Eliminar",
-  "collectionActions.moreA11y": "Acciones para esta colección",
-  "collectionActions.rename.title": "Renombrar esta colección",
-  "collectionActions.rename.placeholder": "Nombre de la colección",
-  "collectionActions.renameFailed":
-    "No se pudo renombrar esta colección. Su nombre no ha cambiado.",
-  "collectionActions.deleteTitle": "¿Eliminar esta colección?",
-  "collectionActions.deleteBody":
+  "folderActions.longPressHint":
+    "Toca dos veces y mantén para renombrar o eliminar esta carpeta",
+  "folderActions.rename.label": "Renombrar",
+  "folderActions.delete.label": "Eliminar",
+  "folderActions.moreA11y": "Acciones para esta carpeta",
+  "folderActions.rename.title": "Renombrar esta carpeta",
+  "folderActions.rename.placeholder": "Nombre de la carpeta",
+  "folderActions.renameFailed":
+    "No se pudo renombrar esta carpeta. Su nombre no ha cambiado.",
+  "folderActions.deleteTitle": "¿Eliminar esta carpeta?",
+  "folderActions.deleteBody":
     "«{name}» se eliminará. Todas las fuentes que contiene pasan a {unsorted}; no se elimina ninguna.",
-  "collectionActions.deleteSubCollections.one":
-    "Su subcolección también se elimina, y las fuentes que contiene pasan igualmente a {unsorted}.",
-  "collectionActions.deleteSubCollections.other":
-    "Sus {count} subcolecciones también se eliminan, y las fuentes que contienen pasan igualmente a {unsorted}.",
-  "collectionActions.deleteFailed":
-    "No se pudo eliminar esta colección. Sigue en tu biblioteca.",
+  "folderActions.deleteSubfolders.one":
+    "Su subcarpeta también se elimina, y las fuentes que contiene pasan igualmente a {unsorted}.",
+  "folderActions.deleteSubfolders.other":
+    "Sus {count} subcarpetas también se eliminan, y las fuentes que contienen pasan igualmente a {unsorted}.",
+  "folderActions.deleteFailed":
+    "No se pudo eliminar esta carpeta. Sigue en tu biblioteca.",
   "addSource.title": "Añadir a tu bandeja",
   "addSource.importFile.label": "Importar un archivo",
   "addSource.importFile.description":
@@ -203,14 +203,14 @@ export const es: Catalog = {
     "Esto dura {duration}, por encima de los {max} que puede usar una sola importación en tu plan. Divídelo en partes más cortas.",
   "quota.refusal.itemTooLongGeneric":
     "Es demasiado largo para una sola importación en tu plan. Divídelo en partes más cortas.",
-  "artifacts.refusal.collectionEmpty":
-    "Esta colección aún no tiene ninguna fuente con transcripción. Añade medios o espera a que terminen de procesarse los que has guardado.",
+  "artifacts.refusal.folderEmpty":
+    "Esta carpeta aún no tiene ninguna fuente con transcripción. Añade medios o espera a que terminen de procesarse los que has guardado.",
   "artifacts.refusal.mediaEmpty":
     "Este elemento aún no tiene transcripción, así que no hay nada a partir de lo que generar.",
   "artifacts.refusal.tooManySources":
-    "Esta colección tiene {count} fuentes, por encima de las {max} que puede leer una sola generación. Genera sobre una subcolección más pequeña.",
+    "Esta carpeta tiene {count} fuentes, por encima de las {max} que puede leer una sola generación. Genera sobre una subcarpeta más pequeña.",
   "artifacts.refusal.tooMuchText":
-    "Hay demasiado texto aquí para una sola generación. Genera sobre una subcolección más pequeña.",
+    "Hay demasiado texto aquí para una sola generación. Genera sobre una subcarpeta más pequeña.",
   "artifacts.refusal.translationFailed":
     "No se ha podido traducir esta transcripción, y no se reintentará automáticamente. Inténtalo más tarde.",
   "artifacts.refusal.sourcesTranslationFailed.one":
@@ -253,8 +253,8 @@ export const es: Catalog = {
     "Un vídeo que ya tiene subtítulos que podemos comprar cuesta {duration}, dure lo que dure.",
   "plan.legend.documents":
     "Un PDF, un documento de Office o una foto de la que leemos el texto cuesta 1 min por cada {pages} páginas.",
-  "plan.legend.collections":
-    "Una generación sobre una colección entera cuesta 1 min por cada {sources} elementos que contenga. Sobre un solo elemento es gratis.",
+  "plan.legend.folders":
+    "Una generación sobre una carpeta entera cuesta 1 min por cada {sources} elementos que contenga. Sobre un solo elemento es gratis.",
   "plan.legend.free":
     "Los artículos, las páginas web, los TikToks y las publicaciones de fotos de Instagram no cuestan nada: no se transcriben.",
   "plan.legend.overLimit":
@@ -266,9 +266,9 @@ export const es: Catalog = {
   "plan.highlight.read":
     "Lee la transcripción completa, traducida a tu idioma de lectura",
   "plan.highlight.generate":
-    "Genera {list} bajo demanda, por elemento o por colección",
+    "Genera {list} bajo demanda, por elemento o por carpeta",
   "plan.highlight.organise":
-    "Organiza en colecciones y etiquetas, busca en todo, resumen diario",
+    "Organiza en carpetas y etiquetas, busca en todo, resumen diario",
   "plan.includes.capture.title": "Guarda cualquier cosa, desde cualquier app",
   "plan.includes.capture.links":
     "Comparte un enlace desde cualquier app, o pégalo: vídeos de YouTube, episodios de pódcast de Apple Podcasts, Spotify, Deezer o cualquier feed RSS, TikToks, reels y publicaciones de fotos de Instagram, publicaciones de X, artículos de prensa y cualquier página web.",
@@ -282,13 +282,13 @@ export const es: Catalog = {
   "plan.includes.generate.title": "Conviértelo en algo que conservas",
   "plan.includes.generate.onDemand":
     "En cualquier elemento, bajo demanda: {list}.",
-  "plan.includes.generate.collection":
-    "Ejecuta las mismas generaciones sobre una colección entera para obtener una única síntesis de todo lo que has archivado en ella.",
+  "plan.includes.generate.folder":
+    "Ejecuta las mismas generaciones sobre una carpeta entera para obtener una única síntesis de todo lo que has archivado en ella.",
   "plan.includes.generate.kept":
     "Cada generación se conserva, así que puedes volver a ella o pedir una nueva más adelante.",
   "plan.includes.organise.title": "Encuéntralo meses después",
   "plan.includes.organise.file":
-    "Archiva cualquier cosa en colecciones y etiquetas, en el momento de guardarla o más tarde.",
+    "Archiva cualquier cosa en carpetas y etiquetas, en el momento de guardarla o más tarde.",
   "plan.includes.organise.search":
     "Búsqueda de texto completo en todo lo que has guardado, transcripciones incluidas.",
   "plan.includes.organise.digest":
@@ -428,11 +428,11 @@ export const es: Catalog = {
   "mediaType.unknownSource": "Desconocida",
   "search.placeholder": "Busca en tu biblioteca…",
   "search.clearA11y": "Borrar la búsqueda",
-  "search.collections": "Colecciones",
+  "search.folders": "Carpetas",
   "search.allMedia": "Todos los medios",
-  "search.noCollections":
-    "Aún no hay colecciones. Organiza tus medios en colecciones al guardarlos.",
-  "search.openCollectionA11y": "Abrir la colección {name}",
+  "search.noFolders":
+    "Aún no hay carpetas. Organiza tus medios en carpetas al guardarlos.",
+  "search.openFolderA11y": "Abrir la carpeta {name}",
   "search.resultCount.one": "{count} resultado",
   "search.resultCount.other": "{count} resultados",
   "search.endOfResults": "Fin de los resultados",
@@ -443,10 +443,10 @@ export const es: Catalog = {
   "search.emptyLibraryHint":
     "Comparte un enlace desde cualquier app, o importa un archivo desde la bandeja, y aparecerá aquí.",
   "search.failed": "La búsqueda ha fallado",
-  "search.collectionsLoadFailed": "No se han podido cargar tus colecciones.",
+  "search.foldersLoadFailed": "No se han podido cargar tus carpetas.",
   "search.libraryLoadFailed": "No se ha podido cargar tu biblioteca.",
   "search.retryLibraryA11y": "Reintentar la carga de tu biblioteca",
-  "search.retryCollectionsA11y": "Reintentar la carga de las colecciones",
+  "search.retryFoldersA11y": "Reintentar la carga de las carpetas",
   "search.retrySearchA11y": "Reintentar la búsqueda",
   "tabs.home": "Inicio",
   "tabs.search": "Buscar",
@@ -461,7 +461,7 @@ export const es: Catalog = {
   "home.empty": "Tus medios compartidos aparecerán aquí.",
   "home.emptyHint":
     "Comparte un enlace desde cualquier app, o toca + para importar un archivo o hacer una foto.",
-  "home.untitledCollection": "Colección",
+  "home.untitledFolder": "Carpeta",
   "unsortedReview.title": "Revisión de sin clasificar",
   "unsortedReview.position": "{current} / {total}",
   "unsortedReview.positionA11y": "Fuente {current} de {total}",
@@ -476,7 +476,7 @@ export const es: Catalog = {
   "unsortedReview.deepen": "Profundizar",
   "unsortedReview.deepenA11y": "Abrir {title}",
   "unsortedReview.save": "Guardar",
-  "unsortedReview.saveA11y": "Guardar {title} en una colección",
+  "unsortedReview.saveA11y": "Guardar {title} en una carpeta",
   "unsortedReview.doneTitle": "No queda nada por clasificar",
   "unsortedReview.doneBody": "Todo lo que esperaba ya está resuelto.",
   "digest.daily": "Diario",
@@ -503,29 +503,29 @@ export const es: Catalog = {
   "tags.loadFailed": "No se han podido cargar las etiquetas",
   "tags.createFailed": "No se ha podido crear la etiqueta",
   "tags.saveFailed": "No se han podido guardar las etiquetas",
-  "collectionPicker.title": "Colección",
-  "collectionPicker.saveA11y": "Guardar la selección",
-  "collectionPicker.searchPlaceholder": "Buscar",
-  "collectionPicker.unsorted": "Sin clasificar",
-  "collectionPicker.myCollections": "Mis colecciones",
-  "collectionPicker.createA11y": "Crear una colección",
-  "collectionPicker.namePlaceholder": "Nombre de la colección",
-  "collectionPicker.confirm": "Confirmar",
-  "collectionPicker.collapse": "Contraer",
-  "collectionPicker.expand": "Expandir",
-  "collectionPicker.noMatches": "Ninguna colección coincide con tu búsqueda",
-  "collectionPicker.loadFailed": "No se han podido cargar las colecciones",
-  "collectionPicker.saveFailed": "No se ha podido guardar la colección",
-  "collectionPicker.createFailed": "No se ha podido crear la colección",
-  "collections.loading": "Cargando las colecciones…",
-  "collections.loadFailed":
-    "No se han podido cargar tus colecciones. Inténtalo de nuevo.",
-  "collections.empty": "Aún no hay colecciones",
-  "collections.emptyHint":
-    "Organiza tus medios en colecciones al guardarlos para encontrarlos aquí.",
-  "collections.emptyFolder": "Vacía",
-  "collections.childCount.one": "{count} colección",
-  "collections.childCount.other": "{count} colecciones",
+  "folderPicker.title": "Carpeta",
+  "folderPicker.saveA11y": "Guardar la selección",
+  "folderPicker.searchPlaceholder": "Buscar",
+  "folderPicker.unsorted": "Sin clasificar",
+  "folderPicker.myFolders": "Mis carpetas",
+  "folderPicker.createA11y": "Crear una carpeta",
+  "folderPicker.namePlaceholder": "Nombre de la carpeta",
+  "folderPicker.confirm": "Confirmar",
+  "folderPicker.collapse": "Contraer",
+  "folderPicker.expand": "Expandir",
+  "folderPicker.noMatches": "Ninguna carpeta coincide con tu búsqueda",
+  "folderPicker.loadFailed": "No se han podido cargar las carpetas",
+  "folderPicker.saveFailed": "No se ha podido guardar la carpeta",
+  "folderPicker.createFailed": "No se ha podido crear la carpeta",
+  "folders.loading": "Cargando las carpetas…",
+  "folders.loadFailed":
+    "No se han podido cargar tus carpetas. Inténtalo de nuevo.",
+  "folders.empty": "Aún no hay carpetas",
+  "folders.emptyHint":
+    "Organiza tus medios en carpetas al guardarlos para encontrarlos aquí.",
+  "folders.emptySubtitle": "Vacía",
+  "folders.childCount.one": "{count} carpeta",
+  "folders.childCount.other": "{count} carpetas",
   "media.tab.reader": "Lectura",
   "media.tab.ai": "IA",
   "media.sectionsA11y": "Secciones del medio",
@@ -544,21 +544,21 @@ export const es: Catalog = {
   "media.processing.generating": "Generando el texto…",
   "media.transcriptLoadFailed": "No se ha podido cargar el texto ahora mismo.",
   "media.movedToNamed": "Movido a «{name}»",
-  "media.movedToCollection": "Movido a una colección",
-  "media.removedFromCollection": "Quitado de la colección",
+  "media.movedToFolder": "Movido a una carpeta",
+  "media.removedFromFolder": "Quitado de la carpeta",
   "media.openFailed": "No se ha podido abrir {host}",
-  "media.moveToCollectionA11y": "Mover a una colección",
-  "collection.tab.sources": "Fuentes",
-  "collection.tab.ai": "IA",
-  "collection.sectionsA11y": "Secciones de la colección",
-  "collection.loadFailed":
-    "No se ha podido cargar esta colección. Inténtalo de nuevo.",
-  "collection.retryA11y": "Reintentar la carga de la colección",
-  "collection.artifactsLoadFailed":
+  "media.moveToFolderA11y": "Mover a una carpeta",
+  "folder.tab.sources": "Fuentes",
+  "folder.tab.ai": "IA",
+  "folder.sectionsA11y": "Secciones de la carpeta",
+  "folder.loadFailed":
+    "No se ha podido cargar esta carpeta. Inténtalo de nuevo.",
+  "folder.retryA11y": "Reintentar la carga de la carpeta",
+  "folder.artifactsLoadFailed":
     "No se ha podido cargar el contenido generado. Inténtalo de nuevo.",
-  "collection.empty": "Esta colección está vacía",
-  "collection.emptyHint":
-    "Los medios que guardes en esta colección aparecerán aquí.",
+  "folder.empty": "Esta carpeta está vacía",
+  "folder.emptyHint":
+    "Los medios que guardes en esta carpeta aparecerán aquí.",
   "bugReport.subject": "Asunto",
   "bugReport.subjectPlaceholder": "Resumen breve del problema",
   "bugReport.subjectA11y": "Asunto del informe de error",
@@ -682,7 +682,7 @@ export const es: Catalog = {
   "share.uploadingFile": "Subiendo el archivo…",
   "share.whatsappText": "Mensaje de texto de WhatsApp",
   "share.tags": "Etiquetas",
-  "share.chooseCollection": "Elegir una colección",
+  "share.chooseFolder": "Elegir una carpeta",
   "share.chooseTags": "Elegir etiquetas",
   "share.success.duplicate": "Este contenido ya estaba en tu bandeja.",
   "share.success.audio":

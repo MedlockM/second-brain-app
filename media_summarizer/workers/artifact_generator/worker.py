@@ -35,7 +35,7 @@ from media_summarizer.core.models.media_artifact import (
 )
 from media_summarizer.core.services import quota_enforcer
 from media_summarizer.core.services.artifact_service import (
-    MAX_COLLECTION_CORPUS_TOKENS,
+    MAX_FOLDER_CORPUS_TOKENS,
     claim_artifact_generation,
     complete_artifact_generation,
     estimate_tokens,
@@ -309,10 +309,10 @@ async def process_message(message: Dict[str, Any]) -> None:
             len(source["text"].encode("utf-8")) for source in corpus_sources
         )
         estimated_tokens = estimate_tokens(corpus_bytes)
-        if estimated_tokens > MAX_COLLECTION_CORPUS_TOKENS:
+        if estimated_tokens > MAX_FOLDER_CORPUS_TOKENS:
             raise ValueError(
                 f"corpus_too_large: {estimated_tokens} estimated tokens exceeds "
-                f"{MAX_COLLECTION_CORPUS_TOKENS}"
+                f"{MAX_FOLDER_CORPUS_TOKENS}"
             )
 
         prompt = generator.build_prompt(corpus_sources, language=language)

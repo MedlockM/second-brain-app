@@ -4,7 +4,7 @@ DynamoDB access layer for consumption counters.
 Only one thing is metered, the minute (see the validated consumption model in
 docs/research/task-287-consumption-model/README.md): a minute of media we pay a
 transcription provider to process, plus the flat conversions of §3.1 (a bought
-caption set, five document pages, five collection sources).
+caption set, five document pages, five folder sources).
 
 Two tables:
 - user_usage_monthly: the allowance counter, one row per user per billing period

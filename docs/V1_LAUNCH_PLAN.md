@@ -83,7 +83,7 @@
 - **Backlog** : **12 tâches non-`Done`** au 2026-09-03 — 62, 118, 145, 164, 165,
   166, 172, 180, 186, 229, 260, 352. `task-252` (credentials prod) et `task-337`
   (libellé de quota du paywall) sont passées `Done` le 2026-09-03, `task-352`
-  (menu contextuel ancré sur une tuile de collection) est entrée. `task-262`,
+  (menu contextuel ancré sur une tuile de dossier) est entrée. `task-262`,
   `task-238`, `task-261` et `task-163` sont `Done`, et les 26 tâches ouvertes entre
   le 2026-08-14 et le 2026-08-21 (287, 289 à 312) sont toutes closes.
   `task-212`/`task-213` (architecture LLM) restent **archivées** sur
@@ -197,8 +197,8 @@ Ce que l'app fait, au-delà de l'ingestion — refondu entre le 2026-08-14 et le
 | **Paywall** | 3 tiers servis depuis la config de pricing, aucune figure en dur, recommandation d'un plan à la hauteur de l'usage, refus nommé explicitement, liens légaux exigés par les stores | `task-299`, `mobile/app/paywall.tsx` |
 | **Vignettes média** | Chaque média porte une **cover image** et un **nom de créateur**, extraits par source. Une cover partagée n'est purgée que si plus aucun save ne la référence | `task-302`/`304`/`308`, `core/services/cover_capture.py` |
 | **Home** | L'Inbox verticale est remplacée par un écran d'accueil en **rangées de tuiles** : « Continue learning » (piloté par un signal d'engagement récent, purgé au-delà de 90 j) et « Recently added » | `task-303`/`305`/`307`/`311`, `mobile/app/(tabs)/inbox.tsx`, `core/services/engagement_service.py` |
-| **Library** | L'onglet recherche est devenu le point d'entrée bibliothèque : il liste **tous** les médias sauvegardés, plus seulement les collections | `task-306`, `mobile/app/(tabs)/search.tsx` (titre d'onglet « Library ») |
-| **Collections / AI** | Écran média scindé en onglets **Reader / AI**, écran collection en **Sources / AI** ; artifacts en historique horodaté append-only, y compris au niveau collection | `task-269` à `273`, `290`, `291` |
+| **Library** | L'onglet recherche est devenu le point d'entrée bibliothèque : il liste **tous** les médias sauvegardés, plus seulement les dossiers | `task-306`, `mobile/app/(tabs)/search.tsx` (titre d'onglet « Library ») |
+| **Dossiers / AI** | Écran média scindé en onglets **Reader / AI**, écran dossier en **Sources / AI** ; artifacts en historique horodaté append-only, y compris au niveau dossier | `task-269` à `273`, `290`, `291` |
 | **API** | Toutes les routes sont sous `/api/`, le préfixe `/api/v1/` est supprimé | `task-289` |
 
 > À noter : le fichier de l'onglet Home s'appelle toujours `inbox.tsx` et son

@@ -12,7 +12,7 @@ export type HttpError = Error & {
   /**
    * The whole structured refusal body, when the backend sent one. Typed refusals
    * carry the numbers the screen needs to be specific — `source_count` /
-   * `max_sources` on a collection that is too large, `pending_count` on sources
+   * `max_sources` on a folder that is too large, `pending_count` on sources
    * still being prepared — and losing them would leave the UI with a generic
    * sentence where the API gave it an exact one.
    */

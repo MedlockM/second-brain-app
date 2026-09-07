@@ -255,7 +255,7 @@ async def _purge_artifacts(
 ) -> None:
     from media_summarizer.utils import database_async
 
-    # Collection artifacts hang off the folder, not off any media item, so the
+    # Folder artifacts hang off the folder, not off any media item, so the
     # folders have to be walked explicitly or every one of them survives the
     # erasure (task-270).
     folders = await database_async.get_folders_by_user_id(user_id)

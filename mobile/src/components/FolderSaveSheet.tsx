@@ -1,7 +1,7 @@
 /**
- * "Which collection?" for the unsorted-review triage, presented as a sheet.
+ * "Which folder?" for the unsorted-review triage, presented as a sheet.
  *
- * The body is `CollectionPickerView` — the same search, the same tree, the same
+ * The body is `FolderPickerView` — the same search, the same tree, the same
  * inline creation the share flow and the media detail screen open. The one
  * deliberate omission is the "Unsorted" destination: every card in the triage
  * queue already sits in the default folder, so offering to put it back there
@@ -38,24 +38,24 @@ import {
   Spacing,
 } from "../constants/theme";
 import { t } from "../i18n";
-import { CollectionPickerView } from "./CollectionPickerView";
+import { FolderPickerView } from "./FolderPickerView";
 import { ScreenHeader, HeaderIconButton } from "./ScreenHeader";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
 import { OrganizationService } from "../services/organizationService";
-import type { Collection } from "../types/organization";
+import type { Folder } from "../types/organization";
 
-export interface CollectionSaveSheetProps {
+export interface FolderSaveSheetProps {
   visible: boolean;
   /** The media being filed. Null closes the sheet's business, not the sheet. */
   mediaItemId: string | null;
-  /** Collections the host screen already holds — no fetch of our own. */
-  collections: Collection[];
+  /** Folders the host screen already holds — no fetch of our own. */
+  folders: Folder[];
   onClose: () => void;
   /**
-   * A collection was created here, so the host can keep its own list current
+   * A folder was created here, so the host can keep its own list current
    * without refetching.
    */
-  onCollectionCreated: (collection: Collection) => void;
+  onFolderCreated: (folder: Folder) => void;
   /**
    * The assignment went through. Called once the sheet has finished dismissing,
    * never before — see `runAfterClose`.
@@ -63,14 +63,14 @@ export interface CollectionSaveSheetProps {
   onSaved: (mediaItemId: string) => void;
 }
 
-export function CollectionSaveSheet({
+export function FolderSaveSheet({
   visible,
   mediaItemId,
-  collections,
+  folders,
   onClose,
-  onCollectionCreated,
+  onFolderCreated,
   onSaved,
-}: CollectionSaveSheetProps): React.JSX.Element {
+}: FolderSaveSheetProps): React.JSX.Element {
   const insets = useSafeAreaInsets();
 
   const [isSaving, setIsSaving] = useState(false);
@@ -124,12 +124,12 @@ export function CollectionSaveSheet({
   }, [visible]);
 
   const assign = useCallback(
-    async (collectionId: string) => {
+    async (folderId: string) => {
       if (!mediaItemId || isSaving) return;
       setIsSaving(true);
       setError(null);
       try {
-        await OrganizationService.setMediaCollection(mediaItemId, collectionId);
+        await OrganizationService.setMediaFolder(mediaItemId, folderId);
         const savedId = mediaItemId;
         runAfterClose(() => onSaved(savedId));
       } catch (err) {
@@ -139,7 +139,7 @@ export function CollectionSaveSheet({
         // modal that is on its way out goes with it, unread.
         setError(
           getFriendlyErrorMessage(err, {
-            fallback: t("collectionPicker.saveFailed"),
+            fallback: t("folderPicker.saveFailed"),
           }),
         );
       } finally {
@@ -150,23 +150,23 @@ export function CollectionSaveSheet({
   );
 
   const handleSelect = useCallback(
-    (collectionId: string | null) => {
+    (folderId: string | null) => {
       // The picker runs here without its "Unsorted" row, so a null selection
       // cannot be reached; filing into the default folder is not a destination.
-      if (collectionId === null) return;
-      void assign(collectionId);
+      if (folderId === null) return;
+      void assign(folderId);
     },
     [assign],
   );
 
-  const handleCollectionCreated = useCallback(
-    (created: Collection) => {
-      onCollectionCreated(created);
+  const handleFolderCreated = useCallback(
+    (created: Folder) => {
+      onFolderCreated(created);
       // Create *then* select, without a second tap: someone who had to invent a
-      // collection has already told us where the media goes.
+      // folder has already told us where the media goes.
       void assign(created.id);
     },
-    [assign, onCollectionCreated],
+    [assign, onFolderCreated],
   );
 
   return (
@@ -197,13 +197,13 @@ export function CollectionSaveSheet({
           {/* The picker's screen header, minus the Save button it has no use
               for: the trailing slot carries the saving spinner instead. */}
           <ScreenHeader
-            title={t("collectionPicker.title")}
+            title={t("folderPicker.title")}
             titleStyle={styles.headerTitle}
             leading={
               <HeaderIconButton
                 icon="arrow-back"
                 onPress={onClose}
-                testID="collection-save-sheet-close"
+                testID="folder-save-sheet-close"
                 accessibilityLabel={t("common.goBack")}
               />
             }
@@ -214,14 +214,14 @@ export function CollectionSaveSheet({
             }
           />
 
-          <CollectionPickerView
-            collections={collections}
+          <FolderPickerView
+            folders={folders}
             selectedId={null}
             showUnsorted={false}
             busy={isSaving}
             error={error}
             onSelect={handleSelect}
-            onCollectionCreated={handleCollectionCreated}
+            onFolderCreated={handleFolderCreated}
             onCreateFailed={setError}
           />
         </View>

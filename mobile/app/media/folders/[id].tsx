@@ -31,16 +31,16 @@ import {
 import { RenameDialog } from "../../../src/components/RenameDialog";
 import { ScreenTabs, type ScreenTab } from "../../../src/components/ScreenTabs";
 import { useMediaActions } from "../../../src/hooks/useMediaActions";
-import { useCollectionActions } from "../../../src/hooks/useCollectionActions";
+import { useFolderActions } from "../../../src/hooks/useFolderActions";
 import { describeArtifactRefusal } from "../../../src/lib/artifactRefusal";
 import { mergeArtifactIntoHistory } from "../../../src/lib/artifactHistory";
 import { sameSourceSet } from "../../../src/lib/artifactSources";
 import { getFriendlyErrorMessage } from "../../../src/lib/getFriendlyErrorMessage";
 import { getMediaTypeIcon } from "../../../src/lib/mediaTypeDisplay";
 import {
-  buildCollectionTree,
-  type CollectionNode,
-} from "../../../src/lib/collectionTree";
+  buildFolderTree,
+  type FolderNode,
+} from "../../../src/lib/folderTree";
 import {
   Colors,
   Typography,
@@ -59,31 +59,31 @@ import {
 import type { ArtifactType, MediaListItem, MediaType } from "../../../src/types/media";
 
 /**
- * Collections explorer — single collection view, split in two intra-screen tabs
+ * Folders explorer — single folder view, split in two intra-screen tabs
  * along the NotebookLM reference of task-263.
  *
  * **Sources** is a bare list: one line per entry, an icon and a truncated title,
- * sub-collections before media. The rich `MediaListCard` is deliberately not
+ * subfolders before media. The rich `MediaListCard` is deliberately not
  * used here — it belongs to the inbox and to search, where a vignette carries
- * metadata the user is scanning for; inside a collection the user is picking a
+ * metadata the user is scanning for; inside a folder the user is picking a
  * source out of a list they already know.
  *
- * **AI** generates artifacts over the **whole collection** (sub-collections
+ * **AI** generates artifacts over the **whole folder** (subfolders
  * included, as the backend resolves the folder and all its descendants), then
  * lists what has already been produced. That list is an append-only history:
  * several entries of the same type coexist, each keeping the sources it was
- * generated over even after the collection has changed. Nothing here expires,
+ * generated over even after the folder has changed. Nothing here expires,
  * and nothing is regenerated automatically.
  *
- * The header carries the collection itself: a `…` beside the title renames or
+ * The header carries the folder itself: a `…` beside the title renames or
  * deletes the one being looked at, so filing does not require going back to the
- * grid to long-press its tile. It is absent on the default collection, whose two
+ * grid to long-press its tile. It is absent on the default folder, whose two
  * rows the backend would both refuse.
  *
  * A new entry only exists when the sources differ (task-322): an artifact is
  * keyed on the set of sources behind it, so asking again over an unchanged
- * collection answers the entry already stored. That is why the tab compares the
- * collection's current sources with the snapshot of the last artifact of each
+ * folder answers the entry already stored. That is why the tab compares the
+ * folder's current sources with the snapshot of the last artifact of each
  * type and only then offers to generate — a button that could not produce
  * anything would promise what no request delivers.
  */
@@ -97,16 +97,16 @@ const ARTIFACT_POLL_INTERVAL_MS = 3000;
  */
 const noopOpenMedia = () => {};
 
-type CollectionTabKey = "sources" | "ai";
+type FolderTabKey = "sources" | "ai";
 
-const COLLECTION_TABS: readonly ScreenTab<CollectionTabKey>[] = [
-  { key: "sources", labelKey: "collection.tab.sources", icon: "documents-outline" },
-  { key: "ai", labelKey: "collection.tab.ai", icon: "sparkles-outline" },
+const FOLDER_TABS: readonly ScreenTab<FolderTabKey>[] = [
+  { key: "sources", labelKey: "folder.tab.sources", icon: "documents-outline" },
+  { key: "ai", labelKey: "folder.tab.ai", icon: "sparkles-outline" },
 ];
 
 interface FolderListRow {
   kind: "folder";
-  node: CollectionNode;
+  node: FolderNode;
 }
 
 interface MediaListRow {
@@ -126,42 +126,42 @@ function buildInitialArtifactStates(): Record<ArtifactType, ArtifactTileState> {
   );
 }
 
-export default function CollectionDetailScreen() {
+export default function FolderDetailScreen() {
   // Copy resolved on render: redraw when the interface language changes.
   useTranslation();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const params = useLocalSearchParams<{ id: string; name?: string }>();
-  const collectionId = params.id;
+  const folderId = params.id;
 
-  const [activeTab, setActiveTab] = useState<CollectionTabKey>("sources");
-  const [childFolders, setChildFolders] = useState<CollectionNode[]>([]);
+  const [activeTab, setActiveTab] = useState<FolderTabKey>("sources");
+  const [childFolders, setChildFolders] = useState<FolderNode[]>([]);
   const [media, setMedia] = useState<MediaListItem[]>([]);
-  // Every media a generation over this collection would read: descendants
+  // Every media a generation over this folder would read: descendants
   // included, which is exactly the scope the backend resolves. The Sources list
   // below shows only the direct children, so the two cannot share one state.
   const [scopeMediaIds, setScopeMediaIds] = useState<readonly string[]>([]);
-  const [title, setTitle] = useState<string>(params.name ?? "Collection");
-  // The collection itself, as the tree knows it. Held because the header menu
-  // needs more than a name: the sub-collections a deletion would take with it,
+  const [title, setTitle] = useState<string>(params.name ?? "Folder");
+  // The folder itself, as the tree knows it. Held because the header menu
+  // needs more than a name: the subfolders a deletion would take with it,
   // and the `is_default` flag that decides whether the menu exists at all.
-  const [collection, setCollection] = useState<CollectionNode | null>(null);
+  const [folder, setFolder] = useState<FolderNode | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!isAuthenticated || !collectionId) return;
+    if (!isAuthenticated || !folderId) return;
     setError(null);
     try {
-      const [collections, folderMedia] = await Promise.all([
-        OrganizationService.getUserCollections(),
-        OrganizationService.getCollectionMedia(collectionId),
+      const [folders, folderMedia] = await Promise.all([
+        OrganizationService.getUserFolders(),
+        OrganizationService.getFolderMedia(folderId),
       ]);
 
-      // Direct children = collections whose parent is this collection.
-      const { nodeById } = buildCollectionTree(collections);
-      const current = nodeById.get(collectionId);
-      setCollection(current ?? null);
+      // Direct children = folders whose parent is this folder.
+      const { nodeById } = buildFolderTree(folders);
+      const current = nodeById.get(folderId);
+      setFolder(current ?? null);
       if (current) {
         setTitle(current.name);
         setChildFolders(
@@ -172,19 +172,19 @@ export default function CollectionDetailScreen() {
       }
 
       // The backend folder filter includes descendants; keep only the media
-      // stored directly in this collection so sub-folders own their own items.
+      // stored directly in this folder so sub-folders own their own items.
       setMedia(
-        folderMedia.filter((item) => item.folder_id === collectionId),
+        folderMedia.filter((item) => item.folder_id === folderId),
       );
       setScopeMediaIds(folderMedia.map((item) => item.media_item_id));
     } catch (err) {
       setError(
         getFriendlyErrorMessage(err, {
-          fallback: t("collection.loadFailed"),
+          fallback: t("folder.loadFailed"),
         }),
       );
     }
-  }, [isAuthenticated, collectionId]);
+  }, [isAuthenticated, folderId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -204,9 +204,9 @@ export default function CollectionDetailScreen() {
   }, [router]);
 
   const handleOpenFolder = useCallback(
-    (node: CollectionNode) => {
+    (node: FolderNode) => {
       router.push({
-        pathname: "/media/collections/[id]",
+        pathname: "/media/folders/[id]",
         params: { id: node.id, name: node.name },
       });
     },
@@ -244,9 +244,9 @@ export default function CollectionDetailScreen() {
     [],
   );
 
-  // The long-press menu of a source row. A move out of this collection needs no
+  // The long-press menu of a source row. A move out of this folder needs no
   // handling here: the focus refetch above runs when the picker is popped, and
-  // the row is gone because the collection no longer holds that media.
+  // the row is gone because the folder no longer holds that media.
   const mediaActions = useMediaActions({
     onDeleted: handleMediaDeleted,
     onRenamed: handleMediaRenamed,
@@ -267,22 +267,22 @@ export default function CollectionDetailScreen() {
 
   // Patched in place rather than refetched: the rename already returned the
   // stored name, and it has to reach the header before the user leaves.
-  const handleCollectionRenamed = useCallback(
-    (_collectionId: string, name: string) => {
+  const handleFolderRenamed = useCallback(
+    (_folderId: string, name: string) => {
       setTitle(name);
-      setCollection((current) => (current ? { ...current, name } : current));
+      setFolder((current) => (current ? { ...current, name } : current));
     },
     [],
   );
 
-  // The header `…`: rename or delete the collection being looked at, without
+  // The header `…`: rename or delete the folder being looked at, without
   // going back to the grid to long-press its tile.
-  const collectionActions = useCollectionActions({
-    // Nothing left to show: this screen is about a collection that no longer
-    // exists. What became of its sources and sub-collections is the business of
+  const folderActions = useFolderActions({
+    // Nothing left to show: this screen is about a folder that no longer
+    // exists. What became of its sources and subfolders is the business of
     // the surface behind, which refetches on focus.
     onDeleted: handleBack,
-    onRenamed: handleCollectionRenamed,
+    onRenamed: handleFolderRenamed,
   });
 
   // The copy of the pressed control the menu lifts above its blur. A header
@@ -290,13 +290,13 @@ export default function CollectionDetailScreen() {
   // the card visibly hangs from it.
   const renderActionsPreview = useCallback(() => <HeaderMenuGlyph />, []);
 
-  // The default collection is left out, exactly as its tile is in Library: the
+  // The default folder is left out, exactly as its tile is in Library: the
   // backend refuses to rename or delete it (`folder_service.update_folder` /
   // `delete_folder` both raise on `is_default`), and a menu whose two rows would
   // both fail is worse than no menu. Same answer before the first load answers,
-  // when nothing is known about the collection yet.
-  const managedCollection =
-    collection && collection.is_default !== true ? collection : null;
+  // when nothing is known about the folder yet.
+  const managedFolder =
+    folder && folder.is_default !== true ? folder : null;
 
   const rows = useMemo<Row[]>(() => {
     return [
@@ -317,13 +317,13 @@ export default function CollectionDetailScreen() {
           />
         }
         trailing={
-          managedCollection ? (
+          managedFolder ? (
             <HeaderMenuButton
               onPress={(anchor) =>
-                collectionActions.open(managedCollection, anchor)
+                folderActions.open(managedFolder, anchor)
               }
-              accessibilityLabel={t("collectionActions.moreA11y")}
-              testID="collection-header-actions"
+              accessibilityLabel={t("folderActions.moreA11y")}
+              testID="folder-header-actions"
             />
           ) : undefined
         }
@@ -331,10 +331,10 @@ export default function CollectionDetailScreen() {
 
       <View style={styles.tabsContainer}>
         <ScreenTabs
-          tabs={COLLECTION_TABS}
+          tabs={FOLDER_TABS}
           activeKey={activeTab}
           onChange={setActiveTab}
-          accessibilityLabel={t("collection.sectionsA11y")}
+          accessibilityLabel={t("folder.sectionsA11y")}
         />
       </View>
 
@@ -355,7 +355,7 @@ export default function CollectionDetailScreen() {
           <Pressable
             style={styles.retryButton}
             onPress={handleRetry}
-            accessibilityLabel={t("collection.retryA11y")}
+            accessibilityLabel={t("folder.retryA11y")}
             accessibilityRole="button"
           >
             <Ionicons name="refresh" size={18} color={Colors.onPrimary} />
@@ -382,17 +382,17 @@ export default function CollectionDetailScreen() {
           ListHeaderComponent={
             rows.length > 0 ? (
               <Text style={styles.sectionTitle}>
-                {t("collection.tab.sources")}
+                {t("folder.tab.sources")}
               </Text>
             ) : null
           }
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={<EmptyState />}
-          testID="collection-sources-list"
+          testID="folder-sources-list"
         />
       ) : (
-        <AiTab collectionId={collectionId} scopeMediaIds={scopeMediaIds} />
+        <AiTab folderId={folderId} scopeMediaIds={scopeMediaIds} />
       )}
 
       {/* Screen level, outside the list: the menu belongs to the screen's
@@ -404,13 +404,13 @@ export default function CollectionDetailScreen() {
       />
       <RenameDialog {...mediaActions.renameProps} />
 
-      {/* The collection's own menu, opened from the header rather than from a
+      {/* The folder's own menu, opened from the header rather than from a
           row. Two menus, never both up: each is driven by its own visibility. */}
       <AnchoredContextMenu
-        {...collectionActions.menuProps}
+        {...folderActions.menuProps}
         renderPreview={renderActionsPreview}
       />
-      <RenameDialog {...collectionActions.renameProps} />
+      <RenameDialog {...folderActions.renameProps} />
     </SafeAreaView>
   );
 }
@@ -418,13 +418,13 @@ export default function CollectionDetailScreen() {
 // --- AI tab ---
 
 interface AiTabProps {
-  collectionId: string;
+  folderId: string;
   /** Every media the generation would read, descendants included. */
   scopeMediaIds: readonly string[];
 }
 
 /**
- * The collection's half of the AI tab: the data only. Everything visible is
+ * The folder's half of the AI tab: the data only. Everything visible is
  * `ArtifactsPanel`, shared verbatim with the AI tab of a media item so the two
  * cannot drift apart again.
  *
@@ -438,7 +438,7 @@ interface AiTabProps {
  * from the detail route and kept: an entry is immutable, so one read per artifact
  * is all this ever costs.
  */
-function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
+function AiTab({ folderId, scopeMediaIds }: AiTabProps) {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
 
@@ -447,7 +447,7 @@ function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
   const [listError, setListError] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   // The types whose POST is in flight. The history cannot know about them yet —
-  // the entry only exists once the request answers, and over a collection that
+  // the entry only exists once the request answers, and over a folder that
   // request reads every descendant source's transcript from S3 first. Without
   // this, the tap stays visually unanswered for the whole round-trip.
   const [requestsInFlight, setRequestsInFlight] = useState<readonly ArtifactType[]>(
@@ -476,9 +476,9 @@ function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
 
   const fetchHistory = useCallback(async (): Promise<ArtifactSummary[]> => {
     if (!isAuthenticated) return [];
-    const response = await ArtifactService.listArtifacts("folder", collectionId);
+    const response = await ArtifactService.listArtifacts("folder", folderId);
     return response.artifacts;
-  }, [isAuthenticated, collectionId]);
+  }, [isAuthenticated, folderId]);
 
   const refresh = useCallback(async () => {
     try {
@@ -490,7 +490,7 @@ function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
       if (!mountedRef.current) return;
       setListError(
         getFriendlyErrorMessage(err, {
-          fallback: t("collection.artifactsLoadFailed"),
+          fallback: t("folder.artifactsLoadFailed"),
         }),
       );
     }
@@ -600,7 +600,7 @@ function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
       states[type] = {
         status: artifact.status,
         error: artifact.error_code ?? undefined,
-        // The collection can legitimately be generated again, but only over a
+        // The folder can legitimately be generated again, but only over a
         // different set of sources (task-322): the same set answers this very
         // entry. A failed entry is generated again as-is, and a snapshot not
         // read yet counts as different — the button then does no harm, whereas
@@ -638,7 +638,7 @@ function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
       try {
         const created = await ArtifactService.generateArtifact(
           "folder",
-          collectionId,
+          folderId,
           artifactType,
         );
         if (!mountedRef.current) return;
@@ -670,7 +670,7 @@ function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
         }
       }
     },
-    [isAuthenticated, collectionId],
+    [isAuthenticated, folderId],
   );
 
   const handleOpenArtifact = useCallback(
@@ -681,7 +681,7 @@ function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
   );
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} testID="collection-ai-tab">
+    <ScrollView showsVerticalScrollIndicator={false} testID="folder-ai-tab">
       {/* Generation is always offered, whatever state the sources are in: one
           still being transcribed or translated no longer forbids the request —
           the entry is held and starts by itself when the text lands (task-360). */}
@@ -689,12 +689,12 @@ function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
         tileStates={tileStates}
         onGenerate={(artifactType) => void handleGenerate(artifactType)}
         refusal={refusal}
-        refusalTestID="collection-ai-refusal"
+        refusalTestID="folder-ai-refusal"
         history={history}
         historyLoading={isLoading}
         historyError={listError}
         onRetryHistory={() => void refresh()}
-        historyEmptyTestID="collection-ai-history-empty"
+        historyEmptyTestID="folder-ai-history-empty"
         onOpenArtifact={handleOpenArtifact}
         showSourceCount
       />
@@ -705,8 +705,8 @@ function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
 // --- Sub-components ---
 
 interface FolderRowProps {
-  node: CollectionNode;
-  onPress: (node: CollectionNode) => void;
+  node: FolderNode;
+  onPress: (node: FolderNode) => void;
 }
 
 function FolderRow({ node, onPress }: FolderRowProps) {
@@ -714,8 +714,8 @@ function FolderRow({ node, onPress }: FolderRowProps) {
     <Pressable
       style={({ pressed }) => [styles.sourceRow, pressed && styles.sourceRowPressed]}
       onPress={() => onPress(node)}
-      testID={`collection-source-folder-${node.id}`}
-      accessibilityLabel={`Open collection ${node.name}`}
+      testID={`folder-source-folder-${node.id}`}
+      accessibilityLabel={`Open folder ${node.name}`}
       accessibilityRole="button"
     >
       <View style={styles.sourceIconContainer}>
@@ -769,7 +769,7 @@ function SourceRow({ media, onPress, onLongPress, style }: SourceRowProps) {
       ]}
       onPress={() => onPress(media.media_item_id)}
       onLongPress={onLongPress ? handleLongPress : undefined}
-      testID={`collection-source-media-${media.media_item_id}`}
+      testID={`folder-source-media-${media.media_item_id}`}
       accessibilityLabel={`Open ${media.title ?? "source"}`}
       // The gesture is invisible, so a screen reader is told about it — and only
       // where it exists. `Pressable` keeps the tap and the long press exclusive,
@@ -802,8 +802,8 @@ function EmptyState() {
         color={Colors.textMuted}
         style={styles.centeredIcon}
       />
-      <Text style={styles.emptyTitle}>{t("collection.empty")}</Text>
-      <Text style={styles.emptyHint}>{t("collection.emptyHint")}</Text>
+      <Text style={styles.emptyTitle}>{t("folder.empty")}</Text>
+      <Text style={styles.emptyHint}>{t("folder.emptyHint")}</Text>
     </View>
   );
 }

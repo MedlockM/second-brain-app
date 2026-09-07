@@ -29,7 +29,7 @@ export const fr: Catalog = {
   "trial.lastDay": "Essai gratuit - dernier jour",
   "trial.daysLeft.one": "Essai gratuit - {count} jour restant",
   "trial.daysLeft.other": "Essai gratuit - {count} jours restants",
-  "home.tile.a11yCollection": "Collection {name}, {count}",
+  "home.tile.a11yFolder": "Dossier {name}, {count}",
   "home.tile.a11yByCreator": "{title} par {creator}",
   "quota.warning.trial":
     "Vous avez utilisé {percent} % des minutes de votre essai gratuit.",
@@ -73,24 +73,24 @@ export const fr: Catalog = {
     "« {title} » sera retirée de votre bibliothèque. Cette action est irréversible.",
   "mediaActions.deleteFailed":
     "Cette source n'a pas pu être supprimée. Elle est toujours dans votre bibliothèque.",
-  "collectionActions.longPressHint":
-    "Appuyez deux fois et maintenez pour renommer ou supprimer cette collection",
-  "collectionActions.rename.label": "Renommer",
-  "collectionActions.delete.label": "Supprimer",
-  "collectionActions.moreA11y": "Actions pour cette collection",
-  "collectionActions.rename.title": "Renommer cette collection",
-  "collectionActions.rename.placeholder": "Nom de la collection",
-  "collectionActions.renameFailed":
-    "Cette collection n'a pas pu être renommée. Son nom n'a pas changé.",
-  "collectionActions.deleteTitle": "Supprimer cette collection ?",
-  "collectionActions.deleteBody":
-    "« {name} » sera supprimée. Toutes les sources qu'elle contient passent dans {unsorted} — aucune n'est supprimée.",
-  "collectionActions.deleteSubCollections.one":
-    "Sa sous-collection est également supprimée, et les sources qu'elle contient passent aussi dans {unsorted}.",
-  "collectionActions.deleteSubCollections.other":
-    "Ses {count} sous-collections sont également supprimées, et les sources qu'elles contiennent passent aussi dans {unsorted}.",
-  "collectionActions.deleteFailed":
-    "Cette collection n'a pas pu être supprimée. Elle est toujours dans votre bibliothèque.",
+  "folderActions.longPressHint":
+    "Appuyez deux fois et maintenez pour renommer ou supprimer ce dossier",
+  "folderActions.rename.label": "Renommer",
+  "folderActions.delete.label": "Supprimer",
+  "folderActions.moreA11y": "Actions pour ce dossier",
+  "folderActions.rename.title": "Renommer ce dossier",
+  "folderActions.rename.placeholder": "Nom du dossier",
+  "folderActions.renameFailed":
+    "Ce dossier n'a pas pu être renommé. Son nom n'a pas changé.",
+  "folderActions.deleteTitle": "Supprimer ce dossier ?",
+  "folderActions.deleteBody":
+    "« {name} » sera supprimé. Toutes les sources qu'il contient passent dans {unsorted} — aucune n'est supprimée.",
+  "folderActions.deleteSubfolders.one":
+    "Son sous-dossier est également supprimé, et les sources qu'il contient passent aussi dans {unsorted}.",
+  "folderActions.deleteSubfolders.other":
+    "Ses {count} sous-dossiers sont également supprimés, et les sources qu'ils contiennent passent aussi dans {unsorted}.",
+  "folderActions.deleteFailed":
+    "Ce dossier n'a pas pu être supprimé. Il est toujours dans votre bibliothèque.",
   "addSource.title": "Ajouter à votre boîte de réception",
   "addSource.importFile.label": "Importer un fichier",
   "addSource.importFile.description":
@@ -216,14 +216,14 @@ export const fr: Catalog = {
     "Ce contenu dure {duration}, au-delà des {max} qu'un import unique peut utiliser sur votre formule. Découpez-le en parties plus courtes.",
   "quota.refusal.itemTooLongGeneric":
     "C'est trop long pour un import unique sur votre formule. Découpez-le en parties plus courtes.",
-  "artifacts.refusal.collectionEmpty":
-    "Cette collection n'a encore aucune source avec transcription. Ajoutez des médias, ou attendez la fin du traitement de ceux que vous avez enregistrés.",
+  "artifacts.refusal.folderEmpty":
+    "Ce dossier n'a encore aucune source avec transcription. Ajoutez des médias, ou attendez la fin du traitement de ceux que vous avez enregistrés.",
   "artifacts.refusal.mediaEmpty":
     "Cet élément n'a pas encore de transcription : il n'y a rien à générer.",
   "artifacts.refusal.tooManySources":
-    "Cette collection compte {count} sources, au-delà des {max} qu'une seule génération peut lire. Générez sur une sous-collection plus petite.",
+    "Ce dossier compte {count} sources, au-delà des {max} qu'une seule génération peut lire. Générez sur un sous-dossier plus petit.",
   "artifacts.refusal.tooMuchText":
-    "Il y a trop de texte ici pour une seule génération. Générez sur une sous-collection plus petite.",
+    "Il y a trop de texte ici pour une seule génération. Générez sur un sous-dossier plus petit.",
   "artifacts.refusal.translationFailed":
     "Cette transcription n'a pas pu être traduite, et cela ne sera pas retenté automatiquement. Réessayez plus tard.",
   "artifacts.refusal.sourcesTranslationFailed.one":
@@ -266,8 +266,8 @@ export const fr: Catalog = {
     "Une vidéo qui possède déjà des sous-titres que nous pouvons acheter coûte {duration}, quelle que soit sa durée.",
   "plan.legend.documents":
     "Un PDF, un document Office ou une photo dont nous lisons le texte coûte 1 min par {pages} pages.",
-  "plan.legend.collections":
-    "Une génération sur une collection entière coûte 1 min par {sources} éléments qu'elle contient. Sur un élément seul, c'est gratuit.",
+  "plan.legend.folders":
+    "Une génération sur un dossier entier coûte 1 min par {sources} éléments qu'il contient. Sur un élément seul, c'est gratuit.",
   "plan.legend.free":
     "Les articles, les pages web, les TikToks et les publications photo Instagram ne coûtent rien du tout : ils ne sont pas transcrits.",
   "plan.legend.overLimit":
@@ -279,9 +279,9 @@ export const fr: Catalog = {
   "plan.highlight.read":
     "Lisez la transcription complète, traduite dans votre langue de lecture",
   "plan.highlight.generate":
-    "Générez {list} à la demande, par élément ou par collection",
+    "Générez {list} à la demande, par élément ou par dossier",
   "plan.highlight.organise":
-    "Organisez en collections et en tags, cherchez dans tout, digest quotidien",
+    "Organisez en dossiers et en tags, cherchez dans tout, digest quotidien",
   "plan.includes.capture.title": "Enregistrez tout, depuis n'importe quelle app",
   "plan.includes.capture.links":
     "Partagez un lien depuis n'importe quelle app, ou collez-le : vidéos YouTube, épisodes de podcast depuis Apple Podcasts, Spotify, Deezer ou n'importe quel flux RSS, TikToks, reels et publications photo Instagram, publications X, articles de presse et n'importe quelle page web.",
@@ -294,13 +294,13 @@ export const fr: Catalog = {
     "Les transcriptions sont traduites dans votre langue de lecture, {count} au choix, et vous pouvez en changer quand vous voulez.",
   "plan.includes.generate.title": "Transformez-le en quelque chose que vous gardez",
   "plan.includes.generate.onDemand": "Sur n'importe quel élément, à la demande : {list}.",
-  "plan.includes.generate.collection":
-    "Lancez les mêmes générations sur une collection entière pour obtenir une synthèse unique de tout ce que vous y avez classé.",
+  "plan.includes.generate.folder":
+    "Lancez les mêmes générations sur un dossier entier pour obtenir une synthèse unique de tout ce que vous y avez classé.",
   "plan.includes.generate.kept":
     "Chaque génération est conservée : vous pouvez y revenir ou en demander une nouvelle plus tard.",
   "plan.includes.organise.title": "Retrouvez-le des mois plus tard",
   "plan.includes.organise.file":
-    "Classez n'importe quoi en collections et en tags, au moment de l'enregistrer ou plus tard.",
+    "Classez n'importe quoi en dossiers et en tags, au moment de l'enregistrer ou plus tard.",
   "plan.includes.organise.search":
     "Recherche plein texte dans tout ce que vous avez enregistré, transcriptions comprises.",
   "plan.includes.organise.digest":
@@ -444,11 +444,11 @@ export const fr: Catalog = {
   "mediaType.unknownSource": "Inconnue",
   "search.placeholder": "Rechercher dans votre bibliothèque…",
   "search.clearA11y": "Effacer la recherche",
-  "search.collections": "Collections",
+  "search.folders": "Dossiers",
   "search.allMedia": "Tous les médias",
-  "search.noCollections":
-    "Aucune collection pour l'instant. Classez vos médias en collections au moment de les enregistrer.",
-  "search.openCollectionA11y": "Ouvrir la collection {name}",
+  "search.noFolders":
+    "Aucun dossier pour l'instant. Classez vos médias en dossiers au moment de les enregistrer.",
+  "search.openFolderA11y": "Ouvrir le dossier {name}",
   "search.resultCount.one": "{count} résultat",
   "search.resultCount.other": "{count} résultats",
   "search.endOfResults": "Fin des résultats",
@@ -459,10 +459,10 @@ export const fr: Catalog = {
   "search.emptyLibraryHint":
     "Partagez un lien depuis n'importe quelle app, ou importez un fichier depuis la boîte de réception, et il apparaîtra ici.",
   "search.failed": "La recherche a échoué",
-  "search.collectionsLoadFailed": "Impossible de charger vos collections.",
+  "search.foldersLoadFailed": "Impossible de charger vos dossiers.",
   "search.libraryLoadFailed": "Impossible de charger votre bibliothèque.",
   "search.retryLibraryA11y": "Réessayer de charger votre bibliothèque",
-  "search.retryCollectionsA11y": "Réessayer de charger les collections",
+  "search.retryFoldersA11y": "Réessayer de charger les dossiers",
   "search.retrySearchA11y": "Relancer la recherche",
   "tabs.home": "Accueil",
   "tabs.search": "Recherche",
@@ -477,7 +477,7 @@ export const fr: Catalog = {
   "home.empty": "Vos médias partagés apparaîtront ici.",
   "home.emptyHint":
     "Partagez un lien depuis n'importe quelle app, ou touchez + pour importer un fichier ou prendre une photo.",
-  "home.untitledCollection": "Collection",
+  "home.untitledFolder": "Dossier",
   "unsortedReview.title": "Revue des non classés",
   "unsortedReview.position": "{current} / {total}",
   "unsortedReview.positionA11y": "Source {current} sur {total}",
@@ -492,7 +492,7 @@ export const fr: Catalog = {
   "unsortedReview.deepen": "Approfondir",
   "unsortedReview.deepenA11y": "Ouvrir {title}",
   "unsortedReview.save": "Ranger",
-  "unsortedReview.saveA11y": "Ranger {title} dans une collection",
+  "unsortedReview.saveA11y": "Ranger {title} dans un dossier",
   "unsortedReview.doneTitle": "Plus rien à trier",
   "unsortedReview.doneBody": "Tout ce qui attendait a été traité.",
   "digest.daily": "Quotidien",
@@ -519,29 +519,29 @@ export const fr: Catalog = {
   "tags.loadFailed": "Impossible de charger les tags",
   "tags.createFailed": "Impossible de créer le tag",
   "tags.saveFailed": "Impossible d'enregistrer les tags",
-  "collectionPicker.title": "Collection",
-  "collectionPicker.saveA11y": "Enregistrer la sélection",
-  "collectionPicker.searchPlaceholder": "Rechercher",
-  "collectionPicker.unsorted": "Non trié",
-  "collectionPicker.myCollections": "Mes collections",
-  "collectionPicker.createA11y": "Créer une collection",
-  "collectionPicker.namePlaceholder": "Nom de la collection",
-  "collectionPicker.confirm": "Confirmer",
-  "collectionPicker.collapse": "Replier",
-  "collectionPicker.expand": "Déplier",
-  "collectionPicker.noMatches": "Aucune collection ne correspond à votre recherche",
-  "collectionPicker.loadFailed": "Impossible de charger les collections",
-  "collectionPicker.saveFailed": "Impossible d'enregistrer la collection",
-  "collectionPicker.createFailed": "Impossible de créer la collection",
-  "collections.loading": "Chargement des collections…",
-  "collections.loadFailed":
-    "Impossible de charger vos collections. Veuillez réessayer.",
-  "collections.empty": "Aucune collection",
-  "collections.emptyHint":
-    "Classez vos médias en collections au moment de les enregistrer pour les retrouver ici.",
-  "collections.emptyFolder": "Vide",
-  "collections.childCount.one": "{count} collection",
-  "collections.childCount.other": "{count} collections",
+  "folderPicker.title": "Dossier",
+  "folderPicker.saveA11y": "Enregistrer la sélection",
+  "folderPicker.searchPlaceholder": "Rechercher",
+  "folderPicker.unsorted": "Non trié",
+  "folderPicker.myFolders": "Mes dossiers",
+  "folderPicker.createA11y": "Créer un dossier",
+  "folderPicker.namePlaceholder": "Nom du dossier",
+  "folderPicker.confirm": "Confirmer",
+  "folderPicker.collapse": "Replier",
+  "folderPicker.expand": "Déplier",
+  "folderPicker.noMatches": "Aucun dossier ne correspond à votre recherche",
+  "folderPicker.loadFailed": "Impossible de charger les dossiers",
+  "folderPicker.saveFailed": "Impossible d'enregistrer le dossier",
+  "folderPicker.createFailed": "Impossible de créer le dossier",
+  "folders.loading": "Chargement des dossiers…",
+  "folders.loadFailed":
+    "Impossible de charger vos dossiers. Veuillez réessayer.",
+  "folders.empty": "Aucun dossier",
+  "folders.emptyHint":
+    "Classez vos médias en dossiers au moment de les enregistrer pour les retrouver ici.",
+  "folders.emptySubtitle": "Vide",
+  "folders.childCount.one": "{count} dossier",
+  "folders.childCount.other": "{count} dossiers",
   "media.tab.reader": "Lecture",
   "media.tab.ai": "IA",
   "media.sectionsA11y": "Sections du média",
@@ -561,21 +561,21 @@ export const fr: Catalog = {
   "media.transcriptLoadFailed":
     "Impossible de charger le texte pour le moment.",
   "media.movedToNamed": "Déplacé vers « {name} »",
-  "media.movedToCollection": "Déplacé vers une collection",
-  "media.removedFromCollection": "Retiré de la collection",
+  "media.movedToFolder": "Déplacé vers un dossier",
+  "media.removedFromFolder": "Retiré du dossier",
   "media.openFailed": "Impossible d'ouvrir {host}",
-  "media.moveToCollectionA11y": "Déplacer vers une collection",
-  "collection.tab.sources": "Sources",
-  "collection.tab.ai": "IA",
-  "collection.sectionsA11y": "Sections de la collection",
-  "collection.loadFailed":
-    "Impossible de charger cette collection. Veuillez réessayer.",
-  "collection.retryA11y": "Réessayer de charger la collection",
-  "collection.artifactsLoadFailed":
+  "media.moveToFolderA11y": "Déplacer vers un dossier",
+  "folder.tab.sources": "Sources",
+  "folder.tab.ai": "IA",
+  "folder.sectionsA11y": "Sections du dossier",
+  "folder.loadFailed":
+    "Impossible de charger ce dossier. Veuillez réessayer.",
+  "folder.retryA11y": "Réessayer de charger le dossier",
+  "folder.artifactsLoadFailed":
     "Impossible de charger le contenu généré. Veuillez réessayer.",
-  "collection.empty": "Cette collection est vide",
-  "collection.emptyHint":
-    "Les médias que vous classez dans cette collection apparaîtront ici.",
+  "folder.empty": "Ce dossier est vide",
+  "folder.emptyHint":
+    "Les médias que vous classez dans ce dossier apparaîtront ici.",
   "bugReport.subject": "Objet",
   "bugReport.subjectPlaceholder": "Résumé bref du problème",
   "bugReport.subjectA11y": "Objet du rapport de bug",
@@ -699,7 +699,7 @@ export const fr: Catalog = {
   "share.uploadingFile": "Envoi du fichier…",
   "share.whatsappText": "Message texte WhatsApp",
   "share.tags": "Tags",
-  "share.chooseCollection": "Choisir une collection",
+  "share.chooseFolder": "Choisir un dossier",
   "share.chooseTags": "Choisir des tags",
   "share.success.duplicate": "Ce contenu était déjà dans votre boîte de réception.",
   "share.success.audio":

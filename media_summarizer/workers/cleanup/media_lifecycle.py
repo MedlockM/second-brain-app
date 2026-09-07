@@ -547,7 +547,7 @@ async def run_reconciliation() -> Dict[str, Any]:
         ):
             overdue_waits.append(str(row.get("artifact_id") or ""))
         # Only media-scoped entries can be orphaned by a library row leaving;
-        # a collection artifact hangs off a folder, which this gauge does not
+        # a folder artifact hangs off a folder, which this gauge does not
         # inventory (task-270).
         if str(row.get("scope") or "") != "media":
             continue
@@ -582,7 +582,7 @@ async def run_reconciliation() -> Dict[str, Any]:
 
     # `user_folders` carries the same attribute with no index of its own (by
     # design), so it is not covered by the scan above and needs its own pass.
-    stamps_purged_collections = 0
+    stamps_purged_folders = 0
     try:
         folders = await _scan_table(
             database_async.USER_FOLDERS_TABLE,
@@ -591,7 +591,7 @@ async def run_reconciliation() -> Dict[str, Any]:
             # insurance against DynamoDB's reserved-word list, which is long.
             expression_attribute_names={"#fid": "id"},
         )
-        stamps_purged_collections = await _purge_stale_engagement_stamps(
+        stamps_purged_folders = await _purge_stale_engagement_stamps(
             table_name=database_async.USER_FOLDERS_TABLE,
             rows=folders,
             key_fields=("id",),
@@ -616,7 +616,7 @@ async def run_reconciliation() -> Dict[str, Any]:
         "pointers_checked": pointers_checked,
         "pointers_dangling": pointers_dangling,
         "engagement_stamps_purged_media": stamps_purged_media,
-        "engagement_stamps_purged_collections": stamps_purged_collections,
+        "engagement_stamps_purged_folders": stamps_purged_folders,
     }
 
     log_event(

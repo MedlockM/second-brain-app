@@ -5,7 +5,7 @@ The order matters and is not cosmetic. OpenAI's prompt cache only matches an
 the input price. The generators used to emit instructions → schema → transcript,
 which left a shared prefix of a few dozen tokens between two types: the cache
 never bit. With the corpus first, the five types of one request share the whole
-corpus prefix, which is what makes a 25-source collection cost 0.0364 € for all
+corpus prefix, which is what makes a 25-source folder cost 0.0364 € for all
 five instead of 0.0903 € (task-269 §2.6) — no intermediate store, no lock, the
 sharing is done provider-side.
 
@@ -123,7 +123,7 @@ def title_instruction(kind: str) -> str:
     indistinguishable. The model just read the corpus and is the only party able
     to write "The limits of scaling"; it costs ~10 output tokens.
 
-    The last clause is measured too: on a three-source collection (a longboard
+    The last clause is measured too: on a three-source folder (a longboard
     tutorial, a surf video, a weather page) the title read "Guide rapide du
     longboard: stance, poussée, freinage et pop-up" and silently dropped two
     sources out of three (task-316 §2.8).
@@ -138,10 +138,10 @@ def title_instruction(kind: str) -> str:
 
 
 def corpus_shape_instruction() -> str:
-    """A user collection is normally heterogeneous — say so instead of forcing one story.
+    """A user folder is normally heterogeneous — say so instead of forcing one story.
 
     "Cover the sources as a whole; do not summarise them one by one" assumed a
-    shared subject. On a collection of a longboard tutorial, a surf video and a
+    shared subject. On a folder of a longboard tutorial, a surf video and a
     weather page it produced a single narrative about the first source with one
     orphan bullet glued at the end (task-316 §2.8). Nothing in the prompt said
     what to do when the sources have nothing in common, which is the normal case

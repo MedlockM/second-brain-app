@@ -139,7 +139,7 @@ function buildPlanCard(tier: PricingTier, trialTierId: string | null): PlanCard 
     // dominant line of the screen say the app is an audio product and that the
     // allowance meters everything you save — while `plan.legend.free` says
     // articles, web pages, TikToks and Instagram photo posts cost nothing, and
-    // `unit_conversion` charges documents and collection-wide generations too.
+    // `unit_conversion` charges documents and folder-wide generations too.
     // What the allowance actually buys is transcription time, which is also what
     // the header and the selector label above the cards already call it, and what
     // the App Store descriptions say (`docs/store-listing/app-store-connect.md`).
@@ -393,7 +393,7 @@ export function buildPaywallReasonLine(
  * free list, TikToks and Instagram photo posts included, stays in
  * `plan.legend.free` behind the disclosure.
  *
- * "Cover", never "only cover": documents and collection-wide generations debit
+ * "Cover", never "only cover": documents and folder-wide generations debit
  * minutes too (`buildMinutesLegend`), so an exclusive form would be false.
  *
  * "Reading your library", not "reading": consulting anything already saved is
@@ -422,7 +422,7 @@ export function buildMinutesLegend(pricing: PublicPricing): string[] {
   const conversion: Partial<PricingUnitConversion> = pricing.unit_conversion ?? {};
   const captions = conversion.captions_minutes ?? null;
   const pagesPerMinute = conversion.document_pages_per_minute ?? null;
-  const sourcesPerMinute = conversion.collection_sources_per_minute ?? null;
+  const sourcesPerMinute = conversion.folder_sources_per_minute ?? null;
 
   const sentences = [t("plan.legend.realLength")];
 
@@ -440,7 +440,7 @@ export function buildMinutesLegend(pricing: PublicPricing): string[] {
   }
   if (sourcesPerMinute !== null) {
     sentences.push(
-      t("plan.legend.collections", { sources: formatNumber(sourcesPerMinute) }),
+      t("plan.legend.folders", { sources: formatNumber(sourcesPerMinute) }),
     );
   }
 
@@ -545,7 +545,7 @@ export function buildPlanIncludes(pricing: PublicPricing): PlanIncludesSection[]
       title: t("plan.includes.generate.title"),
       items: [
         t("plan.includes.generate.onDemand", { list: generations }),
-        t("plan.includes.generate.collection"),
+        t("plan.includes.generate.folder"),
         t("plan.includes.generate.kept"),
       ],
     },

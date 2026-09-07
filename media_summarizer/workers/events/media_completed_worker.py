@@ -148,7 +148,7 @@ async def _resume_waiting_artifacts(media_key: str) -> None:
     The end of an ingestion is one of the two join points a deferred artifact
     request resumes from. It is keyed on ``media_key``, not on a watcher, because
     that is what a waiting entry names — one call covers every user who saved this
-    content and every collection that contains it.
+    content and every folder that contains it.
 
     Swallows everything by contract: the resume service already logs per entry, and
     a completion event must not be replayed because a generation could not start.

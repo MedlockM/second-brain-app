@@ -17,7 +17,7 @@ Deepgram actually billed.
 
 Since task-281 the gate also answers a question that comes *before* the quota
 engine: does this user already hold this content? A media already in their
-library -- any folder, any collection -- costs them nothing to file again, so the
+library -- in any folder at all -- costs them nothing to file again, so the
 gate runs its check as usual and skips only the debit, saying so through
 `AudioGateDecision.debit_skipped`. Producers forward that as
 `quota_debit_skipped` in the SQS payload, which is the second half of the
@@ -185,8 +185,8 @@ async def gate_audio_transcription(
         return AudioGateDecision(allowed=True)
 
     # The question that decides whether this save costs the user anything
-    # (task-281): a media already in their library -- any folder, any collection
-    # -- is free to file again. Per user and per content, and deliberately
+    # (task-281): a media already in their library -- in any folder at all --
+    # is free to file again. Per user and per content, and deliberately
     # unrelated to the global idempotence reservation, which keeps answering the
     # other question, whether the pipeline still has work to do.
     current_media_item_id = media_item_id or getattr(job, "media_item_id", None)

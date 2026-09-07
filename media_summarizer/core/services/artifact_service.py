@@ -2,7 +2,7 @@
 Artifact generation: scope resolution, reuse of what already exists, storage.
 
 Both scopes go through one mechanism (task-269 decision, strategy S1): a media
-artifact is a collection artifact whose ``sources`` has one element. A request
+artifact is a folder artifact whose ``sources`` has one element. A request
 resolves the scope's sources, checks the ceilings, writes **one immutable history
 entry** and enqueues **one** SQS message per artifact type.
 
@@ -12,8 +12,8 @@ identical, and a generation only happens when that set differs.** The
 ``artifact_id`` is a hash of (user, scope, scope_id, type, parameters, sorted
 source ids) with no time component, so finding the artifact that already answers a
 request is a single ``GetItem`` with no time bound and no lock table. A media item
-is a collection of one source whose set never changes, so "one generation per type
-per media" follows from the same rule with no special case; a collection can
+has exactly one source and that set never changes, so "one generation per type
+per media" follows from the same rule with no special case; a folder can
 legitimately produce a new entry, and only once its sources have changed.
 
 The history stays append-only: a different source set writes a new entry next to
@@ -92,9 +92,9 @@ FLASHCARDS_MODEL = os.environ.get("FLASHCARDS_LLM_MODEL", OPENAI_MODEL)
 # window, not from pricing, which is why they are code constants and stay out of
 # `pricing_config`: no tier can buy 50 sources into a 272k-token context.
 # 25 sources at the measured median (4 622 tokens) is 42.7% of the window; the
-# token ceiling is the guard that catches a collection of unusually long sources.
-MAX_COLLECTION_SOURCES = 25
-MAX_COLLECTION_CORPUS_TOKENS = 120_000
+# token ceiling is the guard that catches a folder of unusually long sources.
+MAX_FOLDER_SOURCES = 25
+MAX_FOLDER_CORPUS_TOKENS = 120_000
 # `tiktoken` is not in the Lambda image, so the corpus is measured in UTF-8 bytes
 # and converted. ±10%, which the 2.3x margin to the model's window absorbs.
 BYTES_PER_TOKEN = 3.4
@@ -624,7 +624,7 @@ async def resolve_source(
     Reuses the per-media path unchanged (task-189/192): detect the language
     locally, reuse the cached translation in S3 when there is one, enqueue the
     translation worker otherwise. So the corpus the model sees is monolingual and
-    a collection of already-read media costs nothing extra.
+    a folder of already-read media costs nothing extra.
 
     ``captured`` comes from the caller because it lives on the durable library row
     while the publication date lives on the job, and the job is what this function
@@ -710,7 +710,7 @@ async def resolve_scope_sources(
     - **excluded** — its text will never come: the ingestion failed or produced
       nothing readable, or the provider refused the translation for good
       (task-327). Recorded in the snapshot rather than dropped, so one broken
-      media cannot lock a collection out and the artifact stays honest about what
+      media cannot lock a folder out and the artifact stays honest about what
       it could not read.
 
     ``target_language`` is derived from the *reading language*, not from a source
@@ -819,7 +819,7 @@ async def _list_scope_media_records(
     )
     for page in pages:
         for record in page:
-            # Several saves may point at one content item. A collection reads
+            # Several saves may point at one content item. A folder reads
             # that transcript once, regardless of how many rows reference it.
             seen.setdefault(record.media_key, record)
     return list(seen.values())
@@ -1083,9 +1083,9 @@ async def plan_artifact_generation(
             f"Artifact type '{resolved_type.value}' is not implemented yet."
         )
     # An internal type has no user-facing entry point, so the only thing that can
-    # aim it at a collection is a backend caller getting its scope wrong. Refusing
+    # aim it at a folder is a backend caller getting its scope wrong. Refusing
     # here rather than trusting the caller keeps the invariant next to the rule it
-    # protects: a collection artifact would land in a listing that filters this type
+    # protects: a folder artifact would land in a listing that filters this type
     # out, i.e. it would be generated, billed, and unreadable.
     if resolved_type in INTERNAL_ARTIFACT_TYPES and resolved_scope != ArtifactScope.MEDIA:
         raise ArtifactTypeNotEnabledError(
@@ -1440,16 +1440,16 @@ def enforce_scope_ceilings(resolution: ScopeResolution) -> None:
                 failed_count=len(translation_failed),
             )
         raise ArtifactScopeEmptyError(
-            "This collection has no source with a usable transcript yet."
+            "This folder has no source with a usable transcript yet."
         )
-    if source_count > MAX_COLLECTION_SOURCES or estimated_tokens > MAX_COLLECTION_CORPUS_TOKENS:
+    if source_count > MAX_FOLDER_SOURCES or estimated_tokens > MAX_FOLDER_CORPUS_TOKENS:
         raise ArtifactScopeTooLargeError(
-            "This collection is too large to generate over. Generate on a "
-            "smaller sub-collection instead.",
+            "This folder is too large to generate over. Generate on a "
+            "smaller subfolder instead.",
             source_count=source_count,
-            max_sources=MAX_COLLECTION_SOURCES,
+            max_sources=MAX_FOLDER_SOURCES,
             estimated_tokens=estimated_tokens,
-            max_tokens=MAX_COLLECTION_CORPUS_TOKENS,
+            max_tokens=MAX_FOLDER_CORPUS_TOKENS,
         )
 
 
@@ -1539,7 +1539,7 @@ async def complete_artifact_generation(
     await media_artifacts.update_media_artifact(record)
 
     # Only this type, and only at media scope: ``scope_id`` is the library row's
-    # media id there, whereas at collection scope it is a folder or tag id and the
+    # media id there, whereas at folder scope it is a folder or tag id and the
     # copy would address a row that does not exist.
     if (
         record.artifact_type == MediaArtifactType.REVIEW_BLURB
