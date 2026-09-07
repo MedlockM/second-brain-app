@@ -14,7 +14,7 @@ the canonical, durable view of a media item is `GET /api/media/{id}/status`.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -36,7 +36,11 @@ class JobStatusResponse(BaseModel):
     updated_at: str
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
-    error_message: Optional[str] = None
+    error_code: Optional[str] = None
+    # This router is operational-only, so unlike the library contract it *does*
+    # expose the diagnostic context behind the code: it is read by us, in a
+    # terminal, on a specific pipeline run.
+    error_metadata: Optional[Dict[str, Any]] = None
     error_step: Optional[str] = None
     podcast_title: Optional[str] = None
     episode_title: Optional[str] = None
@@ -82,7 +86,8 @@ async def get_job_status(
             updated_at=job.updated_at.isoformat(),
             started_at=job.started_at.isoformat() if job.started_at else None,
             completed_at=job.completed_at.isoformat() if job.completed_at else None,
-            error_message=job.error_message,
+            error_code=job.error_code,
+            error_metadata=job.error_metadata,
             error_step=job.error_step,
             podcast_title=job.source_platform,
             episode_title=job.title,

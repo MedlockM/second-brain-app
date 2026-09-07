@@ -211,6 +211,29 @@ export const en = {
   "error.outOfMinutes":
     "You're out of minutes for this period. Upgrade to keep importing audio and video.",
 
+  // --- Why one import failed, worded from the job's `error_code` (task-359) ---
+  // The API sends a stable code and no prose about the failure, so this block is
+  // the only place it is put into words. Every `MediaFailureCode` maps to one of
+  // these keys through `ERROR_CODE_MESSAGES`.
+  "mediaError.mediaUnavailable": "This media is no longer available at its source.",
+  "mediaError.geoRestricted": "This media isn't available in the region we import from.",
+  "mediaError.ageRestricted": "This media is behind an age check we can't pass.",
+  "mediaError.liveContentUnsupported": "Live content can't be imported. Try again once the recording is published.",
+  "mediaError.imagePostUnsupported": "This post is a photo, so there's nothing to transcribe.",
+  "mediaError.noTranscribableMedia": "This link has no audio, video or captions to work from.",
+  "mediaError.noTranscriptAvailable": "No transcript could be obtained for this media.",
+  "mediaError.postTextEmpty": "This post has no text to save.",
+  "mediaError.notAnArticlePage": "This link doesn't lead to a readable article.",
+  "mediaError.articleTextNotFound": "We couldn't read the text of this article.",
+  "mediaError.documentParseFailed": "This document couldn't be read. Try another file or another format.",
+  "mediaError.providerUnavailable": "The source couldn't be reached. Please try again later.",
+  "mediaError.providerResultInvalid": "The import came back unusable. Please try again later.",
+  "mediaError.providerRateLimited": "The source is limiting us right now. Please try again in a few minutes.",
+  "mediaError.providerTimedOut": "The import took too long. Please try again.",
+  "mediaError.serviceUnavailable": "Imports are temporarily unavailable. We're looking into it.",
+  "mediaError.itemTooLong": "This item is longer than your plan allows in one import.",
+  "mediaError.internal": "Something went wrong on our side. Please try importing this again.",
+
   // --- Quota refusals, worded from the figures the backend sends ---
   "quota.title.outOfMinutes": "Out of minutes",
   "quota.title.itemTooLong": "Too long for one import",
@@ -594,7 +617,6 @@ export const en = {
   "media.refreshA11y": "Refresh media status",
   "media.failedTitle": "Processing failed",
   "media.failedFallback": "An unexpected error occurred.",
-  "media.processingFailed": "Processing failed. Please try again later.",
   "media.processing.audio": "Transcribing audio...",
   "media.processing.video": "Transcribing video...",
   "media.processing.extracting": "Extracting content...",

@@ -3,10 +3,10 @@ id: task-359
 title: >-
   Émettre un code d'erreur stable depuis les workers d'ingestion au lieu d'une
   phrase anglaise
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-06 10:57'
-updated_date: '2026-09-06 13:45'
+updated_date: '2026-09-07 00:00'
 labels:
   - ingestion
   - mobile
@@ -53,12 +53,76 @@ Cadrage `AGENTS.md`, « Nothing is deployed yet » : aucune version n'est en cir
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Aucun message destiné à l'affichage n'est plus produit par correspondance de motifs sur un texte d'erreur : `media_summarizer/utils/user_facing_errors.py` est supprimé et son appel dans `base_worker.py` retiré, sans chemin de repli conservé
-- [ ] #2 Chaque code émis par les workers a une entrée dans `ERROR_CODE_MESSAGES` de `mobile/src/lib/getFriendlyErrorMessage.ts`, et tout code inconnu retombe sur `media.failedFallback` sans afficher de texte serveur brut
-- [ ] #3 Les onze catalogues de `mobile/locales/` portent les clés ajoutées, aucune valeur laissée en anglais dans `fr.json`
-- [ ] #4 `ruff` et `mypy` passent sur `media_summarizer/`, `tsc --noEmit` passe sur `mobile/`
-- [ ] #5 Un enregistrement en échec écrit dans la table DynamoDB `-dev` porte le code et ses métadonnées, vérifié par une lecture directe via l'AWS CLI et la commande consignée dans les notes d'implémentation
-- [ ] #6 Les 68 sites `user_message=` des quatre workers d'ingestion (`instagram`, `tiktok`, `x`, `youtube`) émettent un code d'erreur stable au lieu d'une phrase, l'information contextuelle passant en métadonnées structurées — inventaire exhaustif, aucun `user_message=` littéral ne subsiste dans `media_summarizer/workers/`
+- [x] #1 Aucun message destiné à l'affichage n'est plus produit par correspondance de motifs sur un texte d'erreur : `media_summarizer/utils/user_facing_errors.py` est supprimé et son appel dans `base_worker.py` retiré, sans chemin de repli conservé
+- [x] #2 Chaque code émis par les workers a une entrée dans `ERROR_CODE_MESSAGES` de `mobile/src/lib/getFriendlyErrorMessage.ts`, et tout code inconnu retombe sur `media.failedFallback` sans afficher de texte serveur brut
+- [x] #3 Les onze catalogues de `mobile/locales/` portent les clés ajoutées, aucune valeur laissée en anglais dans `fr.json`
+- [x] #4 `ruff` et `mypy` passent sur `media_summarizer/`, `tsc --noEmit` passe sur `mobile/`
+- [x] #5 Un enregistrement en échec écrit dans la table DynamoDB `-dev` porte le code et ses métadonnées, vérifié par une lecture directe via l'AWS CLI et la commande consignée dans les notes d'implémentation
+- [x] #6 Les 68 sites `user_message=` des quatre workers d'ingestion (`instagram`, `tiktok`, `x`, `youtube`) émettent un code d'erreur stable au lieu d'une phrase, l'information contextuelle passant en métadonnées structurées — inventaire exhaustif, aucun `user_message=` littéral ne subsiste dans `media_summarizer/workers/`
 
-- [ ] #7 Le filet de rattrapage de `base_worker.py:99`, qui devine un message en faisant correspondre des motifs sur `str(e)`, est remplacé par un code générique unique : une exception non gérée produit un code, jamais une phrase déduite de son texte
+- [x] #7 Le filet de rattrapage de `base_worker.py:99`, qui devine un message en faisant correspondre des motifs sur `str(e)`, est remplacé par un code générique unique : une exception non gérée produit un code, jamais une phrase déduite de son texte
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### Ce qui a été construit
+
+Un vocabulaire unique, `MediaFailureCode` (`media_summarizer/core/models/failure_codes.py`, 23 membres), et une exception de base partagée, `IngestionFailure` (`media_summarizer/workers/ingestion_failures.py`), qui porte trois choses distinctes :
+
+- `code` — le `MediaFailureCode`, seule information d'échec qui atteint l'app ;
+- `details` — le token d'observabilité en lower-snake, c'est-à-dire l'ancien code interne du worker, **conservé mot pour mot** pour ne pas casser les requêtes de logs et les runbooks ;
+- `**context` — les faits structurés (`http_status`, `apify_run_id`, `content_type`, `timeout_seconds`, `exception_type`…), qui partent dans `ProcessingJob.error_metadata` à côté de `reason`.
+
+Les fragments variables qui étaient autrefois interpolés dans le code interne (`apify_terminal_FAILED`, `subtitle_http_status:502`, `processing_job_not_found:<id>`, `resolver_non_retryable:<exc>`) sont devenus des tokens fixes plus des clés de contexte — c'est le cœur de l'AC #6.
+
+Aucune phrase de provider n'est persistée : le libellé d'origine survit en CloudWatch via `exc_info=exc` sur le `log_event` terminal, tandis que `error_metadata` reste structuré. `error_metadata` n'est servi que par le routeur opérationnel `GET /jobs/{job_id}` ; le contrat bibliothèque (`GET /api/media/{id}`) ne l'expose pas, ce qui garantit de bout en bout le « sans texte serveur brut » de l'AC #2.
+
+### AC #5 — écriture et relecture sur le DynamoDB `-dev`
+
+Un enregistrement en échec a été produit par le vrai chemin de code (`ProcessingJob.mark_failed()` puis `to_dynamodb_item()`, via un script jetable hors dépôt) et écrit dans `processing_jobs-dev`. La relecture directe :
+
+```
+AWS_REGION=eu-west-3 aws dynamodb get-item \
+  --table-name processing_jobs-dev \
+  --key '{"id":{"S":"job_task359_probe_instagram"}}' \
+  --projection-expression "id,job_status,error_code,error_metadata,error_step" \
+  --output json
+```
+
+a renvoyé :
+
+```json
+{"Item": {
+  "error_code":     {"S": "NO_TRANSCRIBABLE_MEDIA"},
+  "error_metadata": {"M": {"reason":  {"S": "no_transcript_or_audio_url"},
+                           "step":    {"S": "instagram_ingestion"},
+                           "provider":{"S": "apify"},
+                           "apify_run_id": {"S": "run_task359_probe"}}},
+  "error_step":     {"S": "instagram_ingestion"},
+  "id":             {"S": "job_task359_probe_instagram"},
+  "job_status":     {"S": "failed"}
+}}
+```
+
+Aucun attribut `error_message` dans l'item. La ligne sonde a ensuite été supprimée (`aws dynamodb delete-item`, même clé) : elle n'appartenait à aucun compte réel (`user_id="task-359-probe"`, e-mail synthétique en `example.invalid`).
+
+### Correction factuelle sur l'AC #3
+
+L'AC #3 et la description parlent de `mobile/locales/*.json` pour « les onze catalogues ». C'est inexact : ces JSON ne portent que les chaînes natives d'`app.config` (`CFBundleDisplayName`, `NSPhotoLibraryUsageDescription`…). Les vrais catalogues d'interface sont `mobile/src/i18n/{en,fr,es,de,it,pt,nl,ja,zh,ar,hi}.ts`, où `TranslationKey = keyof typeof en` — une clé absente de `en.ts` est donc une erreur `tsc`, et les dix autres langues sont vérifiées par le type `Catalog`. Les 18 clés `mediaError.*` ont été ajoutées là, entièrement traduites dans les onze langues, aucune valeur laissée en anglais.
+
+`media.processingFailed` a perdu son dernier consommateur (le hook lit désormais le repli `media.failedFallback` imposé par l'AC #2) et a été supprimée des onze catalogues dans la même passe.
+
+### Vérifications
+
+- `ruff check media_summarizer/` → *All checks passed!*
+- `mypy media_summarizer/` → *Success: no issues found in 181 source files*
+- `cd mobile && npm run typecheck` → aucune sortie (propre)
+- `cd mobile && npm run lint` → 0 erreur, 2 avertissements préexistants dans des fichiers non touchés (`app/(tabs)/digest.tsx`, `src/services/purchaseService.ts`)
+
+Aucun test automatisé n'a été ajouté, conformément à la règle du dépôt.
+
+### Reste à la charge de l'owner
+
+La vérification visuelle finale — rejouer une ingestion en échec et lire la phrase française dans l'app — demande un déploiement puis un build, hors de portée d'un worktree.
+<!-- SECTION:NOTES:END -->

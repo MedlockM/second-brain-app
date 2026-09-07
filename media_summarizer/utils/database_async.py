@@ -16,7 +16,7 @@ import aioboto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from media_summarizer.core.models import Folder, JobStatus, ProcessingJob, Tag, User, UserRssFeed
+from media_summarizer.core.models import Folder, JobStatus, MediaFailureCode, ProcessingJob, Tag, User, UserRssFeed
 from media_summarizer.core.models.auth import AuthToken, TokenType
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
@@ -499,8 +499,9 @@ async def expire_apify_run(
     job_id: str,
     run_id: str,
     *,
-    error_message: str,
+    error_code: MediaFailureCode,
     error_step: str,
+    error_metadata: Optional[Dict[str, Any]] = None,
 ) -> Optional[ProcessingJob]:
     """Atomically fail an unclaimed run when its delayed backstop fires."""
     job = await get_processing_job_by_id(job_id)
@@ -511,7 +512,7 @@ async def expire_apify_run(
 
     job.apify_state = "expired"
     job.apify_completed_at = datetime.now(timezone.utc)
-    job.mark_failed(error_message=error_message, error_step=error_step)
+    job.mark_failed(error_code=error_code, error_step=error_step, error_metadata=error_metadata)
     item = job.to_dynamodb_item()
     set_parts: List[str] = []
     names: Dict[str, str] = {}

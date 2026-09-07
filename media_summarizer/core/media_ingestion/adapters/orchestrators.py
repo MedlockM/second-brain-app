@@ -22,7 +22,7 @@ from media_summarizer.core.media_ingestion.media_metadata import (
 )
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.media_ingestion.title_derivation import derive_media_title
-from media_summarizer.core.models import ProcessingJob, UserMediaStatus
+from media_summarizer.core.models import MediaFailureCode, ProcessingJob, UserMediaStatus
 from media_summarizer.core.services import audio_quota_gate, quota_enforcer
 from media_summarizer.core.services.durable_media_service import (
     finalize_deduplicated_save,
@@ -892,8 +892,12 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             if job_created:
                 try:
                     job.mark_failed(
-                        error_message=f"ingestion_core_submission_failed: {exc}",
+                        error_code=MediaFailureCode.SUBMISSION_FAILED,
                         error_step="ingestion_core",
+                        error_metadata={
+                            "reason": "ingestion_core_submission_failed",
+                            "exception_type": type(exc).__name__,
+                        },
                     )
                     await database_async.update_processing_job(job)
                     await episode_idempotence.mark_failed(

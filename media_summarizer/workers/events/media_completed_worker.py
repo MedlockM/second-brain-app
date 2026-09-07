@@ -186,7 +186,11 @@ async def process_event(message: Dict[str, Any]) -> None:
 
     # Handle failure events: mark all watchers as failed and return early
     if status == "failure":
-        failure_reason = body.get("error_message", "upstream_pipeline_failure")
+        # `reason` is what every producer of a failure event publishes: the
+        # `CODE:reason_token` pair from `IngestionFailure.reason`. Reading
+        # anything else here is how this branch silently logged
+        # "upstream_pipeline_failure" for every single failure.
+        failure_reason = body.get("reason") or "upstream_pipeline_failure"
         logger.warning(f"Processing failure event for media_key={media_key}: {failure_reason}")
         for w in (watchers or []):
             try:

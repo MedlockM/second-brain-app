@@ -113,9 +113,14 @@ export function useMediaDetailPolling(
         stopPolling();
       } else if (jobStatus === "failed" || jobStatus === "cancelled") {
         setState("failed");
+        // The job carries a code, not a sentence (task-359): the wording is built
+        // here, in the reader's language, and an unmapped code degrades to the
+        // generic line instead of printing whatever the server said.
         setProcessingError(
-          response.processing_job.error_message ||
-            t("media.processingFailed"),
+          getFriendlyErrorMessage(
+            { code: response.processing_job.error_code },
+            { fallback: t("media.failedFallback") },
+          ),
         );
         stopPolling();
       } else {

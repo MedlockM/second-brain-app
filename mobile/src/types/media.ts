@@ -103,6 +103,43 @@ export type CanonicalErrorCode =
   | "INSUFFICIENT_MINUTES"
   | "INTERNAL_ERROR";
 
+/**
+ * Why an ingestion job failed. Mirrors `MediaFailureCode` in
+ * `media_summarizer/core/models/failure_codes.py`, and is a different vocabulary
+ * from `CanonicalErrorCode`: that one names the *transport* refusal of a request
+ * (a 400, a 404), this one names what happened to a media the pipeline had
+ * already accepted.
+ *
+ * The API sends the code and nothing else about the failure — no sentence, no
+ * provider text. `ERROR_CODE_MESSAGES` in `lib/getFriendlyErrorMessage.ts` owns
+ * the wording, in the reader's language, and every member here must have an entry
+ * there.
+ */
+export type MediaFailureCode =
+  | "MEDIA_UNAVAILABLE"
+  | "GEO_RESTRICTED"
+  | "AGE_RESTRICTED"
+  | "LIVE_CONTENT_UNSUPPORTED"
+  | "IMAGE_POST_UNSUPPORTED"
+  | "NO_TRANSCRIBABLE_MEDIA"
+  | "NO_TRANSCRIPT_AVAILABLE"
+  | "POST_TEXT_EMPTY"
+  | "NOT_AN_ARTICLE_PAGE"
+  | "ARTICLE_TEXT_NOT_FOUND"
+  | "DOCUMENT_PARSE_FAILED"
+  | "PROVIDER_UNAVAILABLE"
+  | "PROVIDER_RESULT_INVALID"
+  | "PROVIDER_RATE_LIMITED"
+  | "PROVIDER_TIMED_OUT"
+  | "PROVIDER_AUTH_FAILED"
+  | "PROVIDER_CREDITS_DEPLETED"
+  | "PROVIDER_CONFIG_ERROR"
+  | "OUT_OF_MINUTES"
+  | "ITEM_TOO_LONG"
+  | "INVALID_JOB_MESSAGE"
+  | "SUBMISSION_FAILED"
+  | "UNEXPECTED_ERROR";
+
 export interface ProcessingProgress {
   percentage: number;
   stage: ProcessingJobLifecycleStatus;
@@ -129,8 +166,11 @@ export interface ProcessingJobContract {
   updated_at: string;
   started_at?: string;
   completed_at?: string;
-  error_code?: CanonicalErrorCode;
-  error_message?: string;
+  /**
+   * Present only on a failed job, and the only thing the response says about the
+   * failure: the wording is built on the device (task-359).
+   */
+  error_code?: MediaFailureCode;
 }
 
 export interface MediaItemContract {
@@ -236,5 +276,4 @@ export interface MediaListItem {
   created_at: string;
   updated_at: string;
   completed_at?: string | null;
-  error_message?: string | null;
 }

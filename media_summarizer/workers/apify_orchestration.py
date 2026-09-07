@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.models.processing_job import ProcessingJob
 from media_summarizer.infrastructure import apify_adapter
 from media_summarizer.infrastructure.apify_adapter import ApifyActorKind, ApifyRun
@@ -95,6 +96,12 @@ async def expire_backstop(
     return await database_async.expire_apify_run(
         job_id,
         run_id,
-        error_message=(f"{source_platform.title()} extraction timed out waiting for Apify."),
+        error_code=MediaFailureCode.PROVIDER_TIMED_OUT,
         error_step=f"{source_platform}_ingestion",
+        error_metadata={
+            "reason": "apify_callback_deadline_exceeded",
+            "provider": "apify",
+            "source_platform": source_platform,
+            "apify_run_id": run_id,
+        },
     )

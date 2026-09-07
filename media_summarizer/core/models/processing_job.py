@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from media_summarizer.core.models.failure_codes import MediaFailureCode
+
 
 def _get_ttl_days() -> int:
     """Get the job TTL window in days from the environment.
@@ -117,8 +119,19 @@ class ProcessingJob(BaseModel):
     apify_claimed_at: Optional[datetime] = None
     apify_completed_at: Optional[datetime] = None
 
-    # Error handling
-    error_message: Optional[str] = None
+    # Error handling.
+    #
+    # `error_code` is a `MediaFailureCode` value and the only failure information
+    # that reaches the app, which turns it into a sentence in the reader's own
+    # language. It replaced a free-text `error_message` that shipped English to
+    # every locale (task-359).
+    #
+    # `error_metadata` is the structured context behind that code — the reason
+    # token the worker recognised, an HTTP status, an exception class name. It is
+    # written for whoever reads the table or a log, never served by the API, and
+    # never a sentence.
+    error_code: Optional[str] = None
+    error_metadata: Optional[Dict[str, Any]] = None
     error_step: Optional[str] = None
     retry_count: int = Field(default=0, ge=0)
     max_retries: int = Field(default=3, ge=0)
@@ -209,7 +222,8 @@ class ProcessingJob(BaseModel):
             "apify_state",
             "apify_context",
             "apify_backstop_scheduled",
-            "error_message",
+            "error_code",
+            "error_metadata",
             "error_step",
             "download_duration",
             "transcription_duration",
@@ -277,8 +291,9 @@ class ProcessingJob(BaseModel):
     def update_status(
         self,
         new_status: JobStatus,
-        error_message: Optional[str] = None,
+        error_code: Optional[str] = None,
         error_step: Optional[str] = None,
+        error_metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Update job status and timestamp."""
         old_status = self.status
@@ -296,8 +311,9 @@ class ProcessingJob(BaseModel):
 
         # Handle error information
         if new_status == JobStatus.FAILED:
-            self.error_message = error_message
+            self.error_code = error_code
             self.error_step = error_step
+            self.error_metadata = error_metadata
 
         # Update TTL on status change (extend life)
         # TTL window is configurable per task-242 Phase 4 (default 90 days)
@@ -331,9 +347,25 @@ class ProcessingJob(BaseModel):
         """Mark the job as completed."""
         self.update_status(JobStatus.COMPLETED)
 
-    def mark_failed(self, error_message: str, error_step: Optional[str] = None) -> None:
-        """Mark the job as failed."""
-        self.update_status(JobStatus.FAILED, error_message, error_step)
+    def mark_failed(
+        self,
+        error_code: MediaFailureCode,
+        error_step: Optional[str] = None,
+        error_metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Mark the job as failed under a stable code.
+
+        The code is stored as its plain value: `MediaFailureCode` derives from
+        `str`, but `str()` on a member yields `MediaFailureCode.X` under Python
+        3.11, so a member handed straight to DynamoDB or an f-string is a bug
+        waiting to be read by someone.
+        """
+        self.update_status(
+            JobStatus.FAILED,
+            error_code=error_code.value,
+            error_step=error_step,
+            error_metadata=error_metadata,
+        )
 
     def mark_cancelled(self) -> None:
         """Mark the job as cancelled."""

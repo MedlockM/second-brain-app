@@ -29,6 +29,7 @@ from media_summarizer.core.media_ingestion.title_derivation import (
     derive_media_title,
     first_sentence,
 )
+from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     normalize_transcript_text,
@@ -45,6 +46,7 @@ from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
     process_message_with_retry,
 )
+from media_summarizer.workers.ingestion_failures import IngestionFailure
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +59,6 @@ X_API_BASE_URL = os.environ.get("X_API_BASE_URL", "https://api.x.com/2").rstrip(
 _RAW_X_BEARER_TOKEN = os.environ.get("X_API_BEARER_TOKEN", "").strip()
 X_API_BEARER_TOKEN = unquote(_RAW_X_BEARER_TOKEN).strip()
 
-_DEFAULT_TEMPORARY_MESSAGE = "X post lookup is temporarily unavailable. Please retry."
-_DEFAULT_UNAVAILABLE_MESSAGE = "This X post is unavailable or cannot be processed."
-_DEFAULT_CREDITS_MESSAGE = (
-    "X API credits are depleted for lookup requests. Please recharge and retry."
-)
 # `attachments.media_keys` and `media.fields` ride the lookup we already make:
 # X bills per post read, and expansions do not multiply reads, so the cover
 # costs nothing extra (task-302 §2.3). `preview_image_url` is what a video or a
@@ -76,20 +73,8 @@ _LOOKUP_QUERY_PARAMS = {
 }
 
 
-class XIngestionError(Exception):
-    def __init__(
-        self,
-        code: str,
-        *,
-        details: Optional[str] = None,
-        retryable: bool = False,
-        user_message: Optional[str] = None,
-    ) -> None:
-        super().__init__(details or code)
-        self.code = code
-        self.details = (details or "").strip()
-        self.retryable = retryable
-        self.user_message = user_message or _DEFAULT_TEMPORARY_MESSAGE
+class XIngestionError(IngestionFailure):
+    """An X ingestion failure. See `IngestionFailure` for the shape."""
 
 
 def _now_iso_utc() -> str:
@@ -99,10 +84,9 @@ def _now_iso_utc() -> str:
 def _lookup_headers() -> Dict[str, str]:
     if not X_API_BEARER_TOKEN:
         raise XIngestionError(
-            "x_lookup_auth_failed",
+            MediaFailureCode.PROVIDER_CONFIG_ERROR,
             details="missing_bearer_token",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            provider="x_api",
         )
     return {"Authorization": f"Bearer {X_API_BEARER_TOKEN}"}
 
@@ -167,17 +151,20 @@ async def _lookup_post(tweet_id: str) -> Dict[str, Any]:
             )
     except httpx.TimeoutException as exc:
         raise XIngestionError(
-            "x_lookup_timeout",
-            details=type(exc).__name__,
+            MediaFailureCode.PROVIDER_TIMED_OUT,
+            details="x_lookup_timeout",
             retryable=True,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            provider="x_api",
+            timeout_seconds=X_API_TIMEOUT_SECONDS,
+            exception_type=type(exc).__name__,
         ) from exc
     except httpx.TransportError as exc:
         raise XIngestionError(
-            "x_lookup_failed",
-            details=type(exc).__name__,
+            MediaFailureCode.PROVIDER_UNAVAILABLE,
+            details="x_lookup_transport_error",
             retryable=True,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            provider="x_api",
+            exception_type=type(exc).__name__,
         ) from exc
 
     try:
@@ -189,74 +176,84 @@ async def _lookup_post(tweet_id: str) -> Dict[str, Any]:
         payload = {}
 
     status_code = response.status_code
+    # X's own wording for the refusal. It travels as context, never as the
+    # failure identity: it is English, unversioned, and written for us.
     detail = str(payload.get("detail") or payload.get("title") or "").strip()
 
     if status_code == 404:
         raise XIngestionError(
-            "x_lookup_not_found",
-            details=detail or "status=404",
-            retryable=False,
-            user_message=_DEFAULT_UNAVAILABLE_MESSAGE,
+            MediaFailureCode.MEDIA_UNAVAILABLE,
+            details="x_lookup_not_found",
+            provider="x_api",
+            http_status=status_code,
+            provider_detail=detail or None,
         )
     if status_code == 401:
         raise XIngestionError(
-            "x_lookup_auth_failed",
-            details=detail or "status=401",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            MediaFailureCode.PROVIDER_AUTH_FAILED,
+            details="x_lookup_auth_failed",
+            provider="x_api",
+            http_status=status_code,
+            provider_detail=detail or None,
         )
     if status_code == 402:
         raise XIngestionError(
-            "x_lookup_credits_depleted",
-            details=detail or "status=402",
-            retryable=False,
-            user_message=_DEFAULT_CREDITS_MESSAGE,
+            MediaFailureCode.PROVIDER_CREDITS_DEPLETED,
+            details="x_lookup_credits_depleted",
+            provider="x_api",
+            http_status=status_code,
+            provider_detail=detail or None,
         )
     if status_code == 403:
         raise XIngestionError(
-            "x_lookup_forbidden",
-            details=detail or "status=403",
-            retryable=False,
-            user_message=_DEFAULT_UNAVAILABLE_MESSAGE,
+            MediaFailureCode.MEDIA_UNAVAILABLE,
+            details="x_lookup_forbidden",
+            provider="x_api",
+            http_status=status_code,
+            provider_detail=detail or None,
         )
     if status_code == 429:
         raise XIngestionError(
-            "x_lookup_rate_limited",
-            details=detail or "status=429",
+            MediaFailureCode.PROVIDER_RATE_LIMITED,
+            details="x_lookup_rate_limited",
             retryable=True,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            provider="x_api",
+            http_status=status_code,
+            provider_detail=detail or None,
         )
     if status_code >= 500:
         raise XIngestionError(
-            "x_lookup_failed",
-            details=detail or f"status={status_code}",
+            MediaFailureCode.PROVIDER_UNAVAILABLE,
+            details="x_lookup_server_error",
             retryable=True,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            provider="x_api",
+            http_status=status_code,
+            provider_detail=detail or None,
         )
     if status_code >= 400:
         raise XIngestionError(
-            "x_lookup_failed",
-            details=detail or f"status={status_code}",
-            retryable=False,
-            user_message=_DEFAULT_UNAVAILABLE_MESSAGE,
+            MediaFailureCode.PROVIDER_UNAVAILABLE,
+            details="x_lookup_client_error",
+            provider="x_api",
+            http_status=status_code,
+            provider_detail=detail or None,
         )
 
     data = payload.get("data")
     if not isinstance(data, dict):
         raise XIngestionError(
-            "x_lookup_invalid_payload",
-            details="missing_data",
-            retryable=False,
-            user_message=_DEFAULT_UNAVAILABLE_MESSAGE,
+            MediaFailureCode.PROVIDER_RESULT_INVALID,
+            details="x_lookup_missing_data",
+            provider="x_api",
+            http_status=status_code,
         )
 
     text = _extract_text(data)
     if not text:
         raise XIngestionError(
-            "x_lookup_empty",
-            details="empty_text",
-            retryable=False,
-            user_message=_DEFAULT_UNAVAILABLE_MESSAGE,
+            MediaFailureCode.POST_TEXT_EMPTY,
+            details="x_post_text_empty",
+            provider="x_api",
         )
 
     author_id = str(data.get("author_id") or "").strip()
@@ -417,13 +414,14 @@ async def _mark_job_failed(
     job.extraction_metadata = _build_extraction_metadata(
         requested_url=requested_url,
         lookup_result=failed_lookup,
-        last_error_code=error.code,
-        failure_details=error.details or error.code,
+        last_error_code=error.code.value,
+        failure_details=error.details,
     )
     job.extraction_metadata["failed_at"] = _now_iso_utc()
     job.mark_failed(
-        error_message=error.user_message,
+        error_code=error.code,
         error_step="x_ingestion",
+        error_metadata=error.error_metadata(step="x_ingestion"),
     )
     await database_async.update_processing_job(job)
 
@@ -435,33 +433,25 @@ async def process_x_message(message_body: Dict[str, Any]) -> Dict[str, Any]:
 
     if not job_id:
         raise XIngestionError(
-            "x_lookup_failed",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_job_id",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
         )
     if not normalized_url:
         raise XIngestionError(
-            "x_lookup_failed",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_normalized_url",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
         )
     if not tweet_id:
         raise XIngestionError(
-            "x_lookup_failed",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_tweet_id",
-            retryable=False,
-            user_message=_DEFAULT_UNAVAILABLE_MESSAGE,
         )
 
     job = await database_async.get_processing_job_by_id(job_id)
     if not job:
         raise XIngestionError(
-            "x_lookup_failed",
-            details=f"processing_job_not_found:{job_id}",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            MediaFailureCode.INVALID_JOB_MESSAGE,
+            details="processing_job_not_found",
         )
 
     job.mark_extracting()
@@ -575,11 +565,10 @@ async def process_message(message: Dict[str, Any]) -> None:
             tweet_id=(body.get("tweet_id") or "").strip() or None,
             error=exc,
         )
-        reason = exc.code if not exc.details else f"{exc.code}:{exc.details}"
         await _publish_failure_event(
             job_id=body.get("job_id"),
             media_key=body.get("media_key"),
-            reason=reason,
+            reason=exc.reason,
         )
         log_event(
             logger,
@@ -589,18 +578,19 @@ async def process_message(message: Dict[str, Any]) -> None:
             job_id=body.get("job_id"),
             media_item_id=body.get("job_id"),
             transcript_source="x_api_lookup",
-            error_code=exc.code,
+            error_code=exc.code.value,
             detail=exc.details,
+            # X's own wording rides the chained cause, not the reason token.
+            exc_info=exc,
         )
     except Exception as exc:
         if receive_count < X_WORKER_MAX_RETRIES:
             raise
 
         final_error = XIngestionError(
-            "x_lookup_failed",
-            details=f"unexpected:{type(exc).__name__}",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            MediaFailureCode.UNEXPECTED_ERROR,
+            details="unexpected_exception",
+            exception_type=type(exc).__name__,
         )
         await _mark_job_failed(
             job_id=body.get("job_id"),
@@ -611,7 +601,7 @@ async def process_message(message: Dict[str, Any]) -> None:
         await _publish_failure_event(
             job_id=body.get("job_id"),
             media_key=body.get("media_key"),
-            reason=f"{final_error.code}:{final_error.details}",
+            reason=final_error.reason,
         )
         log_event(
             logger,
@@ -621,7 +611,7 @@ async def process_message(message: Dict[str, Any]) -> None:
             job_id=body.get("job_id"),
             media_item_id=body.get("job_id"),
             transcript_source="x_api_lookup",
-            error_code=final_error.code,
+            error_code=final_error.code.value,
             exc_info=exc,
         )
     finally:

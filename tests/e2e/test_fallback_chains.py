@@ -240,7 +240,7 @@ async def test_document_unstructured_fallback(
 
     assert body.get("status") == "completed", (
         f"document parsing did not complete: status={body.get('status')}, "
-        f"error={body.get('error_message')}"
+        f"error={body.get('error_code')}"
     )
 
     # Verify the fallback provider was used

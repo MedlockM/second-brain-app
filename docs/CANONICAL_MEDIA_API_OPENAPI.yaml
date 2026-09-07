@@ -684,8 +684,35 @@ components:
         updated_at: { type: string }
         started_at: { type: string }
         completed_at: { type: string }
-        error_code: { type: string }
-        error_message: { type: string }
+        # Stable failure vocabulary (MediaFailureCode). No companion message: the
+        # sentence is built client-side from this code. See the "Ingestion failure
+        # contract" section of CANONICAL_MEDIA_API_CONTRACT.md.
+        error_code:
+          type: string
+          enum:
+            - MEDIA_UNAVAILABLE
+            - GEO_RESTRICTED
+            - AGE_RESTRICTED
+            - LIVE_CONTENT_UNSUPPORTED
+            - IMAGE_POST_UNSUPPORTED
+            - NO_TRANSCRIBABLE_MEDIA
+            - NO_TRANSCRIPT_AVAILABLE
+            - POST_TEXT_EMPTY
+            - NOT_AN_ARTICLE_PAGE
+            - ARTICLE_TEXT_NOT_FOUND
+            - DOCUMENT_PARSE_FAILED
+            - PROVIDER_UNAVAILABLE
+            - PROVIDER_RESULT_INVALID
+            - PROVIDER_RATE_LIMITED
+            - PROVIDER_TIMED_OUT
+            - PROVIDER_AUTH_FAILED
+            - PROVIDER_CREDITS_DEPLETED
+            - PROVIDER_CONFIG_ERROR
+            - OUT_OF_MINUTES
+            - ITEM_TOO_LONG
+            - INVALID_JOB_MESSAGE
+            - SUBMISSION_FAILED
+            - UNEXPECTED_ERROR
     MediaItemContract:
       type: object
       required:

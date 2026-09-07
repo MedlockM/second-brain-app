@@ -4,7 +4,7 @@ Authoritative reference for the ingestion pipeline. Lists each source type's
 primary extraction path, fallback chain, terminal failure behavior, and
 downstream hand-off.
 
-Last verified against codebase: 2026-08-18 (task-277: shared asynchronous Apify orchestration).
+Last verified against codebase: 2026-09-07 (task-359: workers emit a stable `MediaFailureCode`, never an English sentence).
 
 ---
 
@@ -22,9 +22,10 @@ Last verified against codebase: 2026-08-18 (task-277: shared asynchronous Apify 
 10. [RSS Feed Polling](#rss-feed-polling)
 11. [Cross-cutting: Transcript Language Detection & Translation](#cross-cutting-transcript-language-detection--translation)
 12. [Transcript Translation Worker (task-200)](#transcript-translation-worker-task-200)
-13. [Cross-cutting: Deepgram Modes](#cross-cutting-deepgram-modes)
-14. [Decision Tree: URL Classification and Routing](#decision-tree-url-classification-and-routing)
-15. [References](#references)
+13. [Cross-cutting: How a failure is written down (task-359)](#cross-cutting-how-a-failure-is-written-down-task-359)
+14. [Cross-cutting: Deepgram Modes](#cross-cutting-deepgram-modes)
+15. [Decision Tree: URL Classification and Routing](#decision-tree-url-classification-and-routing)
+16. [References](#references)
 
 ---
 
@@ -56,9 +57,15 @@ No fallback — failure is terminal.
 
 - Mark `ProcessingJob` as failed (`error_step="article_extraction"`)
 - Publish `episode_completion_status(status=failure)` to `EPISODE_COMPLETED_EVENTS_QUEUE`
-- Error codes: `article_fetch_timeout`, `article_http_error`, `article_unsupported_content_type`, `article_extraction_empty`, `article_extraction_failed`
+- User-facing `error_code` → observability `reason` (see [how a failure is written down](#cross-cutting-how-a-failure-is-written-down-task-359)):
+  - `PROVIDER_UNAVAILABLE` ← `article_http_error` (+`http_status`, `final_url`), `article_fetch_transport_error`
+  - `NOT_AN_ARTICLE_PAGE` ← `article_unsupported_content_type` (+`content_type`, `final_url`)
+  - `ARTICLE_TEXT_NOT_FOUND` ← `html_too_large`, `trafilatura_error`, `empty_text_after_extraction`
+  - `PROVIDER_TIMED_OUT` ← `article_fetch_timeout` (+`timeout_seconds`)
+  - `INVALID_JOB_MESSAGE` ← `missing_job_id`, `missing_normalized_url`, `processing_job_not_found`
+  - `UNEXPECTED_ERROR` ← `article_fetch_unexpected_exception`, `unexpected_exception`
 
-Ref: `article_extraction_worker.py::_mark_job_failed`, `article_extraction_worker.py::_ERROR_MESSAGES`
+Ref: `article_extraction_worker.py::_mark_job_failed`, `article_extraction_worker.py::ArticleExtractionError`
 
 ### Downstream dependencies
 
@@ -244,10 +251,17 @@ Ref: `youtube_ingestion_worker.py::process_youtube_message`, `youtube_ingestion_
 - `YouTubeIngestionError` after max retries (`YOUTUBE_WORKER_MAX_RETRIES`, default 3)
 - Mark job failed (`error_step="youtube_ingestion"`)
 - Publish `episode_completion_status(status=failure)`
-- Non-retryable codes: `youtube_unavailable` (deleted/private/unreadable), `youtube_age_restricted`, `youtube_geo_restricted`, `youtube_apify_failed` (terminal Apify run or config error)
-- Retryable codes: `youtube_apify_failed` with `retryable=True` (Apify network / 5xx)
+- User-facing `error_code` → observability `reason` (see [how a failure is written down](#cross-cutting-how-a-failure-is-written-down-task-359)); the `reason` values are `ApifyTranscriptFailure` members, unchanged:
+  - `MEDIA_UNAVAILABLE` ← `missing_video_id`, `video_unavailable`, `actor_error`
+  - `GEO_RESTRICTED` ← `geo_restricted` · `AGE_RESTRICTED` ← `age_restricted`
+  - `PROVIDER_RESULT_INVALID` ← `no_results` · `NO_TRANSCRIPT_AVAILABLE` ← `empty_transcript`
+  - `PROVIDER_CONFIG_ERROR` ← `actor_unsupported` (unset actor id / rejected token)
+  - `PROVIDER_UNAVAILABLE` ← `apify_run_not_succeeded` (retryable)
+  - `INVALID_JOB_MESSAGE` ← `missing_job_id`, `missing_normalized_url`, `processing_job_not_found`, `apify_context_mismatch`
+  - `UNEXPECTED_ERROR` ← `unexpected_exception`
+- The actor's own `error_category` is not a code: it travels as `actor_error_category` inside `error_metadata`
 
-Ref: `youtube_ingestion_worker.py::YouTubeIngestionError`, `youtube_ingestion_worker.py::ApifyTranscriptFailure`
+Ref: `youtube_ingestion_worker.py::YouTubeIngestionError`, `youtube_ingestion_worker.py::ApifyTranscriptFailure`, `youtube_ingestion_worker.py::_classify_actor_error`
 
 ### Downstream dependencies
 
@@ -296,10 +310,13 @@ Ref: `instagram_apify_resolver.py::InstagramApifyResolver.resolve`, `instagram_a
 
 ### Terminal failure mode
 
-- `InstagramIngestionError` codes (raised by the worker):
-  - `unsupported_content` (`apify_non_retryable:*` from resolver, Apify produced no `audio_url`)
-  - `provider_error` (`apify_retryable:*` from resolver after retries exhausted, or unexpected exception)
-  - `invalid_message` (missing job_id / normalized_url / job not found)
+- User-facing `error_code` → observability `reason` (see [how a failure is written down](#cross-cutting-how-a-failure-is-written-down-task-359)):
+  - `NO_TRANSCRIBABLE_MEDIA` ← `resolver_non_retryable` (+`exception_type`), `no_transcript_or_audio_url`
+  - `PROVIDER_UNAVAILABLE` ← `resolver_retryable`, `apify_run_not_succeeded` (both retryable)
+  - `PROVIDER_RESULT_INVALID` ← `apify_result_invalid`
+  - `IMAGE_POST_UNSUPPORTED` ← `instagram_image_post`
+  - `INVALID_JOB_MESSAGE` ← `missing_job_id`, `missing_normalized_url`, `processing_job_not_found`
+  - `UNEXPECTED_ERROR` ← `unexpected_exception`
 - After max retries (`INSTAGRAM_WORKER_MAX_RETRIES`, default 3), the job is marked failed (`error_step="instagram_ingestion"`) and a failure event is published
 
 Ref: `instagram_ingestion_worker.py::InstagramIngestionError`, `instagram_ingestion_worker.py::process_message`
@@ -336,11 +353,11 @@ No fallback — failure is terminal. There is no image pipeline to hand a post t
 
 ### Terminal failure mode
 
-Image-post failures surface from the post-scraper actor (auth, quota, content-type rejection) and are reported as `unsupported_content` / `provider_error` (same `InstagramIngestionError` taxonomy as Reels).
+Image-post failures surface from the post-scraper actor (auth, quota, content-type rejection) and use the same `InstagramIngestionError` taxonomy as Reels: `IMAGE_POST_UNSUPPORTED` when the post is a photo or carousel, `PROVIDER_UNAVAILABLE` / `PROVIDER_RESULT_INVALID` when the actor itself is at fault.
 
 ### Downstream dependencies
 
-- Image posts → none: the job is failed in place with `unsupported_content`
+- Image posts → none: the job is failed in place with `IMAGE_POST_UNSUPPORTED`
 - Errors → `EPISODE_COMPLETED_EVENTS_QUEUE` env var, default queue `episode-completed-events` (failure event)
 
 ---
@@ -387,8 +404,16 @@ Ref: `tiktok_ingestion_worker.py::process_tiktok_message`, `tiktok_ingestion_wor
 ### Terminal failure mode
 
 - `TikTokIngestionError` after max retries (`TIKTOK_WORKER_MAX_RETRIES`, default 3)
-- Non-retryable codes: `unsupported_content` (private/deleted/live), `apify_actor_failed` with details `apify_no_transcript` (actor ran but returned nothing usable), `apify_actor_failed` with `apify_client_error:*` (actor schema rejection)
-- Retryable codes: `rate_limited`, `extractor_failed`, `apify_actor_failed` with `apify_network_error:*` / `apify_server_error:*`
+- User-facing `error_code` → observability `reason` (see [how a failure is written down](#cross-cutting-how-a-failure-is-written-down-task-359)):
+  - `MEDIA_UNAVAILABLE` ← `missing_tiktok_id`, `yt_dlp_media_unavailable` (private / deleted)
+  - `LIVE_CONTENT_UNSUPPORTED` ← `live_content_not_supported`
+  - `NO_TRANSCRIBABLE_MEDIA` ← `no_transcribable_media_url`, `missing_media_url`
+  - `NO_TRANSCRIPT_AVAILABLE` ← `apify_no_transcript` (actor ran, returned nothing usable)
+  - `PROVIDER_RATE_LIMITED` ← `tiktok_limiter_exhausted`, `yt_dlp_rate_limited` (retryable)
+  - `PROVIDER_TIMED_OUT` ← `yt_dlp_timeout` (retryable)
+  - `PROVIDER_UNAVAILABLE` ← `yt_dlp_failed`, `subtitle_fetch_failed`, `subtitle_http_error` (+`http_status`), `apify_run_not_succeeded`
+  - `INVALID_JOB_MESSAGE` ← `missing_job_id`, `missing_normalized_url`, `processing_job_not_found`, `apify_context_missing_url`
+  - `UNEXPECTED_ERROR` ← `unexpected_exception`
 
 Ref: `tiktok_ingestion_worker.py::_mark_job_failed`, `tiktok_ingestion_worker.py::TikTokIngestionError`
 
@@ -427,8 +452,17 @@ No fallback — failure is terminal. Single provider (X API v2). Video tweets ar
 ### Terminal failure mode
 
 - `XIngestionError` after max retries (`X_WORKER_MAX_RETRIES`, default 3)
-- Non-retryable codes: `x_lookup_not_found` (404), `x_lookup_auth_failed` (401), `x_lookup_forbidden` (403), `x_lookup_credits_depleted` (402), `x_lookup_empty`, `x_lookup_invalid_payload`
-- Retryable codes: `x_lookup_timeout`, `x_lookup_failed` (5xx / transport), `x_lookup_rate_limited` (429)
+- User-facing `error_code` → observability `reason` (see [how a failure is written down](#cross-cutting-how-a-failure-is-written-down-task-359)); the HTTP status is in `error_metadata`, not in the reason token:
+  - `MEDIA_UNAVAILABLE` ← `x_lookup_not_found` (404), `x_lookup_forbidden` (403)
+  - `POST_TEXT_EMPTY` ← `x_post_text_empty`
+  - `PROVIDER_AUTH_FAILED` ← `x_lookup_auth_failed` (401) · `PROVIDER_CREDITS_DEPLETED` ← `x_lookup_credits_depleted` (402)
+  - `PROVIDER_CONFIG_ERROR` ← `missing_bearer_token`
+  - `PROVIDER_RATE_LIMITED` ← `x_lookup_rate_limited` (429, retryable)
+  - `PROVIDER_TIMED_OUT` ← `x_lookup_timeout` (retryable)
+  - `PROVIDER_UNAVAILABLE` ← `x_lookup_server_error` (5xx, retryable), `x_lookup_transport_error` (retryable), `x_lookup_client_error`
+  - `PROVIDER_RESULT_INVALID` ← `x_lookup_missing_data`
+  - `INVALID_JOB_MESSAGE` ← `missing_job_id`, `missing_normalized_url`, `missing_tweet_id`, `processing_job_not_found`
+  - `UNEXPECTED_ERROR` ← `unexpected_exception`
 
 Ref: `x_ingestion_worker.py::_mark_job_failed`, `x_ingestion_worker.py::XIngestionError`
 
@@ -479,7 +513,7 @@ Ref: `infrastructure/resolvers/unstructured_resolver.py::UnstructuredResolver`
 ### Terminal failure mode
 
 - Both LlamaParse and Unstructured fail → `ParseError` with combined message (`provider="llamaparse+unstructured"`)
-- Mark job failed (`error_step="document_parsing"`)
+- Mark job failed (`error_code=DOCUMENT_PARSE_FAILED`, `error_step="document_parsing"`, `error_metadata` carrying the parser's `reason` code and the `document_format`). The provider's own wording stays in the raised `RuntimeError`, i.e. in CloudWatch, and is never persisted.
 - Worker raises `RuntimeError` to trigger SQS retry / DLQ
 - After max retries (3): job stays failed
 
@@ -768,6 +802,64 @@ Additionally, `ensure_translated_transcript` logs `translation.completed` / `tra
 | `TRANSLATION_TIMEOUT_SECONDS` | `180` | Per-LLM-call timeout (shared). |
 | `TRANSLATION_MAX_RETRIES` | `3` | Retry attempts within the worker (shared). |
 | `TRANSLATION_IDEMPOTENCE_TABLE` | `translation_idempotence` | DynamoDB table for state machine (task-203). |
+
+---
+
+## Cross-cutting: How a failure is written down (task-359)
+
+A worker that gives up writes **two separate things**, and confusing them is the
+defect task-359 fixed (an English sentence reached an `fr-FR` screen).
+
+| What | Where it lands | Who reads it | Vocabulary |
+|---|---|---|---|
+| `error_code` | `ProcessingJob.error_code`, served by `GET /api/media/{id}` | the **app**, which renders a sentence in the reader's language | `MediaFailureCode` — `media_summarizer/core/models/failure_codes.py` |
+| `reason` + context | `ProcessingJob.error_metadata`, served only by the operational `GET /jobs/{id}` | **us**, when debugging | free-form lower-snake tokens, per worker |
+| the provider's own wording | CloudWatch, via `exc_info` on the terminal `log_event` | **us** | whatever the provider said |
+
+No worker builds a user-facing sentence any more, and no free-text sentence is
+persisted. `media_summarizer/utils/user_facing_errors.py` — which used to
+pattern-match `str(e)` in `base_worker.py` to *guess* a friendly English line — is
+deleted; an unclaimed exception is now `UNEXPECTED_ERROR`, full stop.
+
+Every ingestion worker raises a thin subclass of `IngestionFailure`
+(`media_summarizer/workers/ingestion_failures.py`):
+
+```python
+raise XIngestionError(
+    MediaFailureCode.PROVIDER_RATE_LIMITED,
+    details="x_lookup_rate_limited",   # the stable observability token
+    retryable=True,
+    http_status=429,                   # -> error_metadata, never in the code
+)
+```
+
+The `details` token is the *old* per-worker error code, kept verbatim so log
+queries and runbooks still work; it is what the per-worker "Terminal failure mode"
+sections below list. Anything variable (an HTTP status, an Apify run id, a content
+type, a duration) is a keyword argument and lands in `error_metadata` next to
+`reason`, per AIP-193's rule that request-specific information belongs in metadata
+"so that machine actors do not need to parse error messages".
+
+Which `MediaFailureCode` each worker can emit:
+
+| Worker | Codes |
+|---|---|
+| `article_extraction_worker.py` | `NOT_AN_ARTICLE_PAGE`, `ARTICLE_TEXT_NOT_FOUND`, `PROVIDER_UNAVAILABLE`, `PROVIDER_TIMED_OUT`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
+| `youtube_ingestion_worker.py` | `MEDIA_UNAVAILABLE`, `GEO_RESTRICTED`, `AGE_RESTRICTED`, `NO_TRANSCRIPT_AVAILABLE`, `PROVIDER_RESULT_INVALID`, `PROVIDER_UNAVAILABLE`, `PROVIDER_CONFIG_ERROR`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
+| `instagram_ingestion_worker.py` | `NO_TRANSCRIBABLE_MEDIA`, `IMAGE_POST_UNSUPPORTED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RESULT_INVALID`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
+| `tiktok_ingestion_worker.py` | `MEDIA_UNAVAILABLE`, `LIVE_CONTENT_UNSUPPORTED`, `NO_TRANSCRIBABLE_MEDIA`, `NO_TRANSCRIPT_AVAILABLE`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RATE_LIMITED`, `PROVIDER_TIMED_OUT`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
+| `x_ingestion_worker.py` | `MEDIA_UNAVAILABLE`, `POST_TEXT_EMPTY`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RATE_LIMITED`, `PROVIDER_TIMED_OUT`, `PROVIDER_RESULT_INVALID`, `PROVIDER_AUTH_FAILED`, `PROVIDER_CREDITS_DEPLETED`, `PROVIDER_CONFIG_ERROR`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
+| `document_parsing/worker.py` | `DOCUMENT_PARSE_FAILED` |
+| `apify_orchestration.py` (callback backstop) | `PROVIDER_TIMED_OUT` |
+| `core/services/audio_quota_gate.py` | `OUT_OF_MINUTES`, `ITEM_TOO_LONG` |
+| `core/media_ingestion/adapters/orchestrators.py` | `SUBMISSION_FAILED` |
+
+Adding a member to `MediaFailureCode` requires an entry in `ERROR_CODE_MESSAGES`
+(`mobile/src/lib/getFriendlyErrorMessage.ts`) and a translated line in the eleven
+catalogues under `mobile/src/i18n/` in the same commit — a code the app does not
+know degrades to the generic failure line.
+
+Ref: `core/models/failure_codes.py::MediaFailureCode`, `workers/ingestion_failures.py::IngestionFailure`, `workers/base_worker.py`
 
 ---
 

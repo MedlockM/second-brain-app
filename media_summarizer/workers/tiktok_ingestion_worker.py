@@ -33,6 +33,7 @@ from media_summarizer.core.media_ingestion.media_metadata import (
     select_creator,
 )
 from media_summarizer.core.media_ingestion.title_derivation import select_title
+from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.models.processing_job import ProcessingJob
 from media_summarizer.core.services import audio_quota_gate, cover_capture
 from media_summarizer.core.services.transcript_formatting import (
@@ -66,6 +67,7 @@ from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
     process_message_with_retry,
 )
+from media_summarizer.workers.ingestion_failures import IngestionFailure, apify_failure_code
 
 logger = logging.getLogger(__name__)
 
@@ -101,11 +103,6 @@ _CONTAINER_KEYS = (
 # random shortcode instead of /@user/video/<id> or /t/<id>.
 _TIKTOK_SHORT_HOSTS = {"vm.tiktok.com"}
 
-_UNAVAILABLE_MESSAGE = "This TikTok video is unavailable or cannot be processed."
-_UNSUPPORTED_MESSAGE = "Unable to resolve transcribable media from this TikTok URL."
-_TEMPORARY_EXTRACTOR_MESSAGE = "TikTok extraction is temporarily unavailable. Please retry."
-_RATE_LIMITED_MESSAGE = "TikTok media extraction is temporarily rate limited. Please retry later."
-
 
 class TikTokIPBlocked(Exception):
     """Raised when yt-dlp encounters an IP block (status 10204) from TikTok."""
@@ -121,20 +118,8 @@ class NativeSubtitlesUnavailable(Exception):
         self.reason = reason
 
 
-class TikTokIngestionError(Exception):
-    def __init__(
-        self,
-        code: str,
-        *,
-        details: Optional[str] = None,
-        retryable: bool = False,
-        user_message: Optional[str] = None,
-    ) -> None:
-        super().__init__(details or code)
-        self.code = code
-        self.details = (details or "").strip()
-        self.retryable = retryable
-        self.user_message = user_message or _UNSUPPORTED_MESSAGE
+class TikTokIngestionError(IngestionFailure):
+    """A TikTok ingestion failure. See `IngestionFailure` for the shape."""
 
 
 def _now_iso_utc() -> str:
@@ -198,10 +183,8 @@ def _extract_tiktok_id(normalized_url: str) -> str:
         return parts[0].strip()
 
     raise TikTokIngestionError(
-        "unsupported_content",
+        MediaFailureCode.MEDIA_UNAVAILABLE,
         details="missing_tiktok_id",
-        retryable=False,
-        user_message=_UNAVAILABLE_MESSAGE,
     )
 
 
@@ -371,17 +354,17 @@ async def _fetch_subtitle_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]
                 response = await client.get(subtitle_url)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise TikTokIngestionError(
-                "extractor_failed",
-                details=f"subtitle_fetch:{type(exc).__name__}",
+                MediaFailureCode.PROVIDER_UNAVAILABLE,
+                details="subtitle_fetch_failed",
                 retryable=True,
-                user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+                exception_type=type(exc).__name__,
             ) from exc
         if response.status_code >= 400:
             raise TikTokIngestionError(
-                "extractor_failed",
-                details=f"subtitle_http_status:{response.status_code}",
+                MediaFailureCode.PROVIDER_UNAVAILABLE,
+                details="subtitle_http_error",
                 retryable=response.status_code >= 500,
-                user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+                http_status=response.status_code,
             )
         payload = response.text
         content_type = response.headers.get("content-type", "")
@@ -434,17 +417,18 @@ async def _extract_tiktok_info(normalized_url: str) -> Dict[str, Any]:
         )
     except TikTokRateLimitExceeded as exc:
         raise TikTokIngestionError(
-            "rate_limited",
-            details=f"{exc.limit_type}:{exc.retry_after_seconds}",
+            MediaFailureCode.PROVIDER_RATE_LIMITED,
+            details="tiktok_limiter_exhausted",
             retryable=True,
-            user_message=_RATE_LIMITED_MESSAGE,
+            limit_type=exc.limit_type,
+            retry_after_seconds=exc.retry_after_seconds,
         ) from exc
     except asyncio.TimeoutError as exc:
         raise TikTokIngestionError(
-            "extractor_failed",
+            MediaFailureCode.PROVIDER_TIMED_OUT,
             details="yt_dlp_timeout",
             retryable=True,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+            timeout_seconds=YTDLP_TIMEOUT_SECONDS,
         ) from exc
     except yt_dlp.utils.DownloadError as exc:
         message = str(exc)
@@ -454,23 +438,22 @@ async def _extract_tiktok_info(normalized_url: str) -> Dict[str, Any]:
             ) from exc
         if _looks_like_rate_limited_error(message):
             raise TikTokIngestionError(
-                "rate_limited",
-                details=type(exc).__name__,
+                MediaFailureCode.PROVIDER_RATE_LIMITED,
+                details="yt_dlp_rate_limited",
                 retryable=True,
-                user_message=_RATE_LIMITED_MESSAGE,
+                exception_type=type(exc).__name__,
             ) from exc
         if _looks_like_unavailable_error(message):
             raise TikTokIngestionError(
-                "unsupported_content",
-                details=type(exc).__name__,
-                retryable=False,
-                user_message=_UNAVAILABLE_MESSAGE,
+                MediaFailureCode.MEDIA_UNAVAILABLE,
+                details="yt_dlp_media_unavailable",
+                exception_type=type(exc).__name__,
             ) from exc
         raise TikTokIngestionError(
-            "extractor_failed",
-            details=type(exc).__name__,
+            MediaFailureCode.PROVIDER_UNAVAILABLE,
+            details="yt_dlp_failed",
             retryable=True,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+            exception_type=type(exc).__name__,
         ) from exc
     except Exception as exc:
         message = str(exc)
@@ -480,23 +463,22 @@ async def _extract_tiktok_info(normalized_url: str) -> Dict[str, Any]:
             ) from exc
         if _looks_like_rate_limited_error(message):
             raise TikTokIngestionError(
-                "rate_limited",
-                details=type(exc).__name__,
+                MediaFailureCode.PROVIDER_RATE_LIMITED,
+                details="yt_dlp_rate_limited",
                 retryable=True,
-                user_message=_RATE_LIMITED_MESSAGE,
+                exception_type=type(exc).__name__,
             ) from exc
         if _looks_like_unavailable_error(message):
             raise TikTokIngestionError(
-                "unsupported_content",
-                details=type(exc).__name__,
-                retryable=False,
-                user_message=_UNAVAILABLE_MESSAGE,
+                MediaFailureCode.MEDIA_UNAVAILABLE,
+                details="yt_dlp_media_unavailable",
+                exception_type=type(exc).__name__,
             ) from exc
         raise TikTokIngestionError(
-            "extractor_failed",
-            details=type(exc).__name__,
+            MediaFailureCode.PROVIDER_UNAVAILABLE,
+            details="yt_dlp_failed",
             retryable=True,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+            exception_type=type(exc).__name__,
         ) from exc
 
 
@@ -518,10 +500,8 @@ async def _fetch_native_subtitles(info: Dict[str, Any]) -> Dict[str, Any]:
 def _select_direct_media_stream(info: Dict[str, Any]) -> Dict[str, Any]:
     if info.get("is_live"):
         raise TikTokIngestionError(
-            "unsupported_content",
+            MediaFailureCode.LIVE_CONTENT_UNSUPPORTED,
             details="live_content_not_supported",
-            retryable=False,
-            user_message=_UNSUPPORTED_MESSAGE,
         )
 
     candidates: list[Dict[str, Any]] = []
@@ -575,10 +555,8 @@ def _select_direct_media_stream(info: Dict[str, Any]) -> Dict[str, Any]:
 
     if best_candidate is None:
         raise TikTokIngestionError(
-            "no_direct_media_url",
+            MediaFailureCode.NO_TRANSCRIBABLE_MEDIA,
             details="no_transcribable_media_url",
-            retryable=False,
-            user_message=_UNSUPPORTED_MESSAGE,
         )
 
     return best_candidate
@@ -589,10 +567,8 @@ def _resolve_direct_media_url(info: Dict[str, Any]) -> Dict[str, Any]:
     audio_url = str(selected.get("url") or "").strip()
     if not audio_url:
         raise TikTokIngestionError(
-            "no_direct_media_url",
+            MediaFailureCode.NO_TRANSCRIBABLE_MEDIA,
             details="missing_media_url",
-            retryable=False,
-            user_message=_UNSUPPORTED_MESSAGE,
         )
 
     duration_value = selected.get("duration") or info.get("duration") or 0
@@ -845,16 +821,17 @@ async def _mark_job_failed(
         "direct_media_url_present": False,
         "direct_media_url_status": None,
         "resolved_url": None,
-        "last_error_code": error.code,
-        "failure_details": error.details or error.code,
+        "last_error_code": error.code.value,
+        "failure_details": error.details,
         "failed_at": _now_iso_utc(),
     }
     if job.apify_state == "processing":
         job.apify_state = "processed"
         job.apify_completed_at = datetime.now(timezone.utc)
     job.mark_failed(
-        error_message=error.user_message,
+        error_code=error.code,
         error_step="tiktok_ingestion",
+        error_metadata=error.error_metadata(step="tiktok_ingestion"),
     )
     await database_async.update_processing_job(job)
 
@@ -865,18 +842,16 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
 
     if not job_id:
         raise TikTokIngestionError(
-            "extractor_failed",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_job_id",
-            retryable=False,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+            message_type=message_type,
         )
     job = await database_async.get_processing_job_by_id(job_id)
     if not job:
         raise TikTokIngestionError(
-            "extractor_failed",
-            details=f"processing_job_not_found:{job_id}",
-            retryable=False,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+            MediaFailureCode.INVALID_JOB_MESSAGE,
+            details="processing_job_not_found",
+            message_type=message_type,
         )
 
     if message_type == "apify_backstop":
@@ -903,10 +878,10 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
         callback_status = str(callback_envelope.get("apify_status") or "").upper()
         if callback_status != "SUCCEEDED":
             raise TikTokIngestionError(
-                "apify_actor_failed",
-                details=f"apify_terminal_{callback_status}",
-                retryable=False,
-                user_message=_UNSUPPORTED_MESSAGE,
+                MediaFailureCode.PROVIDER_UNAVAILABLE,
+                details="apify_run_not_succeeded",
+                provider="apify",
+                apify_status=callback_status or "unknown",
             )
         try:
             items = await apify_adapter.fetch_dataset_items(
@@ -915,18 +890,18 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             )
         except apify_adapter.ApifyAdapterError as exc:
             raise TikTokIngestionError(
-                "apify_actor_failed",
+                apify_failure_code(exc.code),
                 details=exc.code,
                 retryable=exc.retryable,
-                user_message=(_TEMPORARY_EXTRACTOR_MESSAGE if exc.retryable else _UNSUPPORTED_MESSAGE),
+                provider="apify",
+                provider_detail=exc.detail or None,
             ) from exc
         normalized_url = str(message_body.get("normalized_url") or "").strip()
         if not normalized_url:
             raise TikTokIngestionError(
-                "apify_actor_failed",
+                MediaFailureCode.INVALID_JOB_MESSAGE,
                 details="apify_context_missing_url",
-                retryable=False,
-                user_message=_UNSUPPORTED_MESSAGE,
+                provider="apify",
             )
         tiktok_id = _extract_tiktok_id(normalized_url)
         return await _complete_apify_fallback(
@@ -940,10 +915,9 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
     normalized_url = (message_body.get("normalized_url") or "").strip()
     if not normalized_url:
         raise TikTokIngestionError(
-            "extractor_failed",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_normalized_url",
-            retryable=False,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+            message_type=message_type,
         )
 
     job.mark_extracting()
@@ -1141,10 +1115,11 @@ async def _start_apify_fallback(
         )
     except apify_adapter.ApifyAdapterError as exc:
         raise TikTokIngestionError(
-            "apify_actor_failed",
+            apify_failure_code(exc.code),
             details=exc.code,
             retryable=exc.retryable,
-            user_message=(_TEMPORARY_EXTRACTOR_MESSAGE if exc.retryable else _UNSUPPORTED_MESSAGE),
+            provider="apify",
+            provider_detail=exc.detail or None,
         ) from exc
 
     return {
@@ -1169,10 +1144,10 @@ async def _complete_apify_fallback(
 
     if not transcript_text:
         raise TikTokIngestionError(
-            "apify_actor_failed",
+            MediaFailureCode.NO_TRANSCRIPT_AVAILABLE,
             details="apify_no_transcript",
-            retryable=False,
-            user_message=_UNSUPPORTED_MESSAGE,
+            provider="apify",
+            dataset_items=len(items),
         )
 
     transcript_s3_key = await _upload_native_transcript(job.id, transcript_text)
@@ -1316,11 +1291,10 @@ async def process_message(message: Dict[str, Any]) -> None:
             tiktok_id=tiktok_id,
             error=exc,
         )
-        reason = exc.code if not exc.details else f"{exc.code}:{exc.details}"
         await _publish_failure_event(
             job_id=body.get("job_id"),
             media_key=body.get("media_key"),
-            reason=reason,
+            reason=exc.reason,
         )
         log_event(
             logger,
@@ -1329,18 +1303,20 @@ async def process_message(message: Dict[str, Any]) -> None:
             "TikTok ingestion failed",
             job_id=body.get("job_id"),
             media_item_id=body.get("job_id"),
-            error_code=exc.code,
+            error_code=exc.code.value,
             detail=exc.details,
+            # The provider's own wording no longer travels in `details`; the
+            # chained cause keeps it readable here.
+            exc_info=exc,
         )
     except Exception as exc:
         if receive_count < TIKTOK_WORKER_MAX_RETRIES:
             raise
 
         final_error = TikTokIngestionError(
-            "extractor_failed",
-            details=f"unexpected:{type(exc).__name__}",
-            retryable=False,
-            user_message=_TEMPORARY_EXTRACTOR_MESSAGE,
+            MediaFailureCode.UNEXPECTED_ERROR,
+            details="unexpected_exception",
+            exception_type=type(exc).__name__,
         )
         tiktok_id = None
         normalized_url = (body.get("normalized_url") or "").strip()
@@ -1358,7 +1334,7 @@ async def process_message(message: Dict[str, Any]) -> None:
         await _publish_failure_event(
             job_id=body.get("job_id"),
             media_key=body.get("media_key"),
-            reason=f"{final_error.code}:{final_error.details}",
+            reason=final_error.reason,
         )
         log_event(
             logger,
@@ -1367,7 +1343,7 @@ async def process_message(message: Dict[str, Any]) -> None:
             "TikTok ingestion failed after retries",
             job_id=body.get("job_id"),
             media_item_id=body.get("job_id"),
-            error_code=final_error.code,
+            error_code=final_error.code.value,
             exc_info=exc,
         )
     finally:
