@@ -183,11 +183,10 @@ def dated_facts_instruction(*, review_item: Optional[str] = None) -> str:
 
     A weather page produced "Aujourd'hui : eau à 25,7 °C" inside a permanent set
     of notes, and flashcard n° 1 asked for "la température de la mer aujourd'hui"
-    — a card that then entered the FSRS review queue and will re-ask, months
-    later, about a single day of August 2026 (task-316 §2.7). The header dates
-    every source (``published`` / ``captured``), so the model has something to
-    anchor to; ``review_item`` adds the second half for the two types that feed
-    spaced repetition and self-testing.
+    — a card that re-asks, months later, about a single day of August 2026
+    (task-316 §2.7). The header dates every source (``published`` /
+    ``captured``), so the model has something to anchor to; ``review_item`` adds
+    the second half for the two types meant to be re-read and self-tested.
     """
     text = (
         "- Each source header carries the date its text was published or captured. "
