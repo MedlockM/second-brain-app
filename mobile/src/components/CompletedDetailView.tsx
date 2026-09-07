@@ -474,9 +474,11 @@ export function CompletedDetailView({
         );
       } catch (err) {
         if (!mountedRef.current) return;
-        // A refusal is typed and carries its reason (a transcript still being
-        // prepared, a quota reached). Showing it beats the silent retry loop
-        // that used to hide it behind a spinner.
+        // A refusal is typed and carries its reason (a quota reached, a
+        // translation the provider refused for good). Showing it beats the
+        // silent retry loop that used to hide it behind a spinner. An unfinished
+        // preparation is not among them any more: the backend accepts the
+        // request and holds the entry until the text lands (task-360).
         setGenerationRefusal(describeArtifactRefusal(err, { scope: "media" }));
       } finally {
         // Both paths: the merged entry carries a real status from here, and a
@@ -834,7 +836,6 @@ export function CompletedDetailView({
           // No "N sources" line: a media item is a single source.
           <ArtifactsPanel
             tileStates={artifactStates}
-            sourceReady={mediaReady}
             onGenerate={(artifactType) => void handleGenerate(artifactType)}
             refusal={generationRefusal}
             refusalTestID="media-ai-refusal"

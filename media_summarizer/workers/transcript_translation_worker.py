@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from media_summarizer.core.services.transcript_translation import (
     TRANSCRIPT_BUCKET,
@@ -58,6 +58,104 @@ from media_summarizer.utils.translation_idempotence import (
 logger = logging.getLogger(__name__)
 
 TRANSCRIPT_TRANSLATION_QUEUE = required_env("TRANSCRIPT_TRANSLATION_QUEUE")
+
+
+async def _media_key_for_job(job_id: Optional[str]) -> Optional[str]:
+    """The globally deduplicated content key behind this translation, if known.
+
+    A translation is keyed on (transcript key, language) and knows nothing about
+    the library. The job is what bridges the two: it carries ``media_key`` for
+    everything that entered the global ledger, and for a direct upload — which does
+    not — the owner's library row carries it instead.
+    """
+    if not job_id:
+        return None
+    try:
+        job = await database_async.get_processing_job_by_id(job_id)
+    except Exception as exc:  # noqa: BLE001 - a dead job is not an error here
+        logger.warning("Could not load job %s to resolve its media key: %s", job_id, exc)
+        return None
+    if job is None:
+        return None
+    if job.media_key:
+        return job.media_key
+    if job.media_item_id and job.user_id:
+        from media_summarizer.utils import user_media as user_media_store
+
+        row = await user_media_store.get_user_media(job.user_id, job.media_item_id)
+        return row.media_key if row is not None else None
+    return None
+
+
+async def _resume_waiting_artifacts(job_id: Optional[str]) -> None:
+    """The second join point of task-360: a translation landed.
+
+    An artifact requested while its transcript was being translated is a ``queued``
+    entry nothing has enqueued. This is where it becomes a real generation. Swallows
+    everything: the translation itself succeeded, and that must be recorded whatever
+    happens to a generation waiting on it.
+    """
+    try:
+        media_key = await _media_key_for_job(job_id)
+        if not media_key:
+            return
+        from media_summarizer.core.services.artifact_wait_service import (
+            resume_artifacts_awaiting_media,
+        )
+
+        await resume_artifacts_awaiting_media(media_key)
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "artifact.resume_hook_failed",
+            "Failed to resume artifacts waiting for this translation (non-fatal)",
+            job_id=job_id,
+            error=str(exc),
+        )
+
+
+async def _fail_waiting_artifacts(
+    job_id: Optional[str],
+    *,
+    failure_kind: Optional[str],
+    detail: str,
+) -> None:
+    """End the waits a refused translation will never satisfy.
+
+    Only for a **permanent** refusal (no provider credit, rejected key, unknown
+    model): that text will never exist, so the entries expecting it fail now with
+    the reason. A transient failure is deliberately left alone — re-resolving it
+    here would reserve and re-enqueue the very translation that just failed, in a
+    loop the entry's own deadline is there to avoid.
+    """
+    if failure_kind != LLMFailureKind.PERMANENT:
+        return
+    try:
+        media_key = await _media_key_for_job(job_id)
+        if not media_key:
+            return
+        from media_summarizer.core.services.artifact_service import (
+            ERROR_CODE_PREPARATION_FAILED,
+        )
+        from media_summarizer.core.services.artifact_wait_service import (
+            fail_artifacts_awaiting_media,
+        )
+
+        await fail_artifacts_awaiting_media(
+            media_key,
+            error_code=ERROR_CODE_PREPARATION_FAILED,
+            error_message=f"The translation this needed was refused: {detail}",
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "artifact.fail_hook_failed",
+            "Failed to end the artifact waits of a refused translation (non-fatal)",
+            job_id=job_id,
+            error=str(exc),
+        )
 
 
 async def process_message(message: Dict[str, Any]) -> None:
@@ -173,6 +271,10 @@ async def process_message(message: Dict[str, Any]) -> None:
                 transcript_s3_key=transcript_s3_key,
                 target_language=target_language,
             )
+            # Done is done: an artifact waiting on this translation must not keep
+            # waiting for a text that turned out to be empty. Its own resolution
+            # decides what to do with an empty transcript.
+            await _resume_waiting_artifacts(job_id)
             return
 
         transcript_text = raw_bytes.decode("utf-8")
@@ -214,6 +316,11 @@ async def process_message(message: Dict[str, Any]) -> None:
                 target_language=target_language,
                 error_message=str(exc)[:300],
                 failure_kind=exc.failure_kind,
+            )
+            await _fail_waiting_artifacts(
+                job_id,
+                failure_kind=exc.failure_kind,
+                detail=str(exc)[:200],
             )
             # Do NOT re-raise: the message should not be retried by SQS since
             # the internal retry logic already exhausted attempts.
@@ -279,6 +386,11 @@ async def process_message(message: Dict[str, Any]) -> None:
                 transcript_s3_key=transcript_s3_key,
                 target_language=target_language,
             )
+            await _fail_waiting_artifacts(
+                job_id,
+                failure_kind=failure_kind,
+                detail=(outcome.translation_error or "translation_failed")[:200],
+            )
             return
 
         # --- State transition: in_progress -> done ---
@@ -322,6 +434,12 @@ async def process_message(message: Dict[str, Any]) -> None:
             translation_failed=outcome.translation_failed,
             duration_ms=duration_ms,
         )
+
+        # The text an artifact request was deferred over now exists (task-360).
+        # Last, so the lock is already `done` when the resume re-resolves the
+        # scope — otherwise it would read the translation as still in progress and
+        # keep the entry waiting.
+        await _resume_waiting_artifacts(job_id)
 
     finally:
         reset_log_context(token)

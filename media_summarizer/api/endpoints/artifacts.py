@@ -28,7 +28,6 @@ from media_summarizer.core.services.artifact_service import (
     ArtifactGenerationOutcome,
     ArtifactScopeEmptyError,
     ArtifactScopeTooLargeError,
-    ArtifactTranscriptNotReadyError,
     ArtifactTranslationFailedError,
     ArtifactTypeNotEnabledError,
     commit_artifact_generation,
@@ -291,7 +290,11 @@ async def create_artifact(
             quota_result = await quota_enforcer.check_generation_allowed(
                 current_user.id,
                 scope=scope.value,
-                source_count=len(resolution.sources),
+                # Sources still being prepared count: they are what the generation
+                # will read, and the debit below is keyed on the same number
+                # (``record.source_count``). Checking a smaller figure than the one
+                # charged would let a deferred request past a ceiling it exceeds.
+                source_count=len(resolution.expected_source_ids),
             )
             if not quota_result.allowed:
                 log_event(
@@ -398,25 +401,13 @@ async def create_artifact(
                 "max_tokens": exc.max_tokens,
             },
         )
-    except ArtifactTranscriptNotReadyError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error_code": "sources_not_ready",
-                "message": str(exc),
-                "pending_count": exc.pending_count,
-                "pending_titles": exc.pending_titles,
-                # Explicit, next to the retryable refusal it is the counterpart
-                # of: a client that reads this flag needs no error-code table to
-                # know whether polling can end in anything but the same answer.
-                "terminal": False,
-            },
-        )
     except ArtifactTranslationFailedError as exc:
-        # Also a 409 — the request is refused by the state of the sources, not by
-        # its own shape — but with its own code and ``terminal: true``: retrying
-        # this one changes nothing until the provider works again, and the client
-        # must show a failure rather than a wait (task-327 AC#6).
+        # A 409 — the request is refused by the state of the sources, not by its own
+        # shape — with ``terminal: true``: retrying changes nothing until the
+        # provider works again, and the client must show a failure rather than a
+        # wait (task-327 AC#6). The retryable refusal it used to be paired with is
+        # gone: a source still being prepared is now waited on, not refused
+        # (task-360).
         log_event(
             logger,
             logging.WARNING,

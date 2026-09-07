@@ -161,9 +161,6 @@ export const nl: Catalog = {
   "artifacts.refusal.mediaEmpty": "Dit item heeft nog geen transcript, dus er is niets om uit te genereren.",
   "artifacts.refusal.tooManySources": "Deze collectie heeft {count} bronnen, meer dan de {max} die één generatie kan lezen. Genereer op een kleinere subcollectie.",
   "artifacts.refusal.tooMuchText": "Er staat hier te veel tekst voor één generatie. Genereer op een kleinere subcollectie.",
-  "artifacts.refusal.sourcesPending.one": "{count} bron wordt nog voorbereid. Probeer het zo meteen opnieuw.",
-  "artifacts.refusal.sourcesPending.other": "{count} bronnen worden nog voorbereid. Probeer het zo meteen opnieuw.",
-  "artifacts.refusal.transcriptPending": "Het transcript wordt nog voorbereid. Probeer het zo meteen opnieuw.",
   "artifacts.refusal.translationFailed":
     "Dit transcript kon niet worden vertaald, en dat wordt niet automatisch opnieuw geprobeerd. Probeer het later opnieuw.",
   "artifacts.refusal.sourcesTranslationFailed.one":

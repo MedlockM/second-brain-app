@@ -161,9 +161,6 @@ export const ja: Catalog = {
   "artifacts.refusal.mediaEmpty": "この項目にはまだ文字起こしがないため、生成する元がありません。",
   "artifacts.refusal.tooManySources": "このコレクションには {count} 件のソースがあり、1 回の生成で読める {max} 件を超えています。より小さなサブコレクションで生成してください。",
   "artifacts.refusal.tooMuchText": "1 回の生成にはテキストが多すぎます。より小さなサブコレクションで生成してください。",
-  "artifacts.refusal.sourcesPending.one": "{count} 件のソースをまだ準備中です。しばらくしてからもう一度お試しください。",
-  "artifacts.refusal.sourcesPending.other": "{count} 件のソースをまだ準備中です。しばらくしてからもう一度お試しください。",
-  "artifacts.refusal.transcriptPending": "文字起こしをまだ準備中です。しばらくしてからもう一度お試しください。",
   "artifacts.refusal.translationFailed":
     "この文字起こしは翻訳できませんでした。自動で再試行されることはありません。あとでもう一度お試しください。",
   "artifacts.refusal.sourcesTranslationFailed.one":

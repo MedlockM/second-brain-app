@@ -161,9 +161,6 @@ export const ar: Catalog = {
   "artifacts.refusal.mediaEmpty": "لا يوجد نص مكتوب لهذا العنصر بعد، لذا لا شيء يمكن الإنشاء منه.",
   "artifacts.refusal.tooManySources": "تحتوي هذه المجموعة على {count} مصدرًا، أي أكثر من {max} التي يمكن لعملية إنشاء واحدة قراءتها. أنشئ على مجموعة فرعية أصغر.",
   "artifacts.refusal.tooMuchText": "النص هنا أكثر من أن تستوعبه عملية إنشاء واحدة. أنشئ على مجموعة فرعية أصغر.",
-  "artifacts.refusal.sourcesPending.one": "لا يزال مصدر واحد قيد التحضير. حاول مرة أخرى بعد قليل.",
-  "artifacts.refusal.sourcesPending.other": "لا يزال {count} مصدر قيد التحضير. حاول مرة أخرى بعد قليل.",
-  "artifacts.refusal.transcriptPending": "لا يزال النص المكتوب قيد التحضير. حاول مرة أخرى بعد قليل.",
   "artifacts.refusal.translationFailed":
     "لم تتم ترجمة هذا النص، ولن تُعاد المحاولة تلقائيًا. حاول مرة أخرى لاحقًا.",
   "artifacts.refusal.sourcesTranslationFailed.one":
@@ -635,10 +632,6 @@ export const ar: Catalog = {
   "time.daysAgo.two": "قبل يومين",
   "time.daysAgo.few": "قبل {count} أيام",
   "time.daysAgo.many": "قبل {count} يومًا",
-  "artifacts.refusal.sourcesPending.zero": "لا مصادر قيد التحضير.",
-  "artifacts.refusal.sourcesPending.two": "لا يزال مصدران قيد التحضير. حاول مرة أخرى بعد قليل.",
-  "artifacts.refusal.sourcesPending.few": "لا تزال {count} مصادر قيد التحضير. حاول مرة أخرى بعد قليل.",
-  "artifacts.refusal.sourcesPending.many": "لا يزال {count} مصدرًا قيد التحضير. حاول مرة أخرى بعد قليل.",
   "transcript.paragraphCount.zero": "لا فقرات",
   "transcript.paragraphCount.two": "فقرتان",
   "transcript.paragraphCount.few": "{count} فقرات",

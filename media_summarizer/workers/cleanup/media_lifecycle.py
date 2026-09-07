@@ -446,6 +446,43 @@ async def _count_dangling_pointers(
     return len(sample), dangling
 
 
+async def _end_overdue_artifact_waits(artifact_ids: List[str]) -> int:
+    """Fail the deferred generations whose deadline passed unnoticed (task-360).
+
+    Additive to the reconciliation like the purges below it: whatever this costs,
+    the gauges are what the run exists to publish, so a failure here is logged and
+    the run continues. The write is conditional on the entry still being a waiting
+    one, so a generation that started in the meantime is never touched.
+    """
+    if not artifact_ids:
+        return 0
+
+    from media_summarizer.core.services.artifact_service import (
+        ERROR_CODE_PREPARATION_TIMEOUT,
+    )
+    from media_summarizer.utils import media_artifacts
+
+    expired = 0
+    for artifact_id in artifact_ids:
+        if not artifact_id:
+            continue
+        try:
+            if await media_artifacts.fail_awaiting_artifact(
+                artifact_id=artifact_id,
+                error_code=ERROR_CODE_PREPARATION_TIMEOUT,
+                error_message=(
+                    "The sources of this generation were still being prepared when "
+                    "the request expired."
+                ),
+            ):
+                expired += 1
+        except Exception as exc:  # noqa: BLE001 - never take the run down
+            logger.warning(
+                "Could not expire the artifact wait %s: %s", artifact_id, exc
+            )
+    return expired
+
+
 async def run_reconciliation() -> Dict[str, Any]:
     """Compare the library against what it owns and publish the gauges of §6.5."""
     now = datetime.now(timezone.utc)
@@ -486,15 +523,29 @@ async def run_reconciliation() -> Dict[str, Any]:
 
     artifacts = await _scan_table(
         required_env("MEDIA_ARTIFACTS_TABLE"),
-        "artifact_id, #sc, scope_key, created_at",
-        expression_attribute_names={"#sc": "scope"},
+        "artifact_id, #sc, scope_key, created_at, #st, awaiting_expires_at",
+        # Both go through name placeholders: `scope` and `status` are DynamoDB
+        # reserved words.
+        expression_attribute_names={"#sc": "scope", "#st": "status"},
     )
 
     artifact_rows = 0
     orphaned = 0
     orphaned_recent = 0
+    overdue_waits: List[str] = []
     for row in artifacts:
         artifact_rows += 1
+        # The backstop of task-360's bounded wait. The listing ends an overdue wait
+        # as soon as anyone looks at the scope, which covers every case a user is
+        # waiting on; this covers the entry nobody ever looks at again, so no
+        # `queued` row can sit in the table for good.
+        awaiting_expires_at = _parse_iso(row.get("awaiting_expires_at"))
+        if (
+            str(row.get("status") or "") == "queued"
+            and awaiting_expires_at is not None
+            and awaiting_expires_at <= now
+        ):
+            overdue_waits.append(str(row.get("artifact_id") or ""))
         # Only media-scoped entries can be orphaned by a library row leaving;
         # a collection artifact hangs off a folder, which this gauge does not
         # inventory (task-270).
@@ -509,6 +560,7 @@ async def run_reconciliation() -> Dict[str, Any]:
             orphaned_recent += 1
 
     pointers_checked, pointers_dangling = await _count_dangling_pointers(pointers)
+    waits_expired = await _end_overdue_artifact_waits(overdue_waits)
 
     # Both purges are *additive* to the reconciliation, not part of it: whatever
     # they cost, the gauges above are the outcome metric this run exists to
@@ -559,6 +611,8 @@ async def run_reconciliation() -> Dict[str, Any]:
         "artifact_rows": artifact_rows,
         "artifact_rows_orphaned": orphaned,
         "artifact_rows_orphaned_recent": orphaned_recent,
+        "artifact_waits_overdue": len(overdue_waits),
+        "artifact_waits_expired": waits_expired,
         "pointers_checked": pointers_checked,
         "pointers_dangling": pointers_dangling,
         "engagement_stamps_purged_media": stamps_purged_media,

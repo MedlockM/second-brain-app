@@ -238,12 +238,6 @@ export const en = {
     "This collection has {count} sources, over the {max} a single generation can read. Generate on a smaller sub-collection instead.",
   "artifacts.refusal.tooMuchText":
     "There is too much text here for one generation. Generate on a smaller sub-collection instead.",
-  "artifacts.refusal.sourcesPending.one":
-    "{count} source is still being prepared. Try again in a moment.",
-  "artifacts.refusal.sourcesPending.other":
-    "{count} sources are still being prepared. Try again in a moment.",
-  "artifacts.refusal.transcriptPending":
-    "The transcript is still being prepared. Try again in a moment.",
   // A translation the provider refused for good, as opposed to one still
   // running: nothing is coming, so the copy must not invite a retry in a moment.
   "artifacts.refusal.translationFailed":

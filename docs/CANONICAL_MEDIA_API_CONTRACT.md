@@ -229,13 +229,34 @@ was already generated, possibly days ago", the second says "this was the same
 tap". Both leave every quota counter untouched, and both are logged under their
 own event (`artifact.reused`, `artifact.collapsed`).
 
+**A source still being prepared is not a refusal** (task-360). A request whose
+transcription or translation has not finished is *accepted*: the entry is written
+`queued` exactly like any other, `created` is returned with the same `202`, the
+quota is debited once there and then, and nothing is put on the generation queue
+yet. The end of the ingestion (`media_completed_worker`) and the end of the
+translation (`transcript_translation_worker`) are the two join points that enqueue
+it, with no second call from the client. So the entry appears in
+`GET /api/artifacts?scope=…` as `queued` from the moment of the tap, survives
+leaving the screen, and turns into `generating` then `ready` by itself. The
+deferred request and the generation that follows it are **one entry and one
+debit**: the `artifact_id` hashes the sources still in preparation in alongside the
+readable ones, so the id does not move when they land.
+
+A wait is bounded. `awaiting_expires_at` is stamped on the entry
+(`ARTIFACT_AWAITING_TIMEOUT_SECONDS`, one hour by default) and an expired wait
+becomes `failed` with `sources_preparation_timeout` — no entry stays `queued`
+forever. A preparation that will not complete ends the wait early with
+`sources_preparation_failed`: a failed ingestion, or a translation the provider
+refused permanently. `sources_changed` is the residual case where the scope's
+sources moved while the entry waited, so the generation would no longer be the one
+that was asked for.
+
 Typed refusals:
 
 | Situation | Status | `error_code` | Retryable |
 |---|---|---|---|
-| No source with a usable transcript | `422` | `scope_empty` | no |
+| No source at all in the scope, or every source definitively unusable | `422` | `scope_empty` | no |
 | More than 25 sources, or more than 120 000 estimated tokens | `422` | `scope_too_large` | no |
-| A source is still being transcribed or translated | `409` | `sources_not_ready` | **yes, as-is** |
 | Every source lost its translation permanently | `409` | `translation_failed` | no, not until the provider works again |
 | Out of minutes (collection scope only) | `403` | `out_of_minutes` | next period, or on upgrade |
 | Artifact type disabled | `400` | — | no |
@@ -243,14 +264,11 @@ Typed refusals:
 
 `scope_too_large` carries the four numbers the client displays, so it computes
 nothing: `source_count`, `max_sources`, `estimated_tokens`, `max_tokens`.
-`sources_not_ready` carries `pending_count` and `pending_titles`; the call that
-returned it has already kicked off the missing translations, so retrying it
-unchanged is the remedy.
 
-The two `409`s are the same status and the opposite instruction, so both carry a
-`terminal` boolean — `false` on `sources_not_ready`, `true` on
-`translation_failed` — and a client decides whether to keep polling from that flag
-alone. `translation_failed` carries `failed_count` and `failed_titles`, and means
+`translation_failed` is the only `409` left, and it keeps its `terminal: true`:
+retrying changes nothing until the provider answers again, which is the opposite
+instruction from a wait and has to be readable without parsing the sentence. It
+carries `failed_count` and `failed_titles`, and means
 the LLM provider refused the translation for a reason a retry cannot change (no
 credit left, a rejected key, an unknown model): the sources were excluded from the
 corpus with `excluded_reason: "translation_failed"`, and here there was nothing

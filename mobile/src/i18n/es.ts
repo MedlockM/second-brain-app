@@ -192,12 +192,6 @@ export const es: Catalog = {
     "Esta colección tiene {count} fuentes, por encima de las {max} que puede leer una sola generación. Genera sobre una subcolección más pequeña.",
   "artifacts.refusal.tooMuchText":
     "Hay demasiado texto aquí para una sola generación. Genera sobre una subcolección más pequeña.",
-  "artifacts.refusal.sourcesPending.one":
-    "{count} fuente aún se está preparando. Inténtalo de nuevo en un momento.",
-  "artifacts.refusal.sourcesPending.other":
-    "{count} fuentes aún se están preparando. Inténtalo de nuevo en un momento.",
-  "artifacts.refusal.transcriptPending":
-    "La transcripción aún se está preparando. Inténtalo de nuevo en un momento.",
   "artifacts.refusal.translationFailed":
     "No se ha podido traducir esta transcripción, y no se reintentará automáticamente. Inténtalo más tarde.",
   "artifacts.refusal.sourcesTranslationFailed.one":

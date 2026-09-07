@@ -46,17 +46,11 @@ export function describeArtifactRefusal(
       }
       return t("artifacts.refusal.tooMuchText");
     }
-    case "sources_not_ready": {
-      const pending = Number(details.pending_count ?? 0);
-      if (isCollection && pending > 0) {
-        return tCount("artifacts.refusal.sourcesPending", pending);
-      }
-      return t("artifacts.refusal.transcriptPending");
-    }
-    // The other 409, and the opposite instruction: the translation this needed
-    // was refused by the provider for a reason a retry cannot change, so the
-    // sentence says so instead of sending the reader back in a moment. The
-    // response carries `terminal: true` for the same reason.
+    // The only 409 left. A source still being transcribed or translated is no
+    // longer refused at all — the request is accepted and the tile spins until the
+    // backend starts it (task-360) — but a translation the provider refused for
+    // good is not a wait, so the sentence says so instead of sending the reader
+    // back in a moment. The response carries `terminal: true` for the same reason.
     case "translation_failed": {
       const failed = Number(details.failed_count ?? 0);
       if (isCollection && failed > 0) {

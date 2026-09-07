@@ -161,9 +161,6 @@ export const pt: Catalog = {
   "artifacts.refusal.mediaEmpty": "Este item ainda não tem transcrição, por isso não há nada a partir do qual gerar.",
   "artifacts.refusal.tooManySources": "Esta coleção tem {count} fontes, acima das {max} que uma única geração consegue ler. Gere numa subcoleção mais pequena.",
   "artifacts.refusal.tooMuchText": "Há demasiado texto aqui para uma única geração. Gere numa subcoleção mais pequena.",
-  "artifacts.refusal.sourcesPending.one": "{count} fonte ainda está a ser preparada. Tente novamente dentro de momentos.",
-  "artifacts.refusal.sourcesPending.other": "{count} fontes ainda estão a ser preparadas. Tente novamente dentro de momentos.",
-  "artifacts.refusal.transcriptPending": "A transcrição ainda está a ser preparada. Tente novamente dentro de momentos.",
   "artifacts.refusal.translationFailed":
     "Não foi possível traduzir esta transcrição, e isso não será repetido automaticamente. Tente novamente mais tarde.",
   "artifacts.refusal.sourcesTranslationFailed.one":
