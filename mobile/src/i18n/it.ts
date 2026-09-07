@@ -161,9 +161,6 @@ export const it: Catalog = {
   "artifacts.refusal.mediaEmpty": "Questo elemento non ha ancora una trascrizione, quindi non c'è nulla da cui generare.",
   "artifacts.refusal.tooManySources": "Questa raccolta ha {count} fonti, oltre le {max} che una singola generazione può leggere. Genera su una sotto-raccolta più piccola.",
   "artifacts.refusal.tooMuchText": "C'è troppo testo qui per una sola generazione. Genera su una sotto-raccolta più piccola.",
-  "artifacts.refusal.sourcesPending.one": "{count} fonte è ancora in preparazione. Riprova tra poco.",
-  "artifacts.refusal.sourcesPending.other": "{count} fonti sono ancora in preparazione. Riprova tra poco.",
-  "artifacts.refusal.transcriptPending": "La trascrizione è ancora in preparazione. Riprova tra poco.",
   "artifacts.refusal.translationFailed":
     "Non è stato possibile tradurre questa trascrizione e il tentativo non verrà ripetuto automaticamente. Riprova più tardi.",
   "artifacts.refusal.sourcesTranslationFailed.one":

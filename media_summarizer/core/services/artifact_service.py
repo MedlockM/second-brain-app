@@ -31,6 +31,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from enum import Enum
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Tuple
@@ -48,12 +49,15 @@ from media_summarizer.core.models.media_artifact import (
     MediaArtifactStatus,
     MediaArtifactType,
     build_scope_key,
+    content_scope_id_from_scope_key,
 )
-from media_summarizer.core.models.user_media import ReviewBlurb
+from media_summarizer.core.models.processing_job import JobStatus
+from media_summarizer.core.models.user_media import ReviewBlurb, UserMediaStatus
 from media_summarizer.core.services.transcript_translation import (
     TranslationInProgressError,
     TranslationPermanentlyFailedError,
     job_source_language_hint,
+    normalize_language_tag,
     persist_detected_language,
     resolve_or_enqueue_translated_transcript,
 )
@@ -99,6 +103,16 @@ BYTES_PER_TOKEN = 3.4
 # mid-generation leaves an entry another invocation can reclaim.
 GENERATION_LEASE_SECONDS = 300
 
+# How long a request may sit waiting for its sources to become readable before it
+# becomes a `failed` entry (task-360). One hour is far above the whole pipeline
+# under load — a long podcast's transcription plus the translation of its
+# transcript — so reaching it means the preparation is stuck, not slow. Bounding
+# it is the point: an unbounded wait is a spinner nobody ends, which is what the
+# refusal it replaces at least avoided.
+AWAITING_SOURCES_TIMEOUT_SECONDS = int(
+    os.environ.get("ARTIFACT_AWAITING_TIMEOUT_SECONDS", "3600")
+)
+
 REQUESTABLE_ARTIFACT_TYPES = {
     MediaArtifactType.SUMMARY_SHORT,
     MediaArtifactType.SUMMARY_DETAILED,
@@ -127,11 +141,47 @@ GENERATABLE_ARTIFACT_TYPES = REQUESTABLE_ARTIFACT_TYPES | INTERNAL_ARTIFACT_TYPE
 # Why a source is in the snapshot without having been read. Both are recorded
 # rather than dropped: the snapshot is what makes an artifact interpretable, and
 # "13 of 15 sources" needs the two missing ones to say what happened to them.
-#: No transcript at all: nothing was ever produced for this media item.
+#: No transcript, and none is coming: the ingestion failed, was cancelled, or
+#: finished without producing readable text. Deliberately not the same fact as a
+#: transcription still running — that one is a wait, and conflating the two is
+#: what used to answer "nothing to generate" while the pipeline was working
+#: (task-360).
 EXCLUDED_REASON_TRANSCRIPT_UNAVAILABLE = "transcript_unavailable"
 #: A transcript exists, but the translation into the reading language was refused
 #: by the provider for good, so the text the corpus wanted will never exist.
 EXCLUDED_REASON_TRANSLATION_FAILED = "translation_failed"
+
+# The two preparations a request can be waiting on, recorded on the snapshot line
+# of the source it is waiting for. Which one it is decides nothing in the code —
+# both resume through the same path — but it is what makes a waiting entry
+# readable in the table and in a log.
+PREPARATION_TRANSCRIPTION = "transcription"
+PREPARATION_TRANSLATION = "translation"
+
+# Pipeline stages that mean "the text is coming". Compared by value, never by
+# membership of the enum: ``JobStatus`` mixes in ``str`` but keeps ``Enum``'s
+# identity hash, so ``JobStatus.PENDING in {"pending"}`` is False.
+_JOB_STATUSES_IN_PREPARATION = frozenset(
+    {
+        JobStatus.PENDING.value,
+        JobStatus.EXTRACTING.value,
+        JobStatus.TRANSCRIBING.value,
+        JobStatus.SUMMARIZING.value,
+    }
+)
+#: Same question asked of the library row, for the window where no job answers for
+#: the content yet (the ledger is written before the job, and a job is allowed to
+#: expire while the library row stays).
+_LIBRARY_STATUSES_IN_PREPARATION = frozenset(
+    {UserMediaStatus.PENDING.value, UserMediaStatus.PROCESSING.value}
+)
+
+#: ``error_code`` of an entry whose wait was ended rather than served. All three
+#: are terminal and actionable: the tile shows the failed state task-328 defined,
+#: and asking again starts a fresh generation over whatever is readable by then.
+ERROR_CODE_PREPARATION_TIMEOUT = "sources_preparation_timeout"
+ERROR_CODE_PREPARATION_FAILED = "sources_preparation_failed"
+ERROR_CODE_SOURCES_CHANGED = "sources_changed"
 
 
 class ArtifactServiceError(Exception):
@@ -149,9 +199,12 @@ class ArtifactTypeNotEnabledError(ArtifactServiceError):
 class ArtifactTranscriptNotReadyError(ArtifactServiceError):
     """At least one source is still being transcribed or translated.
 
-    Retryable as-is: the call that raised it already kicked off the missing
-    translations, and nothing was written, so the history stays free of
-    stillborn entries.
+    **Never reaches a user request** since task-360: a requested generation is
+    deferred into a waiting entry instead of refused. What is left is the internal
+    path — ``review_blurb_service`` and ``digest_service`` generate from a backend
+    trigger, have no tile to spin and no one to notify, so for them "not ready" is
+    "give up for this run" and they catch this. Nothing was written when it is
+    raised, so the history stays free of stillborn entries.
     """
 
     def __init__(
@@ -231,11 +284,22 @@ def _artifact_scope(value: Any) -> ArtifactScope:
 
 
 def normalize_artifact_parameters(value: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The canonical form of a request's parameters, on the way in *and* back out.
+
+    Idempotent, and total over what DynamoDB hands back: a number stored here
+    returns as a ``Decimal``, which ``_stable_json`` cannot serialise. Converting it
+    is what lets a deferred request recompute its own id from the stored entry and
+    land on the same hash (task-360).
+    """
+
     def _normalize(node: Any) -> Any:
         if isinstance(node, dict):
             return {str(key): _normalize(node[key]) for key in sorted(node)}
         if isinstance(node, list):
             return [_normalize(item) for item in node]
+        if isinstance(node, Decimal):
+            as_int = int(node)
+            return as_int if node == as_int else float(node)
         return node
 
     return _normalize(value or {})
@@ -430,27 +494,88 @@ class ResolvedSource:
         )
 
 
+class PendingSource:
+    """One source whose text is coming but is not there yet.
+
+    Carries the same two ids as a resolved source, because both are needed and for
+    different things: ``content_id`` (the deduplicated ``media_key``) enters the
+    ``artifact_id`` hash, so a waiting entry keys on the sources it *expects*;
+    ``media_item_id`` is the library row a completion event resolves to, so a
+    waiting entry can be matched against the media that just became readable.
+    """
+
+    def __init__(
+        self,
+        *,
+        media_item_id: str,
+        content_id: str,
+        title: Optional[str],
+        preparation: str,
+    ) -> None:
+        self.media_item_id = media_item_id
+        self.content_id = content_id
+        self.title = title
+        self.preparation = preparation
+
+    def snapshot(self) -> ArtifactSource:
+        return ArtifactSource(
+            media_item_id=self.media_item_id,
+            title=self.title,
+            preparation=self.preparation,
+        )
+
+
 class ScopeResolution:
-    """What a scope resolved to: usable sources, exclusions, and the volume."""
+    """What a scope resolved to: usable sources, exclusions, and the volume.
+
+    ``pending`` is the third outcome and the whole of task-360: a source being
+    transcribed or translated is neither readable nor lost, so the request is
+    honoured over a source set that includes it and starts once it lands. It used
+    to abort the request with a refusal the user had to come back and retry.
+    """
 
     def __init__(
         self,
         *,
         sources: List[ResolvedSource],
         excluded: List[ArtifactSource],
+        pending: List[PendingSource],
         target_language: Optional[str],
     ) -> None:
         self.sources = sources
         self.excluded = excluded
+        self.pending = pending
         self.target_language = target_language
 
     @property
     def estimated_tokens(self) -> int:
         return estimate_tokens(sum(source.byte_length for source in self.sources))
 
+    @property
+    def is_awaiting(self) -> bool:
+        """True when at least one source's text is still being prepared."""
+        return bool(self.pending)
+
+    @property
+    def expected_source_ids(self) -> List[str]:
+        """The content ids the finished artifact will cover: read *and* awaited.
+
+        This is what ``artifact_id`` is keyed on, which is what makes a deferred
+        request and the generation that follows one single entry: the id computed
+        while a source is still being transcribed is the id the completed
+        resolution computes once it is readable.
+        """
+        return [source.content_id for source in self.sources] + [
+            source.content_id for source in self.pending
+        ]
+
     def snapshot(self) -> List[ArtifactSource]:
-        """The immutable snapshot: what was read, then what was skipped."""
-        return [source.snapshot() for source in self.sources] + self.excluded
+        """The immutable snapshot: what was read, what is awaited, what was skipped."""
+        return (
+            [source.snapshot() for source in self.sources]
+            + [source.snapshot() for source in self.pending]
+            + self.excluded
+        )
 
 
 async def _load_transcript_bytes(job: ProcessingJob) -> Tuple[str, bytes]:
@@ -541,6 +666,26 @@ async def resolve_source(
     )
 
 
+def _is_still_being_ingested(record: Any, job: Optional[ProcessingJob]) -> bool:
+    """Whether this media's text is on its way, as opposed to never coming.
+
+    The distinction ``EXCLUDED_REASON_TRANSCRIPT_UNAVAILABLE`` used to swallow.
+    The job is the precise answer when there is one; the library row's own coarse
+    status covers the window where no job answers for the content — the durable
+    row is written before the job, and a job is allowed to expire under a row that
+    stays.
+    """
+    if job is not None:
+        job_status = getattr(job, "status", None)
+        return str(getattr(job_status, "value", job_status) or "") in (
+            _JOB_STATUSES_IN_PREPARATION
+        )
+    library_status = getattr(record, "processing_status", None)
+    return str(getattr(library_status, "value", library_status) or "") in (
+        _LIBRARY_STATUSES_IN_PREPARATION
+    )
+
+
 async def resolve_scope_sources(
     *,
     user_id: str,
@@ -555,14 +700,25 @@ async def resolve_scope_sources(
     looking at: generating over a strict subset of what that tab shows would
     produce a ``source_count`` that contradicts the screen.
 
-    A source still being transcribed or translated aborts the whole request with
-    :class:`ArtifactTranscriptNotReadyError`; one whose text will never arrive is
-    excluded and recorded, so a single broken media cannot lock a collection out
-    forever. "Never" covers two cases, and until task-327 it only covered the
-    first: no transcript at all, and a transcript whose translation the LLM
-    provider refused permanently. The second used to be re-reserved on every call
-    and reported as pending, which is how one media item spent an afternoon
-    answering "Retry in a moment" with nothing in flight.
+    Each source lands in exactly one of three places, and the three are never
+    conflated (task-360):
+
+    - **read** — its effective transcript exists and was measured;
+    - **pending** — its text is coming: the ingestion is still running, or the
+      translation into the reading language is queued (this call is what reserved
+      and dispatched it). The request is honoured over it and waits;
+    - **excluded** — its text will never come: the ingestion failed or produced
+      nothing readable, or the provider refused the translation for good
+      (task-327). Recorded in the snapshot rather than dropped, so one broken
+      media cannot lock a collection out and the artifact stays honest about what
+      it could not read.
+
+    ``target_language`` is derived from the *reading language*, not from a source
+    that happened to resolve. It is the same value either way — every translation
+    outcome reports the normalized target it was asked for — and deriving it here
+    is what makes it knowable before any source is readable, hence what makes a
+    waiting entry's ``artifact_id`` equal to the one the finished resolution
+    computes.
     """
     from media_summarizer.core.services.durable_media_service import resolve_job_for_record
 
@@ -572,22 +728,36 @@ async def resolve_scope_sources(
 
     resolved: List[ResolvedSource] = []
     excluded: List[ArtifactSource] = []
-    pending_titles: List[str] = []
+    pending: List[PendingSource] = []
 
-    async def resolve_one(record: Any) -> Tuple[Any, Any]:
+    async def resolve_one(record: Any) -> Any:
         media_item_id = getattr(record, "media_item_id", None) or getattr(record, "id", "")
         content_id = getattr(record, "media_key", None) or media_item_id
         title = getattr(record, "title", None)
-        job = await resolve_job_for_record(record)
-        if job is None:
-            return record, ArtifactSource(
+
+        def _pending(preparation: str) -> PendingSource:
+            return PendingSource(
+                media_item_id=media_item_id,
+                content_id=content_id,
+                title=title,
+                preparation=preparation,
+            )
+
+        def _excluded(reason: str) -> ArtifactSource:
+            return ArtifactSource(
                 media_item_id=media_item_id,
                 title=title,
                 excluded=True,
-                excluded_reason=EXCLUDED_REASON_TRANSCRIPT_UNAVAILABLE,
+                excluded_reason=reason,
             )
+
+        job = await resolve_job_for_record(record)
+        if job is None:
+            if _is_still_being_ingested(record, job):
+                return _pending(PREPARATION_TRANSCRIPTION)
+            return _excluded(EXCLUDED_REASON_TRANSCRIPT_UNAVAILABLE)
         try:
-            return record, await resolve_source(
+            return await resolve_source(
                 job=job,
                 media_item_id=media_item_id,
                 content_id=content_id,
@@ -596,54 +766,33 @@ async def resolve_scope_sources(
                 captured=_iso_date(getattr(record, "saved_at", None)),
             )
         except TranslationInProgressError:
-            return record, "pending"
+            return _pending(PREPARATION_TRANSLATION)
         except TranslationPermanentlyFailedError:
-            return record, ArtifactSource(
-                media_item_id=media_item_id,
-                title=title,
-                excluded=True,
-                excluded_reason=EXCLUDED_REASON_TRANSLATION_FAILED,
-            )
+            return _excluded(EXCLUDED_REASON_TRANSLATION_FAILED)
         except ArtifactTranscriptNotReadyError:
-            return record, ArtifactSource(
-                media_item_id=media_item_id,
-                title=title,
-                excluded=True,
-                excluded_reason=EXCLUDED_REASON_TRANSCRIPT_UNAVAILABLE,
-            )
+            # No transcript behind the job yet. Whether that is a wait or a dead
+            # end is the job's own status, never the absence of the file.
+            if _is_still_being_ingested(record, job):
+                return _pending(PREPARATION_TRANSCRIPTION)
+            return _excluded(EXCLUDED_REASON_TRANSCRIPT_UNAVAILABLE)
 
     # In parallel: the API Lambda has a 30 s budget and 25 sources are ~400 kB of
     # S3 reads. Language detection is local, so nothing here calls an LLM.
     outcomes = await asyncio.gather(*(resolve_one(record) for record in records))
 
-    for record, outcome in outcomes:
-        if outcome == "pending":
-            pending_titles.append(getattr(record, "title", None) or "")
-            continue
-        if isinstance(outcome, ArtifactSource):
+    for outcome in outcomes:
+        if isinstance(outcome, PendingSource):
+            pending.append(outcome)
+        elif isinstance(outcome, ArtifactSource):
             excluded.append(outcome)
-            continue
-        resolved.append(outcome)
-
-    if pending_titles:
-        raise ArtifactTranscriptNotReadyError(
-            "Some sources are still being prepared (transcription or translation "
-            "in progress). Retry in a moment.",
-            pending_titles=[title for title in pending_titles if title],
-            pending_count=len(pending_titles),
-        )
-
-    target_language: Optional[str] = None
-    for source in resolved:
-        candidate = source.translation_metadata.get("target_language")
-        if candidate:
-            target_language = candidate
-            break
+        else:
+            resolved.append(outcome)
 
     return ScopeResolution(
         sources=resolved,
         excluded=excluded,
-        target_language=target_language,
+        pending=pending,
+        target_language=normalize_language_tag(reading_language),
     )
 
 
@@ -705,6 +854,10 @@ async def list_scope_artifacts(
     than ``limit`` while still handing out a cursor. The mobile already treats
     ``limit`` as a ceiling and paginates on the cursor, and at one internal entry
     per media the difference is at most one row per page.
+
+    It is also where a wait that ran out is ended (task-360). Doing it on read is
+    what makes the deadline felt at the only moment it matters — someone is looking
+    at the tile — instead of at the next nightly pass.
     """
     records, next_cursor = await media_artifacts.list_artifacts_by_scope(
         scope_key=build_scope_key(
@@ -720,7 +873,74 @@ async def list_scope_artifacts(
         for record in records
         if record.artifact_type not in INTERNAL_ARTIFACT_TYPES
     ]
-    return visible, next_cursor
+    return await end_overdue_waits(visible), next_cursor
+
+
+async def end_overdue_waits(
+    records: List[MediaArtifactRecord],
+) -> List[MediaArtifactRecord]:
+    """Fail the entries whose wait for their sources ran out, in place.
+
+    Two-step on purpose. ``scope-index`` projects ``created_at`` but not
+    ``awaiting_expires_at``, and the two differ for a reclaimed entry — it keeps its
+    original position in the history while its deadline restarts — so the projected
+    date can only *rule out* an expiry, never confirm one. Ruling out is enough to
+    make the common poll free: a wait under way costs no read here, and only a
+    ``queued`` entry older than the timeout is fetched to be judged on its real
+    deadline.
+
+    Never fatal: a listing that cannot end a wait still shows the history.
+    """
+    now = _now_utc()
+    cutoff = now - timedelta(seconds=AWAITING_SOURCES_TIMEOUT_SECONDS)
+    suspects = [
+        index
+        for index, record in enumerate(records)
+        if record.status == MediaArtifactStatus.QUEUED and record.created_at <= cutoff
+    ]
+    if not suspects:
+        return records
+
+    updated = list(records)
+    for index in suspects:
+        artifact_id = updated[index].artifact_id
+        try:
+            full = await media_artifacts.get_media_artifact_by_id(artifact_id)
+            if full is None or not _is_awaiting_overdue(full, now=now):
+                continue
+            if not await media_artifacts.fail_awaiting_artifact(
+                artifact_id=artifact_id,
+                error_code=ERROR_CODE_PREPARATION_TIMEOUT,
+                error_message=(
+                    "The sources of this generation were still being prepared "
+                    "when the request expired."
+                ),
+            ):
+                continue
+        except Exception as exc:  # noqa: BLE001 - a listing must still answer
+            logger.warning(
+                "Could not end the overdue wait of artifact %s: %s", artifact_id, exc
+            )
+            continue
+        log_event(
+            logger,
+            logging.WARNING,
+            "artifact.wait_expired",
+            "Artifact wait ended: its sources were still not readable",
+            artifact_id=artifact_id,
+            artifact_type=updated[index].artifact_type.value,
+            timeout_seconds=AWAITING_SOURCES_TIMEOUT_SECONDS,
+        )
+        updated[index] = updated[index].model_copy(
+            update={
+                "status": MediaArtifactStatus.FAILED,
+                "error_code": ERROR_CODE_PREPARATION_TIMEOUT,
+                "awaiting_expires_at": None,
+                "completed_at": now,
+                "updated_at": now,
+            }
+        )
+    return updated
 
 
 async def get_media_artifact_record(
@@ -770,6 +990,7 @@ class ArtifactGenerationPlan:
         record: Optional[MediaArtifactRecord],
         message: Optional[Dict[str, Any]],
         reclaims_failed: bool = False,
+        awaits_sources: bool = False,
     ) -> None:
         self.reused = reused
         self.record = record
@@ -777,6 +998,12 @@ class ArtifactGenerationPlan:
         #: ``record`` carries the id of a failed entry to overwrite in place,
         #: rather than an id nothing is stored under yet.
         self.reclaims_failed = reclaims_failed
+        #: The entry is written but **not** enqueued: at least one source is still
+        #: being prepared, and a completion event resumes it (task-360). The debit
+        #: happens here all the same — the request was accepted, and the resume
+        #: never charges anything, which is what keeps one deferred generation to
+        #: one debit.
+        self.awaits_sources = awaits_sources
 
     @property
     def reuses_existing(self) -> bool:
@@ -800,6 +1027,10 @@ async def plan_artifact_generation(
     an entry found here is an artifact generated over exactly these sources,
     whenever that happened. Reusing it is the answer — no generation, no debit.
     Only a *failed* entry is not an answer, and it is reclaimed instead.
+
+    A resolution that still has sources in preparation plans the same entry under
+    the same id — the id hashes the sources the artifact *will* read, not the ones
+    already readable — and simply leaves it un-enqueued (task-360).
     """
     if not ARTIFACT_GENERATION_ENABLED:
         raise ArtifactGenerationDisabledError("Artifact generation is disabled.")
@@ -824,6 +1055,18 @@ async def plan_artifact_generation(
             f"Artifact type '{resolved_type.value}' is internal and only exists on "
             f"the media scope, not on '{resolved_scope.value}'."
         )
+    # Deferring only makes sense for a request someone is waiting on. An internal
+    # type is triggered *by* the end of a preparation, so a waiting entry there
+    # would be a background job scheduling its own retry through the artifact
+    # table — and it has no tile to spin, no user to inform. Its callers already
+    # catch this error and give up for this run.
+    if resolution.is_awaiting and resolved_type in INTERNAL_ARTIFACT_TYPES:
+        raise ArtifactTranscriptNotReadyError(
+            f"Artifact type '{resolved_type.value}' is internal and is not "
+            "deferred while its sources are being prepared.",
+            pending_titles=[source.title for source in resolution.pending if source.title],
+            pending_count=len(resolution.pending),
+        )
 
     merged_parameters = dict(parameters or {})
     if resolution.target_language:
@@ -832,7 +1075,11 @@ async def plan_artifact_generation(
 
     generator_version = get_generator_version(resolved_type)
     effective_scope_id = content_scope_id or scope_id
-    source_ids = [source.content_id for source in resolution.sources]
+    # Sources still in preparation are hashed in like readable ones: they are part
+    # of what this artifact will have read, and leaving them out would give the
+    # deferred request one id and the generation that follows another — two
+    # entries, two debits (task-360).
+    source_ids = resolution.expected_source_ids
     now = _now_utc()
 
     artifact_id = build_artifact_id(
@@ -845,6 +1092,20 @@ async def plan_artifact_generation(
     )
 
     existing = await media_artifacts.get_media_artifact_by_id(artifact_id)
+    if existing is not None and _is_awaiting_overdue(existing, now=now):
+        # The wait behind this id ran out and nobody has ended it yet (the sweep
+        # runs on read, and this request may be the first read since). End it here
+        # so the request in hand starts a fresh wait instead of being answered by a
+        # dead one.
+        if await media_artifacts.fail_awaiting_artifact(
+            artifact_id=existing.artifact_id,
+            error_code=ERROR_CODE_PREPARATION_TIMEOUT,
+            error_message=(
+                "The sources of this generation were still being prepared when the "
+                "request expired."
+            ),
+        ):
+            existing = await media_artifacts.get_media_artifact_by_id(artifact_id)
     if existing is not None and existing.status != MediaArtifactStatus.FAILED:
         log_event(
             logger,
@@ -874,28 +1135,98 @@ async def plan_artifact_generation(
         # Recorded, never keyed on: this is what says which prompt produced which
         # artifact, and a retry below stamps the version that actually reran.
         generator_version=generator_version,
-        source_count=len(resolution.sources),
+        source_count=len(source_ids),
         sources=resolution.snapshot(),
         # A reclaimed entry keeps its original position in the history: the GSI
         # sorts on `created_at`, and a retry is the same generation attempted
         # again, not a later one.
         created_at=existing.created_at if existing is not None else now,
         updated_at=now,
+        # The deadline is stored rather than derived from `created_at`, which a
+        # reclaimed entry inherits from the attempt before: a retried request would
+        # otherwise be born already expired.
+        awaiting_expires_at=(
+            now + timedelta(seconds=AWAITING_SOURCES_TIMEOUT_SECONDS)
+            if resolution.is_awaiting
+            else None
+        ),
     )
 
-    message = {
+    if resolution.is_awaiting:
+        log_event(
+            logger,
+            logging.INFO,
+            "artifact.awaiting_sources",
+            "Artifact request accepted while its sources are still being prepared",
+            artifact_id=record.artifact_id,
+            artifact_type=resolved_type.value,
+            scope=resolved_scope.value,
+            scope_id=scope_id,
+            source_count=record.source_count,
+            pending_count=len(resolution.pending),
+            preparations=sorted(
+                {source.preparation for source in resolution.pending}
+            ),
+            awaiting_expires_at=record.awaiting_expires_at.isoformat()
+            if record.awaiting_expires_at
+            else None,
+        )
+        return ArtifactGenerationPlan(
+            reused=None,
+            record=record,
+            # No message: a waiting entry is not enqueued, and the message the
+            # generation eventually needs cannot be built yet — it carries the
+            # transcript keys that do not exist.
+            message=None,
+            reclaims_failed=existing is not None,
+            awaits_sources=True,
+        )
+
+    return ArtifactGenerationPlan(
+        reused=None,
+        record=record,
+        message=build_generation_message(record=record, resolution=resolution),
+        reclaims_failed=existing is not None,
+    )
+
+
+def _is_awaiting_overdue(
+    record: MediaArtifactRecord,
+    *,
+    now: Optional[datetime] = None,
+) -> bool:
+    """True when this entry is waiting for sources and its deadline has passed."""
+    if record.status != MediaArtifactStatus.QUEUED or record.awaiting_expires_at is None:
+        return False
+    return record.awaiting_expires_at <= (now or _now_utc())
+
+
+def build_generation_message(
+    *,
+    record: MediaArtifactRecord,
+    resolution: ScopeResolution,
+) -> Dict[str, Any]:
+    """The SQS payload of one generation.
+
+    Built from the record plus a resolution whose sources are all readable, which
+    is what lets a deferred request produce it at resume time from the very same
+    code as an immediate one — the entry says what to generate, the fresh
+    resolution says which text to read.
+    """
+    effective_scope_id = content_scope_id_from_scope_key(record.scope_key)
+    return {
         "artifact_id": record.artifact_id,
-        "user_id": user_id,
-        "scope": resolved_scope.value,
-        "scope_id": scope_id,
-        "artifact_type": resolved_type.value,
-        "parameters": normalized_parameters,
-        "generator_version": generator_version,
+        "user_id": record.user_id,
+        "scope": record.scope.value,
+        "scope_id": record.scope_id,
+        "artifact_type": record.artifact_type.value,
+        "parameters": record.parameters,
+        "generator_version": record.generator_version,
         # Same corpus prefix for the 5 types of one request, so OpenAI's prompt
         # cache is what shares the corpus between the 5 independent invocations —
         # no intermediate store and no coordination lock of ours (task-269 §2.6).
         "prompt_cache_key": _prompt_cache_key(
-            scope=resolved_scope,
+            scope=record.scope,
             scope_id=effective_scope_id,
             sources=resolution.sources,
         ),
@@ -922,12 +1253,6 @@ async def plan_artifact_generation(
             resolution.sources[0].translation_metadata if resolution.sources else {}
         ),
     }
-    return ArtifactGenerationPlan(
-        reused=None,
-        record=record,
-        message=message,
-        reclaims_failed=existing is not None,
-    )
 
 
 async def commit_artifact_generation(
@@ -941,10 +1266,14 @@ async def commit_artifact_generation(
     conditional write. ``RETRIED`` reruns a failed entry under its own id, so a
     caller keying its debit on ``artifact_id`` charges the generation once, not
     once per attempt.
+
+    A waiting plan takes the same write and stops there: the entry exists, is
+    ``queued``, and is what the history and the tile read; the enqueue happens once
+    its last source becomes readable, from ``artifact_wait_service`` (task-360).
     """
     if plan.reused is not None:
         return plan.reused, ArtifactGenerationOutcome.REUSED
-    if plan.record is None or plan.message is None:
+    if plan.record is None or (plan.message is None and not plan.awaits_sources):
         raise ArtifactServiceError("Artifact generation plan is empty.")
 
     record = plan.record
@@ -959,6 +1288,16 @@ async def commit_artifact_generation(
             await media_artifacts.create_media_artifact(record)
         except media_artifacts.ArtifactAlreadyExistsError:
             return await _collapsed_onto_existing(record.artifact_id)
+
+    if plan.message is None:
+        # Nothing to send, and nothing to undo either: the entry is legitimately
+        # `queued` with no message in flight. The outcome still distinguishes a
+        # first request from a retry, because that is what the caller debits on.
+        return record, (
+            ArtifactGenerationOutcome.RETRIED
+            if plan.reclaims_failed
+            else ArtifactGenerationOutcome.CREATED
+        )
 
     try:
         await sqs.send_message(
@@ -1036,11 +1375,17 @@ def enforce_scope_ceilings(resolution: ScopeResolution) -> None:
     that makes the history interpretable. Same reason there is no "25 most
     recent" auto-selection: that is truncation wearing a hat.
 
-    An empty scope is refused with the reason that emptied it. "No transcript
-    yet" tells the user to wait; a translation the provider refused for good is
-    not a wait, and saying so is what keeps the client from retrying (task-327).
+    An empty scope is refused with the reason that emptied it — and a source still
+    being prepared does not empty anything: it counts here exactly like a readable
+    one, which is what turns "nothing is transcribed yet" from a refusal into a
+    waiting entry (task-360). Only definitive exclusions can leave a scope empty,
+    and a translation the provider refused for good is one: saying so is what keeps
+    the client from retrying (task-327).
+
+    The token ceiling can only be measured on the sources that are readable, so a
+    deferred request is checked again at resume, when every transcript exists.
     """
-    source_count = len(resolution.sources)
+    source_count = len(resolution.sources) + len(resolution.pending)
     estimated_tokens = resolution.estimated_tokens
     if source_count == 0:
         translation_failed = [
@@ -1325,6 +1670,9 @@ async def fail_artifact_generation(
     record.error_code = effective_error_code
     record.error_message = error_message
     record.lease_expires_at = None
+    # A failed entry is never waiting for a source any more: leaving the deadline on
+    # it would make a resume hook believe the wait is still open and enqueue it.
+    record.awaiting_expires_at = None
     record.updated_at = now
     record.completed_at = now
     await media_artifacts.update_media_artifact(record)

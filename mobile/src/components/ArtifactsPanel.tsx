@@ -11,12 +11,12 @@
  * would just let the two callers drift again inside here.
  *
  * The screens keep owning their data: fetching, polling, the tile states, the
- * generation handler and the refusal message are all passed in. `sourceReady` is
- * part of that data, not a style knob: a media item still being transcribed
- * cannot be generated from yet, whereas a collection's sources always can.
- * Whether a *given type* can still be generated lives in the tile state for the
- * same reason — a media item is generated once per type, a collection only after
- * its sources change, and only the screens know their scope's sources.
+ * generation handler and the refusal message are all passed in. Whether a *given
+ * type* can still be generated lives in the tile state, because only the screens
+ * know their scope's sources — a media item is generated once per type, a
+ * collection only after its sources change. How far along a source is is not
+ * passed in at all any more: a request made while a transcription or a
+ * translation is still running is accepted and starts by itself (task-360).
  *
  * The single scope-dependent piece of rendering is `showSourceCount`: an
  * artifact generated over one media item has no source count worth saying.
@@ -55,8 +55,6 @@ export interface ArtifactsPanelProps {
    * tile without waiting for the POST to answer.
    */
   tileStates: Record<ArtifactType, ArtifactTileState>;
-  /** Whether the underlying source is far enough along to generate from. */
-  sourceReady: boolean;
   onGenerate: (artifactType: ArtifactType) => void;
   /** Why the last generation attempt was refused, or `null`. */
   refusal: string | null;
@@ -81,7 +79,6 @@ export interface ArtifactsPanelProps {
 
 export function ArtifactsPanel({
   tileStates,
-  sourceReady,
   onGenerate,
   refusal,
   refusalTestID,
@@ -104,7 +101,6 @@ export function ArtifactsPanel({
             label={t(tile.labelKey)}
             icon={tile.icon}
             state={tileStates[tile.type]}
-            sourceReady={sourceReady}
             onGenerate={() => onGenerate(tile.type)}
           />
         ))}

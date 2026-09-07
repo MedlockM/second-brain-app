@@ -682,11 +682,11 @@ function AiTab({ collectionId, scopeMediaIds }: AiTabProps) {
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} testID="collection-ai-tab">
-      {/* Every source of the collection is already processed, so generation is
-          always offered here — unlike a media item still being transcribed. */}
+      {/* Generation is always offered, whatever state the sources are in: one
+          still being transcribed or translated no longer forbids the request —
+          the entry is held and starts by itself when the text lands (task-360). */}
       <ArtifactsPanel
         tileStates={tileStates}
-        sourceReady
         onGenerate={(artifactType) => void handleGenerate(artifactType)}
         refusal={refusal}
         refusalTestID="collection-ai-refusal"

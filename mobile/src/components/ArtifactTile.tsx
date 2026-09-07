@@ -17,6 +17,12 @@
  * note where the button was, which is what tells the user the work is done
  * rather than leaving a button that changes nothing.
  *
+ * How far along the source is, on the other hand, is not this tile's business
+ * and no longer gates anything (task-360): a generation asked for while a
+ * transcription or a translation is still running is accepted and starts by
+ * itself when the text lands, so the tile shows the ordinary in-progress state
+ * rather than an inert "Processing..." note.
+ *
  * The tile carries no "View" action either: opening a generated artifact is the
  * job of the history list below it, which routes to `/artifacts/<id>`. Keeping
  * the action column to a single control is what lets the label breathe; two
@@ -98,12 +104,6 @@ interface ArtifactTileProps {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   state: ArtifactTileState;
-  /**
-   * Whether the underlying source is far enough along to generate from. False
-   * keeps the tile inert with a "Processing..." note instead of offering a
-   * button that the API would refuse.
-   */
-  sourceReady: boolean;
   onGenerate: () => void;
 }
 
@@ -112,17 +112,16 @@ export function ArtifactTile({
   label,
   icon,
   state,
-  sourceReady,
   onGenerate,
 }: ArtifactTileProps): React.JSX.Element {
   const isInProgress =
     state.status === "queued" || state.status === "generating";
   const isFailed = state.status === "failed";
-  const canGenerate = state.generationAvailable && !isInProgress && sourceReady;
+  const canGenerate = state.generationAvailable && !isInProgress;
   // Nothing left to ask for: the artifact exists over exactly these sources.
   // Said out loud, rather than by an absent button the user would read as a bug.
   const isCovered =
-    !state.generationAvailable && !isInProgress && !isFailed && sourceReady;
+    !state.generationAvailable && !isInProgress && !isFailed;
 
   return (
     <View style={styles.tile}>
@@ -180,10 +179,6 @@ export function ArtifactTile({
           >
             {t("artifacts.status.generated")}
           </Text>
-        )}
-
-        {!sourceReady && !isInProgress && (
-          <Text style={styles.waitingText}>{t("artifacts.processing")}</Text>
         )}
       </View>
     </View>
@@ -251,11 +246,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.small.fontSize,
     fontWeight: Typography.label.fontWeight,
     color: Colors.error,
-  },
-  waitingText: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-    fontStyle: "italic",
   },
   // A note, not a state: it sits where the button was and must not read as
   // something to tap, hence the muted colour and no container.

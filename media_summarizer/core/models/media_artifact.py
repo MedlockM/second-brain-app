@@ -83,6 +83,19 @@ def build_scope_key(*, user_id: str, scope: "ArtifactScope | str", scope_id: str
     return f"{user_id}#{scope_value}#{scope_id}"
 
 
+def content_scope_id_from_scope_key(scope_key: str) -> str:
+    """The scope id a ``scope_key`` was built from.
+
+    A media artifact's ``scope_id`` is the library row id while its ``scope_key``
+    carries the *content* id (the globally deduplicated ``media_key``), so the
+    key is the only place the identity behind ``artifact_id`` survives. Recovering
+    it by parsing is exact: neither a user id nor a media key contains ``#``.
+    """
+    _, _, remainder = scope_key.partition("#")
+    _, _, scope_id = remainder.partition("#")
+    return scope_id
+
+
 class ArtifactStorageRef(BaseModel):
     bucket: str
     key: str
@@ -105,6 +118,14 @@ class ArtifactSource(BaseModel):
     language: Optional[str] = None
     excluded: bool = False
     excluded_reason: Optional[str] = None
+    #: Set **only** while the entry is waiting for this source to become
+    #: readable: ``"transcription"`` or ``"translation"``. It is the third state
+    #: of a snapshot line, next to read and excluded, and the reason a completion
+    #: event can tell whether a waiting entry is waiting on *its* media without a
+    #: second index: the entry names the sources it is still expecting.
+    #: ``None`` on every other line, so ``exclude_none`` keeps it out of the item
+    #: entirely once the generation actually runs.
+    preparation: Optional[str] = None
 
 
 class ArtifactLlmUsage(BaseModel):
@@ -140,6 +161,13 @@ class MediaArtifactRecord(BaseModel):
     # Worker lease, so a generation abandoned mid-flight becomes recoverable
     # instead of pinning the entry in ``generating`` forever.
     lease_expires_at: Optional[datetime] = None
+    # Set on a ``queued`` entry whose sources are not all readable yet: the
+    # request was honoured and persisted, but nothing has been enqueued and no
+    # worker will pick it up until a completion event resumes it. It is therefore
+    # the marker that tells the two kinds of ``queued`` apart — waiting for a
+    # source vs waiting for the generator — and the deadline past which the wait
+    # becomes a ``failed`` entry instead of a spinner nobody ends.
+    awaiting_expires_at: Optional[datetime] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     created_at: datetime = Field(default_factory=_now_utc)
@@ -178,6 +206,8 @@ class MediaArtifactRecord(BaseModel):
             item["llm_usage"] = usage
         if self.lease_expires_at is not None:
             item["lease_expires_at"] = self.lease_expires_at.isoformat()
+        if self.awaiting_expires_at is not None:
+            item["awaiting_expires_at"] = self.awaiting_expires_at.isoformat()
         if self.error_code:
             item["error_code"] = self.error_code
         if self.error_message:
@@ -194,7 +224,11 @@ class MediaArtifactRecord(BaseModel):
         payload["status"] = MediaArtifactStatus(payload["status"])
         payload["created_at"] = datetime.fromisoformat(payload["created_at"])
         payload["updated_at"] = datetime.fromisoformat(payload["updated_at"])
-        for optional_timestamp in ("completed_at", "lease_expires_at"):
+        for optional_timestamp in (
+            "completed_at",
+            "lease_expires_at",
+            "awaiting_expires_at",
+        ):
             if payload.get(optional_timestamp):
                 payload[optional_timestamp] = datetime.fromisoformat(
                     payload[optional_timestamp]

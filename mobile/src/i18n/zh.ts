@@ -154,9 +154,6 @@ export const zh: Catalog = {
   "artifacts.refusal.mediaEmpty": "该条目还没有文字记录，因此没有可用于生成的内容。",
   "artifacts.refusal.tooManySources": "这个收藏集有 {count} 个来源，超过了单次生成可读取的 {max} 个。请在更小的子收藏集上生成。",
   "artifacts.refusal.tooMuchText": "这里的文字对一次生成来说太多了。请在更小的子收藏集上生成。",
-  "artifacts.refusal.sourcesPending.one": "还有 {count} 个来源正在准备中。请稍候再试。",
-  "artifacts.refusal.sourcesPending.other": "还有 {count} 个来源正在准备中。请稍候再试。",
-  "artifacts.refusal.transcriptPending": "文字记录仍在准备中。请稍候再试。",
   "artifacts.refusal.translationFailed":
     "无法翻译这份文字记录，系统不会自动重试。请稍后再试。",
   "artifacts.refusal.sourcesTranslationFailed.one":

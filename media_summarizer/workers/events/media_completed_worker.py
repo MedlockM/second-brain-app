@@ -142,6 +142,66 @@ async def _trigger_review_blurb(
         )
 
 
+async def _resume_waiting_artifacts(media_key: str) -> None:
+    """Start the generations that were waiting for this media's text (task-360).
+
+    The end of an ingestion is one of the two join points a deferred artifact
+    request resumes from. It is keyed on ``media_key``, not on a watcher, because
+    that is what a waiting entry names — one call covers every user who saved this
+    content and every collection that contains it.
+
+    Swallows everything by contract: the resume service already logs per entry, and
+    a completion event must not be replayed because a generation could not start.
+    """
+    try:
+        from media_summarizer.core.services.artifact_wait_service import (
+            resume_artifacts_awaiting_media,
+        )
+
+        await resume_artifacts_awaiting_media(media_key)
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "artifact.resume_hook_failed",
+            "Failed to resume artifacts waiting for this media (non-fatal)",
+            media_key=media_key,
+            error=str(exc),
+        )
+
+
+async def _fail_waiting_artifacts(media_key: str, *, reason: str) -> None:
+    """End the waits this ingestion will never satisfy (task-360).
+
+    The counterpart of :func:`_resume_waiting_artifacts`, and the reason a wait is
+    not a slow failure: an ingestion that failed produces no text ever, so the
+    entries expecting it become ``failed`` now instead of spinning until their
+    deadline.
+    """
+    try:
+        from media_summarizer.core.services.artifact_service import (
+            ERROR_CODE_PREPARATION_FAILED,
+        )
+        from media_summarizer.core.services.artifact_wait_service import (
+            fail_artifacts_awaiting_media,
+        )
+
+        await fail_artifacts_awaiting_media(
+            media_key,
+            error_code=ERROR_CODE_PREPARATION_FAILED,
+            error_message=f"The source could not be processed: {reason}",
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "artifact.fail_hook_failed",
+            "Failed to end the artifact waits of a failed ingestion (non-fatal)",
+            media_key=media_key,
+            error=str(exc),
+        )
+
+
 async def _load_summary_content(summary_s3_key: Optional[str]) -> Optional[Dict[str, Any]]:
     if not summary_s3_key:
         return None
@@ -193,6 +253,7 @@ async def process_event(message: Dict[str, Any]) -> None:
                 await media_watchers.mark_watcher_failed(media_key, w.get("user_id"), reason=failure_reason)
             except Exception as e:
                 logger.error(f"Failed to mark watcher {w.get('user_id')} as failed: {e}")
+        await _fail_waiting_artifacts(media_key, reason=failure_reason)
         return
 
     # -------------------------------------------------------------------------
@@ -243,6 +304,9 @@ async def process_event(message: Dict[str, Any]) -> None:
     # Watcher fan-out
     # -------------------------------------------------------------------------
     if not watchers:
+        # No watcher does not mean no waiting artifact: the entry hangs off the
+        # library row, not off the watcher table.
+        await _resume_waiting_artifacts(media_key)
         return
 
     # Fan-out
@@ -315,6 +379,10 @@ async def process_event(message: Dict[str, Any]) -> None:
                 await media_watchers.mark_watcher_failed(media_key, w.get("user_id"), reason=str(e))
             except Exception:
                 pass
+
+    # Last, and after the loop on purpose: the resume re-resolves the scope, which
+    # reads the jobs this loop has just marked completed.
+    await _resume_waiting_artifacts(media_key)
 
 
 async def poll_queue() -> None:

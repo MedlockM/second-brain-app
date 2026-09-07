@@ -161,9 +161,6 @@ export const hi: Catalog = {
   "artifacts.refusal.mediaEmpty": "इस आइटम का अभी ट्रांसक्रिप्ट नहीं है, इसलिए बनाने के लिए कुछ नहीं है।",
   "artifacts.refusal.tooManySources": "इस संग्रह में {count} स्रोत हैं, जो एक बार में पढ़े जा सकने वाले {max} से ज़्यादा हैं। किसी छोटे उप-संग्रह पर बनाएँ।",
   "artifacts.refusal.tooMuchText": "एक बार में बनाने के लिए यहाँ बहुत ज़्यादा टेक्स्ट है। किसी छोटे उप-संग्रह पर बनाएँ।",
-  "artifacts.refusal.sourcesPending.one": "{count} स्रोत अभी तैयार हो रहा है। थोड़ी देर में फिर कोशिश करें।",
-  "artifacts.refusal.sourcesPending.other": "{count} स्रोत अभी तैयार हो रहे हैं। थोड़ी देर में फिर कोशिश करें।",
-  "artifacts.refusal.transcriptPending": "ट्रांसक्रिप्ट अभी तैयार हो रहा है। थोड़ी देर में फिर कोशिश करें।",
   "artifacts.refusal.translationFailed":
     "इस ट्रांसक्रिप्ट का अनुवाद नहीं हो सका, और यह अपने आप दोबारा नहीं आज़माया जाएगा। बाद में फिर कोशिश करें।",
   "artifacts.refusal.sourcesTranslationFailed.one":

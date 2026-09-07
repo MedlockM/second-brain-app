@@ -172,7 +172,7 @@ class TranslationInProgressError(Exception):
         self.translation_status = status
 
 
-def _normalize_lang(value: Optional[str]) -> Optional[str]:
+def normalize_language_tag(value: Optional[str]) -> Optional[str]:
     """Normalize a language tag to a bare ISO 639-1 code (lowercase, no region).
 
     Examples: ``"EN-US"`` -> ``"en"``, ``"pt_BR"`` -> ``"pt"``, ``"zh-Hans"`` ->
@@ -201,7 +201,7 @@ def detect_language(
     A reliable source-provided tag wins when present; otherwise the text is
     classified locally with ``langdetect`` (free, no LLM call).
     """
-    hint = _normalize_lang(source_hint)
+    hint = normalize_language_tag(source_hint)
     if hint:
         return hint, "source_tag"
 
@@ -214,7 +214,7 @@ def detect_language(
 
         # Make detection deterministic across runs (idempotence).
         DetectorFactory.seed = 0
-        detected = _normalize_lang(detect(text))
+        detected = normalize_language_tag(detect(text))
         if detected:
             return detected, "langdetect"
     except Exception as exc:  # pragma: no cover - defensive
@@ -238,8 +238,8 @@ def should_translate(
     Translate only when the detected language is known, differs from the target,
     and the target is one of the 11 V1 languages.
     """
-    detected = _normalize_lang(detected_language)
-    target = _normalize_lang(target_language)
+    detected = normalize_language_tag(detected_language)
+    target = normalize_language_tag(target_language)
     if not detected or not target:
         return False
     if detected == target:
@@ -257,7 +257,7 @@ def build_translated_transcript_key(
     Keyed on ``(transcript_s3_key, target_language)`` so the same couple always
     resolves to the same object — the cache key required by AC#7.
     """
-    target = _normalize_lang(target_language) or "xx"
+    target = normalize_language_tag(target_language) or "xx"
     base = transcript_s3_key.rsplit(".", 1)
     if len(base) == 2:
         stem, ext = base
@@ -521,7 +521,7 @@ async def resolve_or_enqueue_translated_transcript(
         transcript_text,
         source_hint=source_language_hint,
     )
-    normalized_target = _normalize_lang(target_language)
+    normalized_target = normalize_language_tag(target_language)
 
     if not should_translate(detected_language, normalized_target):
         log_event(
@@ -729,7 +729,7 @@ async def ensure_translated_transcript(
         transcript_text,
         source_hint=source_language_hint,
     )
-    normalized_target = _normalize_lang(target_language)
+    normalized_target = normalize_language_tag(target_language)
 
     if not should_translate(detected_language, normalized_target):
         log_event(

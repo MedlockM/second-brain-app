@@ -199,12 +199,6 @@ export const de: Catalog = {
     "Diese Sammlung hat {count} Quellen, mehr als die {max}, die eine einzelne Erstellung lesen kann. Erstelle es auf einer kleineren Untersammlung.",
   "artifacts.refusal.tooMuchText":
     "Hier ist zu viel Text für eine einzelne Erstellung. Erstelle es auf einer kleineren Untersammlung.",
-  "artifacts.refusal.sourcesPending.one":
-    "{count} Quelle wird noch vorbereitet. Versuche es gleich noch einmal.",
-  "artifacts.refusal.sourcesPending.other":
-    "{count} Quellen werden noch vorbereitet. Versuche es gleich noch einmal.",
-  "artifacts.refusal.transcriptPending":
-    "Das Transkript wird noch vorbereitet. Versuche es gleich noch einmal.",
   "artifacts.refusal.translationFailed":
     "Dieses Transkript konnte nicht übersetzt werden, und das wird nicht automatisch wiederholt. Versuche es später erneut.",
   "artifacts.refusal.sourcesTranslationFailed.one":

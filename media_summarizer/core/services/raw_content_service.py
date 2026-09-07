@@ -30,11 +30,11 @@ from media_summarizer.core.services.transcript_formatting import (
 )
 from media_summarizer.core.services.transcript_translation import (
     TRANSCRIPT_TRANSLATION_QUEUE,
-    _normalize_lang,
     build_translated_transcript_key,
     detect_language,
     enqueue_translation_job,
     job_source_language_hint,
+    normalize_language_tag,
     should_translate,
 )
 from media_summarizer.utils import s3
@@ -232,7 +232,7 @@ async def _resolve_translation(
         raw_text,
         source_hint=source_language_hint,
     )
-    normalized_target = _normalize_lang(reading_language)
+    normalized_target = normalize_language_tag(reading_language)
 
     # No translation needed (same language or unsupported target)
     if not should_translate(detected_language, normalized_target):

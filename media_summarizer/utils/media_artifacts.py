@@ -17,7 +17,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
 from media_summarizer.core.models.media_artifact import MediaArtifactRecord
@@ -154,6 +154,144 @@ async def claim_artifact_generation(
         if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
             return False
         raise
+
+
+async def claim_awaiting_artifact(
+    *,
+    artifact_id: str,
+    sources: List[Dict[str, Any]],
+    source_count: int,
+) -> bool:
+    """Turn a waiting entry into a real ``queued`` one, or refuse.
+
+    The conditional write is what makes the resume exactly-once: the end of an
+    ingestion and the end of a translation both fire, and a collection whose last
+    two sources land together fires twice more. Whoever clears
+    ``awaiting_expires_at`` owns the enqueue; every other caller reads ``False``
+    and sends nothing.
+
+    The snapshot is replaced in the same write, because a waiting entry's sources
+    carry no transcript key yet and the snapshot must designate the exact text the
+    model is about to read.
+    """
+    session = database_async.get_session()
+    try:
+        async with session.resource(
+            "dynamodb",
+            region_name=database_async.AWS_REGION,
+        ) as dynamodb:
+            table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
+            await table.update_item(
+                Key={"artifact_id": artifact_id},
+                UpdateExpression=(
+                    "SET sources = :sources, source_count = :count, "
+                    "updated_at = :now REMOVE awaiting_expires_at"
+                ),
+                ConditionExpression=(
+                    "attribute_exists(artifact_id) AND #st = :queued "
+                    "AND attribute_exists(awaiting_expires_at)"
+                ),
+                ExpressionAttributeNames={"#st": "status"},
+                ExpressionAttributeValues={
+                    ":sources": sources,
+                    ":count": source_count,
+                    ":queued": "queued",
+                    ":now": _now_iso(),
+                },
+            )
+            return True
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        raise
+
+
+async def fail_awaiting_artifact(
+    *,
+    artifact_id: str,
+    error_code: str,
+    error_message: str,
+) -> bool:
+    """End a wait that will not come, without ever touching a live generation.
+
+    Conditional on the entry still being a *waiting* one, which is what separates
+    this from :func:`media_summarizer.core.services.artifact_service.fail_artifact_generation`:
+    the callers here are events (a failed ingestion, a refused translation, an
+    expired deadline) racing against a resume, and none of them may mark a running
+    generation as failed.
+    """
+    session = database_async.get_session()
+    now_iso = _now_iso()
+    try:
+        async with session.resource(
+            "dynamodb",
+            region_name=database_async.AWS_REGION,
+        ) as dynamodb:
+            table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
+            await table.update_item(
+                Key={"artifact_id": artifact_id},
+                UpdateExpression=(
+                    "SET #st = :failed, error_code = :code, error_message = :msg, "
+                    "updated_at = :now, completed_at = :now "
+                    "REMOVE awaiting_expires_at, lease_expires_at"
+                ),
+                ConditionExpression=(
+                    "attribute_exists(artifact_id) AND #st = :queued "
+                    "AND attribute_exists(awaiting_expires_at)"
+                ),
+                ExpressionAttributeNames={"#st": "status"},
+                ExpressionAttributeValues={
+                    ":failed": "failed",
+                    ":queued": "queued",
+                    ":code": error_code,
+                    ":msg": error_message[:500],
+                    ":now": now_iso,
+                },
+            )
+            return True
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        raise
+
+
+async def list_queued_artifact_ids_by_scope(*, scope_key: str) -> List[str]:
+    """Every ``queued`` entry id of one scope, newest first.
+
+    Deliberately not built on :func:`list_artifacts_by_scope`: this is a lookup,
+    not a page. It returns ids only, so a resume hook that has to check a handful
+    of scopes transfers a few dozen bytes per scope instead of whole records, and
+    the ``queued`` filter keeps the answer to the entries that can possibly be
+    waiting. The index does not project ``awaiting_expires_at`` (adding it would
+    mean recreating the index), so telling a waiting entry from one the generator
+    is about to pick up costs one ``GetItem`` per id — at most five per scope, one
+    per artifact type.
+    """
+    session = database_async.get_session()
+    ids: List[str] = []
+    async with session.resource(
+        "dynamodb",
+        region_name=database_async.AWS_REGION,
+    ) as dynamodb:
+        table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
+        kwargs: Dict[str, Any] = {
+            "IndexName": SCOPE_INDEX,
+            "KeyConditionExpression": Key("scope_key").eq(scope_key),
+            "FilterExpression": Attr("status").eq("queued"),
+            "ProjectionExpression": "artifact_id",
+            "ScanIndexForward": False,
+        }
+        while True:
+            resp = await table.query(**kwargs)
+            for item in resp.get("Items", []):
+                artifact_id = str(item.get("artifact_id") or "")
+                if artifact_id:
+                    ids.append(artifact_id)
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            kwargs["ExclusiveStartKey"] = last_key
+    return ids
 
 
 async def get_media_artifact_by_id(artifact_id: str) -> Optional[MediaArtifactRecord]:
