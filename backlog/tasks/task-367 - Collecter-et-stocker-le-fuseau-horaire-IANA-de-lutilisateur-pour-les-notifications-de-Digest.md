@@ -3,7 +3,7 @@ id: task-367
 title: >-
   Collecter et stocker le fuseau horaire IANA de l'utilisateur pour les
   notifications de Digest
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-06 16:11'
 labels:
