@@ -43,6 +43,21 @@ explanation.
 | Job archives in S3 (`archives` bucket) | GLACIER_IR at day 0, expire at 365 days | bucket lifecycle rule in `archiving.tf` |
 | Library snapshots (AWS Backup) | 90 days | backup plan lifecycle (§5) |
 | Library exports (S3, DYNAMODB_JSON) | 365 days | same bucket lifecycle rule as job archives |
+| `user_push_tokens` | **90 days** since the device last registered, refreshed on every launch | the daily sweep in `workers/digest/scheduler.py`, Expo answering `DeviceNotRegistered`, sign-out, or account deletion (§4) |
+
+`user_push_tokens` is the one store partitioned by `user_id` that carries a
+clock, and the rule in §1 is not being bent: a push token is **device** data, not
+library data. It says which handset to interrupt, it is a credential — whoever
+holds it can push to that device — and a phone that has been wiped never tells
+anyone. Expo's own documentation warns that `DeviceNotRegistered` "takes an
+undefined amount of time and is often impossible to test", so the sweep is the
+only reliable end of a token's life besides deleting the account.
+
+It is deleted, never marked: there is no `purge_at`, no `deleted_at` and no TTL
+on the table, which is what keeps `scripts/check_purge_at_writers.py` satisfied.
+`USER_PUSH_TOKENS_TABLE` is listed in `_USER_PARTITION_TABLES` of
+`core/services/account_deletion_service.py`, so §4 empties it with everything
+else — a deleted account leaves no addressable device behind.
 
 ## 3. User deletion of one item
 

@@ -11,6 +11,23 @@
  * this one borrows, the Digest presents and does not triage: no Discard, no
  * Deepen, no Save.
  *
+ * ## Which period is showing
+ *
+ * The selected period lives in the route's `tab` param, not in local state, and
+ * that is what lets a push notification open the right one: tapping the weekly
+ * Digest's notification navigates here with `tab=weekly`
+ * (`src/hooks/usePushNotifications.ts`), which is the very same act as tapping
+ * the segment. With local state there would be two sources of truth, and
+ * reconciling them means setting state from an effect on every param change —
+ * which this project forbids (`react-hooks/set-state-in-effect`).
+ *
+ * Everything else on this screen belongs to *one* period: the digest itself, its
+ * loading and error states, and where in the pager the user is. So the whole of
+ * it lives in `DigestPeriodView`, keyed by the period, and changing period
+ * remounts it. That is the reset — no handler has to remember to clear four
+ * pieces of state and scroll the pager back to its first page, whether the change
+ * came from a tap on the segmented control or from a notification.
+ *
  * ## The gestures
  *
  * A page scrolls vertically and carries its own tabs, inside a pager that scrolls
@@ -47,7 +64,7 @@
  * behind refetches when it comes back, which no single swipe can cause.
  */
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -62,7 +79,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { DigestService } from "../../src/services/digestService";
@@ -104,75 +121,97 @@ type DigestTab = "daily" | "weekly";
 export default function DigestScreen(): React.JSX.Element {
   // Resolved-on-render copy: the screen has to redraw with the language.
   useTranslation();
+  const router = useRouter();
+
+  // Anything other than "weekly" is the daily Digest, so a param that arrives
+  // malformed opens the screen on its usual tab rather than on nothing.
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const activeTab: DigestTab = tabParam === "weekly" ? "weekly" : "daily";
+
+  const handleTabChange = useCallback(
+    (tab: DigestTab) => {
+      if (tab === activeTab) return;
+      router.setParams({ tab });
+    },
+    [activeTab, router],
+  );
+
+  return (
+    <SafeAreaView style={styles.container} edges={["top"]}>
+      <View style={styles.segmentedControlContainer}>
+        <View style={styles.segmentedControl}>
+          <SegmentButton
+            label={t("digest.daily")}
+            isActive={activeTab === "daily"}
+            onPress={() => handleTabChange("daily")}
+          />
+          <SegmentButton
+            label={t("digest.weekly")}
+            isActive={activeTab === "weekly"}
+            onPress={() => handleTabChange("weekly")}
+          />
+        </View>
+      </View>
+
+      {/* Keyed by the period: see the note at the top of the file. */}
+      <DigestPeriodView key={activeTab} tab={activeTab} />
+    </SafeAreaView>
+  );
+}
+
+// --- Sub-components ---
+
+/**
+ * One period, and everything that belongs to it.
+ *
+ * Mounted per period and never reused across two, so its four pieces of state —
+ * the digest, the error, the refresh flag and the page the user is on — and the
+ * pager's own scroll offset all start clean without anyone resetting them.
+ */
+function DigestPeriodView({ tab }: { tab: DigestTab }): React.JSX.Element {
   const { isAuthenticated } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<DigestTab>("daily");
-  const [daily, setDaily] = useState<Digest | null>(null);
-  const [weekly, setWeekly] = useState<Digest | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [digest, setDigest] = useState<Digest | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const pagerRef = useRef<ScrollView>(null);
+  const fetchDigest = useCallback(async () => {
+    if (!isAuthenticated) return;
 
-  const fetchDigest = useCallback(
-    async (tab: DigestTab) => {
-      if (!isAuthenticated) return;
-
-      try {
-        if (tab === "daily") {
-          setDaily(await DigestService.getDailyDigest());
-        } else {
-          setWeekly(await DigestService.getWeeklyDigest());
-        }
-        setError(null);
-      } catch (err: unknown) {
-        setError(
-          getFriendlyErrorMessage(err, { fallback: t("digest.loadFailed") }),
-        );
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [isAuthenticated],
-  );
+    try {
+      setDigest(
+        tab === "daily"
+          ? await DigestService.getDailyDigest()
+          : await DigestService.getWeeklyDigest(),
+      );
+      setError(null);
+    } catch (err: unknown) {
+      setError(
+        getFriendlyErrorMessage(err, { fallback: t("digest.loadFailed") }),
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isAuthenticated, tab]);
 
   // Fetched on focus, not on mount: `NativeTabs` has no lazy loading, so every
   // tab screen mounts on the first render of the bar (task-350). From a plain
   // `useEffect` this screen asked the backend for a digest on every cold start,
   // including the ones where the tab is never opened.
-  //
-  // The dependency on `activeTab` is what still refetches when the segmented
-  // control moves: a new callback identity re-runs the effect, and the screen is
-  // focused when the user is tapping it.
   useFocusEffect(
     useCallback(() => {
-      const timer = setTimeout(() => void fetchDigest(activeTab), 0);
+      const timer = setTimeout(() => void fetchDigest(), 0);
       return () => clearTimeout(timer);
-    }, [activeTab, fetchDigest]),
+    }, [fetchDigest]),
   );
 
   const handleRetry = useCallback(() => {
     setIsRefreshing(true);
     setError(null);
-    void fetchDigest(activeTab);
-  }, [activeTab, fetchDigest]);
+    void fetchDigest();
+  }, [fetchDigest]);
 
-  const handleTabChange = useCallback(
-    (tab: DigestTab) => {
-      if (tab === activeTab) return;
-      setActiveTab(tab);
-      setIsLoading(true);
-      setError(null);
-      setActiveIndex(0);
-      pagerRef.current?.scrollTo({ x: 0, animated: false });
-    },
-    [activeTab],
-  );
-
-  const digest = activeTab === "daily" ? daily : weekly;
   const ids = digest?.media_item_ids ?? [];
 
   const handleScroll = useCallback(
@@ -202,29 +241,16 @@ export default function DigestScreen(): React.JSX.Element {
     [activeIndex, ids.length],
   );
 
-  return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
-      <View style={styles.segmentedControlContainer}>
-        <View style={styles.segmentedControl}>
-          <SegmentButton
-            label={t("digest.daily")}
-            isActive={activeTab === "daily"}
-            onPress={() => handleTabChange("daily")}
-          />
-          <SegmentButton
-            label={t("digest.weekly")}
-            isActive={activeTab === "weekly"}
-            onPress={() => handleTabChange("weekly")}
-          />
-        </View>
-      </View>
+  // Nothing has come back yet. A digest with no media is an answer and comes back
+  // as an empty list, so "still null" means the request is in flight.
+  const isLoading = digest === null && error === null;
 
+  return (
+    <>
       {/* The one header of the screen: the pages below carry none of their own. */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          {activeTab === "daily"
-            ? t("digest.dailyTitle")
-            : t("digest.weeklyTitle")}
+          {tab === "daily" ? t("digest.dailyTitle") : t("digest.weeklyTitle")}
         </Text>
         {/* The dots cap at seven and cannot state where in the period the user
             is. This is where that information lives, for the eye and for a
@@ -286,10 +312,11 @@ export default function DigestScreen(): React.JSX.Element {
         </ScrollView>
       ) : ids.length === 0 ? (
         /* Nothing was saved in the period, so the backend wrote no digest for it
-           and there is nothing to page through. Sober, and deliberately without
-           a way out: no fallback to an older, fuller period and no switch to the
-           weekly tab — an empty day is a true answer, and answering with another
-           day's media would be a lie about which one the notification named.
+           and there is nothing to page through — and no notification was sent
+           for it either. Sober, and deliberately without a way out: no fallback
+           to an older, fuller period and no switch to the weekly tab — an empty
+           day is a true answer, and answering with another day's media would be
+           a lie about which one the notification named.
            Same hand-set inset as the error state above. */
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
@@ -303,12 +330,10 @@ export default function DigestScreen(): React.JSX.Element {
           }
         >
           <Text style={styles.emptyTitle}>
-            {activeTab === "daily"
-              ? t("digest.emptyDaily")
-              : t("digest.emptyWeekly")}
+            {tab === "daily" ? t("digest.emptyDaily") : t("digest.emptyWeekly")}
           </Text>
           <Text style={styles.emptyHint}>
-            {activeTab === "daily"
+            {tab === "daily"
               ? t("digest.emptyDailyHint")
               : t("digest.emptyWeeklyHint")}
           </Text>
@@ -330,7 +355,6 @@ export default function DigestScreen(): React.JSX.Element {
           />
 
           <ScrollView
-            ref={pagerRef}
             style={styles.pager}
             horizontal
             pagingEnabled
@@ -351,11 +375,9 @@ export default function DigestScreen(): React.JSX.Element {
           </ScrollView>
         </View>
       )}
-    </SafeAreaView>
+    </>
   );
 }
-
-// --- Sub-components ---
 
 function SegmentButton({
   label,

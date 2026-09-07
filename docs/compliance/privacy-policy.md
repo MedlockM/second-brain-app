@@ -43,7 +43,18 @@ We automatically collect:
 - **Device information** - device model, operating system version, app version
 - **Crash reports** - error logs to improve app stability
 
-### 2.5 Information We Do NOT Collect
+### 2.5 Push Notification Token
+
+If you allow notifications, your device gives us a **push notification token** - an
+identifier issued by the Expo push service that lets a notification reach that
+specific device, and nothing else. It is not linked to any advertising identifier
+and is never used to track you across apps.
+
+Notifications are entirely optional: declining the permission leaves every part of
+the Service working, and we never ask a second time. You can turn them off at any
+moment in your device's system settings.
+
+### 2.6 Information We Do NOT Collect
 
 - We do not collect location data
 - We do not access your contacts, photos, or camera (except photo library access if you explicitly attach an image)
@@ -62,6 +73,7 @@ We use your information for the following purposes:
 | AI artifact generation | Transcripts |
 | Service improvement | Usage analytics, crash reports |
 | Account communications | Email address |
+| Daily and weekly digest notifications | Push notification token, time zone |
 
 ## 4. How We Process Your Data
 
@@ -73,7 +85,16 @@ Audio and video content from your submitted URLs is transcribed using **Deepgram
 
 Transcripts and extracted text are processed by **OpenAI** GPT models to generate summaries, notes, and quizzes. OpenAI processes text data according to their API data usage policy. When using the API, OpenAI does not use submitted data to train their models.
 
-### 4.3 Data Flow Summary
+### 4.3 Push Notifications
+
+If you allow notifications, your daily and weekly digest alerts are delivered
+through **Expo**'s push notification service, which passes them on to Apple (APNs)
+or Google (FCM). Only two things travel: your device's push token and the
+notification itself, whose text is a count - "You saved 3 items today" - and never
+the title, the source or any part of what you saved. Opening the notification is
+what shows you the digest, from your own authenticated session.
+
+### 4.4 Data Flow Summary
 
 ```
 User submits URL -> Our backend fetches content -> Deepgram transcribes audio
@@ -110,6 +131,7 @@ We share data with the following third-party services solely for the purpose of 
 |---------|-------------|---------|
 | Deepgram | Audio content from URLs | Transcription |
 | OpenAI | Text content, transcripts | AI artifact generation |
+| Expo | Push notification token, notification text (a count) | Delivering digest notifications |
 | Amazon Web Services | All stored data | Infrastructure hosting |
 
 We do NOT:
@@ -125,6 +147,7 @@ We do NOT:
 - **Submitted URLs and generated artifacts** - retained as long as your account is active
 - **Usage analytics** - retained for up to 12 months, then aggregated or deleted
 - **Crash reports** - retained for up to 6 months
+- **Push notification token** - deleted when you sign out, when your device stops being reachable, after 90 days without the app registering it again, and with your account
 
 When you delete your account from within the app, your account and its content are erased from our live systems straight away: account record, media items, transcripts, summaries, notes, flashcards, stored files and search index entries. Copies held in our encrypted infrastructure backups are not individually editable and expire automatically within 35 days, after which nothing remains. We keep only what the law requires us to keep.
 

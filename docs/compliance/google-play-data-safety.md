@@ -91,8 +91,12 @@ This document describes the Data Safety declarations required for Google Play Co
 
 | Field | Value |
 |-------|-------|
-| Collected | No |
-| Note | We do not collect Android Advertising ID or other device identifiers |
+| Collected | Yes (push notification token only) |
+| Shared | Yes (Expo push service, to deliver the notification) |
+| Ephemeral | No |
+| Required | No - only if the user allows notifications |
+| Purpose | App functionality (daily and weekly digest notifications) |
+| Note | We do not collect the Android Advertising ID. The only identifier is the Expo push token, which addresses one device and nothing else; it is deleted at sign-out, at account deletion, and after 90 days without the app registering it again. |
 
 ---
 
