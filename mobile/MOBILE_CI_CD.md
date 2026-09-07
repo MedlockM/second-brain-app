@@ -1372,9 +1372,20 @@ first. They are documented in the script's header; the summary:
    compacted. The go/no-go procedure must be an agent definition, re-read every turn,
    not a start prompt that evaporates.
 
-If the session is down, the run leaves the report on disk and **exits non-zero**, so
-the failure is visible in `systemctl --user status testflight-triage`. Nothing is
-lost: the branches are the memory, and the next run picks the proposal back up.
+**The wrapper starts that session itself** when it is down, before launching the run.
+It has to: the session does not survive a reboot, and on 2026-09-05 and -06 the runs
+prepared code nobody saw while on -07 the report reached nobody, each time because the
+session had simply died. The triage agent cannot do this — from its Bedrock environment
+the session would come up on the wrong account — but `testflight_session.sh` disarms
+exactly those variables, so the wrapper can.
+
+If delivery still fails, the run leaves the report on disk and **exits non-zero**, so the
+failure is visible in `systemctl --user status testflight-triage`. That verdict is read
+from the agent's output, not from its exit code: `claude -p` returns 0 as soon as the turn
+completes, whatever the agent narrates. On 2026-09-07 the agent wrote "sortie non-zéro"
+and systemd still recorded `Result=success` — the undelivered report was invisible in the
+one place built to show it. Nothing is lost either way: the branches are the memory, and
+the next run picks the proposal back up.
 
 ### The trigger — a user systemd timer
 

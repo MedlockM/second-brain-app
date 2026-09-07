@@ -151,6 +151,49 @@ if [ "${DELIVER}" = false ]; then
 NE DÉLIVRE PAS le rapport : écris-le sur disque et arrête-toi là. N'appelle ni ListAgents ni SendMessage. L'absence de délivrance est ici voulue, donc ce n'est pas un échec — termine avec succès."
 fi
 
+# La session de décision est le seul canal vers le téléphone de l'owner, et elle ne
+# survit ni à un redémarrage ni à un arrêt de la machine. Les runs des 5 et 6
+# septembre 2026 ont préparé du code que personne n'a vu, et celui du 7 a écrit un
+# rapport que personne n'a reçu : à chaque fois la session était simplement morte.
+# On la relève ici, avant le run. L'agent, lui, ne peut pas le faire — son
+# environnement Bedrock produirait une session sur le mauvais compte — alors que
+# testflight_session.sh désarme précisément ces variables. Démarrage idempotent.
+if [ "${DELIVER}" = true ]; then
+  if ! ./scripts/testflight_session.sh status >/dev/null 2>&1; then
+    echo "Session « TestFlight Feedback » arrêtée — démarrage avant le run."
+    if ./scripts/testflight_session.sh start; then
+      # Laisser la session s'enregistrer avant que l'agent appelle ListAgents.
+      sleep 20
+    else
+      echo "Avertissement: démarrage de la session impossible." >&2
+      echo "Le run continue — le rapport sera écrit sur disque, la sortie sera non-zéro." >&2
+    fi
+  fi
+fi
+
+RUN_LOG="$(mktemp)"
+trap 'rm -f "${RUN_LOG}"' EXIT
+
+set +e
 claude-bedrock --agent feedback-triage \
   --dangerously-skip-permissions \
-  -p "${PROMPT}"
+  -p "${PROMPT}" 2>&1 | tee "${RUN_LOG}"
+AGENT_STATUS=${PIPESTATUS[0]}
+set -e
+
+if [ "${AGENT_STATUS}" -ne 0 ]; then
+  echo "Error: l'agent a terminé en erreur (code ${AGENT_STATUS})." >&2
+  exit "${AGENT_STATUS}"
+fi
+
+# `claude -p` rend 0 dès que le tour s'est déroulé, quoi que l'agent raconte. Le
+# 2026-09-07 il a écrit noir sur blanc « sortie non-zéro » faute de session cible,
+# et systemd a quand même enregistré `Result=success` : l'échec de délivrance était
+# invisible dans `systemctl --user status`, qui est exactement l'endroit où il
+# devait se voir. Le verdict se lit donc dans la sortie, pas dans le code de retour.
+if [ "${DELIVER}" = true ] && grep -qi "NON DÉLIVRÉ" "${RUN_LOG}"; then
+  echo "" >&2
+  echo "Error: rapport NON DÉLIVRÉ — il est sur disque, mais personne n'a été prévenu." >&2
+  echo "  Remède : ./scripts/testflight_session.sh start, puis relancer le triage." >&2
+  exit 1
+fi

@@ -73,6 +73,19 @@ Dis à l'owner lequel tu attends, en le déduisant du diff : du TypeScript/JSX s
 touche à `app.config.ts`, à un plugin natif, à `eas.json` ou à une dépendance native déplace le
 fingerprint et déclenche un build.
 
+Enfin **supprime chaque branche que tu viens de merger** :
+
+```
+git branch -d feedback/<slug>
+```
+
+Une branche `feedback/*` vivante ne veut pas dire « du code existe », elle veut dire **« proposition
+en attente de décision »** : c'est ainsi que la Phase 0 du triage la lit pour sa déduplication, et la
+Phase 6 reprend toute branche vivante dans le rapport du lendemain. En laisser une derrière toi la
+fait re-proposer chaque matin alors que le registre la dit déjà tranchée — l'owner reverrait une
+décision qu'il a prise. Utilise `-d` et jamais `-D` : `-d` refuse tant que le contenu n'est pas dans
+`main`, ce qui rend impossible de détruire du travail non mergé par étourderie.
+
 **Jamais de `--force`, jamais de `push --force-with-lease`, jamais de réécriture d'historique.** La
 protection de branche les refuse, et c'est voulu.
 

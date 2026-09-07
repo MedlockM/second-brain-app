@@ -128,6 +128,23 @@ Donne à chaque sous-agent, dans son prompt :
   debug dans la même session ;
 - la consigne de **rapporter le nom de sa branche** de worktree en fin de run.
 
+**La plateforme d'où vient le retour n'est pas la portée du correctif.** Tous les feedbacks
+arrivent par App Store Connect, donc d'iOS : c'est une propriété du canal, pas du défaut. Or `mobile/`
+est du React Native partagé — un correctif y atterrit sur Android aussi, et c'est presque toujours ce
+qu'il faut. Le danger n'est donc pas d'oublier Android, c'est de **restreindre** un correctif à iOS
+parce que le symptôme a été observé sur iOS. Passe ces consignes au sous-agent :
+
+- **Par défaut, corrige pour les deux plateformes.** N'introduis jamais un `Platform.OS` dans le seul
+  but de cantonner le correctif à la plateforme d'où vient le retour.
+- **Une garde `Platform.OS` ne se justifie que si la cause est réellement spécifique** : une API
+  native, la share extension iOS, un comportement de plateforme. Le collecteur fournit
+  `device_platform` et `app_platform` — ils disent d'où vient le *retour*, jamais où vit le *défaut*.
+- **La condition de repro peut être spécifique alors que le défaut ne l'est pas.** Le Display Zoom
+  iOS n'a pas d'équivalent Android, mais l'échelle de police et la densité y produisent la même
+  contrainte : corrige la cause structurelle, pas la valeur observée.
+- **Dis dans le rapport quelles plateformes le correctif touche.** L'owner valide sur iOS ; une
+  régression Android ne serait vue par personne avant longtemps.
+
 Quand un sous-agent a terminé avec des commits, donne à son travail un nom stable et libère le
 worktree, sans jamais merger :
 
