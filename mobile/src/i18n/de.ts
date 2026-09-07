@@ -723,6 +723,9 @@ export const de: Catalog = {
     "Diese Datei ist {size} groß, über dem Limit von {max} für einen einzelnen Import.",
   "upload.transferFailed":
     "Diese Datei konnte nicht gesendet werden. Prüfe deine Verbindung und versuche es erneut.",
+  "upload.diagnostics.title": "Technische Details",
+  "upload.diagnostics.hint":
+    "Füge diese Zeile bei, wenn du das Problem meldest – sie nennt den Schritt, der fehlgeschlagen ist.",
   "home.loadFailed":
     "Dein Posteingang konnte nicht geladen werden. Bitte versuche es erneut.",
   "share.unsupportedFile": "Dieser Dateityp wird noch nicht unterstützt.",

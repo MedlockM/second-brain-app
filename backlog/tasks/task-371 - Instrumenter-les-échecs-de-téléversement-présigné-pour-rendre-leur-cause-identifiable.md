@@ -80,13 +80,55 @@ La vérification réelle demande de reproduire l'échec sur un build installé, 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Les trois branches d'échec de stageUpload sont distinguées : lecture du fichier local / échec réseau du PUT / réponse HTTP refusée
-- [ ] #2 Le diagnostic porte l'étape atteinte ainsi que le statut HTTP et le code d'erreur S3 extrait du corps XML lorsque ceux-ci existent
-- [ ] #3 La lecture du corps de la réponse S3 est protégée : son échec dégrade le diagnostic sans lever d'exception ni masquer l'étape atteinte
-- [ ] #4 Le message principal affiché reste upload.transferFailed et le détail technique lui est secondaire à l'écran
-- [ ] #5 Le diagnostic est lisible depuis l'app sans aucun canal de télémétrie : aucune dépendance de reporting n'est ajoutée
-- [ ] #6 Aucun retry ni reprise automatique n'est introduit et le nombre de tentatives du PUT est inchangé
-- [ ] #7 Aucun fichier de media_summarizer/ ni d'infrastructure/ n'est modifié par cette tâche
-- [ ] #8 Les clés i18n ajoutées sont présentes dans les 11 langues supportées
-- [ ] #9 Le typecheck et le lint de mobile/ passent
+- [x] #1 Les trois branches d'échec de stageUpload sont distinguées : lecture du fichier local / échec réseau du PUT / réponse HTTP refusée
+- [x] #2 Le diagnostic porte l'étape atteinte ainsi que le statut HTTP et le code d'erreur S3 extrait du corps XML lorsque ceux-ci existent
+- [x] #3 La lecture du corps de la réponse S3 est protégée : son échec dégrade le diagnostic sans lever d'exception ni masquer l'étape atteinte
+- [x] #4 Le message principal affiché reste upload.transferFailed et le détail technique lui est secondaire à l'écran
+- [x] #5 Le diagnostic est lisible depuis l'app sans aucun canal de télémétrie : aucune dépendance de reporting n'est ajoutée
+- [x] #6 Aucun retry ni reprise automatique n'est introduit et le nombre de tentatives du PUT est inchangé
+- [x] #7 Aucun fichier de media_summarizer/ ni d'infrastructure/ n'est modifié par cette tâche
+- [x] #8 Les clés i18n ajoutées sont présentes dans les 11 langues supportées
+- [x] #9 Le typecheck et le lint de mobile/ passent
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### Ce qui a été fait
+
+**`mobile/src/services/presignedUpload.ts`** porte l'instrumentation. Trois étapes nommées par des jetons ASCII stables — `read_file`, `put_network`, `put_rejected` — exposées par `UploadFailureStage`, et une structure `UploadFailureDiagnostics` qui rassemble ce qui est connu au moment de l'échec : étape, statut HTTP, code d'erreur S3, octets envoyés, type MIME déclaré, schéma de l'URI locale, et la cause levée. `DirectUploadError` prend cette structure en argument de constructeur, garde `t("upload.transferFailed")` comme `message` dans les trois branches, et expose en plus un `detail` : une ligne unique du type
+
+```
+stage=put_rejected · status=403 · s3=SignatureDoesNotMatch · bytes=1248311 · type=application/pdf
+```
+
+Le PUT reste une tentative unique : un seul `fetch`, aucune boucle, aucune reprise. Le bouton « Réessayer » de l'écran de confirmation demeure le seul mécanisme de reprise.
+
+**Lecture du corps protégée.** `readErrorBody()` enveloppe `response.text()` dans un `try/catch` et renvoie `null` en cas d'échec. Le diagnostic se dégrade alors en `s3=unread` — l'étape et le statut déjà connus sont conservés, et aucune exception ne remplace le diagnostic. Quand le corps est lisible mais ne contient pas de `<Code>`, la ligne indique `s3=none`, ce qui distingue les deux situations.
+
+**Ce qui ne peut pas fuiter.** Deux garde-fous, tous deux commentés dans le fichier :
+
+- Le corps XML de S3 n'est jamais affiché entier. Seul l'élément `<Code>` est extrait, et sa forme est bornée par la regex (`^[A-Za-z][A-Za-z0-9_.-]{0,63}$`). C'est délibéré : le corps d'un `SignatureDoesNotMatch` embarque `StringToSign`, `CanonicalRequest` et l'access key id, soit exactement le matériel à ne pas mettre à l'écran.
+- Tout message d'erreur capturé passe par `redactUrls()`, qui remplace toute occurrence de forme `scheme://…` par `[url]`, puis est tronqué à 120 caractères. React Native rejette aujourd'hui avec un simple « Network request failed », mais c'est un détail du moteur, pas une garantie — la rédaction est donc inconditionnelle. L'URL présignée et sa signature ne peuvent atteindre l'écran par aucun chemin.
+
+**`mobile/src/contexts/ShareIntentContext.tsx`** : `ShareIntakeState` porte un champ `uploadDiagnostics`, alimenté par `toSubmissionError()` uniquement pour un `DirectUploadError`. Il est remis à `null` sur chaque succès, sur `retry()` et dans `INITIAL_STATE`, donc un échec ne laisse pas sa trace derrière lui. Les deux chemins qui appellent `stageUpload` (import de fichier via `UploadService`, audio partagé via `SharedContentService`) remontent tous deux par cette fonction, donc les deux sont couverts.
+
+**`mobile/app/share-confirmation.tsx`** : sous la phrase d'échec, un bloc de détail technique reprenant le motif déjà en place dans `StartupErrorScreen` — fond `surfaceContainer`, `BorderRadius.lg`, aucun trait de séparation (No-Line rule), texte `selectable` pour permettre le copier-coller sans dépendance clipboard. Le bloc n'apparaît jamais pour un refus de quota, que le backend a déjà journalisé. La ligne technique est forcée en `textAlign: "left"` / `writingDirection: "ltr"` : elle est en ASCII et ne doit pas être réordonnée par une interface arabe.
+
+**i18n** : deux clés seulement, `upload.diagnostics.title` et `upload.diagnostics.hint`, présentes dans les 11 catalogues. La charge du diagnostic elle-même n'est pas traduite, à dessein : elle est lue sur une capture d'écran par celui qui corrigera le bug, quelle que soit la langue de l'interface du testeur.
+
+### Aucun test automatisé
+
+Conformément à `AGENTS.md` (« No automated tests unless explicitly requested »), aucun test n'a été écrit. Les ACs n'en demandaient pas.
+
+### Vérifications
+
+- `cd mobile && npm run typecheck` : propre.
+- `cd mobile && npm run lint` : 0 erreur, 2 avertissements préexistants dans des fichiers non touchés (`app/(tabs)/digest.tsx`, `src/services/purchaseService.ts`).
+- `git diff --stat` : 14 fichiers, tous sous `mobile/`. Aucun fichier de `media_summarizer/` ni d'`infrastructure/`.
+- Aucune dépendance npm ajoutée.
+
+### Ce qui reste à l'owner (hors AC)
+
+Reproduire l'échec sur un build installé, ce qui n'arrive qu'après push sur `main`. L'échec étant intermittent, plusieurs imports peuvent être nécessaires. La ligne relevée ce jour-là est ce qui permettra d'écrire la tâche de correction : `stage=put_rejected status=403 s3=SignatureDoesNotMatch` et `stage=put_network cause=TypeError: Network request failed` n'appellent pas le même correctif.
+<!-- SECTION:NOTES:END -->

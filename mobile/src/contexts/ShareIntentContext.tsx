@@ -90,6 +90,17 @@ export interface ShareIntakeState {
    * offered. Null/undefined for any other failure.
    */
   quotaErrorCode?: QuotaErrorCode | null;
+  /**
+   * One technical line describing a failed direct-to-S3 transfer (task-371):
+   * the step that failed, the status S3 answered, its error code, the bytes and
+   * MIME type sent. Set only for a `DirectUploadError`, whose sentence is the
+   * same for all three ways the transfer can die.
+   *
+   * It travels in the state because there is no telemetry channel: the failure
+   * screen is the only place this can be read from, so the tester reads it there
+   * and quotes it in a bug report.
+   */
+  uploadDiagnostics?: string | null;
 }
 
 export interface ShareSelectedFolder {
@@ -146,6 +157,7 @@ const INITIAL_STATE: ShareIntakeState = {
   audioFile: null,
   uploadFile: null,
   quotaErrorCode: null,
+  uploadDiagnostics: null,
 };
 
 const ShareIntentContext = createContext<ShareIntentContextValue | null>(null);
@@ -169,28 +181,44 @@ function shareIntentKey(intent: ShareIntent): string {
  *
  * A failed transfer to S3 keeps its own wording too, for the opposite reason: it
  * arrives already translated, and getFriendlyErrorMessage flattens anything that
- * mentions S3 into the generic error sentence (task-345).
+ * mentions S3 into the generic error sentence (task-345). It is also the only
+ * failure that hands back a technical line, since it is the only one that left no
+ * server-side trace to look up afterwards (task-371).
  */
 function toSubmissionError(
   error: unknown,
   fallback: string,
-): { message: string; quotaErrorCode: QuotaErrorCode | null } {
+): {
+  message: string;
+  quotaErrorCode: QuotaErrorCode | null;
+  uploadDiagnostics: string | null;
+} {
   const quotaErrorCode = getQuotaErrorCode(error);
   if (quotaErrorCode) {
     return {
       message: getQuotaErrorMessage(error, quotaErrorCode),
       quotaErrorCode,
+      uploadDiagnostics: null,
     };
   }
   if (error instanceof DirectUploadError) {
-    return { message: error.message, quotaErrorCode: null };
+    return {
+      message: error.message,
+      quotaErrorCode: null,
+      uploadDiagnostics: error.detail,
+    };
   }
   if (error instanceof SharedContentValidationError) {
-    return { message: error.message, quotaErrorCode: null };
+    return {
+      message: error.message,
+      quotaErrorCode: null,
+      uploadDiagnostics: null,
+    };
   }
   return {
     message: getFriendlyErrorMessage(error, { fallback }),
     quotaErrorCode: null,
+    uploadDiagnostics: null,
   };
 }
 
@@ -272,6 +300,7 @@ export function ShareIntentProvider({
         audioFile: null,
         uploadFile: file,
         quotaErrorCode: null,
+        uploadDiagnostics: null,
       });
       navigateToConfirmation();
     },
@@ -575,9 +604,10 @@ export function ShareIntentProvider({
         contentType: "url",
         audioFile: null,
         quotaErrorCode: null,
+        uploadDiagnostics: null,
       });
     } catch (error) {
-      const { message, quotaErrorCode } = toSubmissionError(
+      const { message, quotaErrorCode, uploadDiagnostics } = toSubmissionError(
         error,
         "Failed to save the link. Please try again.",
       );
@@ -586,6 +616,7 @@ export function ShareIntentProvider({
         status: "error",
         message,
         quotaErrorCode,
+        uploadDiagnostics,
       }));
     }
   }, [intake, isAuthenticated, selectedFolder, selectedTags]);
@@ -650,6 +681,7 @@ export function ShareIntentProvider({
           contentType: "text",
           audioFile: null,
           quotaErrorCode: null,
+          uploadDiagnostics: null,
         });
       } else if (intake.contentType === "audio" && intake.audioFile) {
         const response = await SharedContentService.ingestSharedAudio(
@@ -694,10 +726,11 @@ export function ShareIntentProvider({
           contentType: "audio",
           audioFile: intake.audioFile,
           quotaErrorCode: null,
+          uploadDiagnostics: null,
         });
       }
     } catch (error) {
-      const { message, quotaErrorCode } = toSubmissionError(
+      const { message, quotaErrorCode, uploadDiagnostics } = toSubmissionError(
         error,
         "Failed to save the content. Please try again.",
       );
@@ -706,6 +739,7 @@ export function ShareIntentProvider({
         status: "error",
         message,
         quotaErrorCode,
+        uploadDiagnostics,
       }));
     }
   }, [intake, isAuthenticated, selectedFolder, selectedTags]);
@@ -764,9 +798,10 @@ export function ShareIntentProvider({
         status: "success",
         message: null,
         quotaErrorCode: null,
+        uploadDiagnostics: null,
       }));
     } catch (error) {
-      const { message, quotaErrorCode } = toSubmissionError(
+      const { message, quotaErrorCode, uploadDiagnostics } = toSubmissionError(
         error,
         "Failed to import this file. Please try again.",
       );
@@ -775,6 +810,7 @@ export function ShareIntentProvider({
         status: "error",
         message,
         quotaErrorCode,
+        uploadDiagnostics,
       }));
     }
   }, [intake, isAuthenticated, selectedFolder, selectedTags]);
@@ -806,6 +842,7 @@ export function ShareIntentProvider({
         status: "ready",
         message: null,
         quotaErrorCode: null,
+        uploadDiagnostics: null,
       }));
     }
   }, [intake]);

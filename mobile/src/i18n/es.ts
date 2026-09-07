@@ -719,6 +719,9 @@ export const es: Catalog = {
     "Este archivo ocupa {size}, por encima del límite de {max} para una sola importación.",
   "upload.transferFailed":
     "No se ha podido enviar este archivo. Comprueba tu conexión e inténtalo de nuevo.",
+  "upload.diagnostics.title": "Detalles técnicos",
+  "upload.diagnostics.hint":
+    "Incluye esta línea si informas del problema: indica el paso que ha fallado.",
   "home.loadFailed": "No se ha podido cargar tu bandeja. Inténtalo de nuevo.",
   "share.unsupportedFile": "Este tipo de archivo aún no es compatible.",
   "share.signInLinks": "Debes iniciar sesión para guardar enlaces.",

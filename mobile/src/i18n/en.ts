@@ -767,6 +767,12 @@ export const en = {
     "This file is {size}, over the {max} limit for a single import.",
   "upload.transferFailed":
     "This file could not be sent. Check your connection and try again.",
+  // Shown under that sentence, which is identical for all three ways a transfer
+  // to S3 can fail. The line itself is untranslated on purpose: it is stable
+  // ASCII read off a screenshot by whoever fixes the bug (task-371).
+  "upload.diagnostics.title": "Technical details",
+  "upload.diagnostics.hint":
+    "Include this line if you report the problem — it names the step that failed.",
   "home.loadFailed": "Unable to load your inbox. Please try again.",
   "share.unsupportedFile": "This file type is not supported yet.",
   "share.signInLinks": "You must be signed in to save links.",

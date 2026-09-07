@@ -454,6 +454,28 @@ function ShareContent({
           <Text testID="share-error-message" style={styles.errorMessage}>
             {intake.message}
           </Text>
+          {/* A failed transfer to S3 leaves no server-side trace — the PUT never
+              goes through API Gateway — so the step it died on is only knowable
+              from here (task-371). Secondary to the sentence above by design, and
+              selectable so it can be quoted in a bug report. Never shown for a
+              quota refusal, which the backend already logged. */}
+          {quotaErrorCode === null && intake.uploadDiagnostics ? (
+            <View style={styles.diagnostics}>
+              <Text style={styles.diagnosticsTitle}>
+                {t("upload.diagnostics.title")}
+              </Text>
+              <Text
+                testID="share-error-diagnostics"
+                style={styles.diagnosticsValue}
+                selectable
+              >
+                {intake.uploadDiagnostics}
+              </Text>
+              <Text style={styles.diagnosticsHint}>
+                {t("upload.diagnostics.hint")}
+              </Text>
+            </View>
+          ) : null}
           {offersUpgrade && (
             <Pressable
               testID="share-quota-upgrade-button"
@@ -954,6 +976,33 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: Typography.body.lineHeight,
     marginBottom: Spacing.lg,
+  },
+  // Technical detail block, sectioned by a tonal shift rather than a rule, the
+  // same way StartupErrorScreen presents the error it caught.
+  diagnostics: {
+    alignSelf: "stretch",
+    backgroundColor: Colors.surfaceContainer,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+    gap: Spacing.xs,
+  },
+  diagnosticsTitle: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textSubtle,
+  },
+  diagnosticsValue: {
+    fontSize: Typography.label.fontSize,
+    fontWeight: Typography.label.fontWeight,
+    color: Colors.textMain,
+    // The payload is stable ASCII key=value pairs, so it stays left-to-right even
+    // when the interface language is not — an Arabic UI must not reorder it.
+    textAlign: "left",
+    writingDirection: "ltr",
+  },
+  diagnosticsHint: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textSubtle,
   },
   upgradeButton: {
     flexDirection: "row",
