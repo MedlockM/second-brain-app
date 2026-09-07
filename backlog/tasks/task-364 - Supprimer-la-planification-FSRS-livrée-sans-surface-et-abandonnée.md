@@ -1,9 +1,10 @@
 ---
 id: task-364
 title: 'Supprimer la planification FSRS, livrée sans surface et abandonnée'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-06 15:40'
+updated_date: '2026-09-07 09:33'
 labels:
   - backend
   - cleanup
