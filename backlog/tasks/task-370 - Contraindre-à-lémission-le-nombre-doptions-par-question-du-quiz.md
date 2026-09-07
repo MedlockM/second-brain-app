@@ -1,9 +1,10 @@
 ---
 id: task-370
 title: Contraindre à l'émission le nombre d'options par question du quiz
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-06 20:27'
+updated_date: '2026-09-07 08:17'
 labels:
   - bug
 dependencies: []
@@ -61,11 +62,51 @@ La preuve définitive est une génération de quiz réelle depuis l'app après d
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Le schéma renvoyé par response_format_schema() impose la cardinalité des options à l'émission : la forme émise ne permet structurellement ni 3 ni 5 options
-- [ ] #2 Le schéma ne contient ni minItems ni maxItems et la restriction OpenAI correspondante a été vérifiée dans la documentation courante puis consignée dans le code ou la description
-- [ ] #3 build_prompt() décrit au modèle exactement la forme imposée par le schéma : aucune mention d'un tableau d'options ne subsiste si le schéma n'en émet plus
-- [ ] #4 validate() reconstruit une liste ordonnée d'options label/text de A à D et conserve ses contrôles sur le titre non vide MIN_QUESTIONS et correct_answer
-- [ ] #5 La forme du contenu persisté par build_artifact_content() est inchangée et aucun fichier de mobile/ n'est modifié par cette tâche
-- [ ] #6 Aucun retry aucun re-prompt et aucune réparation de sortie ne sont ajoutés : le worker échoue toujours immédiatement sur une sortie invalide
-- [ ] #7 ruff et mypy passent sur media_summarizer/
+- [x] #1 Le schéma renvoyé par response_format_schema() impose la cardinalité des options à l'émission : la forme émise ne permet structurellement ni 3 ni 5 options
+- [x] #2 Le schéma ne contient ni minItems ni maxItems et la restriction OpenAI correspondante a été vérifiée dans la documentation courante puis consignée dans le code ou la description
+- [x] #3 build_prompt() décrit au modèle exactement la forme imposée par le schéma : aucune mention d'un tableau d'options ne subsiste si le schéma n'en émet plus
+- [x] #4 validate() reconstruit une liste ordonnée d'options label/text de A à D et conserve ses contrôles sur le titre non vide MIN_QUESTIONS et correct_answer
+- [x] #5 La forme du contenu persisté par build_artifact_content() est inchangée et aucun fichier de mobile/ n'est modifié par cette tâche
+- [x] #6 Aucun retry aucun re-prompt et aucune réparation de sortie ne sont ajoutés : le worker échoue toujours immédiatement sur une sortie invalide
+- [x] #7 ruff et mypy passent sur media_summarizer/
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Ce qui a été livré
+
+Un seul fichier touché : `media_summarizer/workers/artifact_generator/generators/quiz.py`.
+
+- **Schéma émis.** `options` n'est plus un `array` mais un `object` dont les propriétés sont exactement les quatre labels de `LABELS`, avec `required: ["A","B","C","D"]` et `additionalProperties: false`. Le décodage strict ne peut donc produire ni trois ni cinq options, ni un label dupliqué. Le reste du schéma (titre, `questions`, `correct_answer` en enum, `source_ref` nullable) est inchangé.
+- **Modèles Pydantic.** `QuizOption` (couple `label`/`text`) est remplacé par `QuizOptionTexts` : quatre champs `A`/`B`/`C`/`D` obligatoires et non vides, `extra="forbid"` pour que le chemin non structuré (modèle sans Structured Outputs) rejette lui aussi une cinquième option. Sa méthode `ordered()` reconstruit la liste canonique `[{label, text}]` en parcourant `LABELS`.
+- **`OPTIONS_PER_QUESTION` supprimé.** La constante n'avait plus qu'un rôle de vérification a posteriori et faisait doublon avec `LABELS` ; le prompt cite désormais les labels eux-mêmes.
+- **Prompt.** La règle de cardinalité et l'exemple JSON décrivent l'objet `{"A": "...", "B": "...", "C": "...", "D": "..."}`. Plus aucune mention d'un tableau d'options. La consigne « écrire les distracteurs d'abord » devient « régler les trois distracteurs avant l'option correcte » : elle portait sur le calibre, et l'ordre des clés d'une sortie structurée est de toute façon imposé par le schéma.
+- **`validate()`** garde le titre non vide, `MIN_QUESTIONS`, la validation Pydantic par question (dont `correct_answer` dans A-D) et construit explicitement le dict persisté avec `options=question.options.ordered()`. Les deux contrôles devenus impossibles par construction (nombre d'options, unicité des labels) sont supprimés plutôt que gardés en assertions mortes.
+- **`unwrap_structured_response()`** reste un passe-plat : le wrapper structuré est déjà la forme attendue par `validate()`.
+- **Aucun retry, re-prompt ou réparation** n'a été ajouté. Le worker lève toujours `QuizValidationError` immédiatement sur une sortie invalide.
+
+## Constat sur la doc OpenAI Structured Outputs (AC #2)
+
+Vérifié le 2026-09-07 sur la page courante du guide « Structured Outputs » (`https://platform.openai.com/docs/guides/structured-outputs`, qui redirige en 301 vers `https://developers.openai.com/api/docs/guides/structured-outputs`, réponse 200) :
+
+- section « Supported properties » : `minItems` et `maxItems` **sont** désormais listés comme propriétés de tableau supportées ;
+- section « Some type-specific keywords are not yet supported » : la restriction ne subsiste que **pour les modèles fine-tunés** (« For fine-tuned models, we additionally do not support … For arrays: `minItems`, `maxItems` »).
+
+La prémisse de la description (rejet systématique en mode `strict`) n'est donc plus exacte à cette date, et le modèle utilisé (`gpt-5.4-nano-2026-03-17`) n'est pas fine-tuné. Le choix de l'objet à quatre propriétés est malgré tout conservé, et pour une raison de fond plutôt que de compatibilité : `minItems`/`maxItems: 4` contraindraient le nombre d'items mais pas **quels** labels ils portent — un tableau de quatre options toutes labellisées « A » resterait émissible. L'objet clé-par-label ferme la cardinalité et l'unicité des labels d'un seul coup. Ce constat est aussi consigné dans la docstring de `response_format_schema()`, au plus près du code qui en dépend.
+
+## Contenu persisté
+
+Inchangé, et donc rien à modifier côté mobile : `build_artifact_content()` reçoit toujours des questions de forme `{question, options: [{label, text}] * 4 (A→D), correct_answer, explanation, source_ref}`, `_shuffle_options()` opère dessus sans changement, et le contenu final garde `{title, questions, question_count}`. `mobile/app/artifacts/[artifactId].tsx` lit `options: {label, text}[]` — aucun fichier de `mobile/` n'est touché par le diff.
+
+## Vérifications
+
+- `ruff check media_summarizer/` : All checks passed.
+- `mypy media_summarizer/` : Success, no issues found in 180 source files.
+- Aucun test automatisé ajouté (règle de livraison du dépôt).
+- Preuve définitive hors de portée de ce run : la génération réelle d'un quiz depuis l'app suppose l'image Lambda redéployée, ce qui n'arrive qu'au push sur `main`. Cf. la note pour l'owner ci-dessus — un éventuel rejet du nouveau schéma se manifesterait comme un `invalid_schema` sur **toutes** les générations de quiz.
+
+## Écart signalé
+
+`AGENTS.md`, section « Do NOT touch », liste encore « quiz generation » parmi les périmètres à ne pas toucher. Cette tâche, écrite par l'owner le 2026-09-06 sur un incident `-dev` daté, demande explicitement de modifier `generators/quiz.py`, et le quiz est un artefact rendu par l'app. La consigne de la tâche a été suivie ; la ligne d'`AGENTS.md` paraît périmée et mériterait d'être corrigée par l'owner.
+<!-- SECTION:NOTES:END -->

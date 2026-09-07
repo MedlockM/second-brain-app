@@ -2,6 +2,11 @@
 
 Model choice validated by owner (task-72 benchmark): gpt-5.4-nano-2026-03-17.
 Uses OpenAI Structured Outputs (response_format) for reliable JSON generation.
+
+The four options of a question are emitted as an *object* keyed by label, not as
+an array, so their cardinality is imposed at emission instead of being checked
+afterwards (task-370). What is persisted is unchanged: an ordered list of
+``{label, text}`` from A to D.
 """
 
 from __future__ import annotations
@@ -12,7 +17,7 @@ import os
 import random
 from typing import Any, Dict, List, Optional, Sequence
 
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from media_summarizer.workers.artifact_generator.generators import corpus
 
@@ -23,7 +28,6 @@ from media_summarizer.workers.artifact_generator.generators import corpus
 # ceiling: an artifact is generated once per media item, so the quiz has to be
 # able to cover every point a dense source teaches instead of being truncated.
 MIN_QUESTIONS = 1
-OPTIONS_PER_QUESTION = 4
 LABELS = ("A", "B", "C", "D")
 
 
@@ -31,30 +35,38 @@ class QuizValidationError(Exception):
     """Raised when the model output does not match the canonical quiz schema."""
 
 
-class QuizOption(BaseModel):
-    label: str
-    text: str
+class QuizOptionTexts(BaseModel):
+    """The four option texts of a question, one field per label of ``LABELS``.
 
-    @field_validator("label")
-    @classmethod
-    def _valid_label(cls, value: str) -> str:
-        normalized = value.strip().upper()
-        if normalized not in {"A", "B", "C", "D"}:
-            raise ValueError("label must be one of A, B, C, D")
-        return normalized
+    This mirrors the emitted shape one-to-one: the model returns an object whose
+    only keys are A, B, C and D, so it can neither drop one nor add a fifth
+    (task-370). Field names are the labels themselves, which lets ``ordered``
+    walk ``LABELS`` and keeps a single source of truth for the label set.
+    """
 
-    @field_validator("text")
+    model_config = ConfigDict(extra="forbid")
+
+    A: str
+    B: str
+    C: str
+    D: str
+
+    @field_validator("A", "B", "C", "D")
     @classmethod
     def _non_empty_text(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            raise ValueError("text must be non-empty")
+            raise ValueError("option text must be non-empty")
         return normalized
+
+    def ordered(self) -> List[Dict[str, str]]:
+        """Rebuild the canonical ordered ``{label, text}`` list, A through D."""
+        return [{"label": label, "text": getattr(self, label)} for label in LABELS]
 
 
 class QuizQuestion(BaseModel):
     question: str
-    options: List[QuizOption]
+    options: QuizOptionTexts
     correct_answer: str
     explanation: str
     # Optional: a question may draw on several sources.
@@ -112,10 +124,12 @@ Rules:
 - Output STRICT JSON only. No markdown. No commentary. No code fences.
 {corpus.coverage_instruction("question", "questions", fields='"questions"')}
 {corpus.source_balance_instruction("question", "questions")}
-- Each question must have exactly {OPTIONS_PER_QUESTION} options labeled A, B, C, D.
+- "options" is an object holding exactly the keys {", ".join(LABELS)}, each mapping to
+  that option's text. Never omit one, never add another, never nest an object or an
+  array under a key.
 - Exactly one option is correct per question.
-- Write the three distractors first, then write the correct option to match their
-  calibre.
+- Settle the three distractors before the correct option, so the correct option
+  matches their calibre.
 - All four options must be of comparable length and specificity — within roughly
   ten words of each other. A reader who has not read the sources must not be able
   to spot the correct option by its length, its extra detail or its hedging.
@@ -141,12 +155,7 @@ Return JSON with this exact schema:
   "questions": [
     {{
       "question": "...",
-      "options": [
-        {{"label": "A", "text": "..."}},
-        {{"label": "B", "text": "..."}},
-        {{"label": "C", "text": "..."}},
-        {{"label": "D", "text": "..."}}
-      ],
+      "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}},
       "correct_answer": "C",
       "explanation": "...",
       "source_ref": "[S1]"
@@ -157,6 +166,22 @@ Return JSON with this exact schema:
         return corpus.build_prompt(sources, instructions)
 
     def response_format_schema(self) -> Optional[Dict[str, Any]]:
+        """Schema that makes a wrong option count impossible to emit.
+
+        ``options`` is an object with one required property per label instead of
+        an array: ``required`` lists the four and ``additionalProperties`` is
+        false, so strict decoding can produce neither three nor five options, nor
+        a duplicated label. Before task-370 it was an unconstrained array and the
+        count was only checked in ``validate``, which is how a five-option
+        question reached the validator and failed a generation on -dev.
+
+        Deliberately not ``minItems``/``maxItems``: the OpenAI Structured Outputs
+        guide (checked 2026-09-07) does now list both as supported array
+        properties — the restriction only remains for fine-tuned models, which
+        this generator does not use — but an array of exactly four items still
+        says nothing about *which* labels those items carry, so it would leave
+        the label-uniqueness hole open. The keyed object closes both at once.
+        """
         return {
             "type": "json_schema",
             "json_schema": {
@@ -173,19 +198,13 @@ Return JSON with this exact schema:
                                 "properties": {
                                     "question": {"type": "string"},
                                     "options": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "label": {
-                                                    "type": "string",
-                                                    "enum": list(LABELS),
-                                                },
-                                                "text": {"type": "string"},
-                                            },
-                                            "required": ["label", "text"],
-                                            "additionalProperties": False,
+                                        "type": "object",
+                                        "properties": {
+                                            label: {"type": "string"}
+                                            for label in LABELS
                                         },
+                                        "required": list(LABELS),
+                                        "additionalProperties": False,
                                     },
                                     "correct_answer": {
                                         "type": "string",
@@ -255,20 +274,20 @@ Return JSON with this exact schema:
                     f"quiz item at index {idx} schema validation failed: {exc}"
                 ) from exc
 
-            if len(question.options) != OPTIONS_PER_QUESTION:
-                raise QuizValidationError(
-                    f"quiz item at index {idx} must have exactly {OPTIONS_PER_QUESTION} options, "
-                    f"got {len(question.options)}"
-                )
-
-            labels = [option.label for option in question.options]
-            if set(labels) != set(LABELS):
-                raise QuizValidationError(
-                    f"quiz item at index {idx} must label its options {', '.join(LABELS)} exactly "
-                    f"once each, got {labels}"
-                )
-
-            questions.append(question.model_dump())
+            # No option-count nor label-uniqueness check left: both are imposed
+            # by the emitted schema (see `response_format_schema`) and by
+            # `QuizOptionTexts`, which accepts exactly the four labelled keys.
+            # `ordered` is what turns that keyed object back into the canonical
+            # A-to-D list the artifact content carries.
+            questions.append(
+                {
+                    "question": question.question,
+                    "options": question.options.ordered(),
+                    "correct_answer": question.correct_answer,
+                    "explanation": question.explanation,
+                    "source_ref": question.source_ref,
+                }
+            )
 
         return {"title": title, "questions": questions}
 
