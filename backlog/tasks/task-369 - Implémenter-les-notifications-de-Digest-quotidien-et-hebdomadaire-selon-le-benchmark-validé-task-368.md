@@ -3,9 +3,10 @@ id: task-369
 title: >-
   Implémenter les notifications de Digest quotidien et hebdomadaire selon le
   benchmark validé (task-368)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-06 16:13'
+updated_date: '2026-09-07 17:04'
 labels:
   - mobile
   - backend
