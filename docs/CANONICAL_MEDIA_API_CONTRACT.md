@@ -166,6 +166,14 @@ Response (`MediaStatusResponse`):
       "segments_count": 583,
       "duration_seconds": 3540.1
     },
+    "review_blurb": {
+      "hook": "Bouvard fait raconter à Carlos la blague qu'il rate à chaque fois.",
+      "points": [
+        "Carlos s'emmêle dans la chute et la salle part avant lui",
+        "Bouvard relance trois fois sans jamais donner la réponse"
+      ]
+    },
+    "review_blurb_status": "ready",
     "created_at": "2026-02-24T20:20:00Z",
     "updated_at": "2026-02-24T20:37:10Z"
   },
@@ -656,6 +664,12 @@ Response (`UploadAudioResponse`, `202 Accepted`):
 `MediaItem`:
 - `status`: `ingested | resolving | processing | ready_for_artifacts | failed | cancelled`
 - `transcript.status`: `pending | extracting | transcribing | ready | failed`
+- `review_blurb_status`: `pending | ready | failed` — the source preview shown above the
+  full text. `review_blurb` itself is null unless this reads `ready`, and the status is what
+  tells a client whether that null is a preview on its way or one that will never come: the
+  generation is an internal artifact triggered best-effort at the end of ingestion, so no entry
+  at all on a finished item reads as `failed` (repaired by
+  `media_summarizer/scripts/backfill_review_blurbs.py`).
 
 `MediaArtifact`:
 - `scope`: `media | folder` (a folder is what the UI calls a collection)

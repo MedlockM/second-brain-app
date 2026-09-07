@@ -53,6 +53,9 @@ from media_summarizer.api.models.media_contracts import (
     ProcessingProgress as CanonicalProcessingProgress,
 )
 from media_summarizer.api.models.media_contracts import (
+    ReviewBlurbStatus as CanonicalReviewBlurbStatus,
+)
+from media_summarizer.api.models.media_contracts import (
     SourcePlatform as CanonicalSourcePlatform,
 )
 from media_summarizer.api.models.media_contracts import (
@@ -69,6 +72,7 @@ from media_summarizer.core.media_ingestion.title_derivation import (
 )
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.auth import AuthUser
+from media_summarizer.core.models.media_artifact import MediaArtifactStatus
 from media_summarizer.core.models.user_media import (
     ReviewBlurb,
     UserMediaRecord,
@@ -84,6 +88,9 @@ from media_summarizer.core.services import (
     media_search_service,
     quota_enforcer,
     tag_service,
+)
+from media_summarizer.core.services.artifact_service import (
+    latest_internal_artifact_status,
 )
 from media_summarizer.core.services.durable_media_service import (
     resolve_job_for_record,
@@ -909,11 +916,64 @@ def _canonical_transcript(
     )
 
 
+# Artifact lifecycle -> what a reader needs to know about the preview. The two
+# in-flight values collapse into one: a reader waiting for the preview has no use
+# for the difference between "queued" and "generating".
+_ARTIFACT_STATUS_TO_REVIEW_BLURB_STATUS = {
+    MediaArtifactStatus.QUEUED: CanonicalReviewBlurbStatus.PENDING,
+    MediaArtifactStatus.GENERATING: CanonicalReviewBlurbStatus.PENDING,
+    MediaArtifactStatus.READY: CanonicalReviewBlurbStatus.READY,
+    MediaArtifactStatus.FAILED: CanonicalReviewBlurbStatus.FAILED,
+}
+
+# A job that has stopped moving. Past it, an absent internal entry can no longer
+# be "not triggered yet".
+_TERMINAL_JOB_LIFECYCLES = (
+    CanonicalJobLifecycle.COMPLETED,
+    CanonicalJobLifecycle.FAILED,
+    CanonicalJobLifecycle.CANCELLED,
+)
+
+
+async def _resolve_review_blurb_status(
+    record: UserMediaRecord,
+    job_status: CanonicalJobLifecycle,
+) -> CanonicalReviewBlurbStatus:
+    """How the source preview's generation went, read off the artifact entry.
+
+    ``record.review_blurb`` cannot answer this on its own: it is null both while
+    the generation is in flight and forever after a generation that never ran.
+    ``review_blurb_service`` triggers it best-effort at the end of ingestion and
+    swallows every error, so the only honest source is the internal entry of the
+    media scope -- which the artifact history listing deliberately hides.
+
+    No entry at all is read against the pipeline: still running means the trigger
+    has not fired yet (``pending``), already over means it fired and was lost
+    (``failed``, which ``scripts/backfill_review_blurbs.py`` repairs).
+    """
+    artifact_status = await latest_internal_artifact_status(
+        user_id=record.user_id,
+        content_scope_id=record.media_key or record.media_item_id,
+    )
+    if artifact_status is None:
+        return (
+            CanonicalReviewBlurbStatus.FAILED
+            if job_status in _TERMINAL_JOB_LIFECYCLES
+            else CanonicalReviewBlurbStatus.PENDING
+        )
+    return _ARTIFACT_STATUS_TO_REVIEW_BLURB_STATUS.get(
+        artifact_status, CanonicalReviewBlurbStatus.PENDING
+    )
+
+
 def _build_media_item_contract(
     record: UserMediaRecord,
     job: Optional[ProcessingJob],
     job_status: CanonicalJobLifecycle,
     cover_url: Optional[str] = None,
+    review_blurb_status: CanonicalReviewBlurbStatus = (
+        CanonicalReviewBlurbStatus.PENDING
+    ),
 ) -> CanonicalMediaItemContract:
     """Project the durable library row onto the canonical media item contract.
 
@@ -922,6 +982,12 @@ def _build_media_item_contract(
     counterpart. ``media_item_id`` is the opaque id of this save. ``title`` is
     the row's own display title -- the same field the list endpoint projects, so
     the detail header and the inbox vignette cannot disagree.
+
+    ``review_blurb_status`` comes in rather than being read here: resolving it
+    costs one indexed query (``_resolve_review_blurb_status``), and the default
+    keeps a caller that has nothing to read from paying for it -- the ingestion
+    response is built microseconds after the row, when the preview is trivially
+    ``pending``.
     """
     return CanonicalMediaItemContract(
         media_item_id=record.media_item_id,
@@ -935,6 +1001,8 @@ def _build_media_item_contract(
         source_platform=_canonical_source_platform(record.source_platform),
         status=_canonical_media_item_status(job_status),
         transcript=_canonical_transcript(job_status, record, job),
+        review_blurb=record.review_blurb,
+        review_blurb_status=review_blurb_status,
         created_at=record.saved_at.isoformat(),
         updated_at=record.updated_at.isoformat(),
     )
@@ -1979,9 +2047,19 @@ async def get_media_item(
         # (task-302 §5.5). A hotlinked URL passes straight through.
         cover_url = await cover_capture.resolve_cover_url(record.thumbnail_url)
 
+        # The source preview travels with the item (task-363): its content is
+        # already on the row, and its status is the one thing only the artifact
+        # scope knows. This is the single read path that pays for that query --
+        # the reader tab is where the preview is shown.
+        review_blurb_status = await _resolve_review_blurb_status(record, job_status)
+
         return CanonicalMediaStatusResponse(
             media_item=_build_media_item_contract(
-                record, job, job_status, cover_url=cover_url
+                record,
+                job,
+                job_status,
+                cover_url=cover_url,
+                review_blurb_status=review_blurb_status,
             ),
             processing_job=_build_processing_job_contract(record, job, job_status),
         )

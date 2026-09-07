@@ -38,6 +38,11 @@ import {
   type TranscriptContentState,
 } from "../../src/components/TranscriptReader";
 import {
+  SourcePreview,
+  resolveSourcePreviewState,
+  type SourcePreviewState,
+} from "../../src/components/SourcePreview";
+import {
   Colors,
   Typography,
   Spacing,
@@ -88,6 +93,19 @@ const ARTIFACT_POLL_INTERVAL_MS = 3000;
 const TRANSLATION_POLL_DELAY_MS = 3000;
 /** Maximum number of translation polls before giving up. */
 const TRANSLATION_POLL_MAX_ATTEMPTS = 20;
+
+/** Delay between polls while the source preview is still being generated (ms). */
+const PREVIEW_POLL_DELAY_MS = 3000;
+/**
+ * Maximum number of preview polls, i.e. one minute of waiting.
+ *
+ * The generation runs off the completion event and takes seconds, so a preview
+ * that has not landed by then is not going to land while the screen is open. The
+ * section then stays on its waiting line: the next visit re-reads the item, and
+ * a generation that was lost outright comes back as `failed` from the API rather
+ * than being guessed at here.
+ */
+const PREVIEW_POLL_MAX_ATTEMPTS = 20;
 
 /** An `original_url` that is actually a destination the OS can open. */
 type SourceLink = {
@@ -807,6 +825,67 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     };
   }, [mediaReady, transcriptStatus, fetchRawContent]);
 
+  // --- Source preview ("Aperçu"), above the full text ---
+
+  // Seeded from the item this screen was opened with, then owned here: the
+  // detail poll stops the moment processing completes, and the preview is
+  // generated *after* that — so nothing else would ever bring it in.
+  const [preview, setPreview] = useState<SourcePreviewState>(() =>
+    resolveSourcePreviewState(media_item),
+  );
+
+  const previewPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewPollCountRef = useRef(0);
+  // Same indirection as the translation poll: the callback reschedules itself,
+  // and a ref keeps it from referencing its own binding before it exists.
+  const pollForPreviewRef = useRef<() => Promise<void>>(async () => undefined);
+
+  const pollForPreview = useCallback(async () => {
+    if (!isAuthenticated || !mountedRef.current) return;
+    previewPollCountRef.current += 1;
+
+    try {
+      const response = await MediaService.getMediaStatus(
+        media_item.media_item_id,
+      );
+      if (!mountedRef.current) return;
+      const next = resolveSourcePreviewState(response.media_item);
+      setPreview(next);
+      // Resolved, either way: nothing left to wait for.
+      if (next.status !== "pending") return;
+    } catch {
+      // Silent: a failed read is not news the reader needs, and the attempt
+      // still counts against the ceiling so a broken network cannot loop.
+      if (!mountedRef.current) return;
+    }
+
+    if (previewPollCountRef.current < PREVIEW_POLL_MAX_ATTEMPTS) {
+      previewPollRef.current = setTimeout(() => {
+        void pollForPreviewRef.current();
+      }, PREVIEW_POLL_DELAY_MS);
+    }
+  }, [isAuthenticated, media_item.media_item_id]);
+
+  useEffect(() => {
+    pollForPreviewRef.current = pollForPreview;
+  }, [pollForPreview]);
+
+  // Armed once, from the waiting state itself, and stopped by the cleanup —
+  // whether the preview resolved or the screen went away. No interval: the chain
+  // is a bounded series of timeouts that ends on its own.
+  useEffect(() => {
+    if (preview.status !== "pending") return undefined;
+    previewPollRef.current = setTimeout(() => {
+      void pollForPreviewRef.current();
+    }, PREVIEW_POLL_DELAY_MS);
+    return () => {
+      if (previewPollRef.current) {
+        clearTimeout(previewPollRef.current);
+        previewPollRef.current = null;
+      }
+    };
+  }, [preview.status]);
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <Header
@@ -878,6 +957,8 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
             shares with the collection screen. */}
         {activeTab === "reader" ? (
           <View style={styles.readerContent}>
+            {/* What this source is about, before the source itself. */}
+            <SourcePreview state={preview} />
             <TranscriptReader
               transcript={media_item.transcript}
               processingStatus={processing_job.status}
