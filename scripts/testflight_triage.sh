@@ -174,6 +174,17 @@ fi
 RUN_LOG="$(mktemp)"
 trap 'rm -f "${RUN_LOG}"' EXIT
 
+# `claude-bedrock`, jamais `claude` : le travail lourd ne touche pas le quota Pro. Les
+# agents task-mobile qui écrivent les correctifs sont lancés *dans ce processus* par
+# l'outil Agent, donc ils héritent de CLAUDE_CODE_USE_BEDROCK et tournent sur Bedrock
+# eux aussi — c'est ce que prouvent, en négatif, les refus IAM
+# `bedrock:InvokeModelWithResponseStream` des 5 et 6 septembre 2026.
+#
+# Piège, parce que ce dépôt porte désormais les deux conventions : task-mobile déclare
+# `model: opus`, un **alias**, et il doit le rester. Sous Bedrock l'alias se résout en
+# `us.anthropic.claude-opus-5`. Y écrire l'identifiant complet `claude-opus-5` — comme
+# le fait scripts/testflight_session.sh, où c'est au contraire indispensable — casserait
+# le run côté Bedrock. Les deux réglages sont justes, chacun de son côté de la barrière.
 set +e
 claude-bedrock --agent feedback-triage \
   --dangerously-skip-permissions \
@@ -191,7 +202,11 @@ fi
 # et systemd a quand même enregistré `Result=success` : l'échec de délivrance était
 # invisible dans `systemctl --user status`, qui est exactement l'endroit où il
 # devait se voir. Le verdict se lit donc dans la sortie, pas dans le code de retour.
-if [ "${DELIVER}" = true ] && grep -qi "NON DÉLIVRÉ" "${RUN_LOG}"; then
+# Un matin sans rien de neuf ne délivre rien, et c'est le comportement voulu : la
+# Phase 2 dit explicitement de rester silencieuse. Ce n'est un échec que s'il y avait
+# un rapport à remettre — d'où la condition sur son existence.
+TODAY_REPORT=".testflight-feedback/report-$(date +%F).md"
+if [ "${DELIVER}" = true ] && [ -f "${TODAY_REPORT}" ] && grep -qi "NON DÉLIVRÉ" "${RUN_LOG}"; then
   echo "" >&2
   echo "Error: rapport NON DÉLIVRÉ — il est sur disque, mais personne n'a été prévenu." >&2
   echo "  Remède : ./scripts/testflight_session.sh start, puis relancer le triage." >&2
