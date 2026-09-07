@@ -74,9 +74,11 @@ def resolve_daily_window(now: datetime) -> DigestWindow:
     """The 24 hours the last 18:30 send announced.
 
     ``now`` carries the zone the send is scheduled in, and the window is derived
-    from it — nothing here reads a clock of its own. Today the callers pass UTC
-    because there is no stored user timezone yet; task-367 collects the IANA zone,
-    after which passing ``datetime.now(user_zone)`` is the whole of the change.
+    from it — nothing here reads a clock of its own. Today's callers pass UTC.
+    task-367 stores ``User.iana_timezone``, so localising the digest is exactly
+    ``resolve_daily_window(datetime.now(ZoneInfo(user.iana_timezone)))`` at the
+    call site, with no change here — and it belongs to the task that owns the
+    send, which must also decide what to do with an account whose zone is absent.
 
     The ``period_key`` is the local date of the send, so the digest announced on
     the evening of the 12th is ``2026-05-12`` even though most of its content was
