@@ -1,9 +1,10 @@
 # User RSS feed subscriptions.
 #
 # This table was declared in the old `dynamodb_review_tables.tf`, which despite
-# its name held three unrelated tables: the two FSRS ones and this one. task-364
-# removed FSRS and deleted that whole file, taking this declaration with it and
-# leaving `USER_RSS_FEEDS_TABLE` in runtime_env.tf pointing at nothing —
+# its name held three unrelated tables: the two card-scheduling ones and this
+# one. task-364 removed the card scheduler and deleted that whole file, taking
+# this declaration with it and leaving `USER_RSS_FEEDS_TABLE` in runtime_env.tf
+# pointing at nothing —
 # `terraform validate` failed on the dangling reference. Restored here under a
 # name that says what it holds.
 #
