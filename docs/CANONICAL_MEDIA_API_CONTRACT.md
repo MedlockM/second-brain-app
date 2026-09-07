@@ -47,7 +47,8 @@ Operational behavior now implemented in runtime:
 
 Operational behavior now implemented in runtime:
 - status response is built from current `ProcessingJob` state with canonical lifecycle mapping
-- terminal state details are surfaced through `processing_job.completed_at`, `error_code`, and `error_message`
+- terminal state details are surfaced through `processing_job.completed_at` and `error_code`; there is
+  no `error_message` — see "Ingestion failure contract" below
 - stable not-found and unauthorized errors are returned as `MEDIA_NOT_FOUND` (404) and `NOT_AUTHORIZED` (403)
 - the media status response carries **no** artifact projection (task-270): artifacts are a per-scope, append-only history, so "the artifact of this type" no longer exists as a concept
 - transcript metadata (`language`, `segments_count`, `duration_seconds`) is surfaced when the runtime has persisted it from transcription or article extraction
@@ -197,6 +198,57 @@ Response (`MediaStatusResponse`):
 not two. It is nullable (a row whose metadata has not resolved yet has none); clients degrade to the
 source URL, never to a URL path segment, which used to surface raw provider ids such as a Spotify
 episode id as a title.
+
+#### Ingestion failure contract
+
+A job that failed carries a **code**, and only a code:
+
+```json
+{
+  "processing_job": {
+    "job_id": "job_01JQ8X8J5T9Q5V7Q4TW4N1HY03",
+    "status": "failed",
+    "progress": { "percentage": 0, "stage": "failed" },
+    "created_at": "2026-02-24T20:20:00Z",
+    "updated_at": "2026-02-24T20:21:12Z",
+    "started_at": "2026-02-24T20:20:04Z",
+    "completed_at": null,
+    "error_code": "NO_TRANSCRIBABLE_MEDIA"
+  }
+}
+```
+
+There is **no `error_message`** on this response, and there never will be: the
+sentence the reader sees is built on the device from `error_code`, in the reader's
+language, by `mobile/src/lib/getFriendlyErrorMessage.ts`. That is RFC 9457's split
+between `type` (stable, part of the contract) and `title`/`detail` (negotiated,
+never depended upon), and AIP-193's rule that a `message` is developer-facing
+English. Sending English prose here is what put "Unable to extract transcribable
+media from this Instagram URL." on an `fr-FR` screen (task-359).
+
+The vocabulary is `MediaFailureCode` in
+`media_summarizer/core/models/failure_codes.py` — the source of truth, whose
+docstring states the rules for adding a member. As of task-359:
+
+| Group | Codes |
+|---|---|
+| The source cannot yield what we need | `MEDIA_UNAVAILABLE`, `GEO_RESTRICTED`, `AGE_RESTRICTED`, `LIVE_CONTENT_UNSUPPORTED`, `IMAGE_POST_UNSUPPORTED`, `NO_TRANSCRIBABLE_MEDIA`, `NO_TRANSCRIPT_AVAILABLE`, `POST_TEXT_EMPTY`, `NOT_AN_ARTICLE_PAGE`, `ARTICLE_TEXT_NOT_FOUND`, `DOCUMENT_PARSE_FAILED` |
+| The extraction chain is at fault | `PROVIDER_UNAVAILABLE`, `PROVIDER_RESULT_INVALID`, `PROVIDER_RATE_LIMITED`, `PROVIDER_TIMED_OUT` |
+| Our configuration or budget | `PROVIDER_AUTH_FAILED`, `PROVIDER_CREDITS_DEPLETED`, `PROVIDER_CONFIG_ERROR` |
+| The user's allowance | `OUT_OF_MINUTES`, `ITEM_TOO_LONG` |
+| Ours, and only ours | `INVALID_JOB_MESSAGE`, `SUBMISSION_FAILED`, `UNEXPECTED_ERROR` |
+
+`error_code` is typed as the enum, so a value outside it cannot be serialized; a
+row whose stored code is unknown to the current build is served as `null`, and the
+app degrades to its generic failure line rather than showing anything raw.
+
+Everything *variable* about a failure — an HTTP status, a provider name, an Apify
+run id, a duration, a content type — lives in `ProcessingJob.error_metadata`
+alongside a stable lower-snake `reason` token. That attribute is **diagnostic and
+not part of this contract**: it is served only by the operational
+`GET /jobs/{job_id}` router and is absent from every library response. The
+provider's own wording is never persisted; it reaches CloudWatch through
+`exc_info` on the worker's terminal log event.
 
 ### 3) POST /api/artifacts
 

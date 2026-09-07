@@ -70,7 +70,7 @@ from media_summarizer.core.media_ingestion.title_derivation import (
     derive_media_title,
     label_for_file_name,
 )
-from media_summarizer.core.models import ProcessingJob
+from media_summarizer.core.models import MediaFailureCode, ProcessingJob
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.models.media_artifact import MediaArtifactStatus
 from media_summarizer.core.models.user_media import (
@@ -583,23 +583,6 @@ class IngestSharedContentResponse(BaseModel):
     duplicate_of_media_item_id: Optional[str] = None
 
 
-class MediaItemResponse(BaseModel):
-    media_item_id: str
-    status: str
-    source_platform: Optional[str] = None
-    error_message: Optional[str] = None
-    extraction_metadata: Optional[dict] = None
-    transcription_metadata: Optional[dict] = None
-    transcript_source: Optional[str] = Field(
-        None,
-        description=(
-            "How the transcript was obtained "
-            "(e.g. 'deepgram', 'apify_native', 'yt-dlp_native')"
-        ),
-    )
-    provider: Optional[str] = None
-
-
 # ---------- Media update models ----------
 
 class PatchMediaRequest(BaseModel):
@@ -1008,6 +991,22 @@ def _build_media_item_contract(
     )
 
 
+def _media_failure_code(stored: Optional[str]) -> Optional[MediaFailureCode]:
+    """The failure code to serve, or ``None`` when it is not one we publish.
+
+    The job column is a plain string, so a code no longer in the vocabulary --
+    a row written by a worker that has since been rewritten -- must not make the
+    response unserializable. It is dropped instead, and the client falls back to
+    its generic failure copy.
+    """
+    if not stored:
+        return None
+    try:
+        return MediaFailureCode(stored)
+    except ValueError:
+        return None
+
+
 def _build_processing_job_contract(
     record: UserMediaRecord,
     job: Optional[ProcessingJob],
@@ -1032,8 +1031,7 @@ def _build_processing_job_contract(
             updated_at=job.updated_at.isoformat(),
             started_at=job.started_at.isoformat() if job.started_at else None,
             completed_at=job.completed_at.isoformat() if job.completed_at else None,
-            error_code=None,
-            error_message=job.error_message,
+            error_code=_media_failure_code(job.error_code),
         )
 
     is_terminal = job_status in (
@@ -1050,7 +1048,6 @@ def _build_processing_job_contract(
         started_at=None,
         completed_at=record.updated_at.isoformat() if is_terminal else None,
         error_code=None,
-        error_message=None,
     )
 
 

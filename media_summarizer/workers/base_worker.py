@@ -13,13 +13,13 @@ import json
 import logging
 from typing import Any, Awaitable, Callable, Dict
 
+from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.logging_config import (
     bind_log_context,
     log_event,
     reset_log_context,
 )
-from media_summarizer.utils.user_facing_errors import get_user_facing_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -96,16 +96,28 @@ async def process_message_with_retry(
         if receive_count >= max_retries:
             # After max attempts: let SQS redrive to DLQ (do not delete)
 
-            user_error_message = get_user_facing_error_message(str(e))
-
-            # 1. Mark job as FAILED in DynamoDB
+            # 1. Mark job as FAILED in DynamoDB.
+            #
+            # This is the net for exceptions no worker claimed, so the code is
+            # deliberately the generic one: the previous version pattern-matched
+            # `str(e)` against a table of sentences to guess something friendlier,
+            # which is how an English phrase reached a French screen (task-359).
+            # A worker that knows why it failed has already written its own code
+            # and put the job in a terminal state -- never overwrite that with
+            # this one.
             try:
                 if job_id and job_id != "unknown":
                     job = await database_async.get_processing_job_by_id(job_id)
-                    if job:
+                    if job and not job.is_terminal_state():
                         job.mark_failed(
-                            error_message=user_error_message,
-                            error_step=worker_name
+                            error_code=MediaFailureCode.UNEXPECTED_ERROR,
+                            error_step=worker_name,
+                            error_metadata={
+                                "reason": "unhandled_worker_exception",
+                                "exception_type": type(e).__name__,
+                                "queue": queue_name,
+                                "attempt": receive_count,
+                            },
                         )
                         await database_async.update_processing_job(job)
                         log_event(

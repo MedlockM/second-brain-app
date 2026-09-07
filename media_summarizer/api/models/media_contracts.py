@@ -16,6 +16,8 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from media_summarizer.core.models.failure_codes import MediaFailureCode
+
 # The blurb shape is the domain one, not a copy of it: ``MediaSearchItem`` already
 # serves ``user_media.review_blurb`` verbatim on the list endpoint, and a second
 # two-field model here would be free to drift from the one the mirror writes.
@@ -172,8 +174,13 @@ class ProcessingJobContract(BaseModel):
     updated_at: str
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
-    error_code: Optional[CanonicalErrorCode] = None
-    error_message: Optional[str] = None
+    # Why the job failed, as a stable identifier the client turns into a sentence
+    # in the reader's own language (task-359). RFC 9457 §3.1: the `type` is the
+    # contract, human-readable strings are negotiated and never authoritative --
+    # so this response carries no prose about the failure at all. The diagnostic
+    # context behind the code lives in `ProcessingJob.error_metadata`, which is
+    # deliberately not served here: it is written for us, not for a reader.
+    error_code: Optional[MediaFailureCode] = None
 
 
 class TranscriptInfo(BaseModel):

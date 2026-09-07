@@ -29,6 +29,7 @@ from media_summarizer.core.media_ingestion.title_derivation import (
     first_markdown_heading,
     select_title,
 )
+from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.ports.document_parser import (
     DocumentFormat,
     DocumentParserPort,
@@ -438,9 +439,18 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
 
         # Handle result
         if isinstance(result, ParseError):
+            # `result.message` is the provider's own English wording: it belongs
+            # in the raised exception (and therefore the logs), never on the job.
             error_msg = f"Document parsing failed: {result.message}"
             if job:
-                job.mark_failed(error_message=error_msg, error_step="document_parsing")
+                job.mark_failed(
+                    error_code=MediaFailureCode.DOCUMENT_PARSE_FAILED,
+                    error_step="document_parsing",
+                    error_metadata={
+                        "reason": result.code.value,
+                        "document_format": document_format.value,
+                    },
+                )
                 await database_async.update_processing_job(job)
             raise RuntimeError(error_msg)
 

@@ -25,6 +25,7 @@ from .digest import (
     DigestType,
     UserDigestSettings,
 )
+from .failure_codes import MediaFailureCode
 from .folder import MAX_FOLDER_DEPTH, UNCATEGORIZED_FOLDER_NAME, Folder
 from .processing_job import JobStatus, ProcessingJob
 from .rss_feed import FeedStatus, UserRssFeed
@@ -43,6 +44,7 @@ __all__ = [
     "User",
     "ProcessingJob",
     "JobStatus",
+    "MediaFailureCode",
     "AuthToken",
     "TokenType",
     "TokenVerificationResponse",

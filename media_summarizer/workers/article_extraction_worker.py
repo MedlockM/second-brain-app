@@ -28,6 +28,7 @@ from media_summarizer.core.media_ingestion.media_metadata import (
     select_creator,
 )
 from media_summarizer.core.media_ingestion.title_derivation import select_title
+from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
     normalize_transcript_text,
@@ -44,6 +45,7 @@ from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
     process_message_with_retry,
 )
+from media_summarizer.workers.ingestion_failures import IngestionFailure
 
 logger = logging.getLogger(__name__)
 
@@ -66,33 +68,10 @@ ARTICLE_EXTRACT_USER_AGENT = os.environ.get(
 )
 
 _SUPPORTED_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
-_DEFAULT_USER_MESSAGE = "Unable to process this article URL."
-
-_ERROR_MESSAGES: Dict[str, str] = {
-    "article_fetch_timeout": "Article fetch timed out. Please retry.",
-    "article_http_error": "Article URL returned an error and could not be processed.",
-    "article_unsupported_content_type": (
-        "The URL does not point to a supported article page."
-    ),
-    "article_extraction_empty": "Could not extract readable text from this article.",
-    "article_extraction_failed": "Article extraction failed. Please retry.",
-}
 
 
-class ArticleExtractionError(Exception):
-    def __init__(
-        self,
-        code: str,
-        *,
-        details: Optional[str] = None,
-        retryable: bool = False,
-        user_message: Optional[str] = None,
-    ) -> None:
-        super().__init__(details or code)
-        self.code = code
-        self.details = (details or "").strip()
-        self.retryable = retryable
-        self.user_message = user_message or _ERROR_MESSAGES.get(code, _DEFAULT_USER_MESSAGE)
+class ArticleExtractionError(IngestionFailure):
+    """An article extraction failure. See `IngestionFailure` for the shape."""
 
 
 def _now_iso_utc() -> str:
@@ -159,16 +138,20 @@ async def _fetch_article_html(url: str) -> Dict[str, Any]:
                 if status_code >= 400:
                     retryable = status_code >= 500
                     raise ArticleExtractionError(
-                        "article_http_error",
-                        details=f"status={status_code}",
+                        MediaFailureCode.PROVIDER_UNAVAILABLE,
+                        details="article_http_error",
                         retryable=retryable,
+                        http_status=status_code,
+                        final_url=final_url,
                     )
 
                 if not _is_supported_content_type(content_type):
                     raise ArticleExtractionError(
-                        "article_unsupported_content_type",
-                        details=f"content_type={content_type or 'missing'}",
+                        MediaFailureCode.NOT_AN_ARTICLE_PAGE,
+                        details="article_unsupported_content_type",
                         retryable=False,
+                        content_type=content_type or None,
+                        final_url=final_url,
                     )
 
                 total = 0
@@ -177,9 +160,10 @@ async def _fetch_article_html(url: str) -> Dict[str, Any]:
                     total += len(chunk)
                     if total > ARTICLE_EXTRACT_MAX_HTML_BYTES:
                         raise ArticleExtractionError(
-                            "article_extraction_failed",
+                            MediaFailureCode.ARTICLE_TEXT_NOT_FOUND,
                             details="html_too_large",
                             retryable=False,
+                            html_bytes_limit=ARTICLE_EXTRACT_MAX_HTML_BYTES,
                         )
                     chunks.append(chunk)
 
@@ -200,21 +184,25 @@ async def _fetch_article_html(url: str) -> Dict[str, Any]:
         raise
     except httpx.TimeoutException as exc:
         raise ArticleExtractionError(
-            "article_fetch_timeout",
-            details=type(exc).__name__,
+            MediaFailureCode.PROVIDER_TIMED_OUT,
+            details="article_fetch_timeout",
             retryable=True,
+            exception_type=type(exc).__name__,
+            timeout_seconds=ARTICLE_EXTRACT_TIMEOUT_SECONDS,
         ) from exc
     except httpx.HTTPError as exc:
         raise ArticleExtractionError(
-            "article_http_error",
-            details=type(exc).__name__,
+            MediaFailureCode.PROVIDER_UNAVAILABLE,
+            details="article_fetch_transport_error",
             retryable=True,
+            exception_type=type(exc).__name__,
         ) from exc
     except Exception as exc:
         raise ArticleExtractionError(
-            "article_extraction_failed",
-            details=type(exc).__name__,
+            MediaFailureCode.UNEXPECTED_ERROR,
+            details="article_fetch_unexpected_exception",
             retryable=False,
+            exception_type=type(exc).__name__,
         ) from exc
 
 
@@ -235,15 +223,16 @@ def _extract_clean_text(html: str) -> str:
         )
     except Exception as exc:
         raise ArticleExtractionError(
-            "article_extraction_failed",
-            details=f"trafilatura_error={type(exc).__name__}",
+            MediaFailureCode.ARTICLE_TEXT_NOT_FOUND,
+            details="trafilatura_error",
             retryable=False,
+            exception_type=type(exc).__name__,
         ) from exc
 
     text = normalize_transcript_text(extracted, source="article")
     if not text:
         raise ArticleExtractionError(
-            "article_extraction_empty",
+            MediaFailureCode.ARTICLE_TEXT_NOT_FOUND,
             details="empty_text_after_extraction",
             retryable=False,
         )
@@ -367,13 +356,13 @@ async def _mark_job_failed(
         return
     job.extraction_metadata = _build_extraction_metadata(
         requested_url=requested_url,
-        last_error_code=error.code,
+        last_error_code=error.code.value,
     )
-    if error.details:
-        job.extraction_metadata["failure_details"] = error.details
+    job.extraction_metadata["failure_details"] = error.details
     job.mark_failed(
-        error_message=error.user_message,
+        error_code=error.code,
         error_step="article_extraction",
+        error_metadata=error.error_metadata(step="article_extraction"),
     )
     await database_async.update_processing_job(job)
 
@@ -384,13 +373,13 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
 
     if not isinstance(job_id, str) or not job_id.strip():
         raise ArticleExtractionError(
-            "article_extraction_failed",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_job_id",
             retryable=False,
         )
     if not normalized_url:
         raise ArticleExtractionError(
-            "article_extraction_failed",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_normalized_url",
             retryable=False,
         )
@@ -398,8 +387,8 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
     job = await database_async.get_processing_job_by_id(job_id)
     if not job:
         raise ArticleExtractionError(
-            "article_extraction_failed",
-            details=f"processing_job_not_found:{job_id}",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
+            details="processing_job_not_found",
             retryable=False,
         )
 
@@ -520,11 +509,10 @@ async def process_message(message: Dict[str, Any]) -> None:
             requested_url=(body.get("normalized_url") or "").strip(),
             error=exc,
         )
-        reason = exc.code if not exc.details else f"{exc.code}:{exc.details}"
         await _publish_failure_event(
             job_id=body.get("job_id"),
             media_key=body.get("media_key"),
-            reason=reason,
+            reason=exc.reason,
         )
         log_event(
             logger,
@@ -534,17 +522,21 @@ async def process_message(message: Dict[str, Any]) -> None:
             job_id=body.get("job_id"),
             media_item_id=body.get("job_id"),
             transcript_source="article_extractor",
-            error_code=exc.code,
+            error_code=exc.code.value,
             detail=exc.details,
+            # The site's own wording — English, unversioned — stays here rather
+            # than on the job: CloudWatch is where we read it.
+            exc_info=exc,
         )
     except Exception as exc:
         if receive_count < ARTICLE_WORKER_MAX_RETRIES:
             raise
 
         final_error = ArticleExtractionError(
-            "article_extraction_failed",
-            details=f"unexpected:{type(exc).__name__}",
+            MediaFailureCode.UNEXPECTED_ERROR,
+            details="unexpected_exception",
             retryable=False,
+            exception_type=type(exc).__name__,
         )
         await _mark_job_failed(
             job_id=body.get("job_id"),
@@ -554,7 +546,7 @@ async def process_message(message: Dict[str, Any]) -> None:
         await _publish_failure_event(
             job_id=body.get("job_id"),
             media_key=body.get("media_key"),
-            reason=f"{final_error.code}:{final_error.details}",
+            reason=final_error.reason,
         )
         log_event(
             logger,
@@ -564,7 +556,7 @@ async def process_message(message: Dict[str, Any]) -> None:
             job_id=body.get("job_id"),
             media_item_id=body.get("job_id"),
             transcript_source="article_extractor",
-            error_code=final_error.code,
+            error_code=final_error.code.value,
             exc_info=exc,
         )
     finally:

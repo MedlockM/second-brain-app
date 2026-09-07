@@ -70,6 +70,7 @@ from media_summarizer.core.media_ingestion.media_metadata import (
     youtube_video_id,
 )
 from media_summarizer.core.media_ingestion.title_derivation import select_title
+from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.services import quota_enforcer
 from media_summarizer.core.services.transcript_formatting import (
     count_paragraphs,
@@ -95,6 +96,7 @@ from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
     process_message_with_retry,
 )
+from media_summarizer.workers.ingestion_failures import IngestionFailure, apify_failure_code
 
 logger = logging.getLogger(__name__)
 
@@ -138,11 +140,6 @@ _APIFY_TITLE_FIELDS = ("title", "video_title", "videoTitle", "name")
 _APIFY_CREATOR_FIELDS = ("channel", "channel_name", "channelName", "author", "uploader")
 _APIFY_THUMBNAIL_FIELDS = ("thumbnail", "thumbnail_url", "thumbnailUrl", "cover")
 
-_UNAVAILABLE_MESSAGE = "This YouTube video is unavailable or cannot be processed."
-_TEMPORARY_MESSAGE = "YouTube extraction is temporarily unavailable. Please retry."
-_GEO_RESTRICTED_MESSAGE = "This YouTube video is geo-restricted and cannot be accessed."
-_AGE_RESTRICTED_MESSAGE = "This YouTube video is age-restricted and cannot be processed."
-
 
 # ---------------------------------------------------------------------------
 # Error classes
@@ -183,20 +180,8 @@ class ApifyTranscriptFailure(str, Enum):
     VIDEO_UNAVAILABLE = "apify_video_unavailable"
 
 
-class YouTubeIngestionError(Exception):
-    def __init__(
-        self,
-        code: str,
-        *,
-        details: Optional[str] = None,
-        retryable: bool = False,
-        user_message: Optional[str] = None,
-    ) -> None:
-        super().__init__(details or code)
-        self.code = code
-        self.details = (details or "").strip()
-        self.retryable = retryable
-        self.user_message = user_message or "Unable to process this YouTube URL."
+class YouTubeIngestionError(IngestionFailure):
+    """A YouTube ingestion failure. See `IngestionFailure` for the shape."""
 
 
 # ---------------------------------------------------------------------------
@@ -241,10 +226,9 @@ def _extract_video_id(normalized_url: str) -> str:
     if video_id:
         return video_id
     raise YouTubeIngestionError(
-        "youtube_unavailable",
+        MediaFailureCode.MEDIA_UNAVAILABLE,
         details="missing_video_id",
         retryable=False,
-        user_message=_UNAVAILABLE_MESSAGE,
     )
 
 
@@ -259,8 +243,9 @@ def _apify_actor_dialect(actor_id: str) -> Dict[str, Any]:
     """Return the input/output dialect for the configured actor.
 
     Raises ``apify_actor_unsupported`` when the runtime secret names an actor
-    this worker does not know how to talk to, naming the offending id and the
-    supported set so the misconfiguration is immediately actionable.
+    this worker does not know how to talk to. The offending id travels in the
+    failure context and the supported set in the log event, so the
+    misconfiguration is immediately actionable.
     """
     normalized = _apify_actor_id_for_api(actor_id)
     dialect = _APIFY_ACTOR_DIALECTS.get(normalized)
@@ -279,10 +264,11 @@ def _apify_actor_dialect(actor_id: str) -> Dict[str, Any]:
             transcript_source="apify_transcript",
         )
         raise YouTubeIngestionError(
-            "youtube_unavailable",
-            details=(f"{ApifyTranscriptFailure.ACTOR_UNSUPPORTED.value}:{normalized}"),
+            MediaFailureCode.PROVIDER_CONFIG_ERROR,
+            details=ApifyTranscriptFailure.ACTOR_UNSUPPORTED.value,
             retryable=False,
-            user_message=_UNAVAILABLE_MESSAGE,
+            provider="apify",
+            configured_actor_id=normalized,
         )
     return dialect
 
@@ -363,18 +349,22 @@ def _classify_actor_error(item: Dict[str, Any]) -> YouTubeIngestionError:
     vocabulary, so each family is matched on a substring of the lowercased
     value. The mapping is:
 
-    ==========================  ==============================  =========================
-    ``error_category`` contains  ``ApifyTranscriptFailure``       error code
-    ==========================  ==============================  =========================
-    ``geo``, ``region``,         ``GEO_RESTRICTED``              ``youtube_geo_restricted``
+    ===========================  ==============================  ===========================
+    ``error_category`` contains  ``ApifyTranscriptFailure``      ``MediaFailureCode``
+    ===========================  ==============================  ===========================
+    ``geo``, ``region``,         ``GEO_RESTRICTED``              ``GEO_RESTRICTED``
     ``country``
-    ``age``, ``sign_in``,        ``AGE_RESTRICTED``              ``youtube_age_restricted``
+    ``age``, ``sign_in``,        ``AGE_RESTRICTED``              ``AGE_RESTRICTED``
     ``login``
-    ``unavailable``,             ``VIDEO_UNAVAILABLE``           ``youtube_unavailable``
+    ``unavailable``,             ``VIDEO_UNAVAILABLE``           ``MEDIA_UNAVAILABLE``
     ``private``, ``deleted``,
     ``removed``, ``not_found``
-    anything else                ``ACTOR_ERROR``                 ``youtube_unavailable``
-    ==========================  ==============================  =========================
+    anything else                ``ACTOR_ERROR``                 ``MEDIA_UNAVAILABLE``
+    ===========================  ==============================  ===========================
+
+    The raw ``error_category`` is not part of the details token -- it is
+    unversioned actor wording -- so it travels as ``actor_error_category`` in the
+    failure context instead.
 
     ``language_not_available`` never reaches here: the callback branch retries
     it on the video's default track before parsing.
@@ -386,37 +376,33 @@ def _classify_actor_error(item: Dict[str, Any]) -> YouTubeIngestionError:
 
     if any(token in category for token in ("geo", "region", "country")):
         return YouTubeIngestionError(
-            "youtube_geo_restricted",
+            MediaFailureCode.GEO_RESTRICTED,
             details=ApifyTranscriptFailure.GEO_RESTRICTED.value,
             retryable=False,
-            user_message=_GEO_RESTRICTED_MESSAGE,
+            actor_error_category=category,
         )
     if any(token in category for token in ("age", "sign_in", "signin", "login")):
         return YouTubeIngestionError(
-            "youtube_age_restricted",
+            MediaFailureCode.AGE_RESTRICTED,
             details=ApifyTranscriptFailure.AGE_RESTRICTED.value,
             retryable=False,
-            user_message=_AGE_RESTRICTED_MESSAGE,
+            actor_error_category=category,
         )
     if any(
         token in category
         for token in ("unavailable", "private", "deleted", "removed", "not_found")
     ):
         return YouTubeIngestionError(
-            "youtube_unavailable",
+            MediaFailureCode.MEDIA_UNAVAILABLE,
             details=ApifyTranscriptFailure.VIDEO_UNAVAILABLE.value,
             retryable=False,
-            user_message=_UNAVAILABLE_MESSAGE,
+            actor_error_category=category,
         )
     return YouTubeIngestionError(
-        "youtube_unavailable",
-        details=(
-            f"{ApifyTranscriptFailure.ACTOR_ERROR.value}:{category}"
-            if category
-            else ApifyTranscriptFailure.ACTOR_ERROR.value
-        ),
+        MediaFailureCode.MEDIA_UNAVAILABLE,
+        details=ApifyTranscriptFailure.ACTOR_ERROR.value,
         retryable=False,
-        user_message=_UNAVAILABLE_MESSAGE,
+        actor_error_category=category or None,
     )
 
 
@@ -433,10 +419,10 @@ def _parse_apify_transcript(
     language_supported = bool(dialect["supports_language"])
     if not items:
         raise YouTubeIngestionError(
-            "youtube_unavailable",
+            MediaFailureCode.PROVIDER_RESULT_INVALID,
             details=ApifyTranscriptFailure.NO_RESULTS.value,
             retryable=False,
-            user_message=_UNAVAILABLE_MESSAGE,
+            provider="apify",
         )
     item = items[0]
 
@@ -446,10 +432,10 @@ def _parse_apify_transcript(
     transcript_text = _apify_item_transcript_text(item, dialect)
     if not transcript_text:
         raise YouTubeIngestionError(
-            "youtube_unavailable",
+            MediaFailureCode.NO_TRANSCRIPT_AVAILABLE,
             details=ApifyTranscriptFailure.EMPTY_TRANSCRIPT.value,
             retryable=False,
-            user_message=_UNAVAILABLE_MESSAGE,
+            language_fallback=language_fallback,
         )
 
     # Paragraph count rather than the actor's cue count, so the value is
@@ -527,10 +513,11 @@ async def _start_apify_transcript_run(
         )
     except apify_adapter.ApifyAdapterError as exc:
         raise YouTubeIngestionError(
-            "youtube_apify_failed",
+            apify_failure_code(exc.code),
             details=exc.code,
             retryable=exc.retryable,
-            user_message=(_TEMPORARY_MESSAGE if exc.retryable else _UNAVAILABLE_MESSAGE),
+            provider="apify",
+            apify_actor_kind=ApifyActorKind.YOUTUBE_TRANSCRIPT.value,
         ) from exc
     return {
         "mode": "apify_pending",
@@ -689,16 +676,17 @@ async def _mark_job_failed(
         "strategy_used": "failed",
         "source_url": normalized_url,
         "video_id": video_id,
-        "last_error_code": error.code,
-        "failure_details": error.details or error.code,
+        "last_error_code": error.code.value,
+        "failure_details": error.details,
         "failed_at": _now_iso_utc(),
     }
     if job.apify_state == "processing":
         job.apify_state = "processed"
         job.apify_completed_at = datetime.now(timezone.utc)
     job.mark_failed(
-        error_message=error.user_message,
+        error_code=error.code,
         error_step="youtube_ingestion",
+        error_metadata=error.error_metadata(step="youtube_ingestion"),
     )
     await database_async.update_processing_job(job)
 
@@ -715,26 +703,26 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
 
     if not job_id:
         raise YouTubeIngestionError(
-            "youtube_unavailable",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_job_id",
             retryable=False,
-            user_message=_UNAVAILABLE_MESSAGE,
+            message_type=message_type,
         )
     if not normalized_url:
         raise YouTubeIngestionError(
-            "youtube_unavailable",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_normalized_url",
             retryable=False,
-            user_message=_UNAVAILABLE_MESSAGE,
+            message_type=message_type,
         )
 
     job = await database_async.get_processing_job_by_id(job_id)
     if not job:
         raise YouTubeIngestionError(
-            "youtube_unavailable",
-            details=f"processing_job_not_found:{job_id}",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
+            details="processing_job_not_found",
             retryable=False,
-            user_message=_UNAVAILABLE_MESSAGE,
+            message_type=message_type,
         )
 
     if message_type == "apify_backstop":
@@ -764,10 +752,10 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
         normalized_url = str(stored_context.get("normalized_url") or "").strip()
         if str(message_body.get("job_id") or job_id) != job_id:
             raise YouTubeIngestionError(
-                "youtube_apify_failed",
+                MediaFailureCode.INVALID_JOB_MESSAGE,
                 details="apify_context_mismatch",
                 retryable=False,
-                user_message=_UNAVAILABLE_MESSAGE,
+                message_type=message_type,
             )
 
     video_id = _extract_video_id(normalized_url)
@@ -782,10 +770,11 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
         callback_status = str(callback_envelope.get("apify_status") or "").upper()
         if callback_status != "SUCCEEDED":
             raise YouTubeIngestionError(
-                "youtube_apify_failed",
-                details=f"apify_terminal_{callback_status}",
+                MediaFailureCode.PROVIDER_UNAVAILABLE,
+                details="apify_run_not_succeeded",
                 retryable=False,
-                user_message=_UNAVAILABLE_MESSAGE,
+                provider="apify",
+                apify_status=callback_status or None,
             )
         try:
             items = await apify_adapter.fetch_dataset_items(
@@ -794,10 +783,10 @@ async def process_youtube_message(message_body: Dict[str, Any]) -> Dict[str, Any
             )
         except apify_adapter.ApifyAdapterError as exc:
             raise YouTubeIngestionError(
-                "youtube_apify_failed",
+                apify_failure_code(exc.code),
                 details=exc.code,
                 retryable=exc.retryable,
-                user_message=(_TEMPORARY_MESSAGE if exc.retryable else _UNAVAILABLE_MESSAGE),
+                provider="apify",
             ) from exc
 
         actor_id = job.apify_actor_id or ""
@@ -1012,11 +1001,10 @@ async def process_message(message: Dict[str, Any]) -> None:
             video_id=video_id,
             error=exc,
         )
-        reason = exc.code if not exc.details else f"{exc.code}:{exc.details}"
         await _publish_failure_event(
             job_id=body.get("job_id"),
             media_key=body.get("media_key"),
-            reason=reason,
+            reason=exc.reason,
         )
         log_event(
             logger,
@@ -1025,18 +1013,21 @@ async def process_message(message: Dict[str, Any]) -> None:
             "YouTube ingestion failed",
             job_id=body.get("job_id"),
             media_item_id=body.get("job_id"),
-            error_code=exc.code,
+            error_code=exc.code.value,
             detail=exc.details,
+            # The provider's own wording — English, unversioned — stays here
+            # rather than on the job: CloudWatch is where we read it.
+            exc_info=exc,
         )
     except Exception as exc:
         if receive_count < YOUTUBE_WORKER_MAX_RETRIES:
             raise
 
         final_error = YouTubeIngestionError(
-            "youtube_unavailable",
-            details=f"unexpected:{type(exc).__name__}",
+            MediaFailureCode.UNEXPECTED_ERROR,
+            details="unexpected_exception",
             retryable=False,
-            user_message=_UNAVAILABLE_MESSAGE,
+            exception_type=type(exc).__name__,
         )
         video_id = None
         normalized_url = (body.get("normalized_url") or "").strip()
@@ -1054,7 +1045,7 @@ async def process_message(message: Dict[str, Any]) -> None:
         await _publish_failure_event(
             job_id=body.get("job_id"),
             media_key=body.get("media_key"),
-            reason=f"{final_error.code}:{final_error.details}",
+            reason=final_error.reason,
         )
         log_event(
             logger,
@@ -1063,7 +1054,7 @@ async def process_message(message: Dict[str, Any]) -> None:
             "YouTube ingestion failed after retries",
             job_id=body.get("job_id"),
             media_item_id=body.get("job_id"),
-            error_code=final_error.code,
+            error_code=final_error.code.value,
             exc_info=exc,
         )
     finally:

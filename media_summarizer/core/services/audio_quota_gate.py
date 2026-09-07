@@ -32,12 +32,19 @@ import os
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.services import audio_duration_probe, quota_enforcer
 from media_summarizer.core.services.durable_media_service import user_holds_media
 from media_summarizer.utils import database_async, sqs
 from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
+
+#: The enforcer's refusal code -> what the reader of the refused item is told.
+_QUOTA_FAILURE_CODES: dict[str, MediaFailureCode] = {
+    quota_enforcer.ERROR_OUT_OF_MINUTES: MediaFailureCode.OUT_OF_MINUTES,
+    quota_enforcer.ERROR_ITEM_TOO_LONG: MediaFailureCode.ITEM_TOO_LONG,
+}
 
 
 @dataclass
@@ -55,19 +62,16 @@ class AudioGateDecision:
     debit_skipped: bool = False
 
     @property
-    def failure_message(self) -> str:
-        """What the user reads on the item that could not be processed.
+    def failure_code(self) -> MediaFailureCode:
+        """The failure code to write on the refused job.
 
-        One fixed sentence, with no figures in it. The gate runs in a worker,
-        long after the request that produced the item is over, and what it
-        writes lands in `ProcessingJob.error_message` — a free-text column the
-        app renders as-is, in whatever language it was written in. Since the
-        refusal figures now travel typed on the synchronous path (see
-        `QuotaCheckResult`), spelling them out here would be the one place left
-        putting an English sentence with numbers in front of a reader who asked
-        for another language.
+        The gate runs in a worker, long after the request that produced the item
+        is over, so it cannot negotiate a language: it writes a code and the app
+        renders it in the reader's own language. The refusal figures travel typed
+        on the synchronous path (see `QuotaCheckResult`) and are deliberately not
+        repeated here — a code carries no numbers.
         """
-        return "This import could not be processed."
+        return _QUOTA_FAILURE_CODES.get(self.error_code or "", MediaFailureCode.OUT_OF_MINUTES)
 
 
 async def resolve_audio_duration_seconds(
@@ -257,8 +261,12 @@ async def gate_audio_transcription(
             target_job = job or await database_async.get_processing_job_by_id(job_id)
             if target_job:
                 target_job.mark_failed(
-                    error_message=decision.failure_message,
+                    error_code=decision.failure_code,
                     error_step=error_step,
+                    error_metadata={
+                        "reason": gate.error_code or quota_enforcer.ERROR_OUT_OF_MINUTES,
+                        "duration_seconds": duration_seconds,
+                    },
                 )
                 await database_async.update_processing_job(target_job)
         except Exception as exc:

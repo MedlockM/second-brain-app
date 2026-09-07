@@ -16,8 +16,8 @@ Pipeline:
   block Deepgram's pull, so the Deepgram worker downloads the bytes and posts
   them itself. Carries the caption, the comments, the derived title (task-266)
   and the Instagram quota category.
-- Image posts (single and carousel) fail with unsupported_content: no OCR/vision
-  pipeline exists.
+- Image posts (single and carousel) fail with IMAGE_POST_UNSUPPORTED: no
+  OCR/vision pipeline exists.
 - Fails terminally when no audio URL is available.
 - Marks the processing job as extracting/transcribing along the way.
 """
@@ -45,6 +45,7 @@ from media_summarizer.core.media_ingestion.errors import (
     NonRetryableProviderResolutionError,
     RetryableProviderResolutionError,
 )
+from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.services import audio_quota_gate, cover_capture
 from media_summarizer.infrastructure import apify_adapter
 from media_summarizer.infrastructure.apify_adapter import ApifyActorKind
@@ -67,6 +68,7 @@ from media_summarizer.workers.base_worker import (
     get_sqs_receive_params,
     process_message_with_retry,
 )
+from media_summarizer.workers.ingestion_failures import IngestionFailure, apify_failure_code
 
 logger = logging.getLogger(__name__)
 
@@ -74,25 +76,9 @@ INSTAGRAM_INGESTION_QUEUE = required_env("INSTAGRAM_INGESTION_QUEUE")
 EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 INSTAGRAM_WORKER_MAX_RETRIES = max(1, int(os.environ.get("INSTAGRAM_WORKER_MAX_RETRIES", "3")))
 
-_DEFAULT_TEMPORARY_MESSAGE = "Instagram media extraction is temporarily unavailable. Please retry."
-_DEFAULT_UNSUPPORTED_MESSAGE = "Unable to extract transcribable media from this Instagram URL."
-_IMAGE_POST_MESSAGE = "Instagram image posts are not supported yet."
 
-
-class InstagramIngestionError(Exception):
-    def __init__(
-        self,
-        code: str,
-        *,
-        details: Optional[str] = None,
-        retryable: bool = False,
-        user_message: Optional[str] = None,
-    ) -> None:
-        super().__init__(details or code)
-        self.code = code
-        self.details = (details or "").strip()
-        self.retryable = retryable
-        self.user_message = user_message or _DEFAULT_TEMPORARY_MESSAGE
+class InstagramIngestionError(IngestionFailure):
+    """An Instagram ingestion failure. See `IngestionFailure` for the shape."""
 
 
 def _now_iso_utc() -> str:
@@ -182,16 +168,17 @@ async def _mark_job_failed(
 
     job.extraction_metadata = _build_extraction_metadata(
         source_url=normalized_url,
-        last_error_code=error.code,
-        failure_details=error.details or error.code,
+        last_error_code=error.code.value,
+        failure_details=error.details,
     )
     job.extraction_metadata["failed_at"] = _now_iso_utc()
     if job.apify_state == "processing":
         job.apify_state = "processed"
         job.apify_completed_at = datetime.now(timezone.utc)
     job.mark_failed(
-        error_message=error.user_message,
+        error_code=error.code,
         error_step="instagram_ingestion",
+        error_metadata=error.error_metadata(step="instagram_ingestion"),
     )
     await database_async.update_processing_job(job)
 
@@ -206,26 +193,23 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
 
     if not job_id:
         raise InstagramIngestionError(
-            "invalid_message",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_job_id",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            message_type=message_type,
         )
     if not normalized_url:
         raise InstagramIngestionError(
-            "invalid_message",
+            MediaFailureCode.INVALID_JOB_MESSAGE,
             details="missing_normalized_url",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            message_type=message_type,
         )
 
     job = await database_async.get_processing_job_by_id(job_id)
     if not job:
         raise InstagramIngestionError(
-            "invalid_message",
-            details=f"processing_job_not_found:{job_id}",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            MediaFailureCode.INVALID_JOB_MESSAGE,
+            details="processing_job_not_found",
+            message_type=message_type,
         )
 
     resolver = InstagramApifyResolver()
@@ -251,10 +235,10 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             return {"job_id": job_id, "routed_to": "duplicate_callback"}
         if str(message_body.get("apify_status") or "") != "SUCCEEDED":
             raise InstagramIngestionError(
-                "provider_error",
-                details=f"apify_terminal_{message_body.get('apify_status')}",
-                retryable=False,
-                user_message=_DEFAULT_TEMPORARY_MESSAGE,
+                MediaFailureCode.PROVIDER_UNAVAILABLE,
+                details="apify_run_not_succeeded",
+                provider="apify",
+                apify_status=str(message_body.get("apify_status") or "unknown"),
             )
         stored_context = dict(job.apify_context or {})
         normalized_url = str(stored_context.get("normalized_url") or "").strip()
@@ -279,17 +263,18 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             )
         except apify_adapter.ApifyAdapterError as exc:
             raise InstagramIngestionError(
-                "provider_error",
+                apify_failure_code(exc.code),
                 details=exc.code,
                 retryable=exc.retryable,
-                user_message=_DEFAULT_TEMPORARY_MESSAGE,
+                provider="apify",
+                provider_detail=exc.detail or None,
             ) from exc
         except (ValueError, NonRetryableProviderResolutionError) as exc:
             raise InstagramIngestionError(
-                "unsupported_content",
-                details=f"apify_result_invalid:{exc}",
-                retryable=False,
-                user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
+                MediaFailureCode.PROVIDER_RESULT_INVALID,
+                details="apify_result_invalid",
+                provider="apify",
+                exception_type=type(exc).__name__,
             ) from exc
         message_body = stored_context
     else:
@@ -328,10 +313,12 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
                 )
             except apify_adapter.ApifyAdapterError as adapter_exc:
                 raise InstagramIngestionError(
-                    "provider_error",
+                    apify_failure_code(adapter_exc.code),
                     details=adapter_exc.code,
                     retryable=adapter_exc.retryable,
-                    user_message=_DEFAULT_TEMPORARY_MESSAGE,
+                    provider="apify",
+                    provider_detail=adapter_exc.detail or None,
+                    apify_actor_kind=kind.value,
                 ) from adapter_exc
             return {
                 "job_id": job_id,
@@ -342,17 +329,16 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             }
         except RetryableProviderResolutionError as exc:
             raise InstagramIngestionError(
-                "provider_error",
-                details=f"resolver_retryable:{exc}",
+                MediaFailureCode.PROVIDER_UNAVAILABLE,
+                details="resolver_retryable",
                 retryable=True,
-                user_message=_DEFAULT_TEMPORARY_MESSAGE,
+                exception_type=type(exc).__name__,
             ) from exc
         except NonRetryableProviderResolutionError as exc:
             raise InstagramIngestionError(
-                "unsupported_content",
-                details=f"resolver_non_retryable:{exc}",
-                retryable=False,
-                user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
+                MediaFailureCode.NO_TRANSCRIBABLE_MEDIA,
+                details="resolver_non_retryable",
+                exception_type=type(exc).__name__,
             ) from exc
 
     # Extract metadata from resolver result
@@ -363,7 +349,7 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
     if resolved.media_type == MediaType.IMAGE_POST:
         # Single images and carousels resolve fine; there is simply nothing to
         # transcribe and no OCR/vision pipeline to send them to. Failing here
-        # with a reason the user can read is the whole handling.
+        # under a code the app can put in words is the whole handling.
         log_event(
             logger,
             logging.WARNING,
@@ -376,10 +362,11 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             image_count=resolver_metadata.get("image_count", 0),
         )
         raise InstagramIngestionError(
-            "unsupported_content",
+            MediaFailureCode.IMAGE_POST_UNSUPPORTED,
             details="instagram_image_post",
-            retryable=False,
-            user_message=_IMAGE_POST_MESSAGE,
+            instagram_content_type=resolved_content_type,
+            post_type=resolver_metadata.get("post_type"),
+            image_count=resolver_metadata.get("image_count", 0),
         )
 
     # The resolver returns audio_url for reels -> hand off to Deepgram in push
@@ -494,10 +481,9 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
     # If we reach here, the resolver returned no audio URL for a video post.
     # There is nothing to transcribe — fail hard.
     raise InstagramIngestionError(
-        "unsupported_content",
+        MediaFailureCode.NO_TRANSCRIBABLE_MEDIA,
         details="no_transcript_or_audio_url",
-        retryable=False,
-        user_message=_DEFAULT_UNSUPPORTED_MESSAGE,
+        instagram_content_type=resolved_content_type,
     )
 
 
@@ -540,11 +526,10 @@ async def process_message(message: Dict[str, Any]) -> None:
             normalized_url=(body.get("normalized_url") or "").strip(),
             error=exc,
         )
-        reason = exc.code if not exc.details else f"{exc.code}:{exc.details}"
         await _publish_failure_event(
             job_id=body.get("job_id"),
             media_key=body.get("media_key"),
-            reason=reason,
+            reason=exc.reason,
         )
         log_event(
             logger,
@@ -553,18 +538,20 @@ async def process_message(message: Dict[str, Any]) -> None:
             "Instagram ingestion failed",
             job_id=body.get("job_id"),
             media_item_id=body.get("job_id"),
-            error_code=exc.code,
+            error_code=exc.code.value,
             detail=exc.details,
+            # The cause carries the provider's own wording, which no longer
+            # travels in `details`: this is where it stays readable.
+            exc_info=exc,
         )
     except Exception as exc:
         if receive_count < INSTAGRAM_WORKER_MAX_RETRIES:
             raise
 
         final_error = InstagramIngestionError(
-            "provider_error",
-            details=f"unexpected:{type(exc).__name__}",
-            retryable=False,
-            user_message=_DEFAULT_TEMPORARY_MESSAGE,
+            MediaFailureCode.UNEXPECTED_ERROR,
+            details="unexpected_exception",
+            exception_type=type(exc).__name__,
         )
         await _mark_job_failed(
             job_id=body.get("job_id"),
@@ -574,7 +561,7 @@ async def process_message(message: Dict[str, Any]) -> None:
         await _publish_failure_event(
             job_id=body.get("job_id"),
             media_key=body.get("media_key"),
-            reason=f"{final_error.code}:{final_error.details}",
+            reason=final_error.reason,
         )
         log_event(
             logger,
@@ -583,7 +570,7 @@ async def process_message(message: Dict[str, Any]) -> None:
             "Instagram ingestion failed after retries",
             job_id=body.get("job_id"),
             media_item_id=body.get("job_id"),
-            error_code=final_error.code,
+            error_code=final_error.code.value,
             exc_info=exc,
         )
     finally:

@@ -21,6 +21,23 @@ const CRITICAL_ERROR: TranslationKey = "common.error";
  */
 const OUT_OF_MINUTES: TranslationKey = "error.outOfMinutes";
 
+/**
+ * Every code the backend can name a failure with, mapped to the sentence the
+ * reader gets in their own language.
+ *
+ * Two vocabularies land here on purpose. The first names the *transport* refusal
+ * of a request (`CanonicalErrorCode`: a 400, a 404, an expired session). The
+ * second names why an ingestion job failed (`MediaFailureCode`, mirrored in
+ * `types/media.ts`) — those are the entries this table gained with task-359, when
+ * the workers stopped writing English sentences on the job. A code missing from
+ * here is not a crash: `getFriendlyErrorMessage` falls through to its `fallback`,
+ * which the media screens set to `media.failedFallback`.
+ *
+ * Several codes deliberately share a key. Three provider-side causes (our
+ * credentials, our credits, our configuration) are one thing from where the
+ * reader stands: imports are down and it is on us. Same for the three codes that
+ * only ever mean "our bug".
+ */
 const ERROR_CODE_MESSAGES: Record<string, TranslationKey> = {
   SESSION_EXPIRED: "error.sessionExpired",
   INVALID_CREDENTIALS: "error.invalidCredentials",
@@ -43,6 +60,31 @@ const ERROR_CODE_MESSAGES: Record<string, TranslationKey> = {
   BAD_REQUEST: "error.badRequest",
   INTERNAL_ERROR: CRITICAL_ERROR,
   UNKNOWN_ERROR: CRITICAL_ERROR,
+
+  // --- Ingestion failures (`MediaFailureCode`) ---
+  MEDIA_UNAVAILABLE: "mediaError.mediaUnavailable",
+  GEO_RESTRICTED: "mediaError.geoRestricted",
+  AGE_RESTRICTED: "mediaError.ageRestricted",
+  LIVE_CONTENT_UNSUPPORTED: "mediaError.liveContentUnsupported",
+  IMAGE_POST_UNSUPPORTED: "mediaError.imagePostUnsupported",
+  NO_TRANSCRIBABLE_MEDIA: "mediaError.noTranscribableMedia",
+  NO_TRANSCRIPT_AVAILABLE: "mediaError.noTranscriptAvailable",
+  POST_TEXT_EMPTY: "mediaError.postTextEmpty",
+  NOT_AN_ARTICLE_PAGE: "mediaError.notAnArticlePage",
+  ARTICLE_TEXT_NOT_FOUND: "mediaError.articleTextNotFound",
+  DOCUMENT_PARSE_FAILED: "mediaError.documentParseFailed",
+  PROVIDER_UNAVAILABLE: "mediaError.providerUnavailable",
+  PROVIDER_RESULT_INVALID: "mediaError.providerResultInvalid",
+  PROVIDER_RATE_LIMITED: "mediaError.providerRateLimited",
+  PROVIDER_TIMED_OUT: "mediaError.providerTimedOut",
+  PROVIDER_AUTH_FAILED: "mediaError.serviceUnavailable",
+  PROVIDER_CREDITS_DEPLETED: "mediaError.serviceUnavailable",
+  PROVIDER_CONFIG_ERROR: "mediaError.serviceUnavailable",
+  OUT_OF_MINUTES: OUT_OF_MINUTES,
+  ITEM_TOO_LONG: "mediaError.itemTooLong",
+  INVALID_JOB_MESSAGE: "mediaError.internal",
+  SUBMISSION_FAILED: "mediaError.internal",
+  UNEXPECTED_ERROR: "mediaError.internal",
 };
 
 const DEFAULT_RULES: FriendlyErrorRule[] = [
