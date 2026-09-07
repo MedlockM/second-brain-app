@@ -71,10 +71,6 @@ locals {
       arn  = aws_dynamodb_table.user_folders_v1.arn
       name = aws_dynamodb_table.user_folders_v1.name
     }
-    "user-tags" = {
-      arn  = aws_dynamodb_table.user_tags_v1.arn
-      name = aws_dynamodb_table.user_tags_v1.name
-    }
     "media-artifacts" = {
       arn  = aws_dynamodb_table.media_artifacts_v1.arn
       name = aws_dynamodb_table.media_artifacts_v1.name

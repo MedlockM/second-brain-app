@@ -30,7 +30,7 @@ def normalize_folder_name(raw: Optional[str]) -> str:
     the same reason: ``Folder.name`` carries its own validator, but pydantic only
     runs field validators on *construction*, and a rename assigns the attribute on
     an already-built model. So ``"   "`` used to clear the constraint and store an
-    empty name — a collection the grid then drew as a nameless tile.
+    empty name — a folder the grid then drew as a nameless tile.
 
     Raises:
         ValueError: the value is missing, blank once trimmed, or too long.
@@ -255,7 +255,7 @@ async def update_folder(
 
 
 async def delete_folder(user_id: str, folder_id: str) -> Dict[str, Any]:
-    """Delete a folder. Moves all sub-folders and media to 'Uncategorized'.
+    """Delete a folder. Moves all subfolders and media to 'Uncategorized'.
 
     Returns a summary of what was moved.
     """
@@ -291,8 +291,8 @@ async def delete_folder(user_id: str, folder_id: str) -> Dict[str, Any]:
 
     # Move direct children of deleted folders whose parent is being deleted
     # to "Uncategorized" -- but since we delete ALL descendants, this is only
-    # relevant for sub-folders that have children outside the deleted subtree.
-    # Actually, all descendants are deleted, so no orphan sub-folders remain.
+    # relevant for subfolders that have children outside the deleted subtree.
+    # Actually, all descendants are deleted, so no orphan subfolders remain.
 
     # Delete all folders (descendants first, then the target)
     deleted_folder_count = 0
@@ -301,7 +301,7 @@ async def delete_folder(user_id: str, folder_id: str) -> Dict[str, Any]:
         deleted_folder_count += 1
 
     logger.info(
-        f"Deleted folder {folder_id} and {len(descendant_ids)} sub-folders, "
+        f"Deleted folder {folder_id} and {len(descendant_ids)} subfolders, "
         f"moved {moved_media_count} media items to Uncategorized"
     )
     return {

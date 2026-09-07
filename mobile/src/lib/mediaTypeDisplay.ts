@@ -2,7 +2,7 @@
  * Glyph for a media type.
  *
  * One mapping for every surface that shows a media row — the inbox vignette, the
- * media detail header, the Sources tab of a collection. Three private copies of
+ * media detail header, the Sources tab of a folder. Three private copies of
  * this switch had drifted apart before it was extracted; a source that changes
  * icon between two screens is a bug the user notices.
  */

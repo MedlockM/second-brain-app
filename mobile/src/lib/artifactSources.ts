@@ -1,7 +1,7 @@
 /**
  * Comparing what an artifact was generated over with what a scope holds now.
  *
- * This is the whole condition behind the collection's "Generate" affordance
+ * This is the whole condition behind the folder's "Generate" affordance
  * (task-322): the backend keys an artifact on its set of sources, so asking again
  * over an unchanged set answers the stored entry rather than producing a new one.
  * Offering the button in that case would promise something no request can

@@ -7,9 +7,9 @@
  * away from the list they were filing — the list stays visible behind the scrim,
  * which is what makes the new name land somewhere recognisable.
  *
- * One dialog for every target. A media title and a collection name differ in
+ * One dialog for every target. A media title and a folder name differ in
  * three things and nothing else: the heading, the placeholder and the ceiling the
- * field stops at (120 for a title, 255 for a collection name), so all three are
+ * field stops at (120 for a title, 255 for a folder name), so all three are
  * props and there is no second copy of this card.
  *
  * A failure is reported *inside* the dialog rather than through an alert: the
@@ -41,7 +41,7 @@ import { t } from "../i18n";
 
 export interface RenameDialogProps {
   visible: boolean;
-  /** Names what is being renamed, e.g. `Rename this collection`. */
+  /** Names what is being renamed, e.g. `Rename this folder`. */
   heading: string;
   placeholder: string;
   /**

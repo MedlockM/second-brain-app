@@ -54,11 +54,11 @@ Operational behavior now implemented in runtime:
 - transcript metadata (`language`, `segments_count`, `duration_seconds`) is surfaced when the runtime has persisted it from transcription or article extraction
 
 `task-270` makes artifact generation **scope-addressed** and its storage **append-only**:
-- one set of routes under `/api/artifacts` serves a single media (`scope="media"`) and a collection (`scope="folder"`); the per-media routes are gone, with no alias
-- a collection covers the folder **and all its descendants**, exactly like `GET /api/media?folder_id=`
-- every generation writes a **new immutable entry** carrying a snapshot of the sources it read; nothing is overwritten, nothing is invalidated, and adding or removing a media from a collection changes no existing entry
-- an existing entry is reused **permanently** (task-322): the `artifact_id` is a hash of (user, scope, scope_id, type, parameters, sorted source ids) with no time component, so a request whose source set already produced an artifact returns that artifact, whatever the delay, without a second generation and without debiting quota. A media therefore gets one artifact per type and per `parameters`; a collection regenerates only when its contents changed. The generator version is recorded on the entry but excluded from the key, so bumping a prompt does not reopen a right to regenerate
-- ownership is checked by comparing the entry's `user_id`, not by resolving a media item — a collection artifact has none
+- one set of routes under `/api/artifacts` serves a single media (`scope="media"`) and a folder (`scope="folder"`); the per-media routes are gone, with no alias
+- a folder-scoped artifact covers the folder **and all its descendants**, exactly like `GET /api/media?folder_id=`
+- every generation writes a **new immutable entry** carrying a snapshot of the sources it read; nothing is overwritten, nothing is invalidated, and adding or removing a media from a folder changes no existing entry
+- an existing entry is reused **permanently** (task-322): the `artifact_id` is a hash of (user, scope, scope_id, type, parameters, sorted source ids) with no time component, so a request whose source set already produced an artifact returns that artifact, whatever the delay, without a second generation and without debiting quota. A media therefore gets one artifact per type and per `parameters`; a folder regenerates only when its contents changed. The generator version is recorded on the entry but excluded from the key, so bumping a prompt does not reopen a right to regenerate
+- ownership is checked by comparing the entry's `user_id`, not by resolving a media item — a folder artifact has none
 - a media-scoped request still accepts a user-owned `media_item_id`, but storage and
   history use `(user_id, media_key)` internally, so the same user's saves of one
   content item share their artifact history
@@ -95,14 +95,13 @@ Request (`IngestUrlRequest`):
   "locale": "fr-FR",
   "transcript_language": "fr",
   "idempotency_key": "mobile-share-4b7e8d",
-  "folder_id": "folder_01JQ8X8J5S3H3CXX8V70M9M3K7",
-  "tag_ids": ["tag_01JQ8X8J5S3H3CXX8V70M9M3K7"]
+  "folder_id": "folder_01JQ8X8J5S3H3CXX8V70M9M3K7"
 }
 ```
 
-`transcript_language`, `folder_id`, and `tag_ids` are optional. When `folder_id` is omitted or `null`,
-the backend assigns the user's default Uncategorized folder. Provided folder and
-tag IDs must belong to the authenticated user.
+`transcript_language` and `folder_id` are optional. When `folder_id` is omitted or `null`,
+the backend assigns the user's default Uncategorized folder. A provided folder id
+must belong to the authenticated user.
 
 `transcript_language` is a **per-submission override**. When omitted, the backend defaults to the
 authenticated user's `reading_language` preference (set during onboarding, editable in Settings via
@@ -310,7 +309,7 @@ Typed refusals:
 | No source at all in the scope, or every source definitively unusable | `422` | `scope_empty` | no |
 | More than 25 sources, or more than 120 000 estimated tokens | `422` | `scope_too_large` | no |
 | Every source lost its translation permanently | `409` | `translation_failed` | no, not until the provider works again |
-| Out of minutes (collection scope only) | `403` | `out_of_minutes` | next period, or on upgrade |
+| Out of minutes (folder scope only) | `403` | `out_of_minutes` | next period, or on upgrade |
 | Artifact type disabled | `400` | — | no |
 | Generation disabled globally | `503` | — | no |
 
@@ -409,7 +408,7 @@ The same fields plus the scope and the immutable source snapshot:
 A source with `excluded: true` was in the scope but carried no usable transcript:
 it is recorded rather than dropped, so the entry stays honest about what it could
 not read. The snapshot describes the scope **at generation time** — it is expected
-to diverge from the collection's current contents, and that divergence is the
+to diverge from the folder's current contents, and that divergence is the
 history rather than a defect.
 
 ### 6) GET /api/artifacts/{artifact_id}/content
@@ -597,7 +596,7 @@ Request (`PatchMediaRequest`):
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `folder_id` | string or null | no | Destination collection, `null` meaning Uncategorized. Routed to `folder_service.assign_folder_to_media`. |
+| `folder_id` | string or null | no | Destination folder, `null` meaning Uncategorized. Routed to `folder_service.assign_folder_to_media`. |
 | `title` | string | no | New user-facing title. Trimmed, with runs of whitespace collapsed, then **1 to 120 characters** (`MAX_TITLE_LENGTH` in `media_summarizer/core/media_ingestion/title_derivation.py` — the same ceiling ingestion derives titles under). Routed to `user_media.update_attributes`. |
 
 Response (`PatchMediaResponse`):
@@ -670,8 +669,7 @@ API. Ceilings are `MAX_UPLOAD_SIZE_BYTES` (50 MB) for `document` and `audio`,
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `upload_key` | string | yes | Key returned by `upload-url` for `target=document`. Extension must be in `DocumentFormat.supported_extensions()`: `pdf`, `docx`, `pptx`, `xlsx`, `jpg`, `jpeg`, `png`, `tiff`, `tif`, `bmp`, `heif`, `heic`. Images go through OCR. |
-| `folder_id` | string \| null | no | Destination collection. Omitted or null means the user's default Uncategorized folder. |
-| `tag_ids` | string[] \| null | no | e.g. `["tag_01JQ...","tag_01JR..."]`. |
+| `folder_id` | string \| null | no | Destination folder. Omitted or null means the user's default Uncategorized folder. |
 
 Response (`UploadDocumentResponse`, `202 Accepted`):
 ```json
@@ -691,7 +689,6 @@ Response (`UploadDocumentResponse`, `202 Accepted`):
 | --- | --- | --- | --- |
 | `upload_key` | string | yes | Key returned by `upload-url` for `target=audio`. Extension must be one of `.mp3`, `.m4a`, `.aac`, `.ogg`, `.wav`, `.flac`, `.opus`. Transcribed by Deepgram. |
 | `folder_id` | string \| null | no | Same semantics as above. |
-| `tag_ids` | string[] \| null | no | Same semantics as above. |
 
 Response (`UploadAudioResponse`, `202 Accepted`):
 ```json
@@ -704,13 +701,11 @@ Response (`UploadAudioResponse`, `202 Accepted`):
 
 ### Shared semantics
 
-- `folder_id` and `tag_ids` are validated against the caller **before** the quota check, so an
-  unusable folder or tag costs nothing to the user's allowance. An id that does not exist or belongs
-  to someone else is `400 Folder not found` / `400 Tag(s) not found`, and more than
-  `MAX_TAGS_PER_MEDIA` distinct tags is `400` — identical wording and status to `ingest-url`.
-  Duplicates are collapsed.
-- Both fields land on the durable library row through `save_media_for_user`, never on the processing
-  job — organization belongs to what the user saved, not to the pipeline working for it.
+- `folder_id` is validated against the caller **before** the quota check, so an unusable folder
+  costs nothing to the user's allowance. An id that does not exist or belongs to someone else is
+  `400 Folder not found` — identical wording and status to `ingest-url`.
+- It lands on the durable library row through `save_media_for_user`, never on the processing job —
+  organization belongs to what the user saved, not to the pipeline working for it.
 - An `upload_key` that does not start with `uploads/{caller_id}/` is `403`, decided on the key alone
   **before any S3 call**, so these endpoints cannot be used to probe another user's objects.
 - An `upload_key` with no object behind it is `422` naming the missing upload: the transfer either
@@ -742,7 +737,7 @@ Response (`UploadAudioResponse`, `202 Accepted`):
   `media_summarizer/scripts/backfill_review_blurbs.py`).
 
 `MediaArtifact`:
-- `scope`: `media | folder` (a folder is what the UI calls a collection)
+- `scope`: `media | folder`
 - `artifact_type`: `summary_short | summary_detailed | notes | quiz | flashcards`
 - `status`: `queued | generating | ready | failed`
 

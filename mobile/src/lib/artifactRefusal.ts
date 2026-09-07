@@ -3,7 +3,7 @@
  *
  * Every refusal the artifact API returns is typed and carries its numbers, so
  * neither AI tab has to fall back on a spinner that never ends or an error that
- * says nothing. Shared between the media tab and the collection tab: the same
+ * says nothing. Shared between the media tab and the folder tab: the same
  * refusals reach both, and they should read the same.
  */
 
@@ -19,9 +19,9 @@ export function describeArtifactRefusal(
   const httpError = err as HttpError | undefined;
   const details = httpError?.details ?? {};
   const code = httpError?.code ?? httpError?.quotaErrorCode;
-  const isCollection = options?.scope === "folder";
+  const isFolder = options?.scope === "folder";
 
-  // A generation over a single item is free, so only a collection can ever run
+  // A generation over a single item is free, so only a folder can ever run
   // into the minute allowance. The backend sentence already carries the figures
   // (how many minutes this needs, how many are left, when they reset), so it is
   // repeated verbatim instead of being flattened into a generic quota line.
@@ -32,8 +32,8 @@ export function describeArtifactRefusal(
 
   switch (code) {
     case "scope_empty":
-      return isCollection
-        ? t("artifacts.refusal.collectionEmpty")
+      return isFolder
+        ? t("artifacts.refusal.folderEmpty")
         : t("artifacts.refusal.mediaEmpty");
     case "scope_too_large": {
       const sourceCount = Number(details.source_count ?? 0);
@@ -53,7 +53,7 @@ export function describeArtifactRefusal(
     // back in a moment. The response carries `terminal: true` for the same reason.
     case "translation_failed": {
       const failed = Number(details.failed_count ?? 0);
-      if (isCollection && failed > 0) {
+      if (isFolder && failed > 0) {
         return tCount("artifacts.refusal.sourcesTranslationFailed", failed);
       }
       return t("artifacts.refusal.translationFailed");

@@ -3,13 +3,13 @@ import { useAuth } from "../contexts/AuthContext";
 import { EngagementService } from "../services/engagementService";
 import { OrganizationService } from "../services/organizationService";
 import type { RecentEngagement } from "../types/engagements";
-import type { Collection } from "../types/organization";
+import type { Folder } from "../types/organization";
 
 /**
  * The two data sources the Home screen owns beyond its media list.
  *
  * The point of the hook is *independence*. Several screens' worth of content
- * share one scroll view, and a collections endpoint that 500s must not take the
+ * share one scroll view, and a folders endpoint that 500s must not take the
  * engagement row down with it, nor blank the media list that `useMediaPolling`
  * fetches separately. So each source keeps its own state and its own failure,
  * and a failure resolves to "this section has nothing", never to an exception
@@ -19,7 +19,7 @@ import type { Collection } from "../types/organization";
  * spinner. A row with nothing to show is simply absent, which is the same thing
  * the screen does for an empty row and therefore needs no extra state.
  *
- * The collections are fetched for one reason only: they carry their own
+ * The folders are fetched for one reason only: they carry their own
  * `media_count`, which is where the unsorted review button's figure comes from
  * (task-324) — the Home no longer calls the digest endpoint just to put a number
  * on a card.
@@ -28,10 +28,10 @@ export interface UseHomeSectionsResult {
   /** "Continue learning", in the order the server returned. Empty hides it. */
   continueLearning: RecentEngagement[];
   /**
-   * The user's collections, read for the unsorted count on the review button.
+   * The user's folders, read for the unsorted count on the review button.
    * They no longer feed any row of tiles (task-348).
    */
-  collections: Collection[];
+  folders: Folder[];
   /** Refetch both. Never rejects. */
   refresh: () => Promise<void>;
 }
@@ -45,7 +45,7 @@ export function useHomeSections(): UseHomeSectionsResult {
   const [continueLearning, setContinueLearning] = useState<RecentEngagement[]>(
     [],
   );
-  const [collections, setCollections] = useState<Collection[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
 
   const isMountedRef = useRef(true);
 
@@ -57,7 +57,7 @@ export function useHomeSections(): UseHomeSectionsResult {
     // round trip, not two sequential ones.
     const [recent, folders] = await Promise.allSettled([
       EngagementService.listRecent(CONTINUE_LEARNING_LIMIT),
-      OrganizationService.getUserCollections(),
+      OrganizationService.getUserFolders(),
     ]);
 
     if (!isMountedRef.current) return;
@@ -68,7 +68,7 @@ export function useHomeSections(): UseHomeSectionsResult {
       setContinueLearning(recent.value);
     }
     if (folders.status === "fulfilled") {
-      setCollections(folders.value);
+      setFolders(folders.value);
     }
   }, [isAuthenticated]);
 
@@ -91,5 +91,5 @@ export function useHomeSections(): UseHomeSectionsResult {
     };
   }, [isAuthenticated, refresh]);
 
-  return { continueLearning, collections, refresh };
+  return { continueLearning, folders, refresh };
 }

@@ -174,13 +174,13 @@ function AppProviders() {
                   }}
                 />
                 <Stack.Screen
-                  name="media/collections/index"
+                  name="media/folders/index"
                   options={{
                     animation: "slide_from_right",
                   }}
                 />
                 <Stack.Screen
-                  name="media/collections/[id]"
+                  name="media/folders/[id]"
                   options={{
                     animation: "slide_from_right",
                   }}
@@ -192,15 +192,7 @@ function AppProviders() {
                   }}
                 />
                 <Stack.Screen
-                  name="media/tags"
-                  options={{
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
-                    gestureEnabled: true,
-                  }}
-                />
-                <Stack.Screen
-                  name="media/collection"
+                  name="media/folder"
                   options={{
                     presentation: "modal",
                     animation: "slide_from_bottom",

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from media_summarizer.core.models.processing_job import JobStatus, ProcessingJob
 from media_summarizer.core.models.user_media import (
@@ -116,7 +116,6 @@ async def save_media_for_user(
     thumbnail_url: Optional[str] = None,
     language: Optional[str] = None,
     folder_id: Optional[str] = None,
-    tag_ids: Optional[List[str]] = None,
     job_id: Optional[str] = None,
     processing_status: Optional[UserMediaStatus] = UserMediaStatus.PENDING,
 ) -> str:
@@ -161,7 +160,6 @@ async def save_media_for_user(
         thumbnail_url=thumbnail_url,
         language=language,
         folder_id=resolved_folder_id,
-        tag_ids=list(tag_ids or []),
         saved_at=now,
         updated_at=now,
         processing_status=processing_status,
@@ -215,8 +213,8 @@ async def user_holds_media(
     scoped to a single owner and ignores processing entirely. A media the user
     already holds costs them nothing to file again, whether or not a job runs.
 
-    Scoped to the user and to nothing else: every folder, every collection and
-    every processing status counts as held, because the rule is about owning the
+    Scoped to the user and to nothing else: every folder and every processing
+    status counts as held, because the rule is about owning the
     content, not about where it was filed. Soft-deleted rows do not count -- a
     user who deleted an item no longer holds it, so re-saving it debits again.
 

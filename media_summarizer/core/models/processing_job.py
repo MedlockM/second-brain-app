@@ -94,8 +94,8 @@ class ProcessingJob(BaseModel):
     quiz_s3_key: Optional[str] = None  # S3 key for generated quiz
 
     # Organization lives on the durable ``user_media`` row only (task-220). The
-    # job used to carry folder_id/tag_ids as a second copy, which meant a folder
-    # move was lost the moment the job expired.
+    # job used to carry the folder as a second copy, which meant a folder move
+    # was lost the moment the job expired.
 
     # Media metadata
     media_date_published: Optional[int] = None  # Unix timestamp - when content was published

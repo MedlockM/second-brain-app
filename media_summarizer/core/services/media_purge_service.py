@@ -56,9 +56,9 @@ async def purge_artifacts_for_scopes(
 ) -> Dict[str, int]:
     """Delete every artifact of the given scopes, plus their S3 objects.
 
-    Folder scopes are passed explicitly because a collection's artifacts hang off
+    Folder scopes are passed explicitly because a folder's artifacts hang off
     the folder, not off any media item: an account erasure that only walked media
-    items would leave every collection artifact behind.
+    items would leave every folder artifact behind.
     """
     counts: Dict[str, int] = {}
     scopes = [

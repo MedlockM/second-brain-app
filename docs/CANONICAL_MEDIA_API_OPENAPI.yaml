@@ -552,7 +552,7 @@ components:
         folder_id:
           type: [string, 'null']
           description: >
-            Destination collection, null meaning Uncategorized. Absent means the
+            Destination folder, null meaning Uncategorized. Absent means the
             patch does not touch the folder.
         title:
           type: string

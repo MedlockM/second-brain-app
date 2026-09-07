@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 class MediaFamily(str, Enum):
@@ -75,7 +75,6 @@ class IngestUrlRequest:
     transcript_language: Optional[str] = None
     idempotency_key: Optional[str] = None
     folder_id: Optional[str] = None
-    tag_ids: Optional[List[str]] = None
 
 
 @dataclass(frozen=True)
@@ -102,7 +101,6 @@ class IngestSharedContentRequest:
     # transcribe (task-250 Layer 1); 0 or None means "could not be determined".
     audio_duration_seconds: Optional[int] = None
     folder_id: Optional[str] = None
-    tag_ids: Optional[List[str]] = None
 
 
 @dataclass(frozen=True)

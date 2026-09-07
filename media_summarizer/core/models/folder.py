@@ -35,14 +35,14 @@ class Folder(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    # Last time the user asked this collection to produce or show them something:
+    # Last time the user asked this folder to produce or show them something:
     # a generation launched on it, or one of its artifacts opened (task-303). None
     # until the first engagement.
     #
     # THIS FIELD MUST STAY ROUND-TRIPPED in both serializers below.
     # ``database_async.update_folder`` writes a full ``put_item`` of
     # ``to_dynamodb_item()``, so any folder attribute the model does not know about
-    # is silently erased the next time the collection is renamed. That is the
+    # is silently erased the next time the folder is renamed. That is the
     # asymmetry with ``user_media``, which is immune by invariant I1.
     last_engaged_at: Optional[datetime] = None
 
@@ -78,7 +78,7 @@ class Folder(BaseModel):
         }
         if self.parent_folder_id is not None:
             item["parent_folder_id"] = self.parent_folder_id
-        # Omitted when None, like parent_folder_id: a collection that was never
+        # Omitted when None, like parent_folder_id: a folder that was never
         # engaged writes no attribute at all, so any future
         # (user_id, last_engaged_at) index stays sparse.
         if self.last_engaged_at is not None:

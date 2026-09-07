@@ -53,9 +53,9 @@ export const TILE_GAP = Spacing.md;
  * A tile that sized itself to its content made the row size itself to whichever
  * tile happened to be tallest, and the gap the Home screen declares below a row
  * was then measured from that one tile. Two things make tiles disagree: a
- * collection tile always carries a subtitle (its item count) where a media tile
+ * folder tile always carries a subtitle (its item count) where a media tile
  * without a creator carries none, and a three-line title stands 40 dp taller than
- * a one-line one. So a row holding one media tile beside one collection tile left
+ * a one-line one. So a row holding one media tile beside one folder tile left
  * a void under the media tile ~20 dp deeper than declared, and the next heading
  * read as pushed away. Reserving the worst case — three title lines plus one
  * subtitle line — makes the row's height independent of the kinds it holds, so
@@ -78,12 +78,12 @@ export const TILE_HEIGHT =
   Spacing.xs +
   TILE_SUBTITLE_LINE_HEIGHT;
 
-/** Up to four member covers, per the collection tile's mosaic. */
+/** Up to four member covers, per the folder tile's mosaic. */
 const MAX_MOSAIC_IMAGES = 4;
 
 /**
  * What a tile can hold. Two shapes rather than one loose bag of optional fields:
- * a media item has a creator and one cover of its own where a collection has an
+ * a media item has a creator and one cover of its own where a folder has an
  * item count and borrows its members', and making that explicit is what keeps
  * the rendering branches honest.
  */
@@ -105,7 +105,7 @@ export type HomeTileItem =
       mediaType: MediaType;
     }
   | {
-      kind: "collection";
+      kind: "folder";
       id: string;
       name: string;
       itemCount: number;
@@ -147,8 +147,8 @@ function TileCover({ item }: { item: HomeTileItem }): React.JSX.Element {
   // next one's cover.
   const [failedId, setFailedId] = useState<string | null>(null);
 
-  if (item.kind === "collection") {
-    return <CollectionMosaic item={item} />;
+  if (item.kind === "folder") {
+    return <FolderMosaic item={item} />;
   }
 
   const uri = item.imageUrl?.trim() ?? "";
@@ -180,17 +180,17 @@ function TileCover({ item }: { item: HomeTileItem }): React.JSX.Element {
 }
 
 /**
- * A collection has no cover of its own, so it borrows its members'.
+ * A folder has no cover of its own, so it borrows its members'.
  *
  * The layout is chosen by how many there are rather than by dropping them into a
  * fixed 2x2 grid: a grid with two pictures and two holes reintroduces the empty
  * rectangle §6.3 forbids. With none at all the tile falls back to the folder
  * glyph alone.
  */
-function CollectionMosaic({
+function FolderMosaic({
   item,
 }: {
-  item: Extract<HomeTileItem, { kind: "collection" }>;
+  item: Extract<HomeTileItem, { kind: "folder" }>;
 }): React.JSX.Element {
   const images = item.previewImages.filter(Boolean).slice(0, MAX_MOSAIC_IMAGES);
 
@@ -211,7 +211,7 @@ function CollectionMosaic({
       key={`${item.id}:${index}`}
       // A member cover is signed and its signature rotates, so the query string
       // is stripped: what identifies the picture is the object it points at. A
-      // per-slot key would go stale the moment the collection's newest items
+      // per-slot key would go stale the moment the folder's newest items
       // change, which is exactly when the mosaic must redraw.
       source={{ uri, cacheKey: stableImageIdentity(uri) }}
       recyclingKey={`${item.id}:${index}`}
@@ -266,14 +266,14 @@ function CollectionMosaic({
 // --- Text ---
 
 function tileTitle(item: HomeTileItem): string {
-  if (item.kind === "collection") return item.name;
+  if (item.kind === "folder") return item.name;
   // The backend stores a non-empty, human-readable title (task-266); the guard
   // covers the window before an item's metadata has resolved.
   return item.title?.trim() || t("common.untitled");
 }
 
 function tileSubtitle(item: HomeTileItem): string {
-  if (item.kind === "collection") return formatItemCount(item.itemCount);
+  if (item.kind === "folder") return formatItemCount(item.itemCount);
   return item.creator?.trim() ?? "";
 }
 
@@ -291,8 +291,8 @@ function stableImageIdentity(uri: string): string {
 }
 
 function describeTile(item: HomeTileItem): string {
-  if (item.kind === "collection") {
-    return t("home.tile.a11yCollection", {
+  if (item.kind === "folder") {
+    return t("home.tile.a11yFolder", {
       name: item.name,
       count: formatItemCount(item.itemCount),
     });

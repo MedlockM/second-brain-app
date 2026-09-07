@@ -24,7 +24,7 @@ export type {
 /**
  * Artifact service for the mobile app.
  *
- * One scope-addressed API serves both a single media and a collection: the
+ * One scope-addressed API serves both a single media and a folder: the
  * per-media routes are gone. Artifacts are an append-only history, so a scope
  * can hold several entries of the same type and `listArtifacts` is the single
  * source for both the history and the in-flight progress — one request per

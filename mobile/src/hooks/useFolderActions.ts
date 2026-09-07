@@ -1,16 +1,16 @@
 /**
- * The behaviour behind the actions menu of a collection — the long press on its
+ * The behaviour behind the actions menu of a folder — the long press on its
  * tile in Library, and the `…` in the header of its own page: what "Rename"
  * writes, and what "Delete" actually takes with it.
  *
  * The sibling of `useMediaActions`, deliberately shaped the same way and feeding
  * the same two surfaces — `AnchoredContextMenu` for the menu,`RenameDialog` for
- * the field. Two rows here where a media has three: a collection has no "Move",
+ * the field. Two rows here where a media has three: a folder has no "Move",
  * because moving one to another parent is a different gesture with a different
  * picker, and offering it as a row would promise a destination this menu has no
  * way to ask for.
  *
- * The default collection never reaches this hook. The backend refuses to rename
+ * The default folder never reaches this hook. The backend refuses to rename
  * or delete it (`folder_service.update_folder` / `delete_folder` both raise on
  * `is_default`), so neither its tile nor its page carries the menu at all — a
  * menu whose two rows would both fail is worse than no menu.
@@ -20,7 +20,7 @@ import { useCallback, useState } from "react";
 import { Alert } from "react-native";
 import { OrganizationService } from "../services/organizationService";
 import { getFriendlyErrorMessage } from "../lib/getFriendlyErrorMessage";
-import { DEFAULT_COLLECTION_LABEL, type CollectionNode } from "../lib/collectionTree";
+import { DEFAULT_FOLDER_LABEL, type FolderNode } from "../lib/folderTree";
 import { t, tCount } from "../i18n";
 import type {
   AnchoredContextMenuProps,
@@ -32,16 +32,16 @@ import type { RenameDialogProps } from "../components/RenameDialog";
  * The server's own ceiling (`MAX_FOLDER_NAME_LENGTH` in
  * `media_summarizer/core/models/folder.py`, which `UpdateFolderRequest` states),
  * mirrored here so the field stops accepting characters the `PUT` would reject.
- * Twice the media title bound: a collection name is written by hand, not derived.
+ * Twice the media title bound: a folder name is written by hand, not derived.
  */
-const MAX_COLLECTION_NAME_LENGTH = 255;
+const MAX_FOLDER_NAME_LENGTH = 255;
 
-/** The one collection the open menu is about. */
-interface CollectionActionTarget {
+/** The one folder the open menu is about. */
+interface FolderActionTarget {
   id: string;
   name: string;
   /**
-   * Sub-collections that would be deleted along with it, at any depth.
+   * Subfolders that would be deleted along with it, at any depth.
    *
    * Counted from the tree the screen already holds rather than asked of the
    * backend: the confirmation has to be worded before anything is sent, and the
@@ -49,52 +49,52 @@ interface CollectionActionTarget {
    */
   descendantCount: number;
   /** Kept whole so the menu can redraw the tile it was opened from. */
-  node: CollectionNode;
+  node: FolderNode;
 }
 
 /** What the surface spreads onto the menu, minus what only it can answer. */
-type MenuProps = Omit<AnchoredContextMenuProps<CollectionNode>, "renderPreview">;
+type MenuProps = Omit<AnchoredContextMenuProps<FolderNode>, "renderPreview">;
 
-export interface CollectionActionsController {
+export interface FolderActionsController {
   /**
-   * Long-press handler to hand to a collection tile, with the window rect of the
+   * Long-press handler to hand to a folder tile, with the window rect of the
    * tile that was pressed — the menu is anchored to it.
    */
-  open: (collection: CollectionNode, anchor: AnchorRect) => void;
+  open: (folder: FolderNode, anchor: AnchorRect) => void;
   /** Spread onto `<AnchoredContextMenu />`, alongside a `renderPreview`. */
   menuProps: MenuProps;
   /** Spread onto `<RenameDialog />`. */
   renameProps: RenameDialogProps;
 }
 
-/** Every collection under this one, at any depth. */
-function countDescendants(node: CollectionNode): number {
+/** Every folder under this one, at any depth. */
+function countDescendants(node: FolderNode): number {
   return node.children.reduce(
     (total, child) => total + 1 + countDescendants(child),
     0,
   );
 }
 
-export function useCollectionActions(options: {
+export function useFolderActions(options: {
   /**
    * Called once the backend has confirmed the deletion, never before: a tile must
-   * not leave the grid while the collection may still exist. The sub-collections
+   * not leave the grid while the folder may still exist. The subfolders
    * and the media that moved are the caller's business — it refetches.
    */
-  onDeleted: (collectionId: string) => void;
+  onDeleted: (folderId: string) => void;
   /**
    * Called with the name the server stored, so the tile shows it without waiting
    * for a refetch. Same rule: only after the `PUT` has answered, so the grid never
    * displays a name the backend does not hold.
    */
-  onRenamed: (collectionId: string, name: string) => void;
-}): CollectionActionsController {
+  onRenamed: (folderId: string, name: string) => void;
+}): FolderActionsController {
   const { onDeleted, onRenamed } = options;
 
   // Visibility is tracked apart from the target on purpose: the menu defers the
   // rename until it has finished dismissing, so that handler runs after
   // `onClose` — clearing the target there would leave it with nothing to act on.
-  const [target, setTarget] = useState<CollectionActionTarget | null>(null);
+  const [target, setTarget] = useState<FolderActionTarget | null>(null);
   const [anchor, setAnchor] = useState<AnchorRect | null>(null);
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -106,12 +106,12 @@ export function useCollectionActions(options: {
   // the dialog opens, which is a thing only this hook knows.
   const [renameDraft, setRenameDraft] = useState("");
 
-  const open = useCallback((collection: CollectionNode, rect: AnchorRect) => {
+  const open = useCallback((folder: FolderNode, rect: AnchorRect) => {
     setTarget({
-      id: collection.id,
-      name: collection.name,
-      descendantCount: countDescendants(collection),
-      node: collection,
+      id: folder.id,
+      name: folder.name,
+      descendantCount: countDescendants(folder),
+      node: folder,
     });
     setAnchor(rect);
     setIsMenuVisible(true);
@@ -147,11 +147,11 @@ export function useCollectionActions(options: {
   const submitRename = useCallback(
     (name: string) => {
       if (!target || isRenaming) return;
-      const collection = target;
+      const folder = target;
 
       // Nothing to write and nothing to report: closing is the honest answer to
       // "rename it to exactly what it is called".
-      if (name === collection.name) {
+      if (name === folder.name) {
         setIsRenameVisible(false);
         return;
       }
@@ -160,8 +160,8 @@ export function useCollectionActions(options: {
       setRenameError(null);
       void (async () => {
         try {
-          const updated = await OrganizationService.renameCollection(
-            collection.id,
+          const updated = await OrganizationService.renameFolder(
+            folder.id,
             name,
           );
           // The server trims and collapses whitespace, so what it answers is the
@@ -169,19 +169,19 @@ export function useCollectionActions(options: {
           // a name that is stored nowhere.
           const stored = updated.name.trim() || name;
           setTarget((current) =>
-            current && current.id === collection.id
+            current && current.id === folder.id
               ? { ...current, name: stored }
               : current,
           );
           setIsRenameVisible(false);
-          onRenamed(collection.id, stored);
+          onRenamed(folder.id, stored);
         } catch (err) {
           // The dialog stays open with the typed name intact, and the tile keeps
           // the name the backend still holds: a grid showing a name the `PUT`
           // refused would be lying about what was saved.
           setRenameError(
             getFriendlyErrorMessage(err, {
-              fallback: t("collectionActions.renameFailed"),
+              fallback: t("folderActions.renameFailed"),
             }),
           );
         } finally {
@@ -193,14 +193,14 @@ export function useCollectionActions(options: {
   );
 
   const runDelete = useCallback(
-    async (collection: CollectionActionTarget) => {
+    async (folder: FolderActionTarget) => {
       setIsDeleting(true);
       try {
-        await OrganizationService.deleteCollection(collection.id);
+        await OrganizationService.deleteFolder(folder.id);
         setIsMenuVisible(false);
-        onDeleted(collection.id);
+        onDeleted(folder.id);
       } catch (err) {
-        // The tile stays exactly where it is: the collection is still there, and
+        // The tile stays exactly where it is: the folder is still there, and
         // a grid that hides it would be lying about what the backend holds.
         //
         // The menu stays open too, and not only so the user can try again: on iOS
@@ -210,7 +210,7 @@ export function useCollectionActions(options: {
         Alert.alert(
           t("common.error"),
           getFriendlyErrorMessage(err, {
-            fallback: t("collectionActions.deleteFailed"),
+            fallback: t("folderActions.deleteFailed"),
           }),
         );
       } finally {
@@ -222,36 +222,36 @@ export function useCollectionActions(options: {
 
   const handleDelete = useCallback(() => {
     if (!target || isDeleting) return;
-    const collection = target;
+    const folder = target;
 
-    // What the confirmation has to say, because deleting a collection is not
-    // deleting what is in it: the sources move to the default collection and none
-    // of them is destroyed. The sub-collections *are*, so when there are any they
-    // are counted — "and its 3 sub-collections" is the part a user cannot see from
+    // What the confirmation has to say, because deleting a folder is not
+    // deleting what is in it: the sources move to the default folder and none
+    // of them is destroyed. The subfolders *are*, so when there are any they
+    // are counted — "and its 3 subfolders" is the part a user cannot see from
     // a tile that shows only a folder glyph and a name.
     const body = [
-      t("collectionActions.deleteBody", {
-        name: collection.name,
-        unsorted: DEFAULT_COLLECTION_LABEL,
+      t("folderActions.deleteBody", {
+        name: folder.name,
+        unsorted: DEFAULT_FOLDER_LABEL,
       }),
-      collection.descendantCount > 0
+      folder.descendantCount > 0
         ? tCount(
-            "collectionActions.deleteSubCollections",
-            collection.descendantCount,
-            { unsorted: DEFAULT_COLLECTION_LABEL },
+            "folderActions.deleteSubfolders",
+            folder.descendantCount,
+            { unsorted: DEFAULT_FOLDER_LABEL },
           )
         : null,
     ]
       .filter((part): part is string => part !== null)
       .join(" ");
 
-    Alert.alert(t("collectionActions.deleteTitle"), body, [
+    Alert.alert(t("folderActions.deleteTitle"), body, [
       { text: t("common.cancel"), style: "cancel" },
       {
         text: t("common.delete"),
         style: "destructive",
         onPress: () => {
-          void runDelete(collection);
+          void runDelete(folder);
         },
       },
     ]);
@@ -267,39 +267,39 @@ export function useCollectionActions(options: {
         {
           key: "rename",
           icon: "pencil-outline",
-          label: t("collectionActions.rename.label"),
+          label: t("folderActions.rename.label"),
           onPress: handleRename,
           closesMenu: true,
-          testID: "collection-actions-rename",
+          testID: "folder-actions-rename",
         },
         {
           key: "delete",
           icon: "trash-outline",
-          label: t("collectionActions.delete.label"),
+          label: t("folderActions.delete.label"),
           onPress: handleDelete,
           destructive: true,
           isBusy: isDeleting,
           // The confirmation and the spinner both live in the menu, so it stays.
           closesMenu: false,
-          testID: "collection-actions-delete",
+          testID: "folder-actions-delete",
         },
       ],
       isBusy: isDeleting,
       onClose: closeMenu,
-      testIDPrefix: "collection-actions",
+      testIDPrefix: "folder-actions",
     },
     renameProps: {
       visible: isRenameVisible,
-      heading: t("collectionActions.rename.title"),
-      placeholder: t("collectionActions.rename.placeholder"),
-      maxLength: MAX_COLLECTION_NAME_LENGTH,
+      heading: t("folderActions.rename.title"),
+      placeholder: t("folderActions.rename.placeholder"),
+      maxLength: MAX_FOLDER_NAME_LENGTH,
       value: renameDraft,
       onChangeText: changeRenameDraft,
       isSaving: isRenaming,
       errorMessage: renameError,
       onClose: closeRename,
       onSubmit: submitRename,
-      testIDPrefix: "collection-rename",
+      testIDPrefix: "folder-rename",
     },
   };
 }

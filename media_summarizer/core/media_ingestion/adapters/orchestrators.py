@@ -318,8 +318,8 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         Submit resolved media for processing.
 
         For all commands (IngestUrlCommand and IngestSharedContentCommand):
-        - Creates the durable library row, carrying the requested folder_id and
-          tag_ids. Organization lives there and nowhere else (task-220).
+        - Creates the durable library row, carrying the requested folder_id.
+          Organization lives there and nowhere else (task-220).
         - Allocates a minute hold for quota enforcement.
         - Routes to appropriate worker queues based on media family and type.
         - Handles direct transcription for shared text and Apify social video transcripts.
@@ -364,7 +364,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             source_platform=resolved.source_platform.value,
             media_type=resolved.media_type.value,
             folder_id=command.request.folder_id,
-            tag_ids=list(dict.fromkeys(command.request.tag_ids or [])),
         )
 
         existing = await episode_idempotence.already_processed(media_key=resolved.media_key)
@@ -431,10 +430,10 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             await database_async.create_processing_job(job)
             job_created = True
 
-            # No folder/tag write on the job: the requested organization was
-            # already persisted on the durable row above, which is now the only
-            # place it lives (task-220). The job used to carry a second copy that
-            # every read had to prefer or reconcile.
+            # No folder write on the job: the requested organization was already
+            # persisted on the durable row above, which is now the only place it
+            # lives (task-220). The job used to carry a second copy that every
+            # read had to prefer or reconcile.
 
             pipeline_enqueued = False
             podcastindex_resolution_enqueued = False

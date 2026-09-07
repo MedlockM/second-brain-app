@@ -165,7 +165,7 @@ async def claim_awaiting_artifact(
     """Turn a waiting entry into a real ``queued`` one, or refuse.
 
     The conditional write is what makes the resume exactly-once: the end of an
-    ingestion and the end of a translation both fire, and a collection whose last
+    ingestion and the end of a translation both fire, and a folder whose last
     two sources land together fires twice more. Whoever clears
     ``awaiting_expires_at`` owns the enqueue; every other caller reads ``False``
     and sends nothing.

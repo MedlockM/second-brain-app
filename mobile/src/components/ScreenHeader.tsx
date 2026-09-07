@@ -9,7 +9,7 @@
  * French turned "Save" into "Enregistrer".
  *
  * The contract here is the one that already worked in
- * `app/media/collections/[id].tsx`, made general:
+ * `app/media/folders/[id].tsx`, made general:
  *
  *     [ leading: fixed ][ title: flex 1, centred, one line ][ trailing: intrinsic ]
  *
@@ -166,7 +166,7 @@ interface HeaderMenuButtonProps {
  * on the frame the menu opens, and a header that has just been laid out under a
  * notch or behind a toast reports a stale position.
  *
- * One component for both screens that carry it — a media item and a collection —
+ * One component for both screens that carry it — a media item and a folder —
  * which is what makes the button land at the same place and offer the same 48pt
  * target on a header built by hand and on one built by `ScreenHeader`. The bare
  * glyph rather than the tonal circle of `HeaderIconButton`: this is a secondary

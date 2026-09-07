@@ -12,7 +12,7 @@ runtime endpoints are fully implemented.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from pydantic import BaseModel, Field
 
@@ -249,7 +249,6 @@ class IngestUrlRequest(BaseModel):
     )
     idempotency_key: Optional[str] = None
     folder_id: Optional[str] = None
-    tag_ids: List[str] = Field(default_factory=list)
 
 
 class IngestSharedContentRequest(BaseModel):

@@ -1,12 +1,12 @@
 """Artifact routes, scope-addressed.
 
 One set of routes serves both scopes (task-269 §9.1): a media artifact is
-requested with ``scope="media"``, a collection artifact with ``scope="folder"``.
+requested with ``scope="media"``, a folder artifact with ``scope="folder"``.
 The per-media routes are gone, with no alias and no deprecation window.
 
 Ownership is a comparison, not a query: the record carries ``user_id``, and the
 listing index is keyed on it. The previous check resolved the artifact's media
-item, which cannot work for a collection artifact — it has no media.
+item, which cannot work for a folder artifact — it has no media.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ _CREATE_LOG_MESSAGES = {
 
 class ArtifactCreateRequest(BaseModel):
     scope: str = Field(..., description="Scope of the generation: 'media' or 'folder'")
-    scope_id: str = Field(..., description="Media item id, or folder (collection) id")
+    scope_id: str = Field(..., description="Media item id, or folder id")
     artifact_type: str = Field(
         ...,
         description="Type of artifact: summary_short, summary_detailed, notes, quiz, flashcards",
@@ -136,7 +136,7 @@ class ArtifactCreateResponse(ArtifactDetailResponse):
     - ``retried`` — a previously failed entry for the same sources was rerun.
     - ``reused`` — an artifact already covered these sources; nothing was queued
       and no counter moved. This is the normal answer for a second request on a
-      media item, and for a collection whose sources have not changed.
+      media item, and for a folder whose sources have not changed.
     - ``collapsed`` — two concurrent taps, and this one lost the write; the entry
       returned is the one already in flight.
     """
@@ -224,7 +224,7 @@ async def _assert_scope_owned(
     folder = await database_async.get_folder_by_id(scope_id)
     if folder is None or folder.user_id != user_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
         )
     return scope_id
 
@@ -244,7 +244,7 @@ async def create_artifact(
 
     Not every request generates: an artifact already covering the same set of
     sources answers as-is (task-316 owner decision), which is why a media item
-    yields one artifact per type for good and a collection only regenerates once
+    yields one artifact per type for good and a folder only regenerates once
     its sources have changed.
 
     The order of the checks matters: a request nothing runs for must consume
@@ -336,13 +336,11 @@ async def create_artifact(
         # that is what the signal measures). The ownership assertion above is what
         # lets this skip its own check. Swallows everything by contract: a recency
         # stamp must never fail a generation the user asked for.
+        # `ArtifactScope` and the engagement kinds are the same two words
+        # (`media`, `folder`), so the scope *is* the kind.
         await engagement_service.stamp(
             user_id=current_user.id,
-            kind=(
-                engagement_service.KIND_MEDIA
-                if scope == ArtifactScope.MEDIA
-                else engagement_service.KIND_COLLECTION
-            ),
+            kind=scope.value,
             subject_id=scope_id,
         )
 

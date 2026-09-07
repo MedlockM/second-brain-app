@@ -3,11 +3,11 @@
  *
  * The history is append-only: several entries of the same type coexist, and an
  * entry keeps describing the sources it was generated over even after the
- * collection has changed. That is exactly what "N sources" says — it is the
- * entry's own snapshot, never a count of the collection as it stands now, so
+ * folder has changed. That is exactly what "N sources" says — it is the
+ * entry's own snapshot, never a count of the folder as it stands now, so
  * nothing here dedupes, hides or marks an entry as stale.
  *
- * Shared between the AI tab of a collection and the AI tab of a media item: the
+ * Shared between the AI tab of a folder and the AI tab of a media item: the
  * two histories are the same object rendered the same way.
  */
 

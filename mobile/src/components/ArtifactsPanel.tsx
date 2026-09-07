@@ -3,7 +3,7 @@
  * append-only history underneath.
  *
  * Rendered by both `app/media/[id].tsx` (a single media item) and
- * `app/media/collections/[id].tsx` (a whole collection). The tab used to be
+ * `app/media/folders/[id].tsx` (a whole folder). The tab used to be
  * declared twice, and the two copies drifted until the same headings rendered as
  * a large dark title on one screen and a small muted uppercase caption on the
  * other. So this component owns *all* of the layout and every presentational
@@ -14,7 +14,7 @@
  * generation handler and the refusal message are all passed in. Whether a *given
  * type* can still be generated lives in the tile state, because only the screens
  * know their scope's sources — a media item is generated once per type, a
- * collection only after its sources change. How far along a source is is not
+ * folder only after its sources change. How far along a source is is not
  * passed in at all any more: a request made while a transcription or a
  * translation is still running is accepted and starts by itself (task-360).
  *
@@ -72,7 +72,7 @@ export interface ArtifactsPanelProps {
   onOpenArtifact: (artifact: ArtifactSummary) => void;
   /**
    * Whether a history line names the number of sources it was generated over:
-   * `true` for a collection, `false` for a single media item.
+   * `true` for a folder, `false` for a single media item.
    */
   showSourceCount: boolean;
 }
@@ -119,7 +119,7 @@ export function ArtifactsPanel({
 
       {/* The history is append-only and permanent: an entry is never replaced
           and never expires. Several entries of the same type coexist only where
-          the sources differ between them — a collection that changed — so on a
+          the sources differ between them — a folder that changed — so on a
           media item this list holds at most one line per type. */}
       <Text style={[styles.heading, styles.historyHeading]}>
         {t("artifacts.panel.generatedHeading")}
