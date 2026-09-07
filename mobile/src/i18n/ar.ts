@@ -52,6 +52,7 @@ export const ar: Catalog = {
   "mediaActions.move.label": "نقل",
   "mediaActions.rename.label": "إعادة تسمية",
   "mediaActions.delete.label": "حذف",
+  "mediaActions.moreA11y": "إجراءات هذا المصدر",
   "mediaActions.rename.title": "إعادة تسمية هذا المصدر",
   "mediaActions.rename.placeholder": "اسم المصدر",
   "mediaActions.renameFailed":
@@ -65,6 +66,7 @@ export const ar: Catalog = {
     "انقر نقرًا مزدوجًا مع الاستمرار لإعادة تسمية هذه المجموعة أو حذفها",
   "collectionActions.rename.label": "إعادة تسمية",
   "collectionActions.delete.label": "حذف",
+  "collectionActions.moreA11y": "إجراءات هذه المجموعة",
   "collectionActions.rename.title": "إعادة تسمية هذه المجموعة",
   "collectionActions.rename.placeholder": "اسم المجموعة",
   "collectionActions.renameFailed":
@@ -446,7 +448,6 @@ export const ar: Catalog = {
   "media.removedFromCollection": "أُزيل من المجموعة",
   "media.openFailed": "تعذّر فتح {host}",
   "media.moveToCollectionA11y": "النقل إلى مجموعة",
-  "media.shareA11y": "مشاركة",
   "collection.tab.sources": "المصادر",
   "collection.tab.ai": "الذكاء الاصطناعي",
   "collection.sectionsA11y": "أقسام المجموعة",

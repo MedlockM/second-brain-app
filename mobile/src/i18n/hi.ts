@@ -52,6 +52,7 @@ export const hi: Catalog = {
   "mediaActions.move.label": "ले जाएँ",
   "mediaActions.rename.label": "नाम बदलें",
   "mediaActions.delete.label": "हटाएँ",
+  "mediaActions.moreA11y": "इस स्रोत के लिए क्रियाएँ",
   "mediaActions.rename.title": "इस स्रोत का नाम बदलें",
   "mediaActions.rename.placeholder": "स्रोत का नाम",
   "mediaActions.renameFailed":
@@ -65,6 +66,7 @@ export const hi: Catalog = {
     "इस संग्रह का नाम बदलने या इसे हटाने के लिए दो बार टैप करके दबाए रखें",
   "collectionActions.rename.label": "नाम बदलें",
   "collectionActions.delete.label": "हटाएँ",
+  "collectionActions.moreA11y": "इस संग्रह के लिए क्रियाएँ",
   "collectionActions.rename.title": "इस संग्रह का नाम बदलें",
   "collectionActions.rename.placeholder": "संग्रह का नाम",
   "collectionActions.renameFailed":
@@ -446,7 +448,6 @@ export const hi: Catalog = {
   "media.removedFromCollection": "संग्रह से हटाया गया",
   "media.openFailed": "{host} नहीं खोला जा सका",
   "media.moveToCollectionA11y": "संग्रह में ले जाएँ",
-  "media.shareA11y": "शेयर करें",
   "collection.tab.sources": "स्रोत",
   "collection.tab.ai": "AI",
   "collection.sectionsA11y": "संग्रह के अनुभाग",

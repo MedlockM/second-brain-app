@@ -24,6 +24,16 @@ import type { ArtifactTileState } from "../../src/components/ArtifactTile";
 import { ArtifactsPanel } from "../../src/components/ArtifactsPanel";
 import { ScreenTabs, type ScreenTab } from "../../src/components/ScreenTabs";
 import {
+  HeaderMenuButton,
+  HeaderMenuGlyph,
+} from "../../src/components/ScreenHeader";
+import {
+  AnchoredContextMenu,
+  type AnchorRect,
+} from "../../src/components/AnchoredContextMenu";
+import { RenameDialog } from "../../src/components/RenameDialog";
+import { useMediaActions } from "../../src/hooks/useMediaActions";
+import {
   TranscriptReader,
   type TranscriptContentState,
 } from "../../src/components/TranscriptReader";
@@ -37,6 +47,7 @@ import {
 import { formatDate, t, useTranslation } from "../../src/i18n";
 import type {
   MediaStatusResponse,
+  MediaItemContract,
   ArtifactType,
 } from "../../src/types/media";
 import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
@@ -394,6 +405,37 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     router.push(`/media/collection?${params.toString()}`);
   }, [router, media_item.media_item_id, currentFolderId]);
 
+  // The title as this screen shows it: whatever the library row holds, and
+  // nothing more — since task-266 the backend always stores a readable, non-empty
+  // title, so the URL-then-"Untitled" chain that used to be here is gone from
+  // every screen. A rename patches it in place: this screen holds no list to
+  // reload, so the new name has to land on the hero directly.
+  const [renamedTitle, setRenamedTitle] = useState<string | null>(null);
+  const displayTitle = renamedTitle ?? media_item.title;
+
+  // The header `…`, and what it offers: the rename and the delete a long press
+  // already offers in Library, reachable from the item itself. No "Move" row —
+  // the folder button one slot to its left opens that very picker.
+  const mediaActions = useMediaActions<MediaItemContract>({
+    canMove: false,
+    // Nothing left to show once the deletion is confirmed, so the screen leaves.
+    // The list it was opened from refetches on focus and comes back without it.
+    onDeleted: onBack,
+    onRenamed: (_mediaItemId, title) => setRenamedTitle(title),
+  });
+
+  // What the menu acts on, carrying the title currently on screen: a second
+  // rename has to start from the name the first one stored.
+  const menuTarget = useMemo<MediaItemContract>(
+    () => ({ ...media_item, title: displayTitle }),
+    [media_item, displayTitle],
+  );
+
+  // The copy of the pressed control the menu lifts above its blur. A header
+  // button has no row to redraw, so it redraws itself: the `…` stays sharp and
+  // the card visibly hangs from it.
+  const renderActionsPreview = useCallback(() => <HeaderMenuGlyph />, []);
+
   const [activeTab, setActiveTab] = useState<MediaDetailTabKey>("reader");
   // Artifacts are a per-scope append-only history: the media detail response
   // carries no artifact projection any more. This screen holds the history and
@@ -569,11 +611,6 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
     },
     [isAuthenticated, media_item.media_item_id],
   );
-  // The title is whatever the library row holds, exactly like the inbox
-  // vignette -- and nothing more: since task-266 the backend always stores a
-  // readable, non-empty title, so the URL-then-"Untitled" chain that used to be
-  // here is gone from every screen.
-  const displayTitle = media_item.title;
 
   const displayDomain = (() => {
     try {
@@ -776,6 +813,7 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
         onBack={onBack}
         collectionId={currentFolderId}
         onCollectionPress={handleCollectionPress}
+        onActionsPress={(anchor) => mediaActions.open(menuTarget, anchor)}
       />
 
       {/* Toast feedback */}
@@ -867,20 +905,40 @@ function CompletedDetailView({ mediaData, onBack }: CompletedDetailViewProps) {
           />
         )}
       </ScrollView>
+
+      {/* Screen level, outside the scroll view: both are modals belonging to the
+          screen's state, and the menu's backdrop covers the whole page. */}
+      <AnchoredContextMenu
+        {...mediaActions.menuProps}
+        renderPreview={renderActionsPreview}
+      />
+      <RenameDialog {...mediaActions.renameProps} />
     </SafeAreaView>
   );
 }
 
 // --- Sub-components ---
 
+/**
+ * The screen's own title bar: back on the left, and on the right the two things
+ * that can be done to the item — file it, or act on it.
+ *
+ * Both right-hand slots are optional and both are only filled once the item has
+ * resolved. The loading, processing, timeout and failure states carry the back
+ * arrow alone: they hold no title to seed a rename field with, and a menu whose
+ * first row could not be prefilled is worse than no menu.
+ */
 function Header({
   onBack,
   collectionId,
   onCollectionPress,
+  onActionsPress,
 }: {
   onBack: () => void;
   collectionId?: string | null;
   onCollectionPress?: () => void;
+  /** Opens the rename/delete menu, anchored on the `…` that was tapped. */
+  onActionsPress?: (anchor: AnchorRect) => void;
 }) {
   const hasCollection = !!collectionId;
 
@@ -911,14 +969,13 @@ function Header({
             />
           </Pressable>
         )}
-        <Pressable
-          style={styles.headerButton}
-          accessibilityLabel={t("media.shareA11y")}
-          accessibilityRole="button"
-          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-        >
-          <Ionicons name="share-outline" size={24} color={Colors.textMain} />
-        </Pressable>
+        {onActionsPress && (
+          <HeaderMenuButton
+            onPress={onActionsPress}
+            accessibilityLabel={t("mediaActions.moreA11y")}
+            testID="media-header-actions"
+          />
+        )}
       </View>
     </View>
   );

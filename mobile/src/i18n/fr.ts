@@ -63,6 +63,7 @@ export const fr: Catalog = {
   "mediaActions.move.label": "Déplacer",
   "mediaActions.rename.label": "Renommer",
   "mediaActions.delete.label": "Supprimer",
+  "mediaActions.moreA11y": "Actions pour cette source",
   "mediaActions.rename.title": "Renommer cette source",
   "mediaActions.rename.placeholder": "Nom de la source",
   "mediaActions.renameFailed":
@@ -76,6 +77,7 @@ export const fr: Catalog = {
     "Appuyez deux fois et maintenez pour renommer ou supprimer cette collection",
   "collectionActions.rename.label": "Renommer",
   "collectionActions.delete.label": "Supprimer",
+  "collectionActions.moreA11y": "Actions pour cette collection",
   "collectionActions.rename.title": "Renommer cette collection",
   "collectionActions.rename.placeholder": "Nom de la collection",
   "collectionActions.renameFailed":
@@ -560,7 +562,6 @@ export const fr: Catalog = {
   "media.removedFromCollection": "Retiré de la collection",
   "media.openFailed": "Impossible d'ouvrir {host}",
   "media.moveToCollectionA11y": "Déplacer vers une collection",
-  "media.shareA11y": "Partager",
   "collection.tab.sources": "Sources",
   "collection.tab.ai": "IA",
   "collection.sectionsA11y": "Sections de la collection",

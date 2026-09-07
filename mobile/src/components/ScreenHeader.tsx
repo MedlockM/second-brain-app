@@ -25,9 +25,15 @@
  * the first frame — and it is exactly the reasoning that produced the
  * hard-coded `width: 88` placeholder this component replaces, a number correct
  * in English and wrong in German.
+ *
+ * The two controls that fill those slots live here as well: `HeaderIconButton`
+ * for a back or close, and `HeaderMenuButton` for the trailing `…`. The second
+ * one is exported for the media screen too, whose header is still hand-built —
+ * one component is what keeps the actions button at the same place and the same
+ * size on both, without that screen having to move to `ScreenHeader` first.
  */
 
-import React, { type ReactNode } from "react";
+import React, { useRef, type ReactNode } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -45,6 +51,7 @@ import {
   Typography,
   TouchTarget,
 } from "../constants/theme";
+import type { AnchorRect } from "./AnchoredContextMenu";
 
 /**
  * The width of a leading slot, and of the spacer that balances it.
@@ -130,6 +137,82 @@ export function HeaderIconButton({
     >
       <Ionicons name={icon} size={24} color={Colors.textMain} />
     </Pressable>
+  );
+}
+
+/**
+ * The glyph of the actions button. `ellipsis-horizontal` and not the vertical
+ * one: a horizontal `…` is what a top bar carries on both platforms, and the
+ * vertical variant reads as an Android overflow menu pinned to the bar's corner.
+ */
+const MENU_GLYPH = "ellipsis-horizontal" as const;
+
+interface HeaderMenuButtonProps {
+  /**
+   * Opens the actions menu, with this button's own window rect —
+   * `AnchoredContextMenu` hangs its card off the control that opened it.
+   */
+  onPress: (anchor: AnchorRect) => void;
+  /** Required: an icon-only control has no visible label to fall back on. */
+  accessibilityLabel: string;
+  testID?: string;
+}
+
+/**
+ * The trailing `…` of a screen that shows one thing, and the way to rename or
+ * delete that thing without going back to the list it came from.
+ *
+ * It measures itself when pressed rather than on layout: the rect is only needed
+ * on the frame the menu opens, and a header that has just been laid out under a
+ * notch or behind a toast reports a stale position.
+ *
+ * One component for both screens that carry it — a media item and a collection —
+ * which is what makes the button land at the same place and offer the same 48pt
+ * target on a header built by hand and on one built by `ScreenHeader`. The bare
+ * glyph rather than the tonal circle of `HeaderIconButton`: this is a secondary
+ * affordance sitting next to a primary navigation control, and the filled disc
+ * would give it more weight than the back button it follows.
+ */
+export function HeaderMenuButton({
+  onPress,
+  accessibilityLabel,
+  testID,
+}: HeaderMenuButtonProps): React.JSX.Element {
+  const buttonRef = useRef<View>(null);
+
+  const handlePress = () => {
+    buttonRef.current?.measureInWindow((x, y, width, height) => {
+      onPress({ x, y, width, height });
+    });
+  };
+
+  return (
+    <Pressable
+      ref={buttonRef}
+      style={styles.iconButton}
+      onPress={handlePress}
+      hitSlop={SLOT_HIT_SLOP}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      testID={testID}
+    >
+      <Ionicons name={MENU_GLYPH} size={24} color={Colors.textMain} />
+    </Pressable>
+  );
+}
+
+/**
+ * The same glyph on the same slot, inert: what `AnchoredContextMenu` redraws on
+ * the measured rect so the button that opened the menu stays sharp above the
+ * blurred page, exactly as the pressed row does in Library. The menu requires a
+ * preview because it is what names its target — a header button has no row to
+ * lift, so it lifts itself.
+ */
+export function HeaderMenuGlyph(): React.JSX.Element {
+  return (
+    <View style={styles.iconButton}>
+      <Ionicons name={MENU_GLYPH} size={24} color={Colors.textMain} />
+    </View>
   );
 }
 

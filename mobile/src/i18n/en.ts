@@ -76,10 +76,14 @@ export const en = {
   "mediaCard.longPressHint":
     "Double tap and hold to move, rename or delete this source",
 
-  // --- Long-press actions on a media vignette in Library ---
+  // --- Actions on a media item: long press in Library, `…` on its own page ---
   "mediaActions.move.label": "Move",
   "mediaActions.rename.label": "Rename",
   "mediaActions.delete.label": "Delete",
+  // The header `…` of a media item's own page, which opens the two rows
+  // below. Names what it acts on rather than saying "More": a screen reader
+  // announces it out of the header, away from the title it belongs to.
+  "mediaActions.moreA11y": "Actions for this source",
   "mediaActions.rename.title": "Rename this source",
   "mediaActions.rename.placeholder": "Source name",
   "mediaActions.renameFailed":
@@ -90,12 +94,15 @@ export const en = {
   "mediaActions.deleteFailed":
     "This source could not be deleted. It is still in your library.",
 
-  // --- Long-press actions on a collection tile in Library ---
+  // --- Actions on a collection: long press in Library, `…` on its own page ---
   // Two rows, no Move: reparenting a collection has no picker anywhere yet.
   "collectionActions.longPressHint":
     "Double tap and hold to rename or delete this collection",
   "collectionActions.rename.label": "Rename",
   "collectionActions.delete.label": "Delete",
+  // Same control on the header of a collection's page. Absent on the default
+  // collection, whose rename and delete the backend both refuse.
+  "collectionActions.moreA11y": "Actions for this collection",
   "collectionActions.rename.title": "Rename this collection",
   "collectionActions.rename.placeholder": "Collection name",
   "collectionActions.renameFailed":
@@ -598,7 +605,6 @@ export const en = {
   "media.removedFromCollection": "Removed from collection",
   "media.openFailed": "Couldn't open {host}",
   "media.moveToCollectionA11y": "Move to collection",
-  "media.shareA11y": "Share",
 
   // --- Collection detail ---
   "collection.tab.sources": "Sources",

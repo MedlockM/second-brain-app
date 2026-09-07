@@ -52,6 +52,7 @@ export const it: Catalog = {
   "mediaActions.move.label": "Sposta",
   "mediaActions.rename.label": "Rinomina",
   "mediaActions.delete.label": "Elimina",
+  "mediaActions.moreA11y": "Azioni per questa fonte",
   "mediaActions.rename.title": "Rinomina questa fonte",
   "mediaActions.rename.placeholder": "Nome della fonte",
   "mediaActions.renameFailed":
@@ -65,6 +66,7 @@ export const it: Catalog = {
     "Tocca due volte e tieni premuto per rinominare o eliminare questa raccolta",
   "collectionActions.rename.label": "Rinomina",
   "collectionActions.delete.label": "Elimina",
+  "collectionActions.moreA11y": "Azioni per questa raccolta",
   "collectionActions.rename.title": "Rinomina questa raccolta",
   "collectionActions.rename.placeholder": "Nome della raccolta",
   "collectionActions.renameFailed":
@@ -445,7 +447,6 @@ export const it: Catalog = {
   "media.removedFromCollection": "Rimosso dalla raccolta",
   "media.openFailed": "Impossibile aprire {host}",
   "media.moveToCollectionA11y": "Sposta in una raccolta",
-  "media.shareA11y": "Condividi",
   "collection.tab.sources": "Fonti",
   "collection.tab.ai": "IA",
   "collection.sectionsA11y": "Sezioni della raccolta",
