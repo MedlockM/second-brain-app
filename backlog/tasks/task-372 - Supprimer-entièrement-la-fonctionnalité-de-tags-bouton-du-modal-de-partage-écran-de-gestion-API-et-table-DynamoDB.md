@@ -3,9 +3,10 @@ id: task-372
 title: >-
   Supprimer entièrement la fonctionnalité de tags : bouton du modal de partage,
   écran de gestion, API et table DynamoDB
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 13:36'
+updated_date: '2026-09-07 16:16'
 labels:
   - mobile
 dependencies: []

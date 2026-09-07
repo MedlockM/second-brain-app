@@ -3,9 +3,10 @@ id: task-373
 title: >-
   Renommer « Collection » en « Dossier » dans toute l'application et aligner le
   code mobile sur le vocabulaire `folder` du backend
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 13:40'
+updated_date: '2026-09-07 16:16'
 labels:
   - mobile
   - backend
