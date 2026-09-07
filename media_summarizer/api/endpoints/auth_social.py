@@ -33,7 +33,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field
 
 from media_summarizer.core.models import User
-from media_summarizer.core.models.auth import AuthToken
+from media_summarizer.core.models.auth import AuthToken, AuthUser
 from media_summarizer.utils import database_async
 from media_summarizer.utils.auth_utils import (
     create_access_token,
@@ -586,7 +586,7 @@ async def google_native(
             refresh_token=refresh.token,
             token_type="bearer",
             expires_in=access_seconds,
-            user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
+            user=AuthUser.from_user(user).model_dump(),
         )
 
     except httpx.HTTPStatusError as e:
@@ -674,7 +674,7 @@ async def apple_native(
             refresh_token=refresh.token,
             token_type="bearer",
             expires_in=access_seconds,
-            user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
+            user=AuthUser.from_user(user).model_dump(),
         )
 
     except HTTPException:

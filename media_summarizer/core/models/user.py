@@ -42,6 +42,18 @@ class User(BaseModel):
     # User preferences
     reading_language: Optional[str] = None  # ISO 639-1 code (e.g., "fr", "en")
 
+    # IANA zone name of the user's device (e.g. "Europe/Paris"), never a UTC
+    # offset: a stored "+02:00" is wrong six months a year, while the name
+    # carries its own DST rules. Written by the app on every return to the
+    # foreground, so a user who travels sees their Digest follow. Stays None
+    # until the app has reported one — an account whose zone is unknown is a
+    # valid account, and "unknown" is deliberately not backfilled to UTC (that
+    # would ring at 20:30 in Paris). Consumers must tolerate the absence.
+    # Named `iana_timezone` rather than `timezone` on two counts: `timezone` is
+    # a DynamoDB reserved word, so any projection over this table would need an
+    # expression alias, and it would shadow `datetime.timezone` in this module.
+    iana_timezone: Optional[str] = None
+
     @field_validator("email")
     @classmethod
     def email_must_be_valid(cls, v: str) -> str:
@@ -96,6 +108,8 @@ class User(BaseModel):
             item["avatar_url"] = self.avatar_url
         if self.reading_language is not None:
             item["reading_language"] = self.reading_language
+        if self.iana_timezone is not None:
+            item["iana_timezone"] = self.iana_timezone
         return item
 
     @classmethod
@@ -120,6 +134,7 @@ class User(BaseModel):
             name=item.get("name"),
             avatar_url=item.get("avatar_url"),
             reading_language=item.get("reading_language"),
+            iana_timezone=item.get("iana_timezone"),
         )
 
     def __repr__(self) -> str:  # pragma: no cover (representation)
