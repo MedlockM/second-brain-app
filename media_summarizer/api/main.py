@@ -29,7 +29,6 @@ from media_summarizer.api.endpoints import (
     podcasts,
     pricing,
     revenucat_webhook,
-    review,
     search,
     tags,
 )
@@ -150,7 +149,6 @@ app.include_router(account.router, prefix="/api/account", tags=["account"])
 app.include_router(podcasts.router, prefix="/api", tags=["podcasts"])
 app.include_router(jobs.router, prefix="/api", tags=["jobs"])
 app.include_router(folders.router, prefix="/api/folders", tags=["folders"])
-app.include_router(review.router, prefix="/api", tags=["review"])
 app.include_router(tags.router, prefix="/api/tags", tags=["tags"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(feeds.router, prefix="/api/feeds", tags=["feeds"])

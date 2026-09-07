@@ -85,8 +85,6 @@ _JOB_CONCURRENCY = 8
 _USER_PARTITION_TABLES: Tuple[Tuple[str, Optional[str]], ...] = (
     ("USER_USAGE_MONTHLY_TABLE", "period"),
     ("USER_USAGE_DAILY_TABLE", "date"),
-    ("REVIEW_SCHEDULE_TABLE", "card_id"),
-    ("USER_REVIEW_SETTINGS_TABLE", None),
     ("USER_DIGESTS_TABLE", "digest_key"),
     ("USER_DIGEST_SETTINGS_TABLE", None),
     ("FOLLOWS_TABLE", "feed_id"),

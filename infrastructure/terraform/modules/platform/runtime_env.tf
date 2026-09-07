@@ -33,8 +33,6 @@ locals {
     USER_USAGE_DAILY_TABLE        = aws_dynamodb_table.user_usage_daily.name
     REVENUCAT_EVENTS_TABLE        = aws_dynamodb_table.revenucat_events.name
     BUG_REPORTS_TABLE             = aws_dynamodb_table.bug_reports.name
-    REVIEW_SCHEDULE_TABLE         = aws_dynamodb_table.review_schedule.name
-    USER_REVIEW_SETTINGS_TABLE    = aws_dynamodb_table.user_review_settings.name
     USER_RSS_FEEDS_TABLE          = aws_dynamodb_table.user_rss_feeds.name
   }
 

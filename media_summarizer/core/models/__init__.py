@@ -27,7 +27,6 @@ from .digest import (
 )
 from .folder import MAX_FOLDER_DEPTH, UNCATEGORIZED_FOLDER_NAME, Folder
 from .processing_job import JobStatus, ProcessingJob
-from .review_schedule import CardState, ReviewScheduleRecord, UserReviewSettings
 from .rss_feed import FeedStatus, UserRssFeed
 from .tag import Tag
 from .user import User
@@ -58,9 +57,6 @@ __all__ = [
     "Folder",
     "UNCATEGORIZED_FOLDER_NAME",
     "MAX_FOLDER_DEPTH",
-    "ReviewScheduleRecord",
-    "CardState",
-    "UserReviewSettings",
     "UserRssFeed",
     "FeedStatus",
     "Tag",

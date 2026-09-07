@@ -33,7 +33,7 @@ from media_summarizer.core.models.media_artifact import (
     ArtifactLlmUsage,
     MediaArtifactType,
 )
-from media_summarizer.core.services import fsrs_service, quota_enforcer
+from media_summarizer.core.services import quota_enforcer
 from media_summarizer.core.services.artifact_service import (
     MAX_COLLECTION_CORPUS_TOKENS,
     claim_artifact_generation,
@@ -380,10 +380,6 @@ async def process_message(message: Dict[str, Any]) -> None:
 
         await _record_generation_cost(body, artifact_id, llm_usage)
 
-        # Post-generation hooks (per-kind)
-        if artifact_type == MediaArtifactType.FLASHCARDS:
-            await _init_fsrs_cards(body, artifact_id, validated["cards"])
-
     except Exception as exc:
         # Determine error code for validation errors
         error_code = None
@@ -472,46 +468,6 @@ async def _record_generation_cost(
         cost_eur=llm_usage.cost_eur,
         idempotency_token=f"artifact_cost:{artifact_id}",
     )
-
-
-async def _init_fsrs_cards(
-    body: Dict[str, Any],
-    artifact_id: str,
-    flashcards: Any,
-) -> None:
-    """Initialize FSRS review schedule cards for spaced repetition (flashcards only).
-
-    Cards are keyed by ``scope``/``scope_id`` rather than by media, which is what
-    lets a collection's flashcards enter the review queue like any other deck —
-    otherwise they would be the one artifact type that generates and then sits
-    inert. The owner comes from the message, not from a processing-job lookup.
-    """
-    scope = body.get("scope")
-    scope_id = body.get("scope_id")
-    user_id = body.get("user_id")
-    if not scope or not scope_id or not user_id:
-        return
-    try:
-        await fsrs_service.initialize_cards_for_flashcards(
-            user_id=user_id,
-            scope=scope,
-            scope_id=scope_id,
-            artifact_id=artifact_id,
-            flashcards=flashcards,
-        )
-    except Exception as fsrs_exc:
-        # Non-fatal: flashcard generation succeeded, FSRS init is best-effort
-        log_event(
-            logger,
-            logging.WARNING,
-            "worker.fsrs_init_failed",
-            "Failed to initialize FSRS cards (non-fatal)",
-            artifact_id=artifact_id,
-            scope=scope,
-            scope_id=scope_id,
-            error_type=type(fsrs_exc).__name__,
-            detail=str(fsrs_exc)[:200],
-        )
 
 
 async def poll_queue() -> None:

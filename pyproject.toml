@@ -25,7 +25,6 @@ dependencies = [
     "email-validator>=2.0.0",
     "langdetect>=1.0.9",
     "yt-dlp",
-    "fsrs>=1.0.0",
     "algoliasearch>=4.0.0,<5.0.0",
     "python-dotenv>=1.0.0",
 ]
@@ -150,7 +149,6 @@ module = [
     "media_summarizer.core.services.raw_content_service",
     "media_summarizer.core.services.bug_report_service",
     "media_summarizer.core.services.tag_service",
-    "media_summarizer.core.services.fsrs_service",
     "media_summarizer.core.services.artifact_service",
     "media_summarizer.core.services.media_submission",
     "media_summarizer.core.services.__init__",
@@ -174,7 +172,6 @@ disable_error_code = ["union-attr", "arg-type", "assignment", "var-annotated", "
 [[tool.mypy.overrides]]
 # Models: DynamoDB serialization and legacy attributes
 module = [
-    "media_summarizer.core.models.review_schedule",
     "media_summarizer.core.models.processing_job",
 ]
 disable_error_code = ["arg-type", "attr-defined", "assignment"]
