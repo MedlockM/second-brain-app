@@ -39,15 +39,15 @@ logger = logging.getLogger(__name__)
 
 
 class EngagementCreateRequest(BaseModel):
-    kind: Literal["media", "collection"] = Field(
-        ..., description="What was engaged with: a media item or a collection"
+    kind: Literal["media", "folder"] = Field(
+        ..., description="What was engaged with: a media item or a folder"
     )
-    id: str = Field(..., description="Media item id, or collection (folder) id")
+    id: str = Field(..., description="Media item id, or folder id")
 
 
 class RecentEngagementResponse(BaseModel):
     """One tile of the row. The fields a media tile draws and the fields a
-    collection tile draws are both optional, and which ones are populated follows
+    folder tile draws are both optional, and which ones are populated follows
     from ``kind``."""
 
     kind: str
@@ -96,7 +96,7 @@ async def list_recent_engagements(
     limit: int = Query(DEFAULT_RECENT_LIMIT, ge=1, le=MAX_RECENT_LIMIT),
     current_user: AuthUser = Depends(get_current_user),
 ) -> RecentEngagementListResponse:
-    """The "Continue learning" row: media and collections merged, newest first.
+    """The "Continue learning" row: media and folders merged, newest first.
 
     An empty list is a normal answer, not a degraded one — a brand-new account has
     engaged with nothing, and a row whose entries all aged out of the freshness

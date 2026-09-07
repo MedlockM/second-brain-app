@@ -15,15 +15,15 @@ queue, no schedule and no index of its own:
 
 Both name a ``media_key``, so the lookup goes the same way every time: the saves
 of that content (cross-user, since ingestion is deduplicated globally), then the
-scopes those saves belong to — the media itself, its collection, and that
-collection's ancestors, because a collection artifact covers every descendant —
+scopes those saves belong to — the media itself, its folder, and that
+folder's ancestors, because a folder artifact covers every descendant —
 then the ``queued`` entries of those scopes. An entry is waiting on *this* media
 when its own snapshot says so: a source line carrying ``preparation``. Nothing
 else has to be indexed, and an entry that had already excluded this media before
 the request is never mistaken for one waiting on it.
 
 Exactly-once is the conditional write in ``claim_awaiting_artifact``: the end of an
-ingestion, the end of a translation and the last two sources of a collection
+ingestion, the end of a translation and the last two sources of a folder
 landing together all reach here, and only the caller that clears
 ``awaiting_expires_at`` sends the message.
 """
@@ -334,11 +334,11 @@ def _awaits_any_of(record: MediaArtifactRecord, media_item_ids: Set[str]) -> boo
 
 
 def _folder_and_ancestor_ids(folder_id: str, folders: List[Any]) -> List[str]:
-    """A collection and the ones that contain it, transitively.
+    """A folder and the ones that contain it, transitively.
 
-    A collection artifact covers the folder *and every descendant* (that is what
-    the Sources tab shows), so a media in a sub-collection is a source of every
-    collection above it. The visited set guards a cycle the folder tree should not
+    A folder artifact covers the folder *and every descendant* (that is what
+    the Sources tab shows), so a media in a subfolder is a source of every
+    folder above it. The visited set guards a cycle the folder tree should not
     contain but must not hang on.
     """
     by_id = {getattr(folder, "id", None): folder for folder in folders}

@@ -8,14 +8,14 @@
  *
  * A new entry only appears when the set of sources differs from every entry
  * already stored (task-322): a media item therefore holds one entry per type for
- * good, and a collection gains one each time its contents change. The `sources`
- * snapshot of an entry is what a screen compares against the collection's
+ * good, and a folder gains one each time its contents change. The `sources`
+ * snapshot of an entry is what a screen compares against the folder's
  * current contents to know whether generating again would produce anything.
  */
 
 import type { ArtifactStatus, ArtifactType } from "./media";
 
-/** What a generation was run over. "folder" is what the UI calls a collection. */
+/** What a generation was run over: a single media item, or a whole folder. */
 export type ArtifactScope = "media" | "folder";
 
 export interface GenerateArtifactRequest {
@@ -65,7 +65,7 @@ export interface ArtifactDetail extends ArtifactSummary {
  * - `retried`: an entry that had failed over these sources was rerun.
  * - `reused`: an artifact already covered these sources; nothing was queued and
  *   no minute was charged. This is the normal answer to a second request on a
- *   media item, and to a collection whose sources have not changed.
+ *   media item, and to a folder whose sources have not changed.
  * - `collapsed`: two concurrent taps, and this one lost the race; the entry
  *   returned is the one already in flight.
  */

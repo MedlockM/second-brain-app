@@ -20,8 +20,8 @@ Identity
 --------
 ``media_item_id`` identifies one user save, while ``media_key`` identifies the
 content globally. Saving the same content twice therefore creates two opaque
-``mi_`` ids that may carry different folders and tags while both point at the
-same transcript and artifact history.
+``mi_`` ids that may carry different folders while both point at the same
+transcript and artifact history.
 
 Nullability
 -----------
@@ -130,7 +130,6 @@ class UserMediaRecord(BaseModel):
     # Exactly one folder, defaulting to the user's "Uncategorized" folder so an
     # entry is always reachable through folder navigation.
     folder_id: Optional[str] = None
-    tag_ids: List[str] = Field(default_factory=list)
 
     # --- ordering ------------------------------------------------------------
     saved_at: datetime = Field(default_factory=_now_utc)
@@ -188,7 +187,6 @@ class UserMediaRecord(BaseModel):
             "saved_at": self.saved_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "folder_sort_key": self.folder_sort_key,
-            "tag_ids": list(self.tag_ids),
             "schema_version": self.schema_version,
         }
         optional: Dict[str, Any] = {
@@ -243,9 +241,6 @@ class UserMediaRecord(BaseModel):
                     payload[field_name] = int(raw)
                 except (TypeError, ValueError):
                     payload.pop(field_name, None)
-
-        tag_ids = payload.get("tag_ids")
-        payload["tag_ids"] = [str(t) for t in tag_ids] if tag_ids else []
 
         # Same policy as ``processing_status`` above: a blurb written in a shape this
         # reader does not know — the v1 prose, a half-purged row — must not make the

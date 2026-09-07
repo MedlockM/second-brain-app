@@ -219,7 +219,7 @@ async def delete_folder(
     folder_id: str,
     current_user: AuthUser = Depends(get_current_user),
 ) -> FolderDeleteResponse:
-    """Delete a folder. Sub-folders and media are moved to 'Uncategorized'."""
+    """Delete a folder. Subfolders and media are moved to 'Uncategorized'."""
     try:
         result = await folder_service.delete_folder(
             user_id=current_user.id,

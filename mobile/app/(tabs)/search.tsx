@@ -27,12 +27,12 @@ import { OrganizationService } from "../../src/services/organizationService";
 import { MediaService } from "../../src/services/mediaService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
 import {
-  buildCollectionTree,
-  DEFAULT_COLLECTION_LABEL,
-  DEFAULT_COLLECTION_TINT,
-  type CollectionNode,
-} from "../../src/lib/collectionTree";
-import { filterCollectionsByName } from "../../src/lib/collectionSearch";
+  buildFolderTree,
+  DEFAULT_FOLDER_LABEL,
+  DEFAULT_FOLDER_TINT,
+  type FolderNode,
+} from "../../src/lib/folderTree";
+import { filterFoldersByName } from "../../src/lib/folderSearch";
 import { formatDate, t, tCount, useTranslation } from "../../src/i18n";
 import { parseHighlightSnippet } from "../../src/lib/highlightSnippet";
 import {
@@ -47,7 +47,7 @@ import {
 import { RenameDialog } from "../../src/components/RenameDialog";
 import { GlassSurface } from "../../src/components/GlassSurface";
 import { useMediaActions } from "../../src/hooks/useMediaActions";
-import { useCollectionActions } from "../../src/hooks/useCollectionActions";
+import { useFolderActions } from "../../src/hooks/useFolderActions";
 import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
 import { Image } from "expo-image";
 import {
@@ -59,7 +59,7 @@ import {
   TouchTarget,
 } from "../../src/constants/theme";
 import type { MediaListItem } from "../../src/types/media";
-import type { Collection } from "../../src/types/organization";
+import type { Folder } from "../../src/types/organization";
 
 // --- Layout constants ---
 
@@ -79,7 +79,7 @@ const CONTENT_TOP_INSET = SEARCH_BAR_TOP + SEARCH_BAR_HEIGHT + Spacing.md;
  * these are the ones they get.
  */
 const noopOpenMedia = () => {};
-const noopOpenCollection = () => {};
+const noopOpenFolder = () => {};
 
 function getSourceIcon(
   platform: string | null,
@@ -160,7 +160,7 @@ function formatTimestamp(unixTimestamp: number): string {
  * The library tab: everything the user saved, plus the search over it.
  *
  * Two bodies, mutually exclusive, switched by the query in the floating pill.
- * With nothing typed it shows the library — the collections *and* every media
+ * With nothing typed it shows the library — the folders *and* every media
  * item, newest first. Typing hands the screen over to Algolia; clearing the
  * query gives it back.
  *
@@ -191,13 +191,13 @@ export default function SearchScreen() {
   // carry their own loading and error flags: one failing must leave the other
   // rendered, with its own retry.
   //
-  // The collections are held as the flat list the endpoint returns, not as the
+  // The folders are held as the flat list the endpoint returns, not as the
   // three pieces of a built tree: a rename then patches one string in one array
-  // and the grid, the filter and the sub-collection counts all follow from it,
+  // and the grid, the filter and the subfolder counts all follow from it,
   // where three states would have to be kept in agreement by hand.
-  const [folders, setFolders] = useState<Collection[]>([]);
-  const [collectionsLoading, setCollectionsLoading] = useState(true);
-  const [collectionsError, setCollectionsError] = useState<string | null>(null);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(true);
+  const [foldersError, setFoldersError] = useState<string | null>(null);
   const [media, setMedia] = useState<MediaListItem[]>([]);
   const [mediaLoading, setMediaLoading] = useState(true);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -244,16 +244,16 @@ export default function SearchScreen() {
 
   // Neither loader throws: each one owns its error state, so the caller can
   // always await both and only has its own spinner to clear.
-  const loadCollections = useCallback(async () => {
+  const loadFolders = useCallback(async () => {
     if (!isAuthenticated) return;
 
     try {
-      setFolders(await OrganizationService.getUserCollections());
-      setCollectionsError(null);
+      setFolders(await OrganizationService.getUserFolders());
+      setFoldersError(null);
     } catch (err) {
-      setCollectionsError(
+      setFoldersError(
         getFriendlyErrorMessage(err, {
-          fallback: t("search.collectionsLoadFailed"),
+          fallback: t("search.foldersLoadFailed"),
         }),
       );
     }
@@ -285,8 +285,8 @@ export default function SearchScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      void loadCollections().finally(() => {
-        if (active) setCollectionsLoading(false);
+      void loadFolders().finally(() => {
+        if (active) setFoldersLoading(false);
       });
       void loadMedia().finally(() => {
         if (active) setMediaLoading(false);
@@ -294,13 +294,13 @@ export default function SearchScreen() {
       return () => {
         active = false;
       };
-    }, [loadCollections, loadMedia]),
+    }, [loadFolders, loadMedia]),
   );
 
   // Rebuilt from the flat list rather than stored: the parent links, the
-  // alphabetical order and the sub-collection counts all come from one pass, so a
-  // renamed collection lands in its new place in the grid on the next render.
-  const collectionTree = useMemo(() => buildCollectionTree(folders), [folders]);
+  // alphabetical order and the subfolder counts all come from one pass, so a
+  // renamed folder lands in its new place in the grid on the next render.
+  const folderTree = useMemo(() => buildFolderTree(folders), [folders]);
 
   const handleClearQuery = useCallback(() => {
     setQuery("");
@@ -320,11 +320,11 @@ export default function SearchScreen() {
     }
   }, []);
 
-  const handleOpenCollection = useCallback(
-    (collection: CollectionNode) => {
+  const handleOpenFolder = useCallback(
+    (folder: FolderNode) => {
       router.push({
-        pathname: "/media/collections/[id]",
-        params: { id: collection.id, name: collection.name },
+        pathname: "/media/folders/[id]",
+        params: { id: folder.id, name: folder.name },
       });
     },
     [router],
@@ -358,7 +358,7 @@ export default function SearchScreen() {
   );
 
   // The long-press menu of a library row. A move needs nothing here: a moved
-  // media stays in `All media` whatever collection it lands in, and the focus
+  // media stays in `All media` whatever folder it lands in, and the focus
   // refetch above already brings its new folder back.
   const mediaActions = useMediaActions({
     onDeleted: handleMediaDeleted,
@@ -382,11 +382,11 @@ export default function SearchScreen() {
   // Patched in place rather than refetched: the rename already returned the
   // stored name, and rebuilding the tree from `folders` puts the tile back in
   // alphabetical order without a round trip and without moving the scroll.
-  const handleCollectionRenamed = useCallback(
-    (collectionId: string, name: string) => {
+  const handleFolderRenamed = useCallback(
+    (folderId: string, name: string) => {
       setFolders((current) =>
         current.map((folder) =>
-          folder.id === collectionId ? { ...folder, name } : folder,
+          folder.id === folderId ? { ...folder, name } : folder,
         ),
       );
     },
@@ -394,82 +394,82 @@ export default function SearchScreen() {
   );
 
   // A delete cannot be patched the same way: the backend took the whole subtree
-  // and moved every source it held to the default collection. So the tiles that
+  // and moved every source it held to the default folder. So the tiles that
   // are certainly gone leave at once — the deletion is confirmed, and keeping
-  // them up for the length of a request would show collections that no longer
+  // them up for the length of a request would show folders that no longer
   // exist — and both halves are then refetched for what only the server knows:
-  // the new media counts, and which collection each moved source now points at.
-  const handleCollectionDeleted = useCallback(
-    (collectionId: string) => {
-      const deleted = new Set<string>([collectionId]);
-      const collect = (node: CollectionNode) => {
+  // the new media counts, and which folder each moved source now points at.
+  const handleFolderDeleted = useCallback(
+    (folderId: string) => {
+      const deleted = new Set<string>([folderId]);
+      const collect = (node: FolderNode) => {
         for (const child of node.children) {
           deleted.add(child.id);
           collect(child);
         }
       };
-      const node = collectionTree.nodeById.get(collectionId);
+      const node = folderTree.nodeById.get(folderId);
       if (node) collect(node);
 
       setFolders((current) =>
         current.filter((folder) => !deleted.has(folder.id)),
       );
-      void Promise.all([loadCollections(), loadMedia()]);
+      void Promise.all([loadFolders(), loadMedia()]);
     },
-    [collectionTree, loadCollections, loadMedia],
+    [folderTree, loadFolders, loadMedia],
   );
 
-  // The long-press menu of a collection tile. Two rows, no Move: reparenting a
-  // collection has no picker anywhere in the app.
-  const collectionActions = useCollectionActions({
-    onDeleted: handleCollectionDeleted,
-    onRenamed: handleCollectionRenamed,
+  // The long-press menu of a folder tile. Two rows, no Move: reparenting a
+  // folder has no picker anywhere in the app.
+  const folderActions = useFolderActions({
+    onDeleted: handleFolderDeleted,
+    onRenamed: handleFolderRenamed,
   });
 
   // The copy of the pressed tile the menu lifts above its blur. Same component
   // as the grid tile, laid out on the rect the slot was measured at — hence the
   // full width and the dropped bottom margin, which that rect excludes.
-  const renderCollectionPreview = useCallback(
-    (collection: CollectionNode) => (
-      <CollectionTile
-        collection={collection}
-        isDefault={collection.is_default === true}
-        onPress={noopOpenCollection}
-        style={styles.collectionTilePreview}
+  const renderFolderPreview = useCallback(
+    (folder: FolderNode) => (
+      <FolderTile
+        folder={folder}
+        isDefault={folder.is_default === true}
+        onPress={noopOpenFolder}
+        style={styles.folderTilePreview}
       />
     ),
     [],
   );
 
-  // The default folder holds every media saved without an explicit collection.
-  // It is excluded from `roots` by `buildCollectionTree` (which sorts them), so
-  // pin it in front under its display label -- same pattern as the collections
+  // The default folder holds every media saved without an explicit folder.
+  // It is excluded from `roots` by `buildFolderTree` (which sorts them), so
+  // pin it in front under its display label -- same pattern as the folders
   // explorer.
-  const sortedCollections = useMemo(() => {
-    const { roots, defaultCollection } = collectionTree;
-    if (!defaultCollection) return roots;
-    return [{ ...defaultCollection, name: DEFAULT_COLLECTION_LABEL }, ...roots];
-  }, [collectionTree]);
+  const sortedFolders = useMemo(() => {
+    const { roots, defaultFolder } = folderTree;
+    if (!defaultFolder) return roots;
+    return [{ ...defaultFolder, name: DEFAULT_FOLDER_LABEL }, ...roots];
+  }, [folderTree]);
 
   // Matched against what is typed, not against the debounced query: the filter
   // is a pass over a list already in memory, so it has no reason to wait on the
   // network round-trip the hits need. Every node of the tree, roots and children
-  // alike: a nested collection matches like any other, which a roots-only list
+  // alike: a nested folder matches like any other, which a roots-only list
   // cannot do.
-  const matchingCollections = useMemo(
+  const matchingFolders = useMemo(
     () =>
-      filterCollectionsByName(collectionTree.nodeById.values(), query),
-    [collectionTree, query],
+      filterFoldersByName(folderTree.nodeById.values(), query),
+    [folderTree, query],
   );
 
   const handleRetrySearch = useCallback(() => {
     setSearchAttempt((attempt) => attempt + 1);
   }, []);
 
-  const handleRetryCollections = useCallback(() => {
-    setCollectionsLoading(true);
-    void loadCollections().finally(() => setCollectionsLoading(false));
-  }, [loadCollections]);
+  const handleRetryFolders = useCallback(() => {
+    setFoldersLoading(true);
+    void loadFolders().finally(() => setFoldersLoading(false));
+  }, [loadFolders]);
 
   const handleRetryMedia = useCallback(() => {
     setMediaLoading(true);
@@ -480,10 +480,10 @@ export default function SearchScreen() {
   // carries them, so refreshing only one of them would be a lie.
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
-    void Promise.all([loadCollections(), loadMedia()]).finally(() =>
+    void Promise.all([loadFolders(), loadMedia()]).finally(() =>
       setIsRefreshing(false),
     );
-  }, [loadCollections, loadMedia]);
+  }, [loadFolders, loadMedia]);
 
   return (
     /* `collapsable={false}`: under `NativeTabs` the scrollable UIKit insets and
@@ -503,12 +503,12 @@ export default function SearchScreen() {
       >
         {!query.trim() ? (
           <LibraryState
-            collections={sortedCollections}
-            collectionsLoading={collectionsLoading}
-            collectionsError={collectionsError}
-            onRetryCollections={handleRetryCollections}
-            onOpenCollection={handleOpenCollection}
-            onLongPressCollection={collectionActions.open}
+            folders={sortedFolders}
+            foldersLoading={foldersLoading}
+            foldersError={foldersError}
+            onRetryFolders={handleRetryFolders}
+            onOpenFolder={handleOpenFolder}
+            onLongPressFolder={folderActions.open}
             media={media}
             mediaLoading={mediaLoading}
             mediaError={mediaError}
@@ -520,12 +520,12 @@ export default function SearchScreen() {
           />
         ) : (
           <SearchResultsState
-            collections={matchingCollections}
-            collectionsLoading={collectionsLoading}
-            collectionsError={collectionsError}
-            onRetryCollections={handleRetryCollections}
-            onOpenCollection={handleOpenCollection}
-            onLongPressCollection={collectionActions.open}
+            folders={matchingFolders}
+            foldersLoading={foldersLoading}
+            foldersError={foldersError}
+            onRetryFolders={handleRetryFolders}
+            onOpenFolder={handleOpenFolder}
+            onLongPressFolder={folderActions.open}
             results={results}
             totalResults={totalResults}
             isPending={isLoading || settledQuery !== query.trim()}
@@ -588,10 +588,10 @@ export default function SearchScreen() {
       />
       <RenameDialog {...mediaActions.renameProps} />
       <AnchoredContextMenu
-        {...collectionActions.menuProps}
-        renderPreview={renderCollectionPreview}
+        {...folderActions.menuProps}
+        renderPreview={renderFolderPreview}
       />
-      <RenameDialog {...collectionActions.renameProps} />
+      <RenameDialog {...folderActions.renameProps} />
     </View>
   );
 }
@@ -615,14 +615,14 @@ export default function SearchScreen() {
 const KEYBOARD_DISMISS_MODE = "on-drag" as const;
 
 interface LibraryStateProps {
-  collections: CollectionNode[];
-  collectionsLoading: boolean;
-  collectionsError: string | null;
-  onRetryCollections: () => void;
-  onOpenCollection: (collection: CollectionNode) => void;
-  /** Opens the tile's actions menu. Ignored on the default collection's tile. */
-  onLongPressCollection: (
-    collection: CollectionNode,
+  folders: FolderNode[];
+  foldersLoading: boolean;
+  foldersError: string | null;
+  onRetryFolders: () => void;
+  onOpenFolder: (folder: FolderNode) => void;
+  /** Opens the tile's actions menu. Ignored on the default folder's tile. */
+  onLongPressFolder: (
+    folder: FolderNode,
     anchor: AnchorRect,
   ) => void;
   media: MediaListItem[];
@@ -637,8 +637,8 @@ interface LibraryStateProps {
 }
 
 /**
- * The library: the collections and every saved media item, in **one vertical
- * scroll** — the collections grid rides in the list header, the media rows are
+ * The library: the folders and every saved media item, in **one vertical
+ * scroll** — the folders grid rides in the list header, the media rows are
  * the list.
  *
  * Chosen over `ScreenTabs`, the other shape the design system offers, for two
@@ -649,16 +649,16 @@ interface LibraryStateProps {
  * would be a second bar of chrome directly under the floating search pill,
  * spending the top of the screen on navigation on a screen whose whole job is to
  * show what you saved. The cost of this choice is that a user with many
- * collections scrolls past them to reach the media — acceptable, because the
+ * folders scrolls past them to reach the media — acceptable, because the
  * grid is three tiles wide and the list is what the scroll is for.
  */
 function LibraryState({
-  collections,
-  collectionsLoading,
-  collectionsError,
-  onRetryCollections,
-  onOpenCollection,
-  onLongPressCollection,
+  folders,
+  foldersLoading,
+  foldersError,
+  onRetryFolders,
+  onOpenFolder,
+  onLongPressFolder,
   media,
   mediaLoading,
   mediaError,
@@ -714,12 +714,12 @@ function LibraryState({
       }
       ListHeaderComponent={
         <LibraryHeader
-          collections={collections}
-          collectionsLoading={collectionsLoading}
-          collectionsError={collectionsError}
-          onRetryCollections={onRetryCollections}
-          onOpenCollection={onOpenCollection}
-          onLongPressCollection={onLongPressCollection}
+          folders={folders}
+          foldersLoading={foldersLoading}
+          foldersError={foldersError}
+          onRetryFolders={onRetryFolders}
+          onOpenFolder={onOpenFolder}
+          onLongPressFolder={onLongPressFolder}
           mediaCount={media.length}
         />
       }
@@ -741,53 +741,53 @@ function LibraryState({
 }
 
 function LibraryHeader({
-  collections,
-  collectionsLoading,
-  collectionsError,
-  onRetryCollections,
-  onOpenCollection,
-  onLongPressCollection,
+  folders,
+  foldersLoading,
+  foldersError,
+  onRetryFolders,
+  onOpenFolder,
+  onLongPressFolder,
   mediaCount,
 }: {
-  collections: CollectionNode[];
-  collectionsLoading: boolean;
-  collectionsError: string | null;
-  onRetryCollections: () => void;
-  onOpenCollection: (collection: CollectionNode) => void;
-  onLongPressCollection: (
-    collection: CollectionNode,
+  folders: FolderNode[];
+  foldersLoading: boolean;
+  foldersError: string | null;
+  onRetryFolders: () => void;
+  onOpenFolder: (folder: FolderNode) => void;
+  onLongPressFolder: (
+    folder: FolderNode,
     anchor: AnchorRect,
   ) => void;
   mediaCount: number;
 }) {
   return (
     <View style={styles.libraryHeader}>
-      <Text style={styles.sectionTitle}>{t("search.collections")}</Text>
+      <Text style={styles.sectionTitle}>{t("search.folders")}</Text>
 
-      {collectionsLoading ? (
+      {foldersLoading ? (
         <View style={styles.sectionLoadingRow}>
           <ActivityIndicator color={Colors.primary} />
         </View>
-      ) : collectionsError ? (
+      ) : foldersError ? (
         <InlineErrorCard
-          message={collectionsError}
-          onRetry={onRetryCollections}
-          retryAccessibilityLabel={t("search.retryCollectionsA11y")}
+          message={foldersError}
+          onRetry={onRetryFolders}
+          retryAccessibilityLabel={t("search.retryFoldersA11y")}
         />
-      ) : collections.length === 0 ? (
-        <Text style={styles.sectionHint}>{t("search.noCollections")}</Text>
+      ) : folders.length === 0 ? (
+        <Text style={styles.sectionHint}>{t("search.noFolders")}</Text>
       ) : (
         // Laid out by wrapping rather than by a nested FlatList: a vertical
         // virtualized list inside another one is unsupported, and the number of
-        // collections a user can own is bounded by the backend folder cap.
-        <View style={styles.collectionsGrid}>
-          {collections.map((collection) => (
-            <CollectionTile
-              key={collection.id}
-              collection={collection}
-              isDefault={collection.is_default === true}
-              onPress={onOpenCollection}
-              onLongPress={onLongPressCollection}
+        // folders a user can own is bounded by the backend folder cap.
+        <View style={styles.foldersGrid}>
+          {folders.map((folder) => (
+            <FolderTile
+              key={folder.id}
+              folder={folder}
+              isDefault={folder.is_default === true}
+              onPress={onOpenFolder}
+              onLongPress={onLongPressFolder}
             />
           ))}
         </View>
@@ -806,14 +806,14 @@ function LibraryHeader({
 }
 
 interface SearchResultsStateProps {
-  collections: CollectionNode[];
-  collectionsLoading: boolean;
-  collectionsError: string | null;
-  onRetryCollections: () => void;
-  onOpenCollection: (collection: CollectionNode) => void;
-  /** Opens the tile's actions menu. Ignored on the default collection's tile. */
-  onLongPressCollection: (
-    collection: CollectionNode,
+  folders: FolderNode[];
+  foldersLoading: boolean;
+  foldersError: string | null;
+  onRetryFolders: () => void;
+  onOpenFolder: (folder: FolderNode) => void;
+  /** Opens the tile's actions menu. Ignored on the default folder's tile. */
+  onLongPressFolder: (
+    folder: FolderNode,
     anchor: AnchorRect,
   ) => void;
   results: SearchHit[];
@@ -828,25 +828,25 @@ interface SearchResultsStateProps {
 }
 
 /**
- * What a typed query shows: the collections whose name matches it, then the
+ * What a typed query shows: the folders whose name matches it, then the
  * media the search engine returned — the same two headings as the library, in
  * the same single scroll.
  *
  * The two halves are answered by two different things, and that is the whole
- * point of the shape: the collections are filtered locally and are on screen
+ * point of the shape: the folders are filtered locally and are on screen
  * before the keystroke is over, while the hits are a debounced network call.
  * So neither the spinner nor the failure of that call is allowed to take the
  * screen any more — both are confined to the `All media` slot, and the
- * collections stay put underneath them. The full-height states are kept for
+ * folders stay put underneath them. The full-height states are kept for
  * the one case where there is genuinely nothing else to show.
  */
 function SearchResultsState({
-  collections,
-  collectionsLoading,
-  collectionsError,
-  onRetryCollections,
-  onOpenCollection,
-  onLongPressCollection,
+  folders,
+  foldersLoading,
+  foldersError,
+  onRetryFolders,
+  onOpenFolder,
+  onLongPressFolder,
   results,
   totalResults,
   isPending,
@@ -857,10 +857,10 @@ function SearchResultsState({
 }: SearchResultsStateProps) {
   // A folder list still loading, or one that failed, is not "zero matches": it
   // keeps its heading and states its own situation, exactly as in the library.
-  const showCollections =
-    collectionsLoading || collectionsError !== null || collections.length > 0;
+  const showFolders =
+    foldersLoading || foldersError !== null || folders.length > 0;
 
-  if (!showCollections && !isPending) {
+  if (!showFolders && !isPending) {
     if (error) return <ErrorState message={error} />;
     if (results.length === 0) return <NoResultsState query={query} />;
   }
@@ -900,13 +900,13 @@ function SearchResultsState({
       showsVerticalScrollIndicator={false}
       ListHeaderComponent={
         <SearchResultsHeader
-          collections={collections}
-          collectionsLoading={collectionsLoading}
-          collectionsError={collectionsError}
-          onRetryCollections={onRetryCollections}
-          onOpenCollection={onOpenCollection}
-          onLongPressCollection={onLongPressCollection}
-          showCollections={showCollections}
+          folders={folders}
+          foldersLoading={foldersLoading}
+          foldersError={foldersError}
+          onRetryFolders={onRetryFolders}
+          onOpenFolder={onOpenFolder}
+          onLongPressFolder={onLongPressFolder}
+          showFolders={showFolders}
           resultCount={!isPending && !error ? totalResults : null}
         />
       }
@@ -921,54 +921,54 @@ function SearchResultsState({
 }
 
 function SearchResultsHeader({
-  collections,
-  collectionsLoading,
-  collectionsError,
-  onRetryCollections,
-  onOpenCollection,
-  onLongPressCollection,
-  showCollections,
+  folders,
+  foldersLoading,
+  foldersError,
+  onRetryFolders,
+  onOpenFolder,
+  onLongPressFolder,
+  showFolders,
   resultCount,
 }: {
-  collections: CollectionNode[];
-  collectionsLoading: boolean;
-  collectionsError: string | null;
-  onRetryCollections: () => void;
-  onOpenCollection: (collection: CollectionNode) => void;
-  onLongPressCollection: (
-    collection: CollectionNode,
+  folders: FolderNode[];
+  foldersLoading: boolean;
+  foldersError: string | null;
+  onRetryFolders: () => void;
+  onOpenFolder: (folder: FolderNode) => void;
+  onLongPressFolder: (
+    folder: FolderNode,
     anchor: AnchorRect,
   ) => void;
-  showCollections: boolean;
+  showFolders: boolean;
   /** `null` while the count would not describe what is on screen. */
   resultCount: number | null;
 }) {
   return (
     <View>
-      {showCollections ? (
+      {showFolders ? (
         <>
-          <Text style={styles.sectionTitle}>{t("search.collections")}</Text>
+          <Text style={styles.sectionTitle}>{t("search.folders")}</Text>
 
-          {collectionsLoading ? (
+          {foldersLoading ? (
             <View style={styles.sectionLoadingRow}>
               <ActivityIndicator color={Colors.primary} />
             </View>
-          ) : collectionsError ? (
+          ) : foldersError ? (
             <InlineErrorCard
-              message={collectionsError}
-              onRetry={onRetryCollections}
-              retryAccessibilityLabel={t("search.retryCollectionsA11y")}
+              message={foldersError}
+              onRetry={onRetryFolders}
+              retryAccessibilityLabel={t("search.retryFoldersA11y")}
               style={styles.inlineErrorCardFlush}
             />
           ) : (
-            <View style={styles.collectionsGrid}>
-              {collections.map((collection) => (
-                <CollectionTile
-                  key={collection.id}
-                  collection={collection}
-                  isDefault={collection.is_default === true}
-                  onPress={onOpenCollection}
-                  onLongPress={onLongPressCollection}
+            <View style={styles.foldersGrid}>
+              {folders.map((folder) => (
+                <FolderTile
+                  key={folder.id}
+                  folder={folder}
+                  isDefault={folder.is_default === true}
+                  onPress={onOpenFolder}
+                  onLongPress={onLongPressFolder}
                 />
               ))}
             </View>
@@ -1042,27 +1042,27 @@ function EmptyLibraryState() {
   );
 }
 
-function CollectionTile({
-  collection,
+function FolderTile({
+  folder,
   isDefault,
   onPress,
   onLongPress,
   style,
 }: {
-  collection: CollectionNode;
-  /** The system default folder, tinted apart from the user's own collections. */
+  folder: FolderNode;
+  /** The system default folder, tinted apart from the user's own folders. */
   isDefault: boolean;
-  onPress: (collection: CollectionNode) => void;
+  onPress: (folder: FolderNode) => void;
   /**
    * Opens the tile's actions menu, with the slot's own window rect: the menu is
    * anchored to it and redraws the tile there.
    *
-   * Never wired on the default collection, whatever the caller passes — the
+   * Never wired on the default folder, whatever the caller passes — the
    * backend refuses to rename or delete it, so the gesture is dropped here rather
    * than in each of the two grids, and the tile says nothing about a long press
    * it does not answer.
    */
-  onLongPress?: (collection: CollectionNode, anchor: AnchorRect) => void;
+  onLongPress?: (folder: FolderNode, anchor: AnchorRect) => void;
   /**
    * Overrides the slot's outer box. Used by the context menu to redraw this tile
    * as a lifted copy on the measured rect — nothing else has a reason to touch it.
@@ -1078,7 +1078,7 @@ function CollectionTile({
   const handleLongPress = () => {
     if (!longPress) return;
     slotRef.current?.measureInWindow((x, y, width, height) => {
-      longPress(collection, { x, y, width, height });
+      longPress(folder, { x, y, width, height });
     });
   };
 
@@ -1088,36 +1088,36 @@ function CollectionTile({
        `measureInWindow` then has nothing to measure. */
     <View
       ref={slotRef}
-      style={[styles.collectionTileSlot, style]}
+      style={[styles.folderTileSlot, style]}
       collapsable={false}
     >
       <Pressable
         style={({ pressed }) => [
-          styles.collectionTile,
-          pressed && styles.collectionTilePressed,
+          styles.folderTile,
+          pressed && styles.folderTilePressed,
         ]}
-        onPress={() => onPress(collection)}
+        onPress={() => onPress(folder)}
         onLongPress={longPress ? handleLongPress : undefined}
         // The gesture is invisible, so a screen reader is told about it — and
         // only where it exists. `Pressable` keeps the tap and the long press
-        // exclusive, so opening the menu never also opens the collection.
+        // exclusive, so opening the menu never also opens the folder.
         accessibilityHint={
-          longPress ? t("collectionActions.longPressHint") : undefined
+          longPress ? t("folderActions.longPressHint") : undefined
         }
-        accessibilityLabel={t("search.openCollectionA11y", {
-          name: collection.name,
+        accessibilityLabel={t("search.openFolderA11y", {
+          name: folder.name,
         })}
         accessibilityRole="button"
       >
-        <View style={styles.collectionIcon}>
+        <View style={styles.folderIcon}>
           <Ionicons
             name="folder"
             size={42}
-            color={isDefault ? DEFAULT_COLLECTION_TINT : Colors.primary}
+            color={isDefault ? DEFAULT_FOLDER_TINT : Colors.primary}
           />
         </View>
-        <Text style={styles.collectionName} numberOfLines={2}>
-          {collection.name}
+        <Text style={styles.folderName} numberOfLines={2}>
+          {folder.name}
         </Text>
       </Pressable>
     </View>
@@ -1342,7 +1342,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.lg,
   },
 
-  // Library (idle state): one scroll, the collections grid in the list header
+  // Library (idle state): one scroll, the folders grid in the list header
   // and the media rows below. `MediaListCard` brings its own horizontal margin,
   // so the gutter lives on the header instead of on the content container.
   libraryListContent: {
@@ -1383,7 +1383,7 @@ const styles = StyleSheet.create({
   // Only `rowGap`: the columns are sized in percentages, so a `columnGap` would
   // push 3 x 33.333% + 2 x gap past the line and wrap the third tile away. The
   // column gutter stays the slot's own horizontal padding.
-  collectionsGrid: {
+  foldersGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     rowGap: Spacing.sm,
@@ -1440,13 +1440,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.xl,
   },
-  collectionTileSlot: {
+  folderTileSlot: {
     width: "33.333%",
     paddingHorizontal: 6,
   },
   // The tile as the context menu redraws it: it fills the rect the slot was
   // measured at, which the grid's own row gap falls outside of.
-  collectionTilePreview: {
+  folderTilePreview: {
     width: "100%",
   },
   // No height of its own: the box hugs the icon and the label, so a name that
@@ -1454,22 +1454,22 @@ const styles = StyleSheet.create({
   // it, and a name that needs two still gets them. Tiles of the same row keep
   // aligning -- each slot stretches to the tallest tile of its row and holds its
   // content at the top.
-  collectionTile: {
+  folderTile: {
     alignItems: "center",
     paddingVertical: Spacing.sm,
   },
-  collectionTilePressed: {
+  folderTilePressed: {
     opacity: 0.75,
     transform: [{ scale: 0.97 }],
   },
-  collectionIcon: {
+  folderIcon: {
     width: 64,
     height: 58,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: Spacing.xs,
   },
-  collectionName: {
+  folderName: {
     fontSize: Typography.small.fontSize,
     fontWeight: "600",
     color: Colors.textMain,

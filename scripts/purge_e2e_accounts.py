@@ -3,7 +3,7 @@
 
 Why this script exists: `database_async.delete_user()` deletes only the `users`
 row, so every E2E run since June 2026 left its auth tokens, processing jobs,
-artifacts, tags, folders, submissions and usage counters behind (task-246).
+artifacts, folders, submissions and usage counters behind (task-246).
 This script deletes the children FIRST, then the `users` row, so no orphan can
 survive a partial run.
 
@@ -112,13 +112,12 @@ def select_accounts(
 CHILD_TABLES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("auth_tokens", "gsi", ("id",)),
     ("processing_jobs", "gsi", ("id",)),
-    ("user_tags", "gsi", ("id",)),
     ("user_folders", "gsi", ("id",)),
     ("user_usage_monthly", "pk", ("user_id", "period")),
 )
 
 #: media_artifacts rows are reached through the `scope-index` GSI, whose hash key
-#: is `user_id#scope#scope_id` — so both a media's artifacts and a collection's
+#: is `user_id#scope#scope_id` — so both a media's artifacts and a folder's
 #: are collected for one user without touching the processing jobs (task-270).
 ARTIFACTS_TABLE = "media_artifacts"
 ARTIFACTS_INDEX = "scope-index"
@@ -179,7 +178,7 @@ def collect_children(
             children[table] = rows
 
     # Artifacts hang off a scope: every media item of the user, plus every folder
-    # of the user (a collection artifact belongs to no media item at all).
+    # of the user (a folder artifact belongs to no media item at all).
     scope_keys = [
         f"{user_id}#media#{job.get('id', {}).get('S')}"
         for job in children.get(f"processing_jobs{suffix}", [])

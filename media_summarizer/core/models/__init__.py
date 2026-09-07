@@ -28,7 +28,6 @@ from .failure_codes import MediaFailureCode
 from .folder import MAX_FOLDER_DEPTH, UNCATEGORIZED_FOLDER_NAME, Folder
 from .processing_job import JobStatus, ProcessingJob
 from .rss_feed import FeedStatus, UserRssFeed
-from .tag import Tag
 from .user import User
 from .user_media import (
     USER_MEDIA_SCHEMA_VERSION,
@@ -60,7 +59,6 @@ __all__ = [
     "MAX_FOLDER_DEPTH",
     "UserRssFeed",
     "FeedStatus",
-    "Tag",
     "DigestRecord",
     "DigestType",
     "DigestMediaItem",

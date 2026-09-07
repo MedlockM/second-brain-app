@@ -229,7 +229,6 @@ export interface IngestUrlRequest {
   locale?: string;
   idempotency_key?: string;
   folder_id?: string | null;
-  tag_ids?: string[];
 }
 
 export interface IngestUrlResponse {
@@ -292,7 +291,6 @@ export interface MediaListItem {
   media_type?: MediaType | string | null;
   status: string;
   folder_id?: string | null;
-  tag_ids: string[];
   source_url?: string | null;
   media_image?: string | null;
   created_at: string;

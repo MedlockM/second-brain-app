@@ -553,7 +553,7 @@ depending on the worker.
    ```
    Usual suspects: a validation error on the model output
    (`*ValidationError`, also visible as `error_code = VALIDATION_ERROR`),
-   `corpus_too_large` on a collection above `MAX_COLLECTION_CORPUS_TOKENS`, or an
+   `corpus_too_large` on a folder above `MAX_FOLDER_CORPUS_TOKENS`, or an
    S3 read failure on a transcript.
 
 ### First Response

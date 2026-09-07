@@ -51,7 +51,7 @@ import {
  * The last two split on presentation, not on plumbing: both submit through the
  * upload endpoints, and only a picture is shown as one. Either can start from a
  * gesture inside the app or from a share intent, and both reuse the confirmation
- * screen so every source picks its collection and tags the same way.
+ * screen so every source picks its folder the same way.
  */
 export type ShareContentType = "url" | "text" | "audio" | "file" | "photo";
 
@@ -108,17 +108,10 @@ export interface ShareSelectedFolder {
   path: string;
 }
 
-export interface ShareSelectedTag {
-  id: string;
-  name: string;
-}
-
 interface ShareIntentContextValue {
   intake: ShareIntakeState;
   selectedFolder: ShareSelectedFolder | null;
-  selectedTags: ShareSelectedTag[];
   setSelectedFolder: (folder: ShareSelectedFolder | null) => void;
-  setSelectedTags: (tags: ShareSelectedTag[]) => void;
   clearOrganization: () => void;
   submitUrl: () => Promise<void>;
   submitSharedContent: () => Promise<void>;
@@ -252,7 +245,6 @@ export function ShareIntentProvider({
   const [intake, setIntake] = useState<ShareIntakeState>(INITIAL_STATE);
   const [selectedFolder, setSelectedFolder] =
     useState<ShareSelectedFolder | null>(null);
-  const [selectedTags, setSelectedTags] = useState<ShareSelectedTag[]>([]);
   const hasNavigatedRef = useRef(false);
   const lastProcessedKeyRef = useRef<string | null>(null);
   const lastGuardedIntentKeyRef = useRef<string | null>(null);
@@ -289,7 +281,6 @@ export function ShareIntentProvider({
       contentType: Extract<ShareContentType, "file" | "photo">,
     ) => {
       setSelectedFolder(null);
-      setSelectedTags([]);
       setIntake({
         status: "ready",
         url: null,
@@ -485,7 +476,6 @@ export function ShareIntentProvider({
       }
 
       setSelectedFolder(null);
-      setSelectedTags([]);
 
       // Navigate to share confirmation screen — but skip the push when we're
       // already on it (e.g. cold start where +native-intent.tsx redirected
@@ -592,7 +582,6 @@ export function ShareIntentProvider({
             ? "ios-share-extension"
             : "android-share-intent",
         folder_id: selectedFolder?.id ?? null,
-        tag_ids: selectedTags.map((tag) => tag.id),
       });
 
       setIntake({
@@ -619,7 +608,7 @@ export function ShareIntentProvider({
         uploadDiagnostics,
       }));
     }
-  }, [intake, isAuthenticated, selectedFolder, selectedTags]);
+  }, [intake, isAuthenticated, selectedFolder]);
 
   /**
    * Submit shared content (text or audio) to the backend via ingest-shared-content.
@@ -647,7 +636,6 @@ export function ShareIntentProvider({
                 ? "ios-share-extension"
                 : "android-share-intent",
             folderId: selectedFolder?.id ?? null,
-            tagIds: selectedTags.map((tag) => tag.id),
           },
         );
 
@@ -695,7 +683,6 @@ export function ShareIntentProvider({
                 ? "ios-share-extension"
                 : "android-share-intent",
             folderId: selectedFolder?.id ?? null,
-            tagIds: selectedTags.map((tag) => tag.id),
           },
         );
 
@@ -746,14 +733,14 @@ export function ShareIntentProvider({
         uploadDiagnostics,
       }));
     }
-  }, [intake, isAuthenticated, selectedFolder, selectedTags]);
+  }, [intake, isAuthenticated, selectedFolder]);
 
   /**
    * Start an import from a file picked or captured on the device (task-264).
    *
    * The confirmation screen is opened right away: a photo goes from the shutter
-   * to the collection/tags step with nothing in between, and the actual upload
-   * only happens when the user hits Save.
+   * to the folder step with nothing in between, and the actual upload only
+   * happens when the user hits Save.
    */
   const startLocalUpload = useCallback(
     (
@@ -794,7 +781,6 @@ export function ShareIntentProvider({
     try {
       await UploadService.upload(file, {
         folderId: selectedFolder?.id ?? null,
-        tagIds: selectedTags.map((tag) => tag.id),
       });
 
       setIntake((prev) => ({
@@ -817,7 +803,7 @@ export function ShareIntentProvider({
         uploadDiagnostics,
       }));
     }
-  }, [intake, isAuthenticated, selectedFolder, selectedTags]);
+  }, [intake, isAuthenticated, selectedFolder]);
 
   /**
    * Dismiss the share intent and reset state.
@@ -826,14 +812,12 @@ export function ShareIntentProvider({
   const dismiss = useCallback(() => {
     setIntake(INITIAL_STATE);
     setSelectedFolder(null);
-    setSelectedTags([]);
     lastProcessedKeyRef.current = null;
     resetShareIntent();
   }, [resetShareIntent]);
 
   const clearOrganization = useCallback(() => {
     setSelectedFolder(null);
-    setSelectedTags([]);
   }, []);
 
   /**
@@ -854,9 +838,7 @@ export function ShareIntentProvider({
   const value: ShareIntentContextValue = {
     intake,
     selectedFolder,
-    selectedTags,
     setSelectedFolder,
-    setSelectedTags,
     clearOrganization,
     submitUrl,
     submitSharedContent,

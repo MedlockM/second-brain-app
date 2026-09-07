@@ -44,10 +44,10 @@ from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
-# The two kinds of subject a user can engage with. "collection" is what the UI
-# calls a folder; the artifact API's own word for the same thing is "folder".
+# The two kinds of subject a user can engage with, in the same two words the
+# artifact API uses for its scope.
 KIND_MEDIA = "media"
-KIND_COLLECTION = "collection"
+KIND_FOLDER = "folder"
 
 # How many entries the row holds. A server-side default so the row can be
 # re-tuned without shipping an app build.
@@ -60,7 +60,7 @@ MAX_RECENT_LIMIT = 20
 # implementable: no items means no section.
 RECENT_WINDOW_DAYS = 90
 
-# A collection tile draws a small mosaic of its newest items' covers.
+# A folder tile draws a small mosaic of its newest items' covers.
 MAX_PREVIEW_IMAGES = 4
 
 
@@ -74,8 +74,8 @@ class RecentEngagement:
 
     Both kinds share ``kind`` / ``id`` / ``title`` / ``engaged_at``. Media entries
     carry ``creator_name``, ``image_url`` and ``media_type`` (the fallback icon
-    needs the type); collection entries carry ``item_count`` and up to
-    ``MAX_PREVIEW_IMAGES`` covers. A collection with no covered item returns an
+    needs the type); folder entries carry ``item_count`` and up to
+    ``MAX_PREVIEW_IMAGES`` covers. A folder with no covered item returns an
     empty list, and the client draws its accent-surface fallback.
     """
 
@@ -113,7 +113,7 @@ async def stamp(*, user_id: str, kind: str, subject_id: str) -> bool:
     try:
         if kind == KIND_MEDIA:
             return await user_media_store.stamp_engagement(user_id, subject_id)
-        if kind == KIND_COLLECTION:
+        if kind == KIND_FOLDER:
             return await database_async.stamp_folder_engagement(
                 subject_id,
                 user_id=user_id,
@@ -155,10 +155,10 @@ async def record_engagement(*, user_id: str, kind: str, subject_id: str) -> bool
         record = await user_media_store.get_user_media(user_id, subject_id)
         if record is None:
             raise EngagementSubjectNotFoundError("Media item not found")
-    elif kind == KIND_COLLECTION:
+    elif kind == KIND_FOLDER:
         folder = await database_async.get_folder_by_id(subject_id)
         if folder is None or folder.user_id != user_id:
-            raise EngagementSubjectNotFoundError("Collection not found")
+            raise EngagementSubjectNotFoundError("Folder not found")
     else:
         raise EngagementSubjectNotFoundError(f"Unknown engagement kind: {kind}")
 
@@ -171,13 +171,13 @@ async def record_engagement(*, user_id: str, kind: str, subject_id: str) -> bool
 
 
 async def list_recent(user_id: str, *, limit: int = DEFAULT_RECENT_LIMIT) -> List[RecentEngagement]:
-    """The row itself: one merged, sorted, capped list of media *and* collections.
+    """The row itself: one merged, sorted, capped list of media *and* folders.
 
     Two DynamoDB calls, issued concurrently — the sparse ``engaged-index`` query on
     ``user_media``, and the ``user-index`` query that already returns every folder of
     the user with every attribute (so the folder side needs no index of its own, and
     is windowed and ordered in Python). A third, conditional call hydrates the
-    collections that made the cut.
+    folders that made the cut.
     """
     limit = max(1, min(limit, MAX_RECENT_LIMIT))
     window_start = datetime.now(timezone.utc) - timedelta(days=RECENT_WINDOW_DAYS)
@@ -212,7 +212,7 @@ async def list_recent(user_id: str, *, limit: int = DEFAULT_RECENT_LIMIT) -> Lis
             continue
         entries.append(
             RecentEngagement(
-                kind=KIND_COLLECTION,
+                kind=KIND_FOLDER,
                 id=folder.id,
                 engaged_at=engaged_at,
                 title=folder.name,
@@ -224,31 +224,31 @@ async def list_recent(user_id: str, *, limit: int = DEFAULT_RECENT_LIMIT) -> Lis
     entries.sort(key=lambda entry: (entry.engaged_at, entry.id), reverse=True)
     entries = entries[:limit]
 
-    await _hydrate_collections(user_id, entries)
+    await _hydrate_folders(user_id, entries)
     await _sign_covers(entries)
     return entries
 
 
-async def _hydrate_collections(user_id: str, entries: List[RecentEngagement]) -> None:
-    """Fill ``item_count`` and ``preview_images`` for the collections in the row.
+async def _hydrate_folders(user_id: str, entries: List[RecentEngagement]) -> None:
+    """Fill ``item_count`` and ``preview_images`` for the folders in the row.
 
     One partition read for the whole row rather than one ``folder-index`` query per
-    collection: up to twelve queries returning full items is more payload for less
+    folder: up to twelve queries returning full items is more payload for less
     information, and this is the same read ``GET /api/folders`` already performs on
-    every Inbox open. Skipped entirely when the capped row holds no collection.
+    every Inbox open. Skipped entirely when the capped row holds no folder.
     """
-    collection_ids = {entry.id for entry in entries if entry.kind == KIND_COLLECTION}
-    if not collection_ids:
+    folder_ids = {entry.id for entry in entries if entry.kind == KIND_FOLDER}
+    if not folder_ids:
         return
 
-    per_folder: Dict[str, List[UserMediaRecord]] = {fid: [] for fid in collection_ids}
+    per_folder: Dict[str, List[UserMediaRecord]] = {fid: [] for fid in folder_ids}
     for record in await user_media_store.list_library_for_user(user_id):
         bucket = per_folder.get(record.folder_id or "")
         if bucket is not None:
             bucket.append(record)
 
     for entry in entries:
-        if entry.kind != KIND_COLLECTION:
+        if entry.kind != KIND_FOLDER:
             continue
         records = sorted(
             per_folder.get(entry.id, []),

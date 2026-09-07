@@ -2,7 +2,7 @@
 Media search service: metadata-based search and filtering for user media items.
 
 Provides text search on title (case-insensitive substring match), filtering by
-tags, folder (including sub-folders), source platform, and media type.
+folder (including subfolders), source platform, and media type.
 Results are sorted by saved_at, newest first by default, with cursor-based
 pagination. A caller can ask for oldest first instead (``sort_direction="asc"``,
 task-323): a triage pass works through the backlog in the order it accumulated,
@@ -52,8 +52,7 @@ class SearchFilters:
     """Container for search/filter parameters."""
 
     q: Optional[str] = None  # Title text search (case-insensitive substring)
-    tags: Optional[List[str]] = None  # Tag IDs to filter by (ANY match)
-    folder_id: Optional[str] = None  # Folder ID (includes sub-folders)
+    folder_id: Optional[str] = None  # Folder ID (includes subfolders)
     source: Optional[str] = None  # Source platform filter
     media_type: Optional[str] = None  # Media type filter
     status: Optional[str] = None  # Library processing status filter
@@ -117,7 +116,7 @@ async def search_media(
     # Fetch the user's durable library rows
     all_records = await user_media_store.list_library_for_user(user_id)
 
-    # Resolve folder IDs for sub-folder inclusion
+    # Resolve folder IDs for subfolder inclusion
     folder_ids_to_match: Optional[set] = None
     if filters.folder_id is not None:
         all_folders = await database_async.get_folders_by_user_id(user_id)
@@ -194,12 +193,7 @@ def _apply_filters(
             if query_lower not in (record.title or "").lower():
                 continue
 
-        # Tag filter (any of the specified tags must be present)
-        if filters.tags:
-            if not set(record.tag_ids).intersection(filters.tags):
-                continue
-
-        # Folder filter (including sub-folders)
+        # Folder filter (including subfolders)
         if folder_ids_to_match is not None:
             if (record.folder_id or "") not in folder_ids_to_match:
                 continue
@@ -350,7 +344,6 @@ def _record_to_search_result(record: UserMediaRecord) -> Dict[str, Any]:
         "media_type": record.media_type,
         "status": record.processing_status.value if record.processing_status else None,
         "folder_id": record.folder_id,
-        "tag_ids": list(record.tag_ids),
         "source_url": record.source_url,
         "media_image": record.thumbnail_url,
         "created_at": record.saved_at.isoformat(),

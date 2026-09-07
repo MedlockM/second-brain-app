@@ -22,7 +22,7 @@ export const de: Catalog = {
   "trial.lastDay": "Kostenlose Testphase - letzter Tag",
   "trial.daysLeft.one": "Kostenlose Testphase - noch {count} Tag",
   "trial.daysLeft.other": "Kostenlose Testphase - noch {count} Tage",
-  "home.tile.a11yCollection": "Sammlung {name}, {count}",
+  "home.tile.a11yFolder": "Ordner {name}, {count}",
   "home.tile.a11yByCreator": "{title} von {creator}",
   "quota.warning.trial":
     "Du hast {percent} % der Minuten deiner kostenlosen Testphase verbraucht.",
@@ -66,24 +66,24 @@ export const de: Catalog = {
     "„{title}“ wird aus deiner Bibliothek entfernt. Das lässt sich nicht rückgängig machen.",
   "mediaActions.deleteFailed":
     "Diese Quelle konnte nicht gelöscht werden. Sie ist weiterhin in deiner Bibliothek.",
-  "collectionActions.longPressHint":
-    "Zweimal tippen und halten, um diese Sammlung umzubenennen oder zu löschen",
-  "collectionActions.rename.label": "Umbenennen",
-  "collectionActions.delete.label": "Löschen",
-  "collectionActions.moreA11y": "Aktionen für diese Sammlung",
-  "collectionActions.rename.title": "Diese Sammlung umbenennen",
-  "collectionActions.rename.placeholder": "Name der Sammlung",
-  "collectionActions.renameFailed":
-    "Diese Sammlung konnte nicht umbenannt werden. Ihr Name ist unverändert.",
-  "collectionActions.deleteTitle": "Diese Sammlung löschen?",
-  "collectionActions.deleteBody":
+  "folderActions.longPressHint":
+    "Zweimal tippen und halten, um diesen Ordner umzubenennen oder zu löschen",
+  "folderActions.rename.label": "Umbenennen",
+  "folderActions.delete.label": "Löschen",
+  "folderActions.moreA11y": "Aktionen für diesen Ordner",
+  "folderActions.rename.title": "Diesen Ordner umbenennen",
+  "folderActions.rename.placeholder": "Name des Ordners",
+  "folderActions.renameFailed":
+    "Dieser Ordner konnte nicht umbenannt werden. Sein Name ist unverändert.",
+  "folderActions.deleteTitle": "Diesen Ordner löschen?",
+  "folderActions.deleteBody":
     "„{name}“ wird gelöscht. Alle darin enthaltenen Quellen wandern nach {unsorted} – keine davon wird gelöscht.",
-  "collectionActions.deleteSubCollections.one":
-    "Ihre Untersammlung wird ebenfalls gelöscht, und die Quellen darin wandern ebenfalls nach {unsorted}.",
-  "collectionActions.deleteSubCollections.other":
-    "Ihre {count} Untersammlungen werden ebenfalls gelöscht, und die Quellen darin wandern ebenfalls nach {unsorted}.",
-  "collectionActions.deleteFailed":
-    "Diese Sammlung konnte nicht gelöscht werden. Sie ist weiterhin in deiner Bibliothek.",
+  "folderActions.deleteSubfolders.one":
+    "Sein Unterordner wird ebenfalls gelöscht, und die Quellen darin wandern ebenfalls nach {unsorted}.",
+  "folderActions.deleteSubfolders.other":
+    "Seine {count} Unterordner werden ebenfalls gelöscht, und die Quellen darin wandern ebenfalls nach {unsorted}.",
+  "folderActions.deleteFailed":
+    "Dieser Ordner konnte nicht gelöscht werden. Er ist weiterhin in deiner Bibliothek.",
   "addSource.title": "Zu deinem Posteingang hinzufügen",
   "addSource.importFile.label": "Datei importieren",
   "addSource.importFile.description":
@@ -210,14 +210,14 @@ export const de: Catalog = {
     "Das dauert {duration} und liegt damit über den {max}, die ein einzelner Import in deinem Tarif nutzen darf. Teile es in kürzere Teile auf.",
   "quota.refusal.itemTooLongGeneric":
     "Das ist zu lang für einen einzelnen Import in deinem Tarif. Teile es in kürzere Teile auf.",
-  "artifacts.refusal.collectionEmpty":
-    "Diese Sammlung hat noch keine Quelle mit Transkript. Füge Medien hinzu oder warte, bis die gespeicherten fertig verarbeitet sind.",
+  "artifacts.refusal.folderEmpty":
+    "Dieser Ordner hat noch keine Quelle mit Transkript. Füge Medien hinzu oder warte, bis die gespeicherten fertig verarbeitet sind.",
   "artifacts.refusal.mediaEmpty":
     "Dieses Element hat noch kein Transkript, also gibt es nichts, woraus etwas erstellt werden könnte.",
   "artifacts.refusal.tooManySources":
-    "Diese Sammlung hat {count} Quellen, mehr als die {max}, die eine einzelne Erstellung lesen kann. Erstelle es auf einer kleineren Untersammlung.",
+    "Dieser Ordner hat {count} Quellen, mehr als die {max}, die eine einzelne Erstellung lesen kann. Erstelle es auf einem kleineren Unterordner.",
   "artifacts.refusal.tooMuchText":
-    "Hier ist zu viel Text für eine einzelne Erstellung. Erstelle es auf einer kleineren Untersammlung.",
+    "Hier ist zu viel Text für eine einzelne Erstellung. Erstelle es auf einem kleineren Unterordner.",
   "artifacts.refusal.translationFailed":
     "Dieses Transkript konnte nicht übersetzt werden, und das wird nicht automatisch wiederholt. Versuche es später erneut.",
   "artifacts.refusal.sourcesTranslationFailed.one":
@@ -260,8 +260,8 @@ export const de: Catalog = {
     "Ein Video, das bereits kaufbare Untertitel hat, kostet {duration}, egal wie lang es ist.",
   "plan.legend.documents":
     "Ein PDF, ein Office-Dokument oder ein Foto, von dem wir den Text lesen, kostet 1 Min. pro {pages} Seiten.",
-  "plan.legend.collections":
-    "Eine Erstellung über eine ganze Sammlung kostet 1 Min. pro {sources} Elemente darin. Auf einem einzelnen Element ist sie kostenlos.",
+  "plan.legend.folders":
+    "Eine Erstellung über einen ganzen Ordner kostet 1 Min. pro {sources} Elemente darin. Auf einem einzelnen Element ist sie kostenlos.",
   "plan.legend.free":
     "Artikel, Webseiten, TikToks und Instagram-Fotobeiträge kosten gar nichts: Sie werden nicht transkribiert.",
   "plan.legend.overLimit":
@@ -273,9 +273,9 @@ export const de: Catalog = {
   "plan.highlight.read":
     "Lies das vollständige Transkript, übersetzt in deine Lesesprache",
   "plan.highlight.generate":
-    "Erstelle {list} auf Abruf, pro Element oder pro Sammlung",
+    "Erstelle {list} auf Abruf, pro Element oder pro Ordner",
   "plan.highlight.organise":
-    "Ordne in Sammlungen und Tags, durchsuche alles, täglicher Digest",
+    "Sortiere in Ordner, durchsuche alles, täglicher Digest",
   "plan.includes.capture.title": "Speichere alles, aus jeder App",
   "plan.includes.capture.links":
     "Teile einen Link aus jeder App oder füge ihn ein: YouTube-Videos, Podcast-Folgen von Apple Podcasts, Spotify, Deezer oder jedem RSS-Feed, TikToks, Instagram-Reels und -Fotobeiträge, X-Beiträge, Nachrichtenartikel und jede Webseite.",
@@ -288,13 +288,13 @@ export const de: Catalog = {
     "Transkripte werden in deine Lesesprache übersetzt, {count} zur Auswahl, und du kannst sie jederzeit ändern.",
   "plan.includes.generate.title": "Mach etwas daraus, das bleibt",
   "plan.includes.generate.onDemand": "Auf jedem Element, auf Abruf: {list}.",
-  "plan.includes.generate.collection":
-    "Führe dieselben Erstellungen über eine ganze Sammlung aus, um eine einzige Synthese von allem zu erhalten, was du dort abgelegt hast.",
+  "plan.includes.generate.folder":
+    "Führe dieselben Erstellungen über einen ganzen Ordner aus, um eine einzige Synthese von allem zu erhalten, was du dort abgelegt hast.",
   "plan.includes.generate.kept":
     "Jede Erstellung bleibt erhalten, du kannst also darauf zurückkommen oder später eine neue anfordern.",
   "plan.includes.organise.title": "Finde es Monate später wieder",
   "plan.includes.organise.file":
-    "Lege alles in Sammlungen und Tags ab, beim Speichern oder jederzeit danach.",
+    "Lege alles in Ordnern ab, beim Speichern oder jederzeit danach.",
   "plan.includes.organise.search":
     "Volltextsuche über alles, was du je gespeichert hast, Transkripte inbegriffen.",
   "plan.includes.organise.digest":
@@ -376,7 +376,7 @@ export const de: Catalog = {
   "deleteAccount.warningBody":
     "Dein Konto zu löschen, entfernt es dauerhaft, zusammen mit allem, was du gespeichert hast. Wir können es danach nicht wiederherstellen, auch nicht auf Anfrage.",
   "deleteAccount.erasedHeading": "Was gelöscht wird",
-  "deleteAccount.erased.library": "Deine Bibliothek, Ordner und Tags",
+  "deleteAccount.erased.library": "Deine Bibliothek und Ordner",
   "deleteAccount.erased.artifacts":
     "Alle Transkripte, Zusammenfassungen, Notizen und Lernkarten",
   "deleteAccount.erased.schedule": "Dein Wiederholungsplan und deine Digests",
@@ -434,11 +434,11 @@ export const de: Catalog = {
   "mediaType.unknownSource": "Unbekannt",
   "search.placeholder": "Durchsuche deine Bibliothek …",
   "search.clearA11y": "Suche löschen",
-  "search.collections": "Sammlungen",
+  "search.folders": "Ordner",
   "search.allMedia": "Alle Medien",
-  "search.noCollections":
-    "Noch keine Sammlungen. Ordne Medien beim Speichern in Sammlungen ein.",
-  "search.openCollectionA11y": "Sammlung {name} öffnen",
+  "search.noFolders":
+    "Noch keine Ordner. Ordne Medien beim Speichern in Ordner ein.",
+  "search.openFolderA11y": "Ordner {name} öffnen",
   "search.resultCount.one": "{count} Ergebnis",
   "search.resultCount.other": "{count} Ergebnisse",
   "search.endOfResults": "Ende der Ergebnisse",
@@ -449,10 +449,10 @@ export const de: Catalog = {
   "search.emptyLibraryHint":
     "Teile einen Link aus einer beliebigen App oder importiere eine Datei aus dem Posteingang, dann erscheint sie hier.",
   "search.failed": "Die Suche ist fehlgeschlagen",
-  "search.collectionsLoadFailed": "Deine Sammlungen konnten nicht geladen werden.",
+  "search.foldersLoadFailed": "Deine Ordner konnten nicht geladen werden.",
   "search.libraryLoadFailed": "Deine Bibliothek konnte nicht geladen werden.",
   "search.retryLibraryA11y": "Bibliothek erneut laden",
-  "search.retryCollectionsA11y": "Sammlungen erneut laden",
+  "search.retryFoldersA11y": "Ordner erneut laden",
   "search.retrySearchA11y": "Suche erneut ausführen",
   "tabs.home": "Start",
   "tabs.search": "Suche",
@@ -467,7 +467,7 @@ export const de: Catalog = {
   "home.empty": "Deine geteilten Medien erscheinen hier.",
   "home.emptyHint":
     "Teile einen Link aus einer beliebigen App oder tippe auf +, um eine Datei zu importieren oder ein Foto aufzunehmen.",
-  "home.untitledCollection": "Sammlung",
+  "home.untitledFolder": "Ordner",
   "unsortedReview.title": "Unsortiertes durchgehen",
   "unsortedReview.position": "{current} / {total}",
   "unsortedReview.positionA11y": "Quelle {current} von {total}",
@@ -482,7 +482,7 @@ export const de: Catalog = {
   "unsortedReview.deepen": "Vertiefen",
   "unsortedReview.deepenA11y": "{title} öffnen",
   "unsortedReview.save": "Ablegen",
-  "unsortedReview.saveA11y": "{title} in einer Sammlung ablegen",
+  "unsortedReview.saveA11y": "{title} in einem Ordner ablegen",
   "unsortedReview.doneTitle": "Nichts mehr zu sortieren",
   "unsortedReview.doneBody": "Alles, was wartete, ist erledigt.",
   "digest.daily": "Täglich",
@@ -499,39 +499,29 @@ export const de: Catalog = {
     "Was du speicherst, erscheint hier im nächsten Digest.",
   "digest.emptyWeeklyHint":
     "Was du diese Woche speicherst, erscheint hier am Montag.",
-  "tags.selectedCount.one": "{count} Tag",
-  "tags.selectedCount.other": "{count} Tags",
-  "tags.saveA11y": "Tags speichern",
-  "tags.removeA11y": "{name} entfernen",
-  "tags.addPlaceholder": "Tag hinzufügen",
-  "tags.createA11y": "Tag „{name}“ erstellen",
-  "tags.otherHeading": "WEITERE",
-  "tags.loadFailed": "Tags konnten nicht geladen werden",
-  "tags.createFailed": "Tag konnte nicht erstellt werden",
-  "tags.saveFailed": "Tags konnten nicht gespeichert werden",
-  "collectionPicker.title": "Sammlung",
-  "collectionPicker.saveA11y": "Auswahl speichern",
-  "collectionPicker.searchPlaceholder": "Suchen",
-  "collectionPicker.unsorted": "Unsortiert",
-  "collectionPicker.myCollections": "Meine Sammlungen",
-  "collectionPicker.createA11y": "Neue Sammlung erstellen",
-  "collectionPicker.namePlaceholder": "Name der Sammlung",
-  "collectionPicker.confirm": "Bestätigen",
-  "collectionPicker.collapse": "Einklappen",
-  "collectionPicker.expand": "Ausklappen",
-  "collectionPicker.noMatches": "Keine Sammlung passt zu deiner Suche",
-  "collectionPicker.loadFailed": "Sammlungen konnten nicht geladen werden",
-  "collectionPicker.saveFailed": "Sammlung konnte nicht gespeichert werden",
-  "collectionPicker.createFailed": "Sammlung konnte nicht erstellt werden",
-  "collections.loading": "Sammlungen werden geladen …",
-  "collections.loadFailed":
-    "Deine Sammlungen konnten nicht geladen werden. Bitte versuche es erneut.",
-  "collections.empty": "Noch keine Sammlungen",
-  "collections.emptyHint":
-    "Ordne Medien beim Speichern in Sammlungen ein, um sie hier wiederzufinden.",
-  "collections.emptyFolder": "Leer",
-  "collections.childCount.one": "{count} Sammlung",
-  "collections.childCount.other": "{count} Sammlungen",
+  "folderPicker.title": "Ordner",
+  "folderPicker.saveA11y": "Auswahl speichern",
+  "folderPicker.searchPlaceholder": "Suchen",
+  "folderPicker.unsorted": "Unsortiert",
+  "folderPicker.myFolders": "Meine Ordner",
+  "folderPicker.createA11y": "Neuen Ordner erstellen",
+  "folderPicker.namePlaceholder": "Name des Ordners",
+  "folderPicker.confirm": "Bestätigen",
+  "folderPicker.collapse": "Einklappen",
+  "folderPicker.expand": "Ausklappen",
+  "folderPicker.noMatches": "Kein Ordner passt zu deiner Suche",
+  "folderPicker.loadFailed": "Ordner konnten nicht geladen werden",
+  "folderPicker.saveFailed": "Ordner konnte nicht gespeichert werden",
+  "folderPicker.createFailed": "Ordner konnte nicht erstellt werden",
+  "folders.loading": "Ordner werden geladen …",
+  "folders.loadFailed":
+    "Deine Ordner konnten nicht geladen werden. Bitte versuche es erneut.",
+  "folders.empty": "Noch keine Ordner",
+  "folders.emptyHint":
+    "Ordne Medien beim Speichern in Ordner ein, um sie hier wiederzufinden.",
+  "folders.emptySubtitle": "Leer",
+  "folders.childCount.one": "{count} Ordner",
+  "folders.childCount.other": "{count} Ordner",
   "media.tab.reader": "Lesen",
   "media.tab.ai": "KI",
   "media.sectionsA11y": "Medienbereiche",
@@ -550,21 +540,21 @@ export const de: Catalog = {
   "media.processing.generating": "Text wird erstellt …",
   "media.transcriptLoadFailed": "Der Text kann gerade nicht geladen werden.",
   "media.movedToNamed": "Verschoben nach „{name}“",
-  "media.movedToCollection": "In eine Sammlung verschoben",
-  "media.removedFromCollection": "Aus der Sammlung entfernt",
+  "media.movedToFolder": "In einen Ordner verschoben",
+  "media.removedFromFolder": "Aus dem Ordner entfernt",
   "media.openFailed": "{host} konnte nicht geöffnet werden",
-  "media.moveToCollectionA11y": "In eine Sammlung verschieben",
-  "collection.tab.sources": "Quellen",
-  "collection.tab.ai": "KI",
-  "collection.sectionsA11y": "Bereiche der Sammlung",
-  "collection.loadFailed":
-    "Diese Sammlung konnte nicht geladen werden. Bitte versuche es erneut.",
-  "collection.retryA11y": "Sammlung erneut laden",
-  "collection.artifactsLoadFailed":
+  "media.moveToFolderA11y": "In einen Ordner verschieben",
+  "folder.tab.sources": "Quellen",
+  "folder.tab.ai": "KI",
+  "folder.sectionsA11y": "Bereiche des Ordners",
+  "folder.loadFailed":
+    "Dieser Ordner konnte nicht geladen werden. Bitte versuche es erneut.",
+  "folder.retryA11y": "Ordner erneut laden",
+  "folder.artifactsLoadFailed":
     "Erstellte Inhalte konnten nicht geladen werden. Bitte versuche es erneut.",
-  "collection.empty": "Diese Sammlung ist leer",
-  "collection.emptyHint":
-    "Medien, die du in dieser Sammlung speicherst, erscheinen hier.",
+  "folder.empty": "Dieser Ordner ist leer",
+  "folder.emptyHint":
+    "Medien, die du in diesem Ordner speicherst, erscheinen hier.",
   "bugReport.subject": "Betreff",
   "bugReport.subjectPlaceholder": "Kurze Zusammenfassung des Problems",
   "bugReport.subjectA11y": "Betreff der Fehlermeldung",
@@ -686,9 +676,7 @@ export const de: Catalog = {
   "share.uploadingAudio": "Audio wird hochgeladen …",
   "share.uploadingFile": "Datei wird hochgeladen …",
   "share.whatsappText": "WhatsApp-Textnachricht",
-  "share.tags": "Tags",
-  "share.chooseCollection": "Sammlung wählen",
-  "share.chooseTags": "Tags wählen",
+  "share.chooseFolder": "Ordner wählen",
   "share.success.duplicate": "Dieser Inhalt war schon in deinem Posteingang.",
   "share.success.audio":
     "Audio gespeichert. Die Transkription beginnt in Kürze.",

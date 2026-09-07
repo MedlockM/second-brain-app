@@ -3,9 +3,10 @@ id: task-373
 title: >-
   Renommer « Collection » en « Dossier » dans toute l'application et aligner le
   code mobile sur le vocabulaire `folder` du backend
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 13:40'
+updated_date: '2026-09-07 16:16'
 labels:
   - mobile
   - backend
@@ -79,14 +80,150 @@ Deux clés entrent en collision au renommage — `collections.empty` (« Aucune 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `grep -ri collection mobile/src mobile/app --include="*.ts" --include="*.tsx"` ne renvoie plus aucune ligne : ni identifiant, ni clé i18n, ni valeur traduite, ni commentaire, ni `testID`.
-- [ ] #2 Plus aucun fichier ni répertoire dont le nom contient « collection » sous `mobile/` (hors `node_modules`) : les six fichiers et le répertoire `app/media/collections/` listés dans la description portent leur nom en `folder`/`Folder`, et `mobile/app/_layout.tsx` déclare les routes `media/folder`, `media/folders/index` et `media/folders/[id]`.
-- [ ] #3 Chacun des 11 catalogues de `mobile/src/i18n/` emploie le terme de sa langue pour « dossier » d'après le tableau de la description — `fr.ts` dit « dossier », `en.ts` « folder » — et aucun ne conserve un dérivé de « collection ».
-- [ ] #4 `mobile/src/services/organizationService.ts` n'interpose plus de traduction de vocabulaire : `toCollection()` n'existe plus, le type exposé est `Folder`, et les champs de `/api/folders` sont repris sous leur nom d'API (`parent_folder_id`, `is_default`, `default_folder_id`, `deleted_folders`).
-- [ ] #5 Les deux valeurs de contrat disent `folder` des deux côtés : `kind` vaut `media | folder` dans `api/endpoints/engagements.py` comme dans `EngagementKind`, et la clé de conversion s'appelle `folder_sources_per_minute` dans `pricing_config_service.py`, `quota_enforcer.py`, `api/endpoints/pricing.py` et `mobile/src/services/pricingService.ts`.
+- [x] #1 `grep -ri collection mobile/src mobile/app --include="*.ts" --include="*.tsx"` ne renvoie plus aucune ligne : ni identifiant, ni clé i18n, ni valeur traduite, ni commentaire, ni `testID`.
+- [x] #2 Plus aucun fichier ni répertoire dont le nom contient « collection » sous `mobile/` (hors `node_modules`) : les six fichiers et le répertoire `app/media/collections/` listés dans la description portent leur nom en `folder`/`Folder`, et `mobile/app/_layout.tsx` déclare les routes `media/folder`, `media/folders/index` et `media/folders/[id]`.
+- [x] #3 Chacun des 11 catalogues de `mobile/src/i18n/` emploie le terme de sa langue pour « dossier » d'après le tableau de la description — `fr.ts` dit « dossier », `en.ts` « folder » — et aucun ne conserve un dérivé de « collection ».
+- [x] #4 `mobile/src/services/organizationService.ts` n'interpose plus de traduction de vocabulaire : `toCollection()` n'existe plus, le type exposé est `Folder`, et les champs de `/api/folders` sont repris sous leur nom d'API (`parent_folder_id`, `is_default`, `default_folder_id`, `deleted_folders`).
+- [x] #5 Les deux valeurs de contrat disent `folder` des deux côtés : `kind` vaut `media | folder` dans `api/endpoints/engagements.py` comme dans `EngagementKind`, et la clé de conversion s'appelle `folder_sources_per_minute` dans `pricing_config_service.py`, `quota_enforcer.py`, `api/endpoints/pricing.py` et `mobile/src/services/pricingService.ts`.
 - [ ] #6 La table `pricing_config` de `-dev` porte `unit_conversion.folder_sources_per_minute` à la valeur 5 et ne porte plus `collection_sources_per_minute` ; la sortie de l'appel AWS CLI qui le vérifie est recopiée dans les notes d'implémentation.
-- [ ] #7 Les deux détails d'erreur anglais du backend disent « Folder not found » : `core/services/engagement_service.py` et `api/endpoints/artifacts.py`.
-- [ ] #8 `npm run lint` et `npm run typecheck` sortent 0 depuis `mobile/`, et `ruff check` comme `mypy` sont propres sur `media_summarizer/`.
-- [ ] #9 Les docs ne décrivent plus un dossier comme une collection : la parenthèse « a folder is what the UI calls a collection » a disparu de `docs/CANONICAL_MEDIA_API_CONTRACT.md`, et `docs/MEDIA_INGESTION_CORE_ARCHITECTURE.md`, `docs/V1_LAUNCH_PLAN.md` ainsi que la copie produit de `docs/store-listing/app-store-connect.md` emploient « folder ».
-- [ ] #10 Les emplois qui ne désignent pas un dossier sont inchangés par rapport à `main` : `docs/compliance/`, `docs/store-listing/QA-CHECKLIST.md`, `tests/e2e/test_phase4_other_sources.py`, `scripts/testflight_feedback.py` et `docs/testflight-feedback-log.md`.
+- [x] #7 Les deux détails d'erreur anglais du backend disent « Folder not found » : `core/services/engagement_service.py` et `api/endpoints/artifacts.py`.
+- [x] #8 `npm run lint` et `npm run typecheck` sortent 0 depuis `mobile/`, et `ruff check` comme `mypy` sont propres sur `media_summarizer/`.
+- [x] #9 Les docs ne décrivent plus un dossier comme une collection : la parenthèse « a folder is what the UI calls a collection » a disparu de `docs/CANONICAL_MEDIA_API_CONTRACT.md`, et `docs/MEDIA_INGESTION_CORE_ARCHITECTURE.md`, `docs/V1_LAUNCH_PLAN.md` ainsi que la copie produit de `docs/store-listing/app-store-connect.md` emploient « folder ».
+- [x] #10 Les emplois qui ne désignent pas un dossier sont inchangés par rapport à `main` : `docs/compliance/`, `docs/store-listing/QA-CHECKLIST.md`, `tests/e2e/test_phase4_other_sources.py`, `scripts/testflight_feedback.py` et `docs/testflight-feedback-log.md`.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### Fichiers renommés (`git mv`, l'historique suit)
+
+| avant | après |
+| --- | --- |
+| `mobile/src/components/CollectionPickerView.tsx` | `FolderPickerView.tsx` |
+| `mobile/src/components/CollectionSaveSheet.tsx` | `FolderSaveSheet.tsx` |
+| `mobile/src/hooks/useCollectionActions.ts` | `useFolderActions.ts` |
+| `mobile/src/lib/collectionSearch.ts` | `folderSearch.ts` |
+| `mobile/src/lib/collectionTree.ts` | `folderTree.ts` |
+| `mobile/app/media/collection.tsx` | `mobile/app/media/folder.tsx` |
+| `mobile/app/media/collections/{index,[id]}.tsx` | `mobile/app/media/folders/{index,[id]}.tsx` |
+
+`mobile/app/_layout.tsx` déclare désormais `media/folder`, `media/folders/index`,
+`media/folders/[id]`.
+
+### La couche de traduction a disparu, pas seulement son nom
+
+`toCollection()` n'existait pas pour renommer trois champs : il produisait un type
+*différent* de la réponse d'API (`parent_id`, `path`, `children`, `is_default`
+optionnel). Le type `Folder` de `types/organization.ts` est maintenant la forme du
+fil telle quelle, avec `media_count` / `created_at` / `updated_at` / `is_default`
+requis — ce que `FolderResponse` côté backend émet toujours. `FolderResponse`,
+`FolderDeleteResponse` et le mapper sont supprimés de `organizationService.ts` ;
+les quatre méthodes renvoient directement la forme du fil. `folderTree.ts` lit
+`node.parent_folder_id` et rien d'autre (le `?? node.parent_id` de repli n'a plus
+d'objet).
+
+### Ce qu'un renommage aveugle avait rendu tautologique, réécrit à la main
+
+Sept endroits disaient « la collection, c'est-à-dire le dossier » et devenaient
+absurdes une fois les deux mots confondus :
+
+- `mobile/app/artifacts/[artifactId].tsx` — le ternaire `scope === "folder" ? "folder" : "media"` devient `reportEngagement(response.scope, …)` : `ArtifactScope` et `EngagementKind` sont désormais les deux mêmes mots.
+- `media_summarizer/api/endpoints/artifacts.py` — même chose côté backend : `kind=scope.value` remplace le ternaire sur `KIND_MEDIA` / `KIND_FOLDER`.
+- `core/models/media_artifact.py` — le docstring d'`ArtifactScope` (« `FOLDER` is what the UI calls a collection ») se réduit à ce que le type dit.
+- `core/services/audio_quota_gate.py` (×2) et `core/services/durable_media_service.py` — « any folder, any collection » énumérait deux fois la même chose ; devient « in any folder at all ».
+- `core/services/artifact_service.py` — « a media item is a collection of one source » employait « collection » au sens générique anglais ; devient « has exactly one source ».
+- `api/endpoints/engagements.py` et `api/endpoints/artifacts.py` — les descriptions de champ « Media item id, or collection (folder) id » perdent leur parenthèse.
+- `docs/CANONICAL_MEDIA_API_CONTRACT.md` — « a collection covers the folder and all its descendants » devient « a folder-scoped artifact covers … ».
+
+### i18n : trois passes, pas un `sed`
+
+Un `sed` global aurait produit « Aucune folder ». Donc : (1) renommage des seules
+clés sur les 11 catalogues (55 clés, 62 en `ar.ts` qui porte les catégories de
+pluriel supplémentaires) ; (2) passe complète clés + valeurs sur `en.ts`, source
+des clés via `TranslationKey = keyof typeof en` ; (3) traduction des valeurs
+langue par langue.
+
+Le genre change dans deux langues et impose des accords, pas un échange de mot :
+**fr** collection (f) → dossier (m) — « cette collection sera supprimée » → « ce
+dossier sera supprimé », « Sa sous-collection … qu'elle contient » → « Son
+sous-dossier … qu'il contient » ; **de** Sammlung (f) → Ordner (m) — « diese
+Sammlung » → « diesen Ordner », « Name der Sammlung » → « Name des Ordners »,
+« Ihre Untersammlung » → « Sein Unterordner » ; **ar** مجموعة (f) → مجلد (m) —
+« هذه المجموعة » → « هذا المجلد », « ستُحذف » → « سيُحذف », duel
+« مجموعتان فرعيتان » → « مجلدان فرعيان ». Les autres gardent le genre (es/it/pt
+féminin, nl commun, ja/zh/hi sans accord) et se contentent de l'échange.
+
+Collision tranchée : `collections.empty` et `collections.emptyFolder` deviennent
+`folders.empty` (« No folders yet ») et `folders.emptySubtitle` (« Empty »).
+`folderPicker.unsorted` garde son libellé « Unsorted » / « Non trié » — c'est le
+nom du dossier par défaut, pas un synonyme.
+
+### AC #6 non atteint : il n'y a pas d'item `unit_conversion` sur `-dev`
+
+La description partait du principe que la clé est stockée en base. Elle ne l'est
+pas. La table `pricing_config-dev` contient exactement deux items :
+
+```
+$ aws dynamodb get-item --region eu-west-3 --table-name pricing_config-dev \
+    --key '{"config_key":{"S":"unit_conversion"}}' --output json
+(aucune sortie : pas d'item)
+
+$ aws dynamodb scan --region eu-west-3 --table-name pricing_config-dev \
+    --projection-expression "config_key" --output json
+{
+    "Items": [
+        { "config_key": { "S": "revenue_model" } },
+        { "config_key": { "S": "infra_cost_baseline" } }
+    ],
+    "Count": 2,
+    "ScannedCount": 2,
+    "ConsumedCapacity": null
+}
+```
+
+`_load_from_db` ne sème les défauts que si la table est **vide** : elle ne l'est
+pas, donc `unit_conversion` n'a jamais été écrit et est servi entièrement depuis
+`DEFAULT_PRICING_CONFIG` via `_merge_defaults`. Conséquences :
+
+1. Il n'y a **aucun** `collection_sources_per_minute` périmé à supprimer — la
+   moitié « ne porte plus » de l'AC est déjà vraie, sans écriture.
+2. La moitié « porte `folder_sources_per_minute` = 5 » est satisfaite par le
+   défaut renommé, et **écrire** l'item serait nuisible : cela figerait
+   `unit_conversion` en base pour toujours, exactement le verrou contre lequel le
+   docstring de `_merge_defaults` prévient (« a top-level key removed from the
+   defaults stays in the table until it is deleted there »). Aucune autre section
+   de `DEFAULT_PRICING_CONFIG` n'est stockée sur `-dev`, la fixer seule créerait
+   l'asymétrie.
+
+L'AC reste donc décoché : sa prémisse est fausse, et le faire passer à la lettre
+dégraderait l'environnement. Rien à faire côté owner.
+
+### Hors périmètre des AC, fait quand même
+
+- `sub-folder` → `subfolder` dans les commentaires et messages de log du backend (`folder_service.py`, `media_search_service.py`, `user_media.py`, `api/endpoints/folders.py`, `api/endpoints/media.py`) : le refus utilisateur d'`artifact_service.py` dit désormais « smaller subfolder instead », la même graphie que le tableau de la description.
+- `MAX_COLLECTION_SOURCES` / `MAX_COLLECTION_CORPUS_TOKENS` → `MAX_FOLDER_*`, y compris la référence dans `infrastructure/observability/runbooks/pipeline-alerts.md`.
+- `stamps_purged_collections` et la clé de métrique `engagement_stamps_purged_collections` de `workers/cleanup/media_lifecycle.py` → `…_folders`. Vérifié : aucun metric filter ni alarme Terraform ne lit cette clé, c'est un champ de log event.
+- Commentaires de `infrastructure/terraform/modules/platform/dynamodb_core_tables.tf` (aucune ressource touchée).
+
+### Volontairement laissés en l'état
+
+Au-delà de la liste de l'AC #10 : `docs/research/**` et `backlog/tasks/**`
+(artefacts datés, on ne réécrit pas le passé), `mobile-design-mockups/**` (les
+noms de fichiers PNG de référence NotebookLM en font partie),
+`mobile/MOBILE_CI_CD.md` (collecte d'UDID, permission ASC `GET_COLLECTION`),
+`docs/store-listing/app-store-connect.md:379` (« App Privacy (Data Collection) »,
+titre de section d'Apple), `docs/store-listing/RELEASE-HANDOFF.md` et
+`google-play-store.md` (data collection), `.claude/agents/feedback-triage.md`
+(exemple de slug dans une configuration d'agent). Le code des tags est renommé
+comme le reste mais rien n'en est supprimé — task-372 en a la charge.
+
+### Vérifications
+
+- `cd mobile && npm run lint` → exit 0 (1 warning préexistant, `purchaseService.ts:98`, fichier non touché).
+- `cd mobile && npm run typecheck` → exit 0.
+- `ruff check media_summarizer/ scripts/purge_e2e_accounts.py` → All checks passed.
+- `mypy media_summarizer/` → Success, 179 fichiers.
+- `grep -ri collection mobile/src mobile/app --include="*.ts" --include="*.tsx"` → aucune ligne ; `find mobile -iname "*collection*"` (hors `node_modules`) → aucun résultat.
+- `grep -rn -i collection media_summarizer/ --include="*.py"` → aucune ligne.
+- `git status --porcelain` sur les fichiers de l'AC #10 → vide.
+<!-- SECTION:NOTES:END -->

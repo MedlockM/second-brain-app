@@ -10,67 +10,67 @@ import {
 } from "../../src/constants/theme";
 import { t, useTranslation } from "../../src/i18n";
 import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
-import { CollectionPickerView } from "../../src/components/CollectionPickerView";
-import { flattenCollectionPaths } from "../../src/lib/collectionTree";
+import { FolderPickerView } from "../../src/components/FolderPickerView";
+import { flattenFolderPaths } from "../../src/lib/folderTree";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { useShareIntake } from "../../src/contexts/ShareIntentContext";
 import { OrganizationService } from "../../src/services/organizationService";
-import type { Collection } from "../../src/types/organization";
+import type { Folder } from "../../src/types/organization";
 
 /**
- * Collection Selection Screen.
+ * Folder Selection Screen.
  * Presented as a modal from media detail or share confirmation.
  *
- * Design ref: mobile-design-mockups/s_lection_de_collection/
+ * Design ref: mobile-design-mockups/s_lection_de_folder/
  *
  * Layout:
- * - Header: back button | "Collection" title | "Save" button
- * - The picker itself (`CollectionPickerView`): search, "Unsorted", the tree and
+ * - Header: back button | "Folder" title | "Save" button
+ * - The picker itself (`FolderPickerView`): search, "Unsorted", the tree and
  *   inline creation, shared with the unsorted-review triage sheet.
  *
  * Two modes. In share mode a tap on a destination *is* the answer: it lands in
  * the share intake and the screen closes. Otherwise the pick is held until Save,
  * which writes it on the media.
  */
-export default function CollectionScreen() {
+export default function FolderScreen() {
   // Copy resolved on render: redraw when the interface language changes.
   useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams<{
     mode?: string;
     mediaItemId?: string;
-    currentCollectionId?: string;
+    currentFolderId?: string;
   }>();
 
   const { isAuthenticated } = useAuth();
   const { selectedFolder, setSelectedFolder } = useShareIntake();
   const isShareMode = params.mode === "share";
 
-  const [collections, setCollections] = useState<Collection[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(
-    isShareMode ? selectedFolder?.id ?? null : params.currentCollectionId ?? null,
+    isShareMode ? selectedFolder?.id ?? null : params.currentFolderId ?? null,
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch collections
+  // Fetch folders
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const fetchCollections = async () => {
+    const fetchFolders = async () => {
       try {
         setIsLoading(true);
-        const data = await OrganizationService.getUserCollections();
-        setCollections(data);
+        const data = await OrganizationService.getUserFolders();
+        setFolders(data);
       } catch {
-        setError(t("collectionPicker.loadFailed"));
+        setError(t("folderPicker.loadFailed"));
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchCollections();
+    fetchFolders();
   }, [isAuthenticated]);
 
   const handleBack = useCallback(() => {
@@ -80,28 +80,28 @@ export default function CollectionScreen() {
   }, [router]);
 
   const handleSelect = useCallback(
-    (collectionId: string | null) => {
-      setSelectedId(collectionId);
+    (folderId: string | null) => {
+      setSelectedId(folderId);
       if (!isShareMode) return;
-      if (collectionId === null) {
+      if (folderId === null) {
         setSelectedFolder(null);
       } else {
-        const path = flattenCollectionPaths(collections).find(
-          (entry) => entry.id === collectionId,
+        const path = flattenFolderPaths(folders).find(
+          (entry) => entry.id === folderId,
         );
         setSelectedFolder({
-          id: collectionId,
-          path: path?.path ?? collectionId,
+          id: folderId,
+          path: path?.path ?? folderId,
         });
       }
       router.back();
     },
-    [collections, isShareMode, router, setSelectedFolder],
+    [folders, isShareMode, router, setSelectedFolder],
   );
 
-  const handleCollectionCreated = useCallback(
-    (created: Collection) => {
-      setCollections((prev) => [...prev, created]);
+  const handleFolderCreated = useCallback(
+    (created: Folder) => {
+      setFolders((prev) => [...prev, created]);
       setSelectedId(created.id);
       if (isShareMode) {
         setSelectedFolder({ id: created.id, path: created.name });
@@ -119,13 +119,13 @@ export default function CollectionScreen() {
 
     try {
       setIsSaving(true);
-      await OrganizationService.setMediaCollection(
+      await OrganizationService.setMediaFolder(
         params.mediaItemId,
         selectedId,
       );
       handleBack();
     } catch {
-      setError(t("collectionPicker.saveFailed"));
+      setError(t("folderPicker.saveFailed"));
       setIsSaving(false);
     }
   }, [isAuthenticated, params.mediaItemId, selectedId, handleBack]);
@@ -134,7 +134,7 @@ export default function CollectionScreen() {
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
       <ScreenHeader
-        title={t("collectionPicker.title")}
+        title={t("folderPicker.title")}
         titleStyle={styles.headerTitle}
         leading={
           <HeaderIconButton
@@ -151,7 +151,7 @@ export default function CollectionScreen() {
               style={[styles.saveBtn, isSaving && styles.saveBtnDisabled]}
               onPress={handleSave}
               disabled={isSaving}
-              accessibilityLabel={t("collectionPicker.saveA11y")}
+              accessibilityLabel={t("folderPicker.saveA11y")}
               accessibilityRole="button"
             >
               {isSaving ? (
@@ -164,14 +164,14 @@ export default function CollectionScreen() {
         }
       />
 
-      <CollectionPickerView
-        collections={collections}
+      <FolderPickerView
+        folders={folders}
         selectedId={selectedId}
         isLoading={isLoading}
         busy={isSaving}
         error={error}
         onSelect={handleSelect}
-        onCollectionCreated={handleCollectionCreated}
+        onFolderCreated={handleFolderCreated}
         onCreateFailed={setError}
       />
     </SafeAreaView>

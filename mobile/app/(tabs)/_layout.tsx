@@ -104,7 +104,7 @@ export default function TabsLayout() {
 
       {/* The screen file stays `search`: only the label has ever moved. task-306
           labelled this tab for its content ("Library") because the screen holds
-          every collection and every saved item; task-315 put it back on the
+          every folder and every saved item; task-315 put it back on the
           action, so the two labels now name what the user does — go Home, or
           Search — rather than what each screen contains.
 

@@ -16,7 +16,6 @@ import {
   useShareIntake,
   type ShareContentType,
   type ShareSelectedFolder,
-  type ShareSelectedTag,
   type ShareIntakeState,
 } from "../src/contexts/ShareIntentContext";
 import {
@@ -49,8 +48,8 @@ const TOP_BAR_TITLE_KEYS: Record<ShareContentType, TranslationKey> = {
 };
 
 /**
- * Confirmation screen for every incoming save: the collection and tags are
- * chosen here, and Save is what actually sends the content.
+ * Confirmation screen for every incoming save: the folder is chosen here,
+ * and Save is what actually sends the content.
  *
  * Reached from the system share sheet (Android share intent / iOS share
  * extension) and, since task-264, from the inbox "add" gesture.
@@ -80,7 +79,6 @@ export default function ShareConfirmationScreen() {
   const {
     intake,
     selectedFolder,
-    selectedTags,
     submitUrl,
     submitSharedContent,
     submitUpload,
@@ -179,12 +177,8 @@ export default function ShareConfirmationScreen() {
     retry();
   };
 
-  const handleOpenCollection = () => {
-    router.push("/media/collection?mode=share");
-  };
-
-  const handleOpenTags = () => {
-    router.push("/media/tags?mode=share");
+  const handleOpenFolder = () => {
+    router.push("/media/folder?mode=share");
   };
 
   // Offered when the backend refused the submission for a tier allowance. The
@@ -243,9 +237,7 @@ export default function ShareConfirmationScreen() {
         <ShareContent
           intake={intake}
           selectedFolder={selectedFolder}
-          selectedTags={selectedTags}
-          onOpenCollection={handleOpenCollection}
-          onOpenTags={handleOpenTags}
+          onOpenFolder={handleOpenFolder}
           onRetry={handleRetry}
           onOpenPaywall={handleOpenPaywall}
         />
@@ -260,17 +252,13 @@ export default function ShareConfirmationScreen() {
 function ShareContent({
   intake,
   selectedFolder,
-  selectedTags,
-  onOpenCollection,
-  onOpenTags,
+  onOpenFolder,
   onRetry,
   onOpenPaywall,
 }: {
   intake: ShareIntakeState;
   selectedFolder: ShareSelectedFolder | null;
-  selectedTags: ShareSelectedTag[];
-  onOpenCollection: () => void;
-  onOpenTags: () => void;
+  onOpenFolder: () => void;
   onRetry: () => void;
   onOpenPaywall: () => void;
 }) {
@@ -305,9 +293,7 @@ function ShareContent({
             <FilePreviewCard file={intake.uploadFile} />
             <OrganizationControls
               selectedFolder={selectedFolder}
-              selectedTags={selectedTags}
-              onOpenCollection={onOpenCollection}
-              onOpenTags={onOpenTags}
+              onOpenFolder={onOpenFolder}
             />
           </>
         );
@@ -322,9 +308,7 @@ function ShareContent({
             />
             <OrganizationControls
               selectedFolder={selectedFolder}
-              selectedTags={selectedTags}
-              onOpenCollection={onOpenCollection}
-              onOpenTags={onOpenTags}
+              onOpenFolder={onOpenFolder}
             />
           </>
         );
@@ -335,9 +319,7 @@ function ShareContent({
             <TextPreviewCard text={intake.rawText} />
             <OrganizationControls
               selectedFolder={selectedFolder}
-              selectedTags={selectedTags}
-              onOpenCollection={onOpenCollection}
-              onOpenTags={onOpenTags}
+              onOpenFolder={onOpenFolder}
             />
           </>
         );
@@ -347,9 +329,7 @@ function ShareContent({
           <UrlPreviewCard url={intake.url!} />
           <OrganizationControls
             selectedFolder={selectedFolder}
-            selectedTags={selectedTags}
-            onOpenCollection={onOpenCollection}
-            onOpenTags={onOpenTags}
+            onOpenFolder={onOpenFolder}
           />
         </>
       );
@@ -364,9 +344,7 @@ function ShareContent({
             <FilePreviewCard file={intake.uploadFile} isSubmitting />
             <OrganizationControls
               selectedFolder={selectedFolder}
-              selectedTags={selectedTags}
-              onOpenCollection={onOpenCollection}
-              onOpenTags={onOpenTags}
+              onOpenFolder={onOpenFolder}
               disabled
             />
           </>
@@ -383,9 +361,7 @@ function ShareContent({
             />
             <OrganizationControls
               selectedFolder={selectedFolder}
-              selectedTags={selectedTags}
-              onOpenCollection={onOpenCollection}
-              onOpenTags={onOpenTags}
+              onOpenFolder={onOpenFolder}
               disabled
             />
           </>
@@ -397,9 +373,7 @@ function ShareContent({
             <TextPreviewCard text={intake.rawText} isSubmitting />
             <OrganizationControls
               selectedFolder={selectedFolder}
-              selectedTags={selectedTags}
-              onOpenCollection={onOpenCollection}
-              onOpenTags={onOpenTags}
+              onOpenFolder={onOpenFolder}
               disabled
             />
           </>
@@ -410,9 +384,7 @@ function ShareContent({
           <UrlPreviewCard url={intake.url!} isSubmitting />
           <OrganizationControls
             selectedFolder={selectedFolder}
-            selectedTags={selectedTags}
-            onOpenCollection={onOpenCollection}
-            onOpenTags={onOpenTags}
+            onOpenFolder={onOpenFolder}
             disabled
           />
         </>
@@ -736,22 +708,13 @@ function AudioPreviewCard({
 
 function OrganizationControls({
   selectedFolder,
-  selectedTags,
-  onOpenCollection,
-  onOpenTags,
+  onOpenFolder,
   disabled = false,
 }: {
   selectedFolder: ShareSelectedFolder | null;
-  selectedTags: ShareSelectedTag[];
-  onOpenCollection: () => void;
-  onOpenTags: () => void;
+  onOpenFolder: () => void;
   disabled?: boolean;
 }) {
-  const tagsLabel =
-    selectedTags.length > 0
-      ? selectedTags.map((tag) => tag.name).join(", ")
-      : t("share.tags");
-
   return (
     <View style={styles.organizationSection}>
       <Pressable
@@ -760,9 +723,9 @@ function OrganizationControls({
           pressed && !disabled && styles.organizationRowPressed,
           disabled && styles.organizationRowDisabled,
         ]}
-        onPress={onOpenCollection}
+        onPress={onOpenFolder}
         disabled={disabled}
-        accessibilityLabel={t("share.chooseCollection")}
+        accessibilityLabel={t("share.chooseFolder")}
         accessibilityRole="button"
       >
         <View style={styles.organizationRowLeft}>
@@ -772,35 +735,7 @@ function OrganizationControls({
             color={Colors.textMuted}
           />
           <Text style={styles.organizationRowLabel} numberOfLines={1}>
-            {selectedFolder?.path ?? t("collectionPicker.unsorted")}
-          </Text>
-        </View>
-        <Ionicons
-          name="chevron-forward"
-          size={20}
-          color={Colors.textMuted}
-        />
-      </Pressable>
-
-      <Pressable
-        style={({ pressed }) => [
-          styles.organizationRow,
-          pressed && !disabled && styles.organizationRowPressed,
-          disabled && styles.organizationRowDisabled,
-        ]}
-        onPress={onOpenTags}
-        disabled={disabled}
-        accessibilityLabel={t("share.chooseTags")}
-        accessibilityRole="button"
-      >
-        <View style={styles.organizationRowLeft}>
-          <Ionicons
-            name="pricetag-outline"
-            size={20}
-            color={Colors.textMuted}
-          />
-          <Text style={styles.organizationRowLabel} numberOfLines={1}>
-            {tagsLabel}
+            {selectedFolder?.path ?? t("folderPicker.unsorted")}
           </Text>
         </View>
         <Ionicons
@@ -913,7 +848,6 @@ const styles = StyleSheet.create({
   },
   organizationSection: {
     marginTop: Spacing.lg,
-    gap: Spacing.sm,
   },
   organizationRow: {
     flexDirection: "row",

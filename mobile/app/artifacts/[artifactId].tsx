@@ -192,8 +192,10 @@ export default function ArtifactDetailScreen() {
         engagementReportedRef.current = true;
         // Not awaited: the row this feeds is somewhere else entirely, and
         // `reportEngagement` never rejects.
+        // `ArtifactScope` and `EngagementKind` are the same two words now that
+        // both sides of the wire say `folder`, so the scope is the kind.
         void EngagementService.reportEngagement(
-          response.scope === "folder" ? "collection" : "media",
+          response.scope,
           response.scope_id,
         );
       }

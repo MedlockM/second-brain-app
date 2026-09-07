@@ -98,7 +98,6 @@ _USER_PARTITION_TABLES: Tuple[Tuple[str, Optional[str]], ...] = (
 # through a ``user-index`` GSI. Value is the table's partition key attribute.
 _USER_INDEX_TABLES: Tuple[Tuple[str, str], ...] = (
     ("USER_FOLDERS_TABLE", "id"),
-    ("USER_TAGS_TABLE", "id"),
     ("USER_RSS_FEEDS_TABLE", "id"),
     ("SUBSCRIPTIONS_TABLE", "id"),
     ("BUG_REPORTS_TABLE", "id"),
@@ -259,7 +258,7 @@ async def _purge_artifacts(
 ) -> None:
     from media_summarizer.utils import database_async
 
-    # Collection artifacts hang off the folder, not off any media item, so the
+    # Folder artifacts hang off the folder, not off any media item, so the
     # folders have to be walked explicitly or every one of them survives the
     # erasure (task-270).
     folders = await database_async.get_folders_by_user_id(user_id)

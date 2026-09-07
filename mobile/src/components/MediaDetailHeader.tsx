@@ -29,17 +29,17 @@ import type { AnchorRect } from "./AnchoredContextMenu";
 
 export function MediaDetailHeader({
   onBack,
-  collectionId,
-  onCollectionPress,
+  folderId,
+  onFolderPress,
   onActionsPress,
 }: {
   onBack: () => void;
-  collectionId?: string | null;
-  onCollectionPress?: () => void;
+  folderId?: string | null;
+  onFolderPress?: () => void;
   /** Opens the rename/delete menu, anchored on the `…` that was tapped. */
   onActionsPress?: (anchor: AnchorRect) => void;
 }): React.JSX.Element {
-  const hasCollection = !!collectionId;
+  const hasFolder = !!folderId;
 
   return (
     <View style={styles.header}>
@@ -53,18 +53,18 @@ export function MediaDetailHeader({
         <Ionicons name="arrow-back" size={24} color={Colors.textMain} />
       </Pressable>
       <View style={styles.headerRightGroup}>
-        {onCollectionPress && (
+        {onFolderPress && (
           <Pressable
             style={styles.headerButton}
-            onPress={onCollectionPress}
-            accessibilityLabel={t("media.moveToCollectionA11y")}
+            onPress={onFolderPress}
+            accessibilityLabel={t("media.moveToFolderA11y")}
             accessibilityRole="button"
             hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
           >
             <Ionicons
-              name={hasCollection ? "folder" : "folder-outline"}
+              name={hasFolder ? "folder" : "folder-outline"}
               size={24}
-              color={hasCollection ? Colors.primary : Colors.textMain}
+              color={hasFolder ? Colors.primary : Colors.textMain}
             />
           </Pressable>
         )}

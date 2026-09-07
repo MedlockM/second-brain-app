@@ -2,7 +2,7 @@
 Canonical internal model for AI artifacts.
 
 One record type serves both scopes (task-269/270): a media artifact is a
-collection artifact with a single source. The record is an **append-only history
+folder artifact with a single source. The record is an **append-only history
 entry** — once it reaches ``ready`` it is never modified again. There is no
 staleness flag, no expiry, no automatic regeneration.
 
@@ -10,8 +10,8 @@ An entry is also the permanent answer for its source set: ``artifact_id`` is
 derived from the sources, so asking again for the same type over the same set
 returns this very record instead of generating a second one. A media therefore
 gets one artifact per type and per ``parameters`` — its source set never changes.
-A collection gets a new entry only when its contents changed, which is why the
-gap between an entry's ``sources`` snapshot and the collection's current contents
+A folder gets a new entry only when its contents changed, which is why the
+gap between an entry's ``sources`` snapshot and the folder's current contents
 *is* the history rather than a defect to repair.
 """
 
@@ -61,11 +61,7 @@ class MediaArtifactStatus(str, Enum):
 
 
 class ArtifactScope(str, Enum):
-    """What an artifact was generated over.
-
-    ``FOLDER`` is what the UI calls a collection; the backend vocabulary stays
-    ``folder`` everywhere (task-270).
-    """
+    """What an artifact was generated over: one media item, or a whole folder."""
 
     MEDIA = "media"
     FOLDER = "folder"
@@ -77,7 +73,7 @@ def build_scope_key(*, user_id: str, scope: "ArtifactScope | str", scope_id: str
     ``user_id`` is part of it on purpose: isolation between users becomes
     structural, so a listing query cannot reach another account's scope. That is
     what replaces the old ownership check, which resolved the artifact's media
-    item — impossible for a collection artifact, which has no media.
+    item — impossible for a folder artifact, which has no media.
     """
     scope_value = scope.value if isinstance(scope, ArtifactScope) else str(scope)
     return f"{user_id}#{scope_value}#{scope_id}"
