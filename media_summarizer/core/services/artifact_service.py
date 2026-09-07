@@ -723,6 +723,43 @@ async def list_scope_artifacts(
     return visible, next_cursor
 
 
+async def latest_internal_artifact_status(
+    *,
+    user_id: str,
+    content_scope_id: str,
+) -> Optional[MediaArtifactStatus]:
+    """Status of the newest internal entry of a media scope, or ``None`` if it has none.
+
+    The counterpart of ``list_scope_artifacts`` and the reason its filter can stay
+    exactly as it is: the media detail response needs to know how the internal
+    ``review_blurb`` generation went (task-363), and that question is answered here
+    instead of by widening what the AI tab is served. Nothing about the history
+    listing changes — a row literally labelled "review_blurb" next to the five real
+    ones is still what the filter exists to prevent.
+
+    ``content_scope_id`` is the ``media_key``, not the ``media_item_id``: internal
+    entries are written under the content identity (see
+    ``review_blurb_service.trigger_review_blurb_generation``), so that is the scope
+    key they are indexed by.
+
+    Read without a ``limit`` on purpose: a media scope holds at most one entry per
+    type, so the whole scope is one query, and a page-bounded read could hand back
+    a first page of user artifacts with the internal entry left on the next one.
+    """
+    records, _ = await media_artifacts.list_artifacts_by_scope(
+        scope_key=build_scope_key(
+            user_id=user_id,
+            scope=ArtifactScope.MEDIA,
+            scope_id=content_scope_id,
+        ),
+    )
+    # Newest first, so the first internal entry seen is the current one.
+    for record in records:
+        if record.artifact_type in INTERNAL_ARTIFACT_TYPES:
+            return record.status
+    return None
+
+
 async def get_media_artifact_record(
     artifact_id: str,
 ) -> Optional[MediaArtifactRecord]:

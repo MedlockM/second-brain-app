@@ -666,6 +666,9 @@ export function ShareIntentProvider({
               source_platform: "whatsapp",
               status: "processing",
               transcript: { status: "pending" },
+              // The row was created a moment ago: its preview is generated off
+              // the completion event, so it cannot be anything but pending.
+              review_blurb_status: "pending",
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             },
@@ -711,6 +714,7 @@ export function ShareIntentProvider({
               source_platform: "whatsapp",
               status: "processing",
               transcript: { status: "pending" },
+              review_blurb_status: "pending",
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             },

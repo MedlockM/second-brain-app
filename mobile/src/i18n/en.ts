@@ -358,20 +358,26 @@ export const en = {
   "account.plan.resetDateA11y": "{label} {date}",
   "account.plan.resetDateUnknownA11y": "Reset date unknown",
   "account.plan.minutesRuleTrial": "{rule} Trial minutes do not refill.",
-  // --- Transcript reader ---
-  "transcript.heading": "Transcript",
-  "transcript.empty": "No transcript available yet.",
-  "transcript.emptyHint": "Transcript will appear once processing completes.",
-  "transcript.status.pending": "Transcript processing will start soon.",
+  // --- Reader tab: the preview, then the source text ---
+  // "Transcript" is gone from every line below on purpose (task-363): the reader
+  // is looking at the text of a source, and whether it was typed or spoken is a
+  // pipeline detail. The `transcript.` key prefix stays — only the copy moved.
+  "preview.heading": "Preview",
+  "preview.pending": "The preview is being written…",
+  "preview.failed": "No preview for this source.",
+  "transcript.heading": "Full text",
+  "transcript.empty": "No text available yet.",
+  "transcript.emptyHint": "The text will appear once processing completes.",
+  "transcript.status.pending": "Preparing the text will start soon.",
   "transcript.status.extracting": "Extracting audio content...",
-  "transcript.status.transcribing": "Transcribing audio to text...",
-  "transcript.status.ready": "Transcript is ready.",
-  "transcript.status.failed": "Transcript processing failed.",
+  "transcript.status.transcribing": "Turning the audio into text...",
+  "transcript.status.ready": "The text is ready.",
+  "transcript.status.failed": "Preparing the text failed.",
   "transcript.paragraphCount.one": "{count} paragraph",
   "transcript.paragraphCount.other": "{count} paragraphs",
-  "transcript.loading": "Loading transcript…",
-  "transcript.notAvailable": "Transcript content is not available for this item.",
-  "transcript.retryA11y": "Retry loading transcript",
+  "transcript.loading": "Loading the text…",
+  "transcript.notAvailable": "The full text is not available for this item.",
+  "transcript.retryA11y": "Retry loading the text",
   // --- Sign in / sign up ---
   "auth.email": "Email",
   "auth.password": "Password",
@@ -599,7 +605,7 @@ export const en = {
   "media.processing.video": "Transcribing video...",
   "media.processing.extracting": "Extracting content...",
   "media.processing.generating": "Generating text...",
-  "media.transcriptLoadFailed": "Unable to load the transcript right now.",
+  "media.transcriptLoadFailed": "Unable to load the text right now.",
   "media.movedToNamed": "Moved to \"{name}\"",
   "media.movedToCollection": "Moved to collection",
   "media.removedFromCollection": "Removed from collection",
@@ -784,9 +790,9 @@ export const en = {
   "share.signInLinks": "You must be signed in to save links.",
   "share.signInContent": "You must be signed in to save content.",
   "share.signInFiles": "You must be signed in to import files.",
-  "transcript.translating": "Translating transcript...",
+  "transcript.translating": "Translating the text...",
   "transcript.translationFailed":
-    "Translation failed. Showing original transcript.",
+    "Translation failed. Showing the original text.",
   "paywall.subtitle":
     "Every plan does all of it. Only the monthly transcription time changes.",
 
