@@ -1,61 +1,120 @@
-import React, { useState, useCallback, useRef } from "react";
+/**
+ * Digest — the media of a period, one full media page per swipe.
+ *
+ * Daily or Weekly, oldest first, and each page is `CompletedDetailView` with its
+ * chrome off: the same component the `/media/[id]` route renders, so the Digest
+ * shows the real thing — Reader tab, AI tab, everything — instead of a summary of
+ * a summary. Nothing is redrawn here and there is no digest variant of the media
+ * page; when that page changes, this screen follows without being touched.
+ *
+ * No action on the media either. Unlike the unsorted review, whose pager shape
+ * this one borrows, the Digest presents and does not triage: no Discard, no
+ * Deepen, no Save.
+ *
+ * ## The gestures
+ *
+ * A page scrolls vertically and carries its own tabs, inside a pager that scrolls
+ * horizontally. Four things keep the two apart, and all four are load-bearing:
+ *
+ * 1. **The pager is the only horizontal scrollable in the tree.** Nothing in the
+ *    media page subtree scrolls sideways, so no descendant ever competes for a
+ *    horizontal pan. (`HomeTile`'s row is the Home screen's, not this one's.)
+ * 2. **`directionalLockEnabled` on both scroll views.** A drag commits to one
+ *    axis. Without it a diagonal drag scrolls the page *and* drags the pager, and
+ *    a page ends up parked between two.
+ * 3. **Every page is exactly `SCREEN_WIDTH` wide, mounted or not.** The content
+ *    width of the pager is therefore `ids.length * SCREEN_WIDTH` at all times and
+ *    the page boundaries never move — which is what makes lazy mounting safe. A
+ *    placeholder that measured 0 would shift every boundary past it under the
+ *    finger, the same failure `unsorted-review.tsx :: removeAt` has to undo by
+ *    hand after a removal.
+ * 4. **The intra-page tabs are `Pressable`s, not a swipe.** A tab change is a tap
+ *    — it cannot consume a pan — and it repaints inside one page, leaving the
+ *    pager's content width untouched.
+ *
+ * One accepted consequence on iOS: a touch that lands while a page is still
+ * gliding is claimed by that page's scroll view to stop it, so the swipe in that
+ * same touch does not turn the page. The next swipe does. Fighting it would mean
+ * taking the arbitration away from UIKit for one screen.
+ *
+ * ## What gets mounted
+ *
+ * Only the current page and its two neighbours. Three pages, so three sets of the
+ * artifact/translation/preview polls `CompletedDetailView` runs — the reason the
+ * window is closed behind the user rather than left to grow: a period can hold
+ * dozens of media, and thirty live pages means thirty poll timers and thirty
+ * `MediaStatusResponse` in memory. The price is that a page left three or more
+ * behind refetches when it comes back, which no single swipe can cause.
+ */
+
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
+  ActivityIndicator,
+  Dimensions,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
   Pressable,
   RefreshControl,
-  Dimensions,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
-  Image,
-  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/contexts/AuthContext";
 import { DigestService } from "../../src/services/digestService";
+import { CompletedDetailView } from "../../src/components/CompletedDetailView";
+import { PaginationDots } from "../../src/components/PaginationDots";
+import { useMediaDetailPolling } from "../../src/hooks/useMediaDetailPolling";
+import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
 import {
-  Colors,
-  Typography,
-  Spacing,
   BorderRadius,
-  Shadows,
+  Colors,
+  Spacing,
   TouchTarget,
+  Typography,
 } from "../../src/constants/theme";
-import { t, tCount, useTranslation } from "../../src/i18n";
-import type {
-  DailyDigest,
-  WeeklyDigest,
-  DigestMediaItem,
-} from "../../src/types/digest";
+import { t, useTranslation } from "../../src/i18n";
+import type { Digest } from "../../src/types/digest";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const CARD_HORIZONTAL_MARGIN = Spacing.lg;
-const CARD_WIDTH = SCREEN_WIDTH - CARD_HORIZONTAL_MARGIN * 2;
+
+/**
+ * The band at the bottom of the screen the tab bar owns, kept clear of the pager.
+ * Same value and same reason as `app/(tabs)/inbox.tsx`: on iOS the bar is a
+ * floating glass capsule the content passes under, on Android an opaque bar
+ * `NativeTabs` already insets for.
+ *
+ * Taken off the pager's height rather than added to the page's scroll content:
+ * the page is a shared component that owns its own padding, and the sticky tab
+ * bar inside it has to stay visible, which a taller page under the capsule would
+ * not guarantee.
+ */
+const TAB_BAR_CLEARANCE =
+  Platform.OS === "ios" ? TouchTarget.large + Spacing.lg : Spacing.lg;
+
+/** How many pages either side of the current one stay mounted. */
+const MOUNT_RADIUS = 1;
 
 type DigestTab = "daily" | "weekly";
 
-/**
- * Digest screen with daily/weekly toggle and insight card carousel.
- * Matches the "Your Day in Review" / "Your Week in Review" mockup designs.
- */
-export default function DigestScreen() {
+export default function DigestScreen(): React.JSX.Element {
   // Resolved-on-render copy: the screen has to redraw with the language.
   useTranslation();
   const { isAuthenticated } = useAuth();
-  const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<DigestTab>("daily");
-  const [dailyDigest, setDailyDigest] = useState<DailyDigest | null>(null);
-  const [weeklyDigest, setWeeklyDigest] = useState<WeeklyDigest | null>(null);
+  const [daily, setDaily] = useState<Digest | null>(null);
+  const [weekly, setWeekly] = useState<Digest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeCardIndex, setActiveCardIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  const scrollViewRef = useRef<ScrollView>(null);
+  const pagerRef = useRef<ScrollView>(null);
 
   const fetchDigest = useCallback(
     async (tab: DigestTab) => {
@@ -63,16 +122,15 @@ export default function DigestScreen() {
 
       try {
         if (tab === "daily") {
-          const data = await DigestService.getDailyDigest();
-          setDailyDigest(data);
+          setDaily(await DigestService.getDailyDigest());
         } else {
-          const data = await DigestService.getWeeklyDigest();
-          setWeeklyDigest(data);
+          setWeekly(await DigestService.getWeeklyDigest());
         }
+        setError(null);
       } catch (err: unknown) {
-        const message =
-          err instanceof Error ? err.message : t("digest.loadFailed");
-        setError(message);
+        setError(
+          getFriendlyErrorMessage(err, { fallback: t("digest.loadFailed") }),
+        );
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
@@ -96,100 +154,94 @@ export default function DigestScreen() {
     }, [activeTab, fetchDigest]),
   );
 
-  const handleRefresh = useCallback(() => {
+  const handleRetry = useCallback(() => {
     setIsRefreshing(true);
     setError(null);
     void fetchDigest(activeTab);
   }, [activeTab, fetchDigest]);
 
-  const handleTabChange = useCallback((tab: DigestTab) => {
-    if (tab === activeTab) return;
-    setActiveTab(tab);
-    setIsLoading(true);
-    setError(null);
-    setActiveCardIndex(0);
-    scrollViewRef.current?.scrollTo({ x: 0, animated: false });
-  }, [activeTab]);
+  const handleTabChange = useCallback(
+    (tab: DigestTab) => {
+      if (tab === activeTab) return;
+      setActiveTab(tab);
+      setIsLoading(true);
+      setError(null);
+      setActiveIndex(0);
+      pagerRef.current?.scrollTo({ x: 0, animated: false });
+    },
+    [activeTab],
+  );
+
+  const digest = activeTab === "daily" ? daily : weekly;
+  const ids = digest?.media_item_ids ?? [];
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const offsetX = event.nativeEvent.contentOffset.x;
-      const index = Math.round(offsetX / SCREEN_WIDTH);
-      setActiveCardIndex(index);
+      const index = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+      // Clamped: a bounce past the last page must not point outside the period.
+      setActiveIndex(Math.max(0, Math.min(index, ids.length - 1)));
     },
-    [],
+    [ids.length],
   );
 
-  const handleMediaPress = useCallback(
-    (mediaItemId: string) => {
-      router.push(`/media/${mediaItemId}` as never);
-    },
-    [router],
+  const positionLabel = useMemo(
+    () =>
+      t("digest.position", {
+        current: ids.length === 0 ? 0 : activeIndex + 1,
+        total: ids.length,
+      }),
+    [activeIndex, ids.length],
   );
 
-  // Derive display data from the active tab
-  const items: DigestMediaItem[] =
-    activeTab === "daily"
-      ? dailyDigest?.media_items ?? []
-      : weeklyDigest?.top_items ?? [];
-
-  const headerTitle =
-    activeTab === "daily" ? t("digest.dailyTitle") : t("digest.weeklyTitle");
-
-  const headerSubtitle =
-    activeTab === "daily"
-      ? tCount("digest.dailySubtitle", items.length)
-      : tCount("digest.weeklySubtitle", items.length);
+  const positionA11yLabel = useMemo(
+    () =>
+      t("digest.positionA11y", {
+        current: ids.length === 0 ? 0 : activeIndex + 1,
+        total: ids.length,
+      }),
+    [activeIndex, ids.length],
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      {/* Segmented Control */}
       <View style={styles.segmentedControlContainer}>
         <View style={styles.segmentedControl}>
-          <Pressable
-            style={[
-              styles.segmentButton,
-              activeTab === "daily" && styles.segmentButtonActive,
-            ]}
+          <SegmentButton
+            label={t("digest.daily")}
+            isActive={activeTab === "daily"}
             onPress={() => handleTabChange("daily")}
-          >
-            <Text
-              style={[
-                styles.segmentButtonText,
-                activeTab === "daily" && styles.segmentButtonTextActive,
-              ]}
-            >
-              {t("digest.daily")}
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.segmentButton,
-              activeTab === "weekly" && styles.segmentButtonActive,
-            ]}
+          />
+          <SegmentButton
+            label={t("digest.weekly")}
+            isActive={activeTab === "weekly"}
             onPress={() => handleTabChange("weekly")}
-          >
-            <Text
-              style={[
-                styles.segmentButtonText,
-                activeTab === "weekly" && styles.segmentButtonTextActive,
-              ]}
-            >
-              {t("digest.weekly")}
-            </Text>
-          </Pressable>
+          />
         </View>
       </View>
 
-      {/* Header */}
+      {/* The one header of the screen: the pages below carry none of their own. */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{headerTitle}</Text>
-        <Text style={styles.headerSubtitle}>{headerSubtitle}</Text>
+        <Text style={styles.headerTitle}>
+          {activeTab === "daily"
+            ? t("digest.dailyTitle")
+            : t("digest.weeklyTitle")}
+        </Text>
+        {/* The dots cap at seven and cannot state where in the period the user
+            is. This is where that information lives, for the eye and for a
+            screen reader alike. */}
+        {ids.length > 0 ? (
+          <Text
+            style={styles.headerPosition}
+            accessibilityLabel={positionA11yLabel}
+            numberOfLines={1}
+          >
+            {positionLabel}
+          </Text>
+        ) : null}
       </View>
 
-      {/* Content */}
       {isLoading ? (
-        <View style={styles.centeredContent}>
+        <View style={styles.centered}>
           <ActivityIndicator size="large" color={Colors.primary} />
         </View>
       ) : error ? (
@@ -205,81 +257,97 @@ export default function DigestScreen() {
            the native helper would have set. */
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={styles.centeredContent}
+          contentContainerStyle={styles.centered}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
-              onRefresh={handleRefresh}
+              onRefresh={handleRetry}
               tintColor={Colors.primary}
             />
           }
         >
+          <Ionicons
+            name="cloud-offline-outline"
+            size={48}
+            color={Colors.textMuted}
+          />
           <Text style={styles.errorText}>{error}</Text>
-          <Pressable style={styles.retryButton} onPress={handleRefresh}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.retryButton,
+              pressed && styles.retryButtonPressed,
+            ]}
+            onPress={handleRetry}
+            accessibilityLabel={t("digest.tryAgain")}
+            accessibilityRole="button"
+          >
             <Text style={styles.retryButtonText}>{t("digest.tryAgain")}</Text>
           </Pressable>
         </ScrollView>
-      ) : items.length === 0 ? (
-        /* Same reason as the error state above. */
+      ) : ids.length === 0 ? (
+        /* Nothing was saved in the period, so the backend wrote no digest for it
+           and there is nothing to page through. Sober, and deliberately without
+           a way out: no fallback to an older, fuller period and no switch to the
+           weekly tab — an empty day is a true answer, and answering with another
+           day's media would be a lie about which one the notification named.
+           Same hand-set inset as the error state above. */
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={styles.centeredContent}
+          contentContainerStyle={styles.centered}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
-              onRefresh={handleRefresh}
+              onRefresh={handleRetry}
               tintColor={Colors.primary}
             />
           }
         >
-          <EmptyState tab={activeTab} />
+          <Text style={styles.emptyTitle}>
+            {activeTab === "daily"
+              ? t("digest.emptyDaily")
+              : t("digest.emptyWeekly")}
+          </Text>
+          <Text style={styles.emptyHint}>
+            {activeTab === "daily"
+              ? t("digest.emptyDailyHint")
+              : t("digest.emptyWeeklyHint")}
+          </Text>
         </ScrollView>
       ) : (
-        /* No automatic inset on the carousel: it is the one scrollable on this
-           screen that scrolls horizontally, and an automatic adjustment would
-           inset the paging axis. `collapsable={false}` keeps the wrapper a real
-           view so the pager below it stays where the layout puts it. */
-        <View style={styles.carouselContainer} collapsable={false}>
-          {/* Pagination Dots */}
-          <View style={styles.paginationDots}>
-            {items.map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.dot,
-                  index === activeCardIndex
-                    ? styles.dotActive
-                    : styles.dotInactive,
-                ]}
-              />
-            ))}
-          </View>
+        /* No automatic inset on the pager: it is the one scrollable here that
+           scrolls horizontally, and an automatic adjustment would inset the
+           paging axis. `collapsable={false}` keeps the wrapper a real view so
+           the pager below it stays where the layout puts it.
 
-          {/* Carousel */}
+           No `RefreshControl` either. It only works on a vertical scroll view,
+           and there would be nothing for it to fetch: the list of a period is
+           frozen at capture and cannot change until the next send. */
+        <View style={styles.pagerContainer} collapsable={false}>
+          <PaginationDots
+            count={ids.length}
+            activeIndex={activeIndex}
+            testID="digest-dots"
+          />
+
           <ScrollView
-            ref={scrollViewRef}
+            ref={pagerRef}
+            style={styles.pager}
             horizontal
             pagingEnabled
+            directionalLockEnabled
             showsHorizontalScrollIndicator={false}
             onScroll={handleScroll}
             scrollEventThrottle={16}
             decelerationRate="fast"
-            contentContainerStyle={styles.carouselContent}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                onRefresh={handleRefresh}
-                tintColor={Colors.primary}
-              />
-            }
+            testID="digest-pager"
           >
-            {items.map((item) => (
-              <InsightCard
-                key={item.media_item_id}
-                item={item}
-                onPress={() => handleMediaPress(item.media_item_id)}
-              />
-            ))}
+            {ids.map((id, index) =>
+              Math.abs(index - activeIndex) <= MOUNT_RADIUS ? (
+                <DigestPage key={id} mediaItemId={id} />
+              ) : (
+                <View key={id} style={styles.page} />
+              ),
+            )}
           </ScrollView>
         </View>
       )}
@@ -289,101 +357,111 @@ export default function DigestScreen() {
 
 // --- Sub-components ---
 
-function EmptyState({ tab }: { tab: DigestTab }) {
-  return (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyStateTitle}>
-        {tab === "daily" ? t("digest.emptyDaily") : t("digest.emptyWeekly")}
-      </Text>
-      <Text style={styles.emptyStateHint}>
-        {tab === "daily"
-          ? t("digest.emptyDailyHint")
-          : t("digest.emptyWeeklyHint")}
-      </Text>
-    </View>
-  );
-}
-
-function InsightCard({
-  item,
+function SegmentButton({
+  label,
+  isActive,
   onPress,
 }: {
-  item: DigestMediaItem;
+  label: string;
+  isActive: boolean;
   onPress: () => void;
-}) {
-  const readTime = item.read_time_minutes
-    ? tCount("digest.readTime", item.read_time_minutes)
-    : "";
-
-  // Extract a "key quote" from the summary_excerpt (first sentence as emphasis)
-  const excerptParts = item.summary_excerpt.split(". ");
-  const keyQuote = excerptParts[0] + (excerptParts.length > 1 ? "." : "");
-  const remainingExcerpt =
-    excerptParts.length > 1 ? excerptParts.slice(1).join(". ") : "";
-
+}): React.JSX.Element {
   return (
-    <Pressable style={styles.cardWrapper} onPress={onPress}>
-      <View style={styles.card}>
-        {/* Thumbnail area */}
-        <View style={styles.cardThumbnail}>
-          {item.thumbnail_url ? (
-            <Image
-              source={{ uri: item.thumbnail_url }}
-              style={styles.cardThumbnailImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.cardThumbnailPlaceholder} />
-          )}
-          {/* Gradient overlay */}
-          <View style={styles.cardThumbnailOverlay} />
-          {/* Badges */}
-          <View style={styles.cardBadgeRow}>
-            <View style={styles.mediaTypeBadge}>
-              <Text style={styles.mediaTypeBadgeText} numberOfLines={1}>
-                {formatMediaType(item.media_type)}
-              </Text>
-            </View>
-            {readTime ? (
-              <Text style={styles.readTimeBadge} numberOfLines={1}>
-                {readTime}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-
-        {/* Content area */}
-        <View style={styles.cardContent}>
-          <Text style={styles.cardSource}>
-            {item.title}
-          </Text>
-          <View style={styles.quoteContainer}>
-            <Text style={styles.quoteDecoration}>{"“"}</Text>
-            <Text style={styles.cardQuote}>{keyQuote}</Text>
-          </View>
-          {remainingExcerpt ? (
-            <Text style={styles.cardExcerpt}>{remainingExcerpt}</Text>
-          ) : null}
-        </View>
-      </View>
+    <Pressable
+      style={[styles.segmentButton, isActive && styles.segmentButtonActive]}
+      onPress={onPress}
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ selected: isActive }}
+    >
+      <Text
+        style={[
+          styles.segmentButtonText,
+          isActive && styles.segmentButtonTextActive,
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
 
-// --- Helpers ---
+/**
+ * One page of the pager: a media, fetched by the page itself.
+ *
+ * The fetch is the route's hook, unchanged — a digest page goes through the same
+ * states a media does when opened directly, including still being processed or
+ * having failed, which an item saved minutes before the send can be. Mounting is
+ * what starts it and unmounting is what stops it, so the mount window *is* the
+ * loading policy: there is no second mechanism to keep in step with it.
+ *
+ * The page always occupies a full screen width, whichever state it is in. A
+ * spinner in a narrower box would move every page boundary after it.
+ */
+function DigestPage({
+  mediaItemId,
+}: {
+  mediaItemId: string;
+}): React.JSX.Element {
+  const { state, mediaData, fetchError, processingError, processingMessage } =
+    useMediaDetailPolling(mediaItemId);
 
-function formatMediaType(type: string): string {
-  const map: Record<string, string> = {
-    podcast_episode: t("digest.type.podcast"),
-    article: t("digest.type.article"),
-    // YouTube is a brand, so it is the same word in every catalogue — it still
-    // goes through one so the map has a single shape.
-    youtube_video: t("digest.type.youtube"),
-    short_video: t("digest.type.video"),
-    audio_file: t("digest.type.audio"),
-    shared_text: t("digest.type.text"),
-  };
-  return map[type] || type.charAt(0).toUpperCase() + type.slice(1);
+  if (state === "completed" && mediaData) {
+    return (
+      <View style={styles.page}>
+        <CompletedDetailView
+          mediaData={mediaData}
+          // The header that owns the back arrow is not rendered here, and
+          // neither is the `…` menu whose deletion would call this. Nothing in
+          // a chrome-less page can reach it — and the Digest has nowhere to go
+          // back to: it is a tab, not a pushed route.
+          onBack={() => {}}
+          showChrome={false}
+        />
+      </View>
+    );
+  }
+
+  if (state === "loading") {
+    return (
+      <View style={[styles.page, styles.pageCentered]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (state === "processing") {
+    return (
+      <View style={[styles.page, styles.pageCentered]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.pageStateTitle}>{processingMessage}</Text>
+      </View>
+    );
+  }
+
+  // Failed, timed out, or unreachable. One quiet page, no retry button: the swipe
+  // out of it is the way on, and the item is still one tap away in the library.
+  return (
+    <View style={[styles.page, styles.pageCentered]}>
+      <Ionicons
+        name={state === "timeout" ? "time-outline" : "alert-circle-outline"}
+        size={40}
+        color={Colors.textMuted}
+      />
+      <Text style={styles.pageStateTitle}>
+        {state === "timeout"
+          ? t("media.timeoutTitle")
+          : state === "failed"
+            ? t("media.failedTitle")
+            : t("media.loadFailed")}
+      </Text>
+      <Text style={styles.pageStateBody}>
+        {state === "timeout"
+          ? t("media.timeoutHint")
+          : (processingError ?? fetchError ?? t("media.failedFallback"))}
+      </Text>
+    </View>
+  );
 }
 
 // --- Styles ---
@@ -394,7 +472,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
 
-  // Segmented Control
+  // Segmented control
   segmentedControlContainer: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
@@ -404,15 +482,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     backgroundColor: Colors.surfaceContainerLow,
     borderRadius: BorderRadius.full,
-    padding: 3,
+    padding: Spacing.xs,
   },
   segmentButton: {
     flex: 1,
-    paddingVertical: Spacing.sm + 2,
     alignItems: "center",
-    borderRadius: BorderRadius.full,
-    minHeight: 40,
     justifyContent: "center",
+    borderRadius: BorderRadius.full,
+    minHeight: TouchTarget.minimum,
   },
   segmentButtonActive: {
     backgroundColor: Colors.primary,
@@ -430,201 +507,91 @@ const styles = StyleSheet.create({
   // Header
   header: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
+    paddingTop: Spacing.sm,
     paddingBottom: Spacing.sm,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: "700",
+    ...Typography.display,
     color: Colors.textMain,
-    letterSpacing: -0.5,
   },
-  headerSubtitle: {
+  headerPosition: {
     fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
+    color: Colors.textSubtle,
     marginTop: Spacing.xs,
   },
 
-  // Loading / Error / Empty
-  centeredContent: {
+  // Loading / error / empty
+  centered: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: Spacing.xl,
+    gap: Spacing.md,
   },
   errorText: {
     fontSize: Typography.body.fontSize,
-    color: Colors.error,
+    color: Colors.textMain,
     textAlign: "center",
-    marginBottom: Spacing.md,
   },
   retryButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm + 2,
-    borderRadius: BorderRadius.full,
     minHeight: TouchTarget.minimum,
     justifyContent: "center",
-    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primary,
+  },
+  retryButtonPressed: {
+    opacity: 0.9,
   },
   retryButtonText: {
     fontSize: Typography.label.fontSize,
     fontWeight: "600",
     color: Colors.onPrimary,
   },
-
-  // Empty state
-  emptyState: {
-    alignItems: "center",
-    paddingHorizontal: Spacing.xl,
-  },
-  emptyStateTitle: {
+  emptyTitle: {
     fontSize: Typography.headline.fontSize,
     fontWeight: Typography.headline.fontWeight,
     color: Colors.textMain,
     textAlign: "center",
-    marginBottom: Spacing.sm,
   },
-  emptyStateHint: {
+  emptyHint: {
     fontSize: Typography.body.fontSize,
     color: Colors.textMuted,
     textAlign: "center",
     lineHeight: Typography.body.lineHeight,
   },
 
-  // Carousel
-  carouselContainer: {
+  // Pager
+  pagerContainer: {
+    flex: 1,
+    // The band the tab bar owns. See TAB_BAR_CLEARANCE.
+    paddingBottom: TAB_BAR_CLEARANCE,
+  },
+  pager: {
     flex: 1,
   },
-  carouselContent: {
-    paddingHorizontal: 0,
-  },
-  paginationDots: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: Spacing.md,
-    gap: Spacing.sm,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  dotActive: {
-    backgroundColor: Colors.textMain,
-  },
-  dotInactive: {
-    backgroundColor: Colors.outlineVariant,
-  },
-
-  // Card
-  cardWrapper: {
+  // Exactly one screen width, in every state of a page. See the gesture note at
+  // the top of the file: the page boundaries are `index * SCREEN_WIDTH` and
+  // nothing about mounting is allowed to move them.
+  page: {
     width: SCREEN_WIDTH,
-    paddingHorizontal: CARD_HORIZONTAL_MARGIN,
-    flex: 1,
   },
-  card: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(0,0,0,0.05)",
-    ...Shadows.soft,
-  },
-
-  // Card thumbnail
-  cardThumbnail: {
-    height: 192,
-    width: "100%",
-    position: "relative",
-    backgroundColor: Colors.surfaceContainerHigh,
-  },
-  cardThumbnailImage: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  cardThumbnailPlaceholder: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: Colors.surfaceContainerHigh,
-  },
-  cardThumbnailOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    // Gradient approximation: darker at bottom
-    backgroundColor: "rgba(0,0,0,0.3)",
-  },
-  cardBadgeRow: {
-    position: "absolute",
-    bottom: Spacing.md,
-    left: Spacing.md,
-    right: Spacing.md,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  mediaTypeBadge: {
-    // Both badges sit on the thumbnail with nothing between them: without a
-    // shrink they meet in the middle and overlap in the longer languages.
-    flexShrink: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
-  },
-  mediaTypeBadgeText: {
-    color: "#ffffff",
-    fontSize: 11,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  readTimeBadge: {
-    flexShrink: 0,
-    marginStart: Spacing.sm,
-    color: "rgba(255,255,255,0.9)",
-    fontSize: Typography.small.fontSize,
-    fontWeight: "500",
-  },
-
-  // Card content
-  cardContent: {
-    flex: 1,
-    padding: Spacing.lg,
+  pageCentered: {
+    alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.md,
   },
-  cardSource: {
-    fontSize: Typography.small.fontSize,
-    fontWeight: "600",
-    color: Colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: Spacing.sm + 4,
-  },
-  quoteContainer: {
-    position: "relative",
-    marginBottom: Spacing.lg,
-  },
-  quoteDecoration: {
-    position: "absolute",
-    top: -16,
-    left: -8,
-    fontSize: 56,
-    color: "rgba(255,203,5,0.2)",
-    fontFamily: "serif",
-    lineHeight: 56,
-  },
-  cardQuote: {
-    fontSize: 22,
-    fontWeight: "700",
+  pageStateTitle: {
+    fontSize: Typography.headline.fontSize,
+    fontWeight: Typography.headline.fontWeight,
     color: Colors.textMain,
-    lineHeight: 30,
+    textAlign: "center",
   },
-  cardExcerpt: {
+  pageStateBody: {
     fontSize: Typography.body.fontSize,
-    fontWeight: Typography.body.fontWeight,
     color: Colors.textMuted,
+    textAlign: "center",
     lineHeight: Typography.body.lineHeight,
   },
 });
