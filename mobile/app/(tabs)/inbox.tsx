@@ -358,16 +358,42 @@ interface UnsortedReviewButtonProps {
 }
 
 /**
- * The entry into the triage of the default collection, with the size of the
- * backlog on its right.
+ * The entry into the triage of the default collection — variant **F, "Layering
+ * Principle — Deck tactile"** of `mobile-design-mockups/home_unsorted_review_card/`
+ * (the second round, in `code2.html`), retained by the owner on 2026-09-07 with
+ * no requested deviation.
  *
- * Nothing waiting, nothing to show: at zero the button is absent from the screen
+ * Nothing waiting, nothing to show: at zero the card is absent from the screen
  * altogether rather than sitting there inert with a `0` on it. A card offering
  * to sort an empty queue is one more thing to read on a landing screen that is
  * deliberately short.
  *
- * Same silhouette, card, badge and chevron as the Daily Digest card it replaces —
- * the style block was renamed, not redrawn, so the top of the Home did not move.
+ * **The shape says the destination.** Two tonal plates peek out of the card's
+ * bottom-end corner, so what waits reads as a deck to go through — DESIGN.md's
+ * Layering Principle applied literally ("use the `surface-container` tiers to
+ * stack information"), with the theme's own surfaces rather than a tint of the
+ * card's own. Nothing here survives from the Daily Digest card that used to hold
+ * this slot: the hairline border is gone (the No-Line rule calls a full-width
+ * frame a "broad layout division"), `Shadows.soft` is gone (it was on three of
+ * this screen's four interactive surfaces, so it distinguished nothing), and so
+ * is `file-tray-outline` — which is the glyph of the very tab this card sits in,
+ * and a piece of 20th-century office furniture the product does not handle.
+ *
+ * The count is a sticker on the icon plate instead of a chip in a trailing
+ * cluster, and the chevron sits on a `textMain` disc instead of floating in pale
+ * amber: the two corrections the second round of the mockup was made for.
+ *
+ * Two things the plates deliberately do *not* have, because the mockup flags
+ * this variant as the most decorative of its round and the plates sit right
+ * above the real media tiles: no shadow and no amber. They are tonal shifts of
+ * the background, which keeps the deck an announcement over the list rather than
+ * a fourth tile inside it.
+ *
+ * The three plates are declared back-to-front, because React Native paints
+ * siblings in tree order. The two rear ones are absolute against the pressable's
+ * own box and the front surface gives up the margin they show through, so no
+ * plate ever escapes the card — and `start`/`end` mirror the whole deck in RTL
+ * for free.
  */
 function UnsortedReviewButton({ count, onPress }: UnsortedReviewButtonProps) {
   if (count <= 0) return null;
@@ -376,8 +402,8 @@ function UnsortedReviewButton({ count, onPress }: UnsortedReviewButtonProps) {
     <Pressable
       testID="home-unsorted-review-button"
       style={({ pressed }) => [
-        styles.reviewButton,
-        pressed && styles.reviewButtonPressed,
+        styles.reviewDeck,
+        pressed && styles.reviewDeckPressed,
       ]}
       onPress={onPress}
       accessibilityLabel={t("home.unsortedReviewA11y", {
@@ -385,17 +411,21 @@ function UnsortedReviewButton({ count, onPress }: UnsortedReviewButtonProps) {
       })}
       accessibilityRole="button"
     >
-      <View style={styles.reviewIconContainer}>
-        <Ionicons name="file-tray-outline" size={22} color={Colors.primary} />
-      </View>
-      <Text style={styles.reviewButtonLabel} numberOfLines={2}>
-        {t("home.unsortedReview")}
-      </Text>
-      <View style={styles.reviewButtonRight}>
-        <View style={styles.reviewCountBadge}>
-          <Text style={styles.reviewCountText}>{count}</Text>
+      <View style={styles.reviewDeckPlateBack} />
+      <View style={styles.reviewDeckPlateMid} />
+      <View style={styles.reviewDeckSurface}>
+        <View style={styles.reviewDeckIconPlate}>
+          <Ionicons name="albums-outline" size={22} color={Colors.textMain} />
+          <View style={styles.reviewDeckCount}>
+            <Text style={styles.reviewDeckCountText}>{count}</Text>
+          </View>
         </View>
-        <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
+        <Text style={styles.reviewDeckLabel} numberOfLines={2}>
+          {t("home.unsortedReview")}
+        </Text>
+        <View style={styles.reviewDeckArrow}>
+          <Ionicons name="chevron-forward" size={20} color={Colors.surface} />
+        </View>
       </View>
     </Pressable>
   );
@@ -585,58 +615,93 @@ const styles = StyleSheet.create({
     color: Colors.onPrimary,
   },
 
-  // Unsorted review button (the Daily Digest card's block, renamed)
-  reviewButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.surface,
+  // Unsorted review card — variant F, "Deck tactile" (task-362)
+  reviewDeck: {
     marginHorizontal: Spacing.md,
     // Its share of the column's rhythm, above only — see `HOME_BLOCK_GAP`.
     marginTop: HOME_BLOCK_GAP,
-    padding: Spacing.md + 4,
-    borderRadius: BorderRadius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.outlineVariant,
-    minHeight: TouchTarget.comfortable,
-    ...Shadows.soft,
   },
-  reviewButtonPressed: {
+  reviewDeckPressed: {
     transform: [{ scale: 0.98 }],
     opacity: 0.9,
   },
-  reviewIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: "rgba(255, 203, 5, 0.1)",
-    alignItems: "center",
-    justifyContent: "center",
+  // The deepest plate: the furthest down and out, and the darkest of the three
+  // tiers, so the stack reads as receding rather than as three stacked cards.
+  reviewDeckPlateBack: {
+    position: "absolute",
+    top: Spacing.sm,
+    start: Spacing.sm,
+    end: 0,
+    bottom: 0,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: Colors.surfaceContainerHigh,
   },
-  reviewButtonLabel: {
-    flex: 1,
-    fontSize: Typography.body.fontSize,
-    fontWeight: "700",
-    color: Colors.textMain,
-    marginStart: Spacing.md,
+  reviewDeckPlateMid: {
+    position: "absolute",
+    top: Spacing.xs,
+    start: Spacing.xs,
+    end: Spacing.xs / 2,
+    bottom: Spacing.xs,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: Colors.surfaceContainer,
   },
-  reviewButtonRight: {
+  reviewDeckSurface: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
+    gap: Spacing.md,
+    minHeight: TouchTarget.comfortable + Spacing.xl,
+    padding: Spacing.md,
+    // The room the two rear plates show through, given up by the front surface
+    // rather than taken as padding on the pressable: the plates are positioned
+    // against the pressable's own box, and a padded box would move them.
+    marginEnd: Spacing.xs,
+    marginBottom: Spacing.sm,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: Colors.surface,
   },
-  reviewCountBadge: {
-    minWidth: 24,
-    paddingHorizontal: Spacing.xs + 2,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surfaceContainerHigh,
+  reviewDeckIconPlate: {
+    width: TouchTarget.minimum,
+    height: TouchTarget.minimum,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.primaryTint,
     alignItems: "center",
     justifyContent: "center",
   },
-  reviewCountText: {
+  reviewDeckCount: {
+    position: "absolute",
+    // Hangs off the plate's bottom-end corner and into the surface's own
+    // padding — 8 of the 16 there is, so the sticker never reaches the card's
+    // edge and the leading column stays 48 wide for the label's sake.
+    end: -Spacing.sm,
+    bottom: -Spacing.sm,
+    minWidth: Spacing.lg,
+    minHeight: Spacing.lg,
+    // Grows inwards from that corner: the count is `media_count` of the default
+    // collection, with no clamp on the client, so four digits have to fit.
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewDeckCountText: {
     fontSize: Typography.small.fontSize,
     fontWeight: "700",
+    color: Colors.onPrimary,
+  },
+  reviewDeckLabel: {
+    flex: 1,
+    fontSize: Typography.body.fontSize,
+    fontWeight: "600",
     color: Colors.textMain,
+  },
+  reviewDeckArrow: {
+    width: TouchTarget.minimum,
+    height: TouchTarget.minimum,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.textMain,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   // Rows
