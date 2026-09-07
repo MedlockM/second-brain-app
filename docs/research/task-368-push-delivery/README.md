@@ -1,12 +1,12 @@
 ---
-owner_decision: pending   # pending | ok | abandoned | redo | more
+owner_decision: ok   # pending | ok | abandoned | redo | more
 ---
 
 # Benchmark : chemin de livraison des notifications push mobiles du Digest
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture — texte libre décrivant la décision finale : accept recommandation X, reject parce que Y, accept with modifications Z, OU, si redo, les consignes précises de correction à intégrer au prochain passage)_
+**Decision**: la recommandation
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---
