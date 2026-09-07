@@ -52,6 +52,7 @@ export const ja: Catalog = {
   "mediaActions.move.label": "移動",
   "mediaActions.rename.label": "名前を変更",
   "mediaActions.delete.label": "削除",
+  "mediaActions.moreA11y": "このソースの操作",
   "mediaActions.rename.title": "このソースの名前を変更",
   "mediaActions.rename.placeholder": "ソース名",
   "mediaActions.renameFailed":
@@ -65,6 +66,7 @@ export const ja: Catalog = {
     "ダブルタップして長押しすると、このコレクションの名前変更や削除ができます",
   "collectionActions.rename.label": "名前を変更",
   "collectionActions.delete.label": "削除",
+  "collectionActions.moreA11y": "このコレクションの操作",
   "collectionActions.rename.title": "このコレクションの名前を変更",
   "collectionActions.rename.placeholder": "コレクション名",
   "collectionActions.renameFailed":
@@ -443,7 +445,6 @@ export const ja: Catalog = {
   "media.removedFromCollection": "コレクションから削除しました",
   "media.openFailed": "{host} を開けませんでした",
   "media.moveToCollectionA11y": "コレクションに移動",
-  "media.shareA11y": "共有",
   "collection.tab.sources": "ソース",
   "collection.tab.ai": "AI",
   "collection.sectionsA11y": "コレクションのセクション",

@@ -31,6 +31,7 @@ import {
 import { RenameDialog } from "../../../src/components/RenameDialog";
 import { ScreenTabs, type ScreenTab } from "../../../src/components/ScreenTabs";
 import { useMediaActions } from "../../../src/hooks/useMediaActions";
+import { useCollectionActions } from "../../../src/hooks/useCollectionActions";
 import { describeArtifactRefusal } from "../../../src/lib/artifactRefusal";
 import { mergeArtifactIntoHistory } from "../../../src/lib/artifactHistory";
 import { sameSourceSet } from "../../../src/lib/artifactSources";
@@ -49,7 +50,12 @@ import {
   TouchTarget,
 } from "../../../src/constants/theme";
 import { t, useTranslation } from "../../../src/i18n";
-import { ScreenHeader, HeaderIconButton } from "../../../src/components/ScreenHeader";
+import {
+  ScreenHeader,
+  HeaderIconButton,
+  HeaderMenuButton,
+  HeaderMenuGlyph,
+} from "../../../src/components/ScreenHeader";
 import type { ArtifactType, MediaListItem, MediaType } from "../../../src/types/media";
 
 /**
@@ -68,6 +74,11 @@ import type { ArtifactType, MediaListItem, MediaType } from "../../../src/types/
  * several entries of the same type coexist, each keeping the sources it was
  * generated over even after the collection has changed. Nothing here expires,
  * and nothing is regenerated automatically.
+ *
+ * The header carries the collection itself: a `…` beside the title renames or
+ * deletes the one being looked at, so filing does not require going back to the
+ * grid to long-press its tile. It is absent on the default collection, whose two
+ * rows the backend would both refuse.
  *
  * A new entry only exists when the sources differ (task-322): an artifact is
  * keyed on the set of sources behind it, so asking again over an unchanged
@@ -131,6 +142,10 @@ export default function CollectionDetailScreen() {
   // below shows only the direct children, so the two cannot share one state.
   const [scopeMediaIds, setScopeMediaIds] = useState<readonly string[]>([]);
   const [title, setTitle] = useState<string>(params.name ?? "Collection");
+  // The collection itself, as the tree knows it. Held because the header menu
+  // needs more than a name: the sub-collections a deletion would take with it,
+  // and the `is_default` flag that decides whether the menu exists at all.
+  const [collection, setCollection] = useState<CollectionNode | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -146,6 +161,7 @@ export default function CollectionDetailScreen() {
       // Direct children = collections whose parent is this collection.
       const { nodeById } = buildCollectionTree(collections);
       const current = nodeById.get(collectionId);
+      setCollection(current ?? null);
       if (current) {
         setTitle(current.name);
         setChildFolders(
@@ -249,6 +265,39 @@ export default function CollectionDetailScreen() {
     [],
   );
 
+  // Patched in place rather than refetched: the rename already returned the
+  // stored name, and it has to reach the header before the user leaves.
+  const handleCollectionRenamed = useCallback(
+    (_collectionId: string, name: string) => {
+      setTitle(name);
+      setCollection((current) => (current ? { ...current, name } : current));
+    },
+    [],
+  );
+
+  // The header `…`: rename or delete the collection being looked at, without
+  // going back to the grid to long-press its tile.
+  const collectionActions = useCollectionActions({
+    // Nothing left to show: this screen is about a collection that no longer
+    // exists. What became of its sources and sub-collections is the business of
+    // the surface behind, which refetches on focus.
+    onDeleted: handleBack,
+    onRenamed: handleCollectionRenamed,
+  });
+
+  // The copy of the pressed control the menu lifts above its blur. A header
+  // button has no row to redraw, so it redraws itself: the `…` stays sharp and
+  // the card visibly hangs from it.
+  const renderActionsPreview = useCallback(() => <HeaderMenuGlyph />, []);
+
+  // The default collection is left out, exactly as its tile is in Library: the
+  // backend refuses to rename or delete it (`folder_service.update_folder` /
+  // `delete_folder` both raise on `is_default`), and a menu whose two rows would
+  // both fail is worse than no menu. Same answer before the first load answers,
+  // when nothing is known about the collection yet.
+  const managedCollection =
+    collection && collection.is_default !== true ? collection : null;
+
   const rows = useMemo<Row[]>(() => {
     return [
       ...childFolders.map((node): Row => ({ kind: "folder", node })),
@@ -266,6 +315,17 @@ export default function CollectionDetailScreen() {
             onPress={handleBack}
             accessibilityLabel={t("common.goBack")}
           />
+        }
+        trailing={
+          managedCollection ? (
+            <HeaderMenuButton
+              onPress={(anchor) =>
+                collectionActions.open(managedCollection, anchor)
+              }
+              accessibilityLabel={t("collectionActions.moreA11y")}
+              testID="collection-header-actions"
+            />
+          ) : undefined
         }
       />
 
@@ -343,6 +403,14 @@ export default function CollectionDetailScreen() {
         renderPreview={renderSourcePreview}
       />
       <RenameDialog {...mediaActions.renameProps} />
+
+      {/* The collection's own menu, opened from the header rather than from a
+          row. Two menus, never both up: each is driven by its own visibility. */}
+      <AnchoredContextMenu
+        {...collectionActions.menuProps}
+        renderPreview={renderActionsPreview}
+      />
+      <RenameDialog {...collectionActions.renameProps} />
     </SafeAreaView>
   );
 }

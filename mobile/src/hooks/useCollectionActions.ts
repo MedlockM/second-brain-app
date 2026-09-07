@@ -1,6 +1,7 @@
 /**
- * The behaviour behind the long-press menu of a collection tile in Library: what
- * "Rename" writes, and what "Delete" actually takes with it.
+ * The behaviour behind the actions menu of a collection — the long press on its
+ * tile in Library, and the `…` in the header of its own page: what "Rename"
+ * writes, and what "Delete" actually takes with it.
  *
  * The sibling of `useMediaActions`, deliberately shaped the same way and feeding
  * the same two surfaces — `AnchoredContextMenu` for the menu,`RenameDialog` for
@@ -11,8 +12,8 @@
  *
  * The default collection never reaches this hook. The backend refuses to rename
  * or delete it (`folder_service.update_folder` / `delete_folder` both raise on
- * `is_default`), so the tile does not carry a long press at all — a menu whose
- * two rows would both fail is worse than no menu.
+ * `is_default`), so neither its tile nor its page carries the menu at all — a
+ * menu whose two rows would both fail is worse than no menu.
  */
 
 import { useCallback, useState } from "react";

@@ -52,6 +52,7 @@ export const pt: Catalog = {
   "mediaActions.move.label": "Mover",
   "mediaActions.rename.label": "Renomear",
   "mediaActions.delete.label": "Eliminar",
+  "mediaActions.moreA11y": "Ações para esta fonte",
   "mediaActions.rename.title": "Renomear esta fonte",
   "mediaActions.rename.placeholder": "Nome da fonte",
   "mediaActions.renameFailed":
@@ -65,6 +66,7 @@ export const pt: Catalog = {
     "Toque duas vezes e mantenha para renomear ou eliminar esta coleção",
   "collectionActions.rename.label": "Renomear",
   "collectionActions.delete.label": "Eliminar",
+  "collectionActions.moreA11y": "Ações para esta coleção",
   "collectionActions.rename.title": "Renomear esta coleção",
   "collectionActions.rename.placeholder": "Nome da coleção",
   "collectionActions.renameFailed":
@@ -445,7 +447,6 @@ export const pt: Catalog = {
   "media.removedFromCollection": "Removido da coleção",
   "media.openFailed": "Não foi possível abrir {host}",
   "media.moveToCollectionA11y": "Mover para uma coleção",
-  "media.shareA11y": "Partilhar",
   "collection.tab.sources": "Fontes",
   "collection.tab.ai": "IA",
   "collection.sectionsA11y": "Secções da coleção",

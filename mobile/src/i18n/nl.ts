@@ -52,6 +52,7 @@ export const nl: Catalog = {
   "mediaActions.move.label": "Verplaatsen",
   "mediaActions.rename.label": "Hernoemen",
   "mediaActions.delete.label": "Verwijderen",
+  "mediaActions.moreA11y": "Acties voor deze bron",
   "mediaActions.rename.title": "Deze bron hernoemen",
   "mediaActions.rename.placeholder": "Naam van de bron",
   "mediaActions.renameFailed":
@@ -65,6 +66,7 @@ export const nl: Catalog = {
     "Dubbeltik en houd vast om deze collectie te hernoemen of te verwijderen",
   "collectionActions.rename.label": "Hernoemen",
   "collectionActions.delete.label": "Verwijderen",
+  "collectionActions.moreA11y": "Acties voor deze collectie",
   "collectionActions.rename.title": "Deze collectie hernoemen",
   "collectionActions.rename.placeholder": "Naam van de collectie",
   "collectionActions.renameFailed":
@@ -445,7 +447,6 @@ export const nl: Catalog = {
   "media.removedFromCollection": "Uit de collectie gehaald",
   "media.openFailed": "Kon {host} niet openen",
   "media.moveToCollectionA11y": "Verplaatsen naar een collectie",
-  "media.shareA11y": "Delen",
   "collection.tab.sources": "Bronnen",
   "collection.tab.ai": "AI",
   "collection.sectionsA11y": "Onderdelen van de collectie",
