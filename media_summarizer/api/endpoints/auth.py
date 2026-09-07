@@ -55,6 +55,7 @@ from media_summarizer.utils.auth_utils import (
 )
 from media_summarizer.utils.database_async import DynamoDBConnection, get_db
 from media_summarizer.utils.logging_config import log_event
+from media_summarizer.utils.timezones import normalize_iana_timezone
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ async def register(
         refresh_token=refresh.token,
         token_type="bearer",
         expires_in=access_seconds,
-        user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
+        user=AuthUser.from_user(user).model_dump(),
     )
 
 
@@ -137,7 +138,7 @@ async def login(request: LoginRequest, db: DynamoDBConnection = Depends(get_db))
         refresh_token=refresh.token,
         token_type="bearer",
         expires_in=access_seconds,
-        user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
+        user=AuthUser.from_user(user).model_dump(),
     )
 
 
@@ -222,7 +223,7 @@ async def refresh_token(
         refresh_token=refresh_token_value,
         token_type="bearer",
         expires_in=expires_in,
-        user={"id": user.id, "email": user.email, "reading_language": user.reading_language},
+        user=AuthUser.from_user(user).model_dump(),
     )
 
 
@@ -289,6 +290,14 @@ class UpdateMeRequest(BaseModel):
     reading_language: Optional[str] = Field(
         default=None, description="Preferred reading language (ISO 639-1 code)"
     )
+    iana_timezone: Optional[str] = Field(
+        default=None,
+        description=(
+            "IANA zone name of the device, e.g. 'Europe/Paris'. Never a UTC offset: "
+            "a stored '+02:00' is wrong six months a year. Sent by the app on every "
+            "return to the foreground, and only when it differs from what is stored."
+        ),
+    )
 
 
 @router.patch("/me", response_model=AuthUser)
@@ -297,7 +306,7 @@ async def update_current_user(
     current_user: AuthUser = Depends(get_current_user),
     db: DynamoDBConnection = Depends(get_db),
 ):
-    """Update the current user's preferences (e.g., reading_language)."""
+    """Update the current user's preferences (reading language, device time zone)."""
     if not current_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
@@ -320,8 +329,28 @@ async def update_current_user(
             )
         update_data["reading_language"] = lang
 
-    if update_data:
-        user.update(**update_data)
+    if request.iana_timezone is not None:
+        zone = normalize_iana_timezone(request.iana_timezone)
+        if zone is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Unsupported time zone: {request.iana_timezone}. "
+                    "Expected an IANA zone name such as 'Europe/Paris', not a UTC offset."
+                ),
+            )
+        update_data["iana_timezone"] = zone
+
+    # Only write when a value actually moves. The app re-reads the device zone on
+    # every return to the foreground, so without this a user who never travels
+    # would pay a DynamoDB write per app opening for a value that never changes.
+    changed = {
+        field: value
+        for field, value in update_data.items()
+        if getattr(user, field) != value
+    }
+    if changed:
+        user.update(**changed)
         user = await database_async.update_user(user)
 
-    return AuthUser(id=user.id, email=user.email, reading_language=user.reading_language)
+    return AuthUser.from_user(user)

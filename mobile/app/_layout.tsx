@@ -126,7 +126,9 @@ export default function RootLayout() {
  *    it. Outermost of our own providers because every one of them can end up
  *    producing user-facing copy.
  * 3. AuthProvider - manages authentication state.
- * 4. UserPreferencesProvider - manages reading language preference.
+ * 4. UserPreferencesProvider - manages the account preferences the backend
+ *    stores: the reading language, and the device time zone it reports on every
+ *    foreground pass so the Digest can fire at 18:30 local time.
  * 5. PurchasesProvider - manages IAP state.
  * 6. ShareIntentProvider (our custom) - consumes the package's context, maps
  *    to our ShareIntakeState, handles auth gating and navigation.

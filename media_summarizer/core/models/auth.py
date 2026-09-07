@@ -12,9 +12,12 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from pydantic import BaseModel, Field, field_validator
+
+if TYPE_CHECKING:  # Annotation only: keeps this module free of a runtime import.
+    from .user import User
 
 # Margin between a token's own expiry and the epoch it is handed to DynamoDB TTL.
 # The invariant is one-directional: the TTL timestamp must sit strictly *after*
@@ -309,3 +312,27 @@ class AuthUser(BaseModel):
     reading_language: Optional[str] = Field(
         default=None, description="Preferred reading language (ISO 639-1)"
     )
+    iana_timezone: Optional[str] = Field(
+        default=None,
+        description=(
+            "IANA zone name of the user's device (e.g. 'Europe/Paris'), never a UTC offset. "
+            "Absent until the app has reported one."
+        ),
+    )
+
+    @classmethod
+    def from_user(cls, user: "User") -> "AuthUser":
+        """Project a stored user onto the profile a session response carries.
+
+        One place, so the five endpoints that hand a profile back — register,
+        login, refresh and the two native social logins — cannot drift apart
+        when a field joins the profile. They had already been copy-pasted five
+        times over ``reading_language``, which is one forgotten call site per
+        new field.
+        """
+        return cls(
+            id=user.id,
+            email=user.email,
+            reading_language=user.reading_language,
+            iana_timezone=user.iana_timezone,
+        )

@@ -95,9 +95,7 @@ async def get_current_user(
         logger.debug(f"Successfully authenticated user: {user.id}")
 
         # Return AuthUser object
-        return AuthUser(
-            id=user.id, email=user.email, reading_language=user.reading_language
-        )
+        return AuthUser.from_user(user)
 
     except HTTPException:
         # Re-raise HTTP exceptions as-is
