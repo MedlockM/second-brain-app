@@ -688,6 +688,19 @@ export const de: Catalog = {
   "share.success.file": "Datei importiert. Die Verarbeitung beginnt in Kürze.",
   "share.success.url":
     "Link zu deinem Posteingang hinzugefügt. Die Verarbeitung beginnt in Kürze.",
+  // Auto-started ingestion: what the two header buttons do (task-378)
+  "share.autoStart.hint": "Die Verarbeitung läuft bereits.",
+  "share.autoStart.keep":
+    "Wähle bei Bedarf einen Ordner und tippe dann auf Speichern, um es zu behalten. Beim Schließen wird es gelöscht.",
+  "share.autoStart.done": "Verarbeitung gestartet",
+  "share.cancel.action": "Diese Speicherung löschen",
+  "share.cancel.inProgress": "Diese Speicherung wird gelöscht …",
+  "share.cancel.failedTitle": "Löschen nicht möglich",
+  "share.cancel.failed":
+    "Diese Speicherung konnte nicht gelöscht werden. Prüfe deine Verbindung und versuche es erneut.",
+  "share.cancel.keepHint": "Oder tippe auf Speichern, um es doch zu behalten.",
+  "share.folderFailed":
+    "Der Ordner konnte nicht übernommen werden. Tippe auf Speichern, um es erneut zu versuchen.",
   "import.filesUnavailable": "Deine Dateien konnten nicht geöffnet werden",
   "import.filesUnavailableBody":
     "Der Dateibrowser konnte nicht geöffnet werden. Bitte versuche es erneut.",

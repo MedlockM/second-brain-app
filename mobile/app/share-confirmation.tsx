@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Pressable,
   ActivityIndicator,
+  Alert,
   AppState,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -14,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../src/contexts/AuthContext";
 import {
   useShareIntake,
+  type ShareCancellation,
   type ShareContentType,
   type ShareSelectedFolder,
   type ShareIntakeState,
@@ -48,11 +50,18 @@ const TOP_BAR_TITLE_KEYS: Record<ShareContentType, TranslationKey> = {
 };
 
 /**
- * Confirmation screen for every incoming save: the folder is chosen here,
- * and Save is what actually sends the content.
+ * Confirmation screen for every incoming save: the folder is chosen here.
  *
  * Reached from the system share sheet (Android share intent / iOS share
- * extension) and, since task-264, from the inbox "add" gesture.
+ * extension) and, since task-264, from the inbox "add" gesture. The two buttons
+ * do not mean the same thing on both journeys (task-378):
+ *
+ * - A share is already being processed when this screen appears — the ingestion
+ *   started the moment the user picked this app in the share sheet, so the modal
+ *   is opened on work in progress. Save *keeps* that save, and the close button
+ *   deletes it.
+ * - A local import has been sent nowhere yet. Save is what submits it, and
+ *   closing submits nothing and so has nothing to delete.
  *
  * Supports five content types:
  * - URL: via ingest-url
@@ -78,17 +87,20 @@ export default function ShareConfirmationScreen() {
   } = useAuth();
   const {
     intake,
+    cancellation,
     selectedFolder,
-    submitUrl,
-    submitSharedContent,
-    submitUpload,
+    submitIntake,
+    confirmIntake,
+    cancelIntake,
     parkCurrentIntakeForAuth,
-    dismiss,
     retry,
   } = useShareIntake();
   const [isSessionReady, setIsSessionReady] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
   const guardInFlightRef = useRef<Promise<void> | null>(null);
   const redirectingRef = useRef(false);
+  const closeInFlightRef = useRef(false);
+  const isShare = intake.origin === "share";
 
   const redirectToLogin = useCallback(() => {
     setIsSessionReady(false);
@@ -141,37 +153,64 @@ export default function ShareConfirmationScreen() {
     return () => subscription.remove();
   }, [guardSession]);
 
-  const handleClose = useCallback(() => {
-    dismiss();
+  const leaveScreen = useCallback(() => {
     if (router.canGoBack()) {
       router.back();
     } else {
       router.replace("/(tabs)/inbox");
     }
-  }, [dismiss, router]);
+  }, [router]);
 
-  // Auto-dismiss on success after a brief delay
+  /**
+   * The close button. On a share it removes the save the arrival created, which
+   * is a network call: the screen only leaves once that call succeeded, so a
+   * failed removal is never presented as a completed one.
+   */
+  const handleClose = useCallback(() => {
+    if (closeInFlightRef.current) return;
+    closeInFlightRef.current = true;
+    void cancelIntake().then((removed) => {
+      closeInFlightRef.current = false;
+      if (removed) leaveScreen();
+    });
+  }, [cancelIntake, leaveScreen]);
+
+  /**
+   * A local import closes itself once it went through — there is nothing left to
+   * decide. A share does not: the end of the transfer is not the user's answer,
+   * and closing this screen for them would take away the choice of the folder and
+   * of keeping the save at all (task-378).
+   */
   useEffect(() => {
-    if (intake.status === "success") {
-      const timer = setTimeout(() => {
-        handleClose();
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [handleClose, intake.status]);
+    if (isShare || intake.status !== "success") return;
+    const timer = setTimeout(() => {
+      handleClose();
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [handleClose, intake.status, isShare]);
 
-  const handleSave = () => {
-    if (intake.contentType === "url") {
-      submitUrl();
-    } else if (
-      intake.contentType === "file" ||
-      intake.contentType === "photo"
-    ) {
-      submitUpload();
-    } else {
-      submitSharedContent();
+  /**
+   * Save. It sends the content only when nothing has been sent yet — a local
+   * import, or a share whose submission was refused. On a share already under
+   * way it confirms: the folder the user picked is applied, and the modal closes
+   * on the save that already exists rather than creating a second one.
+   */
+  const handleSave = useCallback(() => {
+    if (intake.status === "ready" || intake.status === "error") {
+      void submitIntake();
+      return;
     }
-  };
+    if (isConfirming) return;
+    setIsConfirming(true);
+    void confirmIntake().then((result) => {
+      setIsConfirming(false);
+      if (result.ok) {
+        leaveScreen();
+      } else if (result.message) {
+        Alert.alert(t("common.error"), result.message);
+      }
+    });
+  }, [confirmIntake, intake.status, isConfirming, leaveScreen, submitIntake]);
 
   const handleRetry = () => {
     retry();
@@ -189,7 +228,20 @@ export default function ShareConfirmationScreen() {
     router.push("/paywall?reason=out_of_minutes");
   };
 
-  const canSave = intake.status === "ready" || intake.status === "error";
+  const isRemoving = cancellation.status === "pending";
+  // On a share, Save stays available for the whole life of the modal: it is the
+  // answer to a save that already exists, so it is offered while the content is
+  // still going out and once it has landed. A local import keeps Save for the
+  // states it can actually be sent from.
+  const canSave =
+    !isRemoving &&
+    !isConfirming &&
+    (isShare
+      ? intake.status === "ready" ||
+        intake.status === "submitting" ||
+        intake.status === "success" ||
+        intake.status === "error"
+      : intake.status === "ready" || intake.status === "error");
 
   const topBarTitle = t(TOP_BAR_TITLE_KEYS[intake.contentType]);
 
@@ -212,7 +264,10 @@ export default function ShareConfirmationScreen() {
           <HeaderIconButton
             icon="close"
             onPress={handleClose}
-            accessibilityLabel={t("common.close")}
+            disabled={isRemoving}
+            accessibilityLabel={
+              isShare ? t("share.cancel.action") : t("common.close")
+            }
           />
         }
         trailing={
@@ -223,7 +278,7 @@ export default function ShareConfirmationScreen() {
             accessibilityLabel={t("common.save")}
             accessibilityRole="button"
           >
-            {intake.status === "submitting" ? (
+            {isConfirming ? (
               <ActivityIndicator size="small" color={Colors.textMain} />
             ) : (
               <Text style={styles.saveButtonText}>{t("common.save")}</Text>
@@ -234,13 +289,20 @@ export default function ShareConfirmationScreen() {
 
       {/* Content */}
       <View style={styles.content}>
-        <ShareContent
-          intake={intake}
-          selectedFolder={selectedFolder}
-          onOpenFolder={handleOpenFolder}
-          onRetry={handleRetry}
-          onOpenPaywall={handleOpenPaywall}
-        />
+        {cancellation.status === "idle" ? (
+          <ShareContent
+            intake={intake}
+            selectedFolder={selectedFolder}
+            onOpenFolder={handleOpenFolder}
+            onRetry={handleRetry}
+            onOpenPaywall={handleOpenPaywall}
+          />
+        ) : (
+          <CancellationState
+            cancellation={cancellation}
+            onRetry={handleClose}
+          />
+        )}
       </View>
     </SafeAreaView>
   );
@@ -283,122 +345,46 @@ function ShareContent({
         </View>
       );
 
+    // One layout for the three states a save can be seen in, because on a share
+    // they are one continuous moment: the content arrives, it is already being
+    // sent, and it lands — all of it under the folder row the user came here for.
+    // The card's own footer is what says where it stands.
     case "ready":
-      if (
-        (intake.contentType === "file" || intake.contentType === "photo") &&
-        intake.uploadFile
-      ) {
-        return (
-          <>
-            <FilePreviewCard file={intake.uploadFile} />
-            <OrganizationControls
-              selectedFolder={selectedFolder}
-              onOpenFolder={onOpenFolder}
-            />
-          </>
-        );
-      }
-      if (intake.contentType === "audio" && intake.audioFile) {
-        return (
-          <>
-            <AudioPreviewCard
-              fileName={intake.audioFile.fileName}
-              mimeType={intake.audioFile.mimeType}
-              fileSize={intake.audioFile.fileSize}
-            />
-            <OrganizationControls
-              selectedFolder={selectedFolder}
-              onOpenFolder={onOpenFolder}
-            />
-          </>
-        );
-      }
-      if (intake.contentType === "text" && intake.rawText) {
-        return (
-          <>
-            <TextPreviewCard text={intake.rawText} />
-            <OrganizationControls
-              selectedFolder={selectedFolder}
-              onOpenFolder={onOpenFolder}
-            />
-          </>
-        );
-      }
-      return (
-        <>
-          <UrlPreviewCard url={intake.url!} />
-          <OrganizationControls
-            selectedFolder={selectedFolder}
-            onOpenFolder={onOpenFolder}
-          />
-        </>
-      );
-
     case "submitting":
-      if (
-        (intake.contentType === "file" || intake.contentType === "photo") &&
-        intake.uploadFile
-      ) {
-        return (
-          <>
-            <FilePreviewCard file={intake.uploadFile} isSubmitting />
-            <OrganizationControls
-              selectedFolder={selectedFolder}
-              onOpenFolder={onOpenFolder}
-              disabled
-            />
-          </>
-        );
-      }
-      if (intake.contentType === "audio" && intake.audioFile) {
-        return (
-          <>
-            <AudioPreviewCard
-              fileName={intake.audioFile.fileName}
-              mimeType={intake.audioFile.mimeType}
-              fileSize={intake.audioFile.fileSize}
-              isSubmitting
-            />
-            <OrganizationControls
-              selectedFolder={selectedFolder}
-              onOpenFolder={onOpenFolder}
-              disabled
-            />
-          </>
-        );
-      }
-      if (intake.contentType === "text" && intake.rawText) {
-        return (
-          <>
-            <TextPreviewCard text={intake.rawText} isSubmitting />
-            <OrganizationControls
-              selectedFolder={selectedFolder}
-              onOpenFolder={onOpenFolder}
-              disabled
-            />
-          </>
-        );
-      }
       return (
-        <>
-          <UrlPreviewCard url={intake.url!} isSubmitting />
-          <OrganizationControls
-            selectedFolder={selectedFolder}
-            onOpenFolder={onOpenFolder}
-            disabled
-          />
-        </>
+        <IntakeChoice
+          intake={intake}
+          selectedFolder={selectedFolder}
+          onOpenFolder={onOpenFolder}
+        />
       );
 
     case "success":
-      return (
-        <View style={styles.centerContent}>
-          <View style={styles.successIcon}>
-            <Ionicons name="checkmark-circle" size={48} color={Colors.primary} />
+      // A local import is done with: it was sent by Save, so this is the receipt
+      // and the screen closes on its own.
+      if (intake.origin !== "share") {
+        return (
+          <View style={styles.centerContent}>
+            <View style={styles.successIcon}>
+              <Ionicons
+                name="checkmark-circle"
+                size={48}
+                color={Colors.primary}
+              />
+            </View>
+            <Text style={styles.successTitle}>{t("share.saved")}</Text>
+            <Text style={styles.successMessage}>
+              {getSuccessMessage(intake)}
+            </Text>
           </View>
-          <Text style={styles.successTitle}>{t("share.saved")}</Text>
-          <Text style={styles.successMessage}>{getSuccessMessage(intake)}</Text>
-        </View>
+        );
+      }
+      return (
+        <IntakeChoice
+          intake={intake}
+          selectedFolder={selectedFolder}
+          onOpenFolder={onOpenFolder}
+        />
       );
 
     case "error": {
@@ -487,11 +473,178 @@ function ShareContent({
 }
 
 /**
+ * The card and the folder row: what the user came to this screen to decide.
+ *
+ * The folder stays pickable while a share is being sent and once it has landed —
+ * the whole point of starting the ingestion on arrival is that these seconds are
+ * spent on the choice instead of on a progress bar, and the provider applies a
+ * late choice to the save that was already created (task-378). A local import is
+ * the one case where it locks: its folder travels inside the upload request, so
+ * changing it mid-flight could not be honoured.
+ */
+function IntakeChoice({
+  intake,
+  selectedFolder,
+  onOpenFolder,
+}: {
+  intake: ShareIntakeState;
+  selectedFolder: ShareSelectedFolder | null;
+  onOpenFolder: () => void;
+}) {
+  const isShare = intake.origin === "share";
+  const isSubmitting = intake.status === "submitting";
+  // Said only once the ingestion is actually under way, which on a share is from
+  // the first frame after arrival: claiming it before the submission left would
+  // be a promise the screen cannot keep.
+  const showHint =
+    isShare && (isSubmitting || intake.status === "success");
+
+  return (
+    <>
+      <IntakePreview intake={intake} status={previewStatus(intake)} />
+      <OrganizationControls
+        selectedFolder={selectedFolder}
+        onOpenFolder={onOpenFolder}
+        disabled={!isShare && isSubmitting}
+      />
+      {showHint ? (
+        <View style={styles.hintSection}>
+          <Text style={styles.hintText}>
+            {intake.status === "success"
+              ? getSuccessMessage(intake)
+              : t("share.autoStart.hint")}
+          </Text>
+          <Text style={styles.hintText}>{t("share.autoStart.keep")}</Text>
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+/** The preview card the content type calls for, with its progress footer. */
+function IntakePreview({
+  intake,
+  status,
+}: {
+  intake: ShareIntakeState;
+  status: PreviewStatus | null;
+}) {
+  if (
+    (intake.contentType === "file" || intake.contentType === "photo") &&
+    intake.uploadFile
+  ) {
+    return <FilePreviewCard file={intake.uploadFile} status={status} />;
+  }
+  if (intake.contentType === "audio" && intake.audioFile) {
+    return (
+      <AudioPreviewCard
+        fileName={intake.audioFile.fileName}
+        mimeType={intake.audioFile.mimeType}
+        fileSize={intake.audioFile.fileSize}
+        status={status}
+      />
+    );
+  }
+  if (intake.contentType === "text" && intake.rawText) {
+    return <TextPreviewCard text={intake.rawText} status={status} />;
+  }
+  return <UrlPreviewCard url={intake.url!} status={status} />;
+}
+
+/**
+ * Where the submission stands, as the footer of a preview card.
+ *
+ * `done` is the difference between a spinner and a checkmark, and it is all the
+ * card needs to know: it never has to close the screen or change what it shows.
+ */
+interface PreviewStatus {
+  label: string;
+  done: boolean;
+}
+
+function previewStatus(intake: ShareIntakeState): PreviewStatus | null {
+  if (intake.status === "submitting") {
+    return { label: submissionLabel(intake), done: false };
+  }
+  if (intake.status === "success") {
+    return { label: t("share.autoStart.done"), done: true };
+  }
+  return null;
+}
+
+/**
+ * What is happening while the content goes out. A transfer is named for what it
+ * is — bytes leaving the device, which is the slow part and the one worth
+ * announcing — where a link or a message is just a submission.
+ */
+function submissionLabel(intake: ShareIntakeState): string {
+  switch (intake.contentType) {
+    case "audio":
+      return t("share.uploadingAudio");
+    case "photo":
+      return t("share.uploadingFile");
+    case "file":
+      return intake.uploadFile?.kind === "audio"
+        ? t("share.uploadingAudio")
+        : t("share.uploadingFile");
+    default:
+      return t("share.saving");
+  }
+}
+
+/**
+ * The removal of a share the user closed, and its failure.
+ *
+ * A failure has to be readable and retryable: the save exists on the server, so
+ * saying nothing would leave in the library an item the user asked to be rid of.
+ * The retry is the same gesture as the close it came from, and Save is still
+ * there for someone who would rather keep it after all (task-378).
+ */
+function CancellationState({
+  cancellation,
+  onRetry,
+}: {
+  cancellation: ShareCancellation;
+  onRetry: () => void;
+}) {
+  if (cancellation.status === "pending") {
+    return (
+      <View style={styles.centerContent}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.statusText}>{t("share.cancel.inProgress")}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.centerContent} testID="share-cancel-error-state">
+      <View style={styles.errorIcon}>
+        <Ionicons name="alert-circle" size={48} color={Colors.error} />
+      </View>
+      <Text style={styles.errorTitle}>{t("share.cancel.failedTitle")}</Text>
+      <Text testID="share-cancel-error-message" style={styles.errorMessage}>
+        {cancellation.message ?? t("share.cancel.failed")}
+      </Text>
+      <Pressable
+        style={styles.retryButton}
+        onPress={onRetry}
+        accessibilityLabel={t("paywall.tryAgain")}
+        accessibilityRole="button"
+      >
+        <Ionicons name="refresh" size={18} color={Colors.textMain} />
+        <Text style={styles.retryButtonText}>{t("paywall.tryAgain")}</Text>
+      </Pressable>
+      <Text style={styles.cancelKeepHint}>{t("share.cancel.keepHint")}</Text>
+    </View>
+  );
+}
+
+/**
  * What the user reads once the save went through. Every content type says what
  * happens next, because the processing that follows is asynchronous.
  */
 function getSuccessMessage(intake: ShareIntakeState): string {
-  if (intake.response?.deduplicated) {
+  if (intake.deduplicated) {
     return t("share.success.duplicate");
   }
   switch (intake.contentType) {
@@ -519,10 +672,10 @@ function getSuccessMessage(intake: ShareIntakeState): string {
  */
 function FilePreviewCard({
   file,
-  isSubmitting = false,
+  status = null,
 }: {
   file: LocalUploadFile;
-  isSubmitting?: boolean;
+  status?: PreviewStatus | null;
 }) {
   // A picture identifies itself far better than any label could, so the icon
   // slot shows the picture itself — a camera capture, a gallery pick or an image
@@ -547,7 +700,7 @@ function FilePreviewCard({
   }
 
   return (
-    <View style={[styles.previewCard, isSubmitting && styles.previewCardMuted]}>
+    <View style={styles.previewCard}>
       <View style={styles.previewCardContent}>
         <View style={styles.previewTextSection}>
           <Text style={styles.previewUrl} numberOfLines={2}>
@@ -571,16 +724,29 @@ function FilePreviewCard({
           )}
         </View>
       </View>
-      {isSubmitting && (
-        <View style={styles.previewSubmitting}>
-          <ActivityIndicator size="small" color={Colors.primary} />
-          <Text style={styles.previewSubmittingText}>
-            {file.kind === "audio"
-              ? t("share.uploadingAudio")
-              : t("share.uploadingFile")}
-          </Text>
-        </View>
+      <PreviewStatusFooter status={status} />
+    </View>
+  );
+}
+
+/**
+ * The progress line of a preview card: a spinner while the content is on its way,
+ * a checkmark once the backend has it. Nothing at all before that.
+ *
+ * The card itself is never dimmed while this shows: on a share it is the one thing
+ * on screen the user is being asked about, and the folder row above it is still
+ * live.
+ */
+function PreviewStatusFooter({ status }: { status: PreviewStatus | null }) {
+  if (!status) return null;
+  return (
+    <View style={styles.previewSubmitting}>
+      {status.done ? (
+        <Ionicons name="checkmark-circle" size={16} color={Colors.primary} />
+      ) : (
+        <ActivityIndicator size="small" color={Colors.primary} />
       )}
+      <Text style={styles.previewSubmittingText}>{status.label}</Text>
     </View>
   );
 }
@@ -591,10 +757,10 @@ function FilePreviewCard({
  */
 function UrlPreviewCard({
   url,
-  isSubmitting = false,
+  status = null,
 }: {
   url: string;
-  isSubmitting?: boolean;
+  status?: PreviewStatus | null;
 }) {
   let displayDomain: string;
   try {
@@ -605,7 +771,7 @@ function UrlPreviewCard({
   }
 
   return (
-    <View style={[styles.previewCard, isSubmitting && styles.previewCardMuted]}>
+    <View style={styles.previewCard}>
       <View style={styles.previewCardContent}>
         <View style={styles.previewTextSection}>
           <Text style={styles.previewUrl} numberOfLines={3}>
@@ -617,12 +783,7 @@ function UrlPreviewCard({
           <Ionicons name="link" size={24} color={Colors.textMuted} />
         </View>
       </View>
-      {isSubmitting && (
-        <View style={styles.previewSubmitting}>
-          <ActivityIndicator size="small" color={Colors.primary} />
-          <Text style={styles.previewSubmittingText}>{t("share.saving")}</Text>
-        </View>
-      )}
+      <PreviewStatusFooter status={status} />
     </View>
   );
 }
@@ -632,13 +793,13 @@ function UrlPreviewCard({
  */
 function TextPreviewCard({
   text,
-  isSubmitting = false,
+  status = null,
 }: {
   text: string;
-  isSubmitting?: boolean;
+  status?: PreviewStatus | null;
 }) {
   return (
-    <View style={[styles.previewCard, isSubmitting && styles.previewCardMuted]}>
+    <View style={styles.previewCard}>
       <View style={styles.previewCardContent}>
         <View style={styles.previewTextSection}>
           <Text style={styles.previewUrl} numberOfLines={5}>
@@ -650,12 +811,7 @@ function TextPreviewCard({
           <Ionicons name="chatbubble-outline" size={24} color={Colors.textMuted} />
         </View>
       </View>
-      {isSubmitting && (
-        <View style={styles.previewSubmitting}>
-          <ActivityIndicator size="small" color={Colors.primary} />
-          <Text style={styles.previewSubmittingText}>{t("share.saving")}</Text>
-        </View>
-      )}
+      <PreviewStatusFooter status={status} />
     </View>
   );
 }
@@ -667,12 +823,12 @@ function AudioPreviewCard({
   fileName,
   mimeType,
   fileSize,
-  isSubmitting = false,
+  status = null,
 }: {
   fileName: string | null;
   mimeType: string;
   fileSize: number | null;
-  isSubmitting?: boolean;
+  status?: PreviewStatus | null;
 }) {
   const displayName = fileName ?? "Voice message";
   const displaySize = fileSize
@@ -682,7 +838,7 @@ function AudioPreviewCard({
     : mimeType;
 
   return (
-    <View style={[styles.previewCard, isSubmitting && styles.previewCardMuted]}>
+    <View style={styles.previewCard}>
       <View style={styles.previewCardContent}>
         <View style={styles.previewTextSection}>
           <Text style={styles.previewUrl} numberOfLines={2}>
@@ -694,14 +850,7 @@ function AudioPreviewCard({
           <Ionicons name="mic-outline" size={24} color={Colors.textMuted} />
         </View>
       </View>
-      {isSubmitting && (
-        <View style={styles.previewSubmitting}>
-          <ActivityIndicator size="small" color={Colors.primary} />
-          <Text style={styles.previewSubmittingText}>
-            {t("share.uploadingAudio")}
-          </Text>
-        </View>
-      )}
+      <PreviewStatusFooter status={status} />
     </View>
   );
 }
@@ -796,9 +945,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.outlineVariant,
     ...Shadows.soft,
   },
-  previewCardMuted: {
-    opacity: 0.7,
-  },
   previewCardContent: {
     flexDirection: "row",
     gap: Spacing.md,
@@ -877,6 +1023,23 @@ const styles = StyleSheet.create({
     fontSize: Typography.body.fontSize,
     fontWeight: "500",
     color: Colors.textMain,
+  },
+  // What the two header buttons now mean, said in words under the choice they
+  // apply to. No card and no rule around it: it is a caption, not a section.
+  hintSection: {
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.xs,
+  },
+  hintText: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textSubtle,
+  },
+  cancelKeepHint: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textSubtle,
+    textAlign: "center",
+    marginTop: Spacing.md,
   },
   // Success state
   successIcon: {

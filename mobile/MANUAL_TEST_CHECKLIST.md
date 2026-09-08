@@ -52,12 +52,15 @@ Test on at least one small viewport (320px width, e.g. iPhone SE) and one standa
 - [ ] Close (X) button is tappable (44px)
 - [ ] Save button is tappable (48px minimum height)
 
-### Share Confirmation
-- [ ] Tapping Save submits the URL
-- [ ] Loading spinner appears on Save button during submission
-- [ ] Success checkmark animation plays after submission
-- [ ] Screen auto-dismisses after 1.5s on success
-- [ ] Returning to inbox shows the new item (optimistic or after fetch)
+### Share Confirmation (ingestion starts on arrival — task-378)
+- [ ] The card shows a spinner without any tap: the submission left on arrival
+- [ ] The card footer turns into a checkmark ("Processing started") once accepted
+- [ ] The screen does **not** auto-dismiss on a share, whatever the outcome
+- [ ] The folder row is still usable while the card shows a spinner
+- [ ] Tapping Save closes the screen and leaves exactly one item in the inbox
+- [ ] Tapping X removes the item — gone from the inbox and from Search
+- [ ] Tapping X while offline shows "Could not remove it" with a working retry
+- [ ] A local import (file picker, camera) still submits on Save and auto-dismisses
 
 ### Validation
 - [ ] Invalid URL shows validation error banner (red)

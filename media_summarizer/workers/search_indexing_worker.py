@@ -22,6 +22,7 @@ from typing import Any, Dict
 
 from media_summarizer.core.services import search_indexing
 from media_summarizer.utils import s3, sqs
+from media_summarizer.utils import user_media as user_media_store
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import (
     bind_log_context,
@@ -82,6 +83,26 @@ async def process_indexing_message(message: Dict[str, Any]) -> None:
         if not transcript_text.strip():
             logger.warning(
                 f"Empty transcript for media_item_id={media_item_id}, skipping indexing"
+            )
+            return
+
+        # The save may be gone: this message is written when transcription ends and
+        # read minutes later, and in between the user can have deleted the item --
+        # cancelling a share whose processing had already started is exactly that
+        # (task-378). Deletion drops the Algolia chunks of the item, so indexing it
+        # now would put a deleted save back into search results, which the search
+        # endpoint serves from Algolia and cannot filter out on its own.
+        #
+        # ``get_user_media`` reads a soft-deleted row as absent, which is the whole
+        # check: no row, no indexing.
+        record = await user_media_store.get_user_media(user_id, media_item_id)
+        if record is None:
+            log_event(
+                logger,
+                logging.INFO,
+                "search_indexing.skipped_deleted",
+                "Skipped search indexing: the save no longer exists",
+                media_item_id=media_item_id,
             )
             return
 

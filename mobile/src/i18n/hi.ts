@@ -570,6 +570,19 @@ export const hi: Catalog = {
   "share.success.audioFile": "ऑडियो फ़ाइल इम्पोर्ट हो गई। ट्रांसक्रिप्शन जल्द शुरू होगा।",
   "share.success.file": "फ़ाइल इम्पोर्ट हो गई। प्रोसेसिंग जल्द शुरू होगी।",
   "share.success.url": "लिंक आपके इनबॉक्स में जुड़ गया। प्रोसेसिंग जल्द शुरू होगी।",
+  // Auto-started ingestion: what the two header buttons do (task-378)
+  "share.autoStart.hint": "प्रोसेसिंग पहले ही शुरू हो चुकी है।",
+  "share.autoStart.keep":
+    "चाहें तो फ़ोल्डर चुनें, फिर इसे रखने के लिए सहेजें दबाएँ। बंद करने पर यह हट जाएगा।",
+  "share.autoStart.done": "प्रोसेसिंग शुरू हो गई",
+  "share.cancel.action": "इस सेव को हटाएँ",
+  "share.cancel.inProgress": "इस सेव को हटाया जा रहा है…",
+  "share.cancel.failedTitle": "हटाया नहीं जा सका",
+  "share.cancel.failed":
+    "इस सेव को हटाया नहीं जा सका। अपना कनेक्शन जाँचें और दोबारा कोशिश करें।",
+  "share.cancel.keepHint": "या इसे रखने के लिए सहेजें दबाएँ।",
+  "share.folderFailed":
+    "फ़ोल्डर लागू नहीं हो सका। दोबारा कोशिश करने के लिए सहेजें दबाएँ।",
   "import.filesUnavailable": "आपकी फ़ाइलें नहीं खोली जा सकीं",
   "import.filesUnavailableBody": "फ़ाइल ब्राउज़र नहीं खुल सका। कृपया फिर से कोशिश करें।",
   "import.formatNotSupported": "यह प्रारूप समर्थित नहीं है",

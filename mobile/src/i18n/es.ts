@@ -684,6 +684,19 @@ export const es: Catalog = {
     "Archivo importado. El procesamiento empezará en breve.",
   "share.success.url":
     "Enlace añadido a tu bandeja. El procesamiento empezará en breve.",
+  // Auto-started ingestion: what the two header buttons do (task-378)
+  "share.autoStart.hint": "El procesamiento ya ha empezado.",
+  "share.autoStart.keep":
+    "Elige una carpeta si quieres y luego pulsa Guardar para conservarlo. Al cerrar se elimina.",
+  "share.autoStart.done": "Procesamiento iniciado",
+  "share.cancel.action": "Eliminar este guardado",
+  "share.cancel.inProgress": "Eliminando este guardado…",
+  "share.cancel.failedTitle": "No se pudo eliminar",
+  "share.cancel.failed":
+    "No se pudo eliminar este guardado. Comprueba tu conexión e inténtalo de nuevo.",
+  "share.cancel.keepHint": "O pulsa Guardar para conservarlo después de todo.",
+  "share.folderFailed":
+    "No se pudo aplicar la carpeta. Pulsa Guardar para intentarlo de nuevo.",
   "import.filesUnavailable": "No se han podido abrir tus archivos",
   "import.filesUnavailableBody":
     "No se ha podido abrir el explorador de archivos. Inténtalo de nuevo.",

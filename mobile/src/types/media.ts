@@ -231,11 +231,20 @@ export interface IngestUrlRequest {
   folder_id?: string | null;
 }
 
+/**
+ * What `POST /api/media/ingest-url` answers: the save it just created, and
+ * nothing else.
+ *
+ * `media_item_id` is the id of *this* save — a fresh one on every submission,
+ * even for content the pipeline has already processed for someone else
+ * (`save_media_for_user`). That is what makes it the right target for a
+ * deletion: removing it removes this save only, never another save of the same
+ * content.
+ */
 export interface IngestUrlResponse {
-  media_item: MediaItemContract;
-  processing_job: ProcessingJobContract;
-  deduplicated: boolean;
-  duplicate_of_media_item_id?: string;
+  media_item_id: string;
+  status: string;
+  source_platform: string;
 }
 
 /**

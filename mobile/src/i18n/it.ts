@@ -569,6 +569,19 @@ export const it: Catalog = {
   "share.success.audioFile": "File audio importato. La trascrizione inizierà a breve.",
   "share.success.file": "File importato. L'elaborazione inizierà a breve.",
   "share.success.url": "Link aggiunto alla tua posta in arrivo. L'elaborazione inizierà a breve.",
+  // Auto-started ingestion: what the two header buttons do (task-378)
+  "share.autoStart.hint": "L'elaborazione è già iniziata.",
+  "share.autoStart.keep":
+    "Scegli una cartella se vuoi, poi tocca Salva per conservarlo. Chiudendo viene eliminato.",
+  "share.autoStart.done": "Elaborazione avviata",
+  "share.cancel.action": "Elimina questo salvataggio",
+  "share.cancel.inProgress": "Eliminazione di questo salvataggio…",
+  "share.cancel.failedTitle": "Eliminazione non riuscita",
+  "share.cancel.failed":
+    "Non è stato possibile eliminare questo salvataggio. Controlla la connessione e riprova.",
+  "share.cancel.keepHint": "Oppure tocca Salva per conservarlo comunque.",
+  "share.folderFailed":
+    "Non è stato possibile applicare la cartella. Tocca Salva per riprovare.",
   "import.filesUnavailable": "Impossibile aprire i tuoi file",
   "import.filesUnavailableBody": "Non è stato possibile aprire il browser dei file. Riprova.",
   "import.formatNotSupported": "Formato non supportato",
