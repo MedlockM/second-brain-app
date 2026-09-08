@@ -248,10 +248,29 @@ was offered and declined.
 
 Two consequences, so nobody rediscovers them from a missing table:
 
-- **A dev apply now destroys stateful resources silently.** Dev data is re-creatable by
-  construction (`AGENTS.md`, "Nothing is deployed yet"), but the two fixtures that are
-  not — the persistent "Commonplace book" article and the RevenueCat Test Store products
-  behind `mobile/.maestro/07_paywall.yaml` — have no protection left in CI.
+- **A dev apply now destroys stateful resources without a review step — but not
+  silently, for tables.** The first ungated run settled this: every
+  `aws_dynamodb_table` in the module sets `deletion_protection_enabled = true`, so
+  `DeleteTable` returns `ValidationException: Resource cannot be deleted as it is
+  currently protected against deletion` and the apply fails. That flag is the only
+  backstop left, and it is a real one. Read its failure mode, though: the error lands
+  *mid-apply*, so everything ordered after the delete is left unapplied. On 2026-09-08
+  the run created `user_push_tokens-dev`, then aborted before updating the API Lambda's
+  environment — which left `/api/health/` answering HTTP 500 until the second run.
+  Retiring a table on purpose is therefore two steps, because Terraform cannot clear a
+  flag on a resource the code no longer declares:
+
+  ```bash
+  aws dynamodb update-table --table-name <name>-dev --region eu-west-3 \
+    --no-deletion-protection-enabled
+  # then re-run the workflow: gh workflow run terraform-dev.yml --ref main
+  ```
+
+  Buckets and secrets have no equivalent flag in this module, so for those the
+  statement holds without qualification. Dev data is re-creatable by construction
+  (`AGENTS.md`, "Nothing is deployed yet"), but the two fixtures that are not — the
+  persistent "Commonplace book" article and the RevenueCat Test Store products behind
+  `mobile/.maestro/07_paywall.yaml` — have no protection left in CI.
 - **A resource created without the `-dev` suffix is no longer caught.** The account
   boundary still holds: the assumed role is dev-only and the workflow asserts the account
   id before planning, so a mis-suffixed name is a naming bug inside the dev account, never

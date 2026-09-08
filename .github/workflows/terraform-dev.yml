@@ -127,11 +127,20 @@ jobs:
       # drifting apart again — the exact failure this workflow exists to stop.
       #
       # THE CONSEQUENCES, so nobody rediscovers them from a missing table:
-      #   - a dev apply now destroys stateful resources silently. Dev data is
-      #     re-creatable by construction (see AGENTS.md, "Nothing is deployed yet"), but
-      #     the two fixtures that are NOT — the persistent "Commonplace book" article and
-      #     the RevenueCat Test Store products behind mobile/.maestro/07_paywall.yaml —
-      #     have no protection left in CI.
+      #   - a dev apply now destroys stateful resources without a review step. It does
+      #     NOT destroy tables silently, which the first ungated run proved: every
+      #     aws_dynamodb_table in the module sets `deletion_protection_enabled = true`,
+      #     so DeleteTable comes back with "Resource cannot be deleted as it is currently
+      #     protected against deletion" and the apply fails. That is now the only
+      #     backstop, and it is a real one — but read the failure mode: the error lands
+      #     mid-apply, so resources ordered after the delete are left unapplied. The
+      #     2026-09-08 run created user_push_tokens-dev and then aborted before updating
+      #     the API Lambda's environment, which kept /api/health/ on HTTP 500. To retire
+      #     a table on purpose, clear the flag out of band first — Terraform cannot flip
+      #     it, the resource is already gone from the code:
+      #       aws dynamodb update-table --table-name <name>-dev --region eu-west-3 \
+      #         --no-deletion-protection-enabled
+      #     then re-run this workflow. Buckets and secrets have no equivalent flag here.
       #   - a resource created without the `-dev` suffix is no longer caught here. The
       #     account boundary still holds: the assumed role is dev-only and the step above
       #     asserts the account id, so a mis-suffixed name is a naming bug in the dev
