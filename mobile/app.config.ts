@@ -342,6 +342,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           // No `NSExtensionActivationSupportsMovieWithMaxCount`, deliberately:
           // video has no backend route, so claiming it would put the app in the
           // share sheet for content it can only refuse.
+          //
+          // Notes need no new key (task-380): Apple Notes shares its body as text,
+          // covered by `…SupportsText`, and a `.txt`/`.md`/`.rtf` conforms to
+          // `public.data`, which is what `…SupportsFileWithMaxCount` matches. So no
+          // custom UTI is declared here — the only platform gap for text files was
+          // Android's `application/rtf`, below.
           iosActivationRules: {
             NSExtensionActivationSupportsWebURLWithMaxCount: 1,
             NSExtensionActivationSupportsText: true,
@@ -352,11 +358,19 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           // in `android.intentFilters` so there's a single source of truth and the
           // plugin doesn't add its default `["text/*"]`. Specific MIME types rather
           // than `application/*` so the app only appears for files it can handle
-          // (PDF, Office docs, images, audio), not for arbitrary application files
-          // (.zip, executables, etc.) that would be refused anyway. The handler
-          // (ShareIntentContext) validates extensions and enforces the 50 MB ceiling.
+          // (PDF, Office docs, text files, images, audio), not for arbitrary
+          // application files (.zip, executables, etc.) that would be refused
+          // anyway. The handler (ShareIntentContext) validates extensions and
+          // enforces the 50 MB ceiling.
+          //
+          // `text/*` already covers `text/plain`, `text/markdown` and `text/rtf`,
+          // which is what a note shared from Google Keep or exported from Samsung
+          // Notes arrives as. `application/rtf` is spelled out because it is *not*
+          // under `text/*` and is the MIME type Android's own Storage Access
+          // Framework reports for a `.rtf` (task-380).
           androidIntentFilters: [
             "text/*",
+            "application/rtf",
             "audio/*",
             "application/pdf",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

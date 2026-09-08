@@ -38,6 +38,14 @@ class SourcePlatform(str, Enum):
     TIKTOK = "tiktok"
     X = "x"
     WHATSAPP = "whatsapp"
+    #: Text shared from a note-taking app -- iOS Notes, Google Keep, Samsung
+    #: Notes. Neither platform tells a share extension which app the item came
+    #: from (`ShareIntent` carries no host field on either side), so this is the
+    #: source of *any* shared text whose origin the OS does not name: the owner's
+    #: decision on task-380, whose accepted consequence is that a paragraph
+    #: forwarded from a messaging app is saved as a note. `WHATSAPP` stays the
+    #: source of voice notes, which arrive as an audio attachment.
+    NOTES = "notes"
     WEB = "web"
     DIRECT_URL = "direct_url"
     UNKNOWN = "unknown"

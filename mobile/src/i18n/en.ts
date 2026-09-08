@@ -315,11 +315,13 @@ export const en = {
   "plan.list.lastConjunction": "{list} and {last}",
   "plan.source.web": "Articles & web pages",
   "plan.source.audioUrl": "Any audio link",
+  "plan.source.notes": "Notes",
   "plan.cost.free.label": "Articles, web pages, X posts",
   "plan.cost.captions.label": "A YouTube video, whatever its length",
   "plan.cost.transcript.label": "A podcast that publishes its own text",
   "plan.cost.duration.label": "Audio, video, reels, voice notes",
   "plan.cost.document.label": "A document or a photo of a page",
+  "plan.cost.textFile.label": "A note or a text file",
   "plan.cost.folder.label": "Generating across a whole folder",
   "plan.cost.value.free": "Free",
   "plan.cost.value.realLength": "Its real length",
@@ -705,7 +707,7 @@ export const en = {
   "artifact.optionA11y": "Option {label}: {text}{state}",
   // --- Share confirmation ---
   "share.title.url": "Save Link",
-  "share.title.text": "Save Text",
+  "share.title.text": "Save Note",
   "share.title.audio": "Save Audio",
   "share.title.file": "Import File",
   "share.title.photo": "Save Photo",
@@ -716,12 +718,18 @@ export const en = {
   "share.saving": "Saving...",
   "share.uploadingAudio": "Uploading audio...",
   "share.uploadingFile": "Uploading file...",
-  "share.whatsappText": "WhatsApp text message",
+  "share.noteText": "Note",
+  "share.reject.noText":
+    "This note has no text to save. If it is locked, unlock it and share it again.",
+  "share.reject.tooLong":
+    "This note is too long to save: {count} characters, and {max} is the maximum.",
+  "share.reject.nothingToSave":
+    "There is nothing here we can save yet. Try sharing the text of the note.",
   "share.chooseFolder": "Choose folder",
   "share.folderPlaceholder": "Save to a folder",
   "share.success.duplicate": "This content was already in your inbox.",
   "share.success.audio": "Audio saved. Transcription will begin shortly.",
-  "share.success.text": "Text saved to your inbox.",
+  "share.success.text": "Note saved to your inbox.",
   "share.success.photo": "Photo imported. Text extraction will begin shortly.",
   "share.success.audioFile":
     "Audio file imported. Transcription will begin shortly.",

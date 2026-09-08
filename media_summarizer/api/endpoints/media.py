@@ -77,7 +77,7 @@ from media_summarizer.core.models.user_media import (
     UserMediaRecord,
     UserMediaStatus,
 )
-from media_summarizer.core.ports.document_parser import DocumentFormat
+from media_summarizer.core.ports.document_parser import DocumentFormat, is_text_format
 from media_summarizer.core.services import (
     audio_duration_probe,
     cover_capture,
@@ -1321,11 +1321,13 @@ async def upload_document(
     """
     Ingest a document the client already uploaded, for parsing and summarization.
 
-    Supported formats: PDF, DOCX, PPTX, XLSX, JPG, JPEG, PNG, TIFF, BMP, HEIF.
+    Supported formats: PDF, DOCX, PPTX, XLSX, TXT, MD, RTF, JPG, JPEG, PNG, TIFF,
+    BMP, HEIF.
     The bytes are not in this request: `upload_key` points at the object the client
     PUT to the presigned URL from `POST /api/media/upload-url`. The document is then
     parsed using LlamaParse (primary) with fallback to Unstructured API, and fed
-    into the downstream LLM pipeline.
+    into the downstream LLM pipeline. A text file takes neither provider: it is
+    already its own text, so the worker decodes it and it costs nothing (task-380).
 
     `folder_id` is optional and places the resulting library row
     exactly like every other ingestion entrypoint does.
@@ -1359,7 +1361,14 @@ async def upload_document(
         # pages and the page count only exists after the parse, so the cheapest
         # honest figure here is the minimum any document costs: one minute. The
         # parsing worker charges the real page count.
-        quota_result = await check_submission_allowed(user.id, minutes_needed=1)
+        #
+        # A text file is the exception, and asking for a minute it will never
+        # spend would refuse a free import to a user with an empty balance: it has
+        # no pages and no provider behind it, so nothing is needed here either.
+        quota_result = await check_submission_allowed(
+            user.id,
+            minutes_needed=0 if is_text_format(file_name) else 1,
+        )
         if not quota_result.allowed:
             raise HTTPException(
                 status_code=quota_result.http_status,
@@ -1705,10 +1714,13 @@ async def ingest_shared_content(
     current_user: AuthUser = Depends(get_current_user),
 ):
     """
-    Ingest shared content (text or audio) from mobile share intents (e.g. WhatsApp).
+    Ingest shared content (text or audio) from mobile share intents.
 
     Accepts JSON. The `share_type` field determines which path is taken:
-    - "text": requires the `text` field with the shared message content.
+    - "text": requires the `text` field with the shared note content. Its
+      `source_platform` is `notes` -- neither iOS nor Android tells a share
+      extension which app the text came from, so a shared text is a note
+      (task-380). `whatsapp` remains the platform of a shared voice note.
     - "audio": requires `upload_key` (the object the client PUT to the presigned URL
       from `POST /api/media/upload-url` with target=shared_audio), `content_mime_type`,
       and `original_name`.

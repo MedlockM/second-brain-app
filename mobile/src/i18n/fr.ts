@@ -273,11 +273,13 @@ export const fr: Catalog = {
   "plan.list.lastConjunction": "{list} et {last}",
   "plan.source.web": "Articles & pages web",
   "plan.source.audioUrl": "Tout lien audio",
+  "plan.source.notes": "Notes",
   "plan.cost.free.label": "Articles, pages web, posts X",
   "plan.cost.captions.label": "Une vidéo YouTube, quelle que soit sa durée",
   "plan.cost.transcript.label": "Un podcast qui publie déjà son texte",
   "plan.cost.duration.label": "Audio, vidéo, reels, notes vocales",
   "plan.cost.document.label": "Un document ou la photo d'une page",
+  "plan.cost.textFile.label": "Une note ou un fichier texte",
   "plan.cost.folder.label": "Une génération sur tout un dossier",
   "plan.cost.value.free": "Gratuit",
   "plan.cost.value.realLength": "Sa durée réelle",
@@ -654,7 +656,7 @@ export const fr: Catalog = {
   "artifact.explanation": "EXPLICATION",
   "artifact.optionA11y": "Option {label} : {text}{state}",
   "share.title.url": "Enregistrer le lien",
-  "share.title.text": "Enregistrer le texte",
+  "share.title.text": "Enregistrer la note",
   "share.title.audio": "Enregistrer l'audio",
   "share.title.file": "Importer le fichier",
   "share.title.photo": "Enregistrer la photo",
@@ -665,13 +667,19 @@ export const fr: Catalog = {
   "share.saving": "Enregistrement…",
   "share.uploadingAudio": "Envoi de l'audio…",
   "share.uploadingFile": "Envoi du fichier…",
-  "share.whatsappText": "Message texte WhatsApp",
+  "share.noteText": "Note",
+  "share.reject.noText":
+    "Cette note ne contient aucun texte à enregistrer. Si elle est verrouillée, déverrouillez-la puis partagez-la à nouveau.",
+  "share.reject.tooLong":
+    "Cette note est trop longue pour être enregistrée : {count} caractères, et le maximum est {max}.",
+  "share.reject.nothingToSave":
+    "Il n'y a rien ici que nous puissions enregistrer. Essayez de partager le texte de la note.",
   "share.chooseFolder": "Choisir un dossier",
   "share.folderPlaceholder": "Ranger dans un dossier",
   "share.success.duplicate": "Ce contenu était déjà dans votre boîte de réception.",
   "share.success.audio":
     "Audio enregistré. La transcription va bientôt commencer.",
-  "share.success.text": "Texte enregistré dans votre boîte de réception.",
+  "share.success.text": "Note enregistrée dans votre boîte de réception.",
   "share.success.photo":
     "Photo importée. L'extraction du texte va bientôt commencer.",
   "share.success.audioFile":

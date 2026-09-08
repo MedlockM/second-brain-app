@@ -130,6 +130,10 @@ async def get_public_pricing():
                 "document_pages_per_minute": unit_conversion.get(
                     "document_pages_per_minute"
                 ),
+                # Zero, and served rather than assumed: the screen has to be able
+                # to say a shared note is free, and reading it from here is what
+                # keeps that claim tied to what the enforcer charges (task-380).
+                "text_file_minutes": unit_conversion.get("text_file_minutes"),
                 "folder_sources_per_minute": unit_conversion.get(
                     "folder_sources_per_minute"
                 ),

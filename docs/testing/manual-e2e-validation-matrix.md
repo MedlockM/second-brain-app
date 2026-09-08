@@ -34,10 +34,27 @@ Each source app below represents a distinct share mechanism. Test each on at lea
 | S6 | X (Twitter) | iOS / Android | Share Sheet / Intent | short_video / article | x |
 | S7 | Instagram | iOS / Android | Share Sheet / Intent | short_video | instagram |
 | S8 | TikTok | iOS / Android | Share Sheet / Intent | short_video | tiktok |
-| S9 | WhatsApp | iOS / Android | Share Sheet / Intent | article / audio_file | whatsapp |
+| S9 | WhatsApp (voice message) | iOS / Android | Share Sheet / Intent | audio_file | whatsapp |
 | S10 | Pocket Casts / Overcast | iOS / Android | Share Sheet / Intent | podcast_episode | rss / podcast_index |
 | S11 | Notes / Clipboard (manual paste) | iOS / Android | Direct URL input | unknown | direct_url |
 | S12 | Deezer | iOS / Android | Share Sheet / Intent | podcast_episode | deezer |
+| S13 | Apple Notes (note body) | iOS | Share Sheet | shared_text | notes |
+| S14 | Google Keep (note body) | Android | Intent | shared_text | notes |
+| S15 | Samsung Notes (note body) | Android | Intent | shared_text | notes |
+| S16 | Any notes app, exported as a text file (.txt / .md / .rtf) | iOS / Android | Share Sheet / Intent | document | unknown |
+
+**Why S13-S16 all report `notes`.** No public API on either platform names the app
+a share came from — `expo-share-intent` exposes no host-app field on iOS or on
+Android — so shared text whose origin the platform will not identify is attributed
+to Notes (task-380). Accepted consequence: text shared from a messaging app is also
+presented as a note. `whatsapp` stays the source of voice notes, which is what S9
+now covers on its own.
+
+A text file (S16) is not shared text: it goes through `POST /api/media/upload` like
+any other document, so it carries the same `source_platform` every upload does —
+`document` internally, which the canonical contract reports as `unknown`. What is
+specific to it is the parsing (decoded on the spot, no LlamaParse call) and the
+billing (nothing — see NO-06).
 
 ---
 
@@ -99,6 +116,34 @@ entry; SI-01 through SI-15 stay on the incoming system share.
 | SI-20 | Save and X on a typed URL | From SI-16: (a) tap Save, then repeat SI-16 and (b) tap X while processing, then (c) once processed | (a) exactly one item, no second job; (b) and (c) the item is gone from the inbox and from Search | Same behaviour as SI-07 / SI-08 / SI-09 — the entry inherits it rather than restating it |
 | SI-21 | Session expired on a typed URL | Token expired, then Home → "+" → "Paste a link" → Add a URL | Redirected to sign-in; after signing in the URL is submitted on its own | No lost entry, and exactly one item afterwards |
 | SI-22 | `source_app` distinguishes the entry | Add a URL from the "+" menu, then read the media item server-side (DynamoDB `-dev`, or the item detail payload) | `source_app` is `app-url-entry` | Not `ios-share-extension` / `android-share-intent`, which stay reserved for the incoming system share |
+
+### 4.1b Note Sharing (task-380)
+
+Tests the path from a notes app to a readable, correctly titled, correctly
+attributed note. Two shapes reach the app, and they take different routes: the
+**body of a note** arrives as shared text (`POST /api/media/ingest-shared-content`,
+`source_platform: notes`), and a **note exported as a file** arrives as a `.txt`,
+`.md` or `.rtf` upload (`POST /api/media/upload`, decoded with no provider call).
+
+Both `.rtf` on Android and the `notes` platform value are new native/config
+surface, so these scenarios need a **fresh EAS build** — an OTA update does not
+carry a changed intent filter.
+
+| ID | Scenario | Steps | Expected Result | Pass/Fail Criteria |
+|---|---|---|---|---|
+| NO-01 | Apple Notes, note body | iOS: open a note, tap Share, pick our app | Confirmation screen opens with the note text; the preview label reads "Note" | Label reads "Note", never "WhatsApp text message"; item lands in the inbox |
+| NO-02 | Google Keep, note body | Android: open a note, ⋮ > Send > Send via other apps, pick our app | Same as NO-01 | Same as NO-01 |
+| NO-03 | Samsung Notes, note body | Android (Samsung device): open a note, Share > our app | Same as NO-01 | Same as NO-01 |
+| NO-04 | Attribution is `notes`, not `whatsapp` | From NO-01/02/03, open the item's detail once processed | The item is not presented as a WhatsApp message anywhere | No "WhatsApp" wording on the confirmation screen, the inbox row or the detail |
+| NO-05 | Title comes from the note's own first line | Share a note whose first line is "Launch ideas" followed by a bullet list; then one whose first line is `# Launch plan` | Inbox row and detail title read "Launch ideas", then "Launch plan" | Title is the note's first line; a Markdown heading loses its `#`; never a platform label like "Shared note" |
+| NO-06 | Text file export, all three formats | Export a note to `.txt`, then `.md`, then `.rtf`; share each one | Each is accepted with no "not supported" message, lands as a document, and its content reads as text (accents intact, paragraphs kept) | Three items, three readable contents; the minutes gauge on Account does not move for any of them |
+| NO-07 | Locked note | iOS: lock a note, share it without unlocking | Refusal naming the reason: "This note has no text to save. If it is locked, unlock it and share it again." | A sentence is shown; the screen does **not** close on its own |
+| NO-08 | Note with no text | Share a note holding only a drawing or only a photo, with no text | Either the picture is presented (if the platform hands it over) or the same refusal as NO-07 | Something is presented, or a reason is given; never a blank spinner that closes |
+| NO-09 | Note over the length ceiling | Share a note longer than 50,000 characters | Refusal naming the figures ("… {count} characters, and {max} is the maximum.") | Reason visible, nothing submitted, nothing in the inbox |
+| NO-10 | Empty text file | Share a 0-byte `.txt`, then a `.txt` holding only spaces and newlines | 0 bytes: refused on the device before any transfer ("This file is empty…"). Whitespace only: the item fails with "This document could not be read…" (`DOCUMENT_PARSE_FAILED`) | A reason in both cases; neither produces an empty saved item |
+| NO-11 | Note with an attachment | Share a note that holds both text and a photo | Exactly one item is presented — the note text when text is handed over, the picture otherwise | One item, no empty screen, no silent close |
+| NO-12 | Multi-item share | Select several files in Files / Drive and share them together | Exactly one is presented, and it is one the app has a route for | One item; when the selection mixes a `.txt` and an unsupported file, the `.txt` is the one presented |
+| NO-13 | Paywall announces Notes and the text formats | Open the paywall | The platform chips include "Notes"; the file chips include a "TXT MD RTF" chip; the cost table has a "A note or a text file / Free" row | All three visible |
 
 ### 4.2 Inbox Screen (Processing States and Polling)
 
@@ -231,7 +276,8 @@ Tests that share-first flows behave correctly under degraded and offline network
 5. **Network tools**:
    - iOS: Settings > Developer > Network Link Conditioner
    - Android: `adb shell settings put global http_proxy` or emulator throttle settings
-6. **Source apps installed**: At minimum YouTube, Chrome/Safari, Spotify, X (Twitter), WhatsApp
+6. **Source apps installed**: At minimum YouTube, Chrome/Safari, Spotify, X (Twitter), WhatsApp, and one notes app per platform — Apple Notes on iOS, Google Keep on Android (Samsung Notes too when the device is a Samsung)
+7. **Note fixtures prepared** (for section 4.1b): a note whose first line reads like a title, a note whose first line is a Markdown `# Heading`, a **locked** note on iOS, a note holding only a drawing or a photo, a note longer than 50,000 characters, and the same note exported to `.txt`, `.md` and `.rtf`. A 0-byte `.txt` and a whitespace-only `.txt` are needed for NO-10.
 
 ### Execution Steps
 
@@ -349,7 +395,7 @@ For quick reference during testing, these are the statuses defined in `mobile/sr
 `BAD_REQUEST` | `INVALID_URL` | `UNSUPPORTED_URL` | `SESSION_EXPIRED` | `NOT_AUTHORIZED` | `NOT_FOUND` | `MEDIA_NOT_FOUND` | `ARTIFACT_NOT_FOUND` | `CONFLICT` | `VALIDATION_ERROR` | `RATE_LIMITED` | `PAYMENT_REQUIRED` | `QUOTA_EXCEEDED` | `INSUFFICIENT_MINUTES` | `INTERNAL_ERROR`
 
 ### SourcePlatform
-`spotify` | `apple_podcasts` | `deezer` | `rss` | `podcast_index` | `youtube` | `instagram` | `tiktok` | `x` | `whatsapp` | `web` | `direct_url` | `unknown`
+`spotify` | `apple_podcasts` | `deezer` | `rss` | `podcast_index` | `youtube` | `instagram` | `tiktok` | `x` | `whatsapp` | `notes` | `web` | `direct_url` | `unknown`
 
 ### MediaType
 `podcast_episode` | `article` | `youtube_video` | `short_video` | `audio_file` | `shared_text` | `unknown`

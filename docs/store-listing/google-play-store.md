@@ -131,10 +131,12 @@ SUPPORTED CONTENT TYPES
 - Instagram reels
 - Podcast episodes from Spotify, Apple Podcasts, Deezer, or any RSS feed
 - X posts
-- WhatsApp messages and voice notes
+- WhatsApp voice notes
+- Notes from your notes app: Apple Notes, Google Keep, Samsung Notes
 - Web articles, blog posts, and any web page
 - Any direct audio link
 - Documents: PDF, DOCX, PPTX, XLSX
+- Text files: TXT, MD, RTF
 - Photos and screenshots: JPG, PNG, HEIF, TIFF, BMP
 - Audio files: MP3, M4A, AAC, OGG, WAV, FLAC, OPUS
 

@@ -453,7 +453,7 @@ export interface SourceShowcase {
  * - a file family is shown as its own formats, because "PDF DOCX PPTX XLSX"
  *   answers the question and "Documents" does not;
  * - an entry with neither gets its label from this app's catalogue, keyed by the
- *   backend's own id. Two exist, and both are common nouns no brand owns.
+ *   backend's own id. Three exist, and all three are common nouns no brand owns.
  *
  * Text only, never a logo: Apple, TikTok, WhatsApp, Instagram and Spotify each
  * forbid, in writing, exactly the arrangement a logo row on a paid-subscription
@@ -465,6 +465,10 @@ const GENERIC_SOURCE_LABEL_KEYS: Record<string, TranslationKey> = {
   web: "plan.source.web",
   // `SourcePlatform.DIRECT_URL` — any link whose path ends in an audio extension.
   direct_url: "plan.source.audioUrl",
+  // `SourcePlatform.NOTES` — text shared from a notes app (task-380). Unbranded
+  // on purpose: no platform names the app a share came from, so the chip cannot
+  // honestly say "Apple Notes" and does not try.
+  notes: "plan.source.notes",
 };
 
 function resolveChipLabel(target: PricingShareTarget): string | null {
@@ -522,14 +526,16 @@ export interface CostRow {
  *
  * Every value is either a word ("Free", "Its real length") or a figure
  * interpolated from `unit_conversion` — `captions_minutes` for a YouTube video,
- * `document_pages_per_minute` for a document, `folder_sources_per_minute` for a
- * folder-wide generation. The "one minute" in the last two is spelled out
+ * `document_pages_per_minute` for a document, `text_file_minutes` for a note
+ * shared as a text file, `folder_sources_per_minute` for a folder-wide
+ * generation. The "one minute" in the per-page and per-item rows is spelled out
  * because it is the *denominator's name* ("pages per minute"), not a number that
  * can change: nothing in `mobile/` writes a digit.
  *
- * Six rows, not four. Two of them cost nothing and are kept apart on purpose —
+ * Seven rows, not four. Three of them cost nothing and are kept apart on purpose —
  * "a podcast that publishes its own text is free" is a real tariff advantage
- * that has never been visible anywhere in the app — and the folder row is here
+ * that has never been visible anywhere in the app, and "a note costs nothing"
+ * is the answer to the question a text file raises — and the folder row is here
  * because a folder-wide generation genuinely debits minutes: leaving it out
  * would make the table understate what the meter counts.
  *
@@ -542,6 +548,7 @@ export function buildCostTable(pricing: PublicPricing): CostRow[] {
   const captions = conversion.captions_minutes ?? null;
   const pagesPerMinute = conversion.document_pages_per_minute ?? null;
   const sourcesPerMinute = conversion.folder_sources_per_minute ?? null;
+  const textFileMinutes = conversion.text_file_minutes ?? null;
 
   const rows: CostRow[] = [
     {
@@ -579,6 +586,20 @@ export function buildCostTable(pricing: PublicPricing): CostRow[] {
       value: t("plan.cost.value.perPages", {
         pages: formatNumber(pagesPerMinute),
       }),
+    });
+  }
+  if (textFileMinutes !== null) {
+    // Its own row rather than folded into the document one: a note shared as a
+    // text file has no pages, so the per-page rule does not describe it, and the
+    // figure is read from the config even though it is currently zero — a tariff
+    // the screen invents is a tariff that can go stale (task-380).
+    rows.push({
+      id: "textFile",
+      label: t("plan.cost.textFile.label"),
+      value:
+        textFileMinutes === 0
+          ? t("plan.cost.value.free")
+          : formatMinutes(textFileMinutes),
     });
   }
   if (sourcesPerMinute !== null) {

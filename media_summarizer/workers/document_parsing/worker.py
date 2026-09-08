@@ -27,10 +27,12 @@ from typing import Any, Dict, Optional
 
 from media_summarizer.core.media_ingestion.title_derivation import (
     first_markdown_heading,
+    first_sentence,
     select_title,
 )
 from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.ports.document_parser import (
+    TEXT_FORMATS,
     DocumentFormat,
     DocumentParserPort,
     ParseError,
@@ -44,6 +46,9 @@ from media_summarizer.core.services import (
 )
 from media_summarizer.infrastructure.resolvers.llamaparse_resolver import (
     LlamaParseResolver,
+)
+from media_summarizer.infrastructure.resolvers.plain_text_resolver import (
+    PlainTextResolver,
 )
 from media_summarizer.infrastructure.resolvers.unstructured_resolver import (
     UnstructuredResolver,
@@ -77,6 +82,10 @@ DOCUMENT_PARSING_VISIBILITY_TIMEOUT = int(
 # parsing contract: nothing else on this path paginates a document.
 _llamaparse = LlamaParseResolver()
 _unstructured: DocumentParserPort = UnstructuredResolver()
+# The text formats never reach either of the two above: a `.txt`, `.md` or `.rtf`
+# already holds its own text, so it is decoded here (task-380). No provider call,
+# no page, nothing billed.
+_plain_text: DocumentParserPort = PlainTextResolver()
 
 # Formats whose parsed output is OCR of a picture rather than a structured
 # document: their leading heading is body text, not a title (task-266).
@@ -126,7 +135,23 @@ async def parse_document_with_fallback(
     - The format itself is unsupported (both services support all our formats)
     - LlamaParse returns a non-retryable auth error and Unstructured also has
       no key configured (both would fail)
+    - The format is a text one: it has no provider and therefore no fallback,
+      because there is nothing a second provider could read better than the file
+      itself.
     """
+    if document_format in TEXT_FORMATS:
+        text_result = await _plain_text.parse(file_path, file_name, document_format)
+        log_event(
+            logger,
+            logging.INFO if isinstance(text_result, ParseResult) else logging.WARNING,
+            "document_parsing.text_decoded",
+            "Text file decoded locally; no parsing provider involved",
+            provider="plain_text",
+            document_format=document_format.value,
+            succeeded=isinstance(text_result, ParseResult),
+        )
+        return text_result
+
     # Primary: LlamaParse
     primary_result = await _llamaparse.parse(file_path, file_name, document_format)
 
@@ -195,6 +220,7 @@ async def _record_document_consumption(
     *,
     user_id: Optional[str],
     job_id: str,
+    document_format: DocumentFormat,
     page_count: int,
     provider: str,
 ) -> None:
@@ -202,7 +228,28 @@ async def _record_document_consumption(
 
     Best-effort: the parse is done and paid for, so a counter failure must not
     fail an import that succeeded.
+
+    A text file takes the other branch: it has no pages to price and cost no
+    provider call, so it is *counted* as an import and charged zero minutes
+    rather than rounded up to the single page every other format has (task-380).
     """
+    if document_format in TEXT_FORMATS:
+        if not user_id:
+            return
+        await quota_enforcer.record_text_file_parse(
+            user_id,
+            idempotency_token=quota_enforcer.gate_token(job_id),
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "quota.text_file_counted",
+            "Text file counted as an import; no minutes charged",
+            job_id=job_id,
+            document_format=document_format.value,
+        )
+        return
+
     pages = max(1, int(page_count or 1))
 
     if provider.strip().lower() == "llamaparse":
@@ -462,10 +509,12 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
         # The parse is what costs money, and its price is the page count, which
         # only exists here: this is the single place a document is charged. One
         # minute per five pages, keyed on the job so a redelivery cannot debit
-        # twice. LlamaParse pages also feed the shared pool of layer 3.
+        # twice. LlamaParse pages also feed the shared pool of layer 3. A text
+        # file has neither pages nor a provider, and is charged nothing.
         await _record_document_consumption(
             user_id=message_body.get("user_id"),
             job_id=str(job_id),
+            document_format=document_format,
             page_count=result.page_count,
             provider=result.provider,
         )
@@ -505,10 +554,17 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
             # reader in the runtime to read a real one. A camera photo therefore
             # keeps the "Photo — <date>" label, which is precisely the owner's
             # rule for that source.
+            #
+            # A text file gets a second candidate (task-380): a note rarely
+            # carries a markdown heading, and its first line *is* how its author
+            # names it, so the sentence falls back to that. The heading is still
+            # tried first -- `first_sentence` would hand back "# Title" verbatim,
+            # hash marks included.
             if document_format not in _IMAGE_FORMATS:
-                parsed_title = select_title(
-                    [first_markdown_heading(result.markdown_content)]
-                )
+                candidates = [first_markdown_heading(result.markdown_content)]
+                if document_format in TEXT_FORMATS:
+                    candidates.append(first_sentence(result.markdown_content))
+                parsed_title = select_title(candidates)
                 if parsed_title:
                     job.title = parsed_title
 

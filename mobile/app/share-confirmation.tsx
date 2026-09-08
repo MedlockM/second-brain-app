@@ -68,7 +68,7 @@ const TOP_BAR_TITLE_KEYS: Record<ShareContentType, TranslationKey> = {
  *
  * Supports five content types:
  * - URL: via ingest-url
- * - Text: WhatsApp text messages via ingest-shared-content
+ * - Text: a note, whatever app shared it, via ingest-shared-content (task-380)
  * - Audio: WhatsApp voice messages via ingest-shared-content
  * - File: document, image or audio imported from the device via the upload
  *   endpoints
@@ -794,7 +794,11 @@ function UrlPreviewCard({
 }
 
 /**
- * Preview card for shared plain text (WhatsApp text message).
+ * Preview card for shared plain text: a note (task-380).
+ *
+ * Says "Note", not the name of an app, because no platform tells us which app the
+ * text came from — and shows a document icon rather than a speech bubble, since
+ * what is being saved is a note and not a conversation.
  */
 function TextPreviewCard({
   text,
@@ -810,10 +814,14 @@ function TextPreviewCard({
           <Text style={styles.previewUrl} numberOfLines={5}>
             {text}
           </Text>
-          <Text style={styles.previewDomain}>{t("share.whatsappText")}</Text>
+          <Text style={styles.previewDomain}>{t("share.noteText")}</Text>
         </View>
         <View style={styles.previewIconContainer}>
-          <Ionicons name="chatbubble-outline" size={24} color={Colors.textMuted} />
+          <Ionicons
+            name="document-text-outline"
+            size={24}
+            color={Colors.textMuted}
+          />
         </View>
       </View>
       <PreviewStatusFooter status={status} />

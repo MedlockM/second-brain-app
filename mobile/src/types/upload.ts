@@ -5,9 +5,9 @@
  *
  * The two extension lists below mirror the backend exactly and are the reason a
  * refusal can be pronounced before any byte leaves the device:
- * - documents/images: `DocumentFormat.supported_extensions()`
+ * - documents/images/text: `DocumentFormat.supported_extensions()`
  *   (`media_summarizer/core/ports/document_parser.py`) — parsed by LlamaParse,
- *   with OCR for the image formats
+ *   with OCR for the image formats and a plain decode for the text formats
  * - audio: `_AUDIO_EXTENSIONS` (`media_summarizer/api/endpoints/media.py`) —
  *   transcribed by Deepgram
  *
@@ -36,12 +36,28 @@ export const IMAGE_UPLOAD_EXTENSIONS = [
   "heic",
 ] as const;
 
+/**
+ * The text half of the document endpoint: files that are already their own text
+ * (task-380). Named apart because they take a different route once uploaded —
+ * decoded on the spot by `PlainTextResolver` instead of being sent to LlamaParse —
+ * and because they are what a note exported from Apple Notes, Google Keep or
+ * Samsung Notes actually is.
+ */
+export const TEXT_UPLOAD_EXTENSIONS = [
+  "txt",
+  "text",
+  "md",
+  "markdown",
+  "rtf",
+] as const;
+
 /** Extensions (no dot) accepted by POST /api/media/upload. */
 export const DOCUMENT_UPLOAD_EXTENSIONS = [
   "pdf",
   "docx",
   "pptx",
   "xlsx",
+  ...TEXT_UPLOAD_EXTENSIONS,
   ...IMAGE_UPLOAD_EXTENSIONS,
 ] as const;
 
@@ -68,6 +84,10 @@ export const UPLOAD_PICKER_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  // Text files (read as-is, no provider)
+  "text/plain",
+  "text/markdown",
+  "application/rtf",
   // Images (OCR)
   "image/jpeg",
   "image/png",
@@ -127,6 +147,11 @@ const EXTENSION_MIME_TYPES: Record<string, string> = {
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  txt: "text/plain",
+  text: "text/plain",
+  md: "text/markdown",
+  markdown: "text/markdown",
+  rtf: "application/rtf",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
@@ -148,7 +173,8 @@ const EXTENSION_MIME_TYPES: Record<string, string> = {
  * MIME type -> extension, the reverse of the map above plus the spellings the
  * platforms actually report for the same bytes (the iOS share extension calls a
  * bitmap `image/x-ms-bmp`, Android content providers hand back `image/jpg` and
- * `audio/x-m4a`).
+ * `audio/x-m4a`, and an RTF exported from Apple Notes arrives as `text/rtf` on
+ * one platform and `application/rtf` on the other).
  *
  * First declaration wins, which is what makes `image/jpeg` resolve to `jpg` and
  * `image/tiff` to `tiff` rather than to their aliases.
@@ -165,6 +191,10 @@ const MIME_TYPE_EXTENSIONS: Record<string, string> = Object.entries(
     "image/x-ms-bmp": "bmp",
     "audio/x-m4a": "m4a",
     "audio/x-wav": "wav",
+    "text/rtf": "rtf",
+    "text/richtext": "rtf",
+    "text/x-markdown": "md",
+    "text/md": "md",
   },
 );
 

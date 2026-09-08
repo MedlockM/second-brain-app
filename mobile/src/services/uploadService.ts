@@ -36,7 +36,7 @@ function organizationBody(options: UploadOrganizationOptions): {
 }
 
 export class UploadService {
-  /** Documents and images (pdf, docx, pptx, xlsx, jpg, png, heic, …). */
+  /** Documents, text files and images (pdf, docx, txt, md, rtf, jpg, heic, …). */
   static async uploadDocument(
     file: LocalUploadFile,
     options: UploadOrganizationOptions = {},
