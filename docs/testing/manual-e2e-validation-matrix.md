@@ -261,13 +261,13 @@ Copy and fill for each test run.
 
 | Category | Total | Pass | Fail | Blocked | Skipped |
 |---|---|---|---|---|---|
-| Share Intake (SI) | 10 | | | | |
+| Share Intake (SI) | 15 | | | | |
 | Inbox (IN) | 28 | | | | |
 | Media Detail (MD) | 24 | | | | |
 | Error Handling (EH) | 16 | | | | |
 | Network Conditions (NC) | 10 | | | | |
 | Deduplication (DE) | 7 | | | | |
-| **TOTAL** | **95** | | | | |
+| **TOTAL** | **100** | | | | |
 
 ### Detailed Results
 
