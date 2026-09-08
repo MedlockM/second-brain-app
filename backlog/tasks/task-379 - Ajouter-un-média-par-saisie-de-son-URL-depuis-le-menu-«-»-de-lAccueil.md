@@ -1,9 +1,10 @@
 ---
 id: task-379
 title: Ajouter un média par saisie de son URL depuis le menu « + » de l'Accueil
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 09:58'
+updated_date: '2026-09-08 10:48'
 labels:
   - mobile
   - ux
