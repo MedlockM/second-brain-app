@@ -166,8 +166,10 @@ _PLATFORM_LABELS = {
     ("image_post", "instagram"): "Instagram post",
     ("article", "x"): "X post",
     ("article", "rss"): "Article",
+    # A voice note is the only thing WhatsApp still labels: since task-380 a
+    # shared text is attributed to the notes source, and `_MEDIA_TYPE_LABELS`
+    # already labels `shared_text` for every platform.
     ("audio_file", "whatsapp"): "Voice note",
-    ("shared_text", "whatsapp"): "Shared note",
 }
 
 _DEFAULT_LABEL = "Saved item"

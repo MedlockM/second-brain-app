@@ -50,6 +50,12 @@ export interface PricingUnitConversion {
   captions_minutes: number | null;
   document_pages_per_minute: number | null;
   folder_sources_per_minute: number | null;
+  /**
+   * What one text file debits (task-380). Zero, and stated rather than assumed: a
+   * `.txt`/`.md`/`.rtf` has no pages, so the per-page conversion above has no
+   * numerator to work with, and it is read as-is with no provider behind it.
+   */
+  text_file_minutes: number | null;
 }
 
 /**

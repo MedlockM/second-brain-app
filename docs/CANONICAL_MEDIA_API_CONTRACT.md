@@ -668,7 +668,7 @@ API. Ceilings are `MAX_UPLOAD_SIZE_BYTES` (50 MB) for `document` and `audio`,
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `upload_key` | string | yes | Key returned by `upload-url` for `target=document`. Extension must be in `DocumentFormat.supported_extensions()`: `pdf`, `docx`, `pptx`, `xlsx`, `jpg`, `jpeg`, `png`, `tiff`, `tif`, `bmp`, `heif`, `heic`. Images go through OCR. |
+| `upload_key` | string | yes | Key returned by `upload-url` for `target=document`. Extension must be in `DocumentFormat.supported_extensions()`: `pdf`, `docx`, `pptx`, `xlsx`, `txt`, `text`, `md`, `markdown`, `rtf`, `jpg`, `jpeg`, `png`, `tiff`, `tif`, `bmp`, `heif`, `heic`. Images go through OCR. The text formats are decoded in-process by `PlainTextResolver` — no provider call, no page count, nothing debited (task-380). |
 | `folder_id` | string \| null | no | Destination folder. Omitted or null means the user's default Uncategorized folder. |
 
 Response (`UploadDocumentResponse`, `202 Accepted`):

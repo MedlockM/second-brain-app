@@ -76,6 +76,16 @@ _DOCUMENT_FORMATS: tuple[DocumentFormat, ...] = (
     DocumentFormat.XLSX,
 )
 
+#: The text formats that need no parser at all: the file already *is* its text,
+#: so the worker decodes it itself (task-380). Offered as their own family
+#: because the chip they belong on answers a different question than
+#: "documents" does — this is where a note exported from a note-taking app lands.
+_TEXT_FORMATS: tuple[DocumentFormat, ...] = (
+    DocumentFormat.TEXT_TXT,
+    DocumentFormat.TEXT_MD,
+    DocumentFormat.TEXT_RTF,
+)
+
 #: The image formats the same parser OCRs. `IMAGE_JPEG` is the `.jpeg` spelling
 #: of `IMAGE_JPG` and `.heic` the Apple spelling of HEIF: listing both on a chip
 #: would say the same thing twice, so one spelling stands for the pair.
@@ -125,17 +135,24 @@ SHARE_TARGETS: tuple[ShareTarget, ...] = (
     ShareTarget(id=SourcePlatform.DEEZER.value, group=GROUP_PLATFORM, label="Deezer"),
     ShareTarget(id=SourcePlatform.RSS.value, group=GROUP_PLATFORM, label="RSS"),
     ShareTarget(id=SourcePlatform.X.value, group=GROUP_PLATFORM, label="X"),
-    # Text messages and voice notes both. Named at last: it is the most everyday
-    # thing the app does and the screen has never said it.
+    # Voice notes. Since task-380 a shared *text* is a note, not a WhatsApp
+    # message: the platform never says which app the text came from, so the only
+    # thing WhatsApp still claims here is the audio attachment.
     ShareTarget(
         id=SourcePlatform.WHATSAPP.value, group=GROUP_PLATFORM, label="WhatsApp"
     ),
-    # No brand name, so no label: the client translates "articles and web pages"
-    # and "any audio link" from its own catalogue.
+    # No brand name, so no label: the client translates "articles and web pages",
+    # "any audio link" and "a note from your notes app" from its own catalogue.
+    # Notes is deliberately unbranded — it covers iOS Notes, Google Keep and
+    # Samsung Notes at once, and naming one of them would undersell the others.
+    ShareTarget(id=SourcePlatform.NOTES.value, group=GROUP_PLATFORM),
     ShareTarget(id=SourcePlatform.WEB.value, group=GROUP_PLATFORM),
     ShareTarget(id=SourcePlatform.DIRECT_URL.value, group=GROUP_PLATFORM),
     ShareTarget(
         id="document", group=GROUP_FILE, formats=_formats_from(*_DOCUMENT_FORMATS)
+    ),
+    ShareTarget(
+        id="text_file", group=GROUP_FILE, formats=_formats_from(*_TEXT_FORMATS)
     ),
     ShareTarget(id="image", group=GROUP_FILE, formats=_formats_from(*_IMAGE_FORMATS)),
     ShareTarget(
@@ -156,7 +173,7 @@ def _assert_exhaustive() -> None:
 
     - a `SourcePlatform` member that is neither offered nor withheld — someone
       added an ingestion path and the screen would never mention it;
-    - a `DocumentFormat` member absent from the three file families — someone
+    - a `DocumentFormat` member absent from the file families — someone
       taught the parser a format and the chip would understate what it accepts.
     """
     offered = {target.id for target in SHARE_TARGETS if target.group == GROUP_PLATFORM}
@@ -183,7 +200,12 @@ def _assert_exhaustive() -> None:
             f"name: {', '.join(unnamed_hosts)}."
         )
 
-    covered = set(_DOCUMENT_FORMATS) | set(_IMAGE_FORMATS) | _ALIAS_FORMATS
+    covered = (
+        set(_DOCUMENT_FORMATS)
+        | set(_TEXT_FORMATS)
+        | set(_IMAGE_FORMATS)
+        | _ALIAS_FORMATS
+    )
     missing_formats = sorted(fmt.value for fmt in DocumentFormat if fmt not in covered)
     if missing_formats:
         raise RuntimeError(

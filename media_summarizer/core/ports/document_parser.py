@@ -16,12 +16,24 @@ from typing import Optional
 
 
 class DocumentFormat(str, Enum):
-    """Supported document formats for parsing."""
+    """Supported document formats for parsing.
+
+    Three regimes behind one enum, and the worker routes on them:
+
+    - the office formats, parsed by LlamaParse with Unstructured as a fallback;
+    - the image formats, OCR'd by the same providers;
+    - the **text formats** (task-380), which have no provider at all: a `.txt`,
+      `.md` or `.rtf` file already *is* its own text, so it is decoded in the
+      worker (`PlainTextResolver`) and paginates nothing.
+    """
 
     PDF = "pdf"
     DOCX = "docx"
     PPTX = "pptx"
     XLSX = "xlsx"
+    TEXT_TXT = "txt"
+    TEXT_MD = "md"
+    TEXT_RTF = "rtf"
     IMAGE_JPG = "jpg"
     IMAGE_JPEG = "jpeg"
     IMAGE_PNG = "png"
@@ -38,6 +50,13 @@ class DocumentFormat(str, Enum):
             "docx": cls.DOCX,
             "pptx": cls.PPTX,
             "xlsx": cls.XLSX,
+            "txt": cls.TEXT_TXT,
+            # `.text` and `.markdown` are the long spellings of the same bytes;
+            # a note exported by an Android app can carry either.
+            "text": cls.TEXT_TXT,
+            "md": cls.TEXT_MD,
+            "markdown": cls.TEXT_MD,
+            "rtf": cls.TEXT_RTF,
             "jpg": cls.IMAGE_JPG,
             "jpeg": cls.IMAGE_JPEG,
             "png": cls.IMAGE_PNG,
@@ -54,8 +73,29 @@ class DocumentFormat(str, Enum):
         """Return the set of all supported file extensions (without dot)."""
         return {
             "pdf", "docx", "pptx", "xlsx",
+            "txt", "text", "md", "markdown", "rtf",
             "jpg", "jpeg", "png", "tiff", "tif", "bmp", "heif", "heic",
         }
+
+
+#: The formats no provider is called for (task-380). Declared next to the enum,
+#: not inside the adapter that decodes them: the API reads it to price an upload
+#: at zero and the worker reads it to route, and a second copy of the list is
+#: exactly how those two would come to disagree.
+TEXT_FORMATS: frozenset[DocumentFormat] = frozenset(
+    {
+        DocumentFormat.TEXT_TXT,
+        DocumentFormat.TEXT_MD,
+        DocumentFormat.TEXT_RTF,
+    }
+)
+
+
+def is_text_format(file_name: str) -> bool:
+    """Whether this file name is one of the text formats, extension being all we have."""
+    ext = file_name.rsplit(".", 1)[-1] if "." in file_name else ""
+    document_format = DocumentFormat.from_extension(ext)
+    return document_format is not None and document_format in TEXT_FORMATS
 
 
 class ParseErrorCode(str, Enum):

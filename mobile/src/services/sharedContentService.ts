@@ -1,9 +1,10 @@
 /**
- * Service for ingesting shared content (text and audio) from WhatsApp
- * via the POST /api/media/ingest-shared-content endpoint.
+ * Service for ingesting shared content (text and audio) through the
+ * POST /api/media/ingest-shared-content endpoint.
  *
  * This service handles the non-URL share path where the content is either
- * raw text (no URL found) or an audio file attachment.
+ * raw text — a note, since no platform names the app it came from (task-380) —
+ * or an audio file attachment, which is what a WhatsApp voice note is.
  *
  * The endpoint takes JSON, never bytes (task-345): a shared voice message is sent
  * straight to S3 through a presigned PUT, and the submission below only carries
@@ -19,8 +20,8 @@ import type {
 } from "../types/sharedContent";
 import {
   MAX_SHARED_AUDIO_SIZE_BYTES,
-  MAX_SHARED_TEXT_LENGTH,
   isSupportedAudioMimeType,
+  validateSharedNoteText,
 } from "../types/sharedContent";
 
 /**
@@ -50,8 +51,12 @@ function generateIdempotencyKey(prefix: string, content: string): string {
 
 export class SharedContentService {
   /**
-   * Submit a shared text message for ingestion.
-   * Used when WhatsApp text is shared and no URL is found in it.
+   * Submit a shared note for ingestion.
+   * Used when text is shared and no URL is found in it.
+   *
+   * Its refusals come from `validateSharedNoteText`, translated and worded the
+   * same way the confirmation screen words them: this call is the last gate, not
+   * the first, and the two must agree.
    */
   static async ingestSharedText(
     text: string,
@@ -61,27 +66,20 @@ export class SharedContentService {
       folderId?: string | null;
     } = {},
   ): Promise<IngestSharedContentResponse> {
-    // Validate text
-    const trimmed = text.trim();
-    if (!trimmed) {
-      throw new SharedContentValidationError(
-        "Shared text is empty. Nothing to save.",
-      );
+    const validated = validateSharedNoteText(text);
+    if ("rejection" in validated) {
+      throw new SharedContentValidationError(validated.rejection.message);
     }
-    if (trimmed.length > MAX_SHARED_TEXT_LENGTH) {
-      throw new SharedContentValidationError(
-        `Text is too long (${trimmed.length} characters). Maximum is ${MAX_SHARED_TEXT_LENGTH}.`,
-      );
-    }
+    const trimmed = validated.text;
 
     const sourceApp =
       options.sourceApp ??
       (Platform.OS === "ios" ? "ios-share-extension" : "android-share-intent");
-    const idempotencyKey = generateIdempotencyKey("wa-text", trimmed);
+    const idempotencyKey = generateIdempotencyKey("note-text", trimmed);
 
     return SharedContentService.submitIngest({
       share_type: "text",
-      source_platform: "whatsapp",
+      source_platform: "notes",
       source_app: sourceApp,
       idempotency_key: idempotencyKey,
       text: trimmed,
@@ -160,7 +158,7 @@ export class SharedContentService {
    * call.
    */
   private static async submitIngest(
-    body: Record<string, unknown>,
+    body: { source_platform: string } & Record<string, unknown>,
   ): Promise<IngestSharedContentResponse> {
     const response = await apiRequest<IngestSharedContentResponse | undefined>(
       "/api/media/ingest-shared-content",
@@ -168,12 +166,13 @@ export class SharedContentService {
     );
 
     // A 204 carries no body: the submission was accepted and nothing is known
-    // about the item yet.
+    // about the item yet. The platform is echoed back from what was sent rather
+    // than hardcoded — a note is not a voice note.
     return (
       response ?? {
         media_item_id: "",
         status: "pending",
-        source_platform: "whatsapp",
+        source_platform: body.source_platform,
       }
     );
   }

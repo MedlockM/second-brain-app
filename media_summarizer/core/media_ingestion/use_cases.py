@@ -23,17 +23,36 @@ from media_summarizer.core.media_ingestion.errors import (
 )
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.media_ingestion.router import ResolverRouter
-from media_summarizer.core.media_ingestion.title_derivation import first_sentence
+from media_summarizer.core.media_ingestion.title_derivation import (
+    first_markdown_heading,
+    first_sentence,
+    select_title,
+)
 from media_summarizer.core.services.media_identity import (
     derive_media_identity,
     generate_media_key,
 )
 
-_MULTI_WHITESPACE_RE = re.compile(r"\s+")
+#: A run of horizontal whitespace *inside* a line -- collapsed, because it says
+#: nothing. Anchored on a non-space so leading indentation (a list, a quoted
+#: block) survives.
+_HORIZONTAL_RUN_RE = re.compile(r"(?<=\S)[ \t\u00a0]{2,}")
+#: Three or more newlines read exactly like two.
+_EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
 
 
 def _normalize_shared_text(raw_text: str) -> str:
-    return _MULTI_WHITESPACE_RE.sub(" ", (raw_text or "").strip())
+    """Shared note text, with its lines kept (task-380).
+
+    This used to collapse *every* whitespace run into a single space, newlines
+    included, which had two consequences a note cannot afford: the whole note
+    became one paragraph, and `first_sentence` no longer saw the first line --
+    the very line its author wrote as its title. So only horizontal runs are
+    collapsed here, and blank-line runs are capped.
+    """
+    unified = (raw_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = [_HORIZONTAL_RUN_RE.sub(" ", line).rstrip() for line in unified.split("\n")]
+    return _EXCESS_BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip()
 
 
 def _share_locator(*, source_platform: str, share_type: str, content_hash: str) -> str:
@@ -138,10 +157,17 @@ class IngestSharedContentUseCase:
                 source_platform=source_platform,
                 resolver_key="shared.text",
                 raw_text=normalized_text,
-                # Shared text carries no metadata at all, so its own first
-                # sentence is the title (task-266): the same rule X already
-                # applies to a post body.
-                title=first_sentence(normalized_text),
+                # Shared text carries no metadata at all, so the note's own
+                # opening line is the title (task-266): the same rule X already
+                # applies to a post body. The heading candidate comes first
+                # because a note written in Markdown opens with `# Launch plan`,
+                # and `first_sentence` would keep the `#` verbatim (task-380).
+                title=select_title(
+                    [
+                        first_markdown_heading(normalized_text),
+                        first_sentence(normalized_text),
+                    ]
+                ),
                 # No cover and no creator, by construction rather than by
                 # omission: there is no provider to ask and the sharer is the
                 # user themselves (task-302 §4, row 7). The tile renders its

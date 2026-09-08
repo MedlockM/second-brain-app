@@ -482,6 +482,14 @@ Publishes to `EPISODE_COMPLETED_EVENTS_QUEUE`. Never enqueues to Deepgram.
 | Provider/library | Identifier | Extracts | Key env vars |
 |---|---|---|---|
 | LlamaParse (cloud API) | `LlamaParseResolver` via `https://api.cloud.llamaindex.ai/api/parsing` | Structured markdown from PDF / DOCX / PPTX / XLSX / images (with OCR) | `LLAMAPARSE_API_KEY`, `LLAMAPARSE_TIMEOUT_SECONDS`, `LLAMAPARSE_POLL_INTERVAL`, `LLAMAPARSE_MAX_POLLS`, `DOCUMENT_BUCKET`, `TRANSCRIPT_BUCKET`, `DOCUMENT_PARSING_QUEUE`, `DOCUMENT_PARSING_VISIBILITY_TIMEOUT` |
+| (none) | `PlainTextResolver` | TXT / MD / RTF, decoded in-process — the file already *is* its text (task-380) | none |
+
+**The text formats never reach a provider.** `parse_document_with_fallback` routes
+`TEXT_FORMATS` to `PlainTextResolver` before LlamaParse is called, so there is no
+primary/fallback pair for them: nothing a second provider could read better than
+the bytes themselves. They also report `page_count: 0`, which is what
+`_record_document_consumption` reads to charge zero minutes instead of rounding up
+to the single page every other format has.
 
 Workflow:
 1. Download document from `DOCUMENT_BUCKET` (S3) to a temp file
@@ -597,7 +605,8 @@ Ref: `rss_feed_poll_worker.py::_route_item_to_pipeline`, `rss_feed_poll_worker.p
 
 Since task-192 a single, **source-agnostic** detect+translate step runs for **every**
 source — YouTube, TikTok, Instagram, audio/podcast (Deepgram), article, image OCR,
-document (PDF/DOCX/PPTX), X, shared text, and any future source. It is **not**
+document (PDF/DOCX/PPTX), text file (TXT/MD/RTF), X, shared notes, and any future
+source. It is **not**
 wired per source. It sits at the only point every source funnels through after a
 transcript is available and **before** artifact generation: inside
 `artifact_service.request_artifact_generation()`, via

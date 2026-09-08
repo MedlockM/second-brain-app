@@ -54,14 +54,60 @@ Vérification manuelle après intégration et build : partager une note depuis l
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Le parcours de partage entrant traite le texte d'une note reçue depuis une app de notes sur iOS et Android, de la réception jusqu'à la soumission, et le média créé porte la source « Notes » et non la source WhatsApp.
-- [ ] #2 Un texte partagé dont l'origine n'est pas identifiable par la plateforme est attribué à « Notes » ; WhatsApp reste la source des notes vocales et du texte dont l'origine est identifiable.
-- [ ] #3 Le titre du média créé dérive du contenu de la note — sa première ligne quand elle en tient lieu — et non d'un libellé de plateforme.
-- [ ] #4 Les fichiers texte .txt, .md et .rtf sont acceptés de bout en bout : l'app est déclarée pour eux dans les feuilles de partage des deux plateformes, la validation locale les accepte avant tout transfert, et ils sont routés vers un traitement qui produit un contenu lisible.
-- [ ] #5 La liste des sources et des formats servie au paywall annonce « Notes » et les formats texte, et la vérification d'exhaustivité exécutée au démarrage de l'API reste satisfaite après l'ajout de la nouvelle source et des nouveaux formats.
-- [ ] #6 La consommation facturée pour un fichier texte est définie explicitement, lisible dans la configuration de tarification, et ne repose pas sur un nombre de pages inexistant.
-- [ ] #7 Un partage sans contenu exploitable (note verrouillée, note sans texte, fichier texte vide) et un texte au-delà de la limite existante produisent un refus explicite dans l'écran de confirmation, avec un message qui nomme la raison.
-- [ ] #8 Aucun écran ne présente plus un texte partagé comme un message WhatsApp ; les libellés concernés sont mis à jour dans tous les catalogues de traduction, sans clé orpheline restante.
-- [ ] #9 Une réception contenant plusieurs éléments (note avec pièces jointes) ne se solde ni par un écran vide ni par un échec silencieux : l'élément retenu est celui présenté à l'utilisateur.
-- [ ] #10 `ruff check media_summarizer/` et `mypy media_summarizer/` passent ; dans `mobile/`, `npx tsc --noEmit` et `npm run lint` passent, aux avertissements préexistants près.
-- [ ] #11 La matrice de validation manuelle et la checklist de test mobile listent les cas à vérifier sur appareil : partage depuis l'app Notes d'iOS, Google Keep et Samsung Notes, note verrouillée, et export fichier texte.
+- [x] #2 Un texte partagé dont l'origine n'est pas identifiable par la plateforme est attribué à « Notes » ; WhatsApp reste la source des notes vocales et du texte dont l'origine est identifiable.
+- [x] #3 Le titre du média créé dérive du contenu de la note — sa première ligne quand elle en tient lieu — et non d'un libellé de plateforme.
+- [x] #4 Les fichiers texte .txt, .md et .rtf sont acceptés de bout en bout : l'app est déclarée pour eux dans les feuilles de partage des deux plateformes, la validation locale les accepte avant tout transfert, et ils sont routés vers un traitement qui produit un contenu lisible.
+- [x] #5 La liste des sources et des formats servie au paywall annonce « Notes » et les formats texte, et la vérification d'exhaustivité exécutée au démarrage de l'API reste satisfaite après l'ajout de la nouvelle source et des nouveaux formats.
+- [x] #6 La consommation facturée pour un fichier texte est définie explicitement, lisible dans la configuration de tarification, et ne repose pas sur un nombre de pages inexistant.
+- [x] #7 Un partage sans contenu exploitable (note verrouillée, note sans texte, fichier texte vide) et un texte au-delà de la limite existante produisent un refus explicite dans l'écran de confirmation, avec un message qui nomme la raison.
+- [x] #8 Aucun écran ne présente plus un texte partagé comme un message WhatsApp ; les libellés concernés sont mis à jour dans tous les catalogues de traduction, sans clé orpheline restante.
+- [x] #9 Une réception contenant plusieurs éléments (note avec pièces jointes) ne se solde ni par un écran vide ni par un échec silencieux : l'élément retenu est celui présenté à l'utilisateur.
+- [x] #10 `ruff check media_summarizer/` et `mypy media_summarizer/` passent ; dans `mobile/`, `npx tsc --noEmit` et `npm run lint` passent, aux avertissements préexistants près.
+- [x] #11 La matrice de validation manuelle et la checklist de test mobile listent les cas à vérifier sur appareil : partage depuis l'app Notes d'iOS, Google Keep et Samsung Notes, note verrouillée, et export fichier texte.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+**AC #1 reste non coché**, et c'est le résultat attendu : il porte sur le média
+effectivement créé au bout d'un partage réel sur les deux plateformes. Cela demande
+(a) un backend déployé, qui ne l'est qu'au push sur `main`, après la sortie de
+l'implémenteur, et (b) un **nouveau build EAS**, parce que la déclaration
+`application/rtf` ajoutée aux `androidIntentFilters` est de la config native et que
+`runtimeVersion.policy` est `fingerprint` — une mise à jour OTA ne la porterait pas.
+Les cas à jouer sont écrits : `docs/testing/manual-e2e-validation-matrix.md` §4.1b
+(NO-01…NO-13) et lignes S13–S16, et `mobile/MANUAL_TEST_CHECKLIST.md` §2. Tout le
+chemin est câblé et chaque maillon vérifié en lecture : le client envoie
+`source_platform: "notes"`, l'enum API l'accepte, `SourcePlatform.NOTES` existe dans
+le domaine, et `SHARE_TARGETS` le déclare.
+
+**Attribution.** `expo-share-intent` n'expose l'app hôte sur aucune des deux
+plateformes (vérifié dans les types du paquet : `ShareIntent` n'a pas de champ
+d'origine). Il n'y a donc aucune branche « origine identifiable » à alimenter
+aujourd'hui : tout texte partagé part en `notes`, et `whatsapp` ne reste que sur la
+pièce jointe audio (`isWhatsAppAudioFile` conservé exprès).
+
+**Les formats texte n'appellent aucun fournisseur.** Nouveau
+`infrastructure/resolvers/plain_text_resolver.py` : décodage multi-encodages, dé-RTF
+en une passe sans bibliothèque ajoutée, `page_count=0` assumé comme *valeur*. Le
+worker de parsing route `TEXT_FORMATS` vers lui avant LlamaParse.
+
+**Facturation d'un fichier texte : zéro.** `text_file_minutes: 0` dans
+`DEFAULT_PRICING_CONFIG["unit_conversion"]`, servi par `GET /api/pricing`, lu par le
+paywall (ligne « A note or a text file / Free » construite depuis la valeur servie,
+pas codée en dur). `_conversion()` plancher à 1 ne peut pas exprimer 0, d'où un
+`minutes_for_text_file()` dédié et un `record_text_file_parse()` qui débite
+`minutes=0, documents=1`. Le pré-contrôle d'upload demande `minutes_needed=0` pour
+une extension texte.
+
+**Refus et sélection d'élément.** `validateSharedNoteText()` rend `no_text` ou
+`too_long` avec le message affiché ; `selectShareIntentFile()` choisit dans l'ordre
+audio → fichier routable → premier fichier avec un chemin, et un `intent.type` non
+nul mais inexploitable produit un `invalid` explicite. Le seul cas resté silencieux
+est `intent.type === null`, qui est la forme d'un intent périmé.
+
+**Aucun test automatisé n'a été écrit** (règle du projet). Les vérifications sont :
+`ruff check media_summarizer/` → all checks passed ; `mypy media_summarizer/` →
+Success, 182 fichiers ; `npx tsc --noEmit` → clean ; `npm run lint` → 1 warning
+préexistant (`src/services/purchaseService.ts:98`), inchangé.
+<!-- SECTION:NOTES:END -->

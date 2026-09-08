@@ -97,6 +97,13 @@ DEFAULT_PRICING_CONFIG: Dict[str, Any] = {
         # LlamaParse bills at least one credit per page: five pages of document are
         # worth about one minute of transcription budget.
         "document_pages_per_minute": 5,
+        # A text file (.txt, .md, .rtf) costs nothing: it has no pages to price,
+        # and no provider is called to read it -- the worker decodes the bytes
+        # itself (task-380). Zero is the *value*, not a missing figure, and it is
+        # stated here rather than assumed by the worker so the paywall can print
+        # it next to the four other conversions. Same rule as an article: what is
+        # charged is a provider call, and there is none.
+        "text_file_minutes": 0,
         # A generation over a folder is the only AI action that scales with the
         # amount of content behind it. Single-item generations are free.
         "folder_sources_per_minute": 5,

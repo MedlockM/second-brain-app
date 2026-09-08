@@ -257,11 +257,13 @@ export const de: Catalog = {
   "plan.list.lastConjunction": "{list} und {last}",
   "plan.source.web": "Artikel & Webseiten",
   "plan.source.audioUrl": "Jeder Audio-Link",
+  "plan.source.notes": "Notizen",
   "plan.cost.free.label": "Artikel, Webseiten, X-Posts",
   "plan.cost.captions.label": "Ein YouTube-Video, egal wie lang",
   "plan.cost.transcript.label": "Ein Podcast, der seinen Text schon mitliefert",
   "plan.cost.duration.label": "Audio, Video, Reels, Sprachnachrichten",
   "plan.cost.document.label": "Ein Dokument oder das Foto einer Seite",
+  "plan.cost.textFile.label": "Eine Notiz oder eine Textdatei",
   "plan.cost.folder.label": "Eine Generierung über einen ganzen Ordner",
   "plan.cost.value.free": "Kostenlos",
   "plan.cost.value.realLength": "Die tatsächliche Länge",
@@ -633,7 +635,7 @@ export const de: Catalog = {
   "artifact.explanation": "ERKLÄRUNG",
   "artifact.optionA11y": "Option {label}: {text}{state}",
   "share.title.url": "Link speichern",
-  "share.title.text": "Text speichern",
+  "share.title.text": "Notiz speichern",
   "share.title.audio": "Audio speichern",
   "share.title.file": "Datei importieren",
   "share.title.photo": "Foto speichern",
@@ -644,13 +646,19 @@ export const de: Catalog = {
   "share.saving": "Wird gespeichert …",
   "share.uploadingAudio": "Audio wird hochgeladen …",
   "share.uploadingFile": "Datei wird hochgeladen …",
-  "share.whatsappText": "WhatsApp-Textnachricht",
+  "share.noteText": "Notiz",
+  "share.reject.noText":
+    "Diese Notiz enthält keinen Text zum Speichern. Wenn sie gesperrt ist, entsperre sie und teile sie erneut.",
+  "share.reject.tooLong":
+    "Diese Notiz ist zu lang zum Speichern: {count} Zeichen, das Maximum liegt bei {max}.",
+  "share.reject.nothingToSave":
+    "Hier ist nichts, das wir speichern können. Teile stattdessen den Text der Notiz.",
   "share.chooseFolder": "Ordner wählen",
   "share.folderPlaceholder": "In einem Ordner ablegen",
   "share.success.duplicate": "Dieser Inhalt war schon in deinem Posteingang.",
   "share.success.audio":
     "Audio gespeichert. Die Transkription beginnt in Kürze.",
-  "share.success.text": "Text in deinem Posteingang gespeichert.",
+  "share.success.text": "Notiz in deinem Posteingang gespeichert.",
   "share.success.photo":
     "Foto importiert. Die Texterkennung beginnt in Kürze.",
   "share.success.audioFile":

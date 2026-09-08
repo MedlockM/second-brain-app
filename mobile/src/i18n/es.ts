@@ -250,11 +250,13 @@ export const es: Catalog = {
   "plan.list.lastConjunction": "{list} y {last}",
   "plan.source.web": "Artículos y páginas web",
   "plan.source.audioUrl": "Cualquier enlace de audio",
+  "plan.source.notes": "Notas",
   "plan.cost.free.label": "Artículos, páginas web, posts de X",
   "plan.cost.captions.label": "Un vídeo de YouTube, dure lo que dure",
   "plan.cost.transcript.label": "Un podcast que ya publica su texto",
   "plan.cost.duration.label": "Audio, vídeo, reels, notas de voz",
   "plan.cost.document.label": "Un documento o la foto de una página",
+  "plan.cost.textFile.label": "Una nota o un archivo de texto",
   "plan.cost.folder.label": "Una generación sobre una carpeta entera",
   "plan.cost.value.free": "Gratis",
   "plan.cost.value.realLength": "Su duración real",
@@ -627,7 +629,7 @@ export const es: Catalog = {
   "artifact.explanation": "EXPLICACIÓN",
   "artifact.optionA11y": "Opción {label}: {text}{state}",
   "share.title.url": "Guardar el enlace",
-  "share.title.text": "Guardar el texto",
+  "share.title.text": "Guardar la nota",
   "share.title.audio": "Guardar el audio",
   "share.title.file": "Importar el archivo",
   "share.title.photo": "Guardar la foto",
@@ -638,13 +640,19 @@ export const es: Catalog = {
   "share.saving": "Guardando…",
   "share.uploadingAudio": "Subiendo el audio…",
   "share.uploadingFile": "Subiendo el archivo…",
-  "share.whatsappText": "Mensaje de texto de WhatsApp",
+  "share.noteText": "Nota",
+  "share.reject.noText":
+    "Esta nota no tiene texto que guardar. Si está bloqueada, desbloquéala y vuelve a compartirla.",
+  "share.reject.tooLong":
+    "Esta nota es demasiado larga para guardarla: {count} caracteres, y el máximo es {max}.",
+  "share.reject.nothingToSave":
+    "Aquí no hay nada que podamos guardar. Prueba a compartir el texto de la nota.",
   "share.chooseFolder": "Elegir una carpeta",
   "share.folderPlaceholder": "Guardar en una carpeta",
   "share.success.duplicate": "Este contenido ya estaba en tu bandeja.",
   "share.success.audio":
     "Audio guardado. La transcripción empezará en breve.",
-  "share.success.text": "Texto guardado en tu bandeja.",
+  "share.success.text": "Nota guardada en tu bandeja.",
   "share.success.photo":
     "Foto importada. La extracción del texto empezará en breve.",
   "share.success.audioFile":

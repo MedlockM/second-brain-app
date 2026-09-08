@@ -10,7 +10,7 @@ import { Platform } from "react-native";
 import { t } from "../i18n";
 import { useRouter, usePathname } from "expo-router";
 import { useShareIntentContext } from "expo-share-intent";
-import type { ShareIntent } from "expo-share-intent";
+import type { ShareIntent, ShareIntentFile } from "expo-share-intent";
 import { useAuth } from "./AuthContext";
 import {
   validateShareIntentPayload,
@@ -31,6 +31,7 @@ import {
 } from "../lib/quotaError";
 import { UploadService } from "../services/uploadService";
 import type { SharedFileAttachment } from "../types/sharedContent";
+import { validateSharedNoteText } from "../types/sharedContent";
 import type { LocalUploadFile } from "../types/upload";
 import {
   classifyUploadFile,
@@ -42,8 +43,9 @@ import {
 /**
  * The type of content being confirmed before ingestion.
  * - "url": Text containing a URL (existing flow)
- * - "text": Plain text with no URL (WhatsApp text message)
- * - "audio": Audio file attachment (WhatsApp voice message)
+ * - "text": Plain text with no URL — a note, whatever app it came from, since no
+ *   platform names that app (task-380)
+ * - "audio": Audio file attachment (a WhatsApp voice message)
  * - "file": Document imported from the device (task-264) or shared to the app
  * - "photo": Picture — a camera capture (task-264), a gallery pick, or an image
  *   shared from the system share sheet (a screenshot, task-347)
@@ -267,6 +269,44 @@ function shareIntentKey(intent: ShareIntent): string {
   });
 }
 
+/**
+ * The one item to keep out of a share, and why a choice has to be made at all
+ * (task-380).
+ *
+ * A share sheet can hand over several items in one go — a note exported with its
+ * attachments, a multi-select in Files, a batch of screenshots — and this app
+ * saves one thing per confirmation. Reading `files[0]` picked whatever the
+ * platform happened to enumerate first, which for a note carrying a photo was the
+ * photo, and for anything with no backend route was a screen that closed itself.
+ *
+ * So the pick is deliberate and ordered:
+ * 1. an audio item, the only kind with its own ingestion path;
+ * 2. the first item the backend has a route for, which is what makes a note
+ *    exported as `.txt` win over the image sitting next to it;
+ * 3. failing both, the first item with a path — kept on purpose, so an
+ *    unsupported share reaches its refusal instead of disappearing.
+ */
+function selectShareIntentFile(
+  files: ShareIntentFile[] | null | undefined,
+): ShareIntentFile | null {
+  const candidates = (files ?? []).filter((file) => Boolean(file?.path));
+  if (candidates.length === 0) return null;
+
+  const audio = candidates.find((file) => file.mimeType?.startsWith("audio/"));
+  if (audio) return audio;
+
+  const routable = candidates.find((file) =>
+    classifyUploadFile(
+      resolveUploadFileName({
+        fileName: file.fileName,
+        path: file.path,
+        mimeType: file.mimeType,
+      }),
+    ),
+  );
+  return routable ?? candidates[0];
+}
+
 /** Which app the submission reports as its source, per platform. */
 function shareSourceApp(): string {
   return Platform.OS === "ios" ? "ios-share-extension" : "android-share-intent";
@@ -455,11 +495,20 @@ export function ShareIntentProvider({
       }, 5000);
 
       // Map the package ShareIntent to our ShareIntakeState. We track whether
-      // any branch produced a meaningful state — if none did (intent is empty
-      // or stale, which can happen on cold start when the native module still
-      // holds a leftover blob in the App Group), we must NOT navigate to
-      // share-confirmation, otherwise the user sees an empty "Processing
-      // shared content…" spinner with no real share to act on.
+      // any branch produced a meaningful state.
+      //
+      // Two different situations used to end the same way, and only one of them
+      // should (task-380):
+      //
+      // - the intent carries no `type` at all: nothing was shared, the native
+      //   module surfaced a leftover blob from the App Group on cold start. This
+      //   one stays silent — resetting and staying put is correct.
+      // - the intent announces a type but nothing usable came with it: a locked
+      //   note hands over an empty string, a note holding only a drawing hands
+      //   over no text either, a multi-item share can arrive with no readable
+      //   item. Closing the screen on those is a dead end with no reason given,
+      //   so every branch below ends in either a ready intake or an "invalid"
+      //   one carrying the sentence that says why.
       let mapped = false;
 
       if (intent.type === "weburl" && intent.webUrl) {
@@ -488,9 +537,10 @@ export function ShareIntentProvider({
         }
         mapped = true;
       } else if (intent.type === "file" || intent.type === "media") {
-        const file = intent.files?.[0];
+        const file = selectShareIntentFile(intent.files);
         if (file && file.mimeType?.startsWith("audio/")) {
-          // Audio files keep using the WhatsApp-specific path (ingest-shared-content)
+          // Audio keeps its own path (ingest-shared-content, source `whatsapp`):
+          // a voice note is what that endpoint's audio half exists for.
           const audioFile: SharedFileAttachment = {
             uri: file.path,
             mimeType: file.mimeType,
@@ -568,49 +618,96 @@ export function ShareIntentProvider({
             });
             mapped = true;
           }
+        } else {
+          // A file share whose items all came through without a path. Announced
+          // and empty is not the same as never announced: say so instead of
+          // closing.
+          setIntake({
+            status: "invalid",
+            origin: "share",
+            url: null,
+            rawText: null,
+            message: t("share.reject.nothingToSave"),
+            contentType: "url",
+            audioFile: null,
+          });
+          mapped = true;
         }
-      } else if (intent.type === "text" && intent.text) {
+      } else if (intent.type === "text") {
         // Plain text share - check if it contains a URL
-        const result = validateShareIntentPayload(intent.text);
+        const sharedText = intent.text ?? "";
+        const result = validateShareIntentPayload(sharedText);
         if (result.valid) {
           // Text contains a URL
           setIntake({
             status: "ready",
             origin: "share",
             url: result.url,
-            rawText: intent.text,
+            rawText: sharedText,
             message: null,
             contentType: "url",
             audioFile: null,
           });
         } else if (result.reason === "no_url_found") {
-          // Pure text share (WhatsApp text message without URL)
-          setIntake({
-            status: "ready",
-            origin: "share",
-            url: null,
-            rawText: intent.text,
-            message: null,
-            contentType: "text",
-            audioFile: null,
-          });
+          // A note: text with no link in it. Nothing here names the app it came
+          // from — no platform tells us — so it is saved as a note (task-380).
+          //
+          // The same validator the submission uses runs first, so a locked note
+          // (which hands over an empty string) and a note past the server's
+          // ceiling get their reason on screen rather than a screen that closes.
+          const note = validateSharedNoteText(sharedText);
+          setIntake(
+            "rejection" in note
+              ? {
+                  status: "invalid",
+                  origin: "share",
+                  url: null,
+                  rawText: sharedText,
+                  message: note.rejection.message,
+                  contentType: "text",
+                  audioFile: null,
+                }
+              : {
+                  status: "ready",
+                  origin: "share",
+                  url: null,
+                  rawText: note.text,
+                  message: null,
+                  contentType: "text",
+                  audioFile: null,
+                },
+          );
         } else {
           setIntake({
             status: "invalid",
             origin: "share",
             url: null,
-            rawText: intent.text,
+            rawText: sharedText,
             message: getShareIntentErrorMessage(result.reason),
             contentType: "url",
             audioFile: null,
           });
         }
         mapped = true;
+      } else if (intent.type !== null) {
+        // A type we have no branch for. It was still an intentional share, so it
+        // gets a sentence rather than the silent reset below.
+        setIntake({
+          status: "invalid",
+          origin: "share",
+          url: null,
+          rawText: intent.text ?? null,
+          message: t("share.reject.nothingToSave"),
+          contentType: "url",
+          audioFile: null,
+        });
+        mapped = true;
       }
 
       if (!mapped) {
-        // Stale/empty intent surfaced by the native module — clear it so the
-        // package doesn't hand it back on the next cycle, and stay put.
+        // No type at all: a stale/empty intent surfaced by the native module —
+        // clear it so the package doesn't hand it back on the next cycle, and
+        // stay put. This is the one case where saying nothing is right.
         resetShareIntent();
         return;
       }

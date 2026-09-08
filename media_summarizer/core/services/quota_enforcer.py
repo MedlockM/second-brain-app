@@ -193,6 +193,23 @@ async def minutes_for_document_pages(page_count: int) -> int:
     return max(1, ceil(max(1, page_count) / pages_per_minute))
 
 
+async def minutes_for_text_file() -> int:
+    """Minutes charged for a text file (.txt, .md, .rtf): zero (task-380).
+
+    Read straight off the configuration rather than through `_conversion`, which
+    floors every value at one: zero is a legitimate *price* here, not a missing
+    figure, because no provider is called at all -- the worker decodes the bytes
+    itself. Still read from the config, so the paywall's cost table and the debit
+    below can never state two different prices.
+    """
+    config = await pricing_config_service.get_pricing_config()
+    value = (config.get("unit_conversion", {}) or {}).get("text_file_minutes", 0)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 async def minutes_for_folder_sources(source_count: int) -> int:
     """Minutes charged for a generation over a folder: one per five sources.
 
@@ -991,6 +1008,25 @@ async def record_document_parse(
         kind="document",
         documents=1,
         document_pages=pages,
+    )
+
+
+async def record_text_file_parse(user_id: str, *, idempotency_token: str) -> int:
+    """Count a decoded text file, and charge what it costs -- nothing (task-380).
+
+    A `.txt`, `.md` or `.rtf` reaches the document worker like any other file, but
+    it has no page to price and no provider call behind it, so
+    `record_document_parse` cannot serve: its `max(1, page_count)` would bill a
+    page that does not exist. The import is still *counted* against the daily
+    document guard, which is what bounds how fast one account can push files
+    through the pipeline.
+    """
+    return await _debit(
+        user_id,
+        minutes=await minutes_for_text_file(),
+        idempotency_token=idempotency_token,
+        kind="text_file",
+        documents=1,
     )
 
 

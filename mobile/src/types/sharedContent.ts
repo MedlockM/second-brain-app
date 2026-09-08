@@ -1,8 +1,21 @@
 /**
- * Types for the shared content ingestion flow (non-URL shares).
- * Used when WhatsApp (or other apps) share raw text or audio files
- * that should be ingested via POST /api/media/ingest-shared-content.
+ * Types for the shared content ingestion flow (non-URL shares): raw text or an
+ * audio file handed over by the system share sheet, ingested through
+ * POST /api/media/ingest-shared-content.
+ *
+ * The two halves carry a different `source_platform`, and for a reason that is
+ * platform-imposed rather than chosen (task-380):
+ *
+ * - **text -> `notes`**. Neither iOS nor Android names the app a share came from —
+ *   `expo-share-intent` exposes no host-app field on either platform — so there is
+ *   nothing to branch on. Shared text is therefore attributed to Notes, which is
+ *   what it is in the overwhelming majority of cases (Apple Notes, Google Keep,
+ *   Samsung Notes) and is an honest label for the rest.
+ * - **audio -> `whatsapp`**. Voice notes are what WhatsApp actually sends, and it
+ *   stays the source of those.
  */
+
+import { formatNumber, t } from "../i18n";
 
 export type SharedContentType = "text" | "audio";
 
@@ -34,6 +47,9 @@ export const MAX_SHARED_AUDIO_SIZE_BYTES = 25 * 1024 * 1024;
 
 /**
  * Maximum text length for shared text ingestion (50,000 characters).
+ * Mirrors `MAX_SHARED_TEXT_LENGTH` in `media_summarizer/api/endpoints/media.py`,
+ * so a note over the ceiling is refused with a readable reason on the device
+ * instead of coming back as a 400.
  */
 export const MAX_SHARED_TEXT_LENGTH = 50_000;
 
@@ -56,7 +72,7 @@ export interface SharedFileAttachment {
  */
 export interface IngestSharedTextRequest {
   share_type: "text";
-  source_platform: "whatsapp";
+  source_platform: "notes";
   source_app: string;
   locale?: string;
   idempotency_key: string;
@@ -125,4 +141,48 @@ export function isWhatsAppAudioFile(file: SharedFileAttachment): boolean {
   }
 
   return false;
+}
+
+/** Why a shared note could not be turned into something to save. */
+export type SharedNoteRejectionReason = "no_text" | "too_long";
+
+export interface SharedNoteRejection {
+  reason: SharedNoteRejectionReason;
+  /** Message naming the reason, shown to the user as-is. */
+  message: string;
+}
+
+/**
+ * A shared note's text, or a rejection naming what is wrong with it (task-380).
+ *
+ * Two cases, both of which used to end in a screen that simply closed itself:
+ * a note with nothing readable in it — a locked note hands over an empty string,
+ * and so does a note holding only a drawing or a photo — and a note past the
+ * server's ceiling. Neither is a bug to hide; both are a sentence the
+ * confirmation screen can show.
+ *
+ * Shared by the confirmation flow and by `SharedContentService`, so the reason
+ * the user reads and the reason the submission refuses can never diverge.
+ */
+export function validateSharedNoteText(
+  rawText: string | null | undefined,
+): { text: string } | { rejection: SharedNoteRejection } {
+  const trimmed = (rawText ?? "").trim();
+  if (!trimmed) {
+    return {
+      rejection: { reason: "no_text", message: t("share.reject.noText") },
+    };
+  }
+  if (trimmed.length > MAX_SHARED_TEXT_LENGTH) {
+    return {
+      rejection: {
+        reason: "too_long",
+        message: t("share.reject.tooLong", {
+          count: formatNumber(trimmed.length),
+          max: formatNumber(MAX_SHARED_TEXT_LENGTH),
+        }),
+      },
+    };
+  }
+  return { text: trimmed };
 }

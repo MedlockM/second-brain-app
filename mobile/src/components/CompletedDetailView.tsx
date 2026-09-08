@@ -141,9 +141,9 @@ type SourceLink = {
  *
  * Everything else stored in `source_url` is not a destination. Checked against
  * `user_media-dev` on 2026-08-17: uploads carry no `source_url` attribute at all
- * (the API defaults it to `""`), and WhatsApp-shared audio and text carry a
- * synthetic `share://whatsapp/...` marker. Both return `null` here, which is what
- * keeps the chip inert rather than offering a tap that goes nowhere.
+ * (the API defaults it to `""`), and shared audio and text carry a synthetic
+ * `share://<platform>/...` marker. Both return `null` here, which is what keeps
+ * the chip inert rather than offering a tap that goes nowhere.
  */
 function resolveSourceLink(rawUrl: string): SourceLink | null {
   const trimmed = rawUrl.trim();

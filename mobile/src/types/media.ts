@@ -32,6 +32,7 @@ export type SourcePlatform =
   | "tiktok"
   | "x"
   | "whatsapp"
+  | "notes"
   | "web"
   | "direct_url"
   | "unknown";

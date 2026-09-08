@@ -62,6 +62,24 @@ Test on at least one small viewport (320px width, e.g. iPhone SE) and one standa
 - [ ] Tapping X while offline shows "Could not remove it" with a working retry
 - [ ] A local import (file picker, camera) still submits on Save and auto-dismisses
 
+### Sharing a note (task-380 — needs a fresh EAS build, not an OTA update)
+- [ ] iOS: sharing a note from **Apple Notes** opens the confirmation screen with its text
+- [ ] Android: sharing a note from **Google Keep** does the same
+- [ ] Android (Samsung device): sharing a note from **Samsung Notes** does the same
+- [ ] The preview label reads "Note" — the words "WhatsApp" and "message" appear nowhere
+- [ ] The preview icon is a document, not a speech bubble
+- [ ] The top bar reads "Save Note"
+- [ ] Once processed, the title is the note's own first line (a Markdown `# Heading` loses its `#`)
+- [ ] Exporting the same note to `.txt`, then `.md`, then `.rtf` and sharing each one: all three are accepted, and their content reads as text with accents and paragraphs intact
+- [ ] A text file debits nothing: the minutes gauge on Account is unchanged after the three imports
+- [ ] iOS: sharing a **locked** note shows "This note has no text to save…" and the screen stays open
+- [ ] A note longer than 50,000 characters is refused with the two figures in the sentence
+- [ ] A 0-byte `.txt` is refused before any transfer; a whitespace-only `.txt` fails with "This document could not be read…"
+- [ ] A note holding text **and** a photo presents exactly one item — never a blank screen that closes itself
+- [ ] Selecting several files at once and sharing them presents exactly one, and one the app can handle
+- [ ] The paywall shows a "Notes" chip, a "TXT MD RTF" chip, and a "A note or a text file / Free" cost row
+- [ ] Sharing a **voice note** from WhatsApp still says audio, not note
+
 ### Validation
 - [ ] Invalid URL shows validation error banner (red)
 - [ ] Empty share shows appropriate error message
