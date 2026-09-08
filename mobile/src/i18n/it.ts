@@ -81,6 +81,16 @@ export const it: Catalog = {
   "folderActions.deleteFailed":
     "Non è stato possibile eliminare questa cartella. È ancora nella tua libreria.",
   "addSource.title": "Aggiungi alla tua posta in arrivo",
+  "addSource.enterUrl.label": "Incolla un link",
+  "addSource.enterUrl.description":
+    "Un articolo, un video o un episodio di podcast, da qualsiasi punto del web.",
+  "addUrl.title": "Aggiungi un link",
+  "addUrl.placeholder": "https://",
+  "addUrl.hint":
+    "L'elaborazione inizia appena lo aggiungi. La cartella la scegli subito dopo.",
+  "addUrl.submit": "Aggiungi",
+  "addUrl.error.invalid":
+    "Nessun link trovato in ciò che hai scritto. Incolla un indirizzo web come https://esempio.com/articolo.",
   "addSource.importFile.label": "Importa un file",
   "addSource.importFile.description": "Un PDF, un documento Office, un'immagine o un file audio dal tuo telefono.",
   "addSource.importPhoto.label": "Importa una foto",

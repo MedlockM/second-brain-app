@@ -81,6 +81,15 @@ export const ar: Catalog = {
   "folderActions.deleteFailed":
     "لم يتم حذف هذا المجلد. ما زال موجودًا في مكتبتك.",
   "addSource.title": "إضافة إلى صندوق الوارد",
+  "addSource.enterUrl.label": "لصق رابط",
+  "addSource.enterUrl.description":
+    "مقال أو فيديو أو حلقة بودكاست من أي مكان على الويب.",
+  "addUrl.title": "إضافة رابط",
+  "addUrl.placeholder": "https://",
+  "addUrl.hint": "تبدأ المعالجة بمجرد إضافته. تختار المجلد بعد ذلك.",
+  "addUrl.submit": "إضافة",
+  "addUrl.error.invalid":
+    "لم يتم العثور على أي رابط في ما كتبته. الصق عنوان ويب مثل https://example.com/article.",
   "addSource.importFile.label": "استيراد ملف",
   "addSource.importFile.description": "ملف PDF أو مستند Office أو صورة أو ملف صوتي من هاتفك.",
   "addSource.importPhoto.label": "استيراد صورة",

@@ -14,6 +14,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../src/contexts/AuthContext";
 import {
+  ingestsOnArrival,
   useShareIntake,
   type ShareCancellation,
   type ShareContentType,
@@ -53,13 +54,15 @@ const TOP_BAR_TITLE_KEYS: Record<ShareContentType, TranslationKey> = {
  * Confirmation screen for every incoming save: the folder is chosen here.
  *
  * Reached from the system share sheet (Android share intent / iOS share
- * extension) and, since task-264, from the inbox "add" gesture. The two buttons
- * do not mean the same thing on both journeys (task-378):
+ * extension), from the inbox "add" gesture since task-264, and from a URL typed
+ * in the "+" menu since task-379. The two buttons do not mean the same thing on
+ * every journey (task-378), and what splits them is whether the ingestion had
+ * already started when the screen opened — `ingestsOnArrival`:
  *
- * - A share is already being processed when this screen appears — the ingestion
- *   started the moment the user picked this app in the share sheet, so the modal
- *   is opened on work in progress. Save *keeps* that save, and the close button
- *   deletes it.
+ * - A share, or a URL the user typed, is already being processed when this screen
+ *   appears: the ingestion started the moment the content was understood, so the
+ *   modal is opened on work in progress. Save *keeps* that save, and the close
+ *   button deletes it.
  * - A local import has been sent nowhere yet. Save is what submits it, and
  *   closing submits nothing and so has nothing to delete.
  *
@@ -100,7 +103,9 @@ export default function ShareConfirmationScreen() {
   const guardInFlightRef = useRef<Promise<void> | null>(null);
   const redirectingRef = useRef(false);
   const closeInFlightRef = useRef(false);
-  const isShare = intake.origin === "share";
+  // What the two header buttons mean: an intake already under way is confirmed or
+  // removed, one that has been sent nowhere is submitted or abandoned.
+  const startedOnArrival = ingestsOnArrival(intake.origin);
 
   const redirectToLogin = useCallback(() => {
     setIsSessionReady(false);
@@ -162,9 +167,9 @@ export default function ShareConfirmationScreen() {
   }, [router]);
 
   /**
-   * The close button. On a share it removes the save the arrival created, which
-   * is a network call: the screen only leaves once that call succeeded, so a
-   * failed removal is never presented as a completed one.
+   * The close button. On anything that started on arrival it removes the save that
+   * start created, which is a network call: the screen only leaves once that call
+   * succeeded, so a failed removal is never presented as a completed one.
    */
   const handleClose = useCallback(() => {
     if (closeInFlightRef.current) return;
@@ -177,23 +182,23 @@ export default function ShareConfirmationScreen() {
 
   /**
    * A local import closes itself once it went through — there is nothing left to
-   * decide. A share does not: the end of the transfer is not the user's answer,
-   * and closing this screen for them would take away the choice of the folder and
-   * of keeping the save at all (task-378).
+   * decide. An intake that started on arrival does not: the end of the transfer is
+   * not the user's answer, and closing this screen for them would take away the
+   * choice of the folder and of keeping the save at all (task-378).
    */
   useEffect(() => {
-    if (isShare || intake.status !== "success") return;
+    if (startedOnArrival || intake.status !== "success") return;
     const timer = setTimeout(() => {
       handleClose();
     }, 2000);
     return () => clearTimeout(timer);
-  }, [handleClose, intake.status, isShare]);
+  }, [handleClose, intake.status, startedOnArrival]);
 
   /**
    * Save. It sends the content only when nothing has been sent yet — a local
-   * import, or a share whose submission was refused. On a share already under
-   * way it confirms: the folder the user picked is applied, and the modal closes
-   * on the save that already exists rather than creating a second one.
+   * import, or an intake whose submission was refused. On one already under way it
+   * confirms: the folder the user picked is applied, and the modal closes on the
+   * save that already exists rather than creating a second one.
    */
   const handleSave = useCallback(() => {
     if (intake.status === "ready" || intake.status === "error") {
@@ -229,14 +234,14 @@ export default function ShareConfirmationScreen() {
   };
 
   const isRemoving = cancellation.status === "pending";
-  // On a share, Save stays available for the whole life of the modal: it is the
-  // answer to a save that already exists, so it is offered while the content is
-  // still going out and once it has landed. A local import keeps Save for the
-  // states it can actually be sent from.
+  // When the ingestion started on arrival, Save stays available for the whole life
+  // of the modal: it is the answer to a save that already exists, so it is offered
+  // while the content is still going out and once it has landed. A local import
+  // keeps Save for the states it can actually be sent from.
   const canSave =
     !isRemoving &&
     !isConfirming &&
-    (isShare
+    (startedOnArrival
       ? intake.status === "ready" ||
         intake.status === "submitting" ||
         intake.status === "success" ||
@@ -266,7 +271,7 @@ export default function ShareConfirmationScreen() {
             onPress={handleClose}
             disabled={isRemoving}
             accessibilityLabel={
-              isShare ? t("share.cancel.action") : t("common.close")
+              startedOnArrival ? t("share.cancel.action") : t("common.close")
             }
           />
         }
@@ -345,10 +350,10 @@ function ShareContent({
         </View>
       );
 
-    // One layout for the three states a save can be seen in, because on a share
-    // they are one continuous moment: the content arrives, it is already being
-    // sent, and it lands — all of it under the folder row the user came here for.
-    // The card's own footer is what says where it stands.
+    // One layout for the three states a save can be seen in, because when the
+    // ingestion started on arrival they are one continuous moment: the content
+    // arrives, it is already being sent, and it lands — all of it under the folder
+    // row the user came here for. The card's own footer says where it stands.
     case "ready":
     case "submitting":
       return (
@@ -362,7 +367,7 @@ function ShareContent({
     case "success":
       // A local import is done with: it was sent by Save, so this is the receipt
       // and the screen closes on its own.
-      if (intake.origin !== "share") {
+      if (!ingestsOnArrival(intake.origin)) {
         return (
           <View style={styles.centerContent}>
             <View style={styles.successIcon}>
@@ -475,8 +480,8 @@ function ShareContent({
 /**
  * The card and the folder row: what the user came to this screen to decide.
  *
- * The folder stays pickable while a share is being sent and once it has landed —
- * the whole point of starting the ingestion on arrival is that these seconds are
+ * The folder stays pickable while the content is being sent and once it has landed
+ * — the whole point of starting the ingestion on arrival is that these seconds are
  * spent on the choice instead of on a progress bar, and the provider applies a
  * late choice to the save that was already created (task-378). A local import is
  * the one case where it locks: its folder travels inside the upload request, so
@@ -491,13 +496,13 @@ function IntakeChoice({
   selectedFolder: ShareSelectedFolder | null;
   onOpenFolder: () => void;
 }) {
-  const isShare = intake.origin === "share";
+  const startedOnArrival = ingestsOnArrival(intake.origin);
   const isSubmitting = intake.status === "submitting";
-  // Said only once the ingestion is actually under way, which on a share is from
-  // the first frame after arrival: claiming it before the submission left would
-  // be a promise the screen cannot keep.
+  // Said only once the ingestion is actually under way, which for a share or a
+  // typed URL is from the first frame after arrival: claiming it before the
+  // submission left would be a promise the screen cannot keep.
   const showHint =
-    isShare && (isSubmitting || intake.status === "success");
+    startedOnArrival && (isSubmitting || intake.status === "success");
 
   return (
     <>
@@ -505,7 +510,7 @@ function IntakeChoice({
       <OrganizationControls
         selectedFolder={selectedFolder}
         onOpenFolder={onOpenFolder}
-        disabled={!isShare && isSubmitting}
+        disabled={!startedOnArrival && isSubmitting}
       />
       {showHint ? (
         <View style={styles.hintSection}>

@@ -81,6 +81,16 @@ export const ja: Catalog = {
   "folderActions.deleteFailed":
     "このフォルダを削除できませんでした。まだライブラリに残っています。",
   "addSource.title": "受信箱に追加",
+  "addSource.enterUrl.label": "リンクを貼り付ける",
+  "addSource.enterUrl.description":
+    "記事、動画、ポッドキャストのエピソードなど、ウェブ上のどこからでも。",
+  "addUrl.title": "リンクを追加",
+  "addUrl.placeholder": "https://",
+  "addUrl.hint":
+    "追加するとすぐに処理が始まります。フォルダはそのあとで選べます。",
+  "addUrl.submit": "追加",
+  "addUrl.error.invalid":
+    "入力内容にリンクが見つかりませんでした。https://example.com/article のようなウェブアドレスを貼り付けてください。",
   "addSource.importFile.label": "ファイルを読み込む",
   "addSource.importFile.description": "スマートフォンの PDF、Office 文書、画像、音声ファイル。",
   "addSource.importPhoto.label": "写真を読み込む",

@@ -62,10 +62,26 @@ export type ShareContentType = "url" | "text" | "audio" | "file" | "photo";
  * - "share": the user picked this app in the system share sheet. The ingestion
  *   starts on arrival, so Save only *confirms* the save and the close button
  *   deletes it.
+ * - "url-entry": the user typed or pasted the URL in the app, from the "+" menu
+ *   of the Home screen (task-379). Same two meanings as a share — the URL was
+ *   validated and the session revalidated before the intake existed, so there is
+ *   nothing left to wait for — and it is a separate value only so the submission
+ *   can report where it came from.
  * - "local": a file picked or a photo taken inside the app. Save is still what
  *   submits it, and closing submits nothing and deletes nothing.
  */
-export type ShareIntakeOrigin = "share" | "local";
+export type ShareIntakeOrigin = "share" | "url-entry" | "local";
+
+/**
+ * Whether the content is already being processed by the time the confirmation
+ * screen shows it — the one question that decides what its two buttons do.
+ *
+ * Asked instead of comparing against `"share"`, because that comparison would
+ * silently answer "no" for a typed URL, which behaves exactly like a share.
+ */
+export function ingestsOnArrival(origin: ShareIntakeOrigin): boolean {
+  return origin !== "local";
+}
 
 export type ShareIntakeStatus =
   | "idle"
@@ -167,19 +183,25 @@ interface ShareIntentContextValue {
     file: LocalUploadFile,
     contentType: Extract<ShareContentType, "file" | "photo">,
   ) => void;
+  /**
+   * Send a URL the user typed or pasted in the app (task-379). The caller has
+   * already extracted it with `urlValidation`, so this only has the session left
+   * to check before the ingestion starts on its own.
+   */
+  startUrlEntry: (url: string) => void;
   /** Preserve the open confirmation state while authentication is restored. */
   parkCurrentIntakeForAuth: () => void;
   /**
    * Send the pending intake to the endpoint its content type belongs to. Fired
-   * automatically on a share, and by Save on a local import.
+   * automatically on a share and on a typed URL, and by Save on a local import.
    */
   submitIntake: () => Promise<void>;
   /** Keep the save: finish applying the user's choices, then let the modal go. */
   confirmIntake: () => Promise<ShareConfirmResult>;
   /**
-   * Close the modal. A share, which was ingested on arrival, has its save
-   * deleted; a local import, which Save alone submits, is only dismissed.
-   * Resolves to whether the screen may leave.
+   * Close the modal. Anything that was ingested on arrival — a share, a typed URL
+   * — has its save deleted; a local import, which Save alone submits, is only
+   * dismissed. Resolves to whether the screen may leave.
    */
   cancelIntake: () => Promise<boolean>;
   retry: () => void;
@@ -187,6 +209,7 @@ interface ShareIntentContextValue {
 
 type PendingIntake =
   | { kind: "share"; intent: ShareIntent }
+  | { kind: "url"; url: string }
   | {
       kind: "local";
       file: LocalUploadFile;
@@ -267,8 +290,18 @@ function shareIntentKey(intent: ShareIntent): string {
   });
 }
 
-/** Which app the submission reports as its source, per platform. */
-function shareSourceApp(): string {
+/**
+ * What the submission reports as its source, so the origin of a save stays
+ * readable in the data.
+ *
+ * A share is named after the platform mechanism that carried it, and those two
+ * values are part of the API contract — they are not to be renamed. A URL typed in
+ * the app is neither of them, and gets a value of its own (task-379): the same
+ * link reaching us from the share sheet and from the "+" menu are two different
+ * facts about how the product is used.
+ */
+function sourceAppFor(origin: ShareIntakeOrigin): string {
+  if (origin === "url-entry") return "app-url-entry";
   return Platform.OS === "ios" ? "ios-share-extension" : "android-share-intent";
 }
 
@@ -354,6 +387,12 @@ function toSubmissionError(
  * that already exists, which is why deletion and folder patching live here too —
  * both must survive the screen being closed while a call is still in flight.
  *
+ * Since task-379 it also holds the third way a URL can arrive: typed or pasted in
+ * the app, from the "+" menu of the Home screen. It goes through this provider
+ * rather than straight to `MediaService` so it inherits the whole of the above —
+ * the auth replay, the automatic start, the folder patching, the deletion — and
+ * differs from a share in exactly one thing, the `source_app` it reports.
+ *
  * Must be placed inside AuthProvider and the package's ShareIntentProvider.
  */
 export function ShareIntentProvider({
@@ -430,6 +469,30 @@ export function ShareIntentProvider({
         contentType,
         audioFile: null,
         uploadFile: file,
+      });
+      navigateToConfirmation();
+    },
+    [beginReception, navigateToConfirmation],
+  );
+
+  /**
+   * Open the confirmation screen on a URL the user typed in (task-379).
+   *
+   * The URL arrives already extracted and validated by the dialog that collected
+   * it, so the intake is "ready" from the first frame — which is what makes the
+   * automatic submission below fire without a tap on Save.
+   */
+  const applyUrlEntry = useCallback(
+    (url: string) => {
+      beginReception();
+      setIntake({
+        status: "ready",
+        origin: "url-entry",
+        url,
+        rawText: null,
+        message: null,
+        contentType: "url",
+        audioFile: null,
       });
       navigateToConfirmation();
     },
@@ -650,6 +713,8 @@ export function ShareIntentProvider({
 
       if (pending.kind === "share") {
         processShareIntent(pending.intent);
+      } else if (pending.kind === "url") {
+        applyUrlEntry(pending.url);
       } else if (pending.kind === "local") {
         // Only the inbox "add" gesture parks a file, so this replay is always a
         // local import — a shared file is mapped by processShareIntent above.
@@ -666,7 +731,14 @@ export function ShareIntentProvider({
       }
     });
     return operation;
-  }, [applyLocalUpload, navigateToConfirmation, processShareIntent, revalidateSession, router]);
+  }, [
+    applyLocalUpload,
+    applyUrlEntry,
+    navigateToConfirmation,
+    processShareIntent,
+    revalidateSession,
+    router,
+  ]);
 
   /**
    * React to share intent changes from the package.
@@ -786,7 +858,7 @@ export function ShareIntentProvider({
     try {
       const response = await MediaService.ingestUrl({
         url,
-        source_app: shareSourceApp(),
+        source_app: sourceAppFor(intake.origin),
         folder_id: folderId,
       });
 
@@ -844,11 +916,11 @@ export function ShareIntentProvider({
     try {
       const response = isText
         ? await SharedContentService.ingestSharedText(intake.rawText!, {
-            sourceApp: shareSourceApp(),
+            sourceApp: sourceAppFor(intake.origin),
             folderId,
           })
         : await SharedContentService.ingestSharedAudio(intake.audioFile!, {
-            sourceApp: shareSourceApp(),
+            sourceApp: sourceAppFor(intake.origin),
             folderId,
           });
 
@@ -962,16 +1034,17 @@ export function ShareIntentProvider({
   }, [intake, submitSharedContent, submitUpload, submitUrl]);
 
   /**
-   * Start processing the moment the share is understood (task-378).
+   * Start processing the moment the content is understood (task-378, task-379).
    *
    * The session was revalidated before the intake was mapped
-   * (`resumePendingIntake`) and the content was validated while mapping it, so
-   * "ready" on a share means every gate before the submission has been passed
-   * and the only thing left to wait for would be a tap on Save. A local import
-   * is untouched: Save is still what sends it.
+   * (`resumePendingIntake`) and the content was validated while mapping it — or,
+   * for a typed URL, by the dialog that collected it — so "ready" on either of
+   * those two origins means every gate before the submission has been passed and
+   * the only thing left to wait for would be a tap on Save. A local import is
+   * untouched: Save is still what sends it.
    */
   useEffect(() => {
-    if (intake.origin !== "share" || intake.status !== "ready") return;
+    if (!ingestsOnArrival(intake.origin) || intake.status !== "ready") return;
     const tracking = trackingRef.current;
     if (tracking.autoSubmittedId === tracking.receptionId) return;
     if (tracking.cancelRequested) return;
@@ -992,6 +1065,23 @@ export function ShareIntentProvider({
       contentType: Extract<ShareContentType, "file" | "photo">,
     ) => {
       pendingIntakeRef.current = { kind: "local", file, contentType };
+      void resumePendingIntake();
+    },
+    [resumePendingIntake],
+  );
+
+  /**
+   * Start an ingestion from a URL typed or pasted in the app (task-379).
+   *
+   * Parked the same way a picked file is, so the one guard that matters is shared:
+   * an expired session sends the user to sign in and the URL is applied on the way
+   * back rather than lost. The submission itself is fired by the effect above, not
+   * from here — which is what keeps a return from the login screen from adding a
+   * second save.
+   */
+  const startUrlEntry = useCallback(
+    (url: string) => {
+      pendingIntakeRef.current = { kind: "url", url };
       void resumePendingIntake();
     },
     [resumePendingIntake],
@@ -1054,10 +1144,10 @@ export function ShareIntentProvider({
     tracking.cancelRequested = true;
 
     // A local import is submitted by Save alone, so closing has nothing to undo.
-    // Neither has a share that was refused, or one whose content never made it
-    // past validation.
+    // Neither has a share or a typed URL that was refused, or one whose content
+    // never made it past validation.
     if (
-      intake.origin !== "share" ||
+      !ingestsOnArrival(intake.origin) ||
       (!tracking.inFlight && !tracking.saveCreated)
     ) {
       dismiss();
@@ -1105,8 +1195,9 @@ export function ShareIntentProvider({
   /**
    * Retry after an error - go back to ready state.
    *
-   * The reception's submission guard is reopened, so a share submits again on
-   * its own and a local import waits for Save, exactly as they do on arrival.
+   * The reception's submission guard is reopened, so a share or a typed URL
+   * submits again on its own and a local import waits for Save, exactly as they do
+   * on arrival.
    */
   const retry = useCallback(() => {
     if (intake.status === "error") {
@@ -1128,6 +1219,7 @@ export function ShareIntentProvider({
     selectedFolder,
     setSelectedFolder: selectFolder,
     startLocalUpload,
+    startUrlEntry,
     parkCurrentIntakeForAuth,
     submitIntake,
     confirmIntake,

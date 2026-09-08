@@ -81,6 +81,16 @@ export const nl: Catalog = {
   "folderActions.deleteFailed":
     "Deze map kon niet worden verwijderd. Ze staat nog in je bibliotheek.",
   "addSource.title": "Toevoegen aan je postvak",
+  "addSource.enterUrl.label": "Een link plakken",
+  "addSource.enterUrl.description":
+    "Een artikel, een video of een podcastaflevering — waar dan ook op het web.",
+  "addUrl.title": "Een link toevoegen",
+  "addUrl.placeholder": "https://",
+  "addUrl.hint":
+    "De verwerking start zodra je hem toevoegt. De map kies je daarna.",
+  "addUrl.submit": "Toevoegen",
+  "addUrl.error.invalid":
+    "Geen link gevonden in wat je hebt ingevoerd. Plak een webadres zoals https://voorbeeld.nl/artikel.",
   "addSource.importFile.label": "Een bestand importeren",
   "addSource.importFile.description": "Een PDF, een Office-document, een afbeelding of een audiobestand van je telefoon.",
   "addSource.importPhoto.label": "Een foto importeren",

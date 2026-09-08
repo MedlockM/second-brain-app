@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -21,6 +21,7 @@ import { useMediaPolling } from "../../src/hooks/useMediaPolling";
 import { useHomeSections } from "../../src/hooks/useHomeSections";
 import { t, tCount, useTranslation } from "../../src/i18n";
 import { AddSourceSheet } from "../../src/components/AddSourceSheet";
+import { UrlEntryDialog } from "../../src/components/UrlEntryDialog";
 import { MinutesWarningBanner } from "../../src/components/MinutesWarningBanner";
 import { FreeTrialNotice } from "../../src/components/FreeTrialNotice";
 import {
@@ -35,6 +36,7 @@ import {
   pickPhotoFromLibrary,
   type LocalImportResult,
 } from "../../src/lib/localImport";
+import { validateShareIntentPayload } from "../../src/lib/urlValidation";
 import {
   Colors,
   Typography,
@@ -68,9 +70,14 @@ import type { RecentEngagement } from "../../src/types/engagements";
  * because a row with nothing to say is simply absent.
  *
  * Also hosts the ingestion gestures (task-264): a camera button that shoots
- * straight away, and an "add" button opening the choice between a file and a
- * gallery photo. All three hand the result to the share confirmation screen,
- * where the folder is picked before sending.
+ * straight away, and an "add" button opening the choice between a link, a file
+ * and a gallery photo (task-379). All four hand the result to the share
+ * confirmation screen, where the folder is picked.
+ *
+ * The link is the one of the four that does not wait for Save: a URL needs
+ * nothing uploaded, so processing starts the moment the address is validated and
+ * the confirmation screen opens over a run already under way. The three local
+ * imports still send on Save, because their bytes leave from that screen.
  */
 
 /**
@@ -108,9 +115,22 @@ export default function InboxScreen() {
   // The screen's copy is resolved on render, so it redraws with the language.
   useTranslation();
   const router = useRouter();
-  const { startLocalUpload } = useShareIntake();
+  const { startLocalUpload, startUrlEntry } = useShareIntake();
   const { refreshEntitlements } = usePurchases();
   const [isSourceSheetVisible, setSourceSheetVisible] = useState(false);
+  const [isUrlDialogVisible, setUrlDialogVisible] = useState(false);
+  const [urlDraft, setUrlDraft] = useState("");
+  const [urlError, setUrlError] = useState<string | null>(null);
+  /**
+   * Whether the address currently in the field has already been handed over.
+   *
+   * A tap on Add starts an ingestion, so a second tap landing in the same frame
+   * as the first — before the dialog has closed — would start a second one, on
+   * the same URL, and the server has no idempotency key to fold them back
+   * together. Reset when the dialog is opened, so a new deliberate entry is a new
+   * ingestion.
+   */
+  const urlHandedOver = useRef(false);
   const {
     items,
     isLoading,
@@ -188,6 +208,51 @@ export default function InboxScreen() {
   const handleTakePhoto = useCallback(async () => {
     handleImportResult(await capturePhotoToImport(), "photo");
   }, [handleImportResult]);
+
+  /**
+   * Fired by the sheet once it has closed, for the same reason the two pickers
+   * are: the dialog is a modal presented on the controller the sheet is leaving.
+   */
+  const handleEnterUrl = useCallback(() => {
+    setUrlDraft("");
+    setUrlError(null);
+    urlHandedOver.current = false;
+    setUrlDialogVisible(true);
+  }, []);
+
+  const handleCloseUrlDialog = useCallback(() => {
+    setUrlDialogVisible(false);
+    setUrlDraft("");
+    setUrlError(null);
+  }, []);
+
+  /**
+   * The one gate before an ingestion starts: the same extraction the share intent
+   * goes through, so a link pasted with the sentence around it or typed without
+   * its scheme is accepted here exactly as it is when it arrives from another app.
+   *
+   * A refusal stays in the dialog — no save is created, and the confirmation
+   * screen is not opened — and leaves the field as it was, so a missing character
+   * costs a correction rather than a retype.
+   */
+  const handleSubmitUrl = useCallback(
+    (text: string) => {
+      if (urlHandedOver.current) return;
+
+      const validation = validateShareIntentPayload(text);
+      if (!validation.valid) {
+        setUrlError(t("addUrl.error.invalid"));
+        return;
+      }
+
+      urlHandedOver.current = true;
+      setUrlDialogVisible(false);
+      setUrlDraft("");
+      setUrlError(null);
+      startUrlEntry(validation.url);
+    },
+    [startUrlEntry],
+  );
 
   const continueTiles = useMemo(
     () => continueLearning.map(toEngagementTile),
@@ -343,8 +408,18 @@ export default function InboxScreen() {
       <AddSourceSheet
         visible={isSourceSheetVisible}
         onClose={() => setSourceSheetVisible(false)}
+        onEnterUrl={handleEnterUrl}
         onImportFile={handleImportFile}
         onImportPhoto={handleImportPhoto}
+      />
+
+      <UrlEntryDialog
+        visible={isUrlDialogVisible}
+        value={urlDraft}
+        onChangeText={setUrlDraft}
+        errorMessage={urlError}
+        onClose={handleCloseUrlDialog}
+        onSubmit={handleSubmitUrl}
       />
     </SafeAreaView>
   );

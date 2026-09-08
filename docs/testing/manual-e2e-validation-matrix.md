@@ -67,6 +67,14 @@ is already running. Save therefore *keeps* that save and applies the folder, and
 the X *deletes* it. A local import (file picker, camera) is unchanged — Save is
 still what submits it.
 
+Since task-379 a URL no longer has to come from another app's share sheet: the "+"
+button on Home offers "Paste a link", and an address typed or pasted there takes
+the very same path — same validation, same submission, same confirmation screen,
+same meaning for Save and for the X. The one difference is on the wire: the
+`source_app` of the request reads `app-url-entry` instead of
+`ios-share-extension` / `android-share-intent`. SI-16 through SI-22 cover that
+entry; SI-01 through SI-15 stay on the incoming system share.
+
 | ID | Scenario | Steps | Expected Result | Pass/Fail Criteria |
 |---|---|---|---|---|
 | SI-01 | Valid URL share from external app | 1. Open source app 2. Find shareable content 3. Tap Share, select our app | Share confirmation screen opens with URL pre-filled | URL displayed correctly, no validation error |
@@ -84,6 +92,13 @@ still what submits it.
 | SI-13 | Duplicate URL submission | Share same URL that was already ingested | Success, with the "already in your inbox" wording | User sees success (no error), item appears in inbox |
 | SI-14 | Session expired on arrival | Token expired, share a URL | Redirected to sign-in; after signing in, the share resumes and starts processing on its own | No lost share, no double submission |
 | SI-15 | Rate limited during submit | Submit many URLs rapidly | Error: "Too many requests. Please wait a moment and try again." | Error banner, Retry button functional |
+| SI-16 | Typed URL starts processing without Save | Home → "+" → "Paste a link" → type `https://example.com/article` → Add | The dialog closes and the confirmation screen opens with the card already showing a spinner then a checkmark | Processing visibly starts before any tap on Save; one item in the inbox behind the modal |
+| SI-17 | Pasted URL with surrounding text | In the link dialog, paste "Check this out https://example.com/article cool" → Add | Accepted; the URL alone is what gets submitted | Confirmation screen shows the cleaned URL, surrounding text stripped |
+| SI-18 | Bare domain typed in | In the link dialog, type `example.com/article` → Add | Scheme auto-prepended, submitted as `https://example.com/article` | Accepted with no error shown |
+| SI-19 | Non-URL text refused in place | In the link dialog, type `just some words` → Add | The dialog stays open with "No link found in what you typed…" under the field; the field keeps its text | No confirmation screen, no item created in the inbox (verify after a pull-to-refresh) |
+| SI-20 | Save and X on a typed URL | From SI-16: (a) tap Save, then repeat SI-16 and (b) tap X while processing, then (c) once processed | (a) exactly one item, no second job; (b) and (c) the item is gone from the inbox and from Search | Same behaviour as SI-07 / SI-08 / SI-09 — the entry inherits it rather than restating it |
+| SI-21 | Session expired on a typed URL | Token expired, then Home → "+" → "Paste a link" → Add a URL | Redirected to sign-in; after signing in the URL is submitted on its own | No lost entry, and exactly one item afterwards |
+| SI-22 | `source_app` distinguishes the entry | Add a URL from the "+" menu, then read the media item server-side (DynamoDB `-dev`, or the item detail payload) | `source_app` is `app-url-entry` | Not `ios-share-extension` / `android-share-intent`, which stay reserved for the incoming system share |
 
 ### 4.2 Inbox Screen (Processing States and Polling)
 
@@ -229,7 +244,7 @@ Tests that share-first flows behave correctly under degraded and offline network
    - Error message shown (exact text)
    - Network request/response if relevant (from proxy or dev tools)
 5. Re-test any **Blocked** issues after fixes are applied.
-6. All **Critical Path** scenarios (SI-01 through SI-06, IN-01 through IN-16, MD-01 through MD-03, MD-13, MD-18) must pass for release.
+6. All **Critical Path** scenarios (SI-01 through SI-06, SI-16, IN-01 through IN-16, MD-01 through MD-03, MD-13, MD-18) must pass for release.
 
 ### Priority Classification
 
@@ -261,13 +276,13 @@ Copy and fill for each test run.
 
 | Category | Total | Pass | Fail | Blocked | Skipped |
 |---|---|---|---|---|---|
-| Share Intake (SI) | 15 | | | | |
+| Share Intake (SI) | 22 | | | | |
 | Inbox (IN) | 28 | | | | |
 | Media Detail (MD) | 24 | | | | |
 | Error Handling (EH) | 16 | | | | |
 | Network Conditions (NC) | 10 | | | | |
 | Deduplication (DE) | 7 | | | | |
-| **TOTAL** | **100** | | | | |
+| **TOTAL** | **107** | | | | |
 
 ### Detailed Results
 

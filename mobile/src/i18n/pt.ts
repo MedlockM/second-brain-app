@@ -81,6 +81,16 @@ export const pt: Catalog = {
   "folderActions.deleteFailed":
     "Não foi possível eliminar esta pasta. Continua na sua biblioteca.",
   "addSource.title": "Adicionar à sua caixa de entrada",
+  "addSource.enterUrl.label": "Colar um link",
+  "addSource.enterUrl.description":
+    "Um artigo, um vídeo ou um episódio de podcast, em qualquer parte da web.",
+  "addUrl.title": "Adicionar um link",
+  "addUrl.placeholder": "https://",
+  "addUrl.hint":
+    "O processamento começa assim que o adicionar. A pasta escolhe-se logo depois.",
+  "addUrl.submit": "Adicionar",
+  "addUrl.error.invalid":
+    "Não foi encontrado nenhum link no que escreveu. Cole um endereço web como https://exemplo.com/artigo.",
   "addSource.importFile.label": "Importar um ficheiro",
   "addSource.importFile.description": "Um PDF, um documento Office, uma imagem ou um ficheiro de áudio do seu telemóvel.",
   "addSource.importPhoto.label": "Importar uma foto",

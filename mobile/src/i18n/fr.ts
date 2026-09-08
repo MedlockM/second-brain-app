@@ -92,6 +92,16 @@ export const fr: Catalog = {
   "folderActions.deleteFailed":
     "Ce dossier n'a pas pu être supprimé. Il est toujours dans votre bibliothèque.",
   "addSource.title": "Ajouter à votre boîte de réception",
+  "addSource.enterUrl.label": "Coller un lien",
+  "addSource.enterUrl.description":
+    "Un article, une vidéo ou un épisode de podcast, où que ce soit sur le web.",
+  "addUrl.title": "Ajouter un lien",
+  "addUrl.placeholder": "https://",
+  "addUrl.hint":
+    "Le traitement démarre dès que vous l'ajoutez. Vous choisirez le dossier juste après.",
+  "addUrl.submit": "Ajouter",
+  "addUrl.error.invalid":
+    "Aucun lien trouvé dans ce que vous avez saisi. Collez une adresse web comme https://exemple.com/article.",
   "addSource.importFile.label": "Importer un fichier",
   "addSource.importFile.description":
     "Un PDF, un document Office, une image ou un fichier audio depuis votre téléphone.",

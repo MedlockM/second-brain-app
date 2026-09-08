@@ -123,12 +123,24 @@ export const en = {
 
   // --- Add-source sheet ---
   "addSource.title": "Add to your inbox",
+  "addSource.enterUrl.label": "Paste a link",
+  "addSource.enterUrl.description":
+    "An article, a video or a podcast episode — anywhere on the web.",
   "addSource.importFile.label": "Import a file",
   "addSource.importFile.description":
     "A PDF, an Office document, an image or an audio file from your phone.",
   "addSource.importPhoto.label": "Import a photo",
   "addSource.importPhoto.description":
     "Pick a shot you already have in your gallery.",
+
+  // --- Typing a link in (task-379) ---
+  "addUrl.title": "Add a link",
+  "addUrl.placeholder": "https://",
+  "addUrl.hint":
+    "Processing starts as soon as you add it. You pick the folder next.",
+  "addUrl.submit": "Add",
+  "addUrl.error.invalid":
+    "No link found in what you typed. Paste a web address such as https://example.com/article.",
 
   // --- Social sign-in ---
   "auth.or": "or",

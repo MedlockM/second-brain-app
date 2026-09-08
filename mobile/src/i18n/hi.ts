@@ -81,6 +81,16 @@ export const hi: Catalog = {
   "folderActions.deleteFailed":
     "यह फ़ोल्डर हटाया नहीं जा सका। यह अब भी आपकी लाइब्रेरी में है।",
   "addSource.title": "अपने इनबॉक्स में जोड़ें",
+  "addSource.enterUrl.label": "लिंक पेस्ट करें",
+  "addSource.enterUrl.description":
+    "वेब पर कहीं का भी कोई लेख, वीडियो या पॉडकास्ट एपिसोड।",
+  "addUrl.title": "लिंक जोड़ें",
+  "addUrl.placeholder": "https://",
+  "addUrl.hint":
+    "जोड़ते ही प्रोसेसिंग शुरू हो जाती है। फ़ोल्डर आप इसके बाद चुनते हैं।",
+  "addUrl.submit": "जोड़ें",
+  "addUrl.error.invalid":
+    "आपने जो लिखा उसमें कोई लिंक नहीं मिला। https://example.com/article जैसा वेब पता पेस्ट करें।",
   "addSource.importFile.label": "फ़ाइल इम्पोर्ट करें",
   "addSource.importFile.description": "आपके फ़ोन से कोई PDF, Office दस्तावेज़, तस्वीर या ऑडियो फ़ाइल।",
   "addSource.importPhoto.label": "तस्वीर इम्पोर्ट करें",

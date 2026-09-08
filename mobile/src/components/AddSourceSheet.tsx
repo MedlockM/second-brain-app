@@ -1,11 +1,15 @@
 /**
- * Bottom sheet offering the two browse-and-choose ways into the inbox
- * (task-264): importing a file, or picking a photo from the gallery. Taking a
- * photo is a button of its own on the inbox — it needs no choice beforehand.
+ * Bottom sheet offering the ways into the inbox that need a choice first: typing
+ * or pasting a link (task-379), importing a file, or picking a photo from the
+ * gallery (task-264). Taking a photo is a button of its own on the inbox — it
+ * needs no choice beforehand.
  *
- * Kept as a plain RN Modal rather than a router screen: it is a two-line choice,
- * and the gesture it triggers already presents its own full-screen surface right
- * after.
+ * The link comes first. It is what the product is about — an article, a video, a
+ * podcast episode — and it was the one intake with no way in from the app itself:
+ * before task-379 a URL could only arrive through another app's share sheet.
+ *
+ * Kept as a plain RN Modal rather than a router screen: it is a three-line choice,
+ * and every gesture it triggers presents its own surface right after.
  */
 
 import { useRef } from "react";
@@ -25,6 +29,7 @@ import { t } from "../i18n";
 interface AddSourceSheetProps {
   visible: boolean;
   onClose: () => void;
+  onEnterUrl: () => void;
   onImportFile: () => void;
   onImportPhoto: () => void;
 }
@@ -32,6 +37,7 @@ interface AddSourceSheetProps {
 export function AddSourceSheet({
   visible,
   onClose,
+  onEnterUrl,
   onImportFile,
   onImportPhoto,
 }: AddSourceSheetProps) {
@@ -45,6 +51,11 @@ export function AddSourceSheet({
    * so the next attempt is refused as "picking already in progress". Deferring
    * to `onDismiss` guarantees the modal is gone first. Android has no such
    * conflict — the pickers are activities, and `onDismiss` never fires there.
+   *
+   * The URL dialog goes through the same deferral even though it is one of our
+   * own components: an RN `Modal` is presented modally on that very same
+   * controller, so a second one raised over a dismissing first is the same
+   * conflict.
    */
   const runAfterClose = (action: () => void) => {
     if (Platform.OS === "ios") {
@@ -91,6 +102,13 @@ export function AddSourceSheet({
           <Text style={styles.title}>{t("addSource.title")}</Text>
 
           <SourceRow
+            icon="link-outline"
+            label={t("addSource.enterUrl.label")}
+            description={t("addSource.enterUrl.description")}
+            onPress={() => runAfterClose(onEnterUrl)}
+            testID="add-source-url"
+          />
+          <SourceRow
             icon="document-attach-outline"
             label={t("addSource.importFile.label")}
             description={t("addSource.importFile.description")}
@@ -113,11 +131,13 @@ function SourceRow({
   label,
   description,
   onPress,
+  testID,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   description: string;
   onPress: () => void;
+  testID?: string;
 }) {
   return (
     <Pressable
@@ -125,6 +145,7 @@ function SourceRow({
       onPress={onPress}
       accessibilityLabel={label}
       accessibilityRole="button"
+      testID={testID}
     >
       <View style={styles.rowIcon}>
         <Ionicons name={icon} size={22} color={Colors.textMain} />

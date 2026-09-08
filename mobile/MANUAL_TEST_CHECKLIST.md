@@ -67,6 +67,26 @@ Test on at least one small viewport (320px width, e.g. iPhone SE) and one standa
 - [ ] Empty share shows appropriate error message
 - [ ] Error banner has visible retry link
 
+### Typing a link in from the "+" menu (task-379)
+- [ ] "+" on Home offers "Paste a link" above the file and photo rows
+- [ ] The dialog opens *after* the sheet has finished closing (no dead modal on iOS)
+- [ ] The field has focus on opening, and the keyboard is the URL one (`/`, `.com`)
+- [ ] Nothing is auto-capitalised and nothing is auto-corrected while typing
+- [ ] A long press in the field offers the system Paste, and pasting works
+- [ ] The keyboard rises without covering the field or the two buttons
+- [ ] Add is disabled while the field is empty
+- [ ] `just some words` is refused under the field, the dialog stays open, the text
+      is kept, and no item appears in the inbox after a pull-to-refresh
+- [ ] A URL pasted with a sentence around it is accepted, and only the URL is sent
+- [ ] `example.com/article` is accepted and sent as `https://example.com/article`
+- [ ] On Add: the dialog closes, the confirmation screen opens, and the card shows
+      a spinner then a checkmark — processing started before any tap on Save
+- [ ] The folder row is usable while that spinner is running
+- [ ] Save closes the screen and leaves exactly one item (no second job)
+- [ ] X removes the item, both while it is processing and once it is done
+- [ ] Cancel, then "+" → "Paste a link" again: the field is empty, not a leftover draft
+- [ ] With the interface language set to Arabic, the address stays left-to-right
+
 ---
 
 ## 3. Media Detail Screen

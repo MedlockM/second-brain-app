@@ -85,6 +85,16 @@ export const de: Catalog = {
   "folderActions.deleteFailed":
     "Dieser Ordner konnte nicht gelöscht werden. Er ist weiterhin in deiner Bibliothek.",
   "addSource.title": "Zu deinem Posteingang hinzufügen",
+  "addSource.enterUrl.label": "Link einfügen",
+  "addSource.enterUrl.description":
+    "Ein Artikel, ein Video oder eine Podcast-Folge — von überall im Web.",
+  "addUrl.title": "Link hinzufügen",
+  "addUrl.placeholder": "https://",
+  "addUrl.hint":
+    "Die Verarbeitung startet, sobald du ihn hinzufügst. Den Ordner wählst du danach.",
+  "addUrl.submit": "Hinzufügen",
+  "addUrl.error.invalid":
+    "In deiner Eingabe wurde kein Link gefunden. Füge eine Webadresse wie https://beispiel.de/artikel ein.",
   "addSource.importFile.label": "Datei importieren",
   "addSource.importFile.description":
     "Ein PDF, ein Office-Dokument, ein Bild oder eine Audiodatei von deinem Telefon.",

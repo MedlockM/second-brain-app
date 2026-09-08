@@ -84,6 +84,16 @@ export const es: Catalog = {
   "folderActions.deleteFailed":
     "No se pudo eliminar esta carpeta. Sigue en tu biblioteca.",
   "addSource.title": "Añadir a tu bandeja",
+  "addSource.enterUrl.label": "Pegar un enlace",
+  "addSource.enterUrl.description":
+    "Un artículo, un vídeo o un episodio de podcast, en cualquier parte de la web.",
+  "addUrl.title": "Añadir un enlace",
+  "addUrl.placeholder": "https://",
+  "addUrl.hint":
+    "El procesamiento empieza en cuanto lo añades. Elegirás la carpeta justo después.",
+  "addUrl.submit": "Añadir",
+  "addUrl.error.invalid":
+    "No hemos encontrado ningún enlace en lo que has escrito. Pega una dirección web como https://ejemplo.com/articulo.",
   "addSource.importFile.label": "Importar un archivo",
   "addSource.importFile.description":
     "Un PDF, un documento de Office, una imagen o un archivo de audio de tu teléfono.",
