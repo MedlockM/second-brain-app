@@ -562,6 +562,7 @@ export const nl: Catalog = {
   "share.uploadingFile": "Bestand wordt geüpload…",
   "share.whatsappText": "WhatsApp-tekstbericht",
   "share.chooseFolder": "Een map kiezen",
+  "share.folderPlaceholder": "In een map opbergen",
   "share.success.duplicate": "Deze inhoud stond al in je postvak.",
   "share.success.audio": "Audio opgeslagen. De transcriptie begint zo.",
   "share.success.text": "Tekst opgeslagen in je postvak.",

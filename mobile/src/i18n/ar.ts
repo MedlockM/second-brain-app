@@ -561,6 +561,7 @@ export const ar: Catalog = {
   "share.uploadingFile": "جارٍ رفع الملف…",
   "share.whatsappText": "رسالة نصية من WhatsApp",
   "share.chooseFolder": "اختيار مجلد",
+  "share.folderPlaceholder": "حفظ في مجلد",
   "share.success.duplicate": "كان هذا المحتوى في صندوق الوارد بالفعل.",
   "share.success.audio": "تم حفظ الصوت. سيبدأ التحويل إلى نص قريبًا.",
   "share.success.text": "تم حفظ النص في صندوق الوارد.",

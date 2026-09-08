@@ -560,6 +560,7 @@ export const ja: Catalog = {
   "share.uploadingFile": "ファイルをアップロード中…",
   "share.whatsappText": "WhatsApp のテキストメッセージ",
   "share.chooseFolder": "フォルダを選ぶ",
+  "share.folderPlaceholder": "フォルダに整理",
   "share.success.duplicate": "このコンテンツはすでに受信箱にありました。",
   "share.success.audio": "音声を保存しました。まもなく文字起こしが始まります。",
   "share.success.text": "テキストを受信箱に保存しました。",

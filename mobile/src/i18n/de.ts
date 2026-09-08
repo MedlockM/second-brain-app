@@ -677,6 +677,7 @@ export const de: Catalog = {
   "share.uploadingFile": "Datei wird hochgeladen …",
   "share.whatsappText": "WhatsApp-Textnachricht",
   "share.chooseFolder": "Ordner wählen",
+  "share.folderPlaceholder": "In einem Ordner ablegen",
   "share.success.duplicate": "Dieser Inhalt war schon in deinem Posteingang.",
   "share.success.audio":
     "Audio gespeichert. Die Transkription beginnt in Kürze.",

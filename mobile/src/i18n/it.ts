@@ -562,6 +562,7 @@ export const it: Catalog = {
   "share.uploadingFile": "Caricamento del file…",
   "share.whatsappText": "Messaggio di testo WhatsApp",
   "share.chooseFolder": "Scegli una cartella",
+  "share.folderPlaceholder": "Archivia in una cartella",
   "share.success.duplicate": "Questo contenuto era già nella tua posta in arrivo.",
   "share.success.audio": "Audio salvato. La trascrizione inizierà a breve.",
   "share.success.text": "Testo salvato nella tua posta in arrivo.",
