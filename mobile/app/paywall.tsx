@@ -10,8 +10,13 @@
  * turned into sentences by `src/lib/planCopy.ts`; **every price comes from the
  * store package and nowhere else**. Until task-299 the same numbers lived here,
  * in `entitlements.py` and in the config at once, and this screen was the copy
- * that had gone stale. The tiers are *not* feature-identical, and no comment here
- * should say so again — nor should any figure be quoted here, not even in prose.
+ * that had gone stale. No figure is quoted here, not even in prose.
+ *
+ * What separates the tiers is volume on two axes and nothing else: the minutes a
+ * month (`minutes_per_month`) and the longest single import (`max_minutes_per_item`).
+ * There is no capability a tier withholds — so the header may say every plan does
+ * everything, provided it says "how much you send" and not "how many minutes",
+ * which would name only the first axis and leave the ceiling unannounced.
  *
  * **What the screen puts first.** The plans. An earlier version opened with a
  * tagline, a sub-tagline and four benefit lines — roughly 600px of argument —
@@ -19,9 +24,20 @@
  * card was on screen at all. A purchase screen that hides its prices until you
  * scroll is arguing with someone who has already decided to look. The order is
  * now: one short promise, the refusal you are standing in (if any), the three
- * plans, the one rule that qualifies what their allowance meters, then what every
- * plan includes as the supporting evidence. The benefit lines still exist, below
- * the cards, where they answer a question rather than delay one.
+ * plans, then the evidence — what you can send, and what sending it costs.
+ *
+ * **Everything is flat.** There is no disclosure. The exhaustive version of
+ * "what is included" used to hide behind a toggle two taps below the prices,
+ * where the only place the screen admitted the app is not an audio-only product
+ * was a bullet nobody expanded (task-377). What replaced it says more in less
+ * room, because neither block is prose: a row of chips naming the platforms and
+ * formats accepted, and a table of what each kind of import debits.
+ *
+ * **Names, never logos.** The chips carry text in one uniform size. Apple,
+ * TikTok, WhatsApp, Instagram and Spotify each forbid in writing exactly what a
+ * row of competitors' logos on a screen selling a subscription would be, and a
+ * pictogram that resembles a logo is worse still — it is an imitation. If a
+ * visual mark is ever wanted here it has to be generic and ours.
  *
  * **What the screen may claim.** Only checkable facts. The recommended plan is
  * derived from minutes the account actually spent, "best value" is arithmetic on
@@ -60,14 +76,14 @@ import {
   type PublicPricing,
 } from "../src/services/pricingService";
 import {
+  buildCostTable,
   buildFreeTrialLine,
   buildHourlyRate,
   buildPaywallReasonLine,
   buildPlanCards,
   buildPlanGuidance,
-  buildPlanHighlights,
-  buildPlanIncludes,
-  minutesRule,
+  buildPromise,
+  buildSourceShowcase,
   type PaywallReason,
   type PlanCard,
 } from "../src/lib/planCopy";
@@ -81,7 +97,6 @@ import {
   Typography,
   Spacing,
   BorderRadius,
-  Shadows,
   TouchTarget,
 } from "../src/constants/theme";
 import { t, useTranslation } from "../src/i18n";
@@ -120,8 +135,6 @@ export default function PaywallScreen() {
   // Which plan the CTA buys. `null` until the pricing lands, then whatever the
   // guidance recommends — the user can always pick another.
   const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
-  // The exhaustive list is one tap away, never in the way.
-  const [isDetailOpen, setIsDetailOpen] = useState(false);
   // Bumped by the retry button; the load lives in the effect and this is what
   // re-runs it, so there is one loading path rather than two.
   const [reloadToken, setReloadToken] = useState(0);
@@ -222,7 +235,10 @@ export default function PaywallScreen() {
 
   const trialLine = buildFreeTrialLine(pricing, entitlementStatus);
   const reasonLine = buildPaywallReasonLine(reason, entitlementStatus);
-  const highlights = buildPlanHighlights();
+  // Both come out of the payload the cards already needed, so neither adds a
+  // request or a loading state: `pricing` is what `hasPlans` is derived from.
+  const showcase = pricing === null ? null : buildSourceShowcase(pricing);
+  const costRows = pricing === null ? [] : buildCostTable(pricing);
 
   // Three states, not two. `hasPlans` is about the backend: with no figures
   // there is nothing to put on screen. `canPurchase` is about the store: without
@@ -288,10 +304,7 @@ export default function PaywallScreen() {
           <Text style={styles.closeText}>{t("common.close")}</Text>
         </TouchableOpacity>
         <Text style={styles.title}>{t("paywall.title")}</Text>
-        <Text style={styles.tagline}>
-          Save anything worth coming back to, read it as text, keep what it
-          taught you.
-        </Text>
+        <Text style={styles.tagline}>{buildPromise()}</Text>
         <Text style={styles.subtitle}>
           {t("paywall.subtitle")}
         </Text>
@@ -470,7 +483,9 @@ export default function PaywallScreen() {
                         {pkg !== undefined && (
                           <Text style={styles.tierPrice} numberOfLines={1}>
                             {pkg.product.priceString}
-                            <Text style={styles.tierPricePeriod}>/mo</Text>
+                            <Text style={styles.tierPricePeriod}>
+                              {t("paywall.pricePeriod")}
+                            </Text>
                           </Text>
                         )}
                       </View>
@@ -489,83 +504,83 @@ export default function PaywallScreen() {
               })}
             </View>
 
-            {/* What the allowance on those cards meters, and what it does not.
-                The cards say "N h of transcription", which is the half that
-                differs between them; this is the half that does not — articles
-                and web pages cost no minutes — and stating it once under the
-                list beats repeating it inside three cards, or leaving it behind
-                the disclosure where it used to be the only place the screen
-                admitted the app is not an audio-only product. Below the cards
-                rather than above them so it costs nothing before the first
-                price: the same sentence already frames them from the header
-                ("Only the monthly transcription time changes"). */}
-            <Text testID="paywall-minutes-rule" style={styles.minutesRuleText}>
-              {minutesRule()}
-            </Text>
+            {/* What you can send. Chips rather than a sentence: eleven brand
+                names embedded in prose is where the Arabic catalogue glued the
+                conjunction to the Latin run ("وSpotify"), and one chip is one
+                bidi run with no neighbour to reorder. The list is served by the
+                backend, derived from the classifier's own tables, so it cannot
+                drift from what a worker actually accepts.
 
-            {/* What every plan does, *under* the prices: evidence for a decision
-                already framed, rather than four lines standing between the
-                reader and the figures. The exhaustive version stays one tap
-                below — put on screen unprompted it is the wall of text every
-                paywall study says nobody reads. */}
-            <View testID="paywall-highlights" style={styles.highlightBlock}>
-              <Text style={styles.includesHeading}>
-                {t("paywall.includedHeading")}
-              </Text>
-              {highlights.map((highlight) => (
-                <View
-                  key={highlight.id}
-                  testID={`paywall-highlight-${highlight.id}`}
-                  style={styles.highlightRow}
-                >
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={20}
-                    color={Colors.primary}
-                  />
-                  <Text style={styles.highlightText}>{highlight.text}</Text>
-                </View>
-              ))}
-
-              <TouchableOpacity
-                testID="paywall-includes-toggle"
-                style={styles.detailToggle}
-                onPress={() => setIsDetailOpen((open) => !open)}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: isDetailOpen }}
-              >
-                <Text style={styles.detailToggleText}>
-                  {isDetailOpen
-                    ? t("paywall.hideDetails")
-                    : t("paywall.showDetails")}
+                One accessibility stop per row, not one per chip: fourteen swipe
+                stops to hear a list is a worse experience than the sentence
+                this replaces. */}
+            {showcase !== null && showcase.platforms.length > 0 && (
+              <View testID="paywall-sources" style={styles.blockCard}>
+                <Text style={styles.blockHeading}>
+                  {t("paywall.sourcesHeading")}
                 </Text>
-                <Ionicons
-                  name={isDetailOpen ? "chevron-up" : "chevron-down"}
-                  size={16}
-                  color={Colors.textMain}
-                />
-              </TouchableOpacity>
-
-              {isDetailOpen && pricing !== null && (
-                <View testID="paywall-includes">
-                  {buildPlanIncludes(pricing).map((section) => (
-                    <View
-                      key={section.id}
-                      testID={`paywall-includes-${section.id}`}
-                      style={styles.includesSection}
-                    >
-                      <Text style={styles.includesTitle}>{section.title}</Text>
-                      {section.items.map((item, index) => (
-                        <View key={index} style={styles.includesRow}>
-                          <Text style={styles.includesBullet}>•</Text>
-                          <Text style={styles.includesItem}>{item}</Text>
-                        </View>
-                      ))}
+                <View
+                  style={styles.chipRow}
+                  accessible
+                  accessibilityLabel={`${t("paywall.sourcesHeading")}: ${showcase.platformsSpoken}`}
+                >
+                  {showcase.platforms.map((label) => (
+                    // No `numberOfLines`: a chip too wide for the row takes its
+                    // own line instead of truncating a platform's name.
+                    <View key={label} style={styles.chip}>
+                      <Text style={styles.chipText}>{label}</Text>
                     </View>
                   ))}
                 </View>
-              )}
-            </View>
+
+                {showcase.files.length > 0 && (
+                  <>
+                    <Text style={[styles.blockHeading, styles.blockSubheading]}>
+                      {t("paywall.filesHeading")}
+                    </Text>
+                    <View
+                      style={styles.chipRow}
+                      accessible
+                      accessibilityLabel={`${t("paywall.filesHeading")}: ${showcase.filesSpoken}`}
+                    >
+                      {showcase.files.map((label) => (
+                        <View key={label} style={styles.chip}>
+                          <Text style={styles.chipText}>{label}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                )}
+              </View>
+            )}
+
+            {/* What sending it costs, which is what the allowance on the cards
+                actually buys. Every figure comes from `unit_conversion`, so a
+                change through `PUT /api/pricing/admin` moves this table too.
+
+                No dotted leader between label and value: a run of "·" reorders
+                under RTL. The gap is a layout gap — label flexes, value does
+                not — and each row is a single accessibility stop reading
+                "label, value" rather than two unrelated fragments. */}
+            {costRows.length > 0 && (
+              <View testID="paywall-cost-table" style={styles.blockCard}>
+                <Text style={styles.blockHeading}>
+                  {t("paywall.costHeading")}
+                </Text>
+                {costRows.map((row) => (
+                  <View
+                    key={row.id}
+                    testID={`paywall-cost-${row.id}`}
+                    style={styles.costRow}
+                    accessible
+                    accessibilityLabel={`${row.label}, ${row.value}`}
+                  >
+                    <Text style={styles.costLabel}>{row.label}</Text>
+                    <Text style={styles.costValue}>{row.value}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </>
         )}
 
@@ -894,82 +909,75 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     color: Colors.textMain,
   },
-  // `textMain`, not the subtle grey the other small lines here use: this one
-  // qualifies the dominant line of all three cards, and at `textSubtle` on no
-  // surface it reads as a legal footnote — which is how the app ended up
-  // implying the allowance meters everything you save.
-  minutesRuleText: {
-    ...Typography.small,
-    color: Colors.textMain,
-    marginTop: Spacing.sm,
-    lineHeight: 18,
-  },
-  highlightBlock: {
+  // The two evidence blocks below the cards. `surface` on `background` with no
+  // stroke and no shadow: they are read, not floated, and the only element on
+  // this screen entitled to a shadow is the CTA. Separation comes from the tonal
+  // step and from the gap, per the No-Line rule.
+  blockCard: {
     marginTop: Spacing.lg,
     padding: Spacing.md,
     borderRadius: BorderRadius.xl,
     backgroundColor: Colors.surface,
-    ...Shadows.soft,
   },
-  includesHeading: {
-    ...Typography.label,
+  // `small`, not `label`: uppercase plus letter-spacing is what overflows first,
+  // and the German headings here are the longest of the eleven locales.
+  blockHeading: {
+    ...Typography.small,
     fontWeight: "700",
     color: Colors.textMain,
     letterSpacing: 0.5,
     textTransform: "uppercase",
     marginBottom: Spacing.sm,
   },
-  highlightRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  highlightText: {
-    ...Typography.small,
-    flex: 1,
-    color: Colors.textMain,
-    lineHeight: 18,
-  },
-  detailToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.xs,
-    minHeight: TouchTarget.minimum,
-  },
-  detailToggleText: {
-    ...Typography.label,
-    fontWeight: "600",
-    color: Colors.textMain,
-    textDecorationLine: "underline",
-  },
-  includesSection: {
+  blockSubheading: {
     marginTop: Spacing.md,
   },
-  includesTitle: {
-    ...Typography.label,
-    fontWeight: "600",
-    color: Colors.textMain,
-    marginBottom: Spacing.xs,
-  },
-  // Bullet in its own column so a wrapped sentence keeps its left edge under
-  // the first word rather than under the dot.
-  includesRow: {
+  // Wraps rather than scrolls: a horizontal strip hides its own tail, and the
+  // whole point of the block is that the list is complete at a glance.
+  chipRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: Spacing.sm,
+  },
+  chip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceContainerHigh,
+  },
+  chipText: {
+    ...Typography.label,
+    color: Colors.textMain,
+  },
+  // Label and value on one row, each row its own tonal block. No rule between
+  // them and no dotted leader: a run of separator glyphs reorders under RTL, and
+  // a 1px line across the width is what the design system rules out.
+  costRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
     marginTop: Spacing.xs,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surfaceContainerLow,
   },
-  includesBullet: {
-    ...Typography.small,
-    color: Colors.textSubtle,
-    lineHeight: 18,
-  },
-  includesItem: {
+  costLabel: {
     ...Typography.small,
     flex: 1,
-    color: Colors.textSubtle,
+    color: Colors.textMain,
     lineHeight: 18,
+  },
+  // Never shrinks, and never truncated: the value *is* the row. A long
+  // conversion wraps inside its own column instead of losing its figure.
+  costValue: {
+    ...Typography.small,
+    flexShrink: 0,
+    maxWidth: "45%",
+    fontWeight: "600",
+    color: Colors.textMain,
+    lineHeight: 18,
+    textAlign: I18nManager.isRTL ? "left" : "right",
   },
   legalBlock: {
     marginTop: Spacing.lg,
@@ -1003,7 +1011,7 @@ const styles = StyleSheet.create({
     color: Colors.textSubtle,
   },
   // Sits on the background rather than floating: the design system asks for
-  // tonal separation over strokes, and a shadow here would fight the card above.
+  // tonal separation over strokes, and the button's own fill is the separation.
   footer: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,

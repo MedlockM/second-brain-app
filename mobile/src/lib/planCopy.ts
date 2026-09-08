@@ -13,19 +13,19 @@
  * screens show — under the plan cards on one, under the usage gauge on the other
  * — and the refusal wording matches `quota_enforcer.py`.
  *
- * What a plan *does* — the sources it accepts, the artifacts it generates, the
- * organisation and search around them — is the other half of the answer, and it
- * is the same for every tier, so it is stated once rather than three times on
- * the cards. It comes in two lengths, and both are built from the app's own
- * catalogues (`ARTIFACT_TILES`, `V1_READING_LANGUAGES`) wherever one exists, so
- * a capability cannot be advertised here after being removed there:
+ * What a plan *does* is the same for every tier, so it is stated once rather
+ * than three times on the cards — and after task-377 it is stated in three flat
+ * blocks instead of a disclosure nobody opened:
  *
- * - `buildPlanHighlights` — four check lines, under the plans. What a reader
- *   who has seen the prices wants confirmed before paying.
- * - `buildPlanIncludes` — the same four subjects, exhaustively, behind a
- *   disclosure. Kept because "everything an import can be" is a real question
- *   and the answer is long; put on screen unprompted it is the wall of text
- *   every paywall study says nobody reads.
+ * - `buildPromise` — one sentence, above the plans. What the app gives back.
+ * - `buildSourceShowcase` — one chip per thing you can send, **derived from the
+ *   list the backend serves** rather than written here. The prose version was
+ *   retyped in eleven catalogues and had drifted: it sold Instagram photo posts
+ *   the worker refuses and never mentioned WhatsApp. Names only, never a logo
+ *   and never a look-alike pictogram — four of these brands forbid appearing in
+ *   a row of logos on a screen that sells something.
+ * - `buildCostTable` — what each kind of import debits, one row each, every
+ *   figure interpolated from `unit_conversion`.
  *
  * The screen also *argues*, and the second rule is that it may only argue from
  * checkable facts: `buildPlanGuidance` derives the recommended plan from minutes
@@ -35,16 +35,17 @@
  * standing in. Nothing here claims popularity or urgency: with no users, both
  * would be inventions.
  */
-import { ARTIFACT_TILES } from "../components/ArtifactTile";
-import { V1_READING_LANGUAGES } from "../services/userPreferencesService";
 import type { EntitlementStatus } from "../contexts/PurchasesContext";
 import type {
   PublicPricing,
+  PricingShareTarget,
   PricingTier,
   PricingUnitConversion,
 } from "../services/pricingService";
 import { formatResetDate } from "./subscriptionDisplay";
 import { formatNumber, getActiveLocale, t, tCount } from "../i18n";
+import type { TranslationKey } from "../i18n";
+
 
 /**
  * Human duration for a minute figure ("45 min", "3 h", "4 h 12 min").
@@ -132,20 +133,17 @@ function buildPlanCard(tier: PricingTier, trialTierId: string | null): PlanCard 
   return {
     id: tier.id,
     name: tier.name,
-    // "a month" is carried by the price column ("per month"), not repeated here:
-    // this line has to survive at 20px next to a price on a 375pt screen.
+    // The quantity, and nothing but the quantity.
     //
-    // It names *transcription*, not "audio and video". The old wording made the
-    // dominant line of the screen say the app is an audio product and that the
-    // allowance meters everything you save — while `plan.legend.free` says
-    // articles, web pages, TikToks and Instagram photo posts cost nothing, and
-    // `unit_conversion` charges documents and folder-wide generations too.
-    // What the allowance actually buys is transcription time, which is also what
-    // the header and the selector label above the cards already call it, and what
-    // the App Store descriptions say (`docs/store-listing/app-store-connect.md`).
-    // The half that does *not* vary by tier — that articles cost no minutes — is
-    // stated once under the card list by `minutesRule`, not three times inside
-    // the cards.
+    // It used to name the process — "{duration} of transcription" — which made
+    // the dominant line of the screen call the app an audio product, in a word
+    // ("transcription") that is jargon in all eleven languages and false for
+    // half of what the minutes actually buy: a PDF read for its text is not
+    // transcribed, and it debits minutes all the same. Naming a process to
+    // qualify a quantity is what Google One avoids by writing "Standard
+    // (200 GB)" rather than "200 GB of file storage": the card carries the
+    // amount, and what the amount buys is said **once, elsewhere** — here, in
+    // the cost table right below the cards (`buildCostTable`), with figures.
     allowance:
       tier.minutes_per_month === null
         ? null
@@ -155,6 +153,9 @@ function buildPlanCard(tier: PricingTier, trialTierId: string | null): PlanCard 
     minutesPerMonth: tier.minutes_per_month,
     // Lower case and clause-shaped: it is read inside a "·"-separated meta line
     // under the allowance, never as a sentence of its own.
+    //
+    // "at a time", not "in one import": the user shares or sends something, and
+    // "import" is a word only the people who wrote the pipeline use.
     perImportLimit:
       tier.max_minutes_per_item === null
         ? null
@@ -382,188 +383,215 @@ export function buildPaywallReasonLine(
 /**
  * The one thing a minute is, said once — and the one thing it is not.
  *
- * Read in two places, which is the point: the paywall shows it directly under
- * the plan cards, and the Account tab shows it under the usage gauge, so the
- * meter is explained in the same words wherever the reader meets it.
+ * Read under the usage gauge in the Account tab, which is the surface that
+ * *consults* a subscription. The paywall no longer shows it: there, the same
+ * question is answered with figures by `buildCostTable`, and saying it twice on
+ * one screen in two registers is how the two ended up disagreeing.
  *
- * It carries both halves of the answer. What the minutes cover (audio and video
- * we transcribe) qualifies the allowance on the cards, and what they do
- * not cover (articles and web pages) is the half a card cannot state without
- * repeating itself on every tier — it is identical on all three. The exhaustive
- * free list, TikToks and Instagram photo posts included, stays in
- * `plan.legend.free` behind the disclosure.
+ * It carries both halves of the answer. What the minutes cover (the audio and
+ * video you send) qualifies the allowance the gauge counts down, and what they
+ * do not cover (articles and web pages) is the half that surprises people —
+ * someone watching a gauge fall wants to know what is moving it.
  *
  * "Cover", never "only cover": documents and folder-wide generations debit
- * minutes too (`buildMinutesLegend`), so an exclusive form would be false.
+ * minutes too (`buildCostTable`), so an exclusive form would be false.
  *
  * "Reading your library", not "reading": consulting anything already saved is
- * free forever, but *importing* a PDF debits minutes, so the unqualified form
+ * free forever, but *sending* a PDF debits minutes, so the unqualified form
  * would have contradicted the very next sentence.
+ *
+ * It no longer names transcription. The word is jargon in eleven languages and
+ * only true of half the debits, and the sentence needs it for nothing: what the
+ * user did is *send audio and video*, which is the fragment every catalogue
+ * already carried.
  */
 export function minutesRule(): string {
   return t("plan.minutesRule");
 }
 
 /**
- * What debits a minute and what does not, built from the conversions the
- * enforcer actually applies. The free list is the exact set of paths
- * `quota_enforcer` charges zero for — a document is not on it, because five of
- * its pages cost a minute, and neither is any transcribed clip.
+ * One sentence about what the app gives back, above the plans.
  *
- * The rule itself is not here: `minutesRule` sits above the disclosure, next to
- * the cards it qualifies, and repeating it as the first bullet of the section
- * would have said it twice on one screen. This is the conversion table only.
+ * It replaces four check lines and five disclosure sections that between them
+ * said everything and were read by nobody: the disclosure was two taps from the
+ * only figures on the screen, and the four lines stood between the reader and
+ * the prices. A purchase screen gets one sentence to say what it is for, and
+ * everything else it has to say has to be readable at a glance — which is what
+ * the showcase and the cost table below are.
  *
- * Returned as separate sentences rather than one paragraph: this is the part a
- * reader has to hold four rules in their head for, and a wall of prose is where
- * they stop reading.
+ * Deliberately not a list of features. Naming the five generations here would
+ * put a five-item interpolated list in the header, three lines in German, and
+ * push the first price further down the screen than the version this replaces —
+ * undoing the one property the rearrangement exists for.
  */
-export function buildMinutesLegend(pricing: PublicPricing): string[] {
+export function buildPromise(): string {
+  return t("paywall.promise");
+}
+
+/** Chips for what the user can send, in two rows that answer two questions. */
+export interface SourceShowcase {
+  /** Platforms and generic link kinds — proper nouns wherever there is one. */
+  platforms: string[];
+  /** File families, each chip listing its own formats: "PDF DOCX PPTX XLSX". */
+  files: string[];
+  /** The platform row as one spoken list, so VoiceOver stops once, not eleven times. */
+  platformsSpoken: string;
+  /** The file row as one spoken list, same reason. */
+  filesSpoken: string;
+}
+
+/**
+ * The showcase, resolved from the list `GET /api/pricing` serves.
+ *
+ * Nothing here decides *what* is on the list — that is
+ * `core/media_ingestion/adapters/share_targets.py`, derived from the classifier's
+ * own host tables, so the screen cannot advertise a platform no worker handles
+ * or omit one it does. This only decides how each entry reads:
+ *
+ * - a proper noun (`YouTube`, `WhatsApp`) is shown as served, because it is the
+ *   same word in every locale — `ar.ts` already writes these in Latin script;
+ * - a file family is shown as its own formats, because "PDF DOCX PPTX XLSX"
+ *   answers the question and "Documents" does not;
+ * - an entry with neither gets its label from this app's catalogue, keyed by the
+ *   backend's own id. Two exist, and both are common nouns no brand owns.
+ *
+ * Text only, never a logo: Apple, TikTok, WhatsApp, Instagram and Spotify each
+ * forbid, in writing, exactly the arrangement a logo row on a paid-subscription
+ * screen would be. A pictogram that merely resembles a logo is worse, being an
+ * imitation, so the chips carry words and nothing else.
+ */
+const GENERIC_SOURCE_LABEL_KEYS: Record<string, TranslationKey> = {
+  // `SourcePlatform.WEB` — the classifier's terminal case, any host at all.
+  web: "plan.source.web",
+  // `SourcePlatform.DIRECT_URL` — any link whose path ends in an audio extension.
+  direct_url: "plan.source.audioUrl",
+};
+
+function resolveChipLabel(target: PricingShareTarget): string | null {
+  if (target.label !== null && target.label.length > 0) return target.label;
+  if (target.formats.length > 0) return target.formats.join(" ");
+  const key = GENERIC_SOURCE_LABEL_KEYS[target.id];
+  // An id this build has no word for is left out rather than shown raw: a chip
+  // reading "direct_url" would be worse than one chip fewer.
+  return key === undefined ? null : t(key);
+}
+
+export function buildSourceShowcase(pricing: PublicPricing): SourceShowcase {
+  const targets = pricing.sources ?? [];
+  const labelsFor = (group: string): string[] =>
+    targets
+      .filter((target) => target.group === group)
+      .map(resolveChipLabel)
+      .filter((label): label is string => label !== null);
+
+  const platforms = labelsFor("platform");
+  const files = labelsFor("file");
+  return {
+    platforms,
+    files,
+    platformsSpoken: joinList(platforms),
+    filesSpoken: joinList(files),
+  };
+}
+
+/** "a, b and c", with the locale's own separator and conjunction. */
+function joinList(items: string[]): string {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0];
+  return t("plan.list.lastConjunction", {
+    list: items.slice(0, -1).join(t("plan.list.separator")),
+    last: items[items.length - 1],
+  });
+}
+
+/** One row of the cost table: what you send, and what it debits. */
+export interface CostRow {
+  /** React key and testID suffix. */
+  id: string;
+  label: string;
+  /** Free, a real duration, or a conversion — always from the config. */
+  value: string;
+}
+
+/**
+ * What each kind of import debits, one row per regime the enforcer applies.
+ *
+ * Built here rather than in the screen so the two surfaces cannot disagree: the
+ * Account tab states the same rule in prose (`minutesRule`) under its gauge, and
+ * both now come out of this file.
+ *
+ * Every value is either a word ("Free", "Its real length") or a figure
+ * interpolated from `unit_conversion` — `captions_minutes` for a YouTube video,
+ * `document_pages_per_minute` for a document, `folder_sources_per_minute` for a
+ * folder-wide generation. The "one minute" in the last two is spelled out
+ * because it is the *denominator's name* ("pages per minute"), not a number that
+ * can change: nothing in `mobile/` writes a digit.
+ *
+ * Six rows, not four. Two of them cost nothing and are kept apart on purpose —
+ * "a podcast that publishes its own text is free" is a real tariff advantage
+ * that has never been visible anywhere in the app — and the folder row is here
+ * because a folder-wide generation genuinely debits minutes: leaving it out
+ * would make the table understate what the meter counts.
+ *
+ * A regime whose conversion the config does not carry is dropped rather than
+ * guessed. The two free rows and the real-length row need no figure, so they
+ * always render, which keeps the table from ever being empty.
+ */
+export function buildCostTable(pricing: PublicPricing): CostRow[] {
   const conversion: Partial<PricingUnitConversion> = pricing.unit_conversion ?? {};
   const captions = conversion.captions_minutes ?? null;
   const pagesPerMinute = conversion.document_pages_per_minute ?? null;
   const sourcesPerMinute = conversion.folder_sources_per_minute ?? null;
 
-  const sentences = [t("plan.legend.realLength")];
+  const rows: CostRow[] = [
+    {
+      id: "free",
+      label: t("plan.cost.free.label"),
+      value: t("plan.cost.value.free"),
+    },
+  ];
 
-  // One rule per sentence. Strung together as a comma list they were unreadable
-  // to anyone who did not already know the model they describe.
   if (captions !== null) {
-    sentences.push(
-      t("plan.legend.captions", { duration: formatMinutes(captions) }),
-    );
+    rows.push({
+      id: "captions",
+      label: t("plan.cost.captions.label"),
+      value: formatMinutes(captions),
+    });
   }
+
+  rows.push(
+    {
+      id: "transcript",
+      label: t("plan.cost.transcript.label"),
+      value: t("plan.cost.value.free"),
+    },
+    {
+      id: "duration",
+      label: t("plan.cost.duration.label"),
+      value: t("plan.cost.value.realLength"),
+    },
+  );
+
   if (pagesPerMinute !== null) {
-    sentences.push(
-      t("plan.legend.documents", { pages: formatNumber(pagesPerMinute) }),
-    );
+    rows.push({
+      id: "document",
+      label: t("plan.cost.document.label"),
+      value: t("plan.cost.value.perPages", {
+        pages: formatNumber(pagesPerMinute),
+      }),
+    });
   }
   if (sourcesPerMinute !== null) {
-    sentences.push(
-      t("plan.legend.folders", { sources: formatNumber(sourcesPerMinute) }),
-    );
+    rows.push({
+      id: "folder",
+      label: t("plan.cost.folder.label"),
+      value: t("plan.cost.value.perSources", {
+        sources: formatNumber(sourcesPerMinute),
+      }),
+    });
   }
 
-  sentences.push(t("plan.legend.free"));
-  sentences.push(t("plan.legend.overLimit"));
-
-  return sentences;
-}
-
-/** One scannable promise, rendered as a check line above the plans. */
-export interface PlanHighlight {
-  /** React key and testID suffix — matches the id of the detailed section. */
-  id: string;
-  text: string;
-}
-
-/**
- * The four things a subscription does, one short line each, shown *above* the
- * plans.
- *
- * This is the version almost everyone reads. The detailed sections below say the
- * same four things exhaustively for the minority who open them, and the two are
- * built from the same catalogues so they cannot drift: same ids, same order.
- * A reader deciding between three allowances needs to know what an allowance
- * buys before they see the prices, not after the CTA.
- */
-export function buildPlanHighlights(): PlanHighlight[] {
-  return [
-    { id: "capture", text: t("plan.highlight.capture") },
-    { id: "read", text: t("plan.highlight.read") },
-    {
-      id: "generate",
-      text: t("plan.highlight.generate", { list: listArtifactLabels() }),
-    },
-    { id: "organise", text: t("plan.highlight.organise") },
-  ];
-}
-
-/** "summaries, notes, flashcards and quizzes", from the tiles themselves. */
-function listArtifactLabels(): string {
-  const labels = ARTIFACT_TILES.map((tile) => t(tile.labelKey).toLowerCase());
-  if (labels.length < 2) return labels.join("");
-  return t("plan.list.lastConjunction", {
-    list: labels.slice(0, -1).join(t("plan.list.separator")),
-    last: labels[labels.length - 1],
-  });
-}
-
-/** A titled group of plain sentences, rendered as one block under the cards. */
-export interface PlanIncludesSection {
-  /** React key and testID suffix. */
-  id: string;
-  title: string;
-  items: string[];
-}
-
-/**
- * Everything a subscription lets you do, in the order a newcomer meets it: put
- * something in, read it, turn it into something, find it again — then what the
- * meter counts.
- *
- * Why it exists: the cards carry the two figures that separate the tiers and
- * nothing else, which reads perfectly to someone who already uses the app and
- * says nothing at all to someone deciding whether to. None of this varies by
- * tier, so it belongs under the cards, once.
- *
- * Every list here is checkable against something in the repo, and the checks are
- * named so the next person can redo them: the sources are the classifier's own
- * hosts and `docs/INGESTION_WORKERS_PROVIDERS.md`, the file formats are
- * `UPLOAD_PICKER_MIME_TYPES` and `DocumentFormat.supported_extensions()`, the
- * generations are `ARTIFACT_TILES`, the languages `V1_READING_LANGUAGES`.
- * Nothing is promised that no worker delivers.
- */
-export function buildPlanIncludes(pricing: PublicPricing): PlanIncludesSection[] {
-  // Derived, not retyped: the tiles are what the media screen actually offers.
-  const generations = ARTIFACT_TILES.map((tile) =>
-    t(tile.labelKey).toLowerCase(),
-  ).join(t("plan.list.separator"));
-  const languageCount = V1_READING_LANGUAGES.length;
-
-  return [
-    {
-      id: "capture",
-      title: t("plan.includes.capture.title"),
-      items: [
-        t("plan.includes.capture.links"),
-        t("plan.includes.capture.files"),
-      ],
-    },
-    {
-      id: "read",
-      title: t("plan.includes.read.title"),
-      items: [
-        t("plan.includes.read.transcripts"),
-        t("plan.includes.read.translation", {
-          count: formatNumber(languageCount),
-        }),
-      ],
-    },
-    {
-      id: "generate",
-      title: t("plan.includes.generate.title"),
-      items: [
-        t("plan.includes.generate.onDemand", { list: generations }),
-        t("plan.includes.generate.folder"),
-        t("plan.includes.generate.kept"),
-      ],
-    },
-    {
-      id: "organise",
-      title: t("plan.includes.organise.title"),
-      items: [
-        t("plan.includes.organise.file"),
-        t("plan.includes.organise.search"),
-        t("plan.includes.organise.digest"),
-      ],
-    },
-    {
-      id: "minutes",
-      title: t("plan.includes.minutes.title"),
-      items: buildMinutesLegend(pricing),
-    },
-  ];
+  return rows;
 }
 
 /**

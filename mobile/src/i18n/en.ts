@@ -273,8 +273,8 @@ export const en = {
 
   // --- Plans and paywall copy ---
   "plan.hourlyRate": "≈ {price} an hour",
-  "plan.card.allowance": "{duration} of transcription",
-  "plan.card.perImport": "up to {duration} in one import",
+  "plan.card.allowance": "{duration} per month",
+  "plan.card.perImport": "up to {duration} at a time",
   "plan.rec.cappedLargest":
     "You used up all {duration} this period. {plan} is the largest plan we offer.",
   "plan.rec.cappedNextUp":
@@ -299,53 +299,21 @@ export const en = {
   "paywall.reason.lowNoDate": "{left} left this period.",
   "paywall.reason.lowWithDate": "{left} left until {date}.",
   "plan.minutesRule":
-    "Minutes cover audio and video we transcribe. Articles and web pages cost no minutes, and reading your library is unlimited.",
-  "plan.legend.realLength":
-    "Audio and video count their real length, minute for minute.",
-  "plan.legend.captions":
-    "A video that already has subtitles we can buy costs {duration}, however long it is.",
-  "plan.legend.documents":
-    "A PDF, an Office document or a photo we read the text off costs 1 min per {pages} pages.",
-  "plan.legend.folders":
-    "A generation over a whole folder costs 1 min per {sources} items in it. On a single item it is free.",
-  "plan.legend.free":
-    "Articles, web pages, TikToks and Instagram photo posts cost nothing at all: they are not transcribed.",
-  "plan.legend.overLimit":
-    "Past a plan's single-import maximum, an import is refused rather than billed — split it into shorter parts.",
+    "Minutes cover the audio and video you send. Articles and web pages cost none, and reading your library is unlimited.",
   "plan.list.separator": ", ",
   "plan.list.lastConjunction": "{list} and {last}",
-  "plan.highlight.capture":
-    "Save from any app: YouTube, podcasts, TikTok, Instagram, X, articles, PDFs, documents, photos and audio files",
-  "plan.highlight.read":
-    "Read the full transcript, translated into your reading language",
-  "plan.highlight.generate":
-    "Generate {list} on demand, per item or per folder",
-  "plan.highlight.organise":
-    "Organise in folders, search everything, daily digest",
-  "plan.includes.capture.title": "Save anything, from any app",
-  "plan.includes.capture.links":
-    "Share a link from any app, or paste one: YouTube videos, podcast episodes from Apple Podcasts, Spotify, Deezer or any RSS feed, TikToks, Instagram reels and photo posts, X posts, news articles and any web page.",
-  "plan.includes.capture.files":
-    "Send a file from your phone: PDF, Word, PowerPoint and Excel documents, photos and screenshots we read the text off, and audio recordings (MP3, M4A, WAV, FLAC, AAC, OGG, Opus).",
-  "plan.includes.read.title": "Read it, whatever it was",
-  "plan.includes.read.transcripts":
-    "Audio and video come back as full text, transcribed word for word, so an episode you have no time to listen to is one you can read, skim or search instead.",
-  "plan.includes.read.translation":
-    "Transcripts are translated into your reading language, {count} to choose from, and you can change it whenever you like.",
-  "plan.includes.generate.title": "Turn it into something you keep",
-  "plan.includes.generate.onDemand": "On any item, on demand: {list}.",
-  "plan.includes.generate.folder":
-    "Run the same generations across a whole folder to get one synthesis of everything you filed in it.",
-  "plan.includes.generate.kept":
-    "Every generation is kept, so you can come back to it or ask for a fresh one later.",
-  "plan.includes.organise.title": "Find it again months later",
-  "plan.includes.organise.file":
-    "File anything into folders, at the moment you save it or any time after.",
-  "plan.includes.organise.search":
-    "Full-text search across everything you have ever saved, transcripts included.",
-  "plan.includes.organise.digest":
-    "A daily and a weekly digest of what came in and what is worth going back to.",
-  "plan.includes.minutes.title": "What the monthly minutes count",
+  "plan.source.web": "Articles & web pages",
+  "plan.source.audioUrl": "Any audio link",
+  "plan.cost.free.label": "Articles, web pages, X posts",
+  "plan.cost.captions.label": "A YouTube video, whatever its length",
+  "plan.cost.transcript.label": "A podcast that publishes its own text",
+  "plan.cost.duration.label": "Audio, video, reels, voice notes",
+  "plan.cost.document.label": "A document or a photo of a page",
+  "plan.cost.folder.label": "Generating across a whole folder",
+  "plan.cost.value.free": "Free",
+  "plan.cost.value.realLength": "Its real length",
+  "plan.cost.value.perPages": "one minute per {pages} pages",
+  "plan.cost.value.perSources": "one minute per {sources} items",
   "plan.trial.accessFull": "full access",
   "plan.trial.accessTier": "{tier} access",
   "plan.trial.generic":
@@ -457,8 +425,8 @@ export const en = {
   // --- Account tab ---
   "account.title": "Account",
   "account.notSet": "Not set",
-  "account.subscription.manage": "Manage subscription",
-  "account.subscription.manageHint": "Change plan or restore a purchase",
+  "account.subscription.manage": "Change plan",
+  "account.subscription.manageHint": "Compare the plans and switch",
   "account.subscription.viewPlans": "View plans",
   "account.subscription.viewPlansHint": "See what each subscription includes",
   "account.subscription.upgrade": "Upgrade",
@@ -656,13 +624,16 @@ export const en = {
   "paywall.tryAgain": "Try again",
   "paywall.pricesUnavailable":
     "Prices are unavailable — the {store} is not offering these subscriptions right now.",
-  "paywall.selectorLabel": "Pick your monthly transcription time",
+  "paywall.selectorLabel": "Choose how much you send each month",
   "paywall.selectorLabelReadOnly": "What each plan gives you",
   "paywall.priceUnavailableA11y": "price unavailable",
   "paywall.pricePerMonthA11y": "{price} per month",
-  "paywall.includedHeading": "Included in every plan",
-  "paywall.showDetails": "See exactly what is included",
-  "paywall.hideDetails": "Hide the details",
+  "paywall.promise":
+    "Everything you send comes back as text you can read, search and keep.",
+  "paywall.pricePeriod": "/mo",
+  "paywall.sourcesHeading": "What you can send",
+  "paywall.filesHeading": "Files from your phone",
+  "paywall.costHeading": "What it costs in minutes",
   "paywall.ctaChoose": "Choose a plan",
   "paywall.ctaStart": "Start with {plan} — {price}/mo",
   "paywall.purchaseSuccess": "Purchase Successful",
@@ -787,7 +758,7 @@ export const en = {
   "transcript.translationFailed":
     "Translation failed. Showing the original text.",
   "paywall.subtitle":
-    "Every plan does all of it. Only the monthly transcription time changes.",
+    "Every plan does everything. They differ only in how much you send.",
 
   // --- The fallback the app shows instead of dying on a JavaScript error ---
   "startupError.title": "The app couldn't start",

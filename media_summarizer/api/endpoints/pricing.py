@@ -12,6 +12,9 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
+from media_summarizer.core.media_ingestion.adapters.share_targets import (
+    share_targets_payload,
+)
 from media_summarizer.core.services import pricing_config_service
 
 router = APIRouter()
@@ -62,9 +65,14 @@ async def get_public_pricing():
 
     This is the *only* runtime source of plan figures the app reads (task-299):
     the paywall renders its cards from `tiers`, its trial line from `free_trial`
-    and its minutes legend from `unit_conversion`, so a figure changed through
+    and its cost table from `unit_conversion`, so a figure changed through
     `PUT /api/pricing/admin` moves the screen with no build. Nothing on the
     client re-states these numbers.
+
+    It also serves `sources` — what the app accepts, derived from the classifier's
+    own tables (task-377). Not a pricing fact, but it belongs in the same
+    response: the paywall shows the list next to the allowances, and a second
+    endpoint would have bought the screen a fourth loading state for nothing.
 
     Never exposes internal cost monitoring or provider config.
     """
@@ -126,6 +134,9 @@ async def get_public_pricing():
                     "folder_sources_per_minute"
                 ),
             },
+            # Proper nouns and identifiers only, never a sentence: the client
+            # owns the wording, this owns the list. See `share_targets.py`.
+            "sources": share_targets_payload(),
             "currency": "EUR",
             "billing_period": "monthly",
         }
