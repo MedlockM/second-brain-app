@@ -305,8 +305,12 @@ elif [ -n "${PROFILE}" ]; then
       ;;
     __NO_URL__)
       fail "Build profile '${PROFILE}' sets no EXPO_PUBLIC_API_BASE_URL in mobile/eas.json"
-      printf "       There is no fallback host: app.config.ts throws rather than resolve a\n"
-      printf "       config without it, so the build would die later and less clearly.\n"
+      printf "       This check is the only thing standing in the way. app.config.ts used to\n"
+      printf "       throw here; since 2026-09-08 it falls back to build.internal.env so that\n"
+      printf "       commands which merely resolve the config (eas build:list, eas credentials)\n"
+      printf "       stop dying on it. The fallback is the *internal* profile — the -dev API.\n"
+      printf "       So a release profile with no URL of its own no longer fails: it would\n"
+      printf "       build, submit and install, pointing every request at -dev. Silent.\n"
       ERRORS=$((ERRORS + 1))
       ;;
     *)

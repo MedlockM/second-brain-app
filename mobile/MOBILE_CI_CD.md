@@ -171,11 +171,14 @@ EXPO_PUBLIC_API_BASE_URL=https://jji077bi8e.execute-api.eu-west-3.amazonaws.com 
 #   → All: Set up all the required credentials to build your project
 ```
 
-The env var is not optional: eas-cli resolves the entitlements it syncs by running
-`expo config --json --type introspect` under `EXPO_NO_DOTENV=1`
-(`eas-cli/build/project/ios/entitlements.js`), so `mobile/.env` is bypassed and
-`app.config.ts` throws on the missing host — see the watcher entry below, same root
-cause. Without it there are no entitlements to sync, hence no capability enabled.
+The `EXPO_PUBLIC_API_BASE_URL=` prefix above is what that run needed on
+2026-09-08 and **is no longer required**: eas-cli resolves the entitlements it
+syncs by running `expo config --json --type introspect` under `EXPO_NO_DOTENV=1`
+(`eas-cli/build/project/ios/entitlements.js`), which bypasses `mobile/.env`, and
+`app.config.ts` threw on the missing host — so there were no entitlements to sync
+and no capability could be enabled. `app.config.ts` now falls back to `eas.json`
+(see "Why the throw became a fallback"), so plain `npx eas credentials --platform
+ios` resolves. The prefix is kept in the transcript because that is what was run.
 
 The run reported `Synced capabilities: Enabled: Push Notifications`, Apple then
 marked profile `SVGVC59N7L` *no longer valid*, and both targets got a fresh App
@@ -541,20 +544,52 @@ bash scripts/mobile_release_check.sh internal     # passes
 bash scripts/mobile_release_check.sh              # general pre-flight, DNS as a warning
 ```
 
-**There is no fallback host, deliberately (task-354).** `app.config.ts` and
-`src/constants/config.ts` both used to default to `https://api.mediasummarizer.com`
-when `EXPO_PUBLIC_API_BASE_URL` was unset — the `api.` host of a domain **this
-project does not own**, as the empty `NS` answer above shows. A missing variable
-would therefore have addressed authenticated requests, access tokens included, to
-a host controlled by whoever holds that domain, silently. Both defaults are gone:
+**There is no hard-coded fallback host, deliberately (task-354).** `app.config.ts`
+and `src/constants/config.ts` both used to default to
+`https://api.mediasummarizer.com` when `EXPO_PUBLIC_API_BASE_URL` was unset — the
+`api.` host of a domain **this project does not own**, as the empty `NS` answer
+above shows. A missing variable would therefore have addressed authenticated
+requests, access tokens included, to a host controlled by whoever holds that
+domain, silently. Both defaults are gone:
 
-- `app.config.ts` throws when the variable is empty, so config resolution fails
-  and no bundle, no build and no update can be produced without it. Every
-  legitimate caller supplies it — `eas build` and `eas update` from the build
-  profile's `env` block, a local `expo start` from `mobile/.env`, and
+- `app.config.ts` falls back to `build.internal.env.EXPO_PUBLIC_API_BASE_URL` read
+  out of `eas.json` — the repository, not a constant — and throws only if even
+  that is unreadable. Every path that produces an artifact injects the variable
+  itself and wins over the fallback: `eas build` from the build profile's `env`
+  block, `eas update` from the environment `mobile-ota-or-build.yml` loads out of
+  that same block, a local `expo start` from `mobile/.env`, and
   `mobile-e2e-maestro.yml` on every job that prebuilds.
 - `Config.API_BASE_URL` throws at startup if a manifest somehow carries no
   `extra.apiBaseUrl`, rather than pointing the app somewhere else.
+
+##### Why the throw became a fallback (2026-09-08)
+
+Removing the third-party default closed a security hole and opened a usability
+one. Resolving this config is a prerequisite of commands that build **nothing** —
+`eas build:list`, `eas credentials`, `eas env:list`, `expo config` — and none of
+them carries a build profile, so all of them died on a bare
+`Error: <command> command failed.` with no indication why. It broke
+`mobile-build-watch.yml` for four days (every run from 2026-09-04 17:07 UTC) and
+made every local `eas` invocation need an `EXPO_PUBLIC_API_BASE_URL=… npx eas …`
+prefix. A workaround step in the watcher loaded the value out of `eas.json`; the
+fallback replaced it, so the mechanism now lives once, in the file that needs the
+value.
+
+Two properties were measured rather than assumed:
+
+- **It moves no fingerprint.** `app.config.ts` is not itself a fingerprint source
+  — only the *resolved* config is (`contents | expoConfig`). Android fingerprint
+  before the change, after the change, and with the variable unset so the fallback
+  fires: `4162e1bbb73787b266d584f631a6d1d4df5a190f`, 158 sources, all three times.
+  So the change cannot flip the OTA-versus-native routing.
+- **The warning is visible where it should be.** The fallback logs to stderr;
+  it appears on `expo config --type public` and is swallowed under
+  `expo config --json`, which is the mode eas-cli parses.
+
+**`scripts/mobile_release_check.sh <profile>` is now the only guard on a release
+profile's URL.** The fallback points at `internal`, i.e. the `-dev` API — so a
+profile that declares no URL of its own would build, submit and install pointing
+every request at `-dev`, with nothing throwing. Do not weaken that check.
 
 Keeping `api.mediasummarizer.com` as the `production` profile's declared value is
 a separate matter and stays: it is a *declared, gated* target the DNS check above
@@ -858,10 +893,17 @@ Through the UI, had it been done by hand: **expo.dev → Projects →
 variable"**.
 
 One practical catch, worth knowing before the next incident: **`eas env:delete`
-resolves the app config first**, so with the fallback host now gone it refuses to
-run unless `EXPO_PUBLIC_API_BASE_URL` is set in the calling shell — the variable
-you are deleting. Load the profile's block the way the workflow does before
-reaching for any `eas` command locally:
+resolves the app config first**, like every other `eas` command. While
+`app.config.ts` threw on a missing `EXPO_PUBLIC_API_BASE_URL`, that made the
+command refuse to run unless the shell already carried the variable — including
+the case where the variable being deleted *was* that one. Fixed at the source on
+2026-09-08 (see "Why the throw became a fallback"): the config now resolves from
+`eas.json` on its own and no prefix is needed.
+
+Loading the profile's block by hand is still the way to get the *other*
+`EXPO_PUBLIC_*` values, which have no fallback — the Google client ids decide
+`ios.scheme` and therefore the fingerprint, so a command that computes one needs
+them:
 
 ```bash
 cd mobile
@@ -1694,25 +1736,31 @@ the platform, `appVersion (appBuildVersion)`, the build profile, the commit hash
 and subject, the `error.errorCode`/`message` EAS attached to the build, and an
 `@MedlockM` mention.
 
-**`build:list` needs `EXPO_PUBLIC_API_BASE_URL` in the environment, and that is not
-obvious.** It resolves the project id through `app.config.ts`, and since `38a6e33`
-(2026-09-04) that file *throws* when the variable is unset — the third-party fallback
-host was dropped on purpose so a missing value fails loudly instead of routing access
-tokens to a host somebody else owns. `eas build` and `eas update` read the variable from
-the build profile's `env` block in `eas.json` by themselves; **`build:list` does not** —
-its `-e` flag *filters* by profile, it loads nothing. The workflow therefore exports it
-from `.build.internal.env` of `eas.json` in a step of its own before querying.
+**`build:list` resolves `app.config.ts`, and that once required
+`EXPO_PUBLIC_API_BASE_URL` in the environment — a non-obvious coupling that cost
+four days of silence.** It resolves the project id through the app config, and
+between `38a6e33` (2026-09-04) and 2026-09-08 that file *threw* when the variable
+was unset; the third-party fallback host had been dropped so a missing value could
+not route access tokens to a host somebody else owns. `eas build` and `eas update`
+read the variable from the build profile's `env` block in `eas.json` by themselves;
+**`build:list` does not** — its `-e` flag *filters* by profile, it loads nothing.
 
-This cost four days of silence. The watcher ran green once, on 2026-09-04 at 13:33 UTC
-(it opened issue #1), `38a6e33` landed at 14:25 UTC, and every scheduled run from 17:07
-UTC onward died in 1.4 s on a bare `Error: build:list command failed.` — 28 red runs
-before anyone read one. The red was *correct*: the broken-check path fired exactly as
-designed and the run summary said "THE CHECK COULD NOT RUN". Nothing was wrong with the
-signal; the mails simply went unread. Reproduce the failure with
-`env -u EXPO_PUBLIC_API_BASE_URL EXPO_NO_DOTENV=1 eas build:list --platform all --status
-errored --limit 20 --json --non-interactive` — same exit code, same one-line message,
-because a local shell normally has the variable from `mobile/.env`, which is what hides
-this in manual testing.
+The watcher ran green once, on 2026-09-04 at 13:33 UTC (it opened issue #1),
+`38a6e33` landed at 14:25 UTC, and every scheduled run from 17:07 UTC onward died
+in 1.4 s on a bare `Error: build:list command failed.` — 28 red runs before anyone
+read one. The red was *correct*: the broken-check path fired exactly as designed
+and the run summary said "THE CHECK COULD NOT RUN". Nothing was wrong with the
+signal; the mails simply went unread. What hid it in manual testing is that a local
+shell normally has the variable from `mobile/.env`.
+
+**Fixed at the source, not here.** A step exporting the value from
+`.build.internal.env` patched the workflow for one day, then `app.config.ts` was
+given that same fallback (see "Why the throw became a fallback") and the step was
+deleted. The workflow now sets no `EXPO_PUBLIC_*` variable at all. Verified with
+the runner's exact command and no variable in the environment:
+`env -u EXPO_PUBLIC_API_BASE_URL EXPO_NO_DOTENV=1 eas build:list --platform all
+--status errored --limit 5 --json --non-interactive` → exit 0, five builds
+returned, where it used to exit 1.
 
 It signals along two separate paths, and **they must not be collapsed into one
 `exit 1`**:
@@ -1781,8 +1829,9 @@ eas build:list --platform all --limit 10
 eas build:view <build-id>
 
 # What mobile-build-watch.yml runs every 30 min — same command, by hand.
-# Needs EXPO_PUBLIC_API_BASE_URL set (mobile/.env supplies it locally); without it
-# app.config.ts throws and this dies on "Error: build:list command failed."
+# Needs no EXPO_PUBLIC_* variable since 2026-09-08: app.config.ts resolves the API
+# base URL from eas.json on its own. It used to throw and die on a bare
+# "Error: build:list command failed."
 eas build:list --platform all --status errored --limit 20
 
 # View submission status — see the note below, there is no read-only CLI command

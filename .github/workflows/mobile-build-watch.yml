@@ -166,39 +166,31 @@ jobs:
       - name: Install EAS CLI ${{ env.EAS_CLI_VERSION }}
         run: npm install -g "eas-cli@${EAS_CLI_VERSION}"
 
+      # No EXPO_PUBLIC_* variable is set here, and that is now correct — but it
+      # was not always, so the history is worth keeping.
+      #
       # Resolving app.config.ts is a hard prerequisite of `eas build:list`, and
-      # since 38a6e33 (2026-09-04) that file THROWS when
-      # EXPO_PUBLIC_API_BASE_URL is unset — the third-party fallback host was
-      # dropped on purpose so a missing variable fails loudly instead of routing
-      # access tokens to a host somebody else owns. This workflow set no such
-      # variable, so every run from 2026-09-04 17:07 UTC onward died in 1.4 s on
-      # a bare `Error: build:list command failed.` (the last green run was
-      # 13:33 UTC, two hours before that commit). Reproduced locally with
-      # `env -u EXPO_PUBLIC_API_BASE_URL EXPO_NO_DOTENV=1 eas build:list …`:
-      # same exit code, same one-line message.
+      # between 38a6e33 and 2026-09-08 that file THREW when
+      # EXPO_PUBLIC_API_BASE_URL was unset (the third-party fallback host had been
+      # dropped so a missing variable could not route access tokens to a host
+      # somebody else owns). This workflow set no such variable, so every run from
+      # 2026-09-04 17:07 UTC onward died in 1.4 s on a bare
+      # `Error: build:list command failed.` — the last green run was 13:33 UTC,
+      # two hours before that commit. A step loading the value out of
+      # `build.internal.env` in mobile/eas.json worked around it for one day.
       #
-      # The variable is read from the `internal` profile of mobile/eas.json, the
-      # same source mobile-ota-or-build.yml loads it from — `build:list` does NOT
-      # read that block on its own (its `-e` flag *filters* by profile, it loads
-      # nothing), so passing it here is not redundant.
+      # app.config.ts now falls back to that same eas.json field itself, so the
+      # step was deleted rather than kept: one mechanism, in the file that needs
+      # the value, instead of one copy per workflow. `eas build:list` still does
+      # not read the profile's `env` block on its own — its `-e` flag *filters* by
+      # profile and loads nothing — the fallback is what covers it.
       #
-      # Only this one variable, not the whole `env` block that
-      # mobile-ota-or-build.yml loops over: it needs the Google client ids
-      # because they decide `ios.scheme` and therefore the fingerprint it
-      # computes, whereas nothing here reads them. Failing red on one of them
-      # being empty would be a broken-check signal for a watcher that could have
-      # run perfectly well.
-      - name: Load EXPO_PUBLIC_API_BASE_URL from the internal profile
-        working-directory: mobile
-        run: |
-          set -euo pipefail
-          VALUE=$(jq -r '.build.internal.env.EXPO_PUBLIC_API_BASE_URL' eas.json)
-          if [[ -z "${VALUE}" || "${VALUE}" == "null" ]]; then
-            echo "::error::EXPO_PUBLIC_API_BASE_URL is empty in the \"internal\" build profile of mobile/eas.json. Without it app.config.ts throws and no eas command can resolve the project."
-            exit 1
-          fi
-          printf 'EXPO_PUBLIC_API_BASE_URL=%s\n' "${VALUE}" >> "$GITHUB_ENV"
-          echo "Loaded EXPO_PUBLIC_API_BASE_URL from mobile/eas.json (build.internal.env)."
+      # Do not "restore symmetry" with mobile-ota-or-build.yml, which loads the
+      # whole `env` block: that one is not a workaround. `eas update` bundles on
+      # the runner, so it needs every EXPO_PUBLIC_* value inlined, including the
+      # Google client ids that decide `ios.scheme` and therefore the fingerprint.
+      # Nothing here reads them, and failing red on one being empty would report a
+      # broken watcher where the watcher is fine.
 
       # `--status errored` and not `canceled`: cancelling a build is usually a
       # human act (the owner freeing the single Free-plan concurrency slot), and

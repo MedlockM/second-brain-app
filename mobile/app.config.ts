@@ -1,3 +1,6 @@
+import { readFileSync } from "fs";
+import { join } from "path";
+
 import { ExpoConfig, ConfigContext } from "expo/config";
 import {
   ConfigPlugin,
@@ -104,7 +107,35 @@ const withEmbeddedDebugBundle: ConfigPlugin = (config) => {
   });
 };
 
-export default ({ config }: ConfigContext): ExpoConfig => {
+/**
+ * `build.internal.env.EXPO_PUBLIC_API_BASE_URL` out of mobile/eas.json, or
+ * `undefined` if it cannot be read.
+ *
+ * eas.json is the single source of truth for that host, and it is in the
+ * repository — so any checkout can resolve it without an environment. Reading it
+ * with `fs` rather than `import`: `@expo/config` transpiles app.config.ts alone
+ * (see the note on `googleReservedClientScheme`), so a relative import does not
+ * resolve here, while node builtins do.
+ *
+ * The `internal` profile and not `production`: `production` points at
+ * `api.mediasummarizer.com`, a domain the project does not own, which is the
+ * exact host this file went out of its way to stop defaulting to. `internal` is
+ * the `-dev` API Gateway — a host we control, and the one every other profile
+ * already uses.
+ */
+const apiBaseUrlFromEasJson = (projectRoot: string): string | undefined => {
+  try {
+    const easJson = JSON.parse(
+      readFileSync(join(projectRoot, "eas.json"), "utf8"),
+    );
+    const value = easJson?.build?.internal?.env?.EXPO_PUBLIC_API_BASE_URL;
+    return typeof value === "string" ? value.trim() || undefined : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
   // Google's browser sign-in flow — iOS only — redirects to the reversed client
   // ID of the iOS OAuth client (see src/lib/googleOAuth.ts). That scheme has to be
   // declared for the callback to re-enter the app, and it is derived from the same
@@ -125,23 +156,49 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   // read from the environment: it goes into `extra.apiBaseUrl` below, which the
   // app reads through `Constants.expoConfig` (src/constants/config.ts).
   //
-  // **No fallback, on purpose.** This used to default to the `api.` host of
-  // `mediasummarizer.com`, a domain the project does not own (no delegated zone
-  // at all — MOBILE_CI_CD.md) — so a missing variable would silently have sent
-  // authenticated requests, access tokens included, to a host controlled by
-  // someone else. A missing configuration has to be loud, so config resolution
-  // fails outright: no bundle, no build, no update can be produced without it.
+  // **The fallback is eas.json, never a hard-coded host.** This once defaulted to
+  // the `api.` host of `mediasummarizer.com`, a domain the project does not own
+  // (no delegated zone at all — MOBILE_CI_CD.md), so a missing variable silently
+  // sent authenticated requests, access tokens included, to a host somebody else
+  // controls. That default was removed and replaced by a `throw`, which fixed the
+  // security hole and created a usability one: *resolving* this config is a
+  // prerequisite of commands that build nothing at all — `eas build:list`,
+  // `eas credentials`, `eas env:list`, `expo config` — and those carry no build
+  // profile, so they all died on a bare `Error: <command> command failed.` It
+  // broke mobile-build-watch.yml for four days and made every local `eas`
+  // invocation need an `EXPO_PUBLIC_API_BASE_URL=… npx eas …` prefix.
   //
-  // Nothing legitimate resolves this config without it: `eas build` and
-  // `eas update` take it from the build profile's `env` block in eas.json, a
-  // local `expo start` from mobile/.env, and mobile-e2e-maestro.yml sets it on
-  // every job that prebuilds.
-  const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  // Falling back to the repository keeps the property that mattered: the value is
+  // one we control, read from the same eas.json CI reads, and it cannot drift
+  // because there is no second copy. It still throws when even that is
+  // unreadable, so a broken checkout is loud.
+  //
+  // It changes no artifact. Every path that produces one injects the variable
+  // itself and wins over the fallback: `eas build` from the build profile's `env`
+  // block, `eas update` from the environment the workflow loads out of that same
+  // block, a local `expo start` from mobile/.env, mobile-e2e-maestro.yml on every
+  // job that prebuilds. The fallback only ever answers a command that resolves
+  // the config and emits nothing.
+  const apiBaseUrlFromEnv = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  const apiBaseUrl = apiBaseUrlFromEnv || apiBaseUrlFromEasJson(projectRoot);
   if (!apiBaseUrl) {
     throw new Error(
-      "EXPO_PUBLIC_API_BASE_URL is not set and there is no fallback host. " +
-        "Set it in the build profile's `env` block in mobile/eas.json (that is " +
-        "what CI reads), or in mobile/.env for a local run.",
+      "EXPO_PUBLIC_API_BASE_URL is not set, and mobile/eas.json does not " +
+        "provide `build.internal.env.EXPO_PUBLIC_API_BASE_URL` to fall back on. " +
+        "There is no hard-coded host on purpose. Set it in the build profile's " +
+        "`env` block in mobile/eas.json (that is what CI reads), or in " +
+        "mobile/.env for a local run.",
+    );
+  }
+  if (!apiBaseUrlFromEnv) {
+    // stderr, so it cannot corrupt the JSON `expo config --json` writes to
+    // stdout — which is precisely what eas-cli parses. Measured: it shows up on
+    // `expo config --type public` and is swallowed under `--json`, which is the
+    // behaviour wanted in both cases.
+    console.warn(
+      `[app.config.ts] EXPO_PUBLIC_API_BASE_URL was not set; using ${apiBaseUrl} ` +
+        "from build.internal.env in eas.json. Expected for commands that only " +
+        "resolve the config; a build or an update should have injected it.",
     );
   }
 
