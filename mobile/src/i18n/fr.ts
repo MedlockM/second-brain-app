@@ -233,8 +233,8 @@ export const fr: Catalog = {
   "artifacts.refusal.generic":
     "Impossible de lancer cette génération. Veuillez réessayer.",
   "plan.hourlyRate": "≈ {price} de l'heure",
-  "plan.card.allowance": "{duration} de transcription",
-  "plan.card.perImport": "jusqu'à {duration} par import",
+  "plan.card.allowance": "{duration} par mois",
+  "plan.card.perImport": "jusqu'à {duration} par envoi",
   "plan.rec.cappedLargest":
     "Vous avez utilisé les {duration} de cette période. {plan} est la formule la plus grande que nous proposons.",
   "plan.rec.cappedNextUp":
@@ -259,53 +259,21 @@ export const fr: Catalog = {
   "paywall.reason.lowNoDate": "{left} restant sur cette période.",
   "paywall.reason.lowWithDate": "{left} restant jusqu'au {date}.",
   "plan.minutesRule":
-    "Les minutes couvrent l'audio et la vidéo que nous transcrivons. Les articles et les pages web ne coûtent aucune minute, et lire votre bibliothèque est illimité.",
-  "plan.legend.realLength":
-    "L'audio et la vidéo comptent leur durée réelle, minute pour minute.",
-  "plan.legend.captions":
-    "Une vidéo qui possède déjà des sous-titres que nous pouvons acheter coûte {duration}, quelle que soit sa durée.",
-  "plan.legend.documents":
-    "Un PDF, un document Office ou une photo dont nous lisons le texte coûte 1 min par {pages} pages.",
-  "plan.legend.folders":
-    "Une génération sur un dossier entier coûte 1 min par {sources} éléments qu'il contient. Sur un élément seul, c'est gratuit.",
-  "plan.legend.free":
-    "Les articles, les pages web, les TikToks et les publications photo Instagram ne coûtent rien du tout : ils ne sont pas transcrits.",
-  "plan.legend.overLimit":
-    "Au-delà du maximum par import d'une formule, l'import est refusé plutôt que facturé — découpez-le en parties plus courtes.",
+    "Les minutes couvrent l'audio et la vidéo que vous envoyez. Les articles et les pages web n'en coûtent aucune, et lire votre bibliothèque est illimité.",
   "plan.list.separator": ", ",
   "plan.list.lastConjunction": "{list} et {last}",
-  "plan.highlight.capture":
-    "Enregistrez depuis n'importe quelle app : YouTube, podcasts, TikTok, Instagram, X, articles, PDF, documents, photos et fichiers audio",
-  "plan.highlight.read":
-    "Lisez la transcription complète, traduite dans votre langue de lecture",
-  "plan.highlight.generate":
-    "Générez {list} à la demande, par élément ou par dossier",
-  "plan.highlight.organise":
-    "Organisez en dossiers, cherchez dans tout, digest quotidien",
-  "plan.includes.capture.title": "Enregistrez tout, depuis n'importe quelle app",
-  "plan.includes.capture.links":
-    "Partagez un lien depuis n'importe quelle app, ou collez-le : vidéos YouTube, épisodes de podcast depuis Apple Podcasts, Spotify, Deezer ou n'importe quel flux RSS, TikToks, reels et publications photo Instagram, publications X, articles de presse et n'importe quelle page web.",
-  "plan.includes.capture.files":
-    "Envoyez un fichier depuis votre téléphone : documents PDF, Word, PowerPoint et Excel, photos et captures d'écran dont nous lisons le texte, et enregistrements audio (MP3, M4A, WAV, FLAC, AAC, OGG, Opus).",
-  "plan.includes.read.title": "Lisez-le, quel qu'il soit",
-  "plan.includes.read.transcripts":
-    "L'audio et la vidéo reviennent en texte intégral, transcrits mot pour mot : un épisode que vous n'avez pas le temps d'écouter devient un épisode que vous pouvez lire, parcourir ou chercher.",
-  "plan.includes.read.translation":
-    "Les transcriptions sont traduites dans votre langue de lecture, {count} au choix, et vous pouvez en changer quand vous voulez.",
-  "plan.includes.generate.title": "Transformez-le en quelque chose que vous gardez",
-  "plan.includes.generate.onDemand": "Sur n'importe quel élément, à la demande : {list}.",
-  "plan.includes.generate.folder":
-    "Lancez les mêmes générations sur un dossier entier pour obtenir une synthèse unique de tout ce que vous y avez classé.",
-  "plan.includes.generate.kept":
-    "Chaque génération est conservée : vous pouvez y revenir ou en demander une nouvelle plus tard.",
-  "plan.includes.organise.title": "Retrouvez-le des mois plus tard",
-  "plan.includes.organise.file":
-    "Classez n'importe quoi en dossiers, au moment de l'enregistrer ou plus tard.",
-  "plan.includes.organise.search":
-    "Recherche plein texte dans tout ce que vous avez enregistré, transcriptions comprises.",
-  "plan.includes.organise.digest":
-    "Un digest quotidien et un digest hebdomadaire de ce qui est arrivé et de ce qui mérite d'être revu.",
-  "plan.includes.minutes.title": "Ce que comptent les minutes mensuelles",
+  "plan.source.web": "Articles & pages web",
+  "plan.source.audioUrl": "Tout lien audio",
+  "plan.cost.free.label": "Articles, pages web, posts X",
+  "plan.cost.captions.label": "Une vidéo YouTube, quelle que soit sa durée",
+  "plan.cost.transcript.label": "Un podcast qui publie déjà son texte",
+  "plan.cost.duration.label": "Audio, vidéo, reels, notes vocales",
+  "plan.cost.document.label": "Un document ou la photo d'une page",
+  "plan.cost.folder.label": "Une génération sur tout un dossier",
+  "plan.cost.value.free": "Gratuit",
+  "plan.cost.value.realLength": "Sa durée réelle",
+  "plan.cost.value.perPages": "une minute par {pages} pages",
+  "plan.cost.value.perSources": "une minute par {sources} éléments",
   "plan.trial.accessFull": "accès complet",
   "plan.trial.accessTier": "accès {tier}",
   "plan.trial.generic":
@@ -412,9 +380,8 @@ export const fr: Catalog = {
   "deleteAccount.confirmAction": "Supprimer définitivement",
   "account.title": "Compte",
   "account.notSet": "Non défini",
-  "account.subscription.manage": "Gérer l'abonnement",
-  "account.subscription.manageHint":
-    "Changer de formule ou restaurer un achat",
+  "account.subscription.manage": "Changer de formule",
+  "account.subscription.manageHint": "Comparez les formules et changez",
   "account.subscription.viewPlans": "Voir les formules",
   "account.subscription.viewPlansHint":
     "Découvrez ce que comprend chaque abonnement",
@@ -607,13 +574,16 @@ export const fr: Catalog = {
   "paywall.tryAgain": "Réessayer",
   "paywall.pricesUnavailable":
     "Les prix sont indisponibles — le {store} ne propose pas ces abonnements pour le moment.",
-  "paywall.selectorLabel": "Choisissez votre temps de transcription mensuel",
+  "paywall.selectorLabel": "Choisissez combien vous envoyez chaque mois",
   "paywall.selectorLabelReadOnly": "Ce que chaque formule vous donne",
   "paywall.priceUnavailableA11y": "prix indisponible",
   "paywall.pricePerMonthA11y": "{price} par mois",
-  "paywall.includedHeading": "Inclus dans chaque formule",
-  "paywall.showDetails": "Voir exactement ce qui est inclus",
-  "paywall.hideDetails": "Masquer les détails",
+  "paywall.promise":
+    "Tout ce que vous envoyez revient en texte que vous pouvez lire, chercher et garder.",
+  "paywall.pricePeriod": "/mois",
+  "paywall.sourcesHeading": "Ce que vous pouvez envoyer",
+  "paywall.filesHeading": "Fichiers de votre téléphone",
+  "paywall.costHeading": "Ce que ça consomme en minutes",
   "paywall.ctaChoose": "Choisir une formule",
   "paywall.ctaStart": "Commencer avec {plan} — {price}/mois",
   "paywall.purchaseSuccess": "Achat réussi",
@@ -739,7 +709,7 @@ export const fr: Catalog = {
   "transcript.translationFailed":
     "La traduction a échoué. Affichage du texte original.",
   "paywall.subtitle":
-    "Chaque formule fait tout. Seul le temps de transcription mensuel change.",
+    "Chaque formule fait tout. Elles ne diffèrent que par ce que vous pouvez envoyer.",
   "startupError.title": "L'application n'a pas pu démarrer",
   "startupError.body":
     "Une erreur inattendue a interrompu le démarrage de l'application. Un nouvel essai suffit généralement à repartir.",

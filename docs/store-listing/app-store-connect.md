@@ -72,74 +72,79 @@ The app declares eleven locales in `mobile/app.config.ts`, so all eleven are her
 `Audio-Heavy`. Product names are never translated (`mobile/src/i18n/fr.ts` header:
 "Product names (Reader, Mix, Audio-Heavy)…").
 
+**These strings no longer say "transcription", and neither does the app**
+(`task-377`, following `docs/research/task-376-subscription-screen-redesign/README.md`
+§4.3). The purchase sheet and Settings → Subscriptions are the two places a buyer
+reads a subscription Description, so a word retired from the app's own screens
+cannot survive here — it would be the only place the buyer meets it.
+
 | Locale | Reader | Mix | Audio-Heavy |
 |---|---|---|---|
-| en | Unlimited articles + 1 h of transcription. | Unlimited articles + 5 h of transcription. | Unlimited articles + 12 h of transcription. |
-| fr | Articles illimités + 1 h de transcription. | Articles illimités + 5 h de transcription. | Articles illimités + 12 h de transcription. |
-| es | Artículos ilimitados + 1 h de transcripción. | Artículos ilimitados + 5 h de transcripción. | Artículos ilimitados + 12 h de transcripción. |
-| de | Unbegrenzte Artikel + 1 Std. Transkription. | Unbegrenzte Artikel + 5 Std. Transkription. | Unbegrenzte Artikel + 12 Std. Transkription. |
-| it | Articoli illimitati + 1 h di trascrizione. | Articoli illimitati + 5 h di trascrizione. | Articoli illimitati + 12 h di trascrizione. |
-| pt | Artigos ilimitados + 1 h de transcrição. | Artigos ilimitados + 5 h de transcrição. | Artigos ilimitados + 12 h de transcrição. |
-| nl | Onbeperkte artikelen + 1 u transcriptie. | Onbeperkte artikelen + 5 u transcriptie. | Onbeperkte artikelen + 12 u transcriptie. |
-| ja | 記事は無制限、文字起こし1 時間。 | 記事は無制限、文字起こし5 時間。 | 記事は無制限、文字起こし12 時間。 |
-| zh | 文章不限量，转写1 小时。 | 文章不限量，转写5 小时。 | 文章不限量，转写12 小时。 |
-| ar | مقالات بلا حدود + ساعة واحدة تحويل إلى نص. | مقالات بلا حدود + 5 ساعات تحويل إلى نص. | مقالات بلا حدود + 12 ساعة تحويل إلى نص. |
-| hi | असीमित लेख + 1 घंटा ट्रांसक्रिप्शन। | असीमित लेख + 5 घंटे ट्रांसक्रिप्शन। | असीमित लेख + 12 घंटे ट्रांसक्रिप्शन। |
+| en | Unlimited articles + 1 h turned into text. | Unlimited articles + 5 h turned into text. | Unlimited articles + 12 h turned into text. |
+| fr | Articles illimités + 1 h mise en texte. | Articles illimités + 5 h mises en texte. | Articles illimités + 12 h mises en texte. |
+| es | Artículos ilimitados + 1 h en texto. | Artículos ilimitados + 5 h en texto. | Artículos ilimitados + 12 h en texto. |
+| de | Unbegrenzte Artikel + 1 Std. als Text. | Unbegrenzte Artikel + 5 Std. als Text. | Unbegrenzte Artikel + 12 Std. als Text. |
+| it | Articoli illimitati + 1 h in testo. | Articoli illimitati + 5 h in testo. | Articoli illimitati + 12 h in testo. |
+| pt | Artigos ilimitados + 1 h em texto. | Artigos ilimitados + 5 h em texto. | Artigos ilimitados + 12 h em texto. |
+| nl | Onbeperkte artikelen + 1 u als tekst. | Onbeperkte artikelen + 5 u als tekst. | Onbeperkte artikelen + 12 u als tekst. |
+| ja | 記事は無制限、1 時間をテキスト化。 | 記事は無制限、5 時間をテキスト化。 | 記事は無制限、12 時間をテキスト化。 |
+| zh | 文章不限量，1 小时转成文字。 | 文章不限量，5 小时转成文字。 | 文章不限量，12 小时转成文字。 |
+| ar | مقالات بلا حدود + ساعة واحدة نصًا. | مقالات بلا حدود + 5 ساعات نصًا. | مقالات بلا حدود + 12 ساعة نصًا. |
+| hi | असीमित लेख + 1 घंटा टेक्स्ट में। | असीमित लेख + 5 घंटे टेक्स्ट में। | असीमित लेख + 12 घंटे टेक्स्ट में। |
 
-Every word is lifted from the matching locale file rather than translated afresh:
-`transcription` / `Transkription` / `文字起こし` / `تحويل إلى نص` come from
-`plan.legend.free` and `plan.highlight.read`, and the hour unit from
-`duration.hours` — hence `Std.` in German, `u` in Dutch, and the Arabic plural
-shifting between 1, 5 and 12 the way the app does it.
+The hour unit is lifted from `duration.hours` in the matching locale file — hence
+`Std.` in German, `u` in Dutch, and the Arabic form shifting across 1, 5 and 12 the
+way the app does it. The *verb* half ("turned into text", « mises en texte »,
+`テキスト化`) is the one part not already in a catalogue, because the app no longer
+needs to name the operation anywhere: it is proposed by the benchmark and **still
+wants one native reader per language before it is pasted into the console** — the
+owner's second follow-up in README §11.
 
 **Thirteen App Store entries, not eleven.** Apple has no generic Spanish or
 Portuguese: take `Spanish (Spain)` *and* `Spanish (Mexico)`, `Portuguese (Brazil)`
 *and* `Portuguese (Portugal)`, same string in each pair, or the Latin American
 storefronts fall back to English.
 
-**Spanish sits at exactly 45 characters** on the Audio-Heavy line. If App Store
-Connect refuses it, the 40-character fallback is
-`Artículos ilimitados + 12 h transcritas.`
+**Every line now clears 45 characters with room to spare** — the longest is English
+at 43, and Spanish drops from exactly 45 to 37, so the 40-character Spanish fallback
+this table used to carry is no longer needed. Lengths counted in Unicode characters;
+the form's own acceptance is still the only verdict that counts.
 
-### Why not "N h of audio and video a month"
+### What the app says, and where each half of the Description comes from
 
-That was the wording here until 2026-09-02, taken from the app's own
-`plan.card.allowance`. It is wrong in both directions, and
-`pricing_config_service.DEFAULT_PRICING_CONFIG` (`unit_conversion`) is what settles
-it. **Metered**: audio and video at their real length; a video whose captions are
-bought, 1 min flat; **a PDF, an Office document or a photo read for its text, 1 min
-per 5 pages**; a generation over a whole folder, 1 min per 5 items. **Free and
-unlimited** (`plan.legend.free`, verbatim): « Articles, web pages, TikToks and
-Instagram photo posts cost nothing at all: they are not transcribed », plus
-single-item generations and reading the library.
+`pricing_config_service.DEFAULT_PRICING_CONFIG` (`unit_conversion`) settles what a
+minute buys, and after `task-377` the paywall states it in a table rather than in
+prose, one row per regime the enforcer applies:
 
-So the old line hid that articles, web pages, TikToks and Instagram photo posts cost
-nothing, and omitted that documents and photos spend the same budget. The chosen
-shape carries both halves in 45 characters. The figures live only in
-`DEFAULT_PRICING_CONFIG`: if one moves, re-derive these lines from it.
+| Row on the paywall | Debit | Config key |
+|---|---|---|
+| Articles, web pages, X posts | free | — (no provider fee) |
+| A YouTube video, whatever its length | 1 min flat | `captions_minutes` |
+| A podcast that publishes its own text | free | Podcasting 2.0 `<podcast:transcript>` |
+| Audio, video, reels, voice notes | real length | — |
+| A document or a photo of a page | 1 min per 5 pages | `document_pages_per_minute` |
+| Generating across a whole folder | 1 min per 5 items | `folder_sources_per_minute` |
 
-**What the app says now** (`task-337`), and why it is not this string verbatim: the
-card has to hold at 20px next to a price on a 375pt screen, so the two halves are
-split rather than pasted into one line.
+So the Description's two halves map cleanly onto two things the app itself says:
 
-- The card's dominant line, `plan.card.allowance`, is **`"{duration} of
-  transcription"`** — the half that differs between the three tiers, and the same
-  word `paywall.selectorLabel` ("Pick your monthly transcription time") and
-  `paywall.subtitle` already used above the cards. It is *shorter* than the
-  `"{duration} of audio and video"` it replaces, in all eleven locales.
-- The half that does not differ is stated once, directly under the card list, by
-  `plan.minutesRule`: **« Minutes cover audio and video we transcribe. Articles and
-  web pages cost no minutes, and reading your library is unlimited. »** That is
-  also the Account tab's hint under the usage gauge (`SubscriptionStatusCard`), so
-  the two screens cannot drift. "Cover", not "only cover": documents and
-  folder-wide generations debit minutes too.
-- The exhaustive free list — TikToks and Instagram photo posts included — stays in
-  `plan.legend.free`, behind `See exactly what is included`, with the four
-  conversion sentences.
+- `Unlimited articles` ← the free row above, plus `plan.minutesRule` under the
+  Account tab's usage gauge: « Minutes cover the audio and video you send. Articles
+  and web pages cost none, and reading your library is unlimited. » "Cover", not
+  "only cover" — documents and folder-wide generations debit minutes too.
+- `{N} h turned into text` ← `plan.card.allowance`, which is now **`"{duration} per
+  month"`**: the quantity and nothing else. The card carries the amount, the cost
+  table right below it says what the amount buys. Naming the operation on the card
+  ("of transcription") was jargon in eleven languages and false for half the
+  debits, since a PDF read for its text is not transcribed and is billed all the
+  same.
 
-So the store's `Unlimited articles` maps to `plan.minutesRule`, and its `{N} h of
-transcription` to `plan.card.allowance`; the app never authors the figure, which
-arrives from `GET /api/pricing`.
+The store line still has to name the operation once, because a purchase sheet has no
+table under it — hence "turned into text", which is true of every metered path.
+
+**The app never authors a figure.** Allowances, ceilings and the three conversions
+arrive from `GET /api/pricing`. If one moves in `DEFAULT_PRICING_CONFIG`, the screen
+follows with no build and **these thirteen store strings do not** — re-derive them
+from the config by hand.
 
 ### Do NOT add an introductory offer
 
@@ -236,12 +241,14 @@ whose base prices are set in euros. **Nothing is broken.** RevenueCat documents 
 > complete successfully. This is a known quirk of Apple's TestFlight and sandbox
 > environments.
 
-The app is doing the right thing, deliberately: `mobile/app/paywall.tsx:407-471` prints
-`pkg.product.priceString` and `pkg.product.currencyCode` straight from the SDK, and
-`mobile/src/lib/planCopy.ts:69-76` says why — money comes « from the store's own
-currency … never from the pricing config: the config holds one currency, the store
-holds the truth ». So there is no currency to fix in the code, and RevenueCat's own
-checklist agrees: « Your paywall isn't hardcoding a specific currency. »
+The app is doing the right thing, deliberately: the tier card in
+`mobile/app/paywall.tsx` prints `pkg.product.priceString` and
+`pkg.product.currencyCode` straight from the SDK, and `formatCurrency` in
+`mobile/src/lib/planCopy.ts` says why — money is « only ever fed amounts *derived
+from the store package* …, never from the pricing config: the config holds one EUR
+figure while the store bills whatever the user's storefront charges ». So there is no
+currency to fix in the code, and RevenueCat's own checklist agrees: « Your paywall
+isn't hardcoding a specific currency. »
 
 **What to check instead**: « The purchase sheet shows the expected local currency » —
 Apple's own sheet, the one that appears after the purchase button. That is the value a
@@ -282,7 +289,7 @@ Share any link from your favorite apps and get AI-powered summaries, detailed no
 HOW IT WORKS
 
 1. Share a link from any app (Chrome, YouTube, Instagram, TikTok, WhatsApp, podcast apps, and more)
-2. Media Summarizer transcribes audio content and extracts text automatically
+2. Media Summarizer turns audio, video, documents, and photos into text automatically
 3. Generate summaries, notes, and flashcards on demand
 4. Review, search, and organize your growing media library
 
@@ -290,7 +297,7 @@ KEY FEATURES
 
 - Universal Share Extension: Share links directly from any app on your phone. No copy-pasting needed.
 
-- AI-Powered Transcription: Podcasts, YouTube videos, and social media clips are transcribed with high accuracy using advanced speech recognition.
+- Everything Comes Back as Text: Podcasts, YouTube videos, reels, voice notes, PDFs, Office documents, and photos of a page all come back as text you can read, search, and keep.
 
 - Smart Summaries: Get both quick overviews (summary short) and comprehensive breakdowns (summary detailed) of any content.
 
@@ -302,21 +309,25 @@ KEY FEATURES
 
 - Search Your Library: Find any media by title, source, or content. Your personal knowledge base grows with every share.
 
-- Multi-Platform Support: Works with podcasts (Spotify, Apple Podcasts, Deezer, RSS), YouTube, articles, Instagram, TikTok, and X (Twitter).
+- Multi-Platform Support: Works with YouTube, TikTok, Instagram, podcasts (Spotify, Apple Podcasts, Deezer, RSS), X, WhatsApp, articles, and any web page.
 
 SUPPORTED CONTENT TYPES
 
-- Podcasts from any platform
 - YouTube videos
-- Web articles and blog posts
 - TikTok videos
-- Instagram posts and reels
-- X (Twitter) posts
-- Direct RSS feeds
+- Instagram reels
+- Podcast episodes from Spotify, Apple Podcasts, Deezer, or any RSS feed
+- X posts
+- WhatsApp messages and voice notes
+- Web articles, blog posts, and any web page
+- Any direct audio link
+- Documents: PDF, DOCX, PPTX, XLSX
+- Photos and screenshots: JPG, PNG, HEIF, TIFF, BMP
+- Audio files: MP3, M4A, AAC, OGG, WAV, FLAC, OPUS
 
 PRICING
 
-Media Summarizer offers a free tier for text-based content (articles, web pages). Audio and video transcription is available on paid plans with generous monthly quotas.
+Media Summarizer is a subscription, with three monthly plans. Every plan does everything; they differ only in how much you send. Articles, web pages, and X posts cost nothing against your monthly time, and reading your library is always unlimited.
 
 Perfect for students, researchers, lifelong learners, and anyone who consumes more content than they can remember.
 
@@ -328,6 +339,10 @@ Start building your second brain today.
 ```
 podcast,summarizer,transcription,notes,flashcards,AI,knowledge,second brain,articles,learning
 ```
+
+`transcription` stays here on purpose. Keywords are **never displayed** — they only
+match searches — so retiring the word from every customer-visible surface
+(`task-377`) does not mean giving up the people who type it into the search field.
 
 ## Promotional Text (max 170 chars)
 
@@ -341,7 +356,7 @@ Turn podcasts, videos, and articles into summaries, notes, and flashcards. Share
 Welcome to Media Summarizer! In this first release:
 
 - Share links from any app to start building your media library
-- AI transcription for podcasts, YouTube, TikTok, Instagram, and more
+- Podcasts, YouTube, TikTok, Instagram, WhatsApp, documents, and photos all come back as text
 - Generate short and detailed summaries on demand
 - Create structured notes from any content
 - Auto-generated flashcards for active recall

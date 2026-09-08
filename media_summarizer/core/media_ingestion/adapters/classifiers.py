@@ -77,6 +77,34 @@ _MAX_URL_LENGTH = 2048
 _RSS_HOST_HINT_PREFIXES = ("feeds.", "rss.")
 _HOST_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
+#: The hosts each platform is recognised by, published for `share_targets.py`.
+#:
+#: The paywall used to list the platforms it accepts as prose retyped in eleven
+#: translation catalogues, and that prose had drifted from this table: it
+#: advertised Instagram photo posts, which the worker refuses, and never
+#: mentioned WhatsApp, `music.youtube.com`, `twitter.com` or the short TikTok
+#: links. Publishing the table is what lets the showcase be *derived* from what
+#: decides acceptance instead of being maintained beside it.
+#:
+#: Platforms with no host of their own are absent on purpose: `WHATSAPP` arrives
+#: as a share rather than a link, `WEB` is the terminal fallback for any host,
+#: `DIRECT_URL` is decided by the path extension below, and `UNKNOWN` is a
+#: sentinel. `share_targets.py` decides which of those are worth offering.
+RECOGNISED_HOSTS: dict[SourcePlatform, frozenset[str]] = {
+    SourcePlatform.SPOTIFY: frozenset(_SPOTIFY_HOSTS),
+    SourcePlatform.APPLE_PODCASTS: frozenset(_APPLE_HOSTS),
+    SourcePlatform.DEEZER: frozenset(_DEEZER_HOSTS),
+    SourcePlatform.YOUTUBE: frozenset(_YOUTUBE_HOSTS),
+    SourcePlatform.INSTAGRAM: frozenset(_INSTAGRAM_HOSTS),
+    SourcePlatform.TIKTOK: frozenset(_TIKTOK_HOSTS),
+    SourcePlatform.X: frozenset(_X_HOSTS),
+}
+
+#: Path extensions that turn any URL into a direct audio import. Published for
+#: the same reason: the list the showcase names has to be the list the
+#: classifier reads.
+AUDIO_URL_EXTENSIONS: tuple[str, ...] = _AUDIO_EXTENSIONS
+
 
 def _parse_domain_set(raw_value: str) -> frozenset[str]:
     domains: set[str] = set()

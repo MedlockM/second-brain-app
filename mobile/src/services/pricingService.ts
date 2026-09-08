@@ -52,10 +52,37 @@ export interface PricingUnitConversion {
   folder_sources_per_minute: number | null;
 }
 
+/**
+ * One thing the user can send, as the backend's own capability table describes
+ * it (`core/media_ingestion/adapters/share_targets.py`).
+ *
+ * Served here rather than written in the eleven catalogues because the list is a
+ * fact about the code, not a sentence: it is derived from the classifier's host
+ * tables and from `DocumentFormat`, so it cannot drift the way the prose version
+ * did — that one sold Instagram photo posts the worker refuses and never
+ * mentioned WhatsApp. It travels on this response on purpose: the screen already
+ * awaits it, so the showcase costs no extra request and no extra loading state.
+ */
+export interface PricingShareTarget {
+  /** `SourcePlatform` value, or a file family (`document`, `image`, `audio`). */
+  id: string;
+  /** `"platform"` for something shared, `"file"` for something picked. */
+  group: string;
+  /**
+   * The proper noun to display — "YouTube", "WhatsApp" — identical in every
+   * locale, which is why it can cross the wire at all. `null` when the thing has
+   * no brand name, and the client translates it from `id` instead.
+   */
+  label: string | null;
+  /** Upper-cased extensions, shown as the whole chip: "PDF DOCX PPTX XLSX". */
+  formats: string[];
+}
+
 export interface PublicPricing {
   tiers: PricingTier[];
   free_trial: PricingFreeTrial | null;
   unit_conversion: PricingUnitConversion;
+  sources: PricingShareTarget[];
   currency: string;
   billing_period: string;
 }
