@@ -170,7 +170,6 @@ export const en = {
   "time.hoursAgo.one": "{count}h ago",
   "time.hoursAgo.other": "{count}h ago",
   "time.yesterday": "Yesterday",
-  "time.today": "Today",
   "time.daysAgo.one": "{count}d ago",
   "time.daysAgo.other": "{count}d ago",
 
@@ -455,7 +454,6 @@ export const en = {
     "Content will be translated to this language when needed.",
   "onboarding.language.continueA11y": "Continue with selected language",
   // --- Library / search tab ---
-  "mediaType.unknownSource": "Unknown",
   "search.placeholder": "Search your library...",
   "search.clearA11y": "Clear search query",
   "search.folders": "Folders",

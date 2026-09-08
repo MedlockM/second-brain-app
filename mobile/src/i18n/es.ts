@@ -127,7 +127,6 @@ export const es: Catalog = {
   "time.hoursAgo.one": "hace {count} h",
   "time.hoursAgo.other": "hace {count} h",
   "time.yesterday": "Ayer",
-  "time.today": "Hoy",
   "time.daysAgo.one": "hace {count} d",
   "time.daysAgo.other": "hace {count} d",
   "subscription.resetLabel.trialEnds": "FIN DE LA PRUEBA",
@@ -392,7 +391,6 @@ export const es: Catalog = {
   "onboarding.language.subtitle":
     "El contenido se traducirá a este idioma cuando haga falta.",
   "onboarding.language.continueA11y": "Continuar con el idioma elegido",
-  "mediaType.unknownSource": "Desconocida",
   "search.placeholder": "Busca en tu biblioteca…",
   "search.clearA11y": "Borrar la búsqueda",
   "search.folders": "Carpetas",

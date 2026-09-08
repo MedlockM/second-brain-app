@@ -135,7 +135,6 @@ export const fr: Catalog = {
   "time.hoursAgo.one": "il y a {count} h",
   "time.hoursAgo.other": "il y a {count} h",
   "time.yesterday": "Hier",
-  "time.today": "Aujourd'hui",
   "time.daysAgo.one": "il y a {count} j",
   "time.daysAgo.other": "il y a {count} j",
   "subscription.resetLabel.trialEnds": "FIN DE L'ESSAI",
@@ -408,7 +407,6 @@ export const fr: Catalog = {
   "onboarding.language.subtitle":
     "Les contenus seront traduits dans cette langue si nécessaire.",
   "onboarding.language.continueA11y": "Continuer avec la langue sélectionnée",
-  "mediaType.unknownSource": "Inconnue",
   "search.placeholder": "Rechercher dans votre bibliothèque…",
   "search.clearA11y": "Effacer la recherche",
   "search.folders": "Dossiers",

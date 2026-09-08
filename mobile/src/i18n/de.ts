@@ -128,7 +128,6 @@ export const de: Catalog = {
   "time.hoursAgo.one": "vor {count} Std.",
   "time.hoursAgo.other": "vor {count} Std.",
   "time.yesterday": "Gestern",
-  "time.today": "Heute",
   "time.daysAgo.one": "vor {count} T.",
   "time.daysAgo.other": "vor {count} T.",
   "subscription.resetLabel.trialEnds": "TESTPHASE ENDET",
@@ -399,7 +398,6 @@ export const de: Catalog = {
   "onboarding.language.subtitle":
     "Inhalte werden bei Bedarf in diese Sprache übersetzt.",
   "onboarding.language.continueA11y": "Mit der gewählten Sprache fortfahren",
-  "mediaType.unknownSource": "Unbekannt",
   "search.placeholder": "Durchsuche deine Bibliothek …",
   "search.clearA11y": "Suche löschen",
   "search.folders": "Ordner",

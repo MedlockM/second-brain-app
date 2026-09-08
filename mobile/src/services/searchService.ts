@@ -11,6 +11,11 @@ export interface SearchHitHighlight {
 
 /**
  * A single search result from the Algolia transcript search endpoint.
+ *
+ * Everything but the highlights is read server-side from the durable library
+ * row, not from the index (task-375): a hit and a library list row describe the
+ * same media, so they answer with the same cover, the same subtitle and the same
+ * date by construction. The index only says which items match and where.
  */
 export interface SearchHit {
   media_item_id: string;
@@ -23,11 +28,26 @@ export interface SearchHit {
   /**
    * Fetchable cover URL, already signed by the backend for a re-hosted cover.
    * Null when the item has none — and also for anything indexed before covers
-   * were, which the result card handles the same way: it falls back to the
+   * were, which the vignette handles the same way: it falls back to the
    * media-type glyph rather than leaving a hole.
    */
   media_image: string | null;
-  created_at: number; // Unix timestamp
+  /** Where the media came from. The subtitle shows its domain absent a creator. */
+  source_url: string | null;
+  /** Folder the media is filed in; null is Unsorted, which "Move" preselects. */
+  folder_id: string | null;
+  /** ISO 8601, the library row's own save date — the age the vignette prints. */
+  created_at: string;
+  /** ISO 8601, last write on the row. Part of the cover's cache key. */
+  updated_at: string;
+  /**
+   * The media still has a library row.
+   *
+   * `false` on a hit the index kept after a deletion — deleting a media does not
+   * unindex its transcript — and the one case where the vignette offers no long
+   * press: there is nothing left to rename, move or delete.
+   */
+  in_library: boolean;
   text_match_score: number;
   highlights: SearchHitHighlight[];
 }
