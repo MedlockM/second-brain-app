@@ -4,9 +4,10 @@ title: >-
   Benchmark d'une refonte disruptive de l'écran d'abonnement : hiérarchie de
   l'information, vocabulaire sans jargon, et vitrine exhaustive des plateformes
   prises en charge
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 13:51'
+updated_date: '2026-09-08 08:07'
 labels:
   - benchmark
   - mobile
