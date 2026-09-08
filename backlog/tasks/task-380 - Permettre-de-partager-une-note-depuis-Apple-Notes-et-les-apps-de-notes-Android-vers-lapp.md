@@ -3,9 +3,10 @@ id: task-380
 title: >-
   Permettre de partager une note depuis Apple Notes et les apps de notes Android
   vers l'app
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 10:03'
+updated_date: '2026-09-08 11:19'
 labels:
   - mobile
   - ingestion
