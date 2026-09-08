@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -17,15 +17,24 @@ import {
   Shadows,
   TouchTarget,
 } from "../constants/theme";
-import type { MediaListItem, MediaType } from "../types/media";
+import type { MediaType } from "../types/media";
 import type { AnchorRect } from "./AnchoredContextMenu";
 import { getMediaTypeIcon } from "../lib/mediaTypeDisplay";
 import { t } from "../i18n";
 import { getRelativeTime } from "../lib/relativeTime";
+import {
+  focusHighlightSegments,
+  parseHighlightSnippet,
+} from "../lib/highlightSnippet";
 
 /**
  * Uniform media row for a vertical library list: the cover, the media type and
  * the age, the title, then the creator. Tapping it opens the media detail.
+ *
+ * The one media vignette of the Library tab, and deliberately the only one: the
+ * list of everything saved and the list of search hits show the same items, and
+ * two components drawing them were two apps (task-375). A search hit passes one
+ * extra prop — the transcript excerpt that matched — and is otherwise this row.
  *
  * The second line holds `creator_name` and falls back to the source domain: five
  * sources can never have a creator (shared text, documents, audio files), and a
@@ -48,27 +57,91 @@ import { getRelativeTime } from "../lib/relativeTime";
 /**
  * 112 x 63 is exactly 16:9, wide enough to read a thumbnail on a phone.
  *
- * Exported because the search result card carries the same cover: sharing the
- * numbers is what stops the two surfaces drifting into two slightly different
- * thumbnails for the same picture.
+ * Exported because the unsorted review draws the same cover on a card of its
+ * own: sharing the numbers is what stops the two surfaces drifting into two
+ * slightly different thumbnails for the same picture.
  */
 export const COVER_WIDTH = 112;
 export const COVER_HEIGHT = 63;
 
-interface MediaListCardProps {
-  item: MediaListItem;
+/**
+ * How many lines of transcript excerpt a search hit gets.
+ *
+ * Three, which is what the search results have always shown. At 13px on an 18px
+ * line that is 54px of text under a 63px cover head, so a hit stays about one
+ * and a half library rows tall and six or seven still fit on a phone screen —
+ * search is a scanning surface, and the number of results in view is what makes
+ * it one. Two lines cut most sentences in half; four make every hit nearly two
+ * rows and halve what can be scanned.
+ */
+const EXCERPT_LINES = 3;
+
+/**
+ * The character budgets `focusHighlightSegments` cuts the excerpt to.
+ *
+ * `45` is a little under one line of this box — roughly 50 characters at 13px
+ * across a card interior of ~334px on a 390pt phone, and ~40 on the narrowest
+ * one still supported. So the match always begins on the first or second of the
+ * three lines, whatever the device, while keeping most of a line of context in
+ * front of it.
+ *
+ * `220` sits comfortably past what three lines can hold (~150-170 characters),
+ * so the ellipsis the reader sees at the end is normally the native
+ * `numberOfLines` one; the cap exists for the case where the backend hands over
+ * a whole highlighted transcript chunk instead of a snippet.
+ */
+const EXCERPT_LEAD_CHARS = 45;
+const EXCERPT_MAX_CHARS = 220;
+
+/**
+ * Everything this card draws, and nothing else.
+ *
+ * Narrower than `MediaListItem` on purpose. The search results render this same
+ * card from a `SearchHit`, and a hit is not a library list row: it carries no
+ * processing status and no triage blurb, and inventing values for fields nothing
+ * here reads would be the first step back towards two vignettes. Both shapes
+ * satisfy this, which is the whole point.
+ */
+export interface MediaCardItem {
+  media_item_id: string;
+  title?: string | null;
+  /** The subtitle. Falls back to the domain of `source_url` when absent. */
+  creator_name?: string | null;
+  media_type?: MediaType | string | null;
+  source_url?: string | null;
+  media_image?: string | null;
+  /** ISO 8601. Drawn as a relative age next to the type badge. */
+  created_at: string;
+  /** ISO 8601. Part of the cover's cache key, so a replaced cover reloads. */
+  updated_at: string;
+}
+
+interface MediaListCardProps<T extends MediaCardItem> {
+  item: T;
   onPress: (mediaItemId: string) => void;
   /**
-   * Long press on the row, when the surface has something to offer for it. It
-   * receives the row's own window rect, measured as the press is recognised: the
-   * context menu is anchored to it and redraws the row there.
+   * Long press on the row, when there is something to offer for it. It receives
+   * the row whole — so the caller can redraw exactly what was pressed — and the
+   * row's own window rect, measured as the press is recognised: the context menu
+   * is anchored to it and redraws the row there.
    *
-   * Optional, and deliberately not wired inside the component: the search
-   * results share this card, and a media there is a *match* being read, not an
-   * item being filed — only the Library surfaces pass a handler. A row without
-   * one keeps a bare tap and says nothing about a gesture it does not answer.
+   * Optional, and deliberately not wired inside the component. Both lists of the
+   * Library tab pass a handler; the one row that gets none is a search hit whose
+   * library row is gone — the index keeps a deleted media findable, and there is
+   * nothing left on it to rename, move or delete. A row without a handler keeps
+   * a bare tap and says nothing about a gesture it does not answer.
    */
-  onLongPress?: (item: MediaListItem, anchor: AnchorRect) => void;
+  onLongPress?: (item: T, anchor: AnchorRect) => void;
+  /**
+   * The transcript excerpt that matched a search, exactly as the API sends it:
+   * Algolia's `<mark>`-tagged, HTML-escaped snippet. Drawn full width under the
+   * head of the card, bounded to `EXCERPT_LINES`.
+   *
+   * The one thing a search hit has that a library row does not, and the reason
+   * this prop is optional: every other surface passes nothing and gets the row
+   * it has always had, to the pixel.
+   */
+  excerpt?: string | null;
   /**
    * Overrides the card's outer box. Used by the context menu to redraw this row
    * as a lifted copy on the measured rect, where the list margins would offset
@@ -79,13 +152,14 @@ interface MediaListCardProps {
   testID?: string;
 }
 
-export function MediaListCard({
+export function MediaListCard<T extends MediaCardItem>({
   item,
   onPress,
   onLongPress,
+  excerpt,
   style,
   testID,
-}: MediaListCardProps): React.JSX.Element {
+}: MediaListCardProps<T>): React.JSX.Element {
   const rowRef = useRef<View>(null);
   // Keyed by media id rather than a bare boolean: a `FlatList` cell can be
   // handed a different item, and a failure recorded for the previous one must
@@ -117,6 +191,20 @@ export function MediaListCard({
 
   const coverUrl = item.media_image?.trim() ?? "";
   const showCover = coverUrl.length > 0 && failedCoverId !== item.media_item_id;
+
+  // Windowed, not merely truncated: `numberOfLines` cuts at the *end* of the
+  // box, so a match further in than the lead budget would be off screen and the
+  // excerpt would say nothing about why this media is in the results.
+  const excerptSegments = useMemo(
+    () =>
+      excerpt
+        ? focusHighlightSegments(parseHighlightSnippet(excerpt), {
+            leadChars: EXCERPT_LEAD_CHARS,
+            maxChars: EXCERPT_MAX_CHARS,
+          })
+        : [],
+    [excerpt],
+  );
 
   // Measured on the gesture rather than on layout: a `FlatList` cell moves with
   // every scroll, so the only rect the menu can trust is the one taken when the
@@ -201,6 +289,22 @@ export function MediaListCard({
           ) : null}
         </View>
       </View>
+
+      {/* The matched transcript, full width under the head rather than beside
+          the cover: it is prose, and the ~334px the card leaves next to a 112px
+          thumbnail would break three lines into six. */}
+      {excerptSegments.length > 0 ? (
+        <Text style={styles.excerpt} numberOfLines={EXCERPT_LINES}>
+          {excerptSegments.map((segment, index) => (
+            <Text
+              key={index}
+              style={segment.highlighted ? styles.excerptMatch : undefined}
+            >
+              {segment.text}
+            </Text>
+          ))}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -315,5 +419,19 @@ const styles = StyleSheet.create({
   cardSubtitle: {
     fontSize: Typography.small.fontSize,
     color: Colors.textSubtle,
+  },
+  // `textSubtle`, not `textMuted`: this is the one thing on the card the reader
+  // has to actually *read* rather than glance at, and the token's own note is
+  // that `textMuted` fails AA below 18.66px.
+  excerpt: {
+    fontSize: Typography.small.fontSize,
+    color: Colors.textSubtle,
+    lineHeight: 18,
+    marginTop: Spacing.sm,
+  },
+  excerptMatch: {
+    backgroundColor: Colors.highlight,
+    color: Colors.onHighlight,
+    fontWeight: "600",
   },
 });

@@ -264,6 +264,13 @@ async def load_display_details(
     already enforces. Covers are signed by the same resolver the library list
     uses, so a signing failure blanks one cover rather than failing the search.
 
+    The row is read whole, so everything a media vignette shows or a long press
+    acts on comes from it and nothing has to be denormalised into the index
+    (task-375): the folder the "Move" picker preselects, the source URL the
+    subtitle falls back to when there is no creator, and the two dates -- the
+    same ``saved_at`` the library list renders as a relative age, and the
+    ``updated_at`` the client's cover cache key is built from.
+
     A missing id maps to nothing: the row is gone (deleted, or never mirrored)
     and the caller falls back to what the index knows.
     """
@@ -286,6 +293,10 @@ async def load_display_details(
             "creator_name": record.creator_name,
             "media_type": record.media_type,
             "media_image": record.thumbnail_url,
+            "source_url": record.source_url,
+            "folder_id": record.folder_id,
+            "created_at": record.saved_at.isoformat(),
+            "updated_at": record.updated_at.isoformat(),
         }
 
     await resolve_cover_urls(list(details.values()))

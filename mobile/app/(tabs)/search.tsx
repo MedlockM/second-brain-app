@@ -33,12 +33,10 @@ import {
   type FolderNode,
 } from "../../src/lib/folderTree";
 import { filterFoldersByName } from "../../src/lib/folderSearch";
-import { formatDate, t, tCount, useTranslation } from "../../src/i18n";
-import { parseHighlightSnippet } from "../../src/lib/highlightSnippet";
+import { t, tCount, useTranslation } from "../../src/i18n";
 import {
   MediaListCard,
-  COVER_WIDTH,
-  COVER_HEIGHT,
+  type MediaCardItem,
 } from "../../src/components/MediaListCard";
 import {
   AnchoredContextMenu,
@@ -48,8 +46,6 @@ import { RenameDialog } from "../../src/components/RenameDialog";
 import { GlassSurface } from "../../src/components/GlassSurface";
 import { useMediaActions } from "../../src/hooks/useMediaActions";
 import { useFolderActions } from "../../src/hooks/useFolderActions";
-import { getMediaTypeIcon } from "../../src/lib/mediaTypeDisplay";
-import { Image } from "expo-image";
 import {
   Colors,
   Typography,
@@ -81,77 +77,53 @@ const CONTENT_TOP_INSET = SEARCH_BAR_TOP + SEARCH_BAR_HEIGHT + Spacing.md;
 const noopOpenMedia = () => {};
 const noopOpenFolder = () => {};
 
-function getSourceIcon(
-  platform: string | null,
-): keyof typeof Ionicons.glyphMap {
-  switch (platform) {
-    case "spotify":
-    case "apple_podcasts":
-    case "deezer":
-    case "rss":
-    case "podcast_index":
-      return "mic-outline";
-    case "youtube":
-      return "logo-youtube";
-    case "instagram":
-    case "tiktok":
-      return "videocam-outline";
-    case "web":
-    case "direct_url":
-      return "globe-outline";
-    case "x":
-      return "chatbox-outline";
-    default:
-      return "link-outline";
-  }
-}
+/**
+ * One media row of either list this screen holds: a library row, or a search hit
+ * read as one.
+ *
+ * Both are drawn by `MediaListCard` and both are acted on by one `useMediaActions`
+ * (task-375), so they are one type here rather than two shapes each list converts
+ * at its own render. The two extras only a hit ever carries travel *on* the row
+ * rather than beside it, because the context menu is handed the target and
+ * nothing else — that is what lets it redraw the pressed vignette, excerpt
+ * included, instead of a shorter copy of it.
+ */
+type MediaRow = MediaCardItem & {
+  /** Where the media is filed, so "Move" opens on its current folder. */
+  folder_id?: string | null;
+  /** The matched transcript, `<mark>`-tagged. Search hits only. */
+  excerpt?: string | null;
+  /**
+   * The index kept this hit after the media was deleted: nothing is left to
+   * rename, move or delete, so the row is offered no long press. Absent on a
+   * library row, which exists by definition.
+   */
+  isOrphan?: boolean;
+};
 
-function getSourceLabel(platform: string | null): string {
-  switch (platform) {
-    case "spotify":
-      return "Spotify";
-    case "apple_podcasts":
-      return "Apple Podcasts";
-    case "deezer":
-      return "Deezer";
-    case "rss":
-      return "RSS";
-    case "podcast_index":
-      return "Podcast Index";
-    case "youtube":
-      return "YouTube";
-    case "instagram":
-      return "Instagram";
-    case "tiktok":
-      return "TikTok";
-    case "x":
-      return "X";
-    case "whatsapp":
-      return "WhatsApp";
-    case "web":
-      return "Web";
-    case "direct_url":
-      return "Direct URL";
-    default:
-      return t("mediaType.unknownSource");
-  }
-}
-
-function formatTimestamp(unixTimestamp: number): string {
-  if (!unixTimestamp) return "";
-
-  const date = new Date(unixTimestamp * 1000);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return t("time.today");
-  if (diffDays === 1) return t("time.yesterday");
-  if (diffDays < 7) return tCount("time.daysAgo", diffDays);
-
-  // The active UI locale, never a hardcoded language tag: a French reader gets
-  // 12 sept. where an English one gets Sep 12.
-  return formatDate(date, { month: "short", day: "numeric" });
+/**
+ * A search hit, read as the library row it is a hit on.
+ *
+ * Every field but the excerpt comes from `user_media` server-side, which is why
+ * this is a plain projection and not a conversion: the hit already *is* the row,
+ * plus where in the transcript the query matched.
+ */
+function hitToRow(hit: SearchHit): MediaRow {
+  return {
+    media_item_id: hit.media_item_id,
+    title: hit.title,
+    creator_name: hit.creator_name,
+    media_type: hit.media_type,
+    source_url: hit.source_url,
+    media_image: hit.media_image,
+    created_at: hit.created_at,
+    updated_at: hit.updated_at,
+    folder_id: hit.folder_id,
+    // The first excerpt, which is the transcript match whenever there is one:
+    // the backend orders the transcript snippet ahead of the title highlight.
+    excerpt: hit.highlights.length > 0 ? hit.highlights[0].snippet : null,
+    isOrphan: !hit.in_library,
+  };
 }
 
 // --- Main Screen Component ---
@@ -180,7 +152,10 @@ export default function SearchScreen() {
   // tells the `All media` slot to show its spinner rather than a stale
   // "no matches".
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchHit[]>([]);
+  // Held as rows, not as hits: the list is patched in place by a rename and by a
+  // deletion, exactly as `media` is, and a screen holding one list of hits and
+  // one of rows would need two patches for each.
+  const [results, setResults] = useState<MediaRow[]>([]);
   const [totalResults, setTotalResults] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [settledQuery, setSettledQuery] = useState<string | null>(null);
@@ -225,7 +200,7 @@ export default function SearchScreen() {
       try {
         const response = await SearchService.searchTranscripts(searchQuery);
 
-        setResults(response.hits);
+        setResults(response.hits.map(hitToRow));
         setTotalResults(response.found);
       } catch (err: unknown) {
         const message =
@@ -337,15 +312,23 @@ export default function SearchScreen() {
     [router],
   );
 
+  // Both lists at once, and that is the point: they show the same media, so a
+  // deletion confirmed from a search hit must not be undone by clearing the
+  // query. Only ever called once the backend has answered — a network failure
+  // leaves the media where it is, in both lists.
   const handleMediaDeleted = useCallback((mediaItemId: string) => {
     setMedia((current) =>
       current.filter((item) => item.media_item_id !== mediaItemId),
+    );
+    setResults((current) =>
+      current.filter((row) => row.media_item_id !== mediaItemId),
     );
   }, []);
 
   // Patched in place rather than refetched: the rename already returned the
   // stored title, and reloading the whole list to learn one string would also
-  // scroll the user's position out from under them.
+  // scroll the user's position out from under them. Both lists again, for the
+  // same reason as above.
   const handleMediaRenamed = useCallback(
     (mediaItemId: string, title: string) => {
       setMedia((current) =>
@@ -353,25 +336,33 @@ export default function SearchScreen() {
           item.media_item_id === mediaItemId ? { ...item, title } : item,
         ),
       );
+      setResults((current) =>
+        current.map((row) =>
+          row.media_item_id === mediaItemId ? { ...row, title } : row,
+        ),
+      );
     },
     [],
   );
 
-  // The long-press menu of a library row. A move needs nothing here: a moved
-  // media stays in `All media` whatever folder it lands in, and the focus
-  // refetch above already brings its new folder back.
-  const mediaActions = useMediaActions({
+  // The long-press menu of a media row, whichever list it was pressed in. A move
+  // needs nothing here: a moved media stays in both lists whatever folder it
+  // lands in, and the focus refetch above already brings its new folder back.
+  const mediaActions = useMediaActions<MediaRow>({
     onDeleted: handleMediaDeleted,
     onRenamed: handleMediaRenamed,
   });
 
   // The copy of the pressed row the menu lifts above its blur. Same component
   // as the list row, with the list margins dropped: it is laid out on the rect
-  // the row was measured at, which margins sit outside of.
+  // the row was measured at, which margins sit outside of. The excerpt is passed
+  // back too — without it the copy would be shorter than the vignette under it,
+  // and the mismatch is exactly what the lift is supposed to hide.
   const renderMediaPreview = useCallback(
-    (item: MediaListItem) => (
+    (row: MediaRow) => (
       <MediaListCard
-        item={item}
+        item={row}
+        excerpt={row.excerpt}
         onPress={noopOpenMedia}
         style={styles.mediaPreviewCard}
       />
@@ -533,6 +524,7 @@ export default function SearchScreen() {
             onRetrySearch={handleRetrySearch}
             query={debouncedQuery}
             onOpenMedia={handleOpenMedia}
+            onLongPressMedia={mediaActions.open}
           />
         )}
       </SafeAreaView>
@@ -625,13 +617,13 @@ interface LibraryStateProps {
     folder: FolderNode,
     anchor: AnchorRect,
   ) => void;
-  media: MediaListItem[];
+  media: MediaRow[];
   mediaLoading: boolean;
   mediaError: string | null;
   onRetryMedia: () => void;
   onOpenMedia: (mediaItemId: string) => void;
-  /** Opens the row's actions menu. Library only — search results have none. */
-  onLongPressMedia: (item: MediaListItem, anchor: AnchorRect) => void;
+  /** Opens the row's actions menu — the same one the search results open. */
+  onLongPressMedia: (item: MediaRow, anchor: AnchorRect) => void;
   isRefreshing: boolean;
   onRefresh: () => void;
 }
@@ -699,7 +691,7 @@ function LibraryState({
           testID="library-media-card"
         />
       )}
-      contentContainerStyle={styles.libraryListContent}
+      contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
       refreshControl={
         <RefreshControl
@@ -761,7 +753,7 @@ function LibraryHeader({
   mediaCount: number;
 }) {
   return (
-    <View style={styles.libraryHeader}>
+    <View style={styles.listHeader}>
       <Text style={styles.sectionTitle}>{t("search.folders")}</Text>
 
       {foldersLoading ? (
@@ -816,7 +808,7 @@ interface SearchResultsStateProps {
     folder: FolderNode,
     anchor: AnchorRect,
   ) => void;
-  results: SearchHit[];
+  results: MediaRow[];
   totalResults: number;
   /** The hits on screen do not answer what is typed yet. */
   isPending: boolean;
@@ -825,6 +817,8 @@ interface SearchResultsStateProps {
   /** The debounced query, so the "no matches" line names what was searched. */
   query: string;
   onOpenMedia: (mediaItemId: string) => void;
+  /** Opens the row's actions menu — the same one the library rows open. */
+  onLongPressMedia: (item: MediaRow, anchor: AnchorRect) => void;
 }
 
 /**
@@ -839,6 +833,10 @@ interface SearchResultsStateProps {
  * screen any more — both are confined to the `All media` slot, and the
  * folders stay put underneath them. The full-height states are kept for
  * the one case where there is genuinely nothing else to show.
+ *
+ * A hit is rendered by the very component the library rows are, with the very
+ * long-press menu (task-375): the two lists show the same media, and a media
+ * found by searching is as much an object to file as one found by scrolling.
  */
 function SearchResultsState({
   folders,
@@ -854,6 +852,7 @@ function SearchResultsState({
   onRetrySearch,
   query,
   onOpenMedia,
+  onLongPressMedia,
 }: SearchResultsStateProps) {
   // A folder list still loading, or one that failed, is not "zero matches": it
   // keeps its heading and states its own situation, exactly as in the library.
@@ -877,7 +876,6 @@ function SearchResultsState({
       message={error}
       onRetry={onRetrySearch}
       retryAccessibilityLabel={t("search.retrySearchA11y")}
-      style={styles.inlineErrorCardFlush}
     />
   ) : (
     <Text style={styles.slotHint}>{t("search.noMatches", { query })}</Text>
@@ -891,12 +889,17 @@ function SearchResultsState({
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={KEYBOARD_DISMISS_MODE}
       renderItem={({ item }) => (
-        <ResultCard
-          hit={item}
-          onPress={() => onOpenMedia(item.media_item_id)}
+        <MediaListCard
+          item={item}
+          excerpt={item.excerpt}
+          onPress={onOpenMedia}
+          // Everything but a media the index outlived: there is nothing to
+          // rename, move or delete on a row the library no longer holds.
+          onLongPress={item.isOrphan ? undefined : onLongPressMedia}
+          testID="search-result-card"
         />
       )}
-      contentContainerStyle={styles.resultsList}
+      contentContainerStyle={styles.listContent}
       showsVerticalScrollIndicator={false}
       ListHeaderComponent={
         <SearchResultsHeader
@@ -944,7 +947,7 @@ function SearchResultsHeader({
   resultCount: number | null;
 }) {
   return (
-    <View>
+    <View style={styles.listHeader}>
       {showFolders ? (
         <>
           <Text style={styles.sectionTitle}>{t("search.folders")}</Text>
@@ -977,11 +980,9 @@ function SearchResultsHeader({
       ) : null}
 
       <View style={styles.mediaSectionHeader}>
-        <Text style={[styles.sectionTitle, styles.searchSectionHeading]}>
-          {t("search.allMedia")}
-        </Text>
+        <Text style={styles.sectionTitle}>{t("search.allMedia")}</Text>
         {resultCount !== null && resultCount > 0 ? (
-          <Text style={[styles.mediaSectionCount, styles.searchSectionHeading]}>
+          <Text style={styles.mediaSectionCount}>
             {tCount("search.resultCount", resultCount)}
           </Text>
         ) : null}
@@ -1154,133 +1155,6 @@ function ErrorState({ message }: { message: string }) {
   );
 }
 
-/**
- * One search result.
- *
- * The head of the card — cover on the left, meta row, title, creator — is
- * deliberately the silhouette of a `MediaListCard` row, down to the 112x63
- * cover it imports from it: the library list and the search results are the
- * same items, and until task-317 they looked like two different apps. The
- * matched transcript excerpt then sits *below* that head, full width.
- *
- * Cover on the left rather than a banner on top, even though this card carries
- * more text than a library row: a banner would make each result twice as tall
- * and put three of them on a screen where the list currently shows six or
- * seven. Search is a scanning surface, and the excerpt is what the user scans —
- * making room for it is worth more than a larger picture.
- *
- * The excerpt keeps its own highlighting (`parseHighlightSnippet`,
- * `cardSnippetMatch`): it is the one thing no other tile in the app has, and
- * the reason this card is allowed to be taller than a library row at all.
- */
-function ResultCard({ hit, onPress }: { hit: SearchHit; onPress: () => void }) {
-  // Keyed by media id rather than a bare boolean: a `FlatList` cell can be
-  // handed a different hit, and a failure recorded for the previous one must
-  // not hide the new one's cover.
-  const [failedCoverId, setFailedCoverId] = useState<string | null>(null);
-
-  // Indexed titles are derived server-side and are never empty (task-266), so
-  // the client no longer invents "Untitled" -- a word that told the user nothing
-  // and, being the same for every such hit, made results indistinguishable.
-  const displayTitle = hit.title ?? "";
-  const sourceLabel = getSourceLabel(hit.source_platform);
-  const sourceIcon = getSourceIcon(hit.source_platform);
-  const dateLabel = formatTimestamp(hit.created_at);
-  const creator = hit.creator_name?.trim() ?? "";
-
-  const coverUrl = hit.media_image?.trim() ?? "";
-  const showCover =
-    coverUrl.length > 0 && failedCoverId !== hit.media_item_id;
-
-  // Extract the first highlight snippet for preview text, split into plain
-  // and matched segments (Algolia returns it as `<mark>`-tagged HTML).
-  const snippetSegments = parseHighlightSnippet(
-    hit.highlights.length > 0 ? hit.highlights[0].snippet : "",
-  );
-
-  return (
-    <Pressable
-      testID="search-result-card"
-      style={styles.card}
-      onPress={onPress}
-      accessibilityLabel={
-        creator
-          ? `${displayTitle}, ${creator}, ${sourceLabel}`
-          : `${displayTitle}, ${sourceLabel}`
-      }
-      accessibilityRole="button"
-    >
-      <View style={styles.cardHead}>
-        {/* The container is the fallback surface *and* the frame of the cover:
-            one tonal rectangle either way, so a result with a picture and one
-            without have the same silhouette. Never an empty grey box. */}
-        <View style={styles.cardCoverContainer}>
-          {showCover ? (
-            <Image
-              source={{
-                uri: coverUrl,
-                // The path identifies the picture: a re-hosted cover is signed
-                // on read and its query string rotates on every search.
-                cacheKey: coverUrl.split("?")[0],
-              }}
-              recyclingKey={hit.media_item_id}
-              cachePolicy="memory-disk"
-              contentFit="cover"
-              transition={150}
-              priority="low"
-              style={styles.cardCover}
-              onError={() => setFailedCoverId(hit.media_item_id)}
-              accessible={false}
-            />
-          ) : (
-            <Ionicons
-              name={getMediaTypeIcon(hit.media_type ?? "unknown")}
-              size={24}
-              color={Colors.textMuted}
-            />
-          )}
-        </View>
-
-        <View style={styles.cardTextSection}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardSourceRow}>
-              <Ionicons name={sourceIcon} size={14} color={Colors.primary} />
-              <Text style={styles.cardSourceLabel}>{sourceLabel}</Text>
-            </View>
-            {dateLabel ? (
-              <Text style={styles.cardDate}>{dateLabel}</Text>
-            ) : null}
-          </View>
-
-          <Text style={styles.cardTitle} numberOfLines={2}>
-            {displayTitle}
-          </Text>
-
-          {creator ? (
-            <Text style={styles.cardCreator} numberOfLines={1}>
-              {creator}
-            </Text>
-          ) : null}
-        </View>
-      </View>
-
-      {/* Highlight snippet (transcript match preview) */}
-      {snippetSegments.length > 0 ? (
-        <Text style={styles.cardSnippet} numberOfLines={3}>
-          {snippetSegments.map((segment, index) => (
-            <Text
-              key={index}
-              style={segment.highlighted ? styles.cardSnippetMatch : undefined}
-            >
-              {segment.text}
-            </Text>
-          ))}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-}
-
 // --- Styles ---
 
 const styles = StyleSheet.create({
@@ -1329,23 +1203,19 @@ const styles = StyleSheet.create({
   resultsArea: {
     flex: 1,
   },
-  resultsList: {
-    paddingHorizontal: Spacing.md,
-    paddingTop: CONTENT_TOP_INSET,
-    paddingBottom: Spacing.xxl,
-    gap: Spacing.md,
-  },
   endOfResults: {
     fontSize: Typography.small.fontSize,
     color: Colors.textMuted,
     textAlign: "center",
     marginTop: Spacing.lg,
+    paddingHorizontal: Spacing.md,
   },
 
-  // Library (idle state): one scroll, the folders grid in the list header
-  // and the media rows below. `MediaListCard` brings its own horizontal margin,
-  // so the gutter lives on the header instead of on the content container.
-  libraryListContent: {
+  // One content container for both bodies, because both are the same scroll of
+  // the same vignette: the folders grid in the list header, media rows below.
+  // No horizontal padding and no `gap` — `MediaListCard` brings its own margins,
+  // and a container adding to them doubled the gutter on the results side.
+  listContent: {
     paddingTop: CONTENT_TOP_INSET,
     paddingBottom: Spacing.xxl,
   },
@@ -1355,7 +1225,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 0,
     marginBottom: 0,
   },
-  libraryHeader: {
+  // The gutter the rows carry themselves, applied to whichever header rides
+  // above them.
+  listHeader: {
     paddingHorizontal: Spacing.md,
   },
   sectionTitle: {
@@ -1389,17 +1261,13 @@ const styles = StyleSheet.create({
     rowGap: Spacing.sm,
     marginBottom: Spacing.xl,
   },
-  // The search body's content container spaces its children itself, so the
-  // heading above the hits drops the bottom margin it carries in the library.
-  searchSectionHeading: {
-    marginBottom: 0,
-  },
   slotHint: {
     fontSize: Typography.body.fontSize,
     color: Colors.textMuted,
     textAlign: "center",
     lineHeight: Typography.body.lineHeight,
     paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.md,
   },
   mediaSectionHeader: {
     flexDirection: "row",
@@ -1515,81 +1383,5 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: Spacing.sm,
     lineHeight: Typography.body.lineHeight,
-  },
-
-  // Result card
-  card: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Colors.outlineVariant,
-    ...Shadows.soft,
-  },
-  // Cover and text sit side by side, exactly as in a library row; the excerpt
-  // is the only thing that hangs below them.
-  cardHead: {
-    flexDirection: "row",
-    gap: Spacing.md,
-  },
-  cardCoverContainer: {
-    width: COVER_WIDTH,
-    height: COVER_HEIGHT,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.surfaceContainerLow,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  cardCover: {
-    width: "100%",
-    height: "100%",
-  },
-  cardTextSection: {
-    flex: 1,
-    gap: 2,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: Spacing.sm,
-  },
-  cardSourceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  cardSourceLabel: {
-    fontSize: Typography.small.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  cardDate: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-  },
-  cardTitle: {
-    fontSize: Typography.body.fontSize,
-    fontWeight: "600",
-    color: Colors.textMain,
-    lineHeight: 22,
-  },
-  cardCreator: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textSubtle,
-  },
-  cardSnippet: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-    lineHeight: 18,
-    marginTop: Spacing.sm,
-  },
-  cardSnippetMatch: {
-    backgroundColor: Colors.highlight,
-    color: Colors.onHighlight,
-    fontWeight: "600",
   },
 });
