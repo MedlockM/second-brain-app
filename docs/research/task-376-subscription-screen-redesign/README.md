@@ -1,12 +1,12 @@
 ---
-owner_decision: pending   # pending | ok | abandoned | redo | more
+owner_decision: ok   # pending | ok | abandoned | redo | more
 ---
 
 # Benchmark : refonte disruptive de l'écran d'abonnement
 
 ## Owner Validation
 
-**Decision**: _(à remplir par l'owner après relecture)_
+**Decision**: le parti pris A
 **Validated at**: _(date ISO à remplir par l'owner)_
 
 ---
