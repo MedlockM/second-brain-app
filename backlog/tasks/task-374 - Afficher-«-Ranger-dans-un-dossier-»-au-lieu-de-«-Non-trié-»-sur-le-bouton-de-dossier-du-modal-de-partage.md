@@ -3,9 +3,10 @@ id: task-374
 title: >-
   Afficher « Ranger dans un dossier » au lieu de « Non trié » sur le bouton de
   dossier du modal de partage
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 13:42'
+updated_date: '2026-09-08 08:54'
 labels:
   - mobile
   - ui

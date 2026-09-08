@@ -4,9 +4,10 @@ title: >-
   Rendre les résultats de recherche identiques aux vignettes « Tous les médias »
   — même carte, même appui long (Renommer/Déplacer/Supprimer), plus une zone
   réservée à l'extrait surligné
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 13:48'
+updated_date: '2026-09-08 08:54'
 labels:
   - mobile
   - ui

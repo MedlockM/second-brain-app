@@ -3,10 +3,10 @@ id: task-378
 title: >-
   Démarrer le traitement du média dès la sélection de l’app dans le partage
   système
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 21:47'
-updated_date: '2026-09-07 21:50'
+updated_date: '2026-09-08 08:54'
 labels:
   - mobile
   - ux

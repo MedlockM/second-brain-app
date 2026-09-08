@@ -3,9 +3,10 @@ id: task-377
 title: >-
   Refondre l'écran de gestion de l'abonnement selon le benchmark validé
   (task-376)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 13:52'
+updated_date: '2026-09-08 08:54'
 labels:
   - mobile
   - ui
