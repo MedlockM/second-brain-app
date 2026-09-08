@@ -679,6 +679,52 @@ Note that `.gitignore` is itself a fingerprint source (reason `bareGitIgnore`),
 so un-ignoring the file moved the hash. Expected: it forces one native build
 instead of an OTA, which is what a native config change should do anyway.
 
+#### `eas fingerprint:compare` answers "why did this build get triggered?"
+
+Never guess which source moved. Two build ids, and it names the differing source
+in one line — run it **from `mobile/`**, it fails with `Run this command inside a
+project directory.` anywhere else:
+
+```bash
+cd mobile
+eas fingerprint:compare --build-id <older-build> --build-id <newer-build>
+```
+
+It also takes one hash (compared against the working tree), two hashes, or
+`--update-id`. Do not reach for a local `expo-updates fingerprint:generate` to
+reproduce a CI hash: the workflow runs `eas fingerprint:generate -e internal`,
+which additionally pulls the **server-side EAS environment variables** into the
+resolved config, so the two tools legitimately disagree and the difference tells
+you nothing.
+
+#### An Android-only config change moves the iOS fingerprint too
+
+`@expo/fingerprint` hashes the resolved Expo config as **one blob** (source
+`contents | expoConfig`), not per platform. So a change that only one platform can
+observe invalidates both fingerprints and triggers two native builds where one was
+needed — on the free tier's 15 builds a month, that is worth knowing before a
+push.
+
+Measured on `4543f75` (task-380), which added a single entry to
+`androidIntentFilters`:
+
+```
+📝 Modified content: Expo app config
+@@ -95,0 +95,1 @@
++          "application/rtf",
+```
+
+| Platform | Before | After |
+|---|---|---|
+| Android | `87b855f29da9b6…` | `96e3267b0aacb5…` |
+| iOS | `784f7b9ce93931…` | `421e4b9333bc7a…` |
+
+The Android build was necessary — a new intent filter is a manifest entry, and no
+OTA delivers those. The iOS one was pure waste: nothing in that diff reaches an
+iOS binary. There is no per-platform config hash to opt into, so the only lever is
+batching: land Android-only and iOS-only config changes in the same push rather
+than in two, and each pays for one pair of builds instead of two.
+
 ### One channel per build profile
 
 | Build profile | Channel |
