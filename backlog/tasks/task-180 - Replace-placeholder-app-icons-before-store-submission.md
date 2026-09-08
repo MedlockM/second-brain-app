@@ -41,6 +41,14 @@ Produire les vrais visuels conformes à la spec décidée dans `docs/store-listi
 
 Cette tâche **bloque toute soumission App Store / Play Store**. Tant que les placeholders sont en place, ne pas exécuter de submit production.
 
+## À livrer dans le même push que task-186
+
+Les 3 PNG de `mobile/assets/` sont des **sources de l'empreinte `runtimeVersion`** (raison `expoConfigExternalFile`). Les remplacer déplace l'empreinte des **deux** plateformes, donc déclenche un build natif iOS *et* un build natif Android : `@expo/fingerprint` hashe le config Expo résolu comme un seul bloc, il n'existe pas de hash par plateforme.
+
+task-186 (rebrand) touche exactement le même genre de sources — `appName`, `iosShareExtensionName`, les 11 `mobile/locales/*.json`. Livrées séparément, les deux tâches coûtent **quatre** builds natifs ; dans le même push, **deux**. Sur le palier gratuit à 15 builds/mois, le regroupement est la seule parade.
+
+Mesuré le 2026-09-08 : une seule ligne ajoutée à `androidIntentFilters` (task-380, `4543f75`) a déplacé les deux empreintes — Android `87b855f2` → `96e3267b`, iOS `784f7b9c` → `421e4b93` — et consommé un build iOS pour un changement qu'iOS ne voit pas. Pour attribuer un déplacement d'empreinte : `eas fingerprint:compare --build-id A --build-id B`, depuis `mobile/`. Détails dans `mobile/MOBILE_CI_CD.md`, section « An Android-only config change moves the iOS fingerprint too ».
+
 ## References
 
 - `docs/store-listing/icon-and-graphics.md` (spec design)

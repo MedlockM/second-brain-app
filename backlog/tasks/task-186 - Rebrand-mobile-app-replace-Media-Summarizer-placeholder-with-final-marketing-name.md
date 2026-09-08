@@ -71,6 +71,14 @@ Ce relevé **remplace** celui écrit le 2026-06-10, qui est devenu faux sur quat
 - Les valeurs `source` envoyées au backend (`ios-share-extension`, `android-share-intent`) — elles font partie du contrat API, pas du branding.
 - Backend API (FastAPI, AWS) — aucune référence au nom marketing, rien à toucher.
 
+## À livrer dans le même push que task-180
+
+`appName`, `iosShareExtensionName` et les 11 `mobile/locales/*.json` sont des **sources de l'empreinte `runtimeVersion`**. Les changer déplace l'empreinte des **deux** plateformes, donc déclenche un build natif iOS *et* un build natif Android : `@expo/fingerprint` hashe le config Expo résolu comme un seul bloc, il n'existe pas de hash par plateforme. C'est cohérent avec la note owner ci-dessus (« rien de tout ça n'est livrable par OTA ») — ce paragraphe en donne le coût exact.
+
+task-180 (les 3 PNG de `mobile/assets/`, sources `expoConfigExternalFile`) est dans le même cas. Livrées séparément, les deux tâches coûtent **quatre** builds natifs ; dans le même push, **deux**. Sur le palier gratuit à 15 builds/mois, le regroupement est la seule parade.
+
+Mesuré le 2026-09-08 : une seule ligne ajoutée à `androidIntentFilters` (task-380, `4543f75`) a déplacé les deux empreintes — Android `87b855f2` → `96e3267b`, iOS `784f7b9c` → `421e4b93` — et consommé un build iOS pour un changement qu'iOS ne voit pas. Pour attribuer un déplacement d'empreinte : `eas fingerprint:compare --build-id A --build-id B`, depuis `mobile/`. Détails dans `mobile/MOBILE_CI_CD.md`, section « An Android-only config change moves the iOS fingerprint too ».
+
 ## References
 
 - `docs/V1_LAUNCH_PLAN.md` Phase 10 (à exécuter **avant** la sous-étape 1 « Apple App Store Connect → App Information »)
