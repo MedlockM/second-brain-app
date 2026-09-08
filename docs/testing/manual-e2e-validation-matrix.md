@@ -61,6 +61,12 @@ Each source app below represents a distinct share mechanism. Test each on at lea
 
 Tests the path from external app share intent through URL validation to the confirmation screen.
 
+Since task-378 a share is submitted the moment the user picks the app in the share
+sheet, not when they tap Save: the confirmation screen opens on an ingestion that
+is already running. Save therefore *keeps* that save and applies the folder, and
+the X *deletes* it. A local import (file picker, camera) is unchanged — Save is
+still what submits it.
+
 | ID | Scenario | Steps | Expected Result | Pass/Fail Criteria |
 |---|---|---|---|---|
 | SI-01 | Valid URL share from external app | 1. Open source app 2. Find shareable content 3. Tap Share, select our app | Share confirmation screen opens with URL pre-filled | URL displayed correctly, no validation error |
@@ -68,11 +74,16 @@ Tests the path from external app share intent through URL validation to the conf
 | SI-03 | Bare domain share | Share "example.com/article" | Scheme auto-prepended, shows https://example.com/article | Valid URL detected and shown |
 | SI-04 | Invalid/empty share payload | Share empty text or non-URL text | Validation error displayed: "No link found in the shared content" | Error banner visible, Save button disabled |
 | SI-05 | Unsupported scheme (ftp://) | Share "ftp://files.example.com/doc" | Validation error: "No link found in the shared content" | Error shown, cannot submit |
-| SI-06 | Save button submits | From SI-01, tap Save | Spinner on Save button, then success checkmark animation, auto-dismiss after 1.5s | Smooth transition, navigates to inbox |
-| SI-07 | Close button (X) dismissal | From SI-01, tap X before saving | Returns to inbox, no submission made | No item added to inbox |
-| SI-08 | Duplicate URL submission | Share same URL that was already ingested | Success response with `deduplicated: true` | User sees success (no error), item appears in inbox |
-| SI-09 | Session expired during submit | Token expired, tap Save | Error: "Your session has expired. Please sign in again." | Error banner with message, Retry visible |
-| SI-10 | Rate limited during submit | Submit many URLs rapidly | Error: "Too many requests. Please wait a moment and try again." | Error banner, Retry button functional |
+| SI-06 | Ingestion starts on arrival | From SI-01, do not touch anything | Card footer shows a spinner, then a checkmark ("Processing started"); the screen does **not** close on its own | Processing visibly starts without Save; item is already in the inbox behind the modal |
+| SI-07 | Save confirms, without a second save | From SI-06, tap Save | Modal closes; exactly one item in the inbox for this content | No duplicate row, no second processing job |
+| SI-08 | X removes the save (processing) | From SI-06 while the item is still processing, tap X | "Removing this save…", then the modal closes; the item is gone from the inbox and from Search | Item absent from both surfaces, and stays absent once processing would have ended |
+| SI-09 | X removes the save (processed) | Share, wait for the item to finish processing, then tap X | Same as SI-08 | Item absent from the inbox and from Search |
+| SI-10 | X during the submission itself | Share, then tap X immediately (before the card shows a checkmark) | The removal waits for the submission to answer, then deletes the item it created | Nothing lingers in the inbox after a refresh |
+| SI-11 | Folder picked while processing | From SI-06, tap the folder row, pick a folder, tap Save | The item that is already processing lands in that folder | One item, in the chosen folder |
+| SI-12 | Removal failure is retryable | Airplane mode ON, then tap X | "Could not remove it" + a Try again button; the modal stays open | Failure is visible, cancellation is not reported as done, and Try again works once online |
+| SI-13 | Duplicate URL submission | Share same URL that was already ingested | Success, with the "already in your inbox" wording | User sees success (no error), item appears in inbox |
+| SI-14 | Session expired on arrival | Token expired, share a URL | Redirected to sign-in; after signing in, the share resumes and starts processing on its own | No lost share, no double submission |
+| SI-15 | Rate limited during submit | Submit many URLs rapidly | Error: "Too many requests. Please wait a moment and try again." | Error banner, Retry button functional |
 
 ### 4.2 Inbox Screen (Processing States and Polling)
 

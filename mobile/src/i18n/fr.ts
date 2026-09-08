@@ -669,6 +669,20 @@ export const fr: Catalog = {
   "share.success.file": "Fichier importé. Le traitement va bientôt commencer.",
   "share.success.url":
     "Lien ajouté à votre boîte de réception. Le traitement va bientôt commencer.",
+  // Auto-started ingestion: what the two header buttons do (task-378)
+  "share.autoStart.hint": "Le traitement a déjà commencé.",
+  "share.autoStart.keep":
+    "Choisissez un dossier si vous le souhaitez, puis appuyez sur Enregistrer pour le conserver. Fermer le supprime.",
+  "share.autoStart.done": "Traitement lancé",
+  "share.cancel.action": "Supprimer cette sauvegarde",
+  "share.cancel.inProgress": "Suppression de cette sauvegarde…",
+  "share.cancel.failedTitle": "Suppression impossible",
+  "share.cancel.failed":
+    "Cette sauvegarde n'a pas pu être supprimée. Vérifiez votre connexion et réessayez.",
+  "share.cancel.keepHint":
+    "Ou appuyez sur Enregistrer pour finalement le conserver.",
+  "share.folderFailed":
+    "Le dossier n'a pas pu être appliqué. Appuyez sur Enregistrer pour réessayer.",
   "import.filesUnavailable": "Impossible d'ouvrir vos fichiers",
   "import.filesUnavailableBody":
     "Le navigateur de fichiers n'a pas pu être ouvert. Veuillez réessayer.",

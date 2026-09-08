@@ -715,6 +715,19 @@ export const en = {
     "Audio file imported. Transcription will begin shortly.",
   "share.success.file": "File imported. Processing will begin shortly.",
   "share.success.url": "Link added to your inbox. Processing will begin shortly.",
+  // Auto-started ingestion: what the two header buttons do (task-378)
+  "share.autoStart.hint": "Processing has already started.",
+  "share.autoStart.keep":
+    "Pick a folder if you want, then tap Save to keep it. Closing removes it.",
+  "share.autoStart.done": "Processing started",
+  "share.cancel.action": "Remove this save",
+  "share.cancel.inProgress": "Removing this save...",
+  "share.cancel.failedTitle": "Could not remove it",
+  "share.cancel.failed":
+    "This save could not be removed. Check your connection and try again.",
+  "share.cancel.keepHint": "Or tap Save to keep it after all.",
+  "share.folderFailed":
+    "The folder could not be applied. Tap Save to try again.",
   // --- Local import (file picker, camera, gallery) ---
   "import.filesUnavailable": "Could not open your files",
   "import.filesUnavailableBody":

@@ -558,6 +558,17 @@ export const ar: Catalog = {
   "share.success.audioFile": "تم استيراد الملف الصوتي. سيبدأ التحويل إلى نص قريبًا.",
   "share.success.file": "تم استيراد الملف. ستبدأ المعالجة قريبًا.",
   "share.success.url": "أُضيف الرابط إلى صندوق الوارد. ستبدأ المعالجة قريبًا.",
+  // Auto-started ingestion: what the two header buttons do (task-378)
+  "share.autoStart.hint": "بدأت المعالجة بالفعل.",
+  "share.autoStart.keep":
+    "اختر مجلدًا إن رغبت، ثم اضغط حفظ للإبقاء عليه. الإغلاق يحذفه.",
+  "share.autoStart.done": "بدأت المعالجة",
+  "share.cancel.action": "حذف هذا الحفظ",
+  "share.cancel.inProgress": "جارٍ حذف هذا الحفظ…",
+  "share.cancel.failedTitle": "تعذّر الحذف",
+  "share.cancel.failed": "تعذّر حذف هذا الحفظ. تحقّق من اتصالك وحاول مرة أخرى.",
+  "share.cancel.keepHint": "أو اضغط حفظ للإبقاء عليه بعد كل شيء.",
+  "share.folderFailed": "تعذّر تطبيق المجلد. اضغط حفظ للمحاولة مرة أخرى.",
   "import.filesUnavailable": "تعذّر فتح ملفاتك",
   "import.filesUnavailableBody": "تعذّر فتح متصفح الملفات. يرجى المحاولة مرة أخرى.",
   "import.formatNotSupported": "صيغة غير مدعومة",

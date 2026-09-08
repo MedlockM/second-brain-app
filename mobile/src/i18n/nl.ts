@@ -559,6 +559,19 @@ export const nl: Catalog = {
   "share.success.audioFile": "Audiobestand geïmporteerd. De transcriptie begint zo.",
   "share.success.file": "Bestand geïmporteerd. De verwerking begint zo.",
   "share.success.url": "Link toegevoegd aan je postvak. De verwerking begint zo.",
+  // Auto-started ingestion: what the two header buttons do (task-378)
+  "share.autoStart.hint": "De verwerking is al begonnen.",
+  "share.autoStart.keep":
+    "Kies eventueel een map en tik op Opslaan om het te bewaren. Sluiten verwijdert het.",
+  "share.autoStart.done": "Verwerking gestart",
+  "share.cancel.action": "Dit item verwijderen",
+  "share.cancel.inProgress": "Dit item wordt verwijderd…",
+  "share.cancel.failedTitle": "Verwijderen mislukt",
+  "share.cancel.failed":
+    "Dit item kon niet worden verwijderd. Controleer je verbinding en probeer het opnieuw.",
+  "share.cancel.keepHint": "Of tik op Opslaan om het toch te bewaren.",
+  "share.folderFailed":
+    "De map kon niet worden toegepast. Tik op Opslaan om het opnieuw te proberen.",
   "import.filesUnavailable": "Je bestanden konden niet worden geopend",
   "import.filesUnavailableBody": "De bestandsbrowser kon niet worden geopend. Probeer het opnieuw.",
   "import.formatNotSupported": "Formaat niet ondersteund",
