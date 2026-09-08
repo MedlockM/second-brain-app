@@ -198,10 +198,15 @@ maestro-ios-reports/
 maestro-android-reports/
 
 # Firebase / FCM credentials — jamais dans le dépôt (public).
-# `google-services.json` porte la config client Firebase et une clé d'API.
-# `*-firebase-adminsdk-*.json` est le compte de service FCM v1 : il contient une
-# clé privée RSA et n'a rien à faire ici — il se téléverse sur EAS et se garde
-# hors du dépôt.
-google-services.json
+#
+# `google-services.json` n'est PAS dans cette liste, et ce n'est pas un oubli :
+# config client publique par conception, embarquée dans chaque APK, et surtout
+# source de l'empreinte `runtimeVersion` — l'ignorer cassait tout build Android.
+# Voir mobile/.gitignore et le commentaire `android` de mobile/app.config.ts.
+#
+# `google-services-key.json` reste listé alors que rien ne l'écrit plus : c'est le
+# nom vers lequel `eas.json` pointait, et un téléchargement égaré à cet endroit ne
+# doit pas devenir committable. `*-firebase-adminsdk-*.json` est le compte de
+# service FCM v1 : clé privée RSA, se téléverse sur EAS, hors du dépôt.
 google-services-key.json
 *-firebase-adminsdk-*.json

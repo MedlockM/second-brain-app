@@ -259,13 +259,28 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     android: {
       // Firebase client config, required for an Android device to obtain an FCM
-      // token — including through the Expo push service (task-368 §2). The file
-      // is deliberately NOT in the repository: it carries an API key and this
-      // repo is public, so it is gitignored. Fetch it from the Firebase console
-      // (Project settings > Your apps > Android > google-services.json) and
-      // drop it at mobile/google-services.json. EAS Build reads it from the
-      // EAS secret of the same name; a local prebuild reads it from disk.
-      googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json",
+      // token — including through the Expo push service (task-368 §2).
+      //
+      // COMMITTED, and it has to be. `runtimeVersion.policy` below is
+      // `fingerprint`, and this file is a fingerprint source (reason
+      // `expoConfigExternalFile`, hashed on contents only — the path does not
+      // matter). eas-cli computes the fingerprint on the machine that launches
+      // the build and the builder recomputes it; the two must agree or the
+      // build dies in CONFIGURE_EXPO_UPDATES with "Runtime version calculated
+      // on local machine not equal to runtime version calculated during build".
+      // While this read `process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json"`
+      // against a gitignored file, they could not agree: the EAS builder
+      // materialised the file secret, the GitHub runner had no file at all, so
+      // 158 sources faced 157 and every Android build failed by construction
+      // (0bf1c09e, 2026-09-08). Versioning the file is what makes both sides
+      // read the same bytes with no runtime step to get wrong.
+      //
+      // It is not a secret — Google: "You may commit this file to your
+      // repository since it contains public-facing identifiers", and it ships
+      // inside every APK anyway. The API key it carries is protected by
+      // restrictions, not by obscurity; the exact console path to set them is
+      // in docs/research/task-368-push-delivery/README.md §332.
+      googleServicesFile: "./google-services.json",
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#fcf9f6",

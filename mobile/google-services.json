@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "285796240127",
+    "project_id": "media-summarizer-473920",
+    "storage_bucket": "media-summarizer-473920.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:285796240127:android:a0df7e4791ee3d3b9a5aca",
+        "android_client_info": {
+          "package_name": "com.secondbrainlabs.core"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "285796240127-pbq954l1010v0fce5o0smklvvju6o7de.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSg0b6EC-ATwBQ68PTOMtTmkj2MCnU4Yo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "285796240127-pbq954l1010v0fce5o0smklvvju6o7de.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "285796240127-ljujk2ubnq4bgav0s97vgcg19plaldgd.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.mediasummarizer.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

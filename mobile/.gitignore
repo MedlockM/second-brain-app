@@ -27,10 +27,18 @@ web-build/
 .metro-health-check*
 
 # Firebase / FCM credentials — jamais dans le dépôt (public).
-# `google-services.json` porte la config client Firebase et une clé d'API.
-# `*-firebase-adminsdk-*.json` est le compte de service FCM v1 : il contient une
-# clé privée RSA et n'a rien à faire ici — il se téléverse sur EAS et se garde
-# hors du dépôt.
-google-services.json
+#
+# `google-services.json` n'est PAS dans cette liste, et ce n'est pas un oubli :
+# c'est une config client, publique par conception (« You may commit this file to
+# your repository since it contains public-facing identifiers »), et elle est
+# embarquée dans chaque APK. Elle doit être versionnée parce qu'elle est une
+# source de l'empreinte `runtimeVersion` — l'ignorer faisait diverger le runner
+# CI du builder EAS et cassait tout build Android. Voir le commentaire dans
+# app.config.ts, section `android`.
+#
+# `google-services-key.json` reste listé alors que rien ne l'écrit plus : c'est le
+# nom vers lequel `eas.json` pointait, et un téléchargement égaré à cet endroit ne
+# doit pas devenir committable (MOBILE_CI_CD.md). `*-firebase-adminsdk-*.json` est
+# le compte de service FCM v1 : clé privée RSA, se téléverse sur EAS, hors du dépôt.
 google-services-key.json
 *-firebase-adminsdk-*.json

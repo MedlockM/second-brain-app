@@ -151,6 +151,47 @@ two distribution certificates per account; generating a second one would burn a 
 for nothing, since the existing one already covers both targets and both
 distribution types.
 
+**Adding an entitlement invalidates the profiles, and only a local run can fix it.**
+Owner run of 2026-09-08, recorded because it is console state no file would
+otherwise hold: task-369 added `expo-notifications`, whose config plugin injects
+`aps-environment` at prebuild. The 2026-09-01 App Store profiles predate it, so iOS
+`1.0.0 (7)` (`86e75cae`) died in `XCODE_BUILD_ERROR` — *"Provisioning profile […]
+doesn't include the Push Notifications capability"* and *"doesn't include the
+aps-environment entitlement"*. CI cannot repair this: `SetUpTargetBuildCredentials`
+syncs Apple capabilities only inside `if (ctx.appStore.authCtx)`, and the CI job
+holds an `EXPO_TOKEN`, no Apple session — it downloads the stored profile as-is.
+
+What fixed it, from the owner's machine:
+
+```bash
+cd mobile
+EXPO_PUBLIC_API_BASE_URL=https://jji077bi8e.execute-api.eu-west-3.amazonaws.com \
+  eas credentials --platform ios
+#   → Build Credentials: Manage everything needed to build your project
+#   → All: Set up all the required credentials to build your project
+```
+
+The env var is not optional: eas-cli resolves the entitlements it syncs by running
+`expo config --json --type introspect` under `EXPO_NO_DOTENV=1`
+(`eas-cli/build/project/ios/entitlements.js`), so `mobile/.env` is bypassed and
+`app.config.ts` throws on the missing host — see the watcher entry below, same root
+cause. Without it there are no entitlements to sync, hence no capability enabled.
+
+The run reported `Synced capabilities: Enabled: Push Notifications`, Apple then
+marked profile `SVGVC59N7L` *no longer valid*, and both targets got a fresh App
+Store profile. **Answer `n` to "Would you like to reuse the original profile?"**
+(reusing keeps the broken one; `SetUpProvisioningProfile.js:101-103` sends a refusal
+to `assignNewAndDeleteOldProfileAsync`, which creates a new profile and deletes the
+old) then `y` to "Generate a new Apple Provisioning Profile?" — a refusal there
+falls through to a prompt for a local `.mobileprovision` path
+(`promptForCredentials.js:42-47`), which is not what you want.
+
+The APNs `.p8` push key was already on EAS from an earlier session and needed
+nothing: `Push Notifications → Set up your project to use Push Notifications`
+answered `Push Key is already set up`. Worth checking anyway, since a regenerated
+profile makes the build *compile* while the key is what makes iOS notifications
+*deliver*.
+
 **An App Store-signed ipa cannot be sideloaded.** `eas build` prints an artifact URL
 at the end, and for `development`/`preview` (ad hoc) that URL does install on an
 allow-listed device. For `internal`/`production` it does not: the binary is signed
@@ -561,6 +602,47 @@ A fingerprint runtime version is independent of `version` and of the
 `autoIncrement` build numbers, which is why it coexists with
 `appVersionSource: "remote"` without interfering. Nothing about version management
 changed.
+
+#### Every fingerprint source must be in the repository
+
+The fingerprint is computed **twice** for one build: once by eas-cli on the
+machine that launches it, once by the builder. They must agree, or the build dies
+in the `CONFIGURE_EXPO_UPDATES` phase with `Runtime version calculated on local
+machine not equal to runtime version calculated during build`. So any file
+`@expo/fingerprint` reads has to be visible to both — which in CI means tracked
+by git, because the runner has nothing else.
+
+`google-services.json` is such a file (source reason `expoConfigExternalFile`,
+hashed on **contents only** — the path is irrelevant, an absolute temp path and a
+relative one give the same hash). It was gitignored between `e9f6400`
+(2026-09-07) and `2026-09-08`, with `app.config.ts` reading
+`process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json"` and the file
+supplied as a `file`-type EAS secret. The EAS builder materialised it; the GitHub
+runner had no file at all. Measured, on the same commit:
+
+| Where | Fingerprint | Sources |
+|---|---|---|
+| builder EAS, file materialised | `03720bab41d7cf…` | 158 |
+| GitHub runner, file absent | `1369500338ec21…` | 157 |
+
+Two values that could never meet, so **every** Android build failed by
+construction — `0bf1c09e` is just the first one anybody looked at. The second
+consequence was quieter: `mobile-ota-or-build.yml` compares that same runner-side
+fingerprint against the deployed builds to choose OTA vs native, so on Android it
+was comparing against a hash no binary would ever carry, on every push.
+
+The file is committed now, and `googleServicesFile` is the literal
+`"./google-services.json"` with no env indirection. That is also what the
+validated benchmark prescribed (`docs/research/task-368-push-delivery/README.md`
+§332, quoting Google: "You may commit this file to your repository since it
+contains public-facing identifiers"); it ships inside every APK regardless, and
+its API key is protected by console restrictions — the exact path to set them is
+in that same section. The dead `GOOGLE_SERVICES_JSON` EAS variable was deleted
+from all three environments.
+
+Note that `.gitignore` is itself a fingerprint source (reason `bareGitIgnore`),
+so un-ignoring the file moved the hash. Expected: it forces one native build
+instead of an OTA, which is what a native config change should do anyway.
 
 ### One channel per build profile
 
