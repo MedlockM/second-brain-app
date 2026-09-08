@@ -735,7 +735,7 @@ function OrganizationControls({
             color={Colors.textMuted}
           />
           <Text style={styles.organizationRowLabel} numberOfLines={1}>
-            {selectedFolder?.path ?? t("folderPicker.unsorted")}
+            {selectedFolder?.path ?? t("share.folderPlaceholder")}
           </Text>
         </View>
         <Ionicons

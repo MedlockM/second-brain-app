@@ -541,6 +541,7 @@ export const zh: Catalog = {
   "share.uploadingFile": "正在上传文件…",
   "share.whatsappText": "WhatsApp 文字消息",
   "share.chooseFolder": "选择文件夹",
+  "share.folderPlaceholder": "保存到文件夹",
   "share.success.duplicate": "这条内容已经在你的收件箱里了。",
   "share.success.audio": "音频已保存，转写马上开始。",
   "share.success.text": "文字已保存到你的收件箱。",

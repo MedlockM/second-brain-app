@@ -554,6 +554,7 @@ export const hi: Catalog = {
   "share.uploadingFile": "फ़ाइल अपलोड हो रही है…",
   "share.whatsappText": "WhatsApp का टेक्स्ट संदेश",
   "share.chooseFolder": "फ़ोल्डर चुनें",
+  "share.folderPlaceholder": "किसी फ़ोल्डर में सहेजें",
   "share.success.duplicate": "यह सामग्री पहले से आपके इनबॉक्स में थी।",
   "share.success.audio": "ऑडियो सहेज लिया गया। ट्रांसक्रिप्शन जल्द शुरू होगा।",
   "share.success.text": "टेक्स्ट आपके इनबॉक्स में सहेज लिया गया।",

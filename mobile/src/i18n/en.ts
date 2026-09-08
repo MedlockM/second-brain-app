@@ -708,6 +708,7 @@ export const en = {
   "share.uploadingFile": "Uploading file...",
   "share.whatsappText": "WhatsApp text message",
   "share.chooseFolder": "Choose folder",
+  "share.folderPlaceholder": "Save to a folder",
   "share.success.duplicate": "This content was already in your inbox.",
   "share.success.audio": "Audio saved. Transcription will begin shortly.",
   "share.success.text": "Text saved to your inbox.",

@@ -62,12 +62,28 @@ Vérification visuelle à faire après merge, sur un build : partager une URL de
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Dans `mobile/app/share-confirmation.tsx`, la ligne dossier de `OrganizationControls` n'utilise plus la clé du dossier par défaut du sélecteur (`folderPicker.unsorted` après task-373) comme repli : elle affiche une nouvelle clé dédiée de la famille `share.*` quand `selectedFolder` est `null`
-- [ ] #2 La nouvelle clé vaut exactement « Ranger dans un dossier » dans `mobile/src/i18n/fr.ts`
-- [ ] #3 La nouvelle clé est définie dans les 11 catalogues de `mobile/src/i18n/` — `en.ts` compris, puisque `TranslationKey = keyof typeof en` — et chaque valeur emploie le mot « dossier » de sa langue d'après le tableau de task-373, sans dérivé de « collection »
-- [ ] #4 Un `grep -rn` de la nouvelle clé sous `mobile/src` et `mobile/app` (hors `src/i18n/`) ne renvoie qu'une seule occurrence, celle de `share-confirmation.tsx`
-- [ ] #5 La carte « Non trié » du sélecteur (`CollectionPickerView`, renommée par task-373, garde `showUnsorted`) est intacte : cette tâche ne touche ni le nom de sa clé, ni sa valeur dans aucun des 11 catalogues, ni son `accessibilityLabel`
-- [ ] #6 La ligne dossier affiche toujours `selectedFolder.path` quand un dossier est choisi, et son icône, son chevron et son `accessibilityLabel` d'action (`share.chooseFolder` après task-373) sont inchangés
-- [ ] #7 Aucun état « Non trié choisi explicitement » n'est ajouté à `ShareIntentContext` : le `handleSelect(null)` de l'écran sélecteur (`app/media/collection.tsx`, renommé par task-373) continue d'appeler `setSelectedFolder(null)`
-- [ ] #8 `npm run lint` et `npm run typecheck` sortent 0 depuis `mobile/`
+- [x] #1 Dans `mobile/app/share-confirmation.tsx`, la ligne dossier de `OrganizationControls` n'utilise plus la clé du dossier par défaut du sélecteur (`folderPicker.unsorted` après task-373) comme repli : elle affiche une nouvelle clé dédiée de la famille `share.*` quand `selectedFolder` est `null`
+- [x] #2 La nouvelle clé vaut exactement « Ranger dans un dossier » dans `mobile/src/i18n/fr.ts`
+- [x] #3 La nouvelle clé est définie dans les 11 catalogues de `mobile/src/i18n/` — `en.ts` compris, puisque `TranslationKey = keyof typeof en` — et chaque valeur emploie le mot « dossier » de sa langue d'après le tableau de task-373, sans dérivé de « collection »
+- [x] #4 Un `grep -rn` de la nouvelle clé sous `mobile/src` et `mobile/app` (hors `src/i18n/`) ne renvoie qu'une seule occurrence, celle de `share-confirmation.tsx`
+- [x] #5 La carte « Non trié » du sélecteur (`CollectionPickerView`, renommée par task-373, garde `showUnsorted`) est intacte : cette tâche ne touche ni le nom de sa clé, ni sa valeur dans aucun des 11 catalogues, ni son `accessibilityLabel`
+- [x] #6 La ligne dossier affiche toujours `selectedFolder.path` quand un dossier est choisi, et son icône, son chevron et son `accessibilityLabel` d'action (`share.chooseFolder` après task-373) sont inchangés
+- [x] #7 Aucun état « Non trié choisi explicitement » n'est ajouté à `ShareIntentContext` : le `handleSelect(null)` de l'écran sélecteur (`app/media/collection.tsx`, renommé par task-373) continue d'appeler `setSelectedFolder(null)`
+- [x] #8 `npm run lint` et `npm run typecheck` sortent 0 depuis `mobile/`
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+New key: `share.folderPlaceholder`, declared in `mobile/src/i18n/en.ts` (reference catalogue, `TranslationKey = keyof typeof en`) and defined in the ten others. Inserted right after `share.chooseFolder` in each file, so the action label and its placeholder stay adjacent.
+
+Single render change, `mobile/app/share-confirmation.tsx` l.738 inside `OrganizationControls`: `selectedFolder?.path ?? t("folderPicker.unsorted")` becomes `selectedFolder?.path ?? t("share.folderPlaceholder")`. The icon (`folder-open-outline`), the `chevron-forward`, `numberOfLines={1}`, the styles and the `accessibilityLabel={t("share.chooseFolder")}` are untouched, as is the `selectedFolder.path` branch. Nothing else in the file was reformatted (task-378 works on the same file in parallel).
+
+`folderPicker.unsorted` keeps its name and its eleven values, and `FolderPickerView.tsx` (the `showUnsorted` card at l.281-302, label and `accessibilityLabel`) was not opened. `ShareIntentContext` and `app/media/folder.tsx` were not touched either: `handleSelect(null)` still means "no folder", and the button reads « Ranger dans un dossier » both when nothing was picked and when "Unsorted" was picked explicitly — the retained behaviour.
+
+Non-French copy reuses the verb each catalogue already employs for putting a source into a folder (its own `unsortedReview.saveA11y` / `media.moveToFolderA11y`), with the folder noun from the task-373 table, so no new register is invented: en `Save to a folder`, es `Guardar en una carpeta`, de `In einem Ordner ablegen`, it `Archivia in una cartella`, pt `Guardar numa pasta`, nl `In een map opbergen`, ja `フォルダに整理`, zh `保存到文件夹`, ar `حفظ في مجلد`, hi `किसी फ़ोल्डर में सहेजें`. No "collection" derivative anywhere.
+
+Verification: `npm run typecheck` exits 0 (which is what proves the eleven catalogues are complete — a missing one breaks `Catalog = Record<TranslationKey, string>`); `npm run lint` exits 0 with a single pre-existing warning in `src/services/purchaseService.ts`, a file this task does not touch. `grep -rn "share.folderPlaceholder" src app` outside `src/i18n/` returns exactly one line, the one in `share-confirmation.tsx`. The worktree had no `node_modules`; both commands were run against a symlink to the main worktree's install, removed afterwards (it is gitignored either way).
+
+Owner follow-up (not an AC, needs a build): share a URL from Safari/Chrome and look at the modal before any selection. « Ranger dans un dossier » is much longer than « Non trié » on a `numberOfLines={1}` row — German (`In einem Ordner ablegen`) and Portuguese are the truncation candidates.
+<!-- SECTION:NOTES:END -->
