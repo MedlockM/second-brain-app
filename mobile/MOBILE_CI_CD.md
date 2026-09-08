@@ -1577,7 +1577,7 @@ What actually reaches you when something fails, and what does not:
 | GitHub Step Summary | any run | works, but only if you open the run |
 | Slack webhook (`notify-failure` in `mobile-build-distribute.yml`) | a failed tag build | **inert** — see below |
 | GitHub issue (`notify-failure` in `mobile-build-distribute.yml`) | a failed `mobile-v*` tag run | works; that path is blocked by the `production` profile's DNS |
-| GitHub issue (`mobile-build-watch.yml`) | an EAS build that errored, whoever started it | works — this is the one that covers the `--no-wait` gap |
+| GitHub issue (`mobile-build-watch.yml`) | an EAS build that errored, whoever started it | works — this is the one that covers the `--no-wait` gap. **It was dead from 2026-09-04 to 2026-09-08**, see below |
 | anything at all | a failed **submission** | **nothing.** Uncovered, deliberately |
 
 **`mobile-ota-or-build.yml` detects nothing by itself.** It starts native builds
@@ -1611,6 +1611,26 @@ and opens **one GitHub issue per errored build id**, carrying the build page URL
 the platform, `appVersion (appBuildVersion)`, the build profile, the commit hash
 and subject, the `error.errorCode`/`message` EAS attached to the build, and an
 `@MedlockM` mention.
+
+**`build:list` needs `EXPO_PUBLIC_API_BASE_URL` in the environment, and that is not
+obvious.** It resolves the project id through `app.config.ts`, and since `38a6e33`
+(2026-09-04) that file *throws* when the variable is unset — the third-party fallback
+host was dropped on purpose so a missing value fails loudly instead of routing access
+tokens to a host somebody else owns. `eas build` and `eas update` read the variable from
+the build profile's `env` block in `eas.json` by themselves; **`build:list` does not** —
+its `-e` flag *filters* by profile, it loads nothing. The workflow therefore exports it
+from `.build.internal.env` of `eas.json` in a step of its own before querying.
+
+This cost four days of silence. The watcher ran green once, on 2026-09-04 at 13:33 UTC
+(it opened issue #1), `38a6e33` landed at 14:25 UTC, and every scheduled run from 17:07
+UTC onward died in 1.4 s on a bare `Error: build:list command failed.` — 28 red runs
+before anyone read one. The red was *correct*: the broken-check path fired exactly as
+designed and the run summary said "THE CHECK COULD NOT RUN". Nothing was wrong with the
+signal; the mails simply went unread. Reproduce the failure with
+`env -u EXPO_PUBLIC_API_BASE_URL EXPO_NO_DOTENV=1 eas build:list --platform all --status
+errored --limit 20 --json --non-interactive` — same exit code, same one-line message,
+because a local shell normally has the variable from `mobile/.env`, which is what hides
+this in manual testing.
 
 It signals along two separate paths, and **they must not be collapsed into one
 `exit 1`**:
@@ -1678,7 +1698,9 @@ eas build:list --platform all --limit 10
 # View specific build
 eas build:view <build-id>
 
-# What mobile-build-watch.yml runs every 30 min — same command, by hand
+# What mobile-build-watch.yml runs every 30 min — same command, by hand.
+# Needs EXPO_PUBLIC_API_BASE_URL set (mobile/.env supplies it locally); without it
+# app.config.ts throws and this dies on "Error: build:list command failed."
 eas build:list --platform all --status errored --limit 20
 
 # View submission status — see the note below, there is no read-only CLI command

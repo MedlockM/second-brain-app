@@ -147,13 +147,16 @@ terraform apply tfplan                       # apply the reviewed plan, not a fr
 
 For prod, the same three commands with `AWS_PROFILE=prod` in front of each.
 
-For **dev these three commands normally run themselves**: a push to `main` touching
-`infrastructure/terraform/**` executes exactly this chain in CI (see "Terraform in CI"
-below). Running them by hand on dev is still correct — it is how you inspect a plan
+For **dev the plan and the apply normally run themselves**: a push to `main` touching
+`infrastructure/terraform/**` runs this chain in CI **minus the gate**, which the owner
+removed on 2026-09-08 (see "Terraform in CI" below). Running the gate by hand on dev is
+therefore the only place it happens now — do it when a plan proposes anything you did not
+expect. Running the whole chain by hand is still correct: it is how you inspect a plan
 before it lands, and how the first apply bootstraps the CI role.
 
 Applying the **saved plan file** rather than re-planning is deliberate: it
-guarantees what the guard inspected is exactly what gets applied.
+guarantees that what you reviewed — and what the gate inspected, when you ran one — is
+exactly what gets applied.
 
 `scripts/tf_plan_guard.sh <env> <planfile> [other-env ...]` implements layers
 2-4 of the proof suite from the benchmark §6: it refuses a plan that deletes a
@@ -229,17 +232,38 @@ was called by no pipeline. The cost was concrete: two alarm commits sat unapplie
 | `envs/staging` | manually, if ever | not deployed (see above) |
 
 The pipeline is `fmt -check -recursive` → `init` → `validate` →
-`plan -out=tfplan -lock-timeout=5m` → `scripts/tf_plan_guard.sh dev tfplan` →
-`apply tfplan`. Two properties of that chain are the safety story, and both are easy to
-break by "simplifying" it:
+`plan -out=tfplan -lock-timeout=5m` → `apply tfplan`.
 
-- **The guard runs without `--allow-replace`.** A plan that replaces anything — a queue,
-  a Lambda, a role — fails the run instead of proceeding. `--allow-replace` is precisely
-  the flag that makes a deletion acceptable, and on an unattended apply nothing is. Read
-  the list and apply it by hand.
+**There is no `tf_plan_guard.sh` step any more — owner decision of 2026-09-08.** It sat
+between `plan` and `apply` from task-341 until then, running layer 2 (no delete of a
+table, bucket, secret or the ECR repository) and layer 3 (every created name ends in
+`-dev`). What forced its removal: the FSRS cleanup (task-364, `f618a68`) and the tags
+removal (`29ee9c3`) deliberately dropped `review_schedule`, `user_review_settings` and
+`user_tags_v1` from the module, and layer 2 reads any table delete as a rename of a
+ForceNew attribute — a diagnosis that was wrong here, since the features are gone and so
+should the tables be. The whole dev apply was blocked behind it, not just the deletes, so
+the account and HEAD of `main` were drifting apart again, which is the failure this
+workflow exists to stop. The narrower fix (an `--allow-delete` opt-in, keeping layer 3)
+was offered and declined.
+
+Two consequences, so nobody rediscovers them from a missing table:
+
+- **A dev apply now destroys stateful resources silently.** Dev data is re-creatable by
+  construction (`AGENTS.md`, "Nothing is deployed yet"), but the two fixtures that are
+  not — the persistent "Commonplace book" article and the RevenueCat Test Store products
+  behind `mobile/.maestro/07_paywall.yaml` — have no protection left in CI.
+- **A resource created without the `-dev` suffix is no longer caught.** The account
+  boundary still holds: the assumed role is dev-only and the workflow asserts the account
+  id before planning, so a mis-suffixed name is a naming bug inside the dev account, never
+  a write into prod.
+
+One property of the chain is still the safety story, and it is easy to break by
+"simplifying" it:
+
 - **The apply consumes the saved plan file.** `apply -auto-approve` would compute a
-  fresh plan at apply time and apply *that*, so the guarded diff and the applied diff
-  would be two different things and the gate would be decorative.
+  fresh plan at apply time and apply *that*, so the diff in the run's log and the diff
+  actually applied would be two different things — and with no gate left, that log is
+  the only record of what happened.
 
 `concurrency` uses `cancel-in-progress: false`. The lock table already prevents state
 corruption, but cancelling a run mid-apply kills the process holding the lock without
