@@ -69,6 +69,10 @@ from media_summarizer.core.media_ingestion.media_metadata import (
     select_creator,
     youtube_video_id,
 )
+from media_summarizer.core.media_ingestion.source_description import (
+    SOURCE_DESCRIPTION_KEY,
+    normalize_source_description,
+)
 from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.services import quota_enforcer
@@ -139,6 +143,20 @@ _APIFY_TITLE_FIELDS = ("title", "video_title", "videoTitle", "name")
 # the resolver already stored at submission time stays in place (task-353).
 _APIFY_CREATOR_FIELDS = ("channel", "channel_name", "channelName", "author", "uploader")
 _APIFY_THUMBNAIL_FIELDS = ("thumbnail", "thumbnail_url", "thumbnailUrl", "cover")
+
+# And the same story again for the description the uploader wrote under the video
+# -- neither actor declares it in its output schema either, so every known
+# spelling is probed and a miss simply leaves it empty. An actor that returns
+# none is a normal outcome, not a failure: no retry, no error log, and the source
+# just carries no description block in the artifact corpus (task-383). If it
+# turns out no actor ever returns one, the answer is a different actor, not a
+# repair here.
+_APIFY_DESCRIPTION_FIELDS = (
+    "description",
+    "video_description",
+    "videoDescription",
+    "desc",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +465,9 @@ def _parse_apify_transcript(
         "title": _apify_item_string(item, _APIFY_TITLE_FIELDS),
         "creator": _apify_item_string(item, _APIFY_CREATOR_FIELDS),
         "thumbnail": _apify_item_string(item, _APIFY_THUMBNAIL_FIELDS),
+        # The uploader's own description. None when the actor returns no known
+        # spelling, which is an accepted outcome (see _APIFY_DESCRIPTION_FIELDS).
+        "description": _apify_item_string(item, _APIFY_DESCRIPTION_FIELDS),
         # Language actually delivered by the actor; may differ from the request
         # when we fell back to the video default or the actor cannot select a
         # language at all (task-192 translates downstream). Resolved through
@@ -606,6 +627,13 @@ def _build_apify_extraction_metadata(
     source_url: str,
     apify_result: Dict[str, Any],
 ) -> Dict[str, Any]:
+    """Extraction metadata for the Apify transcript path.
+
+    ``source_description`` is the uploader's description when the actor happened
+    to return one, and None otherwise — the same tolerated miss as the title and
+    the thumbnail. It is persisted here because the transcript never contains it
+    and the artifact corpus reads it back off the job (task-383).
+    """
     return {
         "provider": "apify",
         "extractor": "apify_youtube_transcript",
@@ -613,6 +641,9 @@ def _build_apify_extraction_metadata(
         "strategy_used": "apify_transcript",
         "video_id": video_id,
         "source_url": source_url,
+        SOURCE_DESCRIPTION_KEY: normalize_source_description(
+            apify_result.get("description")
+        ),
         "actor_id": apify_result.get("actor_id"),
         "requested_language": apify_result.get("requested_language"),
         "transcript_language": apify_result.get("language"),

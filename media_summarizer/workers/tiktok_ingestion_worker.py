@@ -32,6 +32,10 @@ from media_summarizer.core.media_ingestion.media_metadata import (
     normalize_cover_url,
     select_creator,
 )
+from media_summarizer.core.media_ingestion.source_description import (
+    SOURCE_DESCRIPTION_KEY,
+    normalize_source_description,
+)
 from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.models.processing_job import ProcessingJob
@@ -621,7 +625,13 @@ def _build_apify_native_extraction_metadata(
     source_url: str,
     transcript_text: str,
 ) -> Dict[str, Any]:
-    """Build extraction metadata for the Apify native transcript path."""
+    """Build extraction metadata for the Apify native transcript path.
+
+    No ``source_description``, deliberately: this actor returns a transcript and
+    nothing else — no caption, no author metadata — so the clip's description is
+    unknown on this branch rather than empty. The corpus simply carries no
+    description block for such a source (task-383).
+    """
     return {
         "provider": "apify",
         "extractor": "scrape_creators_tiktok_transcripts",
@@ -726,7 +736,16 @@ def _build_native_extraction_metadata(
     tiktok_id: str,
     source_url: str,
     native_result: Dict[str, Any],
+    description: Optional[str],
 ) -> Dict[str, Any]:
+    """Extraction metadata for the yt-dlp native-subtitles path.
+
+    ``description`` is the clip caption yt-dlp reports, persisted under the
+    canonical key so the artifact corpus can read it back (task-383). yt-dlp also
+    *derives* the ``title`` from it, so title and description overlap on their
+    first sentence — the full text is what the model needs, the title is what the
+    tile shows.
+    """
     return {
         "provider": "yt-dlp",
         "extractor": "yt_dlp",
@@ -735,6 +754,7 @@ def _build_native_extraction_metadata(
         "selected_strategy": "native_subtitles",
         "source_url": source_url,
         "tiktok_id": tiktok_id,
+        SOURCE_DESCRIPTION_KEY: description,
         "subtitle_status": "native_subtitles_found",
         "direct_media_url_present": False,
         "direct_media_url_status": None,
@@ -770,7 +790,14 @@ def _build_fallback_extraction_metadata(
     source_url: str,
     fallback_reason: str,
     audio_result: Dict[str, Any],
+    description: Optional[str],
 ) -> Dict[str, Any]:
+    """Extraction metadata for the yt-dlp direct-media-URL (Deepgram) path.
+
+    Same ``description`` contract as the native path: the caption yt-dlp reported
+    is persisted here and nowhere else, because Deepgram never sees it and the
+    transcript it produces will not contain it (task-383).
+    """
     return {
         "provider": "yt-dlp",
         "extractor": "yt_dlp",
@@ -779,6 +806,7 @@ def _build_fallback_extraction_metadata(
         "selected_strategy": "direct_media_url_fallback",
         "source_url": source_url,
         "tiktok_id": tiktok_id,
+        SOURCE_DESCRIPTION_KEY: description,
         "subtitle_status": "native_subtitles_absent",
         "direct_media_url_present": True,
         "direct_media_url_status": "direct_media_url_found",
@@ -973,6 +1001,12 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
     if ytdlp_title:
         job.title = ytdlp_title
 
+    # The same caption, kept whole this time. `select_title` only ever takes its
+    # first sentence, and everything after that -- the point of the clip, the
+    # quantities, the tool being demoed -- used to be dropped on the floor. It is
+    # persisted on the job so the artifact corpus can read it (task-383).
+    tiktok_description = normalize_source_description(info.get("description"))
+
     # The account is the publisher and belongs in the creator field, which is
     # what stops it from ever being mistaken for a title again (task-304).
     ytdlp_creator = select_creator(
@@ -1006,6 +1040,7 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
             source_url=normalized_url,
             fallback_reason=exc.reason,
             audio_result=audio_result,
+            description=tiktok_description,
         )
         job.media_url = audio_result["audio_url"]
         job.mark_transcribing()
@@ -1066,6 +1101,7 @@ async def process_tiktok_message(message_body: Dict[str, Any]) -> Dict[str, Any]
         tiktok_id=tiktok_id,
         source_url=normalized_url,
         native_result=native_result,
+        description=tiktok_description,
     )
     job.mark_completed()
     await database_async.update_processing_job(job)

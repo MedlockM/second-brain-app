@@ -46,9 +46,6 @@ async def enqueue_deepgram_transcription(
     content_mime_type: Optional[str] = None,
     original_name: Optional[str] = None,
     resolver_key: Optional[str] = None,
-    caption: Optional[str] = None,
-    comments: Optional[list[Any]] = None,
-    comments_count: Optional[int] = None,
     queue_name: str = DEEPGRAM_TRANSCRIPTION_QUEUE,
 ) -> None:
     """Send a Deepgram transcription job to SQS with the canonical schema.
@@ -71,6 +68,12 @@ async def enqueue_deepgram_transcription(
     Every message that reaches Deepgram is metered in minutes, whatever the
     platform the audio came from: the meter follows the provider call, not the
     URL (task-287). There is no per-platform opt-out.
+
+    Nothing descriptive belongs in this payload. The Instagram producer used to
+    pass the caption and a comments block; the Deepgram worker never read either,
+    and the caption's real destination is the job's ``extraction_metadata``, where
+    the artifact corpus reads it (task-383). Adding a field here that no consumer
+    reads is how that pipe stayed alive for months.
     """
     body: dict[str, Any] = {
         "job_id": job_id,
@@ -84,9 +87,6 @@ async def enqueue_deepgram_transcription(
     optional_fields = {
         "media_key": media_key,
         "resolver_key": resolver_key,
-        "caption": caption,
-        "comments": comments,
-        "comments_count": comments_count,
         "user_id": user_id,
         "user_email": user_email,
         "normalized_url": normalized_url,

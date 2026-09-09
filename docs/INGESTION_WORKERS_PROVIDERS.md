@@ -4,7 +4,7 @@ Authoritative reference for the ingestion pipeline. Lists each source type's
 primary extraction path, fallback chain, terminal failure behavior, and
 downstream hand-off.
 
-Last verified against codebase: 2026-09-07 (task-359: workers emit a stable `MediaFailureCode`, never an English sentence).
+Last verified against codebase: 2026-09-09 (task-383: the author's description is persisted on the job and enters the artifact corpus; nothing descriptive is handed to Deepgram).
 
 ---
 
@@ -23,9 +23,10 @@ Last verified against codebase: 2026-09-07 (task-359: workers emit a stable `Med
 11. [Cross-cutting: Transcript Language Detection & Translation](#cross-cutting-transcript-language-detection--translation)
 12. [Transcript Translation Worker (task-200)](#transcript-translation-worker-task-200)
 13. [Cross-cutting: How a failure is written down (task-359)](#cross-cutting-how-a-failure-is-written-down-task-359)
-14. [Cross-cutting: Deepgram Modes](#cross-cutting-deepgram-modes)
-15. [Decision Tree: URL Classification and Routing](#decision-tree-url-classification-and-routing)
-16. [References](#references)
+14. [Cross-cutting: Where the author's description goes (task-383)](#cross-cutting-where-the-authors-description-goes-task-383)
+15. [Cross-cutting: Deepgram Modes](#cross-cutting-deepgram-modes)
+16. [Decision Tree: URL Classification and Routing](#decision-tree-url-classification-and-routing)
+17. [References](#references)
 
 ---
 
@@ -290,7 +291,7 @@ Workflow:
 1. `instagram_ingestion_worker` consumes `instagram-ingestion-queue` and marks the job `EXTRACTING`
 2. `InstagramApifyResolver.resolve()` classifies the content type and immediately raises `InstagramApifyRequired` — reels, IGTV and posts alike. It never calls a provider
 3. The worker starts the matching actor (Reel Scraper for reel/IGTV, Post Scraper for `/p/`), persists the run correlation and returns. On the callback continuation it feeds the terminal dataset to `resolve_apify_dataset(...)`, which picks `audioUrl` (preferred) or `videoUrl`
-4. The worker hands the URL to the Deepgram queue with `deepgram_mode="push"` (Instagram CDNs block Deepgram's own fetch, so the Deepgram worker downloads the bytes and posts them), carrying the caption, the comments, the derived title (task-266) and `quota_source_platform="instagram"` so the minutes are not billed a second time as audio
+4. The worker hands the URL to the Deepgram queue with `deepgram_mode="push"` (Instagram CDNs block Deepgram's own fetch, so the Deepgram worker downloads the bytes and posts them), carrying the derived title (task-266) and `quota_source_platform="instagram"` so the minutes are not billed a second time as audio. **Nothing descriptive travels to Deepgram**: the caption stays on the job (see [where the author's description goes](#cross-cutting-where-the-authors-description-goes-task-383)). It used to be passed as `caption`/`comments`/`comments_count`, which the Deepgram worker never read — task-383 deleted those parameters
 
 Ref: `instagram_apify_resolver.py::InstagramApifyResolver.resolve`, `instagram_apify_resolver.py::InstagramApifyResolver.resolve_apify_dataset`, `instagram_ingestion_worker.py::process_instagram_message`
 
@@ -872,6 +873,28 @@ Ref: `core/models/failure_codes.py::MediaFailureCode`, `workers/ingestion_failur
 
 ---
 
+## Cross-cutting: Where the author's description goes (task-383)
+
+Instagram, TikTok and YouTube each let the author write a text block next to the media — a caption, a clip caption, a video description. It is the only human-*written* material those platforms expose, and it often states what the audio never does. It has exactly one destination: the job's `extraction_metadata`, from where the artifact pipeline reads it back. No new DynamoDB attribute, no S3 object, and **no hand-off to Deepgram** — a transcription payload has no reader for it.
+
+| Platform | Written by | Key on `extraction_metadata` | Absent when |
+|---|---|---|---|
+| Instagram reel / IGTV / post | `instagram_apify_resolver.py::_extract_caption` → `resolver_metadata` | `resolver_metadata.caption` | The actor returned no caption |
+| TikTok (yt-dlp native subtitles, yt-dlp → Deepgram) | `tiktok_ingestion_worker.py::_build_native_extraction_metadata`, `::_build_fallback_extraction_metadata` from `info["description"]` | `source_description` | — |
+| TikTok (Apify transcript fallback) | nobody | *(key absent)* | Always: that actor returns a transcript and no metadata at all |
+| YouTube (Apify transcript) | `youtube_ingestion_worker.py::_build_apify_extraction_metadata` from `_APIFY_DESCRIPTION_FIELDS` | `source_description` | The actor returned none of the probed spellings — a tolerated miss, exactly like the title and the thumbnail |
+| X (Twitter) | — | *(key absent)* | Always, and correctly: the tweet text **is** the transcript (`x_ingestion_worker.py`) |
+
+Two spellings, one reader: `core/media_ingestion/source_description.py::job_source_description` is the only place that knows both. It strips the text, never truncates it, and returns `None` when the job carries none.
+
+From there the value travels the path `published`/`captured` already traced: `ResolvedSource.description` (`artifact_service.py::resolve_source`) → the `description` key of `sources[]` in the generation message (`artifact_service.py::build_generation_message`) → the source dict of `artifact_generator/worker.py::_download_transcripts` → its own `--- author description ---` block in `artifact_generator/generators/corpus.py::build_corpus_block`, ahead of the transcript and never inside the `|`-joined header line. That covers the five user-requested artifact types **and** the automatic review blurb, which shares the same corpus builder.
+
+Its bytes count twice over, in `ResolvedSource.byte_length` and in the worker's post-translation recount, so `MAX_FOLDER_CORPUS_TOKENS` measures what is really sent to the model. A missing description is never a failure: no retry, no error log, and the source simply carries no description block.
+
+Ref: `core/media_ingestion/source_description.py`, `core/services/artifact_service.py::resolve_source`, `workers/artifact_generator/generators/corpus.py::build_corpus_block`, `workers/artifact_generator/generators/corpus.py::source_description_instruction`
+
+---
+
 ## Cross-cutting: Deepgram Modes
 
 Since task-158, each producer worker / endpoint declares an explicit `deepgram_mode` in the SQS message body sent to `deepgram-transcription-queue`. This eliminates wasted pull-attempt timeouts for sources where Deepgram cannot fetch audio directly (CDN IP-blocking).
@@ -1002,6 +1025,7 @@ queue      queue      queue                         queue    queue      queue
 | `rss_transcript` (utility, wired via `podcastindex_resolution_worker._try_rss_transcript_short_circuit`) | `media_summarizer/utils/rss_transcript.py` |
 | `tiktok_limiter` | `media_summarizer/utils/tiktok_limiter.py` |
 | `deepgram_dispatch` (canonical SQS payload builder for Deepgram producers) | `media_summarizer/utils/deepgram_dispatch.py` |
+| `source_description` (task-383: canonical `extraction_metadata` key and the single reader of the author's description) | `media_summarizer/core/media_ingestion/source_description.py` |
 | `ingestion_sentinels` (per-request E2E test seam forcing the TikTok IP-block branch) | `media_summarizer/utils/ingestion_sentinels.py` |
 | `transcript_translation_worker` (task-200: async translation for /raw-content cache miss) | `media_summarizer/workers/transcript_translation_worker.py` |
 | `raw_content_service` (task-200: /raw-content no longer calls LLM synchronously) | `media_summarizer/core/services/raw_content_service.py` |
