@@ -49,6 +49,10 @@ export const hi: Catalog = {
   "mediaCard.a11yFromDomain": "{title}, {domain} से {type}",
   "mediaCard.longPressHint":
     "इस स्रोत को ले जाने, नाम बदलने या हटाने के लिए दो बार टैप करके दबाए रखें",
+
+  // --- इम्पोर्ट विफल होने का निशान, लाइब्रेरी पंक्ति और होम टाइल दोनों के लिए ---
+  "mediaStatus.failedBadge": "विफल",
+  "mediaStatus.a11yFailed": "{label}. इम्पोर्ट विफल रहा।",
   "mediaActions.move.label": "ले जाएँ",
   "mediaActions.rename.label": "नाम बदलें",
   "mediaActions.delete.label": "हटाएँ",
@@ -175,6 +179,18 @@ export const hi: Catalog = {
   "mediaError.serviceUnavailable": "इम्पोर्ट फ़िलहाल उपलब्ध नहीं है। हम इस पर काम कर रहे हैं।",
   "mediaError.itemTooLong": "यह आइटम आपके प्लान की एक इम्पोर्ट की सीमा से लंबा है।",
   "mediaError.internal": "हमारी ओर से कुछ गड़बड़ हो गई। इसे फिर से इम्पोर्ट करने की कोशिश करें।",
+
+  // --- जो मीडिया इम्पोर्ट नहीं हो सका, उसके स्रोत के समर्थन का अनुरोध ---
+  // आख़िरी दो कुंजियाँ स्क्रीन पर नहीं दिखतीं: वे भेजी गई रिपोर्ट का विषय और मूल पाठ हैं।
+  "sourceRequest.title": "यह मीडिया स्रोत अभी समर्थित नहीं है।",
+  "sourceRequest.intro": "अगर आप चाहते हैं कि आगे यह समर्थित हो:",
+  "sourceRequest.action": "इस स्रोत का अनुरोध करें",
+  "sourceRequest.actionA11y": "हमसे इस मीडिया स्रोत के समर्थन का अनुरोध करें",
+  "sourceRequest.sending": "भेजा जा रहा है...",
+  "sourceRequest.sent": "अनुरोध भेज दिया गया। धन्यवाद!",
+  "sourceRequest.reportSubject": "स्रोत समर्थन का अनुरोध",
+  "sourceRequest.reportDescription":
+    "सहेजे गए मीडिया की विफलता स्क्रीन से भेजा गया: यह व्यक्ति चाहता है कि हम इसके स्रोत को समर्थित करें।",
 
   "quota.title.outOfMinutes": "मिनट ख़त्म",
   "quota.title.itemTooLong": "एक इम्पोर्ट के लिए बहुत लंबा",

@@ -52,6 +52,22 @@ export interface CreateBugReportPayload {
   attachment_key?: string | null;
   source_app_version?: string | null;
   source_platform?: string | null;
+  /**
+   * The library item this report is about, when it is about one — a request to
+   * support the source of a media that failed to import (task-381). Absent on a
+   * report filed from the Account tab, which is about the app.
+   *
+   * The URL is deliberately *not* sent: the server holds the caller's id, so this
+   * id is the second half of the item's primary key and it reads the address off
+   * the row itself.
+   */
+  media_item_id?: string | null;
+  /**
+   * The `MediaFailureCode` the client saw on that item. Sent rather than looked up
+   * server-side because the job row it lives on carries a TTL and may be gone by
+   * the time anyone reads the report.
+   */
+  error_code?: string | null;
 }
 
 export interface CreateBugReportResponse {

@@ -48,6 +48,10 @@ export const zh: Catalog = {
   "mediaCard.a11yByCreator": "{title}，作者 {creator}，{type}",
   "mediaCard.a11yFromDomain": "{title}，来自 {domain} 的{type}",
   "mediaCard.longPressHint": "双击并长按可移动、重命名或删除此来源",
+
+  // --- 导入失败标记，媒体库列表与首页图块共用 ---
+  "mediaStatus.failedBadge": "失败",
+  "mediaStatus.a11yFailed": "{label}。导入失败。",
   "mediaActions.move.label": "移动",
   "mediaActions.rename.label": "重命名",
   "mediaActions.delete.label": "删除",
@@ -166,6 +170,18 @@ export const zh: Catalog = {
   "mediaError.serviceUnavailable": "导入功能暂时不可用。我们正在处理。",
   "mediaError.itemTooLong": "该条目超出你的方案单次导入允许的长度。",
   "mediaError.internal": "我们这边出了问题。请再次尝试导入。",
+
+  // --- 为无法导入的媒体申请支持其来源 ---
+  // 最后两个键不会显示在界面上：它们是所提交报告的主题和正文。
+  "sourceRequest.title": "尚不支持此媒体来源。",
+  "sourceRequest.intro": "如果你希望将来能支持：",
+  "sourceRequest.action": "申请支持此来源",
+  "sourceRequest.actionA11y": "请我们支持此媒体来源",
+  "sourceRequest.sending": "正在发送...",
+  "sourceRequest.sent": "申请已发送，谢谢！",
+  "sourceRequest.reportSubject": "来源支持申请",
+  "sourceRequest.reportDescription":
+    "从已保存媒体的失败页面发送：该用户希望我们支持其来源。",
 
   "quota.title.outOfMinutes": "分钟数已用完",
   "quota.title.itemTooLong": "单次导入过长",

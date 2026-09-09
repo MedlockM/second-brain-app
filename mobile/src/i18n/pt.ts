@@ -49,6 +49,10 @@ export const pt: Catalog = {
   "mediaCard.a11yFromDomain": "{title}, {type} de {domain}",
   "mediaCard.longPressHint":
     "Toque duas vezes e mantenha para mover, renomear ou eliminar esta fonte",
+
+  // --- Marca de importação falhada, partilhada pela lista e pelo mosaico ---
+  "mediaStatus.failedBadge": "FALHOU",
+  "mediaStatus.a11yFailed": "{label}. A importação falhou.",
   "mediaActions.move.label": "Mover",
   "mediaActions.rename.label": "Renomear",
   "mediaActions.delete.label": "Eliminar",
@@ -175,6 +179,18 @@ export const pt: Catalog = {
   "mediaError.serviceUnavailable": "As importações estão temporariamente indisponíveis. Já estamos a resolver.",
   "mediaError.itemTooLong": "Este item é mais longo do que o seu plano permite numa única importação.",
   "mediaError.internal": "Algo falhou do nosso lado. Tente importar de novo.",
+
+  // --- Pedir suporte para a fonte de um media que não pôde ser importado ---
+  // As duas últimas chaves não aparecem no ecrã: são o assunto e o corpo do relato.
+  "sourceRequest.title": "Esta fonte de media ainda não é suportada.",
+  "sourceRequest.intro": "Se quiser que passe a ser um dia:",
+  "sourceRequest.action": "Pedir esta fonte",
+  "sourceRequest.actionA11y": "Pedir-nos suporte para esta fonte",
+  "sourceRequest.sending": "A enviar...",
+  "sourceRequest.sent": "Pedido enviado. Obrigado!",
+  "sourceRequest.reportSubject": "Pedido de suporte para uma fonte",
+  "sourceRequest.reportDescription":
+    "Enviado do ecrã de falha de um media guardado: esta pessoa gostaria que passássemos a suportar a sua fonte.",
 
   "quota.title.outOfMinutes": "Sem minutos",
   "quota.title.itemTooLong": "Demasiado longo para uma importação",

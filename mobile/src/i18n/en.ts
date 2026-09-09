@@ -76,6 +76,12 @@ export const en = {
   "mediaCard.longPressHint":
     "Double tap and hold to move, rename or delete this source",
 
+  // --- The failed-import marker, shared by the Library row and the Home tile ---
+  // `a11yFailed` wraps whichever label the vignette already built, so the four
+  // existing ones have no failed variant to keep in step.
+  "mediaStatus.failedBadge": "FAILED",
+  "mediaStatus.a11yFailed": "{label}. Import failed.",
+
   // --- Actions on a media item: long press in Library, `…` on its own page ---
   "mediaActions.move.label": "Move",
   "mediaActions.rename.label": "Rename",
@@ -244,6 +250,20 @@ export const en = {
   "mediaError.serviceUnavailable": "Imports are temporarily unavailable. We're looking into it.",
   "mediaError.itemTooLong": "This item is longer than your plan allows in one import.",
   "mediaError.internal": "Something went wrong on our side. Please try importing this again.",
+
+  // --- Asking us to support the source of a media we could not import ---
+  // Shown under the failure message for the eight codes where "not supported yet"
+  // is true (see `SOURCE_SUPPORT_REQUESTABLE_CODES`). The last two are not shown
+  // on screen: they are the subject and the body of the report that gets filed.
+  "sourceRequest.title": "This media source isn't supported yet.",
+  "sourceRequest.intro": "If you'd like it to be one day:",
+  "sourceRequest.action": "Request this source",
+  "sourceRequest.actionA11y": "Ask us to support this media source",
+  "sourceRequest.sending": "Sending...",
+  "sourceRequest.sent": "Request sent. Thank you!",
+  "sourceRequest.reportSubject": "Source support request",
+  "sourceRequest.reportDescription":
+    "Sent from the failure screen of a saved media: this person would like us to support its source.",
 
   // --- Quota refusals, worded from the figures the backend sends ---
   "quota.title.outOfMinutes": "Out of minutes",

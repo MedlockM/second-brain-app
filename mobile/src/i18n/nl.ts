@@ -49,6 +49,10 @@ export const nl: Catalog = {
   "mediaCard.a11yFromDomain": "{title}, {type} van {domain}",
   "mediaCard.longPressHint":
     "Dubbeltik en houd vast om deze bron te verplaatsen, te hernoemen of te verwijderen",
+
+  // --- Markering voor een mislukte import, voor de lijst en de tegel ---
+  "mediaStatus.failedBadge": "MISLUKT",
+  "mediaStatus.a11yFailed": "{label}. Import mislukt.",
   "mediaActions.move.label": "Verplaatsen",
   "mediaActions.rename.label": "Hernoemen",
   "mediaActions.delete.label": "Verwijderen",
@@ -175,6 +179,19 @@ export const nl: Catalog = {
   "mediaError.serviceUnavailable": "Importeren is tijdelijk niet beschikbaar. We zijn ermee bezig.",
   "mediaError.itemTooLong": "Dit item is langer dan je abonnement in één import toestaat.",
   "mediaError.internal": "Er ging iets mis aan onze kant. Probeer dit opnieuw te importeren.",
+
+  // --- Ondersteuning vragen voor de bron van een media die niet kon worden geïmporteerd ---
+  // De laatste twee sleutels staan niet op het scherm: dat zijn het onderwerp en
+  // de tekst van de melding.
+  "sourceRequest.title": "Deze mediabron wordt nog niet ondersteund.",
+  "sourceRequest.intro": "Als je wilt dat dat ooit gebeurt:",
+  "sourceRequest.action": "Deze bron aanvragen",
+  "sourceRequest.actionA11y": "Ons vragen deze bron te ondersteunen",
+  "sourceRequest.sending": "Versturen...",
+  "sourceRequest.sent": "Aanvraag verstuurd. Bedankt!",
+  "sourceRequest.reportSubject": "Aanvraag om een bron te ondersteunen",
+  "sourceRequest.reportDescription":
+    "Verstuurd vanaf het foutscherm van een opgeslagen media: deze persoon wil dat we de bron ervan ondersteunen.",
 
   "quota.title.outOfMinutes": "Geen minuten meer",
   "quota.title.itemTooLong": "Te lang voor één import",

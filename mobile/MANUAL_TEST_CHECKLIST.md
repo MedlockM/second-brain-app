@@ -209,3 +209,39 @@ Test on at least one small viewport (320px width, e.g. iPhone SE) and one standa
 - [ ] All buttons have accessibilityRole="button"
 - [ ] Error states are announced (not just visual)
 - [ ] Focus order follows visual layout
+
+---
+
+## 8. Failed Imports: Marker and Source Request (task-381)
+
+Run the whole section on **both** an iOS and an Android device: nothing here is
+platform-gated, so a difference between the two is a bug.
+
+To produce a failure on one of the eight requestable codes, share an **Instagram
+photo post** — it fails as `IMAGE_POST_UNSUPPORTED`. For a code *outside* the list,
+share a **deleted or private YouTube video** (`MEDIA_UNAVAILABLE`).
+
+### Failure Marker on the Vignettes
+- [ ] After the Instagram photo fails, the Library row for it shows a red FAILED pill next to its type badge
+- [ ] The pill is legible on a VIDEO / SHORT row too, where the type badge is itself reddish
+- [ ] The same item's tile in Home > "Recently added" shows the marker over its cover
+- [ ] A tile in Home > "Continue learning" never shows the marker
+- [ ] A folder tile never shows the marker
+- [ ] A row that is still processing, and a row that succeeded, look exactly as before (no marker, same height)
+- [ ] Type a query that matches the failed item: the search hit shows **no** marker (a hit carries no status)
+- [ ] With VoiceOver / TalkBack on, the failed row and the failed tile each announce the failure once, inside their single label
+- [ ] No horizontal overflow on a 320px viewport with the marker present
+
+### Source Request Block (media detail, failed state)
+- [ ] Opening the failed Instagram item shows, under the error sentence and the Refresh button, a card reading "This media source isn't supported yet."
+- [ ] The card carries exactly one button, "Request this source", at least 48px tall
+- [ ] Neither the source URL nor any failure code appears anywhere on the screen
+- [ ] Opening the failed YouTube item (`MEDIA_UNAVAILABLE`) shows the error sentence and Refresh, and **no** card
+- [ ] The card looks and behaves identically on iOS and on Android
+- [ ] Tapping the button disables it and shows a spinner with "Sending..."
+- [ ] On success the button is replaced by a checkmark and "Request sent. Thank you!", and is no longer tappable
+- [ ] The card does not change height between the button and the confirmation
+- [ ] Leaving the screen and coming back offers the button again (the sent state is not persisted — by design)
+- [ ] With airplane mode on, tapping the button shows the network error sentence and the button becomes tappable again
+- [ ] Tapping it a sixth time within an hour shows "Too many requests. Please wait a moment and try again."
+- [ ] With the interface language set to Arabic, the card's text is right-to-left and the marker sits on the correct side of the cover

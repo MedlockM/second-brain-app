@@ -52,6 +52,10 @@ export const es: Catalog = {
   "mediaCard.a11yFromDomain": "{title}, {type} de {domain}",
   "mediaCard.longPressHint":
     "Toca dos veces y mantén para mover, renombrar o eliminar esta fuente",
+
+  // --- Marca de importación fallida, compartida por la lista y el mosaico ---
+  "mediaStatus.failedBadge": "FALLÓ",
+  "mediaStatus.a11yFailed": "{label}. La importación ha fallado.",
   "mediaActions.move.label": "Mover",
   "mediaActions.rename.label": "Renombrar",
   "mediaActions.delete.label": "Eliminar",
@@ -195,6 +199,18 @@ export const es: Catalog = {
   "mediaError.serviceUnavailable": "Las importaciones no están disponibles temporalmente. Estamos en ello.",
   "mediaError.itemTooLong": "Este elemento es más largo de lo que tu plan permite en una sola importación.",
   "mediaError.internal": "Algo ha fallado por nuestra parte. Prueba a importarlo de nuevo.",
+
+  // --- Pedir compatibilidad con la fuente de un medio que no se pudo importar ---
+  // Las dos últimas claves no se muestran: son el asunto y el cuerpo del informe.
+  "sourceRequest.title": "Esta fuente de medios aún no es compatible.",
+  "sourceRequest.intro": "Si quieres que lo sea algún día:",
+  "sourceRequest.action": "Solicitar esta fuente",
+  "sourceRequest.actionA11y": "Pedirnos compatibilidad con esta fuente",
+  "sourceRequest.sending": "Enviando...",
+  "sourceRequest.sent": "Solicitud enviada. ¡Gracias!",
+  "sourceRequest.reportSubject": "Solicitud de compatibilidad con una fuente",
+  "sourceRequest.reportDescription":
+    "Enviado desde la pantalla de error de un medio guardado: esta persona quiere que su fuente sea compatible.",
 
   "quota.title.outOfMinutes": "Sin minutos",
   "quota.title.itemTooLong": "Demasiado largo para una importación",

@@ -5,6 +5,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { Colors, Typography, Spacing, BorderRadius } from "../constants/theme";
 import type { MediaType } from "../types/media";
 import { getMediaTypeIcon } from "../lib/mediaTypeDisplay";
+import {
+  MediaFailureBadge,
+  describeWithFailure,
+  isFailedLibraryStatus,
+} from "./MediaFailureBadge";
 import { t, tCount } from "../i18n";
 
 /**
@@ -13,7 +18,9 @@ import { t, tCount } from "../i18n";
  * One component for "Continue learning" and "Recently added" alike: a large
  * cover, the title on up to three lines, the creator on one muted line. There is
  * no type badge and no timestamp — the rows are short and ordered, so neither
- * earns its space, and dropping them is what lets the title breathe.
+ * earns its space, and dropping them is what lets the title breathe. The one
+ * exception is a failed import, marked over the cover (task-381): it is the only
+ * thing about a tile that the user cannot find out by looking at it.
  *
  * Its height is fixed (`TILE_HEIGHT`) rather than driven by its own text, so the
  * row it sits in is the same height whichever kinds of tile it holds — see the
@@ -103,6 +110,16 @@ export type HomeTileItem =
        */
       cacheKey: string;
       mediaType: MediaType;
+      /**
+       * Lifecycle of the library entry, of which the tile reads one value:
+       * `failed` earns a marker over the cover (task-381).
+       *
+       * Optional, and set by "Recently added" alone. The engagement row that feeds
+       * "Continue learning" carries no status on the wire — an item you have
+       * already opened and read is not a failed import — so it leaves the field
+       * alone rather than guessing a value for it.
+       */
+      status?: string | null;
     }
   | {
       kind: "folder";
@@ -175,6 +192,15 @@ function TileCover({ item }: { item: HomeTileItem }): React.JSX.Element {
           color={Colors.textMuted}
         />
       )}
+
+      {/* Over the cover rather than under the title: the tile has no meta row to
+          put it in, and the two text lines below are already spoken for by the
+          title and the creator. */}
+      {isFailedLibraryStatus(item.status) ? (
+        <View style={styles.failureMarker} pointerEvents="none">
+          <MediaFailureBadge />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -299,7 +325,10 @@ function describeTile(item: HomeTileItem): string {
   }
   const creator = item.creator?.trim();
   const title = item.title?.trim() || t("common.untitled");
-  return creator ? t("home.tile.a11yByCreator", { title, creator }) : title;
+  const label = creator
+    ? t("home.tile.a11yByCreator", { title, creator })
+    : title;
+  return describeWithFailure(label, isFailedLibraryStatus(item.status));
 }
 
 // --- Styles ---
@@ -327,6 +356,13 @@ const styles = StyleSheet.create({
   coverImage: {
     width: "100%",
     height: "100%",
+  },
+  // Top-start, where nothing else on the cover lives, and inset by one step so the
+  // pill's corner radius reads against the cover's own.
+  failureMarker: {
+    position: "absolute",
+    top: Spacing.sm,
+    start: Spacing.sm,
   },
   mosaicRow: {
     flexDirection: "row",

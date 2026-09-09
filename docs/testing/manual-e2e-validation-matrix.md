@@ -179,6 +179,10 @@ Tests the inbox display with live polling, processing state badges, and pull-to-
 | IN-26 | Failed local submission | Network error during share save | "SUBMITTING" card shows error state, "Failed" badge, error message | Error clearly visible on the card |
 | IN-27 | Greeting changes by time | Check morning/afternoon/evening | "Good Morning/Afternoon/Evening, [name]" | Correct time-of-day greeting |
 | IN-28 | Relative time display | Items from just now, 5m, 2h, 1d, 5d ago | Shows "Just now", "5m ago", "2h ago", "Yesterday", "5d ago" | Correct relative formatting |
+| IN-29 | Failure marker in the Library | Share an Instagram photo post, wait for the failure, open Library | The row shows a red FAILED pill next to its type badge | Pill present and legible, including on a VIDEO / SHORT row whose type badge is itself reddish |
+| IN-30 | Failure marker on the Home tile | Same item, Home > "Recently added" | The marker is drawn over the tile cover | Marker present; "Continue learning" tiles and folder tiles never carry it |
+| IN-31 | Search hit carries no marker | Search a query that matches the failed item | The hit renders exactly as before, with no marker | A search hit has no status, so nothing is inferred for it |
+| IN-32 | Failure announced once | VoiceOver / TalkBack on the failed row, then on the failed tile | Each label ends with "Import failed." | Announced once, inside the single existing label — not as a second focusable element |
 
 ### 4.3 Media Detail Screen
 
@@ -210,6 +214,12 @@ Tests the media detail view with metadata, transcript status, and artifact actio
 | MD-22 | Polling stops when done | All artifacts in terminal state | No further /api/media/:id requests | Network traffic ceases |
 | MD-23 | Error loading media detail | Network error on GET /api/media/:id | Error icon, message, Retry button | Error state renders, Retry works |
 | MD-24 | MEDIA_NOT_FOUND error | 404 on media detail | "This media item was not found or is no longer available." | Correct friendly message |
+| MD-25 | Source request block on a requestable code | Open a media that failed with `IMAGE_POST_UNSUPPORTED` (share an Instagram photo post) | Under the error sentence and Refresh: a card "This media source isn't supported yet." with one "Request this source" button | Card present, button >= 48px, and neither the source URL nor any failure code appears on screen |
+| MD-26 | No block on a non-requestable code | Open a media that failed with `MEDIA_UNAVAILABLE` (deleted or private YouTube video) | Error sentence and Refresh only | Card absent — the "not supported yet" sentence would be false here |
+| MD-27 | Send the request | Tap "Request this source" | Button disables, spinner with "Sending...", then a checkmark with "Request sent. Thank you!" | Card height unchanged between the two states; the confirmation is not tappable |
+| MD-28 | Request while offline | Airplane mode, tap "Request this source" | "Network error. Please check your connection and try again." under the button | Button becomes tappable again, no crash, no half-sent state |
+| MD-29 | Request rate limited | Tap the button on six different failed items inside one hour | "Too many requests. Please wait a moment and try again." | The sixth is refused, the screen stays usable |
+| MD-30 | Block identical on both platforms | Repeat MD-25 and MD-27 on Android | Same card, same wording, same button geometry | No platform difference: nothing about this block is platform-gated |
 
 ### 4.4 Error Handling (Canonical Error Codes)
 
@@ -323,12 +333,12 @@ Copy and fill for each test run.
 | Category | Total | Pass | Fail | Blocked | Skipped |
 |---|---|---|---|---|---|
 | Share Intake (SI) | 22 | | | | |
-| Inbox (IN) | 28 | | | | |
-| Media Detail (MD) | 24 | | | | |
+| Inbox (IN) | 32 | | | | |
+| Media Detail (MD) | 30 | | | | |
 | Error Handling (EH) | 16 | | | | |
 | Network Conditions (NC) | 10 | | | | |
 | Deduplication (DE) | 7 | | | | |
-| **TOTAL** | **107** | | | | |
+| **TOTAL** | **117** | | | | |
 
 ### Detailed Results
 

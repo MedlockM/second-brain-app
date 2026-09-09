@@ -614,6 +614,10 @@ function buildRecentlyAdded(media: MediaListItem[]): HomeTileItem[] {
         imageUrl: item.media_image ?? null,
         cacheKey: `${item.media_item_id}:${item.updated_at}`,
         mediaType: (item.media_type ?? "unknown") as MediaType,
+        // The row this tile is built from carries the library entry's status, so
+        // an import that failed is marked here as it is in the Library — this is
+        // the first surface a tester looks at after sharing something.
+        status: item.status,
       },
     }))
     .sort((a, b) => b.at - a.at)

@@ -49,6 +49,10 @@ export const ar: Catalog = {
   "mediaCard.a11yFromDomain": "{title}، {type} من {domain}",
   "mediaCard.longPressHint":
     "انقر نقرًا مزدوجًا مع الاستمرار لنقل هذا المصدر أو إعادة تسميته أو حذفه",
+
+  // --- علامة فشل الاستيراد، مشتركة بين صفّ المكتبة وبطاقة الصفحة الرئيسية ---
+  "mediaStatus.failedBadge": "فشل",
+  "mediaStatus.a11yFailed": "{label}. فشل الاستيراد.",
   "mediaActions.move.label": "نقل",
   "mediaActions.rename.label": "إعادة تسمية",
   "mediaActions.delete.label": "حذف",
@@ -174,6 +178,18 @@ export const ar: Catalog = {
   "mediaError.serviceUnavailable": "الاستيراد غير متاح مؤقتًا. نحن نعمل على ذلك.",
   "mediaError.itemTooLong": "هذا العنصر أطول من الحد الذي تسمح به خطتك في استيراد واحد.",
   "mediaError.internal": "حدث خطأ من جهتنا. حاول استيراد هذا العنصر مرة أخرى.",
+
+  // --- طلب دعم مصدر وسائط لم نتمكّن من استيراده ---
+  // المفتاحان الأخيران لا يظهران على الشاشة: هما موضوع التقرير ونصّه.
+  "sourceRequest.title": "مصدر الوسائط هذا غير مدعوم بعد.",
+  "sourceRequest.intro": "إذا كنت ترغب في دعمه مستقبلًا:",
+  "sourceRequest.action": "اطلب دعم هذا المصدر",
+  "sourceRequest.actionA11y": "اطلب منّا دعم مصدر الوسائط هذا",
+  "sourceRequest.sending": "جارٍ الإرسال...",
+  "sourceRequest.sent": "تم إرسال الطلب. شكرًا لك!",
+  "sourceRequest.reportSubject": "طلب دعم مصدر",
+  "sourceRequest.reportDescription":
+    "أُرسل من شاشة فشل عنصر وسائط محفوظ: هذا الشخص يرغب في أن ندعم مصدره.",
 
   "quota.title.outOfMinutes": "نفدت الدقائق",
   "quota.title.itemTooLong": "أطول من أن يُستورد دفعة واحدة",

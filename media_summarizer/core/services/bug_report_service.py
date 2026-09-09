@@ -35,7 +35,20 @@ class BugReportStatus(str, Enum):
 
 
 class BugReport(BaseModel):
-    """Domain model for a bug report."""
+    """Domain model for a bug report.
+
+    The media block (``media_item_id`` through ``media_type``) is what a report
+    filed from the failure screen of one item carries (task-381), and it is
+    optional for the same reason ``attachment_key`` is: a report filed from the
+    Account tab is about the app, not about a media, and has nothing to put
+    there.
+
+    ``error_code`` is captured at submission rather than read back later:
+    ``processing_jobs`` carries a TTL, so the job row can be gone by the time the
+    owner reads the report. ``source_url`` is resolved server-side from the
+    caller's library row and stays ``None`` when that row cannot be read — or
+    when it genuinely has no URL, which is the case for every uploaded document.
+    """
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     subject: str
@@ -45,6 +58,13 @@ class BugReport(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     source_app_version: Optional[str] = None
     source_platform: Optional[str] = None
+
+    # --- The media this report is about, when it is about one (task-381) ------
+    media_item_id: Optional[str] = None
+    error_code: Optional[str] = None
+    source_url: Optional[str] = None
+    media_key: Optional[str] = None
+    media_type: Optional[str] = None
 
     def to_dynamodb_item(self) -> Dict[str, Any]:
         """Serialize to DynamoDB item format."""
@@ -62,6 +82,16 @@ class BugReport(BaseModel):
             item["source_app_version"] = self.source_app_version
         if self.source_platform:
             item["source_platform"] = self.source_platform
+        if self.media_item_id:
+            item["media_item_id"] = self.media_item_id
+        if self.error_code:
+            item["error_code"] = self.error_code
+        if self.source_url:
+            item["source_url"] = self.source_url
+        if self.media_key:
+            item["media_key"] = self.media_key
+        if self.media_type:
+            item["media_type"] = self.media_type
         return item
 
     @classmethod
@@ -77,6 +107,11 @@ class BugReport(BaseModel):
             created_at=item["created_at"],
             source_app_version=item.get("source_app_version"),
             source_platform=item.get("source_platform"),
+            media_item_id=item.get("media_item_id"),
+            error_code=item.get("error_code"),
+            source_url=item.get("source_url"),
+            media_key=item.get("media_key"),
+            media_type=item.get("media_type"),
         )
 
 
@@ -94,6 +129,11 @@ class BugReportService:
         attachment_key: Optional[str] = None,
         source_app_version: Optional[str] = None,
         source_platform: Optional[str] = None,
+        media_item_id: Optional[str] = None,
+        error_code: Optional[str] = None,
+        source_url: Optional[str] = None,
+        media_key: Optional[str] = None,
+        media_type: Optional[str] = None,
     ) -> BugReport:
         """Create and persist a new bug report."""
         report = BugReport(
@@ -103,6 +143,11 @@ class BugReportService:
             attachment_key=attachment_key,
             source_app_version=source_app_version,
             source_platform=source_platform,
+            media_item_id=media_item_id,
+            error_code=error_code,
+            source_url=source_url,
+            media_key=media_key,
+            media_type=media_type,
         )
 
         await self._persist(report)

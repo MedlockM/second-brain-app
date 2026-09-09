@@ -53,6 +53,10 @@ export const de: Catalog = {
   "mediaCard.a11yFromDomain": "{title}, {type} von {domain}",
   "mediaCard.longPressHint":
     "Zweimal tippen und halten, um diese Quelle zu verschieben, umzubenennen oder zu löschen",
+
+  // --- Markierung für fehlgeschlagenen Import, für Liste und Kachel ---
+  "mediaStatus.failedBadge": "FEHLER",
+  "mediaStatus.a11yFailed": "{label}. Import fehlgeschlagen.",
   "mediaActions.move.label": "Verschieben",
   "mediaActions.rename.label": "Umbenennen",
   "mediaActions.delete.label": "Löschen",
@@ -202,6 +206,19 @@ export const de: Catalog = {
   "mediaError.serviceUnavailable": "Importe sind vorübergehend nicht verfügbar. Wir kümmern uns darum.",
   "mediaError.itemTooLong": "Dieses Element ist länger, als dein Tarif in einem Import erlaubt.",
   "mediaError.internal": "Bei uns ist etwas schiefgelaufen. Versuche den Import bitte noch einmal.",
+
+  // --- Unterstützung für die Quelle eines nicht importierbaren Mediums anfragen ---
+  // Die letzten zwei Schlüssel erscheinen nicht auf dem Bildschirm: Sie sind
+  // Betreff und Text der gesendeten Meldung.
+  "sourceRequest.title": "Diese Medienquelle wird noch nicht unterstützt.",
+  "sourceRequest.intro": "Wenn du möchtest, dass sie es eines Tages wird:",
+  "sourceRequest.action": "Diese Quelle anfragen",
+  "sourceRequest.actionA11y": "Uns um Unterstützung für diese Quelle bitten",
+  "sourceRequest.sending": "Wird gesendet...",
+  "sourceRequest.sent": "Anfrage gesendet. Danke!",
+  "sourceRequest.reportSubject": "Anfrage zur Unterstützung einer Quelle",
+  "sourceRequest.reportDescription":
+    "Vom Fehlerbildschirm eines gespeicherten Mediums gesendet: Diese Person möchte, dass wir seine Quelle unterstützen.",
 
   "quota.title.outOfMinutes": "Keine Minuten mehr",
   "quota.title.itemTooLong": "Zu lang für einen Import",

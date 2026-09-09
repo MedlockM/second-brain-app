@@ -60,6 +60,10 @@ export const fr: Catalog = {
   "mediaCard.a11yFromDomain": "{title}, {type} de {domain}",
   "mediaCard.longPressHint":
     "Appuyez deux fois et maintenez pour déplacer, renommer ou supprimer cette source",
+
+  // --- Marqueur d'import échoué, partagé par la liste et la tuile d'accueil ---
+  "mediaStatus.failedBadge": "ÉCHEC",
+  "mediaStatus.a11yFailed": "{label}. Import échoué.",
   "mediaActions.move.label": "Déplacer",
   "mediaActions.rename.label": "Renommer",
   "mediaActions.delete.label": "Supprimer",
@@ -208,6 +212,19 @@ export const fr: Catalog = {
   "mediaError.serviceUnavailable": "Les imports sont momentanément indisponibles. Nous nous en occupons.",
   "mediaError.itemTooLong": "Cet élément est plus long que ce que votre formule autorise en un seul import.",
   "mediaError.internal": "Un problème est survenu de notre côté. Réessayez d'importer cet élément.",
+
+  // --- Demander la prise en charge de la source d'un média non importable ---
+  // Les deux dernières clés ne s'affichent pas : ce sont l'objet et le corps du
+  // rapport envoyé.
+  "sourceRequest.title": "Cette source de média n'est pas encore prise en charge.",
+  "sourceRequest.intro": "Si vous souhaitez qu'elle le soit un jour :",
+  "sourceRequest.action": "Demander cette source",
+  "sourceRequest.actionA11y": "Demander la prise en charge de cette source",
+  "sourceRequest.sending": "Envoi...",
+  "sourceRequest.sent": "Demande envoyée. Merci !",
+  "sourceRequest.reportSubject": "Demande de prise en charge d'une source",
+  "sourceRequest.reportDescription":
+    "Envoyé depuis l'écran d'échec d'un média enregistré : cette personne aimerait que nous prenions en charge sa source.",
 
   "quota.title.outOfMinutes": "Plus de minutes",
   "quota.title.itemTooLong": "Trop long pour un seul import",

@@ -114,21 +114,98 @@ Une limite à connaître, pas à corriger : **un document téléversé n'a pas d
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Une ligne de `MediaListCard` dont le statut de bibliothèque vaut `failed` porte un marqueur d'échec dans la rangée `styles.cardMeta`, à côté du badge de type, rendu depuis un champ `status` optionnel ajouté à `MediaCardItem` — sans modifier un seul appelant dans `mobile/app/(tabs)/search.tsx`. Sa teinte n'est pas `Colors.errorContainer`, que `getMediaTypeBgColor` rend déjà pour `youtube_video` et `short_video`.
-- [ ] #2 Une ligne `pending`, `processing`, `ready` ou sans statut — un hit de recherche, dont `hitToRow` (`search.tsx` l. 356-375) ne pose pas le champ — rend une vignette inchangée, et `MediaListItem.status` reste typé `string` puisque le backend le sert `Optional[str]` et peut le laisser nul.
-- [ ] #3 `HomeTile` rend le même marqueur en surimpression de la couverture pour une tuile en échec ; le champ de statut est ajouté au seul variant `kind: "media"` de `HomeTileItem`, en optionnel, et renseigné par `buildRecentlyAdded` dans `mobile/app/(tabs)/inbox.tsx`. Les tuiles de « Continuer l'apprentissage » et celles de `kind: "folder"` sont inchangées et ne gagnent aucun champ.
-- [ ] #4 L'étiquette d'accessibilité d'une ligne et d'une tuile en échec annonce l'échec en plus de ce qu'elle annonce déjà, sans dupliquer `mediaCard.a11yByCreator`, `mediaCard.a11yFromDomain`, `home.tile.a11yMedia` ni `home.tile.a11yFolder`.
-- [ ] #5 Sous le message d'erreur de la branche `pollingState === "failed"` de `mobile/app/media/[id].tsx`, un bloc énonce que la source n'est pas encore prise en charge et offre un bouton unique de demande. Il est rendu **identiquement sur iOS et sur Android** : aucun test sur `Platform.OS` ne garde le bloc.
-- [ ] #6 Le bloc n'est rendu que pour les 8 codes où sa phrase est vraie — `LIVE_CONTENT_UNSUPPORTED`, `IMAGE_POST_UNSUPPORTED`, `NOT_AN_ARTICLE_PAGE`, `ARTICLE_TEXT_NOT_FOUND`, `DOCUMENT_PARSE_FAILED`, `NO_TRANSCRIBABLE_MEDIA`, `NO_TRANSCRIPT_AVAILABLE`, `POST_TEXT_EMPTY` — et pour aucun des 16 autres membres de `MediaFailureCode`, ni quand `error_code` est absent. La liste vit à côté de `ERROR_CODE_MESSAGES` dans `mobile/src/lib/getFriendlyErrorMessage.ts`.
-- [ ] #7 Le code d'échec est lu depuis `mediaData.processing_job.error_code`, déjà exposé par le hook, et `mobile/src/hooks/useMediaDetailPolling.ts` n'est pas modifié : `git diff --stat` ne le mentionne pas.
-- [ ] #8 Le bloc vit dans son propre composant sous `mobile/src/components/`, qui porte l'état du bouton (repos / envoi / envoyé / erreur) : `mobile/app/media/[id].tsx` ne gagne aucun appel de hook, et son diff n'ajoute ni `useState`, ni `useCallback`, ni `useEffect`.
-- [ ] #9 Un tap sur le bouton appelle `BugReportService.createBugReport` avec le `media_item_id` de l'écran et l'`error_code` lu, un sujet et une description construits depuis les catalogues i18n ; le payload de `mobile/src/services/bugReportService.ts` gagne ces deux champs en optionnels. Ni l'URL source (`original_url` / `normalized_url`) ni le `MediaFailureCode` ne sont rendus à l'écran.
-- [ ] #10 Pendant l'envoi le bouton est désactivé et montre une progression ; après un succès il passe en confirmation et n'est plus actionnable ; après un échec il affiche la phrase de `getFriendlyErrorMessage` — le `429` du limiteur de débit inclus, sans nouvelle clé pour ce cas — et redevient actionnable.
-- [ ] #11 `CreateBugReportRequest` (`media_summarizer/api/endpoints/bug_reports.py`) gagne `media_item_id` et `error_code` en `Optional[str] = None`, et `create_bug_report` résout la ligne du média par `get_media_for_user(media_item_id, current_user.id)` quand `media_item_id` est fourni, pour en tirer `source_url`, `media_key` et `media_type`. Aucun `Scan` n'est écrit.
-- [ ] #12 Une résolution qui échoue ne fait pas échouer le POST : le `HTTPException` 404 de `get_media_for_user` est capturé, le rapport est créé avec le `media_item_id` reçu et sans URL, et l'événement est journalisé en `warning`.
-- [ ] #13 `BugReport` (`media_summarizer/core/services/bug_report_service.py`) porte les nouveaux champs en `Optional[str] = None`, et `to_dynamodb_item` ne les émet que lorsqu'ils sont renseignés — le motif exact de `attachment_key` — de sorte qu'un rapport générique venu de l'onglet Compte écrit la même ligne qu'aujourd'hui.
-- [ ] #14 Les nouvelles clés d'interface — marqueur d'échec sur les vignettes et son étiquette d'accessibilité, titre du bloc, phrase d'introduction, libellé du bouton, libellé de confirmation, sujet et description du rapport — existent dans les **11** catalogues de `mobile/src/i18n/`, et aucune clé existante n'est laissée orpheline.
-- [ ] #15 `mobile/package.json` ne gagne aucune dépendance et `mobile/app.config.ts` n'est pas modifié — aucune source de fingerprint touchée, donc l'OTA reste intacte sur les builds déjà installés ; `git diff --stat` ne mentionne ni l'un ni l'autre.
-- [ ] #16 `mobile/MANUAL_TEST_CHECKLIST.md` décrit les cas à vérifier sur appareil — marqueur dans la Bibliothèque et sur l'Accueil après un échec, bloc présent sur un des 8 codes, bloc absent sur un code hors liste, bloc et bouton présents sur Android comme sur iOS, état de confirmation après envoi — avec les totaux de catégorie et le grand total mis à jour.
-- [ ] #17 `ruff check` et `mypy` passent sur `media_summarizer/`, et `npm run lint` et `npm run typecheck` passent dans `mobile/`.
+- [x] #1 Une ligne de `MediaListCard` dont le statut de bibliothèque vaut `failed` porte un marqueur d'échec dans la rangée `styles.cardMeta`, à côté du badge de type, rendu depuis un champ `status` optionnel ajouté à `MediaCardItem` — sans modifier un seul appelant dans `mobile/app/(tabs)/search.tsx`. Sa teinte n'est pas `Colors.errorContainer`, que `getMediaTypeBgColor` rend déjà pour `youtube_video` et `short_video`.
+- [x] #2 Une ligne `pending`, `processing`, `ready` ou sans statut — un hit de recherche, dont `hitToRow` (`search.tsx` l. 356-375) ne pose pas le champ — rend une vignette inchangée, et `MediaListItem.status` reste typé `string` puisque le backend le sert `Optional[str]` et peut le laisser nul.
+- [x] #3 `HomeTile` rend le même marqueur en surimpression de la couverture pour une tuile en échec ; le champ de statut est ajouté au seul variant `kind: "media"` de `HomeTileItem`, en optionnel, et renseigné par `buildRecentlyAdded` dans `mobile/app/(tabs)/inbox.tsx`. Les tuiles de « Continuer l'apprentissage » et celles de `kind: "folder"` sont inchangées et ne gagnent aucun champ.
+- [x] #4 L'étiquette d'accessibilité d'une ligne et d'une tuile en échec annonce l'échec en plus de ce qu'elle annonce déjà, sans dupliquer `mediaCard.a11yByCreator`, `mediaCard.a11yFromDomain`, `home.tile.a11yMedia` ni `home.tile.a11yFolder`.
+- [x] #5 Sous le message d'erreur de la branche `pollingState === "failed"` de `mobile/app/media/[id].tsx`, un bloc énonce que la source n'est pas encore prise en charge et offre un bouton unique de demande. Il est rendu **identiquement sur iOS et sur Android** : aucun test sur `Platform.OS` ne garde le bloc.
+- [x] #6 Le bloc n'est rendu que pour les 8 codes où sa phrase est vraie — `LIVE_CONTENT_UNSUPPORTED`, `IMAGE_POST_UNSUPPORTED`, `NOT_AN_ARTICLE_PAGE`, `ARTICLE_TEXT_NOT_FOUND`, `DOCUMENT_PARSE_FAILED`, `NO_TRANSCRIBABLE_MEDIA`, `NO_TRANSCRIPT_AVAILABLE`, `POST_TEXT_EMPTY` — et pour aucun des 16 autres membres de `MediaFailureCode`, ni quand `error_code` est absent. La liste vit à côté de `ERROR_CODE_MESSAGES` dans `mobile/src/lib/getFriendlyErrorMessage.ts`.
+- [x] #7 Le code d'échec est lu depuis `mediaData.processing_job.error_code`, déjà exposé par le hook, et `mobile/src/hooks/useMediaDetailPolling.ts` n'est pas modifié : `git diff --stat` ne le mentionne pas.
+- [x] #8 Le bloc vit dans son propre composant sous `mobile/src/components/`, qui porte l'état du bouton (repos / envoi / envoyé / erreur) : `mobile/app/media/[id].tsx` ne gagne aucun appel de hook, et son diff n'ajoute ni `useState`, ni `useCallback`, ni `useEffect`.
+- [x] #9 Un tap sur le bouton appelle `BugReportService.createBugReport` avec le `media_item_id` de l'écran et l'`error_code` lu, un sujet et une description construits depuis les catalogues i18n ; le payload de `mobile/src/services/bugReportService.ts` gagne ces deux champs en optionnels. Ni l'URL source (`original_url` / `normalized_url`) ni le `MediaFailureCode` ne sont rendus à l'écran.
+- [x] #10 Pendant l'envoi le bouton est désactivé et montre une progression ; après un succès il passe en confirmation et n'est plus actionnable ; après un échec il affiche la phrase de `getFriendlyErrorMessage` — le `429` du limiteur de débit inclus, sans nouvelle clé pour ce cas — et redevient actionnable.
+- [x] #11 `CreateBugReportRequest` (`media_summarizer/api/endpoints/bug_reports.py`) gagne `media_item_id` et `error_code` en `Optional[str] = None`, et `create_bug_report` résout la ligne du média par `get_media_for_user(media_item_id, current_user.id)` quand `media_item_id` est fourni, pour en tirer `source_url`, `media_key` et `media_type`. Aucun `Scan` n'est écrit.
+- [x] #12 Une résolution qui échoue ne fait pas échouer le POST : le `HTTPException` 404 de `get_media_for_user` est capturé, le rapport est créé avec le `media_item_id` reçu et sans URL, et l'événement est journalisé en `warning`.
+- [x] #13 `BugReport` (`media_summarizer/core/services/bug_report_service.py`) porte les nouveaux champs en `Optional[str] = None`, et `to_dynamodb_item` ne les émet que lorsqu'ils sont renseignés — le motif exact de `attachment_key` — de sorte qu'un rapport générique venu de l'onglet Compte écrit la même ligne qu'aujourd'hui.
+- [x] #14 Les nouvelles clés d'interface — marqueur d'échec sur les vignettes et son étiquette d'accessibilité, titre du bloc, phrase d'introduction, libellé du bouton, libellé de confirmation, sujet et description du rapport — existent dans les **11** catalogues de `mobile/src/i18n/`, et aucune clé existante n'est laissée orpheline.
+- [x] #15 `mobile/package.json` ne gagne aucune dépendance et `mobile/app.config.ts` n'est pas modifié — aucune source de fingerprint touchée, donc l'OTA reste intacte sur les builds déjà installés ; `git diff --stat` ne mentionne ni l'un ni l'autre.
+- [x] #16 `mobile/MANUAL_TEST_CHECKLIST.md` décrit les cas à vérifier sur appareil — marqueur dans la Bibliothèque et sur l'Accueil après un échec, bloc présent sur un des 8 codes, bloc absent sur un code hors liste, bloc et bouton présents sur Android comme sur iOS, état de confirmation après envoi — avec les totaux de catégorie et le grand total mis à jour.
+- [x] #17 `ruff check` et `mypy` passent sur `media_summarizer/`, et `npm run lint` et `npm run typecheck` passent dans `mobile/`.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Delivered
+
+**The marker.** `mobile/src/components/MediaFailureBadge.tsx` holds the pill and the
+two one-line helpers both surfaces share (`isFailedLibraryStatus`,
+`describeWithFailure`). It is tinted `Colors.error` / `Colors.onError`, never
+`Colors.errorContainer` — that one is already the background
+`getMediaTypeBgColor` gives the VIDEO and SHORT type badges, so a pill in it would
+sit invisible beside them. `MediaListCard` draws it inside `styles.cardMeta` from a
+new optional `status`; `HomeTile` draws the same pill absolutely positioned over
+the cover from a `status` added to the `kind: "media"` variant only, populated by
+`buildRecentlyAdded`. No caller in `search.tsx` changed: `MediaListItem.status` is
+a required `string`, so a `MediaListItem` stays assignable to the widened
+`MediaCardItem`, and `hitToRow` simply never sets the field — a search hit
+therefore carries no marker, which is the intended behaviour, not an omission.
+
+**Accessibility without duplication.** Rather than a `failed` twin of each of the
+four existing labels, one wrapper key `mediaStatus.a11yFailed` takes the label the
+component already built and appends the failure to it. AC #4 names
+`home.tile.a11yMedia`, which does not exist — the real keys are
+`home.tile.a11yByCreator` and `home.tile.a11yFromDomain`; the wrapper leaves all of
+them untouched either way.
+
+**The request block.** `mobile/src/components/SourceSupportRequestCard.tsx` owns
+the whole thing, including its `idle | sending | sent` state and its error line, so
+`app/media/[id].tsx` gained exactly one JSX element and no hook — which matters on
+that route, a chain of early returns where a top-level `useState` would run on four
+paths that never draw this button. The gate is
+`isSourceSupportRequestable(errorCode)`, a `ReadonlySet` of the eight codes living
+beside `ERROR_CODE_MESSAGES`; nothing in the component reads `Platform.OS` except
+the `source_platform` field of the payload, so iOS and Android render the same
+thing. Neither the URL nor the code is ever rendered. The `429` needed no new
+string: the backend's "Rate limit exceeded" sentence already matches the shared
+mapping's rate-limit rule and resolves to `error.rateLimited`.
+
+**The backend.** `CreateBugReportRequest` gained `media_item_id` and `error_code`;
+`create_bug_report` resolves the row through `get_media_for_user`, a point-lookup
+on `(user_id, media_item_id)` that doubles as the ownership gate, and derives
+`source_url`, `media_key`, `media_type` from it. No `Scan`. `_resolve_media_context`
+swallows the 404 and returns an empty context: a report about a deleted or foreign
+item is still filed, with the raw `media_item_id` and no URL, and the miss is logged
+at `warning`. `BugReport.to_dynamodb_item` emits the five new attributes only when
+set, following `attachment_key` exactly, so a report filed from the Account tab
+writes the same item it wrote before. The per-process `_rate_limit_store` was left
+as-is, as instructed.
+
+**i18n.** Ten keys in each of the eleven catalogues. `pseudo.ts` needed nothing —
+it is a runtime transform of `en`, not a catalogue.
+
+## Verification
+
+- `ruff check media_summarizer/` → `All checks passed!`
+- `mypy media_summarizer/` → `Success: no issues found in 182 source files`
+- `cd mobile && npm run typecheck` → clean
+- `cd mobile && npm run lint` → `1 problem (0 errors, 1 warning)`, the warning being
+  the pre-existing `no-explicit-any` at `src/services/purchaseService.ts:98`, a file
+  this task does not touch
+- `git diff --stat` mentions neither `useMediaDetailPolling.ts`, nor
+  `mobile/package.json`, nor `mobile/app.config.ts`
+
+## Deviations
+
+- **AC #16 asks for "les totaux de catégorie et le grand total" in
+  `mobile/MANUAL_TEST_CHECKLIST.md`, which has never had any.** The totals live in
+  `docs/testing/manual-e2e-validation-matrix.md`. Both files were updated: the
+  checklist gained a section 8 with the on-device cases, the matrix gained IN-29..32
+  and MD-25..30, and its Results Summary went from IN 28 / MD 24 / TOTAL 107 to
+  IN 32 / MD 30 / TOTAL 117. The matrix's pre-existing omission of the 13 `NO-*`
+  note-sharing scenarios from that table was left alone — out of scope here.
+- **No automated test was written**, per the project rule. ACs #1-#16 are all
+  verifiable by reading the diff plus the four commands above.
+- The round trip through the deployed API is not verifiable from a worktree; see
+  the owner notes above for the DynamoDB scan to run after the push.
+<!-- SECTION:NOTES:END -->

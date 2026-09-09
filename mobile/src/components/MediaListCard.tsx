@@ -20,6 +20,11 @@ import {
 import type { MediaType } from "../types/media";
 import type { AnchorRect } from "./AnchoredContextMenu";
 import { getMediaTypeIcon } from "../lib/mediaTypeDisplay";
+import {
+  MediaFailureBadge,
+  describeWithFailure,
+  isFailedLibraryStatus,
+} from "./MediaFailureBadge";
 import { t } from "../i18n";
 import { getRelativeTime } from "../lib/relativeTime";
 import {
@@ -52,6 +57,11 @@ import {
  * With no cover — or when loading one fails — the media-type glyph is drawn on
  * `surfaceContainerLow`. There is no third state: an empty grey rectangle is the
  * anti-pattern the benchmark names (§6.3).
+ *
+ * The only processing state the row shows is the terminal one: a failed import
+ * gets a marker beside its type badge (task-381). The stages on the way in are
+ * deliberately absent — they resolve on their own within a minute or two, where a
+ * failure is final and is the one thing worth knowing without opening the item.
  */
 
 /**
@@ -98,9 +108,10 @@ const EXCERPT_MAX_CHARS = 220;
  *
  * Narrower than `MediaListItem` on purpose. The search results render this same
  * card from a `SearchHit`, and a hit is not a library list row: it carries no
- * processing status and no triage blurb, and inventing values for fields nothing
- * here reads would be the first step back towards two vignettes. Both shapes
- * satisfy this, which is the whole point.
+ * triage blurb and no processing status, and inventing values for fields it does
+ * not have would be the first step back towards two vignettes. Both shapes
+ * satisfy this, which is the whole point — the one field only a library row has
+ * (`status`) is optional here, so a hit simply omits it and gets no marker.
  */
 export interface MediaCardItem {
   media_item_id: string;
@@ -114,6 +125,17 @@ export interface MediaCardItem {
   created_at: string;
   /** ISO 8601. Part of the cover's cache key, so a replaced cover reloads. */
   updated_at: string;
+  /**
+   * Lifecycle of the *library entry* (`pending | processing | ready | failed`),
+   * of which this row reads one value: `failed` earns a marker next to the type
+   * badge (task-381). The three others draw the row they always drew — an item on
+   * its way in is not news, and one that arrived is the norm.
+   *
+   * Optional because a search hit has no status by contract: `hitToRow` does not
+   * set the field, so a hit never carries a marker. A library row always does,
+   * since `MediaListItem.status` is required there.
+   */
+  status?: string | null;
 }
 
 interface MediaListCardProps<T extends MediaCardItem> {
@@ -192,6 +214,10 @@ export function MediaListCard<T extends MediaCardItem>({
   const coverUrl = item.media_image?.trim() ?? "";
   const showCover = coverUrl.length > 0 && failedCoverId !== item.media_item_id;
 
+  // The import failed — not to be confused with `failedCoverId` right above,
+  // which is one picture that would not load on an otherwise healthy item.
+  const importFailed = isFailedLibraryStatus(item.status);
+
   // Windowed, not merely truncated: `numberOfLines` cuts at the *end* of the
   // box, so a match further in than the lead budget would be off screen and the
   // excerpt would say nothing about why this media is in the results.
@@ -231,7 +257,7 @@ export function MediaListCard<T extends MediaCardItem>({
       // where it exists. `Pressable` keeps the tap and the long press exclusive,
       // so opening the menu never also opens the media.
       accessibilityHint={onLongPress ? t("mediaCard.longPressHint") : undefined}
-      accessibilityLabel={
+      accessibilityLabel={describeWithFailure(
         creator
           ? t("mediaCard.a11yByCreator", {
               title: displayTitle ?? "",
@@ -242,8 +268,9 @@ export function MediaListCard<T extends MediaCardItem>({
               title: displayTitle ?? "",
               type: mediaTypeLabel,
               domain: displayDomain,
-            })
-      }
+            }),
+        importFailed,
+      )}
       accessibilityRole="button"
     >
       <View style={styles.cardContent}>
@@ -275,6 +302,7 @@ export function MediaListCard<T extends MediaCardItem>({
             >
               <Text style={styles.typeBadgeText}>{mediaTypeLabel}</Text>
             </View>
+            {importFailed ? <MediaFailureBadge /> : null}
             <Text style={styles.timeText}>{timeAgo}</Text>
           </View>
 

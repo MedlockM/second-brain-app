@@ -13,6 +13,14 @@ Architecture decisions (task-128):
 - Routing: Discord webhook (env var BUG_REPORT_ROUTING_WEBHOOK).
 - Auth: required (401). Rate limit: 5 reports/hour/user (429).
 - Antivirus: deferred to follow-up (conscious tech debt, see PR description).
+
+Since task-381 a report may name the media it is about (``media_item_id``), and
+the server then reads that item's URL, content key and type off the caller's own
+library row. See ``_resolve_media_context`` for why that read is best-effort.
+
+Known debt, deliberately left as is: ``_rate_limit_store`` below is a per-process
+dict, so on Lambda each container enforces its own 5/hour. The limit bounds the
+volume rather than pinning it exactly, which is what it is there for.
 """
 
 from __future__ import annotations
@@ -21,12 +29,14 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from media_summarizer.api.dependencies.auth import get_current_user
+from media_summarizer.api.dependencies.media_access import get_media_for_user
 from media_summarizer.core.models.auth import AuthUser
 from media_summarizer.core.services.bug_report_service import (
     BugReportService,
@@ -95,12 +105,29 @@ class RequestUploadUrlResponse(BaseModel):
 
 
 class CreateBugReportRequest(BaseModel):
-    """Request body to submit a bug report."""
+    """Request body to submit a bug report.
+
+    ``media_item_id`` and ``error_code`` are what a report filed from the failure
+    screen of one media adds (task-381). Both are optional: a report filed from
+    the Account tab is about the app, not about a media.
+
+    The client sends the id and the code it saw, and nothing else about the
+    media — no URL. The server holds ``current_user.id``, so the id is the second
+    half of the ``user_media`` primary key and the row is one ``GetItem`` away.
+    That is also the only place the URL may come from: a client-supplied one would
+    let any caller attribute any address to their own report.
+    """
     subject: str = Field(..., min_length=1, max_length=200, description="Short subject line")
     description: str = Field(..., min_length=1, max_length=5000, description="Detailed bug description")
     attachment_key: Optional[str] = Field(default=None, description="S3 key from the presigned upload (if any)")
     source_app_version: Optional[str] = Field(default=None, description="App version string")
     source_platform: Optional[str] = Field(default=None, description="Platform (ios/android)")
+    media_item_id: Optional[str] = Field(
+        default=None, description="Library item the report is about, when it is about one"
+    )
+    error_code: Optional[str] = Field(
+        default=None, description="MediaFailureCode the client saw on that item"
+    )
 
 
 class CreateBugReportResponse(BaseModel):
@@ -197,6 +224,14 @@ async def create_bug_report(
     if body.attachment_key:
         await _validate_attachment(body.attachment_key, current_user.id)
 
+    # What the report says about the media, resolved here rather than sent by the
+    # client — and never at the cost of the report itself.
+    media_context = (
+        await _resolve_media_context(body.media_item_id, current_user.id)
+        if body.media_item_id
+        else _MediaContext()
+    )
+
     # Create the bug report
     service = BugReportService()
     report = await service.create_report(
@@ -206,6 +241,11 @@ async def create_bug_report(
         attachment_key=body.attachment_key,
         source_app_version=body.source_app_version,
         source_platform=body.source_platform,
+        media_item_id=body.media_item_id,
+        error_code=body.error_code,
+        source_url=media_context.source_url,
+        media_key=media_context.media_key,
+        media_type=media_context.media_type,
     )
 
     # Route to triage channel (async, non-blocking — failure here doesn't fail the request)
@@ -217,6 +257,49 @@ async def create_bug_report(
     return CreateBugReportResponse(
         id=report.id,
         status=report.status.value,
+    )
+
+
+@dataclass(frozen=True)
+class _MediaContext:
+    """What the caller's library row adds to a report, when it can be read."""
+
+    source_url: Optional[str] = None
+    media_key: Optional[str] = None
+    media_type: Optional[str] = None
+
+
+async def _resolve_media_context(media_item_id: str, user_id: str) -> _MediaContext:
+    """Read the caller's library row for the three fields a report wants from it.
+
+    One ``GetItem``: the caller's id is the hash key and ``media_item_id`` the
+    range key of ``user_media``, so there is nothing to search.
+
+    Best-effort, and deliberately so. ``get_media_for_user`` answers 404 for an
+    item that is unknown, foreign or soft-deleted, and none of those is a reason to
+    drop the report — the raw ``media_item_id`` the client sent is written either
+    way, which is enough for the owner to look it up by hand. A report that is
+    slightly poorer beats a report that never existed.
+    """
+    try:
+        record = await get_media_for_user(media_item_id, user_id)
+    except HTTPException:
+        logger.warning(
+            "Bug report media lookup failed: media_item_id=%s user=%s "
+            "(unknown, foreign or deleted) — filing the report without it",
+            media_item_id,
+            user_id,
+        )
+        return _MediaContext()
+
+    # An uploaded document carries no source_url at all (the attribute is absent
+    # from the row, not empty), so a DOCUMENT_PARSE_FAILED report is identified by
+    # its media_key and media_type. That is the useful half anyway: it says which
+    # format failed.
+    return _MediaContext(
+        source_url=record.source_url,
+        media_key=record.media_key,
+        media_type=record.media_type,
     )
 
 

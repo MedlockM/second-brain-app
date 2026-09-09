@@ -87,6 +87,47 @@ const ERROR_CODE_MESSAGES: Record<string, TranslationKey> = {
   UNEXPECTED_ERROR: "mediaError.internal",
 };
 
+/**
+ * The failure codes for which "this media source isn't supported yet" is a true
+ * sentence — and therefore the only ones the detail screen offers to request
+ * support for (task-381).
+ *
+ * Eight of the twenty-four `MediaFailureCode` members. The sixteen left out are
+ * left out for a reason, and each reason is a different one:
+ *
+ * - `MEDIA_UNAVAILABLE`, `GEO_RESTRICTED`, `AGE_RESTRICTED` — the source *is*
+ *   supported; this particular item is out of reach.
+ * - `OUT_OF_MINUTES`, `ITEM_TOO_LONG` — the reader's own allowance. There is
+ *   nothing to add support for.
+ * - the seven `PROVIDER_*` codes, `INVALID_JOB_MESSAGE`, `SUBMISSION_FAILED`,
+ *   `UNEXPECTED_ERROR` — a passing outage, our budget or our bug. A retry may be
+ *   all it takes.
+ *
+ * Offering the block on all of them would turn three requests out of four into a
+ * request for a source that already works, prompted by a sentence that was false.
+ */
+const SOURCE_SUPPORT_REQUESTABLE_CODES: ReadonlySet<string> = new Set([
+  "LIVE_CONTENT_UNSUPPORTED",
+  "IMAGE_POST_UNSUPPORTED",
+  "NOT_AN_ARTICLE_PAGE",
+  "ARTICLE_TEXT_NOT_FOUND",
+  "DOCUMENT_PARSE_FAILED",
+  "NO_TRANSCRIBABLE_MEDIA",
+  "NO_TRANSCRIPT_AVAILABLE",
+  "POST_TEXT_EMPTY",
+]);
+
+/**
+ * Whether a failed import is one whose *source* the reader can usefully ask us to
+ * support. False for a job that failed without a code: with nothing naming the
+ * cause, there is no claim to make about the source.
+ */
+export function isSourceSupportRequestable(
+  code: string | null | undefined,
+): boolean {
+  return code != null && SOURCE_SUPPORT_REQUESTABLE_CODES.has(code);
+}
+
 const DEFAULT_RULES: FriendlyErrorRule[] = [
   {
     regex: /session expired|session has expired|please sign in again/i,

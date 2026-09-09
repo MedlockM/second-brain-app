@@ -49,6 +49,10 @@ export const ja: Catalog = {
   "mediaCard.a11yFromDomain": "{title}、{domain} の {type}",
   "mediaCard.longPressHint":
     "ダブルタップして長押しすると、このソースを移動、名前変更、削除できます",
+
+  // --- 取り込み失敗のマーカー。ライブラリの行とホームのタイルで共用 ---
+  "mediaStatus.failedBadge": "失敗",
+  "mediaStatus.a11yFailed": "{label}。取り込みに失敗しました。",
   "mediaActions.move.label": "移動",
   "mediaActions.rename.label": "名前を変更",
   "mediaActions.delete.label": "削除",
@@ -175,6 +179,18 @@ export const ja: Catalog = {
   "mediaError.serviceUnavailable": "取り込みは一時的に利用できません。対応中です。",
   "mediaError.itemTooLong": "この項目は、1 回の取り込みでプランが許容する長さを超えています。",
   "mediaError.internal": "こちらで問題が発生しました。もう一度取り込みをお試しください。",
+
+  // --- 取り込めなかったメディアのソース対応をリクエストする ---
+  // 最後の2つのキーは画面に出ません。送信されるレポートの件名と本文です。
+  "sourceRequest.title": "このメディアのソースはまだ対応していません。",
+  "sourceRequest.intro": "今後の対応をご希望の場合は：",
+  "sourceRequest.action": "このソースをリクエスト",
+  "sourceRequest.actionA11y": "このメディアのソースへの対応をリクエストする",
+  "sourceRequest.sending": "送信中...",
+  "sourceRequest.sent": "リクエストを送信しました。ありがとうございます！",
+  "sourceRequest.reportSubject": "ソース対応のリクエスト",
+  "sourceRequest.reportDescription":
+    "保存済みメディアの失敗画面から送信されました。このユーザーはそのソースへの対応を希望しています。",
 
   "quota.title.outOfMinutes": "分数が不足",
   "quota.title.itemTooLong": "1 回の取り込みには長すぎます",
