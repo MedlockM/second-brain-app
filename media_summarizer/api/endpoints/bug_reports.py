@@ -2,15 +2,13 @@
 Bug Reports API endpoints.
 
 Provides intake for user-submitted bug reports with optional file attachment
-via presigned S3 upload. Reports are persisted to DynamoDB and routed to a
-configurable triage channel (Discord webhook V1).
+via presigned S3 upload. Reports are persisted to DynamoDB.
 
 Architecture decisions (task-128):
 - Storage: dedicated S3 bucket (prefix-free) with 90-day lifecycle.
 - Upload: presigned PUT URL — binary never transits through this API.
 - File limits: 50 MB, 1 attachment max per report.
 - MIME validation: whitelist-only server-side check on S3 object after upload.
-- Routing: Discord webhook (env var BUG_REPORT_ROUTING_WEBHOOK).
 - Auth: required (401). Rate limit: 5 reports/hour/user (429).
 - Antivirus: deferred to follow-up (conscious tech debt, see PR description).
 
@@ -214,7 +212,7 @@ async def create_bug_report(
     current_user: AuthUser = Depends(get_current_user),
 ) -> CreateBugReportResponse:
     """
-    Create a new bug report. Persists to DynamoDB and routes to Discord.
+    Create a new bug report. Persists to DynamoDB.
     Rate limited to 5 reports/hour/user.
     """
     # Rate limit check
@@ -247,12 +245,6 @@ async def create_bug_report(
         media_key=media_context.media_key,
         media_type=media_context.media_type,
     )
-
-    # Route to triage channel (async, non-blocking — failure here doesn't fail the request)
-    try:
-        await service.route_to_triage(report)
-    except Exception as e:
-        logger.warning(f"Failed to route bug report {report.id} to triage: {e}")
 
     return CreateBugReportResponse(
         id=report.id,

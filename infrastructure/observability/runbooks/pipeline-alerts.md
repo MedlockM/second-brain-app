@@ -16,6 +16,7 @@ Each section corresponds to a specific CloudWatch alarm defined in `infrastructu
 - [Deepgram Error Rate](#deepgram-error-rate)
 - [LlamaParse Fallback](#llamaparse-fallback)
 - [LLM Generation Failures](#llm-generation-failures)
+- [Bug Reports](#bug-reports)
 - [Archiver Failure](#archiver-failure)
 
 ---
@@ -576,6 +577,64 @@ depending on the worker.
   whether the deployed Lambda picked up the new secret (cold start required).
 - Recurrent `VALIDATION_ERROR` on one artifact type: it is a prompt/schema
   regression, not an incident — open a task against that generator.
+
+---
+
+## Bug Reports
+
+**Alarm:** `media-summarizer-bug-report-created`
+**Severity:** Critical
+**Threshold:** Any report submitted (>0) in 5 minutes
+
+### Overview
+
+Users submit bug reports from the app's Report a Bug screen, either about a
+specific media item (with `media_item_id` and `error_code`) or about the app
+itself (from the Account tab). The alarm fires once per report: one report, one
+mail. There is no background level of bug reports acceptable to ignore.
+
+The structured log event carries:
+- `report_id`: unique ticket identifier
+- `user_id`: who filed it
+- `source_platform`: ios or android
+- `source_app_version`: app version string
+- `media_item_id`: media the report is about (only if filed from failure screen)
+- `error_code`: the error code the user saw (only if filed from failure screen)
+
+### Symptoms
+
+- Email arrives with "A new bug report was submitted"
+- Check the CloudWatch log event for the structured fields above
+
+### Investigation Steps
+
+1. **Read the report in DynamoDB:**
+   ```bash
+   aws dynamodb get-item --region eu-west-3 \
+     --table-name bug_reports-dev \
+     --key '{"id": {"S": "<report_id>"}}'
+   ```
+
+2. **If the report names a media item:**
+   - Read its library row to understand what the user was processing
+   - Check `processing_jobs` for any pending or failed jobs on that media
+
+3. **If this is a recurring issue on the same `error_code`:**
+   - It may indicate a worker failure or platform degradation
+   - Cross-reference the code against the relevant worker's alarm
+
+### First Response
+
+- Acknowledge receipt: reply to the SNS email or check the item in the console
+- Determine triage priority and create a backlog task if needed
+- If urgent (app crash, data loss): escalate immediately
+
+### Escalation
+
+- Crash bugs: P0, investigate immediately
+- Data loss: P0, treat as incident
+- High-volume reports on one `error_code`: may indicate a systemic failure
+- If >10 reports in 1 hour: likely a regression, consider rollback
 
 ---
 

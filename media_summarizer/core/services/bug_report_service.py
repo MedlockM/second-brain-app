@@ -1,29 +1,26 @@
 """
 Bug Report Service — hexagonal domain service for bug report intake.
 
-Handles persistence (DynamoDB) and routing (Discord webhook) as separate
-adapters behind the service interface.
+Handles persistence (DynamoDB) as the storage adapter.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
 
-import httpx
 from pydantic import BaseModel, Field
 
 from media_summarizer.utils.env import required_env
+from media_summarizer.utils.logging_config import log_event
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 BUG_REPORTS_TABLE = required_env("BUG_REPORTS_TABLE")
-BUG_REPORT_ROUTING_WEBHOOK = os.environ.get("BUG_REPORT_ROUTING_WEBHOOK", "")
 
 
 class BugReportStatus(str, Enum):
@@ -118,7 +115,7 @@ class BugReport(BaseModel):
 class BugReportService:
     """
     Service layer for bug report operations.
-    Adapters: DynamoDB persistence, Discord webhook routing.
+    Adapter: DynamoDB persistence.
     """
 
     async def create_report(
@@ -151,7 +148,18 @@ class BugReportService:
         )
 
         await self._persist(report)
-        logger.info(f"Bug report created: id={report.id}, user={user_id}")
+        log_event(
+            logger,
+            logging.INFO,
+            "bug_report.created",
+            f"Bug report created: id={report.id}",
+            report_id=report.id,
+            user_id=user_id,
+            source_platform=report.source_platform,
+            source_app_version=report.source_app_version,
+            media_item_id=report.media_item_id,
+            error_code=report.error_code,
+        )
         return report
 
     async def _persist(self, report: BugReport) -> None:
@@ -162,41 +170,3 @@ class BugReportService:
         async with session.resource("dynamodb", **_dynamodb_client_kwargs()) as dynamodb:
             table = await dynamodb.Table(BUG_REPORTS_TABLE)
             await table.put_item(Item=report.to_dynamodb_item())
-
-    async def route_to_triage(self, report: BugReport) -> None:
-        """Route the report to the configured triage channel (Discord webhook V1)."""
-        webhook_url = BUG_REPORT_ROUTING_WEBHOOK
-        if not webhook_url:
-            logger.debug("No BUG_REPORT_ROUTING_WEBHOOK configured, skipping routing.")
-            return
-
-        # Build Discord embed
-        embed = {
-            "title": f"Bug Report: {report.subject}",
-            "description": report.description[:2000],  # Discord embed limit
-            "color": 0xFFCB05,  # Amber primary
-            "fields": [
-                {"name": "Report ID", "value": report.id, "inline": True},
-                {"name": "Platform", "value": report.source_platform or "unknown", "inline": True},
-                {"name": "App Version", "value": report.source_app_version or "unknown", "inline": True},
-            ],
-            "timestamp": report.created_at,
-        }
-
-        if report.attachment_key:
-            embed["fields"].append(
-                {"name": "Attachment", "value": f"`{report.attachment_key}`", "inline": False}
-            )
-
-        payload = {
-            "embeds": [embed],
-        }
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(webhook_url, json=payload)
-            if response.status_code not in (200, 204):
-                logger.warning(
-                    f"Discord webhook returned {response.status_code}: {response.text[:200]}"
-                )
-            else:
-                logger.info(f"Bug report {report.id} routed to Discord successfully.")
