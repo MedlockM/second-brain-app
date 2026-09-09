@@ -3,10 +3,10 @@ id: task-383
 title: >-
   Faire entrer la description Instagram, TikTok et YouTube dans le corpus des
   artefacts et de l'aperçu
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-09 14:58'
-updated_date: '2026-09-09 15:42'
+updated_date: '2026-09-09 16:42'
 labels:
   - backend
   - ingestion
