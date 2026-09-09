@@ -6,7 +6,8 @@ owner_decision: pending   # pending | ok | abandoned | redo | more
 
 > Répertoire provisoire. Le brief demande `docs/research/task-<NN>-pricing-challenge/` ; aucun
 > numéro ne m'a été attribué et la session n'était pas interactive. Le prochain libre est
-> **task-383** (`backlog/tasks/` s'arrête à `task-382`). Un `git mv` suffit.
+> **task-389** (`backlog/tasks/` s'arrête à `task-388`). Un `git mv` suffit — vérifie le dernier
+> numéro d'abord, six tâches ont été créées pendant cette session.
 
 ## Owner Validation
 
@@ -44,6 +45,10 @@ Par force décroissante :
    | Les deux appels automatiques (+ traduction) | 0,0245 € | **3,69×** |
    | Les cinq artefacts demandés une fois chacun | **0,0562 €** | **8,46×** |
 
+   Ces trois ratios sont **des minorants**. Ils supposent 12 000 tokens/heure ; la mesure de bout en
+   bout sur un podcast de 77,85 min en donne **≈16 500** (§ 3.9), ce qui porte la dernière ligne à
+   **≈11×**. Le sens de l'erreur était annoncé, son ampleur ne l'était pas.
+
    Un seul appel LLM est **systématique** (`review_blurb`), un est **conditionnel** (la traduction,
    seulement si la langue des sous-titres diffère de `reading_language`) et cinq sont **à la
    demande** — correction d'une affirmation antérieure de ce document, qui parlait de « sept appels
@@ -52,14 +57,18 @@ Par force décroissante :
    source qui porte le produit, et elle l'est **même quand l'utilisateur ne demande rien**. Détail et
    arithmétique : § Axe 2.
 
-2. **Le coût de la minute déclaré dans la config cite le mauvais produit Deepgram.** La source
-   inscrite est « $0.0077/min » (`pricing_config_service.py:154-157`) : c'est le **tarif *streaming*
-   régulier** de nova-3, aujourd'hui affiché en promotion à $0.0048/min. Le chemin réellement
-   utilisé est le **batch** (`POST /v1/listen`, `deepgram_worker.py:192-203`), facturé
-   **$0.0043/min** monolingue et **$0.0052/min** multilingue. Le coût réel de la minute est donc
-   **0,003703 €**, pas 0,00664 € : la config **surestime de 1,79×** le seul chiffre qu'elle prétend
-   sourcer. Erreur conservatrice sur l'audio — et c'est exactement ce qui masque les deux chemins
-   sous-facturés.
+2. **Le coût de la minute déclaré dans la config cite le mauvais produit Deepgram — et la facture le
+   prouve.** La source inscrite est « $0.0077/min » (`pricing_config_service.py:154-157`) : c'est le
+   **tarif *streaming* régulier** de nova-3, alors que le chemin utilisé est le **batch**
+   (`POST /v1/listen`, `deepgram_worker.py:192-203`). Les deux exports de consommation Deepgram
+   fournis le 2026-09-09 ferment la question : depuis le 2026-06-01 la facture ne porte qu'**une seule
+   ligne**, `Nova-3 (Pre-recorded)` à **$0.26/h**, soit **0,003727 €/min**. `cost_per_minute_eur`
+   **surestime de 1,78×**, mesuré et non plus déduit. Deux corollaires : `detect_language=true` — le
+   défaut du worker — est facturé au tarif monolingue, et la **diarisation ne coûte rien** en batch,
+   ce qui invalide le refus de task-231. Erreur conservatrice sur l'audio, et c'est exactement ce qui
+   masque les deux chemins sous-facturés. Le crédit d'inscription est par ailleurs **intact —
+   $197,06 sur $200, soit 764 heures** : le poste transcription est gratuit jusqu'à un volume que la
+   première année n'atteindra pas.
 
 3. **La bascule LlamaParse → Unstructured multiplie par 9,7 le coût d'une page sans toucher au
    compteur — et elle arrive trois fois plus vite que la config ne le croit.** Le tarif réellement
@@ -244,6 +253,25 @@ tarif v1 le moins cher qui produise du markdown, cf. argument 3 — la page coû
 acquisition, contre 0,005 € facturés par le crédit de page, soit **155 % sur le seul terme
 d'acquisition**. Le 1 crédit/page du barème tient donc, alors que le `document_pages_per_minute: 5`
 d'aujourd'hui ne tenait pas.
+
+**Une réserve à porter au crédit du lecteur : les lignes non-audio sont plus serrées que ce tableau
+ne le dit.** Ses coûts réels supposent 12 000 tokens par heure de contenu ; la mesure de bout en bout
+en donne **≈16 500** (§ 3.9). L'effet est très inégal selon la ligne, et c'est ce qui rend la réserve
+utile :
+
+- **Les deux lignes de podcast ne bougent presque pas** — Deepgram y pèse 93 % du coût, et son tarif
+  mesuré (0,003727 €/min) est à 0,6 % de l'hypothèse. Elles passent de 130 % et 129 % à **≈126 %**.
+- **La ligne « Vidéo YouTube 3 h » est celle qui souffre.** Son coût est presque intégralement du LLM,
+  donc il croît avec les tokens : les 129 % tombent dans une fourchette de **95 à 110 %**, selon la
+  part d'entrée (qui croît de 37,8 %) et de sortie (qui ne croît pas proportionnellement) dans le
+  scénario « les cinq artefacts demandés ». Je ne peux pas la resserrer davantage sans mesurer un
+  transcript YouTube long, et aucun n'est journalisé avec sa durée.
+- **Le remède, si tu veux la sécuriser : 1 crédit par 15 minutes commencées** au lieu de 20. Une vidéo
+  de 3 h passe de 11 à 14 crédits (0,0700 €), ce qui remonte la couverture à ~121 % dans l'hypothèse
+  la plus défavorable. Le prix affiché ne change pas ; c'est un ajustement d'une ligne du barème.
+
+Je ne l'ai pas appliqué d'office parce qu'il durcit la ligne mise en avant par le produit sur la base
+d'un seul point de mesure, pris sur un podcast et non sur des sous-titres — voir la question 14.
 
 **Le barème est dimensionné sans cache, et c'est maintenant un choix mesuré, plus une prudence.** Sur
 les 90 générations de `media_artifacts-dev`, le prompt caching ne récupère que **7,6 %** du coût LLM
@@ -729,8 +757,8 @@ minutes × 0.00664 ».
 
 | Chemin | Coût réel de l'unité | Ce que le compteur débite | Écart |
 |---|---|---|---|
-| Audio Deepgram batch | 0,003703 €/min (mono) | 0,00664 €/min | **0,56× — sur-débité** |
-| YouTube 3 h (`captions_minutes: 1`) | 0,0106 € minimum → 0,0562 € tout demandé | 0,00664 € | **1,60× à 8,46×** |
+| Audio Deepgram batch | **0,003727 €/min — facturé** | 0,00664 €/min | **0,56× — sur-débité** |
+| YouTube 3 h (`captions_minutes: 1`) | 0,0106 € minimum → 0,0562 € tout demandé | 0,00664 € | **1,60× à ≈11×** |
 | Document sous LlamaParse | 0,003225 €/page (3 crédits) | 0,001328 €/page | **2,4×** |
 | Document, repli Unstructured | 0,012916 €/page | 0,001328 €/page | **9,7×** |
 | Génération d'artefact mono-item | 0,0033 à 0,0038 €/appel | **0,00 €** | **∞** |
@@ -826,9 +854,11 @@ Aucun garde-fou n'intervient dans aucun de ces régimes : le compteur ne bouge p
 ne fait que journaliser.
 
 **Ce que le plafond protège réellement :** le seul chemin Deepgram. Un podcast de 3 h débite
-1,1952 € et coûte 0,7179 € (0,8574 € en multilingue) — marge **+0,4773 €**. C'est le chemin sur
-lequel 0,00664 € a été calibré, et il est confortable **précisément parce que le chiffre est 1,79×
-trop élevé**.
+1,1952 € et coûte 0,7179 € — marge **+0,4773 €**. C'est le chemin sur lequel 0,00664 € a été calibré,
+et il est confortable **précisément parce que le chiffre est 1,78× trop élevé**, ce que la facture
+Deepgram établit maintenant au lieu de le supposer (§ 3.1). La variante multilingue, que la version
+précédente chiffrait à 0,8574 €, ne s'applique pas : `detect_language=true` est facturé au tarif
+monolingue.
 
 ### 2.3 Les pools partagés n'ont pas d'alarme, et l'un est bloquant
 
@@ -995,7 +1025,7 @@ plancher** — et le tier à 3 € est celui qui met le plus de temps à l'attei
 
 Chaque chiffre de `DEFAULT_PRICING_CONFIG` confronté au tarif public d'aujourd'hui.
 
-### 3.1 `cost_per_minute_eur: 0.00664` — mauvais produit, 1,79× trop haut
+### 3.1 `cost_per_minute_eur: 0.00664` — mauvais produit, 1,78× trop haut, établi sur facture
 
 La config source son chiffre ainsi (`pricing_config_service.py:153-157`) : « Deepgram Nova-3
 pay-as-you-go at $0.0077/min, converted at 0.86 EUR/USD ». La page tarifaire d'aujourd'hui donne :
@@ -1014,18 +1044,66 @@ tableau. Au taux BCE d'hier :
 - monolingue : $0.0043 × 0,8611 = **0,003703 €/min** → la config est **1,79× trop haute** ;
 - multilingue : $0.0052 × 0,8611 = **0,004478 €/min** → **1,48× trop haute**.
 
-Le worker envoie `detect_language=true` par défaut (`deepgram_worker.py:85, 122`) ; je n'ai pas pu
-vérifier si Deepgram facture cette option au tarif multilingue. La fourchette honnête est donc
-**0,0037–0,0045 €/min**, et 0,00664 est faux dans les deux cas. Diarisation : « Included » en
-pre-recorded, et `DEEPGRAM_DIARIZE` est à `false` de toute façon. Unité de facturation et
-arrondi : la page a une FAQ « Does Deepgram charge for silence or round up audio time? » **sans
-réponse visible** — non vérifiable.
+#### La facture Deepgram, du 2026-04-03 au 2026-09-06 — ce n'est plus une déduction
 
-Conséquence pour les plafonds : à 0,003703 €/min, le pire cas *audio* d'Audio-Heavy est
-720 × 0,003703 = **2,67 €** sur 6,375 € de net, soit 42 % — et non les 94 % que le commentaire de
+L'owner a fourni le 2026-09-09 les deux exports de la console Deepgram depuis l'ouverture du compte
+(le *sign-up* à $200 de crédit) : un CSV d'**usage** par jour et un CSV de **facturation** par
+`line_item`, avec la colonne décisive `rate_applied`. Ils tranchent tout ce que le paragraphe
+précédent laissait ouvert.
+
+| `line_item` facturé | Tarif appliqué | Quantité | Montant | Jours |
+|---|---|---|---|---|
+| `Nova-3 (Pre-recorded)` | **$0.26/h** | 8,2156 h | $2,13604 | 23 |
+| `Nova/Nova-2 (Pre-recorded)` | $0.258/h | 2,5864 h | $0,66728 | 2 (avril) |
+| `Nova-3 Multilingual surcharge (Pre-recorded)` | $0.05/h | 2,7147 h | $0,13574 | 2 (avril) |
+| **Total** | | **10,8019 h** = 648,12 min | **$2,93906** | 24 |
+
+Côté usage : **86 requêtes** sur 34 jours, **647,21 minutes**, endpoint `listen` **exclusivement** —
+aucune ligne de streaming, aucun `agent_hours`, aucun token TTS. Le batch n'est plus une lecture du
+code, c'est la seule chose que le fournisseur ait jamais facturée.
+
+**Six faits que seule la facture pouvait établir :**
+
+1. **Le tarif réel est $0.26/h, soit 0,003727 €/min.** Depuis le 2026-06-01 la facture ne porte plus
+   qu'**une seule ligne** — `Nova-3 (Pre-recorded)` — pour $1,43021 sur 5,5008 h, soit
+   $0,004333/min. Deepgram arrondit le $0.0043/min de la page à $0.26/h (+0,8 %). L'hypothèse de
+   travail de ce document, **0,003703 €/min, est donc juste à 0,6 %** : toute l'arithmétique de la
+   refonte tient sans retouche. `cost_per_minute_eur: 0.00664` **surestime de 1,78×** — mesuré, plus
+   déduit.
+2. **`detect_language=true` est facturé au tarif monolingue.** C'est l'option que le worker envoie par
+   défaut (`deepgram_worker.py:85, 122`), présente sur **31 des 34 jours d'usage**, et sur ces 31
+   jours la facture ne porte **aucune** surcharge multilingue. La fourchette « 0,0037–0,0045 €/min »
+   de la version précédente se réduit à sa borne basse. Réserve : c'est l'interprétation *actuelle* du
+   fournisseur, pas un engagement — un passage à `language=multi` coûterait +20,9 %.
+3. **La surcharge multilingue n'a existé que deux jours** (2026-04-05 et 2026-04-09, 2,7147 h),
+   exactement les jours où les features portent `diarize` et **pas** `detect_language`. Son taux,
+   $0.05/h = $0.000833/min, reproduit l'écart multi−mono de la page ($0.0009/min). C'était un régime
+   d'appel révolu, pas une dérive tarifaire.
+4. **La diarisation ne coûte rien en pre-recorded.** 251,58 minutes ont été transcrites avec
+   `diarize=true` en avril et la facture ne porte **aucune ligne de diarisation** — la seule surcharge
+   est étiquetée « Multilingual ». Cela confirme le « Included » de la page tarifaire, et **invalide le
+   commentaire de `deepgram_worker.py:90-95`**, qui justifie `DEEPGRAM_DIARIZE = false` par « a paid
+   Deepgram add-on ($0.0020/min, i.e. +41.7% over the Nova-3 promotional rate) ». Ce $0.0020/min est
+   le tarif *streaming*. L'arbitrage « option B » de task-231 a donc été rendu sur un coût qui
+   n'existe pas dans le mode que le produit utilise — voir correction 5b.
+5. **Le crédit d'inscription n'est pas entamé : $197,06 restent sur $200** (98,53 %). À $0.26/h cela
+   achète **764 heures**, soit **45 828 minutes** de transcription. C'est 63 mois du plafond
+   d'Audio-Heavy, ou 152 abonnés-mois à 300 minutes. Conséquence pour la refonte : **le coût de
+   transcription est nul jusqu'à un volume que le produit n'atteindra pas la première année**, ce qui
+   déplace le risque de marge entièrement du côté LLM et Apify.
+6. **Le tag ne sépare pas les environnements.** Les 28 lignes de facturation portent `tags: "prod"` et
+   `deployment: hosted`, alors que tout ce trafic vient de `-dev`. Un pool par environnement adossé à
+   ce tag ne fonctionnerait pas. `overage_rate` est vide partout : le compte n'a jamais dépassé.
+
+Reste non vérifiable : l'unité d'arrondi. La FAQ « Does Deepgram charge for silence or round up audio
+time? » n'a **pas de réponse visible** sur la page, et les quantités facturées sont des heures à
+5 décimales — donc pas d'arrondi grossier détectable, mais rien qui l'exclue au niveau de la requête.
+
+Conséquence pour les plafonds : à 0,003727 €/min **mesuré**, le pire cas *audio* d'Audio-Heavy est
+720 × 0,003727 = **2,68 €** sur 6,375 € de net, soit 42 % — et non les 94 % que le commentaire de
 `pricing_config_service.py:76-77` invoque pour justifier 720 au lieu de 900. **À 900 minutes le
-pire cas audio serait de 3,33 €, soit 52 % du net.** Le raisonnement qui a produit 720 s'appuie sur
-un chiffre 1,79× trop haut ; la contrainte réelle sur `audio_heavy` n'est pas l'audio.
+pire cas audio serait de 3,35 €, soit 53 % du net.** Le raisonnement qui a produit 720 s'appuie sur
+un chiffre 1,78× trop haut ; la contrainte réelle sur `audio_heavy` n'est pas l'audio.
 
 ### 3.2 Les modèles LLM déclarés : deux justes, un faux, deux manquants
 
@@ -1193,9 +1271,25 @@ d'acquisition ; elle est comptée ici au premier mois pour donner l'ordre de gra
 | **Total** | **0,012269 €** | | **0,007287 €** |
 | Couvert par les 0,00664 € débités | | **54 %** | **91 %** |
 
-Le LLM pèse 0,007326 €, soit **1,70× Apify**. Apify ne passe premier que lorsque la traduction ne
-part pas — c'est-à-dire quand la langue des sous-titres coïncide avec `reading_language` — et dans ce
-cas la vidéo est presque à l'équilibre (91 % couvert). **Le poste principal est le LLM, pas Apify**, et
+**Et cette décomposition sous-estime encore le LLM.** Les 12 875 tokens pour 1 h dérivent de
+l'hypothèse de 12 000 tokens/heure ; la mesure de bout en bout en donne **≈16 500** (§ 3.9). Si les
+sous-titres YouTube ont la même densité que la parole transcrite — plausible, c'est le même flux de
+parole, mais **non mesuré**, les jobs YouTube étant justement ceux qui n'ont pas de durée — les deux
+lignes LLM montent de 28,1 % et rien d'autre ne bouge :
+
+| Poste, à 16 500 tokens/heure | Coût | Part | Sans traduction |
+|---|---|---|---|
+| traduction du transcript | 0,006384 € | **44,5 %** | — |
+| **Apify** | 0,004300 € | 30,0 % | 0,004300 € — **54,1 %** |
+| `review_blurb` | 0,003003 € | 21,0 % | 0,003003 € — 37,8 % |
+| Algolia | 0,000643 € | 4,5 % | 0,000643 € — 8,1 % |
+| **Total** | **0,014330 €** | | **0,007946 €** |
+| Couvert par les 0,00664 € débités | | **46 %** | **84 %** |
+
+Le LLM pèse alors 0,009387 €, soit **2,18× Apify**, et la vidéo n'est plus « presque à l'équilibre »
+même sans traduction. Aux chiffres non réévalués, le LLM pèse 0,007326 €, soit **1,70× Apify**. Dans
+les deux cas Apify ne passe premier que lorsque la traduction ne part pas — c'est-à-dire quand la
+langue des sous-titres coïncide avec `reading_language`. **Le poste principal est le LLM, pas Apify**, et
 c'est exactement pourquoi facturer une durée forfaitaire ne peut pas marcher : le terme dominant est
 proportionnel à la longueur du transcript, celui qu'un forfait ignore.
 
@@ -1210,7 +1304,9 @@ consommation réelle de l'organisation LlamaCloud du dépôt.
 
 - Free **10 000 crédits/mois**, Starter **$50/mois** (40 K crédits), Pro $500 (400 K). Prix du
   crédit : **1 000 crédits = $1.25** en Amérique du Nord **comme** en Europe, soit
-  **0,001076 €/crédit**. Pas de prime régionale.
+  **0,001075 €/crédit** au `USD_EUR = 0.86` du code (`llm_pricing.py:20`), 0,001076 € au taux BCE
+  de 0,8611 — écart de 0,13 %, et c'est la constante du code qui sert partout dans ce document.
+  Pas de prime régionale.
 - **Le repo appelle l'API v1**, pas v2: `llamaparse_resolver.py:36` pointe sur
   `https://api.cloud.llamaindex.ai/api/parsing`. C'est donc la table **v1 (modes)** qui s'applique,
   pas la table v2 (tiers). Confirmé job par job : `api_version = "v1"` dans les paramètres résolus.
@@ -1227,8 +1323,8 @@ consommation réelle de l'organisation LlamaCloud du dépôt.
 | Tarif v1 | € / page | Couverture des 0,001328 € débités | Ce que `monthly_capacity: 10000` achète vraiment |
 |---|---|---|---|
 | **3 crédits — `cost_effective`, le défaut mesuré** | **0,003225** | **41 %** (coût = 2,4× le débit) | **3 333 pages** |
-| 10 crédits — Agentic | 0,010764 | 12 % | 1 000 pages |
-| 45 crédits — Agentic Plus / Layout Agent | 0,048437 | 3 % | 222 pages |
+| 10 crédits — Agentic | 0,010750 | 12 % | 1 000 pages |
+| 45 crédits — Agentic Plus / Layout Agent | 0,048375 | 3 % | 222 pages |
 
 Le tarif à 1 crédit (« Parse without AI ») ne figure pas dans cette table : il « outputs spatial text
 only — **no markdown** », le dépôt demande du markdown, et la mesure confirme qu'il n'est pas celui
@@ -1436,7 +1532,8 @@ Deux lectures, et elles pointent dans des directions opposées :
 
 - **En régime audio, le modèle bascule vers ~14 abonnés Mix** et l'échelle règle le problème.
   C'est la conclusion de task-287, et elle est juste — mieux que juste, puisque le coût de la
-  minute est 1,79× plus bas qu'annoncé.
+  minute est **1,78× plus bas qu'annoncé, mesuré sur facture**, et que le crédit d'inscription
+  couvre 764 heures avant le premier euro dépensé.
 - **En régime YouTube, l'échelle n'arrange rien** : le déficit par utilisateur est constant et
   **grandit** avec le nombre d'abonnés. Aucun palier ne le rattrape. C'est la définition d'un
   problème de tarification, pas d'un problème de charge.
@@ -1466,8 +1563,8 @@ la frontière soit lisible :
 | Apify | **trois comptes FREE**, plans et limites lus sur `/v2/users/me` et `/v2/users/me/limits` ; l'acteur configuré (`starvibe`) lu dans le secret ; **11 jobs YouTube** de `processing_jobs-dev` confirmant l'acteur, le plus récent le 2026-09-06 | la consommation réelle en dollars du mois écoulé |
 | Algolia | **166 records sur 89 sources** dans `media_items_dev` (`/browse`), soit 1,87 records/source ; la liste des index, dont deux orphelins ; le plan affiché | le volume de recherches réel des testeurs |
 | LlamaParse | la table de tarifs v1 complète (skill `llamaparse-pricing`, et la page en ligne retrouvée), **le mode par défaut réellement facturé** (`cost_effective`, **3,000 crédits/page** sur 92 pages / 28 jobs), **1 crédit/feuille** sur 8 feuilles, **zéro stockage retenu** (aucun `stored_file_mb`, 0 fichier dans le projet), consommation totale **284 crédits = 0,3053 €** | rien de ce que ce document utilise ; le seul inconnu restant est la **durée de validité** du défaut (drapeau `show_parse_v1` réévalué côté fournisseur) |
-| OpenAI | **414 866 tokens d'entrée et 64 231 de sortie sur 90 générations**, coût 0,110110 €, taux de `cached_tokens` **14,1 %** (`media_artifacts-dev`) ; **17 traductions** avec leurs tokens (CloudWatch, 14 j) ; **1,795 tokens/mot** sur 14 articles | la relation **durée d'audio → tokens** (aucune durée de média n'est journalisée, cf. ci-dessous) |
-| Deepgram | les tarifs publics | la facturation de `detect_language=true`, l'arrondi |
+| OpenAI | **la facture, $0,519037 = 0,4464 € sur trois mois**, six lignes tarifaires reconstruites au centime ; **414 866 tokens d'entrée et 64 231 de sortie sur 90 générations**, coût 0,110110 €, `cached_tokens` **14,1 %** (`media_artifacts-dev`) ; **17 traductions** avec leurs tokens (CloudWatch, 14 j) ; **1,795 tokens/mot** sur 14 articles écrits et **1,428 sur du français parlé** ; la relation **durée d'audio → tokens**, ≈16 500/heure sur un podcast de 77,85 min | la ventilation par clé API ; la part de raisonnement dans `completion_tokens` ; la densité en tokens des sous-titres YouTube, dont aucune durée n'est journalisée |
+| Deepgram | **la facture, $2,93906 sur 10,8019 h** ; le tarif appliqué (**$0.26/h** = 0,003727 €/min, une seule ligne depuis juin) ; `detect_language=true` facturé **monolingue** sur 31 jours ; **diarisation à $0** malgré 251,58 min avec `diarize=true` ; **$197,06 de crédit restants** ; concordance durée journalisée ↔ minutes facturées à la seconde décimale | l'unité d'arrondi par requête (FAQ sans réponse) ; la durabilité de l'interprétation de `detect_language` |
 
 **Ce qui a basculé du modélisé au mesuré.** `cached_tokens` n'attendait pas l'owner : il est
 persisté dans `media_artifacts-dev` (`media_artifact.py:127-133`), et les 90 générations que la table
@@ -1479,24 +1576,57 @@ prompt d'instruction. Les plus gros prompts réellement observés, par plateform
 pour une vidéo YouTube, **21 939** pour un épisode de podcast, **11 416** pour un document,
 **52 130** pour un article de 31 218 mots (Wikipédia).
 
-**Ce qui reste modélisé, et pourquoi ça ne peut pas se mesurer ici.** L'estimation de **36 k tokens
-pour 3 h** sur laquelle repose l'axe 2 n'est pas vérifiable dans le dépôt, parce que **la durée réelle
-d'un média n'est journalisée nulle part**. `processing_jobs-dev` porte `total_duration` et
-`transcription_duration`, mais ce sont des durées d'**exécution** (1 à 31 s), et le
-`duration_seconds` de `transcription_metadata` aussi (1,4 à 11,9 s). Le produit facture à la minute
-une grandeur qu'il n'écrit pas à côté du job : c'est un défaut d'instrumentation avant d'être une
-lacune de mesure, et il se corrige en une ligne au moment du débit.
+**La conversion durée → tokens est mesurée, et l'hypothèse de l'axe 2 était trop basse de 38 %.**
+Une version antérieure de ce document affirmait qu'**« aucune durée de contenu n'est journalisée »**.
+C'est **faux**, et la correction change la nature de l'axe 2 : `transcription_metadata` porte
+`audio_duration_seconds`, présent sur **15 des 78 jobs** de `processing_jobs-dev`. Ce qui est vrai,
+c'est que ce champ n'existe **que sur le chemin Deepgram** — les 15 jobs portent tous
+`provider: deepgram` et `model_used: nova-3` (Spotify 2/2, Instagram 11/14, WhatsApp 2/3), et il est
+absent des **14 jobs YouTube**, des 25 documents, des 16 articles web, des 2 TikTok. Le défaut
+d'instrumentation est donc **exactement inversé par rapport au défaut de facturation** : la durée est
+écrite là où l'unité débitée est déjà juste, et manque partout où elle est fausse. Ce qui reste vrai
+aussi : `total_duration`, `transcription_duration` et le `duration_seconds` de
+`transcription_metadata` sont des durées d'**exécution** (1 à 31 s) — c'est cette homonymie qui avait
+produit l'erreur.
 
-Ce qui reste possible en attendant, c'est de **borner** l'hypothèse plutôt que de la déclarer
-inconnue. À 150 mots/minute de parole et au ratio mesuré de 1,795 tokens/mot, une heure d'audio fait
-~16 200 tokens ; mais 1,795 est mesuré sur du **français écrit**, et l'anglais parlé tourne plutôt
-autour de 1,3 token/mot, ce qui ramène à ~11 700 tokens/heure. **L'hypothèse de 12 000 tokens/heure
-du document est donc juste pour de l'anglais et sous-estime le français d'environ 35 %** — elle est
-conservatrice dans le sens qui compte, puisqu'un transcript français coûterait plus que ce que
-l'axe 2 annonce. Le facteur 8,46× n'est pas menacé par le bas.
+La chaîne se mesure alors de bout en bout sur un seul média, le podcast Spotify **#46 BURGER RING**
+du 2026-09-05 :
 
-Ce qui n'existe toujours pas : **aucune facture** de Deepgram, Apify, Unstructured ou Algolia.
-OpenAI en a une (§ R.6). LlamaParse a mieux qu'un état de compte et moins qu'une facture : le
+| Grandeur | Valeur mesurée | Source |
+|---|---|---|
+| Durée du contenu | **4 670,85 s = 77,85 min** | `transcription_metadata.audio_duration_seconds` |
+| Minutes facturées ce jour-là | **78,45 min / 2 requêtes** — les deux jobs du jour totalisent 78,45 | CSV d'usage Deepgram |
+| Transcript | 83 719 caractères, **15 031 mots** → 193,1 mots/min | S3 `…/ece7d6a9-….txt` |
+| Prompt facturé, `review_blurb` | **21 939 tokens** (`notes` 22 301, `quiz` 22 668 sur la même source) | `llm_usage.prompt_tokens` |
+
+**La concordance est exacte** : sur les 9 jours où la table porte encore tous ses jobs, la durée
+journalisée égale les minutes facturées **à la seconde décimale** sur 8 d'entre eux. Les deux écarts
+positifs (2026-08-06 : +21,06 min ; 2026-08-13 : +26,58 min) sont des jobs déjà expirés par le TTL
+`expire_at`. Un seul écart négatif, de 1,85 min le 2026-08-20 : une durée journalisée sans minute
+facturée en face, ce qui est la signature d'un rejeu (la métadonnée est réécrite sans nouvel appel).
+
+D'où le ratio, enfin mesuré et non plus borné : **21 939 tokens pour 77,85 min**, soit
+**16 910 tokens/heure prompt compris**. Net de l'instruction du générateur — que l'écart de 729 tokens
+entre le plus maigre et le plus gras des trois prompts sur cette même source permet de situer dans les
+centaines — le contenu seul fait **≈16 500 tokens/heure**. Trois conséquences :
+
+- **L'hypothèse de 12 000 tokens/heure de l'axe 2 sous-estime de 37,8 %.** La borne haute annoncée
+  dans la version précédente, « ~16 200 pour du français », était juste à 2 % ; la borne basse
+  (~11 700, anglais parlé) reste non mesurée.
+- **Le français parlé fait 1,428 token/mot**, contre 1,795 mesuré sur les articles écrits. Le ratio
+  ne se transporte pas d'un registre à l'autre : appliqué aux 15 031 mots du podcast, 1,795 aurait
+  prédit 26 981 tokens là où 21 457 ont été facturés (+26 %).
+- **Le facteur 8,46× de l'axe 2 monte à ≈11×.** L'écart était annoncé comme conservateur « dans le
+  sens qui compte » ; la mesure le confirme et l'aggrave, puisque seule la part d'entrée — la
+  dominante — croît de 37,8 %.
+
+Et pour la refonte, la vérification qui importe : le crédit à 0,005 € **tient**. Une minute d'audio
+coûte 0,003727 € (Deepgram mesuré) + 0,000248 € (LLM réévalué au ratio mesuré) = **0,003975 €**, soit
+**79,5 % du crédit**. La marge de sécurité passe de 22 % à 20,5 % — elle se resserre, elle ne casse
+pas.
+
+Ce qui n'existe toujours pas : **aucune facture** d'Apify, Unstructured ou Algolia.
+OpenAI en a une (§ R.6), Deepgram aussi (§ 3.1). LlamaParse a mieux qu'un état de compte et moins qu'une facture : le
 **détail de consommation par job**, crédits et pages compris — 284 crédits sur toute la vie du
 compte, entièrement absorbés par le plan gratuit, donc rien n'a jamais été facturé. C'est suffisant
 pour établir le **taux unitaire**, qui est tout ce dont ce document a besoin (§ 3.4).
@@ -1518,9 +1648,11 @@ Cette table donne aussi le seul **point de calibration de bout en bout** disponi
 0,69056 €, et la différence — **0,0780 €** — est le coût LLM réel des générations de cet utilisateur,
 soit 71 % des 0,110110 € mesurés sur toute l'histoire de dev. La formule du compteur est donc bien
 « minutes × `cost_per_minute_eur` + coût LLM constaté », ce qui confirme que **`cost_eur_estimated`
-mélange un budget supposé et une dépense réelle**. Il ne peut pas servir à valider le budget
-fournisseur : les 0,69056 € sont censés couvrir Deepgram, et sans facture Deepgram cette moitié
-reste une hypothèse.
+mélange un budget supposé et une dépense réelle**. Et la facture Deepgram permet maintenant de
+chiffrer l'écart au lieu de le supposer : ces 104 minutes ont réellement coûté
+104 × 0,003727 = **0,3876 €**. Le compteur a donc débité **0,69056 €** de budget pour une dépense de
+0,3876 €, soit **1,78× de trop** — le facteur du § 3.1, retrouvé de l'autre bout de la chaîne, sur le
+seul utilisateur qui ait jamais consommé un quota.
 
 ---
 
@@ -1632,9 +1764,10 @@ discute).
 | 3 | **M** | **Fait le 2026-09-09** : la candidature au Small Business Program est déposée. Reste à **relever et consigner la date d'approbation** — l'effet est décalé de « fifteen (15) days after the end of the fiscal calendar month in which your enrollment is approved », soit ~15 novembre 2026 pour une approbation en septembre. Jusque-là les nets sont ceux de 30 % (−17,6 %). | Confirmation Apple par mail + App Store Connect → **Business**. Trace à écrire dans `docs/V1_LAUNCH_PLAN.md`, qui ne mentionne pas le programme | Haute |
 | 3b | **M** | **Basculer `review_blurb` sur `gpt-5-nano`.** C'est le seul appel LLM que 100 % des ingestions paient, et **13 % seulement de son coût est de la sortie** — donc tout est dans l'input à $0.20/1M, pour produire quatre puces. **Mesuré sur les 59 appels réels de dev** : 0,000685 €/appel, soit **36,7 % de toute la facture LLM**, ramenés à 0,000177 € — **−74,1 %**, contre −74,9 % modélisé sur une source de 3 h. Les deux méthodes convergent, ce qui en fait le changement le mieux étayé du document ; ~8,50 €/mois au plafond de `items_per_day: 60`. Prérequis : rendre la famille `*_LLM_MODEL` réelle, sinon `OPENAI_MODEL` déplace cinq générateurs à la fois. | `generators/review_blurb.py:100-101` + secret `media-summarizer-runtime-<env>` | Haute |
 | 3c | **B** | **Envoyer `reasoning_effort: "minimal"` sur les deux appels LLM.** Le mot n'existe **nulle part** dans le dépôt : les deux payloads sont minimaux, donc `gpt-5-nano` et `gpt-5.4-nano` raisonnent au réglage par défaut et **ces tokens sont facturés au tarif de sortie** — 8× l'entrée, 6,25× respectivement. Mesuré sur 17 traductions : un plancher de **~3 400 tokens de sortie par appel indépendant de la longueur** (`sortie ≈ 3 402 + 1,58 × entrée`), qui donne un ratio de **11,4× sous 1 000 tokens d'entrée** contre 1,12× à 9 283. Gain **−69,2 %** sur les traductions mesurées. **La facture OpenAI confirme sur trois mois** : le résidu `gpt-5-nano` — la traduction — facture 774 714 tokens de sortie pour 82 417 d'entrée (ratio **9,40×**), **98,9 % de son coût est de la sortie**, et le poste pèse **60,4 % de toute la facture** (0,2695 € sur 0,4464 €). C'est donc **le premier levier en euros absolus**, devant 3b. Côté artefacts, `summary_short` dépense **92 %** de son coût en sortie pour un résumé *court*. À vérifier après coup sur la qualité des sorties structurées : c'est le seul de ces changements qui peut dégrader un résultat. | `media_summarizer/core/services/transcript_translation.py:310-315` + `media_summarizer/workers/artifact_generator/worker.py:139-148` | Haute |
-| 3d | **B** | **Persister le modèle dans `ArtifactLlmUsage`.** La structure porte quatre champs — `prompt_tokens`, `cached_tokens`, `completion_tokens`, `cost_eur` — et **pas le nom du modèle**, alors que `worker.py:321` l'a sous la main (`model = generator.default_model`) et que `_read_llm_usage` le reçoit en paramètre pour calculer le coût. Conséquence : attribuer un euro facturé à un modèle exige de déduire le modèle depuis `artifact_type` en relisant le code, et l'historique devient inattribuable dès qu'un `*_LLM_MODEL` bouge — c'est-à-dire dès la correction 3b. Un champ `model: str` réglé au même endroit que `cost_eur`. | `media_summarizer/core/models/media_artifact.py:127-133` + `workers/artifact_generator/worker.py:204-220` | Moyenne |
+| 3d | **B** | **Persister le modèle dans `ArtifactLlmUsage`** — correction **révisée à la baisse** après vérification. La structure porte quatre champs (`prompt_tokens`, `cached_tokens`, `completion_tokens`, `cost_eur`) et pas le nom du modèle, mais l'information **n'est pas perdue** : `generator_version` la porte, au format `<type>:<modèle>:<prompt>` — relevé sur les artefacts du podcast, `quiz:gpt-5.4-nano-2026-03-17:prompt-v4`. C'est même par là qu'est établi que `notes` tourne bien sur `gpt-5.4-nano` et non sur le `gpt-4o-mini` de son défaut de code. Ce qui reste à corriger est donc mineur : le coût n'est pas **recalculable depuis `llm_usage` seul**, il faut parser une chaîne d'un autre champ dont le format n'est garanti nulle part. Un `model: str` réglé au même endroit que `cost_eur` rend l'enregistrement autoportant ; l'urgence a disparu. | `media_summarizer/core/models/media_artifact.py:127-133` + `workers/artifact_generator/worker.py:204-220` | Basse |
 | 4 | **B** | Créer le filtre de métrique et l'alarme sur `provider_pool.threshold_reached` et `quota.burst_guard_tripped`, et passer `enable_alarms = true` avec `alert_email` renseigné — au moins sur prod. Le seul canal d'alerte du projet est le mail, et il n'existe pas (topic SNS `count = 0`). | `infrastructure/terraform/modules/platform/` (nouveau `.tf` sur le modèle de `revenucat_alerts.tf`) + `envs/prod/main.tf`, `envs/dev/main.tf` | **Bloque le lancement** |
-| 5 | **M** | Corriger `cost_per_minute_eur` : **0,0037 €/min** (batch monolingue) ou 0,0045 € (multilingue), et réécrire le commentaire de source, qui cite aujourd'hui le tarif *streaming*. Puis re-dériver `minutes_per_month` d'`audio_heavy` : le raisonnement qui a produit 720 au lieu de 900 s'appuie sur un chiffre 1,79× trop haut. | `pricing_config_service.py:153-157` + `tiers.audio_heavy.minutes_per_month` + DynamoDB `pricing_config-<env>` | Haute |
+| 5 | **M** | Corriger `cost_per_minute_eur` : **0,00373 €/min**, plus une fourchette mais le tarif **facturé** — $0.26/h sur les 5,5 h des trois derniers mois, une seule ligne `Nova-3 (Pre-recorded)` (§ 3.1). Réécrire le commentaire de source, qui cite le tarif *streaming régulier* d'un mode que le produit n'appelle jamais. La question multilingue est **tranchée** : `detect_language=true` est facturé au tarif monolingue sur 31 jours d'usage. Puis re-dériver `minutes_per_month` d'`audio_heavy` : le raisonnement qui a produit 720 au lieu de 900 s'appuie sur un chiffre **1,78× trop haut**, et le crédit d'inscription non entamé ($197,06 = 764 h) couvre l'écart pendant des mois. | `pricing_config_service.py:153-157` + `tiers.audio_heavy.minutes_per_month` + DynamoDB `pricing_config-<env>` | Haute |
+| 5b | **M** | **Rouvrir la décision sur la diarisation : elle est gratuite.** `deepgram_worker.py:90-95` garde `DEEPGRAM_DIARIZE` à `false` au motif d'« a paid Deepgram add-on ($0.0020/min, i.e. +41.7% over the Nova-3 promotional rate) », et task-231 §6.7 la rejette comme défaut sur le même calcul (`README.md:142-146` : « +$0.12 » sur « the $0.288 Nova-3 promotional line item »). **$0.288/h = $0.0048/min est le tarif promotionnel du *streaming*** — le même mauvais tableau que `cost_per_minute_eur`, lu deux fois indépendamment. En pre-recorded la page annonce « Included » et la facture le prouve : **251,58 minutes transcrites avec `diarize=true` en avril, aucune ligne de diarisation facturée** (§ 3.1). L'arbitrage a donc été rendu sur un surcoût inexistant, alors que le commentaire du code note lui-même que « enabling this flag is the only change required to ship speaker attribution » et que task-231 §6.7 la qualifie de « genuine product feature (multi-speaker podcasts) ». Ce qui se corrige : le commentaire et le §6.7 (faux, et ils servent de justification), puis la décision — l'attribution des locuteurs sur un podcast est un différenciateur à coût nul. Piège documenté à `:96-97` : le paramètre à envoyer est `diarize_model`, jamais `diarize`, déprécié et rejeté si les deux sont présents. | `media_summarizer/workers/transcription/deepgram_worker.py:89-98` + `docs/research/task-231-transcript-formatting/README.md:141-146,325-327` | Moyenne |
 | 6 | **B** | Faire refuser les burst guards, ou les supprimer. `_note_burst_guards` ne journalise (`quota_enforcer.py:840`) alors que task-287 §3.3 spécifiait une mise en file : les 1 800 sources/mois autorisées par `items_per_day: 60` sur les chemins à 0 minute coûtent **10,99 à 15,31 €** de plancher LLM, soit cinq fois le net du premier palier. Un garde-fou qui n'arrête rien n'est pas une couche 2. | `media_summarizer/core/services/quota_enforcer.py:802-858` | Haute |
 | 7 | **M** | Refaire le pool Apify sur la réalité relevée : **trois comptes FREE distincts** (`nurturing_zeta` YouTube, `rapturous_mantis` TikTok, `kneaded_goodness` Instagram), donc **$15/mois** de capacité répartie en trois budgets étanches, contre **un seul** compteur `apify_results` plafonné à 1 160 « résultats » — une unité qui ne se convertit pas en dollars quand trois acteurs ont trois prix. Corriger aussi la valeur : à $5.00/1 000, $5 achètent **1 000** vidéos, pas 1 160. Et **modéliser le plafond d'acteur de 50 transcripts/jour**, que `burst_guards.items_per_day: 60` laisse dépasser par un seul utilisateur. | `provider_pools.apify` (config + DynamoDB) + `provider_pool_guard.py:35-42,125-149` ; console Apify, **par compte** : Settings → Billing (plan, usage limit) ; corriger `docs/research/task-287-…/README.md` §1.6 (« $29 ») | Haute |
 | 7b | **A** | **Garder `starvibe~youtube-video-transcript`** et cesser de traiter `scrape-creators~best-youtube-transcripts-scraper` comme l'option économique. Il est cinq fois moins cher au résultat (0,000860 € contre 0,004300 €) mais `supports_language: False` force une traduction en aval qui coûte 0,004983 € sur une vidéo d'1 h : `starvibe` se rembourse dès qu'il évite la traduction plus de ~72 % du temps. Si l'un des deux doit disparaître, c'est le dialecte non configuré. | `youtube_ingestion_worker.py:29-55` ; `docs/INGESTION_WORKERS_PROVIDERS.md:199-200,208` (qui désigne le mauvais acteur comme déployé) | Haute |
@@ -1646,11 +1779,11 @@ discute).
 | 13 | **B** | **Supprimer `providers.llm` et purger `gpt-4o-mini` du dépôt.** Le bloc n'a aucun consommateur — les générateurs lisent `os.environ`. Et `gpt-4o-mini` n'est **jamais appelé** : il n'apparaît sur aucune ligne de la facture des trois derniers mois. Donc ne pas « l'ajouter à `_MODEL_PRICES` » comme la première version de ce tableau le proposait — ce serait provisionner un tarif pour un modèle mort. Ce qui se supprime : le bloc `providers.llm`, le fallback en dur `gpt-4o-mini-2024-07-18` de `notes.py:102` (aligné sur `OPENAI_MODEL` comme les quatre autres générateurs), et la ligne `gpt-4o-mini` du tableau de tarifs de ce document. | `pricing_config_service.py:159-164` + `workers/artifact_generator/generators/notes.py:99-104` | Moyenne |
 | 14 | **A** | Créer un produit annuel sur les trois entitlements. Un produit + un package, aucun code, aucun déploiement. Achète de la trésorerie avant le premier mois de coûts fournisseurs, supprime le churn mensuel, et ouvre les 10 % Apple après un an sur les *alternative terms* UE. Readwise cède 24 % pour ça. | Console RevenueCat (`proj879a771a`, offering `default`) + App Store Connect → *Second Brain Plans* + Play Console → Monetize → Subscriptions ; procédure dans `docs/REVENUECAT_ENTITLEMENTS.md:144-162` | Moyenne |
 | 15 | **A** | Remplacer l'essai de 30 jours à 300 minutes par un **palier gratuit permanent, faible, compté en objets** (sur le modèle des 2 épisodes/semaine de Snipd). Résout trois choses d'un coup : la division par 5 de l'allocation au moment de payer, le budget fournisseur non récupérable par inscription, et l'impossibilité de choisir une formule sans connaître sa consommation. | `free_trial` (config + DynamoDB) + `quota_enforcer._active_subscription` + `plan.*` / `paywall.*` dans les 11 catalogues i18n | Moyenne |
-| 16 | **A** | Revoir le prix d'Audio-Heavy, ou son allocation. À 9 € TTC pour 720 min il est plus cher et moins généreux que Snipd à $6.99 pour 900 min + IA illimitée sur le catalogue pré-traité. Le tarif de la minute étant 1,79× trop haut, l'allocation a de la marge — mais seulement après la correction n° 1. | `tiers.audio_heavy` (config + DynamoDB) + prix dans App Store Connect et Play Console | Moyenne |
+| 16 | **A** | Revoir le prix d'Audio-Heavy, ou son allocation. À 9 € TTC pour 720 min il est plus cher et moins généreux que Snipd à $6.99 pour 900 min + IA illimitée sur le catalogue pré-traité. Le tarif de la minute étant **1,78× trop haut, mesuré sur facture**, l'allocation a de la marge : 900 minutes coûtent 3,35 € sur 6,375 € de net. Et le crédit d'inscription Deepgram non entamé — **$197,06, soit 764 h** — absorbe entièrement le surcroît pendant les premiers mois, ce qui rend la générosité gratuite au lancement. Mais seulement après la correction n° 1. | `tiers.audio_heavy` (config + DynamoDB) + prix dans App Store Connect et Play Console | Moyenne |
 | 17 | **M** | Ajouter Algolia à `provider_pools` avec **deux** compteurs, parce qu'il en a deux de natures différentes : les recherches sont un **flux** mensuel (10 K sur le gratuit, ~111 abonnés à 90/mois), les records un **stock** cumulatif (50 K, soit ~26 700 sources indexées à 1,87 records/source **mesurés** sur dev) que rien ne libère — `media_purge_service.py:1-20` ne purge que sur suppression explicite ou TTL de 30 jours *après* suppression, il n'existe aucune rétention par âge. C'est le seul des quatre fournisseurs partagés dont l'épuisement ne coûte pas d'argent mais **casse la recherche**. Corriger au passage `providers.search.plan: "build_free"` (le plan est **Free**) et supprimer les deux index orphelins `transcripts` et `transcripts_user_4cd1abcb-…`. | `provider_pools` et `providers.search` (config + DynamoDB) + `docs/research/task-53.1-lexical-search/README.md:9,36` ; console Algolia → **Search → Index** | Moyenne |
 | 18 | **B** | Séparer `quota.refusal.noPlan` en deux messages : « votre formule a pris fin » pour un abonnement expiré, et une invitation neutre pour qui n'a jamais souscrit. Aujourd'hui on annonce à un nouvel utilisateur la fin de quelque chose qu'il n'a jamais eu. | 11 catalogues `mobile/src/i18n/` + branche correspondante de `mobile/src/lib/quotaError.ts` | Basse |
 | 19 | **B** | Renommer `revenue_net_eur` en `revenue_net_eur_fr`, ou documenter que c'est un net français. Un chiffre stocké sous un nom faux finit copié. | `pricing_config_service.py:54,65,76` + DynamoDB | Basse |
-| 19b | **B** | **Journaliser la durée du média au moment du débit**, et supprimer les 81 lignes de schéma mort de `user_usage_monthly`. Le produit facture à la minute une grandeur qu'il n'écrit nulle part : `total_duration` et `transcription_duration` de `processing_jobs` sont des durées d'**exécution** (1 à 31 s), pas de contenu — d'où l'impossibilité de vérifier l'hypothèse « 36 k tokens pour 3 h » sur laquelle repose tout l'axe 2. Une minute déjà calculée par `minutes_for_seconds` et écrite à côté du job résoudrait la question définitivement. Sur les 86 lignes du compteur mensuel, **81 (94 %)** sont en `period: YYYY-MM` et portent cinq attributs absents du code (`articles_count`, `youtube_count`, `documents_count`, `audio_minutes_used`, `collection_source_units`) : rien n'est déployé, donc ils se suppriment. | `quota_enforcer.minutes_for_seconds` (`:162`) + écriture dans `processing_jobs` ; purge de `user_usage_monthly-<env>` | Basse |
+| 19b | **B** | **Journaliser la durée du média sur les chemins non-Deepgram**, et supprimer les 81 lignes de schéma mort de `user_usage_monthly`. La portée de cette correction a été **réduite** par la mesure : `transcription_metadata.audio_duration_seconds` existe déjà, et il est exact — sur 8 des 9 jours vérifiables il égale les minutes facturées par Deepgram à la seconde décimale (§ 3.9). Mais il n'est écrit que par le worker de transcription : **les 14 jobs YouTube, les 25 documents, les 16 articles et les 2 TikTok n'ont aucune durée**, c'est-à-dire exactement les chemins où l'unité débitée est fausse. La durée est instrumentée là où elle n'est pas contestée et absente là où elle déciderait. Attention à l'homonymie qui a produit une erreur dans ce document : `total_duration`, `transcription_duration` et le `duration_seconds` de `transcription_metadata` sont des durées d'**exécution** (1 à 31 s). Sur les 86 lignes du compteur mensuel, **81 (94 %)** sont en `period: YYYY-MM` et portent cinq attributs absents du code (`articles_count`, `youtube_count`, `documents_count`, `audio_minutes_used`, `collection_source_units`) : rien n'est déployé, donc ils se suppriment. | `quota_enforcer.minutes_for_seconds` (`:162`) + écriture dans `processing_jobs` depuis les workers YouTube / document / article ; purge de `user_usage_monthly-<env>` | Basse |
 | 20 | **B** | Retirer `tier_order` codé en dur (`pricing.py:93`), qui contredit le classement par allocation de `quota_enforcer._active_subscription` : un quatrième tier ajouté dans DynamoDB serait invisible du paywall tout en étant honoré par l'enforcer. Ordonner par `minutes_per_month`. | `media_summarizer/api/endpoints/pricing.py:93` | Basse |
 | 21 | **B** | Rendre `language` dynamique dans l'upload LlamaParse (`llamaparse_resolver.py:193`), aujourd'hui `"en"` en dur sur une app à 11 locales. Défaut de qualité sur un chemin payant. | `media_summarizer/infrastructure/resolvers/llamaparse_resolver.py:191-194` | Basse |
 
@@ -1709,11 +1842,13 @@ cache de prompt (§ R.6), le dépôt de la candidature SBP (§ 2.4), les records
    poste à zéro** (aucun événement `stored_file_mb`, 0 fichier dans le magasin du projet). Détail et
    conséquences en § 3.4 ; commandes en § Sources. Ce qui reste, et qui est une décision et non une
    lecture : **envoyer le mode explicitement** (correction 2b), parce que le défaut est révocable.
-9. **Numéro de tâche pour ce répertoire.** Recommandation : **task-384**, le prochain libre.
-   *Corrigé le 2026-09-09* — `task-383` était libre au moment où cette question a été écrite, il est
-   depuis attribué (« Faire entrer la description Instagram/TikTok et YouTube dans le corpus des
-   artefacts »). Un `git mv docs/research/pricing-challenge docs/research/task-384-pricing-challenge`
-   suffit.
+9. **Numéro de tâche pour ce répertoire.** Recommandation : **task-389**, le prochain libre.
+   *Corrigé deux fois le 2026-09-09* — `task-383` était libre à la rédaction de cette question, puis
+   `task-384` ; le backlog s'arrête maintenant à **task-388** (383 à 385 : Instagram/TikTok ; 386 à
+   388 : l'artefact podcast audio). Un
+   `git mv docs/research/pricing-challenge docs/research/task-389-pricing-challenge` suffit. Vérifie
+   `ls backlog/tasks/ | tail -1` avant de le faire : trois tâches ont été créées pendant cette
+   session.
 10. **Marché de lancement.** J'ai recalculé les nets sur FR / DE / IE / HU et l'amplitude est de
    ±3 % : la question ne change aucune conclusion, mais elle décide de quoi `revenue_net_eur` est le
    net. Hypothèse retenue faute de réponse : **France seule**.
@@ -1731,6 +1866,23 @@ cache de prompt (§ R.6), le dépôt de la candidature SBP (§ 2.4), les records
     `gpt-5.4-nano-2026-03-17`. Le recalcul `amount / quantity` sur les six lignes de l'export de
     facturation rend exactement les tarifs de base : **aucune majoration n'est appliquée**. Rien à
     corriger dans `llm_pricing.py:22-25`.
+14. **Veux-tu resserrer la ligne « sous-titres » du barème à 1 crédit par 15 minutes ?** C'est la seule
+    question que la mesure des tokens ouvre plutôt qu'elle ne ferme. À 20 minutes, la couverture d'une
+    vidéo de 3 h tombe entre 95 et 110 % (§ R.2) ; à 15 minutes elle remonte à ~121 %. Recommandation :
+    **non, pas tout de suite** — mesurer d'abord un transcript YouTube long, ce qui suppose la
+    correction 19b (aucun job YouTube ne journalise sa durée). Le seul point de mesure dont je dispose
+    est un podcast en français, et durcir la ligne mise en avant par le produit sur cette base serait
+    une extrapolation. Si tu préfères la sécurité au bon prix, c'est un chiffre à changer, rien
+    d'autre.
+15. **L'artefact podcast audio (task-386 à 388) n'est pas dans le barème.** Créées le 2026-09-09,
+    après la rédaction de ce document : un **sixième type d'artefact demandable**, un podcast audio
+    généré depuis un média ou un dossier. Son coût n'est pas de même nature que les cinq autres — il
+    porte de la **synthèse vocale**, facturée au caractère ou à la minute produite, là où les cinq
+    artefacts actuels ne coûtent que des tokens. Le forfait de 2 crédits ne le couvre donc pas, et je
+    ne peux pas le tarifer avant que le benchmark task-386 ait tranché le fournisseur. Recommandation :
+    **le facturer à l'acte, en crédits, dès sa mise en service** — pas l'inclure dans le forfait — et
+    ajouter à task-386 un critère de coût unitaire pour que le chiffre existe au moment de décider.
+    C'est la seule ligne du barème dont je sais d'avance qu'elle manque.
 
 ---
 
@@ -1740,19 +1892,21 @@ Sans complaisance : la liste qui suit est la mesure exacte de ce que ce document
 **rétréci** le 2026-09-09 — ce qui a pu être vérifié en autonomie ce jour-là est passé dans les
 sections concernées et n'apparaît plus ici ; le partage exact entre mesuré et modélisé est en § 3.9.
 
-- **Une seule facture fournisseur existe : OpenAI.** L'owner a fourni le 2026-09-09 l'export
-  `/v1/organization/costs` du 2026-06-01 au 2026-09-09 — **0,4464 €**, ligne par ligne, token par
-  token (§ R.6). Il **ne manque plus rien** côté OpenAI : tarifs validés, calcul validé, répartition
-  établie. Restent sans aucun montant facturé : **Deepgram, Apify, Unstructured, Algolia**. Ce qui
-  existe pour eux, en plus des trois mois de Cost Explorer AWS de task-287 §1.6, est de l'état de
-  compte, pas de la facture : les trois comptes Apify, l'inventaire de l'index Algolia, l'acteur
-  réellement configuré (§ 3.9). **LlamaParse a quitté cette liste le 2026-09-09** : sa consommation
-  est relevée job par job, crédits compris (284 crédits, 0,3053 €), ce qui donne le taux unitaire —
-  même si le plan gratuit fait qu'aucune facture n'existe. Le facteur 8,46× de l'axe 2 est robuste au sens où
-  il tient sur toute la plage 12 k–60 k tokens, il n'est **mesuré** nulle part, et je ne le présente
-  pas autrement. **Deepgram est désormais le seul trou qui compte** : c'est le poste dont dépend la
-  validité de `cost_per_minute_eur`, et le compteur d'usage mélange ce budget supposé au coût LLM réel
-  (§ 3.9), donc il ne peut pas servir à le vérifier.
+- **Deux factures fournisseurs existent : OpenAI et Deepgram.** L'owner a fourni le 2026-09-09
+  l'export `/v1/organization/costs` du 2026-06-01 au 2026-09-09 — **0,4464 €**, ligne par ligne, token
+  par token (§ R.6) — puis les deux exports Deepgram depuis l'ouverture du compte : **$2,93906** avec
+  la colonne `rate_applied` (§ 3.1). Il **ne manque plus rien** sur ces deux postes : tarifs validés,
+  calcul validé, répartition établie d'un côté ; tarif appliqué, mode de facturation, gratuité de la
+  diarisation et solde du crédit de l'autre. **Les deux postes qui portaient les deux plus gros
+  chiffres du dossier — `cost_per_minute_eur` et la facture LLM — sont donc mesurés.** Restent sans
+  aucun montant facturé : **Apify, Unstructured, Algolia**. Ce qui existe pour eux, en plus des trois
+  mois de Cost Explorer AWS de task-287 §1.6, est de l'état de compte, pas de la facture : les trois
+  comptes Apify, l'inventaire de l'index Algolia, l'acteur réellement configuré (§ 3.9). **LlamaParse
+  a quitté cette liste le 2026-09-09** : sa consommation est relevée job par job, crédits compris
+  (284 crédits, 0,3053 €), ce qui donne le taux unitaire — même si le plan gratuit fait qu'aucune
+  facture n'existe. **Le trou qui compte est maintenant Apify** : c'est le seul poste du chemin
+  YouTube, celui qui porte le facteur ≈11× de l'axe 2, et son tarif ne tient que sur une capture de la
+  page de l'acteur.
 - **L'attribution de la facture à une clé.** L'export ne ventile ni par clé API ni par utilisateur —
   `api_key_id` et `user_email` sont `null` sur les 105 lignes, et tout tient sur un projet unique
   (`Default project`). Rien n'y distingue donc le backend `-dev` d'un essai manuel. L'indice
@@ -1760,15 +1914,16 @@ sections concernées et n'apparaît plus ici ; le partage exact entre mesuré et
   embedding, aucun Whisper — mais c'est un indice, pas une ventilation. De même, la séparation
   traduction / `summary_short` dans les 60,4 % est **déduite** par soustraction, les deux partageant
   `gpt-5-nano` : elle est conservatrice (§ R.6, deuxième réserve), pas exacte.
-- **La durée réelle d'un média, donc la conversion durée → tokens.** Les tokens, eux, sont maintenant
-  mesurés : 414 866 en entrée sur 90 générations, et 1,795 token/mot sur 14 articles (§ 3.9). Ce qui
-  manque est l'autre moitié du rapport — **aucune durée de contenu n'est journalisée** ;
-  `total_duration` et `transcription_duration` de `processing_jobs` sont des durées d'exécution.
-  L'hypothèse de 12 000 tokens/heure reste donc une hypothèse, mais **bornée par le haut et par le
-  bas** : ~11 700 pour de l'anglais parlé, ~16 200 pour du français au ratio mesuré. Le sens de
-  l'erreur est connu — l'axe 2 sous-estime le français. **C'est la première incertitude du dossier**,
-  celle qui a remplacé le TTL du cache à ce rang, et elle se referme en écrivant une minute à côté du
-  job (correction 19b).
+- **La conversion durée → tokens hors du chemin Deepgram.** Cette entrée était **la première
+  incertitude du dossier** ; elle est refermée sur l'audio et rouverte, plus étroite, ailleurs. Ce qui
+  est mesuré : `audio_duration_seconds` existe sur les 15 jobs Deepgram, la durée journalisée égale les
+  minutes facturées à la seconde décimale, et le podcast de 77,85 min donne **≈16 500 tokens/heure** —
+  l'hypothèse de 12 000 de l'axe 2 sous-estimait de 37,8 % (§ 3.9). Ce qui manque : **la durée n'est
+  écrite sur aucun autre chemin**, et c'est précisément là que l'unité débitée est fausse — les 14 jobs
+  YouTube n'ont pas de durée, donc le facteur ≈11× de l'axe 2 s'appuie sur une durée de 3 h
+  **choisie**, pas relevée. Il n'y a qu'une mesure, sur un podcast en français : le ratio d'un contenu
+  dense en anglais reste non mesuré, et le sens de l'erreur — l'axe 2 sous-estime — est établi sur un
+  seul point. Se referme en écrivant la minute déjà calculée à côté du job (correction 19b).
 - **La part de raisonnement dans les tokens de sortie.** Les tokens de sortie sont mesurés
   (64 231 sur 90 générations, § R.6), mais `completion_tokens` **agrège la réponse et le
   raisonnement**, et ni `worker.py:204-220` ni le log de traduction ne lisent
@@ -1784,11 +1939,17 @@ sections concernées et n'apparaît plus ici ; le partage exact entre mesuré et
   chiffres à réutiliser ; les **totaux en euros** ne décrivent que dev et n'extrapolent rien. Les
   17 traductions viennent en outre des 14 jours de rétention CloudWatch seulement — au-delà, les logs
   n'existent plus.
-- **Le traitement facturable de `detect_language=true` chez Deepgram.** Monolingue et multilingue
-  ont des tarifs distincts ; je ne sais pas lequel s'applique quand on demande la détection. D'où la
-  fourchette 0,0037–0,0045 €/min plutôt qu'un chiffre.
+- **La durabilité du traitement de `detect_language=true` chez Deepgram.** La question « au tarif
+  monolingue ou multilingue ? » est **close** : monolingue, sur 31 jours d'usage et zéro surcharge
+  facturée (§ 3.1). Ce qui reste n'est plus une lacune de mesure mais un risque : c'est l'interprétation
+  actuelle du fournisseur, sur une option qui *demande* la détection de langue, et rien ne l'engage. Un
+  reclassement en multilingue coûterait **+20,9 %** sur le poste transcription — soit 0,004508 €/min,
+  toujours 1,47× sous `cost_per_minute_eur`, donc sans effet sur aucune conclusion de ce document.
 - **L'unité de facturation et l'arrondi de Deepgram.** La FAQ « Does Deepgram charge for silence or
-  round up audio time? » est présente sans réponse visible.
+  round up audio time? » est présente sans réponse visible. La facture ne permet pas de l'inférer :
+  les quantités sont des heures à 5 décimales, ce qui exclut un arrondi grossier mais pas un arrondi
+  par requête. Sans conséquence sur les 86 requêtes observées, où durée journalisée et minutes
+  facturées coïncident à la seconde décimale.
 - **Le tarif S3 par GB-mois pour eu-west-3.** La page de tarification d'AWS ne rend pas ses tables
   au fetch. Le stockage est donc argumenté structurellement (9 buckets sur 11 sans expiration, PITR
   sur ~21 tables, exports GLACIER_IR à 365 jours) et **pas chiffré**. C'est le trou le plus gênant
@@ -1823,12 +1984,13 @@ Toutes consultées le **2026-09-09**.
 
 | Source | URL | Ce qui en est tiré |
 |---|---|---|
-| Deepgram Pricing | https://deepgram.com/pricing | nova-3 batch mono $0.0043/min, multi $0.0052/min ; streaming régulier $0.0077 / promo $0.0048 ; diarisation « Included » en pre-recorded ; crédit de $200 à l'inscription |
+| Deepgram Pricing | https://deepgram.com/pricing | nova-3 batch mono $0.0043/min, multi $0.0052/min ; streaming régulier $0.0077 / promo $0.0048 ; diarisation « Included » en pre-recorded ; crédit de $200 à l'inscription. FAQ « Does Deepgram charge for silence or round up audio time? » **sans réponse visible** |
+| **Facture Deepgram — exports de consommation** | 2 CSV de la console Deepgram, **fournis par l'owner le 2026-09-09**, couvrant le 2026-04-03 → 2026-09-06 depuis l'ouverture du compte : un d'**usage** (`day, accessor, endpoint, features, models, tags, deployment, hours, requests, …`, 34 lignes-jour) et un de **facturation** (`day, line_item, dollars, rate_applied, quantity, unit, overage_rate`, 28 lignes) | Tarif réellement appliqué, lu dans `rate_applied` : **$0.26/h** pour `Nova-3 (Pre-recorded)`, $0.258/h pour `Nova/Nova-2`, $0.05/h pour la `Nova-3 Multilingual surcharge`. Total **$2,93906** sur 10,8019 h ; **86 requêtes**, endpoint `listen` exclusivement. `detect_language=true` facturé au tarif **monolingue** ; **aucune ligne de diarisation** malgré 251,58 min avec `diarize=true`. Crédit : **$197,06 restants sur $200**. Toutes les lignes portent `tags: "prod"` alors que le trafic vient de `-dev` |
 | OpenAI API Pricing | https://developers.openai.com/api/docs/pricing (301 depuis platform.openai.com/docs/pricing) | `gpt-5-nano` $0.05/$0.005/$0.40 ; `gpt-5.4-nano` $0.20/$0.02/$1.25 ; `gpt-4o-mini` $0.15/$0.075/$0.60 ; uplift de 10 % sur endpoints régionaux pour les modèles ≥ 2026-03-05 |
 | **Facture OpenAI — export de consommation** | 4 fichiers `cost_<début>_<fin>.json` de l'API `/v1/organization/costs`, **fournis par l'owner le 2026-09-09**, couvrant le 2026-06-01 → 2026-09-09 en 101 buckets journaliers (105 lignes de résultat) | Tarifs réellement appliqués reconstruits par `amount / quantity` : **identiques à `_MODEL_PRICES` sur les six lignes, aucun uplift régional**. Total **$0,519037 = 0,4464 €**, dont 62,6 % sur `gpt-5-nano`. Ne ventile **pas** par clé API (`api_key_id` et `user_email` à `null`) |
 | Apify Pricing | https://apify.com/pricing | Free $0 / $5 inclus, bloqué à épuisement ; Starter $19 ; Scale $199 ; Business $999 ; overage facturé sur plans payants ; crédits non reportables |
 | LlamaIndex Pricing | https://www.llamaindex.ai/pricing | Free 10 K crédits, Starter $50 / 40 K, Pro $500 / 400 K ; 1 000 crédits = $1.25 ; « Basic Parsing: as low as 1 credit » |
-| **LlamaParse / LlamaCloud — table de tarifs par mode** | https://developers.llamaindex.ai/llamaparse/general/pricing — **la page est en ligne**, à cette URL et non plus sous `/python/cloud/…` ; identique à `.claude/skills/llamaparse-pricing/references/pricing.md` fournie par l'owner le 2026-09-09 | 1 000 crédits = $1.25 en Amérique du Nord **et** en Europe ; table **v1 (modes)** : « Parse without AI » 1, Cost-effective / « Parse page with LLM » **3**, Agentic 10, Agentic Plus / Layout Agent 45, presets 90 ; Layout extraction **+3/page** ; audio 3 crédits/min ; XLSX **1 crédit/feuille** ; stockage retenu **100 crédits/GB/jour** (0,1/MB), gratuit si expiration ou rétention envoyée ; **re-parse gratuit sous 48 h** ; « Fast (1 credit) outputs spatial text only — **no markdown** ». **Le défaut du mode v1 n'y figure pas** — ni dans le schéma OpenAPI, où `parse_mode` est `ParsingMode \| null` sans valeur par défaut |
+| **LlamaParse / LlamaCloud — table de tarifs par mode** | https://developers.llamaindex.ai/llamaparse/general/pricing — **la page est en ligne**, à cette URL et non plus sous `/python/cloud/…` ; identique à `.claude/skills/llamaparse-pricing/references/pricing.md` fournie par l'owner le 2026-09-09 | 1 000 crédits = $1.25 en Amérique du Nord **et** en Europe ; table **v1 (modes)** : « Parse without AI » 1, Cost-effective / « Parse page with LLM » **3**, Agentic 10, Agentic Plus / Layout Agent 45, presets 90 ; Layout extraction **+3/page** ; audio 3 crédits/min ; XLSX **1 crédit/feuille** ; stockage retenu **100 crédits/GB/jour** (0,1/MB), gratuit si expiration ou rétention envoyée ; **re-parse gratuit sous 48 h** ; « Fast (1 credit) outputs spatial text only — **no markdown** ». **Le défaut du mode v1 n'y figure pas** — ni dans le schéma OpenAPI, où `parse_mode` est `ParsingMode` ou `null` sans valeur par défaut |
 | LlamaCloud Billing and Usage | https://developers.llamaindex.ai/llamaparse/general/billing | overage $1.25/1 000 crédits ; épuisement du plan gratuit → **HTTP 402** « You've exceeded the maximum number of credits for your plan » ; tableau de bord : **Settings → Billing → Usage**, qui affiche « usage breakdown by product and mode » (et → Pricing, → Invoices) ; plan gratuit **10 000 fichiers / 10 GB** de stock retenu. Le lien « via the API » de cette page est **mort** (`/cloud-api-reference/get-project-usage-…`, retombe sur l'index, endpoint absent de l'OpenAPI) : l'endpoint vivant est `/api/v1/beta/usage-metrics` |
 | **LlamaCloud — schéma OpenAPI** | https://api.cloud.llamaindex.ai/api/openapi.json (145 chemins) | `GET /api/v1/beta/usage-metrics` et `/aggregate` (dimensions `day, project_id, event_type, tier` ; champs `value`, `credits`, `event_aggregation_key` = job_id ; **une fenêtre de dates est obligatoire**, sinon `400`) ; `GET /api/v1/parsing/job/{id}/parameters` et `/details` ; les **115 champs** de `POST /api/v1/parsing/upload`, dont **aucun** d'expiration ou de rétention ; énumération des `event_type`, dont `stored_file_mb` et `stored_file_count` |
 | Unstructured Pricing | https://unstructured.io/pricing | 10 000 pages gratuites **à la création du compte** ; puis $0.015/page ; « no hard cutoff » |
@@ -1871,7 +2033,12 @@ concurrentielle aux trois produits ci-dessus.
 | **Traductions** | `filter-log-events` sur `/aws/lambda/media-summarizer-worker-transcript_translation-dev`, motif `translation.completed`, rétention **14 j** | **17** traductions (`gpt-5-nano-2025-08-07`, paires ar→fr / en→fr / it→fr) ; 19 772 tokens d'entrée, **89 006 de sortie** ; ratio **4,50** agrégé mais **11,39** sous 1 000 tk d'entrée contre **1,12** à 9 283 tk ; régression `sortie ≈ 3 402 + 1,58 × entrée` |
 | **`reasoning_effort`** | `grep` sur `media_summarizer/`, `infra/`, `mobile/` | **zéro occurrence** — les deux payloads LLM sont `model` + `messages` (+ `response_format` / `prompt_cache_key`), donc le réglage par défaut de la famille `gpt-5` est facturé au tarif de sortie |
 | **Mots → tokens** | croisement de `extraction_metadata.word_count` (`processing_jobs-dev`) avec le `prompt_tokens` du `review_blurb` du même `media_item_id` | **1,795 token/mot** sur 14 articles ; `prompt ≈ 482 + 1,653 × mots` ; plus gros prompts observés : YouTube **12 160**, podcast **21 939**, document **11 416**, article **52 130** (31 218 mots) |
-| **Durée des médias** | `Scan` sur `processing_jobs-dev` (78 jobs) et `user_media-dev` (72 items) | **aucune durée de contenu n'est journalisée** : `total_duration` et `transcription_duration` valent 1 à 31 s (durées d'exécution), `user_media-dev` n'a aucun champ de durée |
+| **Durée des médias** | `Scan` sur `processing_jobs-dev` (78 jobs) et `user_media-dev` (72 items) | **`transcription_metadata.audio_duration_seconds` existe, sur 15 jobs / 78** — tous `provider: deepgram`, `model_used: nova-3` (13 `push`, 2 `pull`) : Spotify 2/2, Instagram 11/14, WhatsApp 2/3, **rien** sur les 14 YouTube, 25 documents, 16 web, 2 TikTok. Total journalisé 92,19 min, max 4 670,85 s. `user_media-dev` n'a aucun champ de durée. **Corrige l'affirmation « aucune durée n'est journalisée »** d'une version antérieure : elle venait de l'homonymie avec `total_duration`, `transcription_duration` et le `duration_seconds` de `transcription_metadata`, qui sont bien des durées d'exécution (1 à 31 s) |
+| **Facture Deepgram** | 2 exports CSV fournis par l'owner (usage + facturation), 2026-04-03 → 2026-09-06, colonne `rate_applied` | **$2,93906** sur 10,8019 h / 86 requêtes. Régime depuis le 2026-06-01 : **une seule ligne**, `Nova-3 (Pre-recorded)` à **$0.26/h** = $0,004333/min = **0,003727 €/min**, soit l'hypothèse 0,003703 € de ce document juste à **0,6 %** et `cost_per_minute_eur` **1,78× trop haut**. Surcharge multilingue sur 2 jours d'avril seulement, corrélée aux jours **sans** `detect_language`. Crédit d'inscription : **$197,06 / $200 restants = 764 h = 45 828 min** |
+| **Gratuité de la diarisation** | croisement du CSV d'usage (colonne `features`) avec les `line_item` du CSV de facturation | **251,58 min transcrites avec `diarize=true`** les 2026-04-05 et 04-09, et **aucune ligne de facturation de diarisation** — la seule surcharge de ces jours est étiquetée « Multilingual », à $0.05/h. Confirme le « Included » de la page et **invalide le +41,7 % de `deepgram_worker.py:90-95` et de task-231 §6.7**, qui chiffraient l'add-on sur le tarif *streaming* |
+| **Concordance durée ↔ facture** | `audio_duration_seconds` agrégé par jour vs minutes facturées | **égalité à la seconde décimale sur 8 des 9 jours** où la table porte encore tous ses jobs (dont le 2026-09-05 : 78,45 min journalisées = 78,45 facturées / 2 requêtes). Les 2 écarts positifs (+21,06 et +26,58 min) sont des jobs expirés par le TTL `expire_at` ; l'unique écart négatif (−1,85 min) porte la signature d'un rejeu |
+| **Durée → tokens, mesuré** | podcast Spotify « #46 BURGER RING » du 2026-09-05 : `audio_duration_seconds`, transcript S3 `ece7d6a9-….txt`, `llm_usage` de ses trois artefacts | **4 670,85 s = 77,85 min**, 83 719 caractères, **15 031 mots** (193,1 mots/min) → prompt `review_blurb` **21 939 tokens** (`notes` 22 301 dont 21 248 cachés, `quiz` 22 668). Soit **16 910 tokens/heure prompt compris**, **≈16 500** pour le contenu seul : l'hypothèse de 12 000 de l'axe 2 **sous-estime de 37,8 %**, et le facteur 8,46× monte à **≈11×**. Français **parlé** : **1,428 token/mot**, contre 1,795 mesuré sur les articles écrits |
+| **Modèle réellement exercé par générateur** | `generator_version` des artefacts de `media_artifacts-dev` | format `<type>:<modèle>:<prompt>` — `quiz:gpt-5.4-nano-2026-03-17:prompt-v4`, `notes:…:prompt-v4`, `review_blurb:…:prompt-v3`. **`notes` tourne sur `gpt-5.4-nano`**, pas sur le `gpt-4o-mini` de son défaut de code : deuxième preuve, indépendante de la facture. Réduit la portée de la correction 3d |
 | **Compteur d'usage** | `Scan` sur `user_usage_monthly-dev` (86 lignes) et `user_usage_daily-dev` (3 lignes) | **5 lignes** au schéma courant (`period` en `trial:`/`sub:`, avec `minutes_used`, `cost_eur_estimated`, `settled_jobs`) ; **81 lignes** en `YYYY-MM` portant cinq attributs absents du code ; une ligne `sub:2029-09-01` ; calibration : `minutes_used = 104` et `cost_eur_estimated = 0,7686 €` → 104 × 0,00664 = 0,69056 €, reste **0,0780 €** de LLM réel |
 | **Facture OpenAI** | 4 exports `/v1/organization/costs` fournis par l'owner (`cost_2026-06-01_2026-07-01` → `cost_2026-09-02_2026-09-09`), 101 buckets journaliers, 105 lignes de résultat | **$0,519037 = 0,4464 €** du 2026-06-01 au 2026-09-09, 24 jours actifs, juillet entier à zéro. Six lignes tarifaires, deux modèles, aucun autre. `amount / quantity` rend les six tarifs de `_MODEL_PRICES` **au centime**, donc **pas d'uplift régional** |
 | **Répartition de la facture** | soustraction des artefacts tracés (déduits type par type) du total facturé par modèle | traduction **60,4 %** (0,2695 €, ratio sortie/entrée **9,40×**, dont **98,9 % du coût en sortie**), artefacts en base 24,7 %, artefacts antérieurs à la fenêtre de la table 14,9 % |
