@@ -76,19 +76,74 @@ task-145 (`To Do`) remplace le repli Apify par un proxy résidentiel sur les wor
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Le worker TikTok écrit la description de `info` dans `extraction_metadata` sur les deux chemins yt-dlp — sous-titres natifs (`_build_native_extraction_metadata`) et repli Deepgram (`_build_fallback_extraction_metadata`) — sous une clé stable et documentée. Sur le chemin Apify (`_build_apify_native_extraction_metadata`) la clé est absente ou nulle, l'acteur ne rendant qu'un transcript.
-- [ ] #2 Le worker YouTube sonde la description du dataset Apify par un tuple de graphies connues, sur le motif exact de `_APIFY_TITLE_FIELDS` / `_APIFY_THUMBNAIL_FIELDS` (`youtube_ingestion_worker.py:131-141`) et via `_apify_item_string`, la retourne depuis `_parse_apify_transcript` (`:445-466`) et l'écrit dans `extraction_metadata` (`_build_extraction_metadata`, `:607-630`).
-- [ ] #3 Un acteur YouTube qui ne renvoie aucune des graphies sondées laisse la description vide sans échec, sans retry et sans log d'erreur — même contrat que le thumbnail absent (`:136-141`). Le commentaire qui accompagne le tuple dit que le schéma de sortie ne la déclare pas.
-- [ ] #4 Un lecteur unique et normalisé rend la description d'un job quelle que soit la plateforme : la caption Instagram sous `extraction_metadata["resolver_metadata"]["caption"]`, la clé TikTok de l'AC #1 et la clé YouTube de l'AC #2 passent tous par lui. Il rend `None` sur un job sans description, et une chaîne débarrassée de ses espaces de bord sinon.
-- [ ] #5 `ResolvedSource` porte la description, `resolve_source` la remplit depuis le `job` qu'il tient déjà, et le payload SQS `sources[]` de `_build_generation_message` la transporte à côté de `published` et `captured` (`artifact_service.py:1272-1286`).
-- [ ] #6 `_download_transcripts` recopie la description dans le dict de source consommé par les générateurs (`workers/artifact_generator/worker.py:94-107`).
-- [ ] #7 `build_corpus_block` émet la description dans son propre bloc étiqueté — jamais dans la ligne d'en-tête `|`-jointe, qu'une description multi-lignes casserait — placé avant le texte du transcript, et n'émet rien du tout quand la source n'en porte pas. Le docstring de `build_corpus_block` explique le bloc et pourquoi il est distinct du transcript, sur le motif de ce qu'il fait déjà pour `published`/`captured`.
-- [ ] #8 Un fragment d'instruction partagé dit au modèle ce qu'est ce bloc (texte de présentation écrit par l'auteur, à traiter comme contenu de la source ; hashtags, appels à s'abonner, listes de liens et chapitres horodatés exclus de la matière), sur le motif rédactionnel de `transcript_markers_instruction`. Il est posé une seule fois dans le chemin partagé de `corpus.py`, sans modifier aucun des 5 générateurs ni `review_blurb`.
-- [ ] #9 Le fragment de l'AC #8 n'est émis que si au moins une source du corpus porte une description : il reste donc identique entre les 5 types d'une même génération, et le préfixe de cache décrit en tête de `corpus.py` est intact.
-- [ ] #10 Le `byte_length` de `ResolvedSource` inclut les octets de la description, et le recomptage du worker (`worker.py:308-316`) aussi, de sorte que le plafond `MAX_FOLDER_CORPUS_TOKENS` mesure ce qui est réellement envoyé au modèle. La description n'est tronquée nulle part.
-- [ ] #11 Le tuyau mort est supprimé : les paramètres `caption`, `comments` et `comments_count` de `enqueue_deepgram_transcription` (`deepgram_dispatch.py:49-51`, `:87-89`) et leurs arguments côté Instagram (`instagram_ingestion_worker.py:456-458`) disparaissent — `deepgram_worker` ne les a jamais lus, et le resolver n'a jamais produit de `comments`. Le docstring du worker Instagram (`:17`) ne les mentionne plus.
-- [ ] #12 `docs/INGESTION_WORKERS_PROVIDERS.md` ne prétend plus que le worker Instagram porte « the caption, the comments, the derived title » jusqu'à Deepgram (`:293`) et dit, pour les trois plateformes, où la description va réellement : `extraction_metadata`, puis le corpus des artefacts et de l'aperçu.
+- [x] #1 Le worker TikTok écrit la description de `info` dans `extraction_metadata` sur les deux chemins yt-dlp — sous-titres natifs (`_build_native_extraction_metadata`) et repli Deepgram (`_build_fallback_extraction_metadata`) — sous une clé stable et documentée. Sur le chemin Apify (`_build_apify_native_extraction_metadata`) la clé est absente ou nulle, l'acteur ne rendant qu'un transcript.
+- [x] #2 Le worker YouTube sonde la description du dataset Apify par un tuple de graphies connues, sur le motif exact de `_APIFY_TITLE_FIELDS` / `_APIFY_THUMBNAIL_FIELDS` (`youtube_ingestion_worker.py:131-141`) et via `_apify_item_string`, la retourne depuis `_parse_apify_transcript` (`:445-466`) et l'écrit dans `extraction_metadata` (`_build_extraction_metadata`, `:607-630`).
+- [x] #3 Un acteur YouTube qui ne renvoie aucune des graphies sondées laisse la description vide sans échec, sans retry et sans log d'erreur — même contrat que le thumbnail absent (`:136-141`). Le commentaire qui accompagne le tuple dit que le schéma de sortie ne la déclare pas.
+- [x] #4 Un lecteur unique et normalisé rend la description d'un job quelle que soit la plateforme : la caption Instagram sous `extraction_metadata["resolver_metadata"]["caption"]`, la clé TikTok de l'AC #1 et la clé YouTube de l'AC #2 passent tous par lui. Il rend `None` sur un job sans description, et une chaîne débarrassée de ses espaces de bord sinon.
+- [x] #5 `ResolvedSource` porte la description, `resolve_source` la remplit depuis le `job` qu'il tient déjà, et le payload SQS `sources[]` de `_build_generation_message` la transporte à côté de `published` et `captured` (`artifact_service.py:1272-1286`).
+- [x] #6 `_download_transcripts` recopie la description dans le dict de source consommé par les générateurs (`workers/artifact_generator/worker.py:94-107`).
+- [x] #7 `build_corpus_block` émet la description dans son propre bloc étiqueté — jamais dans la ligne d'en-tête `|`-jointe, qu'une description multi-lignes casserait — placé avant le texte du transcript, et n'émet rien du tout quand la source n'en porte pas. Le docstring de `build_corpus_block` explique le bloc et pourquoi il est distinct du transcript, sur le motif de ce qu'il fait déjà pour `published`/`captured`.
+- [x] #8 Un fragment d'instruction partagé dit au modèle ce qu'est ce bloc (texte de présentation écrit par l'auteur, à traiter comme contenu de la source ; hashtags, appels à s'abonner, listes de liens et chapitres horodatés exclus de la matière), sur le motif rédactionnel de `transcript_markers_instruction`. Il est posé une seule fois dans le chemin partagé de `corpus.py`, sans modifier aucun des 5 générateurs ni `review_blurb`.
+- [x] #9 Le fragment de l'AC #8 n'est émis que si au moins une source du corpus porte une description : il reste donc identique entre les 5 types d'une même génération, et le préfixe de cache décrit en tête de `corpus.py` est intact.
+- [x] #10 Le `byte_length` de `ResolvedSource` inclut les octets de la description, et le recomptage du worker (`worker.py:308-316`) aussi, de sorte que le plafond `MAX_FOLDER_CORPUS_TOKENS` mesure ce qui est réellement envoyé au modèle. La description n'est tronquée nulle part.
+- [x] #11 Le tuyau mort est supprimé : les paramètres `caption`, `comments` et `comments_count` de `enqueue_deepgram_transcription` (`deepgram_dispatch.py:49-51`, `:87-89`) et leurs arguments côté Instagram (`instagram_ingestion_worker.py:456-458`) disparaissent — `deepgram_worker` ne les a jamais lus, et le resolver n'a jamais produit de `comments`. Le docstring du worker Instagram (`:17`) ne les mentionne plus.
+- [x] #12 `docs/INGESTION_WORKERS_PROVIDERS.md` ne prétend plus que le worker Instagram porte « the caption, the comments, the derived title » jusqu'à Deepgram (`:293`) et dit, pour les trois plateformes, où la description va réellement : `extraction_metadata`, puis le corpus des artefacts et de l'aperçu.
 
-- [ ] #13 Une vérification directe contre `-dev` est consignée dans les Implementation Notes : sur au moins un job Instagram réel, `extraction_metadata.resolver_metadata.caption` est bien renseignée en base (`aws dynamodb ... --region eu-west-3` — `AWS_REGION` du shell pointe ailleurs). C'est la prémisse dont dépend le lecteur de l'AC #4.
-- [ ] #14 `ruff check` et `mypy` passent sur `media_summarizer/`.
+- [x] #13 Une vérification directe contre `-dev` est consignée dans les Implementation Notes : sur au moins un job Instagram réel, `extraction_metadata.resolver_metadata.caption` est bien renseignée en base (`aws dynamodb ... --region eu-west-3` — `AWS_REGION` du shell pointe ailleurs). C'est la prémisse dont dépend le lecteur de l'AC #4.
+- [x] #14 `ruff check` et `mypy` passent sur `media_summarizer/`.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+### Le trajet, tel qu'il est câblé
+
+`media_summarizer/core/media_ingestion/source_description.py` est le nouveau module pur qui tient les deux bouts : la clé canonique `SOURCE_DESCRIPTION_KEY = "source_description"`, le normalisateur d'écriture `normalize_source_description`, et le lecteur unique `job_source_description` (AC #4). Le lecteur sonde deux chemins sur `job.extraction_metadata`, dans l'ordre : `source_description` (TikTok, YouTube), puis `resolver_metadata.caption` (Instagram, qui l'écrit là depuis task-266). Il strippe, ne tronque jamais, et rend `None` quand rien ne mord. Une quatrième plateforme = une entrée de tuple ici, rien ailleurs.
+
+Ensuite : `ResolvedSource.description` ← `job_source_description(job)` dans `resolve_source` (le seul site d'appel, il tenait déjà le job) → clé `description` de `sources[]` dans `build_generation_message` → clé `description` du dict de `_download_transcripts` → bloc `--- author description ---` dans `build_corpus_block`.
+
+### Vérification directe contre `-dev` (AC #13)
+
+`aws dynamodb scan --table-name processing_jobs-dev --region eu-west-3` filtré sur `source_platform = "instagram"` : **14 jobs Instagram, dont 10 portent `extraction_metadata.resolver_metadata.caption` sous forme de chaîne non vide** (longueurs relevées : 456, 79 et 1 673 caractères — le contenu n'est pas recopié ici). Les 4 autres sont des jobs en échec dont `resolver_metadata` vaut `NULL`, ce qui est cohérent : le resolver n'a pas produit de métadonnées. La prémisse de l'AC #4 tient donc, et le lecteur trouvera bien quelque chose sur les jobs Instagram existants.
+
+Second relevé, sur le même scan élargi aux 78 jobs de la table : **aucun job ne porte déjà une clé `extraction_metadata.source_description`**. La clé canonique choisie n'entre en collision avec rien en base.
+
+### Le bloc dans le corpus, rendu réel
+
+Layout produit par `build_prompt` sur une source qui porte une description et une qui n'en porte pas :
+
+```
+[S1] | title: A | language: fr | captured: 2026-09-09
+--- author description ---
+Ma recette
+
+#food #paris
+--- transcript ---
+Bonjour tout le monde.
+
+[S2] | title: B
+No desc here.
+```
+
+Trois choses à noter. La description ne touche pas la ligne d'en-tête `|`-jointe (AC #7). Le marqueur `--- transcript ---` n'est émis que lorsqu'une description le précède, donc **une source sans description garde exactement la mise en page qu'elle avait avant cette tâche** — pas de bloc vide, pas de marqueur orphelin. Et le fragment d'instruction (`source_description_instruction`) est posé une seule fois, dans `build_prompt`, entre le corpus et les instructions de type : il ne dépend que des sources, donc les 5 types (+ l'aperçu) d'une même génération le portent tous ou aucun (AC #9), et comme il se place *avant* la partie qui varie, il rallonge le préfixe partagé du cache au lieu de le casser. Aucun des 5 générateurs ni `review_blurb` n'a été touché (AC #8), et le commentaire de tête de `corpus.py` sur le préfixe de cache est inchangé.
+
+### Le volume
+
+`ResolvedSource.byte_length` = octets du transcript effectif **+** octets de la description ; le recomptage post-traduction du worker additionne `source["text"]` et `source["description"]`. `MAX_FOLDER_CORPUS_TOKENS` mesure donc ce qui part réellement au modèle (AC #10). Rien n'est tronqué : si un dossier passe au-dessus, c'est le refus `corpus_too_large` existant qui répond, avant tout appel au modèle.
+
+Effet de bord assumé sur le payload SQS : la description voyage en clair (elle n'a pas d'objet S3 à pointer). Les plateformes plafonnent ce qu'elles exposent (5 000 caractères sur YouTube, 2 200 sur Instagram), donc un dossier plein de sources bavardes reste sous la limite de 256 kB de SQS. Le commentaire du payload le dit.
+
+### Le tuyau mort (AC #11)
+
+`caption`, `comments` et `comments_count` sont supprimés de `enqueue_deepgram_transcription` et de son unique appelant Instagram. Vérifié avant suppression : `grep` sur `deepgram_worker.py` ne renvoie aucune occurrence de `caption` ni de `comments`, et aucun test ne référençait ces paramètres. Le resolver n'a d'ailleurs jamais produit de `comments` — l'appelant passait `resolver_metadata.get("comments", [])`, soit toujours `[]`. Pas de couche de compatibilité, suppression dans le même run.
+
+### Documentation
+
+`docs/INGESTION_WORKERS_PROVIDERS.md` : l'affirmation fausse de l'étape 4 d'Instagram est corrigée, et une section transverse « Where the author's description goes (task-383) » donne le tableau des trois plateformes (+ X et le repli Apify TikTok, qui n'en portent pas et pourquoi), le trajet complet et le contrat de tolérance. `docs/MEDIA_INGESTION_CORE_ARCHITECTURE.md` §6 disait aussi que la caption était « forwarded to Deepgram » : corrigé au même endroit, avec renvoi vers la section canonique.
+
+### Ce qui reste hors de portée de l'implémenteur
+
+Aucun AC n'est resté non coché, mais la **vérification qui compte n'est pas faite** et ne peut pas l'être d'ici : il faut le déploiement (déclenché au push sur `main`, bien après ma sortie) puis un E2E sur `-dev` — sauver un reel, un TikTok et une vidéo YouTube, puis lire l'aperçu et un résumé. Côté YouTube en particulier, **seul un run réel dira si l'acteur configuré renvoie une des quatre graphies sondées** : le schéma de sortie ne déclare pas la description, exactement comme pour le titre et le thumbnail. Si aucune ne mord, la conclusion est qu'il faut un autre acteur, pas que le câblage est cassé. Les notes 1 à 5 de la description de la tâche restent le mode opératoire.
+
+Aucun test automatisé n'a été écrit (règle du projet). Le rendu du prompt ci-dessus a été obtenu par un appel direct et jetable à `corpus.build_prompt`, sans fichier créé.
+<!-- SECTION:NOTES:END -->

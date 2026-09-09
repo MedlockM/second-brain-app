@@ -37,6 +37,14 @@ def source_label(index: int) -> str:
     return f"[S{index + 1}]"
 
 
+# Delimiters of the author-description block. Long enough not to collide with a
+# line of the description itself, and the transcript delimiter is emitted only
+# when a description precedes it, so that a source without one keeps the exact
+# layout it had before task-383.
+DESCRIPTION_MARKER = "--- author description ---"
+TRANSCRIPT_MARKER = "--- transcript ---"
+
+
 def build_corpus_block(sources: Sequence[Dict[str, Any]]) -> str:
     """The tagged corpus: a header per source, then its full text.
 
@@ -57,6 +65,16 @@ def build_corpus_block(sources: Sequence[Dict[str, Any]]) -> str:
     * ``captured`` — the day the text entered the library, i.e. the day it was
       fetched. Always available, and on a source whose content *is* a bulletin it
       is precisely the day its "today" refers to.
+
+    ``description`` gets a **block**, not a header field, and the two reasons are
+    independent. Shape: the header is one ``|``-joined line, and an author's
+    description is multi-line, hashtag- and link-laden text that would blow it
+    apart. Substance: it is *written* text, while the transcript is transcribed
+    speech — the reader tab shows the transcript verbatim and
+    ``transcript_markers_instruction`` tells the model the sources are speech, so
+    folding written prose into it would contradict both (task-383). The block sits
+    between the header and the transcript, delimited both sides, and a source
+    carrying no description emits nothing at all — no empty block, no marker.
     """
     blocks: List[str] = []
     for index, source in enumerate(sources):
@@ -74,21 +92,75 @@ def build_corpus_block(sources: Sequence[Dict[str, Any]]) -> str:
         if captured:
             header_parts.append(f"captured: {captured}")
         text = (source.get("text") or "").strip()
-        blocks.append(" | ".join(header_parts) + "\n" + text)
+        body = text
+        description = (source.get("description") or "").strip()
+        if description:
+            body = (
+                f"{DESCRIPTION_MARKER}\n{description}\n"
+                f"{TRANSCRIPT_MARKER}\n{text}"
+            )
+        blocks.append(" | ".join(header_parts) + "\n" + body)
     return "\n\n".join(blocks)
+
+
+def has_description(sources: Sequence[Dict[str, Any]]) -> bool:
+    """Whether any source of this corpus carries an author description."""
+    return any((source.get("description") or "").strip() for source in sources)
 
 
 def build_prompt(
     sources: Sequence[Dict[str, Any]],
     instructions: str,
 ) -> str:
-    """Assemble preamble → corpus → instructions, in that order."""
+    """Assemble preamble → corpus → instructions, in that order.
+
+    ``source_description_instruction`` is placed here, once, rather than in each
+    of the six generators: the block it describes is a property of the corpus, not
+    of the artifact type, and the note is worded identically for all of them. It
+    lands between the corpus and the type instructions, which keeps it inside the
+    prefix the five requests of one generation share — so it lengthens the cached
+    prefix instead of breaking it. It depends only on the sources, so the five
+    types of one generation either all carry it or none does.
+    """
+    description_note = (
+        f"{source_description_instruction()}\n\n" if has_description(sources) else ""
+    )
     return (
         f"{PROMPT_PREAMBLE}\n"
         f"===== SOURCES =====\n"
         f"{build_corpus_block(sources)}\n"
         f"===== END OF SOURCES =====\n\n"
+        f"{description_note}"
         f"{instructions}"
+    )
+
+
+def source_description_instruction() -> str:
+    """What the description block is, and which part of it is not material.
+
+    The block is text the author wrote, so it is content of the source and has to
+    be read as such — it routinely carries what the audio never states: the
+    quantities of a recipe, the study a claim comes from, the name of the tool
+    being demoed. But it also has a tail that is pure navigation, and a model told
+    only "here is more text" treats that tail as substance: a YouTube description
+    ends on a wall of affiliate links, chapter timestamps and "subscribe for
+    more", which is exactly the material a quiz generator would turn into a
+    question about a promo code. Said once here, in the shared path, for the same
+    reason ``transcript_markers_instruction`` is: the rule is about how to read a
+    source, not about what to produce from it.
+    """
+    return (
+        f'A source may carry a "{DESCRIPTION_MARKER}" block between its header '
+        f'and its "{TRANSCRIPT_MARKER}" text. That block is the presentation text '
+        f"the author wrote for the source itself — a caption, a video description "
+        f"— so read it as content of that source, on the same footing as what is "
+        f"said in the transcript, and use it in particular for the facts the "
+        f"speech leaves implicit. Its tail usually is not material: hashtags, "
+        f"calls to subscribe or follow, promo and discount codes, lists of links "
+        f"to other platforms, credits, and timestamped chapter lists are "
+        f"promotion and navigation, not something the source teaches. Use those "
+        f"only to situate the source, never as a point to report, to summarise or "
+        f"to build a question on."
     )
 
 

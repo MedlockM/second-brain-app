@@ -38,6 +38,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import ValidationError
 
+from media_summarizer.core.media_ingestion.source_description import (
+    job_source_description,
+)
 from media_summarizer.core.models import ProcessingJob
 from media_summarizer.core.models.media_artifact import (
     DEFAULT_ARTIFACT_TYPES_ALLOWED,
@@ -468,14 +471,25 @@ class ResolvedSource:
         translation_metadata: Dict[str, Any],
         published: Optional[str] = None,
         captured: Optional[str] = None,
+        description: Optional[str] = None,
     ) -> None:
         self.media_item_id = media_item_id
         self.content_id = content_id
         self.title = title
         self.transcript_s3_key = transcript_s3_key
         self.language = language
+        #: Transcript bytes **plus** description bytes: what the model is actually
+        #: sent, which is what ``MAX_FOLDER_CORPUS_TOKENS`` has to measure. A
+        #: description in the prompt but out of the count would make the ceiling
+        #: report on something other than the request it guards.
         self.byte_length = byte_length
         self.translation_metadata = translation_metadata
+        #: The presentation text the author wrote next to the media — an Instagram
+        #: caption, a TikTok caption, a YouTube description. Its own corpus block,
+        #: never folded into the transcript: the transcript is shown verbatim in
+        #: the reader tab and the prompt tells the model it is transcribed speech
+        #: (task-383). None for every source whose platform has no such field.
+        self.description = description
         #: ``YYYY-MM-DD`` publication date, when the pipeline resolved a real one.
         #: Only the podcast path does today, so it is usually None.
         self.published = published
@@ -628,7 +642,8 @@ async def resolve_source(
 
     ``captured`` comes from the caller because it lives on the durable library row
     while the publication date lives on the job, and the job is what this function
-    already holds.
+    already holds. The author's description comes off that same job, through the
+    one reader that knows every platform's spelling (task-383).
     """
     transcript_s3_key, transcript_bytes = await _load_transcript_bytes(job)
     transcript_text = transcript_bytes.decode("utf-8", errors="ignore")
@@ -653,16 +668,21 @@ async def resolve_source(
         )
 
     metadata = outcome.metadata()
+    # Never truncated: a cut would sever a sentence, and the corpus ceiling is the
+    # right place to refuse a volume that grew too big (task-383).
+    description = job_source_description(job)
+    description_bytes = len(description.encode("utf-8")) if description else 0
     return ResolvedSource(
         media_item_id=media_item_id,
         content_id=content_id,
         title=title,
         transcript_s3_key=outcome.transcript_s3_key,
         language=metadata.get("target_language") or outcome.detected_language,
-        byte_length=len(effective_bytes),
+        byte_length=len(effective_bytes) + description_bytes,
         translation_metadata=metadata,
         published=_iso_date(getattr(job, "media_date_published", None)),
         captured=captured,
+        description=description,
     )
 
 
@@ -1267,8 +1287,11 @@ def build_generation_message(
             scope_id=effective_scope_id,
             sources=resolution.sources,
         ),
-        # Keys only: not a byte of transcript travels through the queue. ~5 kB at
-        # the 25-source ceiling, against SQS's 256 kB limit.
+        # No transcript byte travels through the queue: a key per source, plus the
+        # author's description, which has no S3 object to point at. ~5 kB of keys
+        # at the 25-source ceiling, and the platforms cap the description they
+        # expose (5 000 characters on YouTube, 2 200 on Instagram), so a full
+        # folder of description-heavy sources still sits inside SQS's 256 kB.
         "sources": [
             {
                 "media_item_id": source.media_item_id,
@@ -1281,6 +1304,11 @@ def build_generation_message(
                 # writing "today" into a permanent artifact (task-316 §2.7).
                 "published": source.published,
                 "captured": source.captured,
+                # The author's own presentation text, travelling as text rather
+                # than as a key: it lives on the job's `extraction_metadata`, so
+                # there is no S3 object to point at (task-383). None when the
+                # platform exposes no such field, which is most of them.
+                "description": source.description,
             }
             for source in resolution.sources
         ],

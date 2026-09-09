@@ -248,10 +248,14 @@ happens in the worker, never in the HTTP request:
    `displayUrl`, `images`, `childPosts` and the resolver a `MediaType.IMAGE_POST`
    payload. The worker fails the job with `unsupported_content` — no OCR/vision
    pipeline exists.
-6. **Caption**: extracted from the `caption` field of every scraper response,
-   persisted in resolved metadata and forwarded to Deepgram. It is also what the
-   title is derived from (task-266), which is why the title reaches the library
-   row only once the worker has run.
+6. **Caption**: extracted from the `caption` field of every scraper response and
+   persisted in resolved metadata, i.e. under
+   `extraction_metadata.resolver_metadata.caption` on the job — which is where the
+   artifact and review-blurb corpus reads it back (task-383,
+   `docs/INGESTION_WORKERS_PROVIDERS.md`, "Where the author's description goes").
+   Nothing descriptive is forwarded to Deepgram. It is also what the title is
+   derived from (task-266), which is why the title reaches the library row only
+   once the worker has run.
 7. The Apify poll loop bounds itself by the invocation's remaining time
    (`utils/invocation_budget.py`), so resolution cannot outlive the Lambda.
 

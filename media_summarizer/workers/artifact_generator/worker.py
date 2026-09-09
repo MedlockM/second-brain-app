@@ -103,6 +103,10 @@ async def _download_transcripts(
             # "today" a transcript is full of (task-316 §2.7).
             "published": source.get("published"),
             "captured": source.get("captured"),
+            # The author's presentation text, which travelled in the message
+            # rather than in S3. Its own corpus block, never merged into the
+            # transcript (task-383).
+            "description": source.get("description"),
             "text": content.decode("utf-8", errors="ignore"),
         }
 
@@ -304,9 +308,13 @@ async def process_message(message: Dict[str, Any]) -> None:
 
         # Second ceiling check, after translation: a translated corpus can be
         # longer than the original. Failing here costs nothing; sending a request
-        # the provider will reject costs the whole invocation.
+        # the provider will reject costs the whole invocation. The author's
+        # description counts too — it goes in the prompt, so it has to go in the
+        # measurement the ceiling is made of (task-383).
         corpus_bytes = sum(
-            len(source["text"].encode("utf-8")) for source in corpus_sources
+            len(source["text"].encode("utf-8"))
+            + len((source.get("description") or "").encode("utf-8"))
+            for source in corpus_sources
         )
         estimated_tokens = estimate_tokens(corpus_bytes)
         if estimated_tokens > MAX_FOLDER_CORPUS_TOKENS:

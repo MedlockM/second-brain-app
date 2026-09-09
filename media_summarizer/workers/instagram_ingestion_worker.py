@@ -14,8 +14,10 @@ Pipeline:
 - For reels: enqueues a Deepgram transcription job pointing at the resolved
   audio URL (or video URL fallback) with deepgram_mode="push" -- Instagram CDNs
   block Deepgram's pull, so the Deepgram worker downloads the bytes and posts
-  them itself. Carries the caption, the comments, the derived title (task-266)
-  and the Instagram quota category.
+  them itself. Carries the derived title (task-266) and the Instagram quota
+  category, and nothing descriptive: the caption stays on the job, under
+  extraction_metadata.resolver_metadata.caption, which is where the artifact
+  corpus reads it (task-383).
 - Image posts (single and carousel) fail with IMAGE_POST_UNSUPPORTED: no
   OCR/vision pipeline exists.
 - Fails terminally when no audio URL is available.
@@ -453,9 +455,6 @@ async def process_instagram_message(message_body: Dict[str, Any]) -> Dict[str, A
             quota_debited_minutes=gate.debited_minutes,
             quota_debit_skipped=gate.debit_skipped,
             resolver_key=resolved.resolver_key,
-            caption=resolver_metadata.get("caption"),
-            comments=resolver_metadata.get("comments", []),
-            comments_count=resolver_metadata.get("comments_count", 0),
         )
 
         log_event(
