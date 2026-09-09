@@ -82,17 +82,122 @@ Au minimum, et en disant honnêtement pour chacune si une API publique existe :
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tableau comparatif couvrant les trois familles (pipelines OSS, fournisseurs TTS pilotés par nous, API clés en main) et au moins 8 solutions au total, avec pour chacune : coût, latence, langues, multi-voix, format de sortie. Chaque chiffre porte une URL et une date de consultation.
-- [ ] #2 La piste de l'owner est tranchée factuellement : ce qu'`open-notebook` utilise réellement pour le podcast (lu dans les sources du dépôt, pas dans le README), sa licence, ses dépendances, et l'arbitrage entre les trois options — dépendre du paquet, copier-adapter, ou ne réimplémenter que ce qu'on ne possède pas déjà.
-- [ ] #3 Coût en EUR par épisode de 5, 15 et 30 minutes pour chaque candidat de la short-list, coût du script LLM et coût du TTS séparés.
-- [ ] #4 Une enveloppe de calcul est nommée : l'approche retenue tient ou ne tient pas dans le plafond de 900 s d'une Lambda, et sinon laquelle de (relever mémoire/timeout, éclatement par segment sur `artifact-generator-queue`, Step Functions, Fargate) est recommandée — avec les latences sourcées qui l'imposent.
-- [ ] #5 La question de l'assemblage est répondue : un fichier rendu par le fournisseur ou N segments à concaténer, et si concaténation, par quel mécanisme et ce qu'il ajoute à l'image du worker — explicitement face au fait que ffmpeg en est absent par choix (`core/services/audio_duration_probe.py`).
-- [ ] #6 Couverture linguistique documentée pour les 11 locales de `mobile/src/i18n/locales.ts`, avec un verdict explicite sur `ar` et `hi`.
-- [ ] #7 Une recommandation de livraison des octets audio (le point d'entrée `GET /api/artifacts/{id}/content` inline du JSON et ne peut pas les servir) : canal, format, débit, poids d'un épisode de 30 min, support du seek.
-- [ ] #8 Une règle de comptage proposée, écrite face à la décision validée de task-287 (« on ne compte que des minutes ») et à la conversion actuelle `minutes_for_folder_sources` (1 minute pour 5 sources, média gratuit), chiffres à l'appui.
-- [ ] #9 Un identifiant de type d'artefact proposé — vu que « podcast » désigne déjà un épisode ingéré depuis PodcastIndex — et le jeu de `parameters` à exposer, avec sa conséquence énoncée sur `build_artifact_id` (deux jeux différents = deux artefacts, jeu identique = réutilisation).
-- [ ] #10 Une section licence et CGU : licence du candidat OSS retenu, ce que les CGU du fournisseur retenu disent de la propriété et de la rediffusion de l'audio généré. Le clonage de voix y est déclaré hors périmètre.
-- [ ] #11 Une section modes d'échec et retry : ce qu'il advient des segments déjà synthétisés et payés quand la génération échoue, et la cohérence avec le bail de génération du worker.
-- [ ] #12 Aucun chiffre inventé : tout nombre non sourcé est marqué comme estimation et accompagné de sa méthode de calcul.
-- [ ] #13 Le livrable est `docs/research/task-386-podcast-artifact-generation/README.md`, front-matter `owner_decision: pending` et section `Owner Validation` vide (champs `Decision` et `Validated at` prêts à être remplis).
+- [x] #1 Tableau comparatif couvrant les trois familles (pipelines OSS, fournisseurs TTS pilotés par nous, API clés en main) et au moins 8 solutions au total, avec pour chacune : coût, latence, langues, multi-voix, format de sortie. Chaque chiffre porte une URL et une date de consultation.
+- [x] #2 La piste de l'owner est tranchée factuellement : ce qu'`open-notebook` utilise réellement pour le podcast (lu dans les sources du dépôt, pas dans le README), sa licence, ses dépendances, et l'arbitrage entre les trois options — dépendre du paquet, copier-adapter, ou ne réimplémenter que ce qu'on ne possède pas déjà.
+- [x] #3 Coût en EUR par épisode de 5, 15 et 30 minutes pour chaque candidat de la short-list, coût du script LLM et coût du TTS séparés.
+- [x] #4 Une enveloppe de calcul est nommée : l'approche retenue tient ou ne tient pas dans le plafond de 900 s d'une Lambda, et sinon laquelle de (relever mémoire/timeout, éclatement par segment sur `artifact-generator-queue`, Step Functions, Fargate) est recommandée — avec les latences sourcées qui l'imposent.
+- [x] #5 La question de l'assemblage est répondue : un fichier rendu par le fournisseur ou N segments à concaténer, et si concaténation, par quel mécanisme et ce qu'il ajoute à l'image du worker — explicitement face au fait que ffmpeg en est absent par choix (`core/services/audio_duration_probe.py`).
+- [x] #6 Couverture linguistique documentée pour les 11 locales de `mobile/src/i18n/locales.ts`, avec un verdict explicite sur `ar` et `hi`.
+- [x] #7 Une recommandation de livraison des octets audio (le point d'entrée `GET /api/artifacts/{id}/content` inline du JSON et ne peut pas les servir) : canal, format, débit, poids d'un épisode de 30 min, support du seek.
+- [x] #8 Une règle de comptage proposée, écrite face à la décision validée de task-287 (« on ne compte que des minutes ») et à la conversion actuelle `minutes_for_folder_sources` (1 minute pour 5 sources, média gratuit), chiffres à l'appui.
+- [x] #9 Un identifiant de type d'artefact proposé — vu que « podcast » désigne déjà un épisode ingéré depuis PodcastIndex — et le jeu de `parameters` à exposer, avec sa conséquence énoncée sur `build_artifact_id` (deux jeux différents = deux artefacts, jeu identique = réutilisation).
+- [x] #10 Une section licence et CGU : licence du candidat OSS retenu, ce que les CGU du fournisseur retenu disent de la propriété et de la rediffusion de l'audio généré. Le clonage de voix y est déclaré hors périmètre.
+- [x] #11 Une section modes d'échec et retry : ce qu'il advient des segments déjà synthétisés et payés quand la génération échoue, et la cohérence avec le bail de génération du worker.
+- [x] #12 Aucun chiffre inventé : tout nombre non sourcé est marqué comme estimation et accompagné de sa méthode de calcul.
+- [x] #13 Le livrable est `docs/research/task-386-podcast-artifact-generation/README.md`, front-matter `owner_decision: pending` et section `Owner Validation` vide (champs `Decision` et `Validated at` prêts à être remplis).
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Dispatch 2026-09-09, mode **initial** (no `docs/research/task-386-*` directory existed, so no
+owner-rejected README and no complement request to integrate).
+
+Deliverable: `docs/research/task-386-podcast-artifact-generation/README.md`, front-matter
+`owner_decision: pending`, `Owner Validation` section left empty for the owner. **The
+recommendation awaits the owner's validation** — the task stays `To Do` and is not marked Done
+by this agent.
+
+Recommendation in one line: **drive Azure AI Speech batch synthesis directly over REST** from the
+existing `artifact_generator`, feeding it one SSML document with several `<voice>` elements, and
+**adopt nothing from `podcast-creator` / `open-notebook`**.
+
+What was settled, with the load-bearing findings:
+
+- **The owner's lead is factually correct about which package, and it is still rejected.**
+  `open-notebook` 1.14.0 (MIT) has no podcast module of its own: it declares
+  `podcast-creator>=0.12.0,<1` and calls `from podcast_creator import configure, create_podcast`.
+  `podcast-creator` 0.12.0 (MIT) synthesises **one audio file per dialogue turn**
+  (`nodes.py::generate_all_audio_node`, batches of `TTS_BATCH_SIZE`, default 5) and stitches them
+  with **moviepy** (`core.py::combine_audio_files`, `concatenate_audioclips`). That stitching is
+  its entire unique contribution over what this repo already owns — and it is the one thing the
+  worker image must not gain.
+- **Dependency weight measured, not estimated.** Both wheel closures resolved from scratch for
+  `linux/aarch64` + CPython 3.12: **70 wheels / 55.8 MB today** vs **149 wheels / 194.4 MB** with
+  `podcast-creator` = **+138.6 MB, 3.48x**. Largest additions: `nodejs-wheel-binaries` 60.59 MB (a
+  whole Node.js runtime), `imageio-ffmpeg` 25.63 MB (ships an ffmpeg binary), `pymupdf` 25.10 MB,
+  `numpy` 15.67 MB, `pandas` 10.49 MB. **Six of those wheels have no glibc-2.17 build**, so
+  adoption would first require migrating the worker off the Amazon Linux 2 base image. The pillow
+  collision is empirical: our closure resolves 12.2.0, theirs 11.3.0 — and `open-notebook` itself
+  carries an `override-dependencies = ["pillow>=12.2.0"]` workaround for open security advisories
+  caused by exactly that cap.
+- **The assembly question disappears rather than being answered.** Azure batch synthesis renders
+  **one** file, either from one SSML document with several `<voice>` elements or via
+  `concatenateResult: true`. `<speak>`/`<voice>` markup is documented as **not billable**. So: no
+  ffmpeg, no pydub, no moviepy, no Speech SDK — **zero new Python packages**, which keeps
+  `audio_duration_probe.py`'s ffmpeg-free invariant intact. The batch response even returns
+  `durationInMilliseconds`, so nothing needs probing.
+- **Every rival forces per-turn synthesis.** Polly does not support the `<voice>` SSML tag at all
+  and truncates `SynthesizeSpeech` audio at 10 minutes; Deepgram caps at 2 000 characters;
+  ElevenLabs Text-to-Dialogue advises <=2 000; Gemini is capped at ~21.3 minutes per call by its
+  32 000-token session window, allows 2 speakers, and returns headerless PCM; Azure's own
+  real-time endpoint stops at 10 minutes. Cartesia (44 languages, best coverage found) also takes
+  one voice per call.
+- **Language coverage decides it.** All 11 locales of `mobile/src/i18n/locales.ts` are served by
+  Azure Neural with a verified Female/Male pair each. `ar`: 32 voices across 16 Arabic locales,
+  exactly 1F + 1M each, no HD tier — enough for two hosts and not one voice more. `hi-IN`: 9
+  Standard (5M/4F) plus 8 MAI-Voice-2 HD/HD-Flash entries, fully served. Disqualifiers found:
+  **Deepgram Aura covers 7 languages only** (so our own STT provider cannot serve this), **Polly in
+  `eu-west-3` has no `hi-IN` voice at all**, Kokoro-82M has no `de`/`nl`/`ar`.
+- **Compute envelope named: unchanged.** 512 MB / 300 s on the existing unified
+  `artifact-generator-queue`, submit-then-poll modelled on `apify_orchestration` + the delayed-SQS
+  `apify_backstop`. Azure batch is asynchronous at p50 10-20 s / p95 <=120 s, so nothing approaches
+  the 900 s Lambda ceiling — versus open-notebook's documented "10+ minutes for a 30-minute
+  episode", which does not fit. No memory bump, no per-segment fan-out, no Step Functions, no
+  Fargate. The single code-level constraint: **`GENERATION_LEASE_SECONDS` must be re-armed on every
+  poll hop**, else a multi-hop job looks abandoned and Azure is paid twice.
+- **Metering derived from task-287's own formula**, not invented: `round(real_cost / 0.00664)`
+  gives 13 / 33 / 63 metered minutes for a 5 / 15 / 30-minute episode; the proposed closed form
+  `2 x target_minutes + 5` charges 15 / 35 / 65, covering with a 1.15x worst-case margin (better
+  than the 1.5x already accepted in task-287's table). The `+5` happens to equal what
+  `minutes_for_folder_sources` already charges for a full 25-source folder. **One flagged departure:
+  media-scope generation cannot stay free for this type** (EUR 0.0866 vs the EUR 0.0005-0.0032 that
+  justified the free row). **One product finding: a 30-minute episode costs 65 metered minutes and
+  therefore does not fit at all inside Reader's 60**, hence the recommendation to expose 5 and 15
+  minutes only.
+- **Type identifier proposed: `audio_digest`** (verified absent from `media_summarizer/` and
+  `mobile/src/`), with closed-enum `parameters` (`target_minutes` in {5,15}, `hosts` in {1,2},
+  `tone`) precisely because `build_artifact_id` hashes `parameters` — an open integer or free-text
+  value would let one screen mint unbounded distinct paid artifacts. `build_artifact_storage_key`
+  must stop hard-coding `.json`.
+- **Byte delivery**: presigned S3 GET via the existing `utils/s3.generate_presigned_url`; Range
+  seeking verified empirically against a `-dev` bucket (206 / `Accept-Ranges: bytes` /
+  `Content-Range`). `audio-24khz-48kbitrate-mono-mp3` = 1.8 / 5.4 / 10.8 MB; `eu-west-3` storage,
+  egress and GET costs are three orders of magnitude below synthesis.
+- **Licence/ToS**: podcast-creator and open-notebook MIT, podcastfy Apache-2.0, Kokoro Apache-2.0 —
+  no licence obstacle anywhere, the rejection is purely engineering. Microsoft Product Terms:
+  "Output Content is Customer Data", "Microsoft does not own Customer's Output Content". Batch input
+  text and results are stored in Azure storage for 168 h by default, so **the worker must `DELETE`
+  the job** after download. Voice cloning declared out of scope, which keeps us clear of the whole
+  custom/personal-voice regime.
+- **Two things deliberately left open and marked as such**: the Azure CJK character-doubling factor
+  (sourced, but no vendor publishes chars/min for CJK speech, so no factor is computed — the
+  implementation should log `neuralCharacters` to make it measurable), and the two-host prompt
+  design.
+
+AC #12 discipline: the only estimate the cost tables rest on is **1 000 billable characters ~ 1
+minute of speech**, labelled ESTIMATE with its anchor (Azure's documented per-voice
+`WordsPerMinute`, sample values 139-293) and its counter-datum (Microsoft's own 29-char/2 500 ms
+batch example implies 696 chars/min, but it is a single five-word sentence). Because per-character
+pricing is linear, every TTS figure rescales by one multiplication if the owner prefers another
+basis. Two further numbers are flagged as estimates in place: the Cartesia per-minute derivation,
+and `gpt-4o-mini-tts` marked **not computable** rather than guessed.
+
+Credentials the implementation will need (names only, values never in the repo): an Azure **Speech**
+resource in **France Central**, tier **Standard S1** (not Free F0 — batch synthesis returns HTTP 400
+for F0 there) — its key as a secret, its region and resource name as runtime config. Portal path
+recorded in the README section 15.
+
+Owner note carried in the README, not as an AC: the first end-to-end run can only happen after the
+key is provisioned and the worker image is redeployed on a push to `main`.
+<!-- SECTION:NOTES:END -->
