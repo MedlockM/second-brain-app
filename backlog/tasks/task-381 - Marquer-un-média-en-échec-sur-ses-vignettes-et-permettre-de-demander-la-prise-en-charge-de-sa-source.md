@@ -3,10 +3,10 @@ id: task-381
 title: >-
   Marquer un média en échec sur ses vignettes et permettre de demander la prise
   en charge de sa source
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 16:23'
-updated_date: '2026-09-08 17:42'
+updated_date: '2026-09-09 10:55'
 labels:
   - mobile
   - backend
