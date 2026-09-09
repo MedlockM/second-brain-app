@@ -3,7 +3,7 @@ id: task-382
 title: >-
   Alerter par mail sur un nouveau rapport de bug et supprimer le routage Discord
   mort
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 16:43'
 labels:
@@ -73,13 +73,66 @@ Les deux touchent `media_summarizer/core/services/bug_report_service.py` et l'en
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `create_bug_report` émet la création par `log_event` (`media_summarizer/utils/logging_config.py:259`) avec un `event` structuré nommé selon la convention `domaine.verbe_au_participe`, portant au minimum l'identifiant du rapport, `source_platform`, `source_app_version` et — quand ils sont présents — le `media_item_id` et l'`error_code` introduits par task-381. La f-string `logger.info(f"Bug report created: ...")` ne subsiste pas.
-- [ ] #2 Un `aws_cloudwatch_log_metric_filter` sur `aws_cloudwatch_log_group.lambda_api` transforme cet événement en métrique dans `local.metrics_namespace`, avec `value = "1"` et `default_value = "0"`, sur le motif de `revenucat_tier_unresolved` (`revenucat_alerts.tf:27-38`).
-- [ ] #3 Un `aws_cloudwatch_metric_alarm` gardé par `count = var.enable_alarms ? 1 : 0` déclenche sur cette métrique avec un seuil de `0`, et route vers `aws_sns_topic.pipeline_alerts[0].arn` en `alarm_actions`. Son `alarm_description` dit quoi faire et cite une section ajoutée à `infrastructure/observability/runbooks/pipeline-alerts.md`, sur le motif des descriptions de `durable_media_alerts.tf` — aucun nouveau fichier de runbook n'est créé.
-- [ ] #4 Aucun nouveau topic SNS ni abonnement mail n'est créé : `aws_sns_topic.pipeline_alerts` et `aws_sns_topic_subscription.pipeline_alerts_email` sont réutilisés tels quels, et aucune adresse mail n'apparaît dans un fichier du dépôt.
-- [ ] #5 `BugReportService.route_to_triage`, son embed Discord, l'import `httpx` s'il ne sert plus qu'à lui, la constante `BUG_REPORT_ROUTING_WEBHOOK` et l'appel `try/except` correspondant dans `create_bug_report` sont supprimés. `grep -rn 'route_to_triage\|BUG_REPORT_ROUTING_WEBHOOK\|discord' media_summarizer/` ne renvoie plus rien.
-- [ ] #6 `docs/community/bug-reports.md` ne mentionne plus Discord une seule fois — ni dans « Where reports go », ni dans « Who responds », ni à l'étape 1 de « How to triage », ni dans la ligne « Discord messages » de « Data retention / RGPD » — et décrit à la place l'alerte mail via SNS et la lecture par scan de la table `bug_reports`.
-- [ ] #7 `docs/community/bug-reports.md` donne la commande de lecture exacte des rapports, avec `--region eu-west-3` explicite puisque `AWS_REGION` du shell pointe ailleurs.
-- [ ] #8 `terraform validate` passe dans `infrastructure/terraform/`, et `terraform fmt -check` ne signale aucun écart sur les fichiers touchés.
-- [ ] #9 `ruff check` et `mypy` passent sur `media_summarizer/`.
+- [x] #1 `create_bug_report` émet la création par `log_event` (`media_summarizer/utils/logging_config.py:259`) avec un `event` structuré nommé selon la convention `domaine.verbe_au_participe`, portant au minimum l'identifiant du rapport, `source_platform`, `source_app_version` et — quand ils sont présents — le `media_item_id` et l'`error_code` introduits par task-381. La f-string `logger.info(f"Bug report created: ...")` ne subsiste pas.
+- [x] #2 Un `aws_cloudwatch_log_metric_filter` sur `aws_cloudwatch_log_group.lambda_api` transforme cet événement en métrique dans `local.metrics_namespace`, avec `value = "1"` et `default_value = "0"`, sur le motif de `revenucat_tier_unresolved` (`revenucat_alerts.tf:27-38`).
+- [x] #3 Un `aws_cloudwatch_metric_alarm` gardé par `count = var.enable_alarms ? 1 : 0` déclenche sur cette métrique avec un seuil de `0`, et route vers `aws_sns_topic.pipeline_alerts[0].arn` en `alarm_actions`. Son `alarm_description` dit quoi faire et cite une section ajoutée à `infrastructure/observability/runbooks/pipeline-alerts.md`, sur le motif des descriptions de `durable_media_alerts.tf` — aucun nouveau fichier de runbook n'est créé.
+- [x] #4 Aucun nouveau topic SNS ni abonnement mail n'est créé : `aws_sns_topic.pipeline_alerts` et `aws_sns_topic_subscription.pipeline_alerts_email` sont réutilisés tels quels, et aucune adresse mail n'apparaît dans un fichier du dépôt.
+- [x] #5 `BugReportService.route_to_triage`, son embed Discord, l'import `httpx` s'il ne sert plus qu'à lui, la constante `BUG_REPORT_ROUTING_WEBHOOK` et l'appel `try/except` correspondant dans `create_bug_report` sont supprimés. `grep -rn 'route_to_triage\|BUG_REPORT_ROUTING_WEBHOOK\|discord' media_summarizer/` ne renvoie plus rien.
+- [x] #6 `docs/community/bug-reports.md` ne mentionne plus Discord une seule fois — ni dans « Where reports go », ni dans « Who responds », ni à l'étape 1 de « How to triage », ni dans la ligne « Discord messages » de « Data retention / RGPD » — et décrit à la place l'alerte mail via SNS et la lecture par scan de la table `bug_reports`.
+- [x] #7 `docs/community/bug-reports.md` donne la commande de lecture exacte des rapports, avec `--region eu-west-3` explicite puisque `AWS_REGION` du shell pointe ailleurs.
+- [x] #8 `terraform validate` passe dans `infrastructure/terraform/`, et `terraform fmt -check` ne signale aucun écart sur les fichiers touchés.
+- [x] #9 `ruff check` et `mypy` passent sur `media_summarizer/`.
 <!-- AC:END -->
+
+## Implementation Notes
+
+### Changes Made
+
+**Code Cleanup:**
+- Removed `BugReportService.route_to_triage()` method completely (166-202 lines deleted from `bug_report_service.py`)
+- Removed `BUG_REPORT_ROUTING_WEBHOOK` environment variable constant
+- Removed `import httpx` (no longer needed)
+- Removed try/except block calling `route_to_triage` in `bug_reports.py` (lines 251-255)
+- Updated docstrings to remove Discord references
+
+**Event Logging:**
+- Added `from media_summarizer.utils.logging_config import log_event` to `bug_report_service.py`
+- Replaced `logger.info(f"Bug report created: ...")` f-string with structured `log_event` call
+- Event name: `bug_report.created` (follows `domaine.verbe_au_participe` convention)
+- Event fields: `report_id`, `user_id`, `source_platform`, `source_app_version`, `media_item_id`, `error_code`
+
+**Terraform Infrastructure:**
+- Created `infrastructure/terraform/modules/platform/bug_report_alerts.tf` with:
+  - `aws_cloudwatch_log_metric_filter.bug_report_created`: filters on `$.event = "bug_report.created"`
+  - `aws_cloudwatch_metric_alarm.bug_report_created`: threshold 0, routes to `aws_sns_topic.pipeline_alerts[0].arn`
+  - Uses existing `local.metrics_namespace` and `local.suffix`
+  - Gated on `var.enable_alarms` following module convention
+
+**Documentation:**
+- Added "Bug Reports" section to `infrastructure/observability/runbooks/pipeline-alerts.md` with:
+  - Alarm name, severity, threshold
+  - Event schema and field descriptions
+  - Investigation steps with exact AWS CLI commands (--region eu-west-3 explicit)
+  - First response and escalation guidance
+- Updated table of contents to include new section
+- Updated `docs/community/bug-reports.md`:
+  - Removed all Discord references (4 locations per AC #6)
+  - Updated "Overview" to describe SNS email alerts
+  - Updated "Where reports go" table to reference SNS
+  - Updated "Who responds" to mention email notifications and DynamoDB scanning
+  - Updated "Data retention" to replace Discord messages line with email retention note
+  - Updated "How to triage" to add exact AWS CLI command with --region eu-west-3
+
+### Verification
+
+- `grep -rn 'route_to_triage\|BUG_REPORT_ROUTING_WEBHOOK\|discord' media_summarizer/` returns no results ✓
+- `terraform validate` passes ✓
+- `terraform fmt -check` on new file passes ✓
+- `ruff check media_summarizer/` passes ✓
+- `mypy media_summarizer/` passes ✓
+
+### Deployment Notes
+
+The alarm will fire when `var.enable_alarms = true` and `var.alert_email` is configured on apply. The existing SNS topic and email subscription are reused per module convention — no new resources are created. Alert emails will be routed to the same address that receives all other pipeline alerts.
+
+The 2 existing bug reports in `bug_reports-dev` are unaffected and will remain in DynamoDB; the alarm only fires on new reports created after this code deploys.
