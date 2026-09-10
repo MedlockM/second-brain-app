@@ -16,18 +16,25 @@
  * 3. the ingestion endpoint is called with the returned key, as plain JSON.
  *
  * Everything that fails between the device and S3 surfaces as `DirectUploadError`
- * with an already-translated message: S3 answers XML no user should read, and its
- * status codes describe the signature, not what the user did.
+ * with an already-translated message — one per step, because the step decides the
+ * way out. A file that could not be read is reopened in the app it came from; a
+ * PUT that never came back is retried on a better connection; a refusal is sent
+ * again. S3's own words are never any of those: it answers XML no user should
+ * read, and its status codes describe the signature, not what the user did.
  *
- * That message alone was not enough to fix anything (task-371). The PUT does not
+ * The step is also the only trace the failure leaves (task-371). The PUT does not
  * traverse API Gateway, so a transfer that dies here leaves **no server-side
- * trace at all** — on 2026-09-06 the API signed a URL, no `/api/media/upload`
- * followed, and the only record of the failure was a sentence saying "check your
+ * record at all** — on 2026-09-06 the API signed a URL, no `/api/media/upload`
+ * followed, and the only account of it was one sentence saying "check your
  * connection", identical for all three ways this can fail. So every
- * `DirectUploadError` now carries `diagnostics`: which step was reached, the
+ * `DirectUploadError` builds a `diagnostics` line — which step was reached, the
  * status S3 answered, the S3 error code, and the bytes and MIME type that were
- * sent. There is no telemetry channel in this app, so that detail is rendered on
- * the failure screen — the only place a tester can read it from.
+ * sent — and writes it to the console.
+ *
+ * That line is a fact for whoever fixes the bug, which is why it goes to the log
+ * and not to the screen (task-397): nobody holding a phone can act on
+ * `stage=put_rejected · status=403`, and a screenshot of it would follow the app
+ * into a store listing.
  *
  * Two rules govern what may go in there:
  *
@@ -37,8 +44,8 @@
  *   through `redactSensitive`, and the S3 body is never surfaced whole — only its
  *   `<Code>` element, because the `SignatureDoesNotMatch` body embeds
  *   `StringToSign`, `CanonicalRequest` and the access key id.
- * - **Stable ASCII, not translated copy.** The values are read off a screenshot
- *   by whoever fixes the bug, whatever language the reporter's interface is in.
+ * - **Stable ASCII, not translated copy.** The values are read out of a log by
+ *   whoever fixes the bug, whatever language the reporter's interface is in.
  *
  * That instrumentation then did its job. A TestFlight report on build 9 came back
  * with `stage=read_file · cause=TypeError: Network request failed`, which named the
@@ -56,7 +63,7 @@
  * from the start — it is the title of someone's note.
  */
 
-import { t } from "../i18n";
+import { t, type TranslationKey } from "../i18n";
 import { getFileExtension } from "../types/upload";
 import { apiRequest } from "./apiClient";
 import {
@@ -117,7 +124,7 @@ export interface UploadFailureDiagnostics {
   cause?: string;
 }
 
-/** How much of a thrown message is worth keeping on a failure screen. */
+/** How much of a thrown message is worth keeping in the diagnostics line. */
 const MAX_CAUSE_LENGTH = 120;
 
 /**
@@ -149,14 +156,14 @@ function uriScheme(uri: string): string {
  * `RequestTimeout` — and nothing else from that body, ever.
  *
  * The shape is constrained on purpose: it bounds what an unexpected body can put
- * on screen to a short identifier.
+ * in the log to a short identifier.
  */
 function extractS3ErrorCode(body: string): string | undefined {
   const match = /<Code>\s*([A-Za-z][A-Za-z0-9_.-]{0,63})\s*<\/Code>/.exec(body);
   return match ? match[1] : undefined;
 }
 
-/** One line, meant to be read off a screenshot and typed into a bug report. */
+/** One line, meant to be read out of a device log by whoever fixes the bug. */
 function formatDiagnostics(diagnostics: UploadFailureDiagnostics): string {
   const parts = [`stage=${diagnostics.stage}`];
   if (diagnostics.status !== undefined) {
@@ -176,6 +183,13 @@ function formatDiagnostics(diagnostics: UploadFailureDiagnostics): string {
   return parts.join(" · ");
 }
 
+/** The sentence for a failed step: what happened, and what to do about it. */
+const STAGE_MESSAGE_KEYS: Record<UploadFailureStage, TranslationKey> = {
+  read_file: "upload.transferFailed.read",
+  put_network: "upload.transferFailed.network",
+  put_rejected: "upload.transferFailed.rejected",
+};
+
 /**
  * A transfer that never reached S3, or that S3 refused.
  *
@@ -183,19 +197,18 @@ function formatDiagnostics(diagnostics: UploadFailureDiagnostics): string {
  * rather than pass it through `getFriendlyErrorMessage` — whose critical-pattern
  * rules would flatten anything mentioning S3 into the generic error sentence.
  *
- * `detail` is the technical half: the same sentence is shown for all three
- * failures, and this is what tells them apart. Callers render it *under* the
- * message, never in place of it.
+ * Constructing one logs the diagnostics line. That is the whole of what happens
+ * to it: the error itself carries only the sentence, so there is nothing
+ * technical for a caller to render even by accident.
  */
 export class DirectUploadError extends Error {
   readonly diagnostics: UploadFailureDiagnostics;
-  readonly detail: string;
 
   constructor(diagnostics: UploadFailureDiagnostics) {
-    super(t("upload.transferFailed"));
+    super(t(STAGE_MESSAGE_KEYS[diagnostics.stage]));
     this.name = "DirectUploadError";
     this.diagnostics = diagnostics;
-    this.detail = formatDiagnostics(diagnostics);
+    console.error(`[upload] ${formatDiagnostics(diagnostics)}`);
   }
 }
 

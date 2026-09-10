@@ -156,13 +156,15 @@ export const en = {
   "auth.signInWithApple": "Sign in with Apple",
   "auth.google.notCompleted":
     "Google sign-in was not completed. Please try again.",
-  "auth.google.noIdToken": "Failed to obtain Google ID token. Please try again.",
   "auth.google.noGoogleAccount":
     "No Google account on this device. Add one in your device settings, then try again.",
+  // Covers every way the flow can end without a usable sign-in, the missing
+  // token included. What that token is, and that there is one, is our business:
+  // the reader only needs to know the sign-in did not go through.
   "auth.google.failed":
     "Google sign-in could not be completed. Please try again.",
-  "auth.apple.noIdentityToken":
-    "Failed to obtain Apple identity token. Please try again.",
+  "auth.apple.failed":
+    "Sign in with Apple could not be completed. Please try again.",
 
   // --- Artifact tiles and panel ---
   "artifacts.type.summaryShort": "Summary",
@@ -227,6 +229,12 @@ export const en = {
   "error.passwordsDoNotMatch": "Passwords do not match. Please try again.",
   "error.network": "Network error. Please check your connection and try again.",
   "error.timeout": "Request timed out. Please try again.",
+  // The last resort of `getFriendlyErrorMessage`, and what `INTERNAL_ERROR` and
+  // `UNKNOWN_ERROR` read as. It replaced "Error", which named the situation
+  // without saying anything about it: a failure on our side is worth retrying,
+  // and that is the only thing the reader can act on.
+  "error.unexpected":
+    "Something went wrong on our side. Please try again in a moment.",
   "error.outOfMinutes":
     "You're out of minutes for this period. Upgrade to keep importing audio and video.",
 
@@ -409,6 +417,7 @@ export const en = {
   "login.submitA11y": "Sign in with email",
   "login.noAccount": "Don't have an account?",
   "login.signUpLink": "Sign Up",
+  "login.failed": "We could not sign you in. Check your connection and try again.",
   "register.title": "Create account",
   "register.subtitle": "Start building your media knowledge base",
   "register.passwordPlaceholder": "At least 6 characters",
@@ -416,6 +425,8 @@ export const en = {
   "register.submitA11y": "Create account with email",
   "register.hasAccount": "Already have an account?",
   "register.signInLink": "Sign In",
+  "register.failed":
+    "Your account could not be created. Check your connection and try again.",
   // --- Reading language setting ---
   "common.goBack": "Go back",
   "readingLanguage.title": "Reading Language",
@@ -434,6 +445,9 @@ export const en = {
     "You can change your reading language once a month. The next change will be possible on {date}.",
   "readingLanguage.changeLimitNoDate":
     "You can change your reading language once a month, and this month's change has already been used.",
+  // Shared with the onboarding step, which saves the same setting.
+  "readingLanguage.saveFailed":
+    "Your reading language could not be saved. Please try again.",
 
   // --- Delete account ---
   "deleteAccount.title": "Delete Account",
@@ -467,6 +481,10 @@ export const en = {
   "deleteAccount.confirmBody":
     "This permanently erases your account and everything in it. This cannot be undone.",
   "deleteAccount.confirmAction": "Delete forever",
+  // The purge is idempotent and leaves the account usable when it fails, so
+  // trying again is genuinely the way out of this one.
+  "deleteAccount.failed":
+    "Your account could not be deleted. Please try again.",
   // --- Account tab ---
   "account.title": "Account",
   "account.notSet": "Not set",
@@ -515,7 +533,8 @@ export const en = {
   "search.emptyLibrary": "Your library is empty",
   "search.emptyLibraryHint":
     "Share a link from any app, or import a file from the Inbox, and it shows up here.",
-  "search.failed": "Search failed",
+  "search.failed":
+    "Your search could not be completed. Check your connection and try again.",
   "search.foldersLoadFailed": "Unable to load your folders.",
   "search.libraryLoadFailed": "Unable to load your library.",
   "search.retryLibraryA11y": "Retry loading your library",
@@ -639,6 +658,7 @@ export const en = {
     "Steps to reproduce, what you expected, what happened instead...",
   "bugReport.descriptionA11y": "Bug report description",
   "bugReport.attachment": "Attachment (optional)",
+  "bugReport.attachmentHint": "Image, video, PDF, or ZIP — up to {max}",
   "bugReport.attach": "Attach File",
   "bugReport.attachA11y": "Attach a file to the bug report",
   "bugReport.attachChoose": "Choose a source",
@@ -650,15 +670,19 @@ export const en = {
   "bugReport.submitting": "Submitting report...",
   "bugReport.uploading": "Uploading attachment...",
   "bugReport.submitted": "Report Submitted",
-  "bugReport.ticketId": "Ticket ID",
+  "bugReport.submittedBody":
+    "Thanks for telling us. We read every report and will look into this one.",
   "bugReport.doneA11y": "Done, return to account",
   "bugReport.closeA11y": "Close bug report form",
   "bugReport.submitFailed": "Failed to submit bug report. Please try again.",
+  // The report itself is fine; only its attachment did not go through. So this
+  // names the way forward that does not need the attachment at all.
+  "bugReport.attachmentFailed":
+    "Your attachment could not be sent. Remove it and send the report on its own, or try again.",
   "bugReport.pickFileFailed": "Failed to select file. Please try again.",
   "bugReport.pickImageFailed": "Failed to select image. Please try again.",
   "bugReport.fileTypeTitle": "File type not allowed",
   "bugReport.fileTypeAccepted": "Accepted file types: {list}",
-  "bugReport.fileTypeRejected": "The selected file type ({type}) is not accepted.",
   "bugReport.fileTooLargeTitle": "File too large",
   "bugReport.fileTooLarge": "Maximum file size is {max}. Your file is {size}.",
   // --- Paywall screen ---
@@ -687,6 +711,20 @@ export const en = {
     "Your purchase is awaiting approval. You will be notified when it is complete.",
   "paywall.purchaseFailed": "Purchase Failed",
   "paywall.unexpectedError": "An unexpected error occurred. Please try again.",
+  // --- Why a purchase did not go through, worded from the store's code ---
+  // `purchaseService` returns a stable code, never the SDK's own sentence, which
+  // is written for a developer and in one language. Only the two the reader can
+  // act on say what to do; the rest say it is not on them.
+  "purchaseError.storeProblem":
+    "The store could not complete the purchase. Please try again in a moment.",
+  "purchaseError.notAllowed":
+    "Purchases are turned off on this device. Check your device restrictions, then try again.",
+  "purchaseError.paymentInvalid":
+    "Your payment could not be taken. Check the payment method in your store account, then try again.",
+  "purchaseError.alreadyOwned":
+    "You already have this subscription. It is active on the store account that bought it.",
+  "purchaseError.failed":
+    "The purchase could not be completed. Nothing was charged. Please try again.",
   "paywall.renewalTerms":
     "Payment is charged to your {store} account at confirmation of purchase. The subscription renews monthly unless it is cancelled at least 24 hours before the end of the current period, and your account is charged for the renewal within the 24 hours before it.",
   "paywall.terms": "Terms of Use",
@@ -752,6 +790,16 @@ export const en = {
     "This note is too long to save: {count} characters, and {max} is the maximum.",
   "share.reject.nothingToSave":
     "There is nothing here we can save yet. Try sharing the text of the note.",
+  // The formats are named rather than the MIME type that was refused: one is
+  // something to act on, the other is a string out of a header.
+  "share.reject.audioFormat":
+    "This audio format cannot be imported. Supported formats: {formats}.",
+  // The three submissions, when they fail for a reason nothing else identified.
+  "share.saveLinkFailed": "This link could not be saved. Please try again.",
+  "share.saveContentFailed":
+    "This content could not be saved. Please try again.",
+  "share.importFileFailed":
+    "This file could not be imported. Please try again.",
   // Only the filing failed, never the save — so this says where the media is
   // rather than offering a retry the modal no longer has room for.
   "share.folderFailed":
@@ -781,14 +829,15 @@ export const en = {
   "upload.reject.empty": "This file is empty, so there is nothing to import.",
   "upload.reject.tooLarge":
     "This file is {size}, over the {max} limit for a single import.",
-  "upload.transferFailed":
+  // One sentence per way a transfer can die, because the way out is a different
+  // one each time. A single sentence used to cover all three and it blamed the
+  // connection for a file that was never read — no network was involved.
+  "upload.transferFailed.read":
+    "This file could not be read from your phone. Open it in the app it came from, then share it again.",
+  "upload.transferFailed.network":
     "This file could not be sent. Check your connection and try again.",
-  // Shown under that sentence, which is identical for all three ways a transfer
-  // to S3 can fail. The line itself is untranslated on purpose: it is stable
-  // ASCII read off a screenshot by whoever fixes the bug (task-371).
-  "upload.diagnostics.title": "Technical details",
-  "upload.diagnostics.hint":
-    "Include this line if you report the problem — it names the step that failed.",
+  "upload.transferFailed.rejected":
+    "This file was not accepted. Please try importing it again.",
   "home.loadFailed": "Unable to load your inbox. Please try again.",
   "share.unsupportedFile": "This file type is not supported yet.",
   "share.signInLinks": "You must be signed in to save links.",
@@ -805,6 +854,4 @@ export const en = {
   "startupError.body":
     "An unexpected error interrupted the app while it was starting. Trying again usually gets you back in.",
   "startupError.retryA11y": "Try starting the app again",
-  "startupError.showDetails": "Show technical details",
-  "startupError.hideDetails": "Hide technical details",
 } as const;

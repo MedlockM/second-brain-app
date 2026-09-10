@@ -3,6 +3,7 @@ import {
   putLocalFileToUrl,
   redactSensitive,
   stageLocalFile,
+  type LocalFilePutResult,
   type StagedLocalFile,
 } from "./localFileTransfer";
 
@@ -37,6 +38,26 @@ export const ALLOWED_MIME_TYPES = [
 
 /** Maximum file size: 50 MB */
 export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+
+/**
+ * An attachment that could not be read or could not be sent.
+ *
+ * Carries a code rather than a sentence: `getFriendlyErrorMessage` turns it into
+ * "remove the attachment and send the report on its own, or try again", which is
+ * true whichever of the two happened and is the only thing left to do either way.
+ * What actually happened goes to the log — S3's status and Cocoa's complaint about
+ * a missing file describe our signature and someone's file name, neither of which
+ * belongs in an `Alert`.
+ */
+export class BugReportAttachmentError extends Error {
+  readonly code = "ATTACHMENT_UPLOAD_FAILED";
+
+  constructor(detail: string) {
+    super("Bug report attachment upload failed");
+    this.name = "BugReportAttachmentError";
+    console.error(`[bug-report] attachment: ${detail}`);
+  }
+}
 
 // --- Types ---
 
@@ -158,23 +179,37 @@ export class BugReportService {
     try {
       staged = await stageLocalFile(fileUri);
     } catch (error) {
-      // `bug-report.tsx` puts `error.message` straight into an alert, and Cocoa's
-      // way of saying a file is missing is to quote its name. Redact first.
-      throw new Error(
-        redactSensitive(error instanceof Error ? error.message : String(error)),
+      // Redacted even though this only reaches a log now: Cocoa's way of saying a
+      // file is missing is to quote its name, and a device log is attached to bug
+      // reports whole.
+      throw new BugReportAttachmentError(
+        `read_file · ${redactSensitive(
+          error instanceof Error ? error.message : String(error),
+        )}`,
       );
     }
     try {
-      const result = await putLocalFileToUrl({
-        url: uploadUrl,
-        fileUri: staged.fileUri,
-        contentType,
-      });
+      let result: LocalFilePutResult;
+      try {
+        result = await putLocalFileToUrl({
+          url: uploadUrl,
+          fileUri: staged.fileUri,
+          contentType,
+        });
+      } catch (error) {
+        // `URLSession` reports the URL it failed on, and that URL is a bearer
+        // credential for the object. Redacted before it reaches the log.
+        throw new BugReportAttachmentError(
+          `put_network · ${redactSensitive(
+            error instanceof Error ? error.message : String(error),
+          )}`,
+        );
+      }
       if (result.status < 200 || result.status >= 300) {
         // No `statusText` to report: a native upload gives back a status code and
         // a body, not a reason phrase. The code is the half that identifies the
         // refusal anyway.
-        throw new Error(`Upload failed with status ${result.status}`);
+        throw new BugReportAttachmentError(`put_rejected · ${result.status}`);
       }
     } finally {
       staged.release();

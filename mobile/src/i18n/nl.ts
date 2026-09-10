@@ -105,11 +105,11 @@ export const nl: Catalog = {
   "auth.continueWithGoogle": "Doorgaan met Google",
   "auth.signInWithApple": "Inloggen met Apple",
   "auth.google.notCompleted": "Het inloggen met Google is niet voltooid. Probeer het opnieuw.",
-  "auth.google.noIdToken": "Het Google-ID-token kon niet worden opgehaald. Probeer het opnieuw.",
   "auth.google.noGoogleAccount":
     "Geen Google-account op dit apparaat. Voeg er een toe in de apparaatinstellingen en probeer het opnieuw.",
   "auth.google.failed": "Het inloggen met Google kon niet worden voltooid. Probeer het opnieuw.",
-  "auth.apple.noIdentityToken": "Het Apple-identiteitstoken kon niet worden opgehaald. Probeer het opnieuw.",
+  "auth.apple.failed":
+    "Inloggen met Apple kon niet worden afgerond. Probeer het opnieuw.",
   "artifacts.type.summaryShort": "Samenvatting",
   "artifacts.type.summaryDetailed": "Uitgebreide samenvatting",
   "artifacts.type.notes": "Studienotities",
@@ -162,6 +162,8 @@ export const nl: Catalog = {
   "error.passwordsDoNotMatch": "De wachtwoorden komen niet overeen. Probeer het opnieuw.",
   "error.network": "Netwerkfout. Controleer je verbinding en probeer het opnieuw.",
   "error.timeout": "Het verzoek is verlopen. Probeer het opnieuw.",
+  "error.unexpected":
+    "Er is iets misgegaan aan onze kant. Probeer het over een moment opnieuw.",
   "error.outOfMinutes": "Je minuten voor deze periode zijn op. Kies een hoger abonnement om audio en video te blijven importeren.",
   "mediaError.mediaUnavailable": "Deze media is niet langer beschikbaar bij de bron.",
   "mediaError.geoRestricted": "Deze media is niet beschikbaar in de regio waaruit wij importeren.",
@@ -297,6 +299,8 @@ export const nl: Catalog = {
   "login.submitA11y": "Inloggen met e-mail",
   "login.noAccount": "Nog geen account?",
   "login.signUpLink": "Registreren",
+  "login.failed":
+    "We konden je niet inloggen. Controleer je verbinding en probeer het opnieuw.",
   "register.title": "Account aanmaken",
   "register.subtitle": "Begin met het opbouwen van je kennisbank",
   "register.passwordPlaceholder": "Minstens 6 tekens",
@@ -304,6 +308,8 @@ export const nl: Catalog = {
   "register.submitA11y": "Account aanmaken met e-mail",
   "register.hasAccount": "Heb je al een account?",
   "register.signInLink": "Inloggen",
+  "register.failed":
+    "Je account kon niet worden aangemaakt. Controleer je verbinding en probeer het opnieuw.",
   "common.goBack": "Terug",
   "readingLanguage.title": "Leestaal",
   "readingLanguage.selectA11y": "{language} als leestaal kiezen",
@@ -312,6 +318,8 @@ export const nl: Catalog = {
   "readingLanguage.saveA11y": "Leestaal opslaan",
   "readingLanguage.changeLimit": "Je kunt je leestaal één keer per maand wijzigen. De volgende wijziging is mogelijk op {date}.",
   "readingLanguage.changeLimitNoDate": "Je kunt je leestaal één keer per maand wijzigen, en de wijziging van deze maand is al gebruikt.",
+  "readingLanguage.saveFailed":
+    "Je leestaal kon niet worden opgeslagen. Probeer het opnieuw.",
   "deleteAccount.title": "Account verwijderen",
   "deleteAccount.warningTitle": "Dit kan niet ongedaan worden gemaakt",
   "deleteAccount.warningBody": "Je account verwijderen wist het permanent, samen met alles wat je hebt opgeslagen. We kunnen het daarna niet herstellen, ook niet op verzoek.",
@@ -336,6 +344,8 @@ export const nl: Catalog = {
   "deleteAccount.confirmTitle": "Account verwijderen?",
   "deleteAccount.confirmBody": "Dit wist je account en alles erin permanent. Het kan niet ongedaan worden gemaakt.",
   "deleteAccount.confirmAction": "Voorgoed verwijderen",
+  "deleteAccount.failed":
+    "Je account kon niet worden verwijderd. Probeer het opnieuw.",
   "account.title": "Account",
   "account.notSet": "Niet ingesteld",
   "account.subscription.manage": "Van abonnement wisselen",
@@ -373,7 +383,8 @@ export const nl: Catalog = {
   "search.noMatches": "Geen resultaten voor ‘{query}’. Probeer andere zoekwoorden.",
   "search.emptyLibrary": "Je bibliotheek is leeg",
   "search.emptyLibraryHint": "Deel een link vanuit elke app, of importeer een bestand vanuit je postvak, en het verschijnt hier.",
-  "search.failed": "De zoekopdracht is mislukt",
+  "search.failed":
+    "Je zoekopdracht kon niet worden afgerond. Controleer je verbinding en probeer het opnieuw.",
   "search.foldersLoadFailed": "Je mappen konden niet worden geladen.",
   "search.libraryLoadFailed": "Je bibliotheek kon niet worden geladen.",
   "search.retryLibraryA11y": "Bibliotheek opnieuw laden",
@@ -479,6 +490,7 @@ export const nl: Catalog = {
   "bugReport.descriptionPlaceholder": "Stappen om het te reproduceren, wat je verwachtte, wat er in plaats daarvan gebeurde…",
   "bugReport.descriptionA11y": "Beschrijving van de bugmelding",
   "bugReport.attachment": "Bijlage (optioneel)",
+  "bugReport.attachmentHint": "Afbeelding, video, PDF of ZIP — tot {max}",
   "bugReport.attach": "Bestand bijvoegen",
   "bugReport.attachA11y": "Een bestand bij de bugmelding voegen",
   "bugReport.attachChoose": "Kies een bron",
@@ -490,15 +502,17 @@ export const nl: Catalog = {
   "bugReport.submitting": "Melding wordt verstuurd…",
   "bugReport.uploading": "Bijlage wordt geüpload…",
   "bugReport.submitted": "Melding verstuurd",
-  "bugReport.ticketId": "Ticketnummer",
+  "bugReport.submittedBody":
+    "Bedankt voor je melding. We lezen elke melding en kijken hiernaar.",
   "bugReport.doneA11y": "Klaar, terug naar account",
   "bugReport.closeA11y": "Formulier voor bugmelding sluiten",
   "bugReport.submitFailed": "De bugmelding kon niet worden verstuurd. Probeer het opnieuw.",
+  "bugReport.attachmentFailed":
+    "Je bijlage kon niet worden verzonden. Verwijder de bijlage en verstuur de melding zonder, of probeer het opnieuw.",
   "bugReport.pickFileFailed": "Het bestand kon niet worden geselecteerd. Probeer het opnieuw.",
   "bugReport.pickImageFailed": "De afbeelding kon niet worden geselecteerd. Probeer het opnieuw.",
   "bugReport.fileTypeTitle": "Bestandstype niet toegestaan",
   "bugReport.fileTypeAccepted": "Toegestane bestandstypen: {list}",
-  "bugReport.fileTypeRejected": "Het gekozen bestandstype ({type}) wordt niet geaccepteerd.",
   "bugReport.fileTooLargeTitle": "Bestand te groot",
   "bugReport.fileTooLarge": "De maximale bestandsgrootte is {max}. Jouw bestand is {size}.",
   "paywall.title": "Kies je abonnement",
@@ -523,6 +537,16 @@ export const nl: Catalog = {
   "paywall.purchasePendingBody": "Je aankoop wacht op goedkeuring. Je krijgt bericht zodra hij is afgerond.",
   "paywall.purchaseFailed": "Aankoop mislukt",
   "paywall.unexpectedError": "Er is een onverwachte fout opgetreden. Probeer het opnieuw.",
+  "purchaseError.storeProblem":
+    "De store kon de aankoop niet afronden. Probeer het over een moment opnieuw.",
+  "purchaseError.notAllowed":
+    "Aankopen staan uit op dit apparaat. Controleer de beperkingen van je apparaat en probeer het opnieuw.",
+  "purchaseError.paymentInvalid":
+    "Je betaling kon niet worden afgeschreven. Controleer de betaalmethode van je store-account en probeer het opnieuw.",
+  "purchaseError.alreadyOwned":
+    "Je hebt dit abonnement al. Het is actief op het store-account dat het heeft gekocht.",
+  "purchaseError.failed":
+    "De aankoop kon niet worden afgerond. Er is niets afgeschreven. Probeer het opnieuw.",
   "paywall.renewalTerms": "De betaling wordt bij bevestiging van de aankoop van je {store}-account afgeschreven. Het abonnement verlengt maandelijks, tenzij het minstens 24 uur voor het einde van de lopende periode wordt opgezegd, en je account wordt in de 24 uur daarvoor voor de verlenging belast.",
   "paywall.terms": "Gebruiksvoorwaarden",
   "paywall.privacy": "Privacybeleid",
@@ -582,6 +606,14 @@ export const nl: Catalog = {
     "Deze notitie is te lang om op te slaan: {count} tekens, en het maximum is {max}.",
   "share.reject.nothingToSave":
     "Hier zit niets in dat we kunnen opslaan. Deel liever de tekst van de notitie.",
+  "share.reject.audioFormat":
+    "Dit audioformaat kan niet worden geïmporteerd. Ondersteunde formaten: {formats}.",
+  "share.saveLinkFailed":
+    "Deze link kon niet worden opgeslagen. Probeer het opnieuw.",
+  "share.saveContentFailed":
+    "Deze inhoud kon niet worden opgeslagen. Probeer het opnieuw.",
+  "share.importFileFailed":
+    "Dit bestand kon niet worden geïmporteerd. Probeer het opnieuw.",
   "share.folderFailed":
     "De map kon niet worden toegepast. Je inhoud is opgeslagen en je kunt het vanuit je bibliotheek opbergen.",
   "import.filesUnavailable": "Je bestanden konden niet worden geopend",
@@ -600,10 +632,12 @@ export const nl: Catalog = {
   "upload.reject.noExtension": "Dit bestand heeft geen herkenbare extensie. Ondersteunde formaten: {formats}.",
   "upload.reject.empty": "Dit bestand is leeg, er valt dus niets te importeren.",
   "upload.reject.tooLarge": "Dit bestand is {size}, meer dan de limiet van {max} voor één import.",
-  "upload.transferFailed": "Dit bestand kon niet worden verzonden. Controleer je verbinding en probeer het opnieuw.",
-  "upload.diagnostics.title": "Technische details",
-  "upload.diagnostics.hint":
-    "Voeg deze regel toe als je het probleem meldt: hij noemt de stap die is mislukt.",
+  "upload.transferFailed.read":
+    "Dit bestand kon niet van je telefoon worden gelezen. Open het in de app waar het uit komt en deel het opnieuw.",
+  "upload.transferFailed.network":
+    "Dit bestand kon niet worden verzonden. Controleer je verbinding en probeer het opnieuw.",
+  "upload.transferFailed.rejected":
+    "Dit bestand is niet geaccepteerd. Probeer het opnieuw te importeren.",
   "home.loadFailed": "Je postvak kon niet worden geladen. Probeer het opnieuw.",
   "share.unsupportedFile": "Dit bestandstype wordt nog niet ondersteund.",
   "share.signInLinks": "Je moet ingelogd zijn om links op te slaan.",
@@ -617,6 +651,4 @@ export const nl: Catalog = {
   "startupError.body":
     "Een onverwachte fout heeft het opstarten van de app onderbroken. Opnieuw proberen helpt meestal.",
   "startupError.retryA11y": "Probeer de app opnieuw te starten",
-  "startupError.showDetails": "Technische details weergeven",
-  "startupError.hideDetails": "Technische details verbergen",
 };

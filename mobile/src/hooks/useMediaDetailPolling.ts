@@ -140,7 +140,9 @@ export function useMediaDetailPolling(
       handleResponse(response);
     } catch (err) {
       if (!mountedRef.current) return;
-      setFetchError(getFriendlyErrorMessage(err));
+      setFetchError(
+        getFriendlyErrorMessage(err, { fallback: t("media.loadFailed") }),
+      );
       setState("error");
       stopPolling();
     }

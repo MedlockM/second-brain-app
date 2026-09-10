@@ -13,7 +13,7 @@ Plateforme "second cerveau" : enregistrer n'importe quel média en un share, l'o
 | `docs/MEDIA_KEY_MIGRATION.md` | Current | Modèle d'identité runtime (media_key) |
 | `docs/SHARED_CONTENT_INGESTION_PROPOSAL.md` | Proposed | Design WhatsApp text/audio (task-61) |
 | `docs/URL_SAFETY_POLICY.md` | Current | Validation et sécurité des URLs |
-| `docs/ERROR_HANDLING_BEST_PRACTICES.md` | Current | Stratégie gestion d'erreurs API→UI |
+| `docs/USER_FACING_ERROR_MESSAGES.md` | Current | Audit des messages d'erreur affichés + contrat code→catalogue |
 | `docs/LOGGING_SYSTEM.md` | Current | Spec logging structuré JSON |
 | `docs/AUTHENTICATION_SETUP.md` | Current | Flows auth (OAuth + local) |
 | `docs/DEVBOX_SETUP.md` | Current | Reconstruire un poste de dev complet (nouvelle machine) |

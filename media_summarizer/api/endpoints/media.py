@@ -410,9 +410,10 @@ async def _resolve_media_organization(
     if requested_folder_id:
         folder = await database_async.get_folder_by_id(requested_folder_id)
         if folder is None or folder.user_id != user_id:
+            logger.warning(f"Folder not found or not owned: {requested_folder_id}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Folder not found: {requested_folder_id}",
+                detail="Folder not found",
             )
         resolved_folder_id = folder.id
 
@@ -1201,15 +1202,21 @@ async def ingest_url(
             "Invalid URL provided for ingestion",
             error_message=str(exc),
         )
+        # The exception's own text is a parser's account of the URL — it quotes the
+        # scheme it could not resolve and, when a share hands over a path, part of
+        # that path. It stays in the log line above; the client gets the code and
+        # words its own sentence (task-397).
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail={
+                "error_code": "INVALID_URL",
+                "message": "This link could not be read.",
+            },
         )
     except UnsupportedUrlError as exc:
         # The URL is valid, we just do not ingest that kind of media. That is a
-        # client-side fact with a message worth reading ("TikTok photo posts are
-        # not supported yet"), so it must not fall through to the generic 500
-        # below, which replaced it with "Failed to ingest URL".
+        # client-side fact and not a bug, so it must not fall through to the
+        # generic 500 below, which replaced it with "Failed to ingest URL".
         log_event(
             logger,
             logging.WARNING,
@@ -1219,7 +1226,10 @@ async def ingest_url(
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail={
+                "error_code": "UNSUPPORTED_URL",
+                "message": "This kind of link is not supported yet.",
+            },
         )
     except MediaIngestionError as exc:
         log_event(
@@ -1924,9 +1934,13 @@ async def ingest_shared_content(
             "Shared content validation failed in use case",
             error_message=str(exc),
         )
+        # Not the exception's text: `ResolutionError` names the resolver that gave
+        # up and appends whatever it raised, which is a fact for the log line above
+        # (task-397). The app owns the wording, and the confirmation screen already
+        # refuses an empty note or an unsupported attachment before it gets here.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail="This shared content could not be read",
         )
     except MediaIngestionError as exc:
         log_event(
@@ -2141,7 +2155,14 @@ async def patch_media(
             status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found"
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        # `folder_service` and `media_rename_service` both raise these, and both
+        # word them by id — "Folder <uuid> not found", "Media item <uuid> not
+        # found". The id belongs in the log, not on the wire (task-397).
+        logger.warning(f"Rejected media patch {media_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This change was refused",
+        )
     except Exception as e:
         logger.error(f"Error patching media {media_id}: {e}", exc_info=True)
         raise HTTPException(

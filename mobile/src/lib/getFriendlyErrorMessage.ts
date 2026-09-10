@@ -10,7 +10,13 @@ interface FriendlyErrorRule {
   messageKey: TranslationKey;
 }
 
-const CRITICAL_ERROR: TranslationKey = "common.error";
+/**
+ * Where every failure the reader cannot name ends up: our fault, worth one more
+ * try. It replaced `common.error` — the single word "Error", which labelled the
+ * situation without saying anything about it, and left the reader with no idea
+ * whether waiting, retrying or giving up was the answer.
+ */
+const CRITICAL_ERROR: TranslationKey = "error.unexpected";
 
 /**
  * Last-resort wording for an exhausted allowance, used when a refusal reaches the
@@ -25,13 +31,16 @@ const OUT_OF_MINUTES: TranslationKey = "error.outOfMinutes";
  * Every code the backend can name a failure with, mapped to the sentence the
  * reader gets in their own language.
  *
- * Two vocabularies land here on purpose. The first names the *transport* refusal
+ * Four vocabularies land here on purpose. The first names the *transport* refusal
  * of a request (`CanonicalErrorCode`: a 400, a 404, an expired session). The
  * second names why an ingestion job failed (`MediaFailureCode`, mirrored in
  * `types/media.ts`) — those are the entries this table gained with task-359, when
- * the workers stopped writing English sentences on the job. A code missing from
- * here is not a crash: `getFriendlyErrorMessage` falls through to its `fallback`,
- * which the media screens set to `media.failedFallback`.
+ * the workers stopped writing English sentences on the job. The last two come from
+ * the device rather than from the API: a store refusal (`PurchaseFailureCode`) and
+ * an attachment that never reached S3, both of which used to hand a library's own
+ * words to an `Alert`. A code missing from here is not a crash:
+ * `getFriendlyErrorMessage` falls through to its `fallback`, which the media
+ * screens set to `media.failedFallback`.
  *
  * Several codes deliberately share a key. Three provider-side causes (our
  * credentials, our credits, our configuration) are one thing from where the
@@ -90,6 +99,17 @@ const ERROR_CODE_MESSAGES: Record<string, TranslationKey> = {
   INVALID_JOB_MESSAGE: "mediaError.internal",
   SUBMISSION_FAILED: "mediaError.internal",
   UNEXPECTED_ERROR: "mediaError.internal",
+
+  // --- Store refusals (`PurchaseFailureCode`) ---
+  PURCHASE_NETWORK: "error.network",
+  PURCHASE_STORE_PROBLEM: "purchaseError.storeProblem",
+  PURCHASE_NOT_ALLOWED: "purchaseError.notAllowed",
+  PURCHASE_PAYMENT_INVALID: "purchaseError.paymentInvalid",
+  PURCHASE_ALREADY_OWNED: "purchaseError.alreadyOwned",
+  PURCHASE_FAILED: "purchaseError.failed",
+
+  // --- Bug report attachment ---
+  ATTACHMENT_UPLOAD_FAILED: "bugReport.attachmentFailed",
 };
 
 /**
@@ -210,9 +230,20 @@ const CRITICAL_ERROR_PATTERNS = [
 ];
 
 /**
- * Maps error messages to user-friendly text.
- * Returns a user-friendly error message for actionable errors,
- * or "Error" for critical/technical errors that users cannot fix.
+ * The one way a caught error becomes something a reader may see.
+ *
+ * Every branch returns either `t(key)` — a sentence from this app's catalogue, in
+ * the reader's language — or the caller's `fallback`, which is a translated
+ * sentence too. The thrown text is only ever *matched against*, never returned, so
+ * an API `detail`, an S3 XML body, a Cocoa error quoting a file name and a
+ * JavaScript `TypeError` all come out the same side: a sentence written for a
+ * person. Callers that reach for `error.message` themselves defeat that, which is
+ * why none of them do (task-397).
+ *
+ * The `fallback` is what makes this useful rather than merely safe. Left out, an
+ * unrecognised failure reads as the generic "something went wrong on our side";
+ * given, it reads as the one sentence that names *what* did not happen and what to
+ * try. Pass it.
  */
 export function getFriendlyErrorMessage(
   error: unknown,
@@ -280,12 +311,4 @@ export function getFriendlyErrorMessage(
   }
 
   return fallback;
-}
-
-/**
- * Checks if an error is actionable (user can fix it) vs critical (site bug).
- */
-export function isActionableError(error: unknown): boolean {
-  const friendlyMessage = getFriendlyErrorMessage(error);
-  return friendlyMessage !== t(CRITICAL_ERROR);
 }

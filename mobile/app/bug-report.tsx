@@ -27,6 +27,7 @@ import {
   TouchTarget,
 } from "../src/constants/theme";
 import { t, useTranslation } from "../src/i18n";
+import { getFriendlyErrorMessage } from "../src/lib/getFriendlyErrorMessage";
 import { ScreenHeader, HeaderIconButton } from "../src/components/ScreenHeader";
 import { useAuth } from "../src/contexts/AuthContext";
 import {
@@ -66,7 +67,6 @@ export default function BugReportScreen() {
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [ticketId, setTicketId] = useState<string | null>(null);
 
   // Animations
   const [successOpacity] = useState(() => new Animated.Value(0));
@@ -119,11 +119,15 @@ export default function BugReportScreen() {
         return;
       }
 
-      // Validate MIME type
+      // Validate MIME type. Same sentence as a rejected extension: naming the
+      // MIME type told the reader what the picker had decided, not what to pick
+      // instead — and the list of accepted types is the only useful half.
       if (!isAllowedMimeType(mimeType)) {
         Alert.alert(
           t("bugReport.fileTypeTitle"),
-          t("bugReport.fileTypeRejected", { type: mimeType }),
+          t("bugReport.fileTypeAccepted", {
+            list: ALLOWED_EXTENSIONS.join(", "),
+          }),
         );
         return;
       }
@@ -238,7 +242,7 @@ export default function BugReportScreen() {
       const appVersion = Constants.expoConfig?.version || "unknown";
       const platform = Platform.OS;
 
-      const response = await BugReportService.createBugReport({
+      await BugReportService.createBugReport({
         subject: subject.trim(),
         description: description.trim(),
         attachment_key: attachmentKey,
@@ -246,7 +250,6 @@ export default function BugReportScreen() {
         source_platform: platform,
       });
 
-      setTicketId(response.id);
       setSubmitState("success");
 
       // Animate success
@@ -263,11 +266,12 @@ export default function BugReportScreen() {
         }),
       ]).start();
     } catch (error: unknown) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : t("bugReport.submitFailed");
-      setErrorMessage(message);
+      // Through the code map, never `error.message`: what reaches here is an
+      // `HttpError` whose text is the API's own `detail`, or a thrown library
+      // string. Neither is written for the person filing the report.
+      setErrorMessage(
+        getFriendlyErrorMessage(error, { fallback: t("bugReport.submitFailed") }),
+      );
       setSubmitState("error");
     }
   }, [
@@ -298,15 +302,8 @@ export default function BugReportScreen() {
           </View>
           <Text style={styles.successTitle}>{t("bugReport.submitted")}</Text>
           <Text style={styles.successMessage}>
-            Thank you for reporting this issue. Our team will investigate it
-            shortly.
+            {t("bugReport.submittedBody")}
           </Text>
-          {ticketId && (
-            <View style={styles.ticketIdContainer}>
-              <Text style={styles.ticketIdLabel}>{t("bugReport.ticketId")}</Text>
-              <Text style={styles.ticketIdValue}>{ticketId}</Text>
-            </View>
-          )}
           <Pressable
             style={styles.doneButton}
             onPress={handleClose}
@@ -401,7 +398,9 @@ export default function BugReportScreen() {
           <View style={styles.fieldContainer}>
             <Text style={styles.fieldLabel}>{t("bugReport.attachment")}</Text>
             <Text style={styles.fieldHint}>
-              Image, video, PDF, or ZIP — max {formatFileSize(MAX_FILE_SIZE_BYTES)}
+              {t("bugReport.attachmentHint", {
+                max: formatFileSize(MAX_FILE_SIZE_BYTES),
+              })}
             </Text>
 
             {selectedFile ? (
@@ -664,24 +663,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: Typography.body.lineHeight,
     marginBottom: Spacing.lg,
-  },
-  ticketIdContainer: {
-    backgroundColor: Colors.surfaceContainerLow,
-    borderRadius: BorderRadius.lg,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    alignItems: "center",
-    marginBottom: Spacing.xl,
-  },
-  ticketIdLabel: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textMuted,
-    marginBottom: Spacing.xs,
-  },
-  ticketIdValue: {
-    fontSize: Typography.label.fontSize,
-    fontWeight: "600",
-    color: Colors.textMain,
   },
   doneButton: {
     backgroundColor: Colors.primary,

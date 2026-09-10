@@ -19,8 +19,7 @@ import type {
   SharedFileAttachment,
 } from "../types/sharedContent";
 import {
-  MAX_SHARED_AUDIO_SIZE_BYTES,
-  isSupportedAudioMimeType,
+  validateSharedAudioFile,
   validateSharedNoteText,
 } from "../types/sharedContent";
 
@@ -91,6 +90,10 @@ export class SharedContentService {
   /**
    * Submit a shared audio file for ingestion.
    * Used when WhatsApp audio (voice message or file) is shared.
+   *
+   * Its refusals come from `validateSharedAudioFile`, for the same reason the note
+   * path defers to `validateSharedNoteText`: the sentence is translated, and the
+   * gate the user meets is the gate the submission applies.
    */
   static async ingestSharedAudio(
     file: SharedFileAttachment,
@@ -100,25 +103,9 @@ export class SharedContentService {
       folderId?: string | null;
     } = {},
   ): Promise<IngestSharedContentResponse> {
-    // Validate MIME type
-    if (!isSupportedAudioMimeType(file.mimeType)) {
-      throw new SharedContentValidationError(
-        `Unsupported audio format: ${file.mimeType}. Please share an audio file in a supported format (MP3, M4A, OGG, OPUS, WAV, AAC, FLAC).`,
-      );
-    }
-
-    // Validate file size
-    if (file.fileSize !== null && file.fileSize > MAX_SHARED_AUDIO_SIZE_BYTES) {
-      const maxMB = Math.round(MAX_SHARED_AUDIO_SIZE_BYTES / (1024 * 1024));
-      throw new SharedContentValidationError(
-        `Audio file is too large (${Math.round(file.fileSize / (1024 * 1024))} MB). Maximum is ${maxMB} MB.`,
-      );
-    }
-
-    if (file.fileSize !== null && file.fileSize === 0) {
-      throw new SharedContentValidationError(
-        "Audio file is empty. Please share a valid audio file.",
-      );
+    const validated = validateSharedAudioFile(file);
+    if ("rejection" in validated) {
+      throw new SharedContentValidationError(validated.rejection.message);
     }
 
     const sourceApp =

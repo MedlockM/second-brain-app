@@ -78,7 +78,9 @@ export default function DeleteAccountScreen() {
       await logout();
       router.replace("/(auth)/login");
     } catch (err) {
-      setError(getFriendlyErrorMessage(err));
+      setError(
+        getFriendlyErrorMessage(err, { fallback: t("deleteAccount.failed") }),
+      );
       setIsDeleting(false);
     }
   };

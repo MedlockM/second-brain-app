@@ -76,9 +76,14 @@ export default function ReadingLanguageSettingsScreen() {
       setSuccess(true);
     } catch (err) {
       setError(
+        // A refusal carries the date the guard-rail lifts, so it gets its own
+        // sentence; anything else falls back to the localized save failure
+        // rather than to whatever text the thrown error happened to carry.
         isReadingLanguageChangeTooSoon(err)
           ? describeReadingLanguageRefusal(err)
-          : getFriendlyErrorMessage(err),
+          : getFriendlyErrorMessage(err, {
+              fallback: t("readingLanguage.saveFailed"),
+            }),
       );
     }
   };

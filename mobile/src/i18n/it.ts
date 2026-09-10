@@ -105,11 +105,11 @@ export const it: Catalog = {
   "auth.continueWithGoogle": "Continua con Google",
   "auth.signInWithApple": "Accedi con Apple",
   "auth.google.notCompleted": "L'accesso con Google non è stato completato. Riprova.",
-  "auth.google.noIdToken": "Impossibile ottenere il token ID di Google. Riprova.",
   "auth.google.noGoogleAccount":
     "Nessun account Google su questo dispositivo. Aggiungine uno nelle impostazioni del dispositivo e riprova.",
   "auth.google.failed": "L'accesso con Google non è andato a buon fine. Riprova.",
-  "auth.apple.noIdentityToken": "Impossibile ottenere il token di identità Apple. Riprova.",
+  "auth.apple.failed":
+    "Non è stato possibile completare l'accesso con Apple. Riprova.",
   "artifacts.type.summaryShort": "Riassunto",
   "artifacts.type.summaryDetailed": "Riassunto dettagliato",
   "artifacts.type.notes": "Appunti",
@@ -162,6 +162,8 @@ export const it: Catalog = {
   "error.passwordsDoNotMatch": "Le password non coincidono. Riprova.",
   "error.network": "Errore di rete. Controlla la connessione e riprova.",
   "error.timeout": "Richiesta scaduta. Riprova.",
+  "error.unexpected":
+    "Qualcosa è andato storto da parte nostra. Riprova tra un momento.",
   "error.outOfMinutes": "Hai esaurito i minuti di questo periodo. Passa a un piano superiore per continuare a importare audio e video.",
   "mediaError.mediaUnavailable": "Questo contenuto non è più disponibile alla fonte.",
   "mediaError.geoRestricted": "Questo contenuto non è disponibile nella regione da cui importiamo.",
@@ -296,6 +298,8 @@ export const it: Catalog = {
   "login.submitA11y": "Accedi con e-mail",
   "login.noAccount": "Non hai un account?",
   "login.signUpLink": "Registrati",
+  "login.failed":
+    "Non è stato possibile accedere. Controlla la connessione e riprova.",
   "register.title": "Crea un account",
   "register.subtitle": "Inizia a costruire la tua base di conoscenza",
   "register.passwordPlaceholder": "Almeno 6 caratteri",
@@ -303,6 +307,8 @@ export const it: Catalog = {
   "register.submitA11y": "Crea un account con e-mail",
   "register.hasAccount": "Hai già un account?",
   "register.signInLink": "Accedi",
+  "register.failed":
+    "Non è stato possibile creare il tuo account. Controlla la connessione e riprova.",
   "common.goBack": "Indietro",
   "readingLanguage.title": "Lingua di lettura",
   "readingLanguage.selectA11y": "Scegli {language} come lingua di lettura",
@@ -311,6 +317,8 @@ export const it: Catalog = {
   "readingLanguage.saveA11y": "Salva la lingua di lettura",
   "readingLanguage.changeLimit": "Puoi cambiare la lingua di lettura una volta al mese. Il prossimo cambio sarà possibile il {date}.",
   "readingLanguage.changeLimitNoDate": "Puoi cambiare la lingua di lettura una volta al mese, e il cambio di questo mese è già stato usato.",
+  "readingLanguage.saveFailed":
+    "Non è stato possibile salvare la tua lingua di lettura. Riprova.",
   "deleteAccount.title": "Elimina l'account",
   "deleteAccount.warningTitle": "Questa azione è irreversibile",
   "deleteAccount.warningBody": "Eliminare il tuo account lo cancella definitivamente, insieme a tutto ciò che hai salvato. Non possiamo ripristinarlo in seguito, nemmeno su richiesta.",
@@ -335,6 +343,8 @@ export const it: Catalog = {
   "deleteAccount.confirmTitle": "Eliminare l'account?",
   "deleteAccount.confirmBody": "Questo cancella definitivamente il tuo account e tutto ciò che contiene. L'azione è irreversibile.",
   "deleteAccount.confirmAction": "Elimina per sempre",
+  "deleteAccount.failed":
+    "Non è stato possibile eliminare il tuo account. Riprova.",
   "account.title": "Account",
   "account.notSet": "Non impostata",
   "account.subscription.manage": "Cambia piano",
@@ -372,7 +382,8 @@ export const it: Catalog = {
   "search.noMatches": "Nessuna corrispondenza per «{query}». Prova altre parole chiave.",
   "search.emptyLibrary": "La tua libreria è vuota",
   "search.emptyLibraryHint": "Condividi un link da qualsiasi app, oppure importa un file dalla posta in arrivo, e comparirà qui.",
-  "search.failed": "La ricerca non è riuscita",
+  "search.failed":
+    "Non è stato possibile completare la ricerca. Controlla la connessione e riprova.",
   "search.foldersLoadFailed": "Impossibile caricare le tue cartelle.",
   "search.libraryLoadFailed": "Impossibile caricare la tua libreria.",
   "search.retryLibraryA11y": "Riprova a caricare la tua libreria",
@@ -478,6 +489,7 @@ export const it: Catalog = {
   "bugReport.descriptionPlaceholder": "Passaggi per riprodurlo, cosa ti aspettavi, cosa è successo invece…",
   "bugReport.descriptionA11y": "Descrizione della segnalazione",
   "bugReport.attachment": "Allegato (facoltativo)",
+  "bugReport.attachmentHint": "Immagine, video, PDF o ZIP — fino a {max}",
   "bugReport.attach": "Allega un file",
   "bugReport.attachA11y": "Allega un file alla segnalazione",
   "bugReport.attachChoose": "Scegli una fonte",
@@ -489,15 +501,17 @@ export const it: Catalog = {
   "bugReport.submitting": "Invio della segnalazione…",
   "bugReport.uploading": "Caricamento dell'allegato…",
   "bugReport.submitted": "Segnalazione inviata",
-  "bugReport.ticketId": "Numero del ticket",
+  "bugReport.submittedBody":
+    "Grazie per la segnalazione. Leggiamo tutte le segnalazioni e ci occuperemo di questa.",
   "bugReport.doneA11y": "Fatto, torna all'account",
   "bugReport.closeA11y": "Chiudi il modulo di segnalazione",
   "bugReport.submitFailed": "Impossibile inviare la segnalazione. Riprova.",
+  "bugReport.attachmentFailed":
+    "Non è stato possibile inviare l'allegato. Rimuovilo e invia la segnalazione da sola, oppure riprova.",
   "bugReport.pickFileFailed": "Impossibile selezionare il file. Riprova.",
   "bugReport.pickImageFailed": "Impossibile selezionare l'immagine. Riprova.",
   "bugReport.fileTypeTitle": "Tipo di file non consentito",
   "bugReport.fileTypeAccepted": "Tipi di file accettati: {list}",
-  "bugReport.fileTypeRejected": "Il tipo di file selezionato ({type}) non è accettato.",
   "bugReport.fileTooLargeTitle": "File troppo grande",
   "bugReport.fileTooLarge": "La dimensione massima è {max}. Il tuo file è di {size}.",
   "paywall.title": "Scegli il tuo piano",
@@ -522,6 +536,16 @@ export const it: Catalog = {
   "paywall.purchasePendingBody": "Il tuo acquisto è in attesa di approvazione. Riceverai una notifica quando sarà completato.",
   "paywall.purchaseFailed": "Acquisto non riuscito",
   "paywall.unexpectedError": "Si è verificato un errore imprevisto. Riprova.",
+  "purchaseError.storeProblem":
+    "Lo store non ha potuto completare l'acquisto. Riprova tra un momento.",
+  "purchaseError.notAllowed":
+    "Gli acquisti sono disattivati su questo dispositivo. Controlla le restrizioni del dispositivo e riprova.",
+  "purchaseError.paymentInvalid":
+    "Non è stato possibile addebitare il pagamento. Controlla il metodo di pagamento del tuo account store e riprova.",
+  "purchaseError.alreadyOwned":
+    "Hai già questo abbonamento. È attivo sull'account store che l'ha acquistato.",
+  "purchaseError.failed":
+    "Non è stato possibile completare l'acquisto. Non è stato addebitato nulla. Riprova.",
   "paywall.renewalTerms": "Il pagamento viene addebitato sul tuo account {store} alla conferma dell'acquisto. L'abbonamento si rinnova ogni mese salvo disdetta almeno 24 ore prima della fine del periodo in corso, e il tuo account viene addebitato per il rinnovo nelle 24 ore precedenti.",
   "paywall.terms": "Condizioni d'uso",
   "paywall.privacy": "Informativa sulla privacy",
@@ -582,6 +606,13 @@ export const it: Catalog = {
     "Questa nota è troppo lunga per essere salvata: {count} caratteri, e il massimo è {max}.",
   "share.reject.nothingToSave":
     "Qui non c'è nulla che possiamo salvare. Prova a condividere il testo della nota.",
+  "share.reject.audioFormat":
+    "Questo formato audio non può essere importato. Formati supportati: {formats}.",
+  "share.saveLinkFailed": "Non è stato possibile salvare questo link. Riprova.",
+  "share.saveContentFailed":
+    "Non è stato possibile salvare questo contenuto. Riprova.",
+  "share.importFileFailed":
+    "Non è stato possibile importare questo file. Riprova.",
   "share.folderFailed":
     "Non è stato possibile applicare la cartella. Il tuo contenuto è salvato e puoi archiviarlo dalla tua libreria.",
   "import.filesUnavailable": "Impossibile aprire i tuoi file",
@@ -600,10 +631,12 @@ export const it: Catalog = {
   "upload.reject.noExtension": "Questo file non ha un'estensione riconoscibile. Formati supportati: {formats}.",
   "upload.reject.empty": "Questo file è vuoto, quindi non c'è nulla da importare.",
   "upload.reject.tooLarge": "Questo file è di {size}, oltre il limite di {max} per una singola importazione.",
-  "upload.transferFailed": "Non è stato possibile inviare questo file. Controlla la connessione e riprova.",
-  "upload.diagnostics.title": "Dettagli tecnici",
-  "upload.diagnostics.hint":
-    "Includi questa riga se segnali il problema: indica il passaggio che non è andato a buon fine.",
+  "upload.transferFailed.read":
+    "Non è stato possibile leggere questo file dal telefono. Aprilo nell'app da cui proviene, poi condividilo di nuovo.",
+  "upload.transferFailed.network":
+    "Non è stato possibile inviare questo file. Controlla la connessione e riprova.",
+  "upload.transferFailed.rejected":
+    "Questo file non è stato accettato. Prova a importarlo di nuovo.",
   "home.loadFailed": "Impossibile caricare la tua posta in arrivo. Riprova.",
   "share.unsupportedFile": "Questo tipo di file non è ancora supportato.",
   "share.signInLinks": "Devi aver effettuato l'accesso per salvare dei link.",
@@ -617,6 +650,4 @@ export const it: Catalog = {
   "startupError.body":
     "Un errore inatteso ha interrotto l'avvio dell'app. Di solito basta riprovare.",
   "startupError.retryA11y": "Riprova ad avviare l'app",
-  "startupError.showDetails": "Mostra i dettagli tecnici",
-  "startupError.hideDetails": "Nascondi i dettagli tecnici",
 };

@@ -104,11 +104,11 @@ export const ar: Catalog = {
   "auth.continueWithGoogle": "المتابعة باستخدام Google",
   "auth.signInWithApple": "تسجيل الدخول باستخدام Apple",
   "auth.google.notCompleted": "لم يكتمل تسجيل الدخول عبر Google. يرجى المحاولة مرة أخرى.",
-  "auth.google.noIdToken": "تعذّر الحصول على رمز هوية Google. يرجى المحاولة مرة أخرى.",
   "auth.google.noGoogleAccount":
     "لا يوجد حساب Google على هذا الجهاز. أضف حسابًا من إعدادات الجهاز ثم حاول مرة أخرى.",
   "auth.google.failed": "تعذّر إكمال تسجيل الدخول عبر Google. يرجى المحاولة مرة أخرى.",
-  "auth.apple.noIdentityToken": "تعذّر الحصول على رمز هوية Apple. يرجى المحاولة مرة أخرى.",
+  "auth.apple.failed":
+    "تعذّر إكمال تسجيل الدخول باستخدام Apple. يرجى المحاولة مرة أخرى.",
   "artifacts.type.summaryShort": "ملخّص",
   "artifacts.type.summaryDetailed": "ملخّص مفصّل",
   "artifacts.type.notes": "ملاحظات دراسية",
@@ -161,6 +161,7 @@ export const ar: Catalog = {
   "error.passwordsDoNotMatch": "كلمتا المرور غير متطابقتين. يرجى المحاولة مرة أخرى.",
   "error.network": "خطأ في الشبكة. تحقق من اتصالك وحاول مرة أخرى.",
   "error.timeout": "انتهت مهلة الطلب. يرجى المحاولة مرة أخرى.",
+  "error.unexpected": "حدث خطأ من جانبنا. يرجى المحاولة مرة أخرى بعد قليل.",
   "error.outOfMinutes": "نفدت دقائقك لهذه الفترة. ارتقِ بخطتك لمواصلة استيراد الصوت والفيديو.",
   "mediaError.mediaUnavailable": "لم تعد هذه الوسائط متاحة في مصدرها.",
   "mediaError.geoRestricted": "هذه الوسائط غير متاحة في المنطقة التي نستورد منها.",
@@ -295,6 +296,7 @@ export const ar: Catalog = {
   "login.submitA11y": "تسجيل الدخول بالبريد الإلكتروني",
   "login.noAccount": "ليس لديك حساب؟",
   "login.signUpLink": "إنشاء حساب",
+  "login.failed": "تعذّر تسجيل دخولك. تحقّق من اتصالك وحاول مرة أخرى.",
   "register.title": "إنشاء حساب",
   "register.subtitle": "ابدأ ببناء قاعدة معرفتك",
   "register.passwordPlaceholder": "6 أحرف على الأقل",
@@ -302,6 +304,7 @@ export const ar: Catalog = {
   "register.submitA11y": "إنشاء حساب بالبريد الإلكتروني",
   "register.hasAccount": "لديك حساب بالفعل؟",
   "register.signInLink": "تسجيل الدخول",
+  "register.failed": "تعذّر إنشاء حسابك. تحقّق من اتصالك وحاول مرة أخرى.",
   "common.goBack": "رجوع",
   "readingLanguage.title": "لغة القراءة",
   "readingLanguage.selectA11y": "اختيار {language} لغةً للقراءة",
@@ -310,6 +313,8 @@ export const ar: Catalog = {
   "readingLanguage.saveA11y": "حفظ لغة القراءة",
   "readingLanguage.changeLimit": "يمكنك تغيير لغة القراءة مرة واحدة في الشهر. سيكون التغيير التالي متاحًا في {date}.",
   "readingLanguage.changeLimitNoDate": "يمكنك تغيير لغة القراءة مرة واحدة في الشهر، وقد استُخدم تغيير هذا الشهر بالفعل.",
+  "readingLanguage.saveFailed":
+    "تعذّر حفظ لغة القراءة. يرجى المحاولة مرة أخرى.",
   "deleteAccount.title": "حذف الحساب",
   "deleteAccount.warningTitle": "لا يمكن التراجع عن هذا",
   "deleteAccount.warningBody": "حذف حسابك يمحوه نهائيًا، ومعه كل ما حفظته. ولا يمكننا استعادته بعد ذلك، ولو طلبت.",
@@ -334,6 +339,7 @@ export const ar: Catalog = {
   "deleteAccount.confirmTitle": "حذف الحساب؟",
   "deleteAccount.confirmBody": "سيؤدي هذا إلى محو حسابك وكل ما فيه نهائيًا. ولا يمكن التراجع عنه.",
   "deleteAccount.confirmAction": "حذف نهائي",
+  "deleteAccount.failed": "تعذّر حذف حسابك. يرجى المحاولة مرة أخرى.",
   "account.title": "الحساب",
   "account.notSet": "غير محددة",
   "account.subscription.manage": "تغيير الخطة",
@@ -371,7 +377,7 @@ export const ar: Catalog = {
   "search.noMatches": "لا نتائج مطابقة لـ «{query}». جرّب كلمات أخرى.",
   "search.emptyLibrary": "مكتبتك فارغة",
   "search.emptyLibraryHint": "شارك رابطًا من أي تطبيق، أو استورد ملفًا من صندوق الوارد، وسيظهر هنا.",
-  "search.failed": "فشل البحث",
+  "search.failed": "تعذّر إكمال البحث. تحقّق من اتصالك وحاول مرة أخرى.",
   "search.foldersLoadFailed": "تعذّر تحميل مجلداتك.",
   "search.libraryLoadFailed": "تعذّر تحميل مكتبتك.",
   "search.retryLibraryA11y": "إعادة تحميل مكتبتك",
@@ -478,6 +484,7 @@ export const ar: Catalog = {
   "bugReport.descriptionPlaceholder": "خطوات إعادة الحدوث، وما كنت تتوقعه، وما حدث فعلًا…",
   "bugReport.descriptionA11y": "وصف بلاغ الخلل",
   "bugReport.attachment": "مرفق (اختياري)",
+  "bugReport.attachmentHint": "صورة أو فيديو أو PDF أو ZIP — حتى {max}",
   "bugReport.attach": "إرفاق ملف",
   "bugReport.attachA11y": "إرفاق ملف ببلاغ الخلل",
   "bugReport.attachChoose": "اختر مصدرًا",
@@ -489,15 +496,17 @@ export const ar: Catalog = {
   "bugReport.submitting": "جارٍ إرسال البلاغ…",
   "bugReport.uploading": "جارٍ رفع المرفق…",
   "bugReport.submitted": "تم إرسال البلاغ",
-  "bugReport.ticketId": "رقم التذكرة",
+  "bugReport.submittedBody":
+    "شكرًا لإبلاغنا. نقرأ كل تقرير وسننظر في هذا التقرير.",
   "bugReport.doneA11y": "تم، العودة إلى الحساب",
   "bugReport.closeA11y": "إغلاق نموذج بلاغ الخلل",
   "bugReport.submitFailed": "تعذّر إرسال بلاغ الخلل. يرجى المحاولة مرة أخرى.",
+  "bugReport.attachmentFailed":
+    "تعذّر إرسال المرفق. أزِله وأرسل التقرير وحده، أو حاول مرة أخرى.",
   "bugReport.pickFileFailed": "تعذّر اختيار الملف. يرجى المحاولة مرة أخرى.",
   "bugReport.pickImageFailed": "تعذّر اختيار الصورة. يرجى المحاولة مرة أخرى.",
   "bugReport.fileTypeTitle": "نوع الملف غير مسموح به",
   "bugReport.fileTypeAccepted": "أنواع الملفات المقبولة: {list}",
-  "bugReport.fileTypeRejected": "نوع الملف المختار ({type}) غير مقبول.",
   "bugReport.fileTooLargeTitle": "الملف كبير جدًا",
   "bugReport.fileTooLarge": "الحد الأقصى للحجم هو {max}. حجم ملفك {size}.",
   "paywall.title": "اختر خطتك",
@@ -522,6 +531,16 @@ export const ar: Catalog = {
   "paywall.purchasePendingBody": "عملية الشراء بانتظار الموافقة. سنُعلمك عند اكتمالها.",
   "paywall.purchaseFailed": "فشل الشراء",
   "paywall.unexpectedError": "حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.",
+  "purchaseError.storeProblem":
+    "تعذّر على المتجر إكمال الشراء. يرجى المحاولة مرة أخرى بعد قليل.",
+  "purchaseError.notAllowed":
+    "الشراء معطّل على هذا الجهاز. تحقّق من قيود جهازك ثم حاول مرة أخرى.",
+  "purchaseError.paymentInvalid":
+    "تعذّر خصم مبلغ الدفع. تحقّق من طريقة الدفع في حساب المتجر ثم حاول مرة أخرى.",
+  "purchaseError.alreadyOwned":
+    "لديك هذا الاشتراك بالفعل. وهو مُفعَّل على حساب المتجر الذي اشتراه.",
+  "purchaseError.failed":
+    "تعذّر إكمال الشراء، ولم يُخصم أي مبلغ. يرجى المحاولة مرة أخرى.",
   "paywall.renewalTerms": "يُخصم المبلغ من حساب {store} عند تأكيد الشراء. ويُجدَّد الاشتراك شهريًا ما لم يُلغَ قبل 24 ساعة على الأقل من نهاية الفترة الجارية، ويُخصم مبلغ التجديد خلال الـ 24 ساعة السابقة لها.",
   "paywall.terms": "شروط الاستخدام",
   "paywall.privacy": "سياسة الخصوصية",
@@ -579,6 +598,11 @@ export const ar: Catalog = {
     "هذه الملاحظة أطول من أن تُحفظ: {count} حرفًا، والحد الأقصى {max}.",
   "share.reject.nothingToSave":
     "لا يوجد هنا ما يمكننا حفظه. جرّب مشاركة نص الملاحظة.",
+  "share.reject.audioFormat":
+    "لا يمكن استيراد صيغة الصوت هذه. الصيغ المدعومة: {formats}.",
+  "share.saveLinkFailed": "تعذّر حفظ هذا الرابط. يرجى المحاولة مرة أخرى.",
+  "share.saveContentFailed": "تعذّر حفظ هذا المحتوى. يرجى المحاولة مرة أخرى.",
+  "share.importFileFailed": "تعذّر استيراد هذا الملف. يرجى المحاولة مرة أخرى.",
   "share.folderFailed": "تعذّر تطبيق المجلد. المحتوى محفوظ، ويمكنك ترتيبه من مكتبتك.",
   "import.filesUnavailable": "تعذّر فتح ملفاتك",
   "import.filesUnavailableBody": "تعذّر فتح متصفح الملفات. يرجى المحاولة مرة أخرى.",
@@ -596,10 +620,12 @@ export const ar: Catalog = {
   "upload.reject.noExtension": "لا يحمل هذا الملف امتدادًا يمكن التعرف عليه. الصيغ المدعومة: {formats}.",
   "upload.reject.empty": "هذا الملف فارغ، فلا شيء لاستيراده.",
   "upload.reject.tooLarge": "حجم هذا الملف {size}، وهو يتجاوز حد {max} للاستيراد الواحد.",
-  "upload.transferFailed": "تعذّر إرسال هذا الملف. تحقّق من اتصالك وحاول مرة أخرى.",
-  "upload.diagnostics.title": "تفاصيل تقنية",
-  "upload.diagnostics.hint":
-    "أرفق هذا السطر إذا أبلغت عن المشكلة: فهو يحدّد الخطوة التي فشلت.",
+  "upload.transferFailed.read":
+    "تعذّرت قراءة هذا الملف من هاتفك. افتحه في التطبيق الذي جاء منه، ثم شاركه مرة أخرى.",
+  "upload.transferFailed.network":
+    "تعذّر إرسال هذا الملف. تحقّق من اتصالك وحاول مرة أخرى.",
+  "upload.transferFailed.rejected":
+    "لم يُقبل هذا الملف. حاول استيراده مرة أخرى.",
   "home.loadFailed": "تعذّر تحميل صندوق الوارد. يرجى المحاولة مرة أخرى.",
   "share.unsupportedFile": "هذا النوع من الملفات غير مدعوم بعد.",
   "share.signInLinks": "يجب تسجيل الدخول لحفظ الروابط.",
@@ -667,6 +693,4 @@ export const ar: Catalog = {
   "startupError.body":
     "أدّى خطأ غير متوقع إلى مقاطعة بدء التطبيق. عادةً ما تكفي المحاولة مرة أخرى للعودة.",
   "startupError.retryA11y": "إعادة محاولة بدء التطبيق",
-  "startupError.showDetails": "إظهار التفاصيل التقنية",
-  "startupError.hideDetails": "إخفاء التفاصيل التقنية",
 };

@@ -106,8 +106,6 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
   return (
     <StartupErrorScreen
-      error={error}
-      origin="render"
       onRetry={() => {
         // A render error and a caught fatal error can both be pending; retrying
         // has to clear both, or the tree comes back straight into the gate.
