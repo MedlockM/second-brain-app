@@ -3,10 +3,10 @@ id: task-389
 title: >-
   Réduire le modal d'enregistrement d'un média à « en cours d'enregistrement —
   le ranger dans un dossier ? Oui / Non »
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-09 20:03'
-updated_date: '2026-09-09 20:21'
+updated_date: '2026-09-10 08:37'
 labels:
   - mobile
   - ui
