@@ -321,7 +321,7 @@ export const es: Catalog = {
     "{rule} Los minutos de prueba no se recargan.",
   "preview.heading": "Vista previa",
   "preview.pending": "Se está redactando la vista previa…",
-  "preview.failed": "No hay vista previa para esta fuente.",
+  "preview.unavailable": "No hay vista previa para esta fuente.",
   "transcript.heading": "Texto completo",
   "transcript.empty": "Aún no hay texto disponible.",
   "transcript.emptyHint":

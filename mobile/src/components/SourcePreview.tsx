@@ -13,7 +13,9 @@
  * The section is always present, in all three states. A preview being generated
  * and a preview that will never exist look identical from the content alone
  * (both are a null blurb), so the status travels with it and the two get
- * different, honest lines instead of a section that silently vanishes.
+ * different, honest lines instead of a section that silently vanishes. The
+ * waiting line is the one that has to be earned: it is the only state that makes
+ * a promise, so it is drawn only when the status actually makes that promise.
  */
 
 import React from "react";
@@ -25,19 +27,37 @@ import { BorderRadius, Colors, Spacing, Typography } from "../constants/theme";
 import { t } from "../i18n";
 import type { MediaItemContract } from "../types/media";
 
-/** What the section renders, once content and status have been reconciled. */
+/**
+ * What the section renders, once content and status have been reconciled.
+ *
+ * `unavailable` is one state for every way of not having a preview — the
+ * generation failed, it was lost, or the wait ran out — because they read the
+ * same to someone looking at the page: there is nothing here, and nothing is
+ * coming. What is *not* among them is a fourth, silent state where the section
+ * waits with nothing behind it.
+ */
 export type SourcePreviewState =
   | { status: "ready"; hook: string; points: string[] }
   | { status: "pending" }
-  | { status: "failed" };
+  | { status: "unavailable" };
 
 /**
  * Reconciles the two contract fields into the one thing the section draws.
  *
  * Content wins: a blurb with a hook is a preview, whatever the artifact entry
- * says about itself. Only its absence is read from the status, and only an
- * outright `failed` closes the question — every other value means "still
- * coming", which is what the screen's poll then resolves.
+ * says about itself.
+ *
+ * Without content, the wait has to be *claimed*. The two fields are separate
+ * sources of truth — the blurb is a mirror on the library row, the status is
+ * read off the internal artifact entry — so they can disagree, and `ready` with
+ * no hook is precisely that disagreement: the generation is over and the mirror
+ * was never written, so no amount of waiting will produce one. Defaulting to
+ * `pending` turned that into a spinner that outlived the item by days, which is
+ * what a build-9 tester saw on articles saved the previous morning.
+ *
+ * So only an explicit `pending` waits. `failed`, the incoherent `ready`, and any
+ * value outside the union all land on the terminal line — an unknown status is
+ * not a promise either.
  */
 export function resolveSourcePreviewState(
   item: Pick<MediaItemContract, "review_blurb" | "review_blurb_status">,
@@ -50,9 +70,9 @@ export function resolveSourcePreviewState(
   if (hook) {
     return { status: "ready", hook, points };
   }
-  return item.review_blurb_status === "failed"
-    ? { status: "failed" }
-    : { status: "pending" };
+  return item.review_blurb_status === "pending"
+    ? { status: "pending" }
+    : { status: "unavailable" };
 }
 
 export function SourcePreview({
@@ -81,9 +101,12 @@ export function SourcePreview({
             <Text style={styles.statusText}>{t("preview.pending")}</Text>
           </View>
         ) : (
-          /* No retry: the generation is internal and `POST /api/artifacts`
-             refuses this type outright. A calm line, and the full text below is
-             untouched — the preview was never what the reader came for. */
+          /* No button: the generation is internal and `POST /api/artifacts`
+             refuses this type outright, so there is nothing here a tap could
+             ask for. Leaving the screen and coming back re-reads the item, which
+             is what picks up a preview that landed late. A calm line, and the
+             full text below is untouched — the preview was never what the reader
+             came for. */
           <View style={styles.statusRow}>
             <Ionicons
               name="information-circle-outline"
@@ -91,7 +114,7 @@ export function SourcePreview({
               color={Colors.textMuted}
               style={styles.statusGlyph}
             />
-            <Text style={styles.statusText}>{t("preview.failed")}</Text>
+            <Text style={styles.statusText}>{t("preview.unavailable")}</Text>
           </View>
         )}
       </View>

@@ -262,7 +262,7 @@ export const zh: Catalog = {
   "account.plan.minutesRuleTrial": "{rule} 试用分钟数不会补充。",
   "preview.heading": "速览",
   "preview.pending": "速览正在生成…",
-  "preview.failed": "该来源没有速览。",
+  "preview.unavailable": "该来源没有速览。",
   "transcript.heading": "全文",
   "transcript.empty": "暂时还没有正文。",
   "transcript.emptyHint": "处理完成后会显示正文。",

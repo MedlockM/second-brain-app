@@ -271,7 +271,7 @@ export const ar: Catalog = {
   "account.plan.minutesRuleTrial": "{rule} دقائق التجربة لا تُجدَّد.",
   "preview.heading": "نظرة سريعة",
   "preview.pending": "جارٍ كتابة النظرة السريعة…",
-  "preview.failed": "لا توجد نظرة سريعة لهذا المصدر.",
+  "preview.unavailable": "لا توجد نظرة سريعة لهذا المصدر.",
   "transcript.heading": "النص الكامل",
   "transcript.empty": "لا يوجد نص بعد.",
   "transcript.emptyHint": "سيظهر النص بمجرد انتهاء المعالجة.",

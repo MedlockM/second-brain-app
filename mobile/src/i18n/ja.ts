@@ -271,7 +271,7 @@ export const ja: Catalog = {
   "account.plan.minutesRuleTrial": "{rule} トライアルの分数は補充されません。",
   "preview.heading": "概要",
   "preview.pending": "概要を作成中です…",
-  "preview.failed": "このソースの概要はありません。",
+  "preview.unavailable": "このソースの概要はありません。",
   "transcript.heading": "全文",
   "transcript.empty": "まだ本文はありません。",
   "transcript.emptyHint": "処理が完了すると本文が表示されます。",

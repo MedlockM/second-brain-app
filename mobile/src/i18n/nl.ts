@@ -273,7 +273,7 @@ export const nl: Catalog = {
   "account.plan.minutesRuleTrial": "{rule} Proefminuten worden niet aangevuld.",
   "preview.heading": "Voorbeeld",
   "preview.pending": "Het voorbeeld wordt geschreven…",
-  "preview.failed": "Geen voorbeeld voor deze bron.",
+  "preview.unavailable": "Geen voorbeeld voor deze bron.",
   "transcript.heading": "Volledige tekst",
   "transcript.empty": "Nog geen tekst beschikbaar.",
   "transcript.emptyHint": "De tekst verschijnt zodra de verwerking klaar is.",

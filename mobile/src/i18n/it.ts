@@ -272,7 +272,7 @@ export const it: Catalog = {
   "account.plan.minutesRuleTrial": "{rule} I minuti di prova non si ricaricano.",
   "preview.heading": "Anteprima",
   "preview.pending": "L'anteprima è in fase di scrittura…",
-  "preview.failed": "Nessuna anteprima per questa fonte.",
+  "preview.unavailable": "Nessuna anteprima per questa fonte.",
   "transcript.heading": "Testo completo",
   "transcript.empty": "Nessun testo disponibile per ora.",
   "transcript.emptyHint": "Il testo comparirà al termine dell'elaborazione.",

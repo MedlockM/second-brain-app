@@ -272,7 +272,7 @@ export const hi: Catalog = {
   "account.plan.minutesRuleTrial": "{rule} ट्रायल के मिनट दोबारा नहीं भरते।",
   "preview.heading": "झलक",
   "preview.pending": "झलक लिखी जा रही है…",
-  "preview.failed": "इस स्रोत के लिए कोई झलक नहीं है।",
+  "preview.unavailable": "इस स्रोत के लिए कोई झलक नहीं है।",
   "transcript.heading": "पूरा पाठ",
   "transcript.empty": "अभी कोई पाठ उपलब्ध नहीं है।",
   "transcript.emptyHint": "प्रोसेसिंग पूरी होते ही पाठ दिखेगा।",
