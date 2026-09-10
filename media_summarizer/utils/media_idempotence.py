@@ -105,71 +105,96 @@ async def already_processed(
         raise
 
 
-async def mark_processed(
-    media_key: Optional[str] = None,
-    job_id: Optional[str] = None,
-) -> None:
+async def _record_terminal_status(
+    *,
+    media_key: Optional[str],
+    job_id: Optional[str],
+    status: str,
+) -> bool:
+    """Move an existing ledger row to a terminal status. ``True`` if it moved.
+
+    The write is conditional on the row still pointing at the job that reports
+    the outcome (or at no job at all, which is how a reservation made before its
+    job id was known looks). A completion event redelivered after the content was
+    purged and re-reserved therefore cannot stamp a dead job's outcome onto the
+    new reservation, and cannot make a fresh in-flight job read as processed.
+
+    ``False`` is a normal outcome, not an error: it means there is no ledger row
+    for this content (nothing ever reserved it -- a direct upload, or a purged
+    entry) or the ledger has legitimately moved on to another job. The caller
+    keeps going; nothing about the media it just handled is invalidated by it.
+    """
     identity_key = _resolve_identity_key(media_key)
+    update = "SET #st = :s, updated_at = :u"
+    condition = "attribute_exists(media_key)"
+    expr_values: Dict[str, Any] = {":s": status, ":u": _now_iso()}
+    if job_id:
+        update += ", job_id = :j"
+        condition += (
+            " AND (attribute_not_exists(job_id)"
+            " OR job_id = :j OR job_id = :no_job)"
+        )
+        expr_values[":j"] = job_id
+        expr_values[":no_job"] = ""
+
     try:
         session = database_async.get_session()
         async with session.resource(
             "dynamodb",
-            
             region_name=database_async.AWS_REGION,
         ) as dynamodb:
             table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)
-            expr_values: Dict[str, Any] = {
-                ":s": "processed",
-                ":u": _now_iso(),
-                ":j": job_id or "",
-            }
             await table.update_item(
                 Key={"media_key": identity_key},
-                UpdateExpression=(
-                    "SET #st = :s, updated_at = :u, "
-                    "job_id = if_not_exists(job_id, :j)"
-                ),
+                UpdateExpression=update,
                 ExpressionAttributeNames={"#st": "status"},
                 ExpressionAttributeValues=expr_values,
-                ConditionExpression="attribute_exists(media_key)",
+                ConditionExpression=condition,
             )
-        logger.info("Marked processed for media_key=%s (job=%s)", identity_key, job_id)
     except ClientError as e:
-        logger.error("Error marking media idempotence processed: %s", e)
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            logger.info(
+                "No ledger row of job %s to mark %s for media_key=%s",
+                job_id,
+                status,
+                identity_key,
+            )
+            return False
+        logger.error("Error marking media idempotence %s: %s", status, e)
         raise
+
+    logger.info(
+        "Marked %s for media_key=%s (job=%s)", status, identity_key, job_id
+    )
+    return True
+
+
+async def mark_processed(
+    media_key: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> bool:
+    """Record that this content has been processed and needs no further job.
+
+    Called by the single path that completes a media
+    (``workers/events/media_completed_worker``) and by the submission
+    orchestrator when it finds a stranded reservation whose job in fact finished.
+    Until task-390 nothing called it at all, so ``reserved`` was permanent and
+    every re-save of an already-processed URL was parked in ``pending`` waiting
+    for a job that had finished days earlier.
+    """
+    return await _record_terminal_status(
+        media_key=media_key, job_id=job_id, status="processed"
+    )
 
 
 async def mark_failed(
     media_key: Optional[str] = None,
     job_id: Optional[str] = None,
-) -> None:
-    identity_key = _resolve_identity_key(media_key)
-    try:
-        session = database_async.get_session()
-        async with session.resource(
-            "dynamodb",
-            
-            region_name=database_async.AWS_REGION,
-        ) as dynamodb:
-            table = await dynamodb.Table(MEDIA_IDEMPOTENCE_TABLE)
-            await table.update_item(
-                Key={"media_key": identity_key},
-                UpdateExpression=(
-                    "SET #st = :s, updated_at = :u, "
-                    "job_id = if_not_exists(job_id, :j)"
-                ),
-                ExpressionAttributeNames={"#st": "status"},
-                ExpressionAttributeValues={
-                    ":s": "failed",
-                    ":u": _now_iso(),
-                    ":j": job_id or "",
-                },
-                ConditionExpression="attribute_exists(media_key)",
-            )
-        logger.info("Marked failed for media_key=%s (job=%s)", identity_key, job_id)
-    except ClientError as e:
-        logger.error("Error marking media idempotence failed: %s", e)
-        raise
+) -> bool:
+    """Record that the job that owned this content ended without a transcript."""
+    return await _record_terminal_status(
+        media_key=media_key, job_id=job_id, status="failed"
+    )
 
 
 async def release_reservation(

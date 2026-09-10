@@ -123,12 +123,23 @@ async def submit_media_for_user(
             and existing.get("status") == "processed"
             and existing.get("job_id")
         ):
-            existing_job_id = str(existing["job_id"])
+            # The job that processed the content, which may belong to another
+            # user: it carries the transcript this save reuses and the metadata it
+            # is finalised with. A read failure leaves it None and the save is
+            # still persisted as ready from what the ledger says.
+            content_job = None
+            try:
+                content_job = await database_async.get_processing_job_by_id(
+                    str(existing["job_id"])
+                )
+            except Exception:  # noqa: BLE001 - a dead job never fails a save
+                content_job = None
+
             owned_job_id = await finalize_deduplicated_save(
                 user_id=user.id,
                 media_item_id=durable_media_item_id,
                 processing_status=UserMediaStatus.READY,
-                existing_job_id=existing_job_id,
+                content_job=content_job,
             )
 
             return {

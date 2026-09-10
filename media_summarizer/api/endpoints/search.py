@@ -48,9 +48,13 @@ class SearchHit(BaseModel):
     is reached through the library list or through a search.
 
     ``in_library`` is the one field that says which source answered. A deletion
-    does not unindex a transcript, so a hit can come back with no row behind it:
-    it then carries only what the index knows, and there is nothing left to
-    rename, move or delete.
+    *does* drop the item's chunks from the index, and does it there and then
+    (``media_deletion_service``), because Algolia is a live read surface: a
+    deleted media stops answering searches immediately. That removal is
+    best-effort though — it is retried by the purge cascade 30 days later — so a
+    hit can still come back with no row behind it while the two surfaces
+    disagree. It then carries only what the index knows, and there is nothing
+    left to rename, move or delete.
     """
 
     media_item_id: str = Field(..., description="ID of the matching media item")
@@ -100,8 +104,9 @@ class SearchHit(BaseModel):
     in_library: bool = Field(
         ...,
         description=(
-            "Whether the media still has a library row. False on a hit the index "
-            "kept after a deletion: no action can be offered on it."
+            "Whether the media still has a library row. False on a hit whose "
+            "chunks outlived their deletion because the index cleanup did not "
+            "go through: no action can be offered on it."
         ),
     )
     text_match_score: int = Field(
@@ -201,8 +206,8 @@ async def search_transcripts(
                     )
 
             # The row wins on everything it carries; the index is the fallback
-            # for an item whose library row is gone, which stays findable today
-            # because deleting a media does not unindex it.
+            # for an item whose library row is gone, which only happens when the
+            # deletion's own index cleanup failed and its retry has not run yet.
             detail = details.get(hit_data.get("media_item_id", ""), {})
             created_at = detail.get("created_at") or _iso_from_index_timestamp(
                 hit_data.get("created_at")

@@ -1,8 +1,13 @@
 """
-Media completed events consumer -- fan-out to media watchers + primary-user indexing.
+Media completed events consumer -- content ledger close, watcher fan-out, indexing.
 
 - Consumes events from EPISODE_COMPLETED_EVENTS_QUEUE (episode-completed-events-<env>)
 - Canonical event_type: episode_completion_status (with status: success/failure)
+- Closes the global content ledger (media_idempotence): every ingestion path
+  publishes here when it finishes, so this is the one place that knows a
+  media_key is no longer in flight and can move it to processed/failed. Without
+  that write the ledger stays at ``reserved`` and every later save of the same
+  URL is parked in ``pending`` for ever (task-390).
 - For each media key, fetches watchers and marks their processing state
 - In V1, all user notifications are via mobile app polling; email notifications disabled
 
@@ -19,10 +24,12 @@ import asyncio
 import json
 import logging
 import os
-import time
 from typing import Any, Dict, Optional
 
-from media_summarizer.utils import media_watchers, s3, sqs
+from media_summarizer.core.services.search_index_dispatch import (
+    enqueue_transcript_indexing,
+)
+from media_summarizer.utils import media_idempotence, media_watchers, s3, sqs
 from media_summarizer.utils.env import required_env
 from media_summarizer.utils.logging_config import log_event
 
@@ -34,77 +41,55 @@ logger = logging.getLogger(__name__)
 # every producer, and pr.yml guards against the other spelling coming back.
 MEDIA_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 SUMMARY_BUCKET = required_env("SUMMARY_BUCKET")
-SEARCH_INDEXING_QUEUE = required_env("SEARCH_INDEXING_QUEUE")
 
 # Backoff
 TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 RETRY_DELAY = 0.01 if TEST_MODE else 2
 
 
-async def _enqueue_search_indexing(
+async def _record_content_outcome(
     *,
-    media_item_id: Optional[str],
-    job_id: Optional[str],
-    user_id: Optional[str],
-    transcription_s3_key: Optional[str],
-    title: Optional[str],
-    creator_name: Optional[str],
-    source_platform: Optional[str],
+    media_key: str,
+    canonical_job_id: Optional[str],
+    processed: bool,
 ) -> None:
+    """Close the global content ledger for this media (task-390).
+
+    This consumer is the single join point every ingestion path publishes to, so
+    it is where ``media_idempotence`` learns that the content is done. Nothing
+    called this before: the ledger stayed at ``reserved`` for ever, and because
+    the submission orchestrator reads it before anything else, every later save
+    of the same URL was persisted as ``pending`` and waited on a job that had
+    already finished. ``reserved`` now means what it says -- in flight.
+
+    Deliberately not swallowed: a ledger that cannot be closed is the bug this
+    call exists to fix, so the event stays on the queue and is redelivered. The
+    work below it is idempotent (the same Algolia objectIDs, an already-marked
+    watcher, an already-provisioned blurb), so a redelivery costs a repeat, not a
+    corruption. A ledger row that simply is not there -- a direct upload, or a
+    purged entry -- is not a failure and returns quietly.
     """
-    Best-effort enqueue of a search indexing message so the transcript becomes
-    searchable in the shared Algolia index (with user_id attribute for isolation).
-
-    This is the single canonical join point for Algolia indexing: every
-    ingestion path that publishes ``episode_completion_status`` with a
-    ``transcription_s3_key`` is indexed here, regardless of producer.
-
-    ``media_item_id`` is the durable library id and becomes the Algolia objectID
-    (task-220). It used to be the processing-job id, which meant a search hit
-    pointed at a row that was allowed to expire; ``job_id`` is now kept for logs
-    only.
-
-    Failure is logged as a warning and never propagates -- it must not break
-    the event handling nor the watcher fan-out. The enqueue is skipped (with a
-    structured log) when ``transcription_s3_key``, ``media_item_id`` or
-    ``user_id`` is missing.
-    """
-    if not transcription_s3_key or not user_id or not media_item_id:
-        log_event(
-            logger,
-            logging.WARNING,
-            "search_indexing.skipped",
-            "Skipped search indexing enqueue: missing transcription_s3_key, media_item_id or user_id",
-            job_id=job_id,
-            has_transcription_s3_key=bool(transcription_s3_key),
-            has_media_item_id=bool(media_item_id),
-            has_user_id=bool(user_id),
-        )
-        return
-
     try:
-        await sqs.send_message(
-            queue_name=SEARCH_INDEXING_QUEUE,
-            message_body={
-                "media_item_id": media_item_id,
-                "user_id": user_id,
-                "transcription_s3_key": transcription_s3_key,
-                "title": title,
-                "creator_name": creator_name,
-                "source_platform": source_platform,
-                "created_at": int(time.time()),
-            },
-        )
-    except Exception as search_err:
+        if processed:
+            await media_idempotence.mark_processed(
+                media_key=media_key, job_id=canonical_job_id
+            )
+        else:
+            await media_idempotence.mark_failed(
+                media_key=media_key, job_id=canonical_job_id
+            )
+    except Exception as exc:
         log_event(
             logger,
-            logging.WARNING,
-            "search_indexing.enqueue_failed",
-            "Failed to enqueue search indexing message",
-            job_id=job_id,
-            user_id=user_id,
-            error=str(search_err),
+            logging.ERROR,
+            "media_idempotence.close_failed",
+            "Could not close the content ledger; the event will be redelivered",
+            media_key=media_key,
+            job_id=canonical_job_id,
+            target_status="processed" if processed else "failed",
+            error=str(exc),
         )
+        raise
 
 
 async def _trigger_review_blurb(
@@ -252,6 +237,11 @@ async def process_event(message: Dict[str, Any]) -> None:
         # "upstream_pipeline_failure" for every single failure.
         failure_reason = body.get("reason") or "upstream_pipeline_failure"
         logger.warning(f"Processing failure event for media_key={media_key}: {failure_reason}")
+        await _record_content_outcome(
+            media_key=media_key,
+            canonical_job_id=canonical_job_id,
+            processed=False,
+        )
         for w in (watchers or []):
             try:
                 await media_watchers.mark_watcher_failed(media_key, w.get("user_id"), reason=failure_reason)
@@ -259,6 +249,15 @@ async def process_event(message: Dict[str, Any]) -> None:
                 logger.error(f"Failed to mark watcher {w.get('user_id')} as failed: {e}")
         await _fail_waiting_artifacts(media_key, reason=failure_reason)
         return
+
+    # The content is processed. Recording it before anything else is deliberate:
+    # a save landing while this event is being handled reads the ledger first,
+    # and it must find "processed" rather than a reservation it would wait on.
+    await _record_content_outcome(
+        media_key=media_key,
+        canonical_job_id=canonical_job_id,
+        processed=True,
+    )
 
     # -------------------------------------------------------------------------
     # Primary-user search indexing (decoupled from watcher loop)
@@ -278,7 +277,7 @@ async def process_event(message: Dict[str, Any]) -> None:
             logger.error(f"Failed to load canonical job {canonical_job_id}: {e}")
 
     if canonical_job and canonical_job.user_id:
-        await _enqueue_search_indexing(
+        await enqueue_transcript_indexing(
             media_item_id=canonical_job.media_item_id or canonical_job_id,
             job_id=canonical_job_id,
             user_id=canonical_job.user_id,
@@ -352,7 +351,7 @@ async def process_event(message: Dict[str, Any]) -> None:
             # against the primary user who was already indexed above.
             watcher_user_id = (getattr(job, "user_id", None) if job else None) or w.get("user_id")
             if watcher_user_id and watcher_user_id not in indexed_user_ids:
-                await _enqueue_search_indexing(
+                await enqueue_transcript_indexing(
                     media_item_id=(
                         getattr(job, "media_item_id", None) if job else None
                     )

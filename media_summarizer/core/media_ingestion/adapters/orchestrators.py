@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Any, Dict, Optional
+from typing import Any, Dict, NamedTuple, Optional
 
 from media_summarizer.core.media_ingestion.domain import (
     IngestionOutcome,
@@ -22,7 +22,12 @@ from media_summarizer.core.media_ingestion.media_metadata import (
 )
 from media_summarizer.core.media_ingestion.ports import SubmissionOrchestratorPort
 from media_summarizer.core.media_ingestion.title_derivation import derive_media_title
-from media_summarizer.core.models import MediaFailureCode, ProcessingJob, UserMediaStatus
+from media_summarizer.core.models import (
+    JobStatus,
+    MediaFailureCode,
+    ProcessingJob,
+    UserMediaStatus,
+)
 from media_summarizer.core.services import audio_quota_gate, quota_enforcer
 from media_summarizer.core.services.durable_media_service import (
     finalize_deduplicated_save,
@@ -67,17 +72,142 @@ def _shared_text_transcription_metadata(raw_text: str) -> Dict[str, Any]:
     }
 
 
-def _status_from_idempotence(status: Optional[str]) -> ProcessingLifecycleStatus:
-    value = (status or "").lower().strip()
+class _ContentJob(NamedTuple):
+    """What the ledger's job id resolved to, and whether the read even worked.
+
+    The distinction matters: a job that is *absent* is a reservation nothing will
+    ever complete, while a read that *failed* says nothing at all and must not be
+    turned into a verdict on the content.
+    """
+
+    job: Optional[ProcessingJob]
+    read_failed: bool
+
+
+# How a live job's pipeline state reads to the user who just saved the same
+# content. There is no lifecycle stage for "summarizing", and none is needed: the
+# library collapses every in-flight stage into "processing" anyway.
+_JOB_STATUS_TO_LIFECYCLE = {
+    JobStatus.PENDING: ProcessingLifecycleStatus.PENDING,
+    JobStatus.EXTRACTING: ProcessingLifecycleStatus.EXTRACTING,
+    JobStatus.TRANSCRIBING: ProcessingLifecycleStatus.TRANSCRIBING,
+    JobStatus.SUMMARIZING: ProcessingLifecycleStatus.TRANSCRIBING,
+    JobStatus.COMPLETED: ProcessingLifecycleStatus.READY_FOR_ARTIFACTS,
+    JobStatus.FAILED: ProcessingLifecycleStatus.FAILED,
+    JobStatus.CANCELLED: ProcessingLifecycleStatus.CANCELLED,
+}
+
+
+async def _load_content_job(job_id: str, *, media_key: str) -> _ContentJob:
+    """Read the job the content ledger points at. Never raises."""
+    try:
+        job = await database_async.get_processing_job_by_id(job_id)
+    except Exception as exc:  # noqa: BLE001 - a dead read must not fail a save
+        log_event(
+            logger,
+            logging.WARNING,
+            "media.ingest.duplicate_job_unreadable",
+            f"Could not read the content job behind a deduplicated save: {exc}",
+            job_id=job_id,
+            media_key=media_key,
+            error_type=type(exc).__name__,
+        )
+        return _ContentJob(job=None, read_failed=True)
+    return _ContentJob(job=job, read_failed=False)
+
+
+async def _resolve_duplicate_status(
+    *,
+    media_key: str,
+    ledger_status: Optional[str],
+    content_job_id: str,
+    content: _ContentJob,
+) -> ProcessingLifecycleStatus:
+    """What a save of already-known content is worth, from the ledger and the job.
+
+    ``reserved`` used to map straight to ``pending``, which was only ever correct
+    if ``reserved`` meant "in flight". Nothing closed the ledger before task-390,
+    so it meant "was submitted once, at some point", and every re-save of a
+    finished media was persisted as pending, waiting on a job that had completed
+    days earlier. The job itself is the authority: when it has reached a terminal
+    state the save resolves from that state, and the stranded ledger row is
+    repaired on the way through so the next save reads the truth directly.
+    """
+    value = (ledger_status or "").lower().strip()
     if value == "processed":
         return ProcessingLifecycleStatus.READY_FOR_ARTIFACTS
     if value == "failed":
         return ProcessingLifecycleStatus.FAILED
-    if value == "reserved":
+    if value != "reserved":
+        # The ledger has no other state. An absent/unknown value must not leave a
+        # freshly saved row polling forever for work no code has scheduled.
+        return ProcessingLifecycleStatus.COMPLETED
+
+    if content.read_failed:
+        # No information. Treating the reservation as in flight is the only
+        # honest answer, and the worker mirror refreshes the row either way.
         return ProcessingLifecycleStatus.PENDING
-    # The ledger has no other in-flight state. An absent/unknown value must not
-    # leave a freshly saved row polling forever for work no code has scheduled.
-    return ProcessingLifecycleStatus.COMPLETED
+
+    if content.job is None:
+        # A reservation pointing at a job that no longer exists: its transcript is
+        # unreachable (the pointer to it lived on that row) and no worker is going
+        # to publish anything. Saying "pending" here is what parked saves forever.
+        log_event(
+            logger,
+            logging.WARNING,
+            "media.ingest.duplicate_ledger_orphaned",
+            "Content ledger points at a job that no longer exists",
+            job_id=content_job_id,
+            media_key=media_key,
+        )
+        return ProcessingLifecycleStatus.FAILED
+
+    mapped = _JOB_STATUS_TO_LIFECYCLE.get(
+        content.job.status, ProcessingLifecycleStatus.PENDING
+    )
+    if mapped == ProcessingLifecycleStatus.READY_FOR_ARTIFACTS:
+        await _reconcile_stranded_ledger(
+            media_key=media_key, job_id=content_job_id, processed=True
+        )
+    elif mapped in (
+        ProcessingLifecycleStatus.FAILED,
+        ProcessingLifecycleStatus.CANCELLED,
+    ):
+        await _reconcile_stranded_ledger(
+            media_key=media_key, job_id=content_job_id, processed=False
+        )
+    return mapped
+
+
+async def _reconcile_stranded_ledger(
+    *, media_key: str, job_id: str, processed: bool
+) -> None:
+    """Close a ledger row whose job is already terminal. Best effort.
+
+    The completion path closes the ledger itself, so this only ever fires for
+    rows stranded before that path existed, or by a completion event that was
+    lost. Never fails the save: the outcome has already been resolved from the
+    job, and a ledger left stale only means the next save resolves it the same
+    way again.
+    """
+    try:
+        if processed:
+            await episode_idempotence.mark_processed(
+                media_key=media_key, job_id=job_id
+            )
+        else:
+            await episode_idempotence.mark_failed(media_key=media_key, job_id=job_id)
+    except Exception as exc:  # noqa: BLE001 - a repair never fails a save
+        log_event(
+            logger,
+            logging.WARNING,
+            "media_idempotence.reconcile_failed",
+            f"Could not reconcile a stranded content ledger row: {exc}",
+            media_key=media_key,
+            job_id=job_id,
+            target_status="processed" if processed else "failed",
+            error_type=type(exc).__name__,
+        )
 
 
 def _library_status_from_duplicate(
@@ -135,7 +265,7 @@ async def _debit_deduplicated_audio_save(
     user_id: str,
     media_key: str,
     media_item_id: str,
-    existing_job_id: str,
+    content_job: Optional[ProcessingJob],
 ) -> None:
     """Charge a user's *first* save of content somebody else already processed.
 
@@ -156,6 +286,10 @@ async def _debit_deduplicated_audio_save(
     The idempotency token is the save's own library id, so a retried or
     redelivered submission charges it at most once, and two different saves of
     the same content by the same user never share a token.
+
+    ``content_job`` is ``None`` when the job behind the content is gone or could
+    not be read: there is then no duration to charge and nothing is debited. A
+    quota read never fails a save.
     """
     if await user_holds_media(
         user_id=user_id,
@@ -173,22 +307,19 @@ async def _debit_deduplicated_audio_save(
         )
         return
 
-    try:
-        existing_job = await database_async.get_processing_job_by_id(existing_job_id)
-    except Exception as exc:  # noqa: BLE001 - a quota read never fails a save
+    if content_job is None:
         log_event(
             logger,
             logging.WARNING,
             "quota.duplicate_debit_skipped",
-            f"Could not read the content job behind a deduplicated save: {exc}",
+            "No content job behind a deduplicated save; nothing to debit",
             user_id=user_id,
             media_key=media_key,
             media_item_id=media_item_id,
-            error_type=type(exc).__name__,
         )
         return
 
-    audio_seconds = _audio_seconds_billed_by(existing_job)
+    audio_seconds = _audio_seconds_billed_by(content_job)
     if audio_seconds is None:
         # Nothing was transcribed for this content, so there is nothing to charge:
         # articles, documents, captioned videos and shared text are unlimited.
@@ -209,7 +340,7 @@ async def _debit_deduplicated_audio_save(
         user_id=user_id,
         media_key=media_key,
         media_item_id=media_item_id,
-        content_job_id=existing_job_id,
+        content_job_id=content_job.id,
         audio_duration_seconds=audio_seconds,
         debited_minutes=debited,
     )
@@ -230,24 +361,37 @@ async def _build_duplicate_outcome(
     an item that does not belong to them, while their own library row stayed
     invisible. Deduplication is a *pipeline* optimisation; the library entry is
     per user (task-218 §4.3).
+
+    The content job is read once here and handed to everything below, because
+    three of them need it and it is the authority on what the reused content is:
+    the quota debit reads its audio length, the status resolution reads its
+    pipeline state, and the finalisation copies its title, creator and cover onto
+    the new row before submitting the transcript for indexing.
     """
     existing_job_id = existing.get("job_id")
     if not existing_job_id:
         raise OrchestrationError(
             "Duplicate media_key detected but idempotence row has no job_id."
         )
-    mapped_status = _status_from_idempotence(existing.get("status"))
+    content_job_id = str(existing_job_id)
+    content = await _load_content_job(content_job_id, media_key=resolved.media_key)
+    mapped_status = await _resolve_duplicate_status(
+        media_key=resolved.media_key,
+        ledger_status=existing.get("status"),
+        content_job_id=content_job_id,
+        content=content,
+    )
     await _debit_deduplicated_audio_save(
         user_id=user_id,
         media_key=resolved.media_key,
         media_item_id=durable_media_item_id,
-        existing_job_id=str(existing_job_id),
+        content_job=content.job,
     )
     owned_job_id = await finalize_deduplicated_save(
         user_id=user_id,
         media_item_id=durable_media_item_id,
         processing_status=_library_status_from_duplicate(mapped_status),
-        existing_job_id=existing_job_id,
+        content_job=content.job,
     )
     caller_media_item_id = durable_media_item_id
     return IngestionOutcome(
@@ -260,6 +404,7 @@ async def _build_duplicate_outcome(
         duplicate_of_media_item_id=caller_media_item_id,
         metadata={
             "idempotence_status": existing.get("status"),
+            "resolved_status": mapped_status.value,
             "resolver_key": resolved.resolver_key,
             "media_family": resolved.media_family.value,
             "media_type": resolved.media_type.value,

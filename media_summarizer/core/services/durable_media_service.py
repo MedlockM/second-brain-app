@@ -252,43 +252,80 @@ async def user_holds_media(
     )
 
 
+def display_attributes_from_job(job: ProcessingJob) -> Dict[str, Any]:
+    """The content metadata a job carries, as durable-row attributes.
+
+    Shared by the worker mirror and by a deduplicated save, because both answer
+    the same question -- what does this content actually look like -- and a save
+    that skipped the pipeline has nothing but the placeholder derived at
+    submission time ("Article — 09 Sep 2026", no creator, no cover) until this is
+    applied.
+
+    Only non-empty values are returned, so a job that does not know a field
+    cannot blank out what another one resolved.
+    """
+    attributes: Dict[str, Any] = {}
+    for source_attr, target_attr in (
+        ("title", "title"),
+        ("creator_name", "creator_name"),
+        ("source_url", "source_url"),
+        ("source_platform", "source_platform"),
+        ("media_type", "media_type"),
+        ("media_image", "thumbnail_url"),
+    ):
+        value = getattr(job, source_attr, None)
+        if value:
+            attributes[target_attr] = value
+
+    # The media's own length, not any of the job's *processing* durations. The
+    # extraction workers publish it under this key; job.total_duration is how long
+    # the pipeline took and must never end up here.
+    metadata = job.extraction_metadata or {}
+    raw_duration = metadata.get("audio_duration_seconds")
+    if raw_duration:
+        try:
+            attributes["duration_seconds"] = int(raw_duration)
+        except (TypeError, ValueError):
+            pass
+    return attributes
+
+
 async def finalize_deduplicated_save(
     *,
     user_id: str,
     media_item_id: str,
     processing_status: UserMediaStatus,
-    existing_job_id: str,
+    content_job: Optional[ProcessingJob],
 ) -> Optional[str]:
-    """Persist the outcome of a save for content already in the global ledger.
+    """Make a save of already-known content arrive complete.
 
     A duplicate does not run a job for the newly created library row, so the
-    normal worker mirror will never update it. This write is therefore part of
-    the save path and is strict, unlike :func:`mirror_attributes`: returning a
-    successful response while the row still says ``pending`` would leave the
-    client polling work that will never happen.
+    normal worker mirror will never update it. Three things therefore happen
+    here, and nowhere else:
 
-    The global idempotence job can belong to another user. Its id is returned
-    only when ownership can be proved from the operational row; a foreign or
-    expired job still lets the terminal status be persisted, but never becomes
-    a pointer on the caller's library row.
+    1. the terminal ``processing_status`` is persisted. This write is strict,
+       unlike :func:`mirror_attributes`: returning a successful response while
+       the row still says ``pending`` would leave the client polling work that
+       will never happen;
+    2. the content's real title, creator and cover replace the placeholder the
+       submission derived, because they are what the reused content is actually
+       called (task-390);
+    3. the transcript is submitted for indexing under *this* save's id, since an
+       Algolia record is keyed by the save and this one has none yet.
+
+    ``content_job`` is the job that processed the content and may belong to
+    another user; when it is ``None`` the job has expired or could not be read,
+    and the status is still persisted from what the ledger said. Its id is
+    returned only when ownership can be proved, so a foreign job never becomes a
+    pointer on the caller's library row.
     """
-    from media_summarizer.utils import database_async
-
     owned_job_id: Optional[str] = None
-    try:
-        existing_job = await database_async.get_processing_job_by_id(existing_job_id)
-    except Exception as exc:  # noqa: BLE001 - expiry must not break deduplication
-        logger.warning(
-            "Could not resolve duplicate job %s while finalizing %s: %s",
-            existing_job_id,
-            media_item_id,
-            exc,
-        )
-    else:
-        if existing_job is not None and existing_job.user_id == user_id:
-            owned_job_id = existing_job.id
+    if content_job is not None and content_job.user_id == user_id:
+        owned_job_id = content_job.id
 
     attributes: Dict[str, Any] = {"processing_status": processing_status}
+    if content_job is not None:
+        attributes.update(display_attributes_from_job(content_job))
     if owned_job_id:
         attributes["last_job_id"] = owned_job_id
 
@@ -325,6 +362,23 @@ async def finalize_deduplicated_save(
         )
         raise DurableMediaWriteError(
             f"Durable row missing during duplicate finalization for {media_item_id}"
+        )
+
+    if processing_status == UserMediaStatus.READY and content_job is not None:
+        # Imported here so a module every worker loads does not require the
+        # indexing queue to be configured just to read a library row.
+        from media_summarizer.core.services.search_index_dispatch import (
+            enqueue_transcript_indexing,
+        )
+
+        await enqueue_transcript_indexing(
+            media_item_id=media_item_id,
+            user_id=user_id,
+            transcription_s3_key=content_job.transcription_s3_key,
+            title=content_job.title,
+            creator_name=content_job.creator_name,
+            source_platform=content_job.source_platform,
+            job_id=content_job.id,
         )
 
     return owned_job_id
@@ -433,37 +487,13 @@ async def mirror_job(job: ProcessingJob) -> bool:
     if not job or not job.user_id:
         return False
 
-    attributes: Dict[str, Any] = {}
+    # Metadata the pipeline resolves after the save (a YouTube title, the real
+    # media type, the artwork), plus the status projection.
+    attributes: Dict[str, Any] = display_attributes_from_job(job)
 
     library_status = map_job_status(job.status)
     if library_status is not None:
         attributes["processing_status"] = library_status
-
-    # Metadata the pipeline resolves after the save (a YouTube title, the real
-    # media type, the artwork). Only non-empty values are mirrored, so a worker
-    # that does not know a field cannot blank out what another worker resolved.
-    for source_attr, target_attr in (
-        ("title", "title"),
-        ("creator_name", "creator_name"),
-        ("source_url", "source_url"),
-        ("source_platform", "source_platform"),
-        ("media_type", "media_type"),
-        ("media_image", "thumbnail_url"),
-    ):
-        value = getattr(job, source_attr, None)
-        if value:
-            attributes[target_attr] = value
-
-    # The media's own length, not any of the job's *processing* durations. The
-    # extraction workers publish it under this key; job.total_duration is how long
-    # the pipeline took and must never end up here.
-    metadata = job.extraction_metadata or {}
-    raw_duration = metadata.get("audio_duration_seconds")
-    if raw_duration:
-        try:
-            attributes["duration_seconds"] = int(raw_duration)
-        except (TypeError, ValueError):
-            pass
 
     updated = False
     seen: set[tuple[str, str]] = set()

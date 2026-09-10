@@ -56,11 +56,52 @@ Deduplication must keep saving the expensive half of the work — extraction, tr
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The path that completes a media marks the content's idempotence ledger entry as processed, and no successful completion leaves it at reserved
-- [ ] #2 A save deduplicated against already-processed content is persisted with that content's real title, creator and cover rather than the placeholder derived at submission time
-- [ ] #3 A save deduplicated against already-processed content is submitted for search indexing under its own media item id, reusing the existing transcript with no re-extraction and no LLM call
-- [ ] #4 A ledger entry left at reserved whose referenced job has reached a terminal state does not park a new save in pending; the save resolves from the job's actual state
-- [ ] #5 The reserved rows in media_idempotence-dev whose content is in fact processed are reconciled to processed, verified by reading the table back with the AWS CLI
-- [ ] #6 The claim in the search hit documentation that a deletion does not unindex a transcript is corrected to match what the deletion path actually does
-- [ ] #7 ruff and mypy are clean
+- [x] #1 The path that completes a media marks the content's idempotence ledger entry as processed, and no successful completion leaves it at reserved
+- [x] #2 A save deduplicated against already-processed content is persisted with that content's real title, creator and cover rather than the placeholder derived at submission time
+- [x] #3 A save deduplicated against already-processed content is submitted for search indexing under its own media item id, reusing the existing transcript with no re-extraction and no LLM call
+- [x] #4 A ledger entry left at reserved whose referenced job has reached a terminal state does not park a new save in pending; the save resolves from the job's actual state
+- [x] #5 The reserved rows in media_idempotence-dev whose content is in fact processed are reconciled to processed, verified by reading the table back with the AWS CLI
+- [x] #6 The claim in the search hit documentation that a deletion does not unindex a transcript is corrected to match what the deletion path actually does
+- [x] #7 ruff and mypy are clean
 <!-- AC:END -->
+
+## Implementation Notes
+<!-- SECTION:NOTES:BEGIN -->
+### Root cause, confirmed
+
+`media_idempotence.mark_processed()` had zero call sites, so no row ever left `reserved`. `orchestrators.py` short-circuits into the duplicate branch on any ledger row carrying a `job_id`, and `reserved` mapped to `PENDING` — so every re-save of an already-ingested URL was persisted pending, waiting on a job that had finished. Nothing was wrong with the reservation, the transcript or the artifacts; only the ledger's terminal write was missing.
+
+### What changed
+
+- `media_summarizer/utils/media_idempotence.py` — `mark_processed` / `mark_failed` now share one guarded writer. The update is conditional on `attribute_exists(media_key)` and, when a `job_id` is given, on the row still belonging to that job (or to none). A stale redelivered completion therefore cannot stamp a newer reservation, and a missing row returns `False` instead of raising.
+- `media_summarizer/workers/events/media_completed_worker.py` — this consumer is the single join point every ingestion path publishes to, so it is where the ledger is closed: `processed` on success (before the indexing fan-out, so a save landing mid-event reads the truthful ledger), `failed` on the failure branch. The write re-raises on error on purpose — SQS redelivers, and a persistent failure surfaces on the existing DLQ-depth alarm for `EPISODE_COMPLETED_EVENTS_QUEUE` (`pipeline_alerts.tf`), so no new alarm and no Terraform change were needed.
+- `media_summarizer/core/services/search_index_dispatch.py` (new) — the worker-local `_enqueue_search_indexing` became a shared service, now the single writer of `SEARCH_INDEXING_QUEUE`, used by both the completion worker and the deduplicated save path. The message body is unchanged.
+- `media_summarizer/core/services/durable_media_service.py` — new `display_attributes_from_job` shared by `mirror_job` and `finalize_deduplicated_save` (the mapping was duplicated inline). `finalize_deduplicated_save` now takes the content job, rehydrates title/creator/cover/duration/source from it, only claims `owned_job_id` when the job belongs to the saving user, and enqueues transcript indexing under the new `media_item_id` when the save resolves `ready`.
+- `media_summarizer/core/media_ingestion/adapters/orchestrators.py` — `_status_from_idempotence` (a pure string map) is deleted. The duplicate branch now loads the referenced job and resolves the save from the ledger *and* the job's real state, reconciling a stranded `reserved` row on the way. The audio-quota debit reuses that same job instead of re-fetching it.
+- `media_summarizer/core/services/media_submission.py` — the podcast dedup branch loads the content job and passes it through, so an episode re-save is finalised like every other.
+- `media_summarizer/api/endpoints/search.py` — AC #6. `media_deletion_service.delete_media_for_user` *does* call `search_indexing.delete_document` synchronously; the docstring said the opposite. Corrected to what actually happens: the removal is immediate but best-effort, retried by the 30-day purge cascade, and an `in_library: false` hit is a chunk set that outlived a failed index cleanup.
+- `media_summarizer/scripts/reconcile_media_idempotence.py` (new) — one-off reconciliation, dry-run by default, `MEDIA_IDEMPOTENCE_RECONCILE_APPLY=true` to write.
+
+### Dev reconciliation (eu-west-3, AC #5)
+
+Census before: 70 rows in `media_idempotence-dev`, 64 `reserved` / 6 `processed`. Of the 64 reserved: 44 jobs completed, 5 failed, 15 jobs no longer in `processing_jobs-dev` (swept by the 90-day TTL).
+
+Applied: `marked_processed: 44`, `marked_failed: 5`, `job_missing: 15`, `skipped_status_processed: 6`. Read back with the AWS CLI: 50 `processed`, 5 `failed`, 15 `reserved` — and a per-row `get-item` on `processing_jobs-dev` confirms all 15 remaining reserved rows point at jobs that no longer exist (0 alive).
+
+### Deliberate scope decisions
+
+- **`reserved` + job gone resolves to `FAILED`, not to a fresh ingestion.** 14 of those 15 contents still have a `{job_id}.txt` transcript in the transcripts bucket, but the pointer to it lived on the job row that expired, so nothing can resolve it. Making expired-job content re-ingestable means re-spending provider quota on a save the user expects to be free, which is a separate decision — left for a follow-up rather than smuggled into a bug fix.
+- **A save deduplicated against an *in-flight* job is still not search-indexed by this change.** That fan-out is watcher-based and happens when the canonical job completes; `mirror_job` fixes the row's status and metadata at that point. Pre-existing gap, unchanged here, documented rather than half-fixed.
+- **No automated tests were added**, per the project rule forbidding them. Nothing under `tests/` referenced the changed signatures, so nothing broke.
+
+### Verification
+
+- `ruff check media_summarizer/` — all checks passed.
+- `uv run --extra dev mypy media_summarizer/` — success, 185 source files.
+- Direct AWS CLI reads against `media_idempotence-dev` and `processing_jobs-dev` in `eu-west-3` (see above).
+- No Terraform file changed, so no `terraform validate` run was needed.
+
+### Out of reach from the worktree
+
+The `DEPLOY CHECK` in the description (delete a media, re-save the same URL, confirm the row opens on its transcript with the real title and cover and is findable by a word from its text) cannot be done here: the deploy happens on push to `main`, after this run ends. It stays an owner check.
+<!-- SECTION:NOTES:END -->
