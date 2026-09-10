@@ -310,6 +310,8 @@ export const nl: Catalog = {
   "readingLanguage.disclaimer": "Deze instelling geldt alleen voor toekomstige inhoud. Bestaande samenvattingen en vertalingen worden niet opnieuw verwerkt.",
   "readingLanguage.saved": "Taal bijgewerkt",
   "readingLanguage.saveA11y": "Leestaal opslaan",
+  "readingLanguage.changeLimit": "Je kunt je leestaal één keer per maand wijzigen. De volgende wijziging is mogelijk op {date}.",
+  "readingLanguage.changeLimitNoDate": "Je kunt je leestaal één keer per maand wijzigen, en de wijziging van deze maand is al gebruikt.",
   "deleteAccount.title": "Account verwijderen",
   "deleteAccount.warningTitle": "Dit kan niet ongedaan worden gemaakt",
   "deleteAccount.warningBody": "Je account verwijderen wist het permanent, samen met alles wat je hebt opgeslagen. We kunnen het daarna niet herstellen, ook niet op verzoek.",

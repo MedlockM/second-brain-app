@@ -17,6 +17,11 @@ import {
   ReadingLanguageCode,
 } from "../../src/services/userPreferencesService";
 import { getFriendlyErrorMessage } from "../../src/lib/getFriendlyErrorMessage";
+import {
+  describeReadingLanguageLimit,
+  describeReadingLanguageRefusal,
+  isReadingLanguageChangeTooSoon,
+} from "../../src/lib/readingLanguageRefusal";
 import { t } from "../../src/i18n";
 import {
   Colors,
@@ -31,11 +36,22 @@ import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeade
  * Settings screen for changing reading language preference.
  * Accessible from the Account screen.
  * Includes a disclaimer about existing content not being re-translated.
+ *
+ * A change costs provider money — every media opened afterwards is translated
+ * again — so the backend allows one per month and per account. While that
+ * guard-rail holds, this screen says when it lifts and keeps Save out of reach
+ * rather than letting a save walk into a refusal. The refusal path stays wired
+ * all the same: the date arrives with the profile the session was opened with,
+ * and another device may have spent the change since.
  */
 export default function ReadingLanguageSettingsScreen() {
   const router = useRouter();
-  const { readingLanguage, updateReadingLanguage, isUpdating } =
-    useUserPreferences();
+  const {
+    readingLanguage,
+    readingLanguageChangeAvailableAt,
+    updateReadingLanguage,
+    isUpdating,
+  } = useUserPreferences();
   const [selectedLanguage, setSelectedLanguage] =
     useState<ReadingLanguageCode | null>(
       (readingLanguage as ReadingLanguageCode) ?? null,
@@ -44,16 +60,26 @@ export default function ReadingLanguageSettingsScreen() {
   const [success, setSuccess] = useState(false);
 
   const hasChanged = selectedLanguage !== readingLanguage;
+  // Null once a change is possible again, which is also the answer for an
+  // account that has never changed its language.
+  const limitNotice = describeReadingLanguageLimit(
+    readingLanguageChangeAvailableAt,
+  );
+  const isLocked = limitNotice !== null;
 
   const handleSave = async () => {
-    if (!selectedLanguage || !hasChanged) return;
+    if (!selectedLanguage || !hasChanged || isLocked) return;
     setError(null);
     setSuccess(false);
     try {
       await updateReadingLanguage(selectedLanguage);
       setSuccess(true);
     } catch (err) {
-      setError(getFriendlyErrorMessage(err));
+      setError(
+        isReadingLanguageChangeTooSoon(err)
+          ? describeReadingLanguageRefusal(err)
+          : getFriendlyErrorMessage(err),
+      );
     }
   };
 
@@ -119,6 +145,13 @@ export default function ReadingLanguageSettingsScreen() {
         </Text>
       </View>
 
+      {limitNotice && (
+        <View style={styles.limitNotice}>
+          <Ionicons name="time-outline" size={20} color={Colors.textMuted} />
+          <Text style={styles.limitNoticeText}>{limitNotice}</Text>
+        </View>
+      )}
+
       {error && (
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
@@ -144,10 +177,10 @@ export default function ReadingLanguageSettingsScreen() {
         <Pressable
           style={[
             styles.saveButton,
-            (!hasChanged || isUpdating) && styles.buttonDisabled,
+            (!hasChanged || isUpdating || isLocked) && styles.buttonDisabled,
           ]}
           onPress={handleSave}
-          disabled={!hasChanged || isUpdating}
+          disabled={!hasChanged || isUpdating || isLocked}
           accessibilityLabel={t("readingLanguage.saveA11y")}
           accessibilityRole="button"
         >
@@ -181,6 +214,25 @@ const styles = StyleSheet.create({
     flex: 1,
     ...Typography.small,
     color: Colors.textMuted,
+    lineHeight: 18,
+  },
+  // Same tonal surface as the disclaimer above it: both are context, not alarm.
+  // The monthly guard-rail is a fact about the setting, and turning it red would
+  // read as something having gone wrong.
+  limitNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: Colors.surfaceContainerLow,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    gap: Spacing.sm,
+  },
+  limitNoticeText: {
+    flex: 1,
+    ...Typography.small,
+    color: Colors.textMain,
     lineHeight: 18,
   },
   errorContainer: {

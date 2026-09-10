@@ -308,6 +308,8 @@ export const ja: Catalog = {
   "readingLanguage.disclaimer": "この設定は今後のコンテンツにのみ適用されます。既存の要約や翻訳が再処理されることはありません。",
   "readingLanguage.saved": "言語を更新しました",
   "readingLanguage.saveA11y": "読書言語を保存",
+  "readingLanguage.changeLimit": "読書言語の変更は月に1回までです。次に変更できるのは{date}以降です。",
+  "readingLanguage.changeLimitNoDate": "読書言語の変更は月に1回までで、今月分はすでに使用済みです。",
   "deleteAccount.title": "アカウントを削除",
   "deleteAccount.warningTitle": "この操作は取り消せません",
   "deleteAccount.warningBody": "アカウントを削除すると、保存したすべての内容とともに完全に消去されます。その後は、ご依頼いただいても復元できません。",

@@ -376,6 +376,10 @@ export const fr: Catalog = {
     "Ce réglage n'affecte que les contenus à venir. Les résumés et traductions existants ne seront pas retraités.",
   "readingLanguage.saved": "Langue mise à jour",
   "readingLanguage.saveA11y": "Enregistrer la langue de lecture",
+  "readingLanguage.changeLimit":
+    "Vous pouvez changer de langue de lecture une fois par mois. Le prochain changement sera possible le {date}.",
+  "readingLanguage.changeLimitNoDate":
+    "Vous pouvez changer de langue de lecture une fois par mois, et le changement de ce mois-ci a déjà été utilisé.",
   "deleteAccount.title": "Supprimer le compte",
   "deleteAccount.warningTitle": "Cette action est irréversible",
   "deleteAccount.warningBody":

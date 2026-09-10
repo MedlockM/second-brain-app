@@ -308,6 +308,8 @@ export const ar: Catalog = {
   "readingLanguage.disclaimer": "يؤثر هذا الإعداد في المحتوى المستقبلي فقط. أما الملخّصات والترجمات الموجودة فلن تُعاد معالجتها.",
   "readingLanguage.saved": "تم تحديث اللغة",
   "readingLanguage.saveA11y": "حفظ لغة القراءة",
+  "readingLanguage.changeLimit": "يمكنك تغيير لغة القراءة مرة واحدة في الشهر. سيكون التغيير التالي متاحًا في {date}.",
+  "readingLanguage.changeLimitNoDate": "يمكنك تغيير لغة القراءة مرة واحدة في الشهر، وقد استُخدم تغيير هذا الشهر بالفعل.",
   "deleteAccount.title": "حذف الحساب",
   "deleteAccount.warningTitle": "لا يمكن التراجع عن هذا",
   "deleteAccount.warningBody": "حذف حسابك يمحوه نهائيًا، ومعه كل ما حفظته. ولا يمكننا استعادته بعد ذلك، ولو طلبت.",

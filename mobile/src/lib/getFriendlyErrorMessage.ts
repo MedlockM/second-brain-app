@@ -60,6 +60,11 @@ const ERROR_CODE_MESSAGES: Record<string, TranslationKey> = {
   BAD_REQUEST: "error.badRequest",
   INTERNAL_ERROR: CRITICAL_ERROR,
   UNKNOWN_ERROR: CRITICAL_ERROR,
+  // The dateless form of the once-a-month reading-language guard-rail, for a
+  // caller that did not go through `describeReadingLanguageRefusal`. This table
+  // maps a code to a key and cannot interpolate, so the dated sentence — the one
+  // the language screens show — is built there from the refusal's `available_at`.
+  reading_language_change_too_soon: "readingLanguage.changeLimitNoDate",
 
   // --- Ingestion failures (`MediaFailureCode`) ---
   MEDIA_UNAVAILABLE: "mediaError.mediaUnavailable",

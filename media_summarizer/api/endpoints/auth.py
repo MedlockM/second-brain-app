@@ -21,7 +21,7 @@ job (core/services/account_deletion_service.py), which deletes the rows outright
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import (
     APIRouter,
@@ -283,6 +283,12 @@ async def get_current_user_info(current_user: AuthUser = Depends(get_current_use
 # V1 supported reading languages (ISO 639-1 codes)
 V1_READING_LANGUAGES = {"fr", "en", "es", "de", "it", "pt", "nl", "ja", "zh", "ar", "hi"}
 
+# The stable identifier of a reading-language change refused by the once-a-month
+# guard-rail (see ``READING_LANGUAGE_CHANGE_INTERVAL``). The response carries this
+# code and the date the guard lifts, never a sentence: the app words the refusal
+# from its own catalogue, in the reader's interface language (task-359 convention).
+READING_LANGUAGE_CHANGE_TOO_SOON = "reading_language_change_too_soon"
+
 
 class UpdateMeRequest(BaseModel):
     """Request model for updating the current user's preferences."""
@@ -306,7 +312,14 @@ async def update_current_user(
     current_user: AuthUser = Depends(get_current_user),
     db: DynamoDBConnection = Depends(get_db),
 ):
-    """Update the current user's preferences (reading language, device time zone)."""
+    """Update the current user's preferences (reading language, device time zone).
+
+    The reading language is rate-limited to one change per month, per account —
+    it is the only preference here whose move costs money, since it re-translates
+    every media the reader opens next. Setting a first language is not a change
+    and is never refused; a second move inside the window answers 429 with
+    ``reading_language_change_too_soon`` and the date the guard lifts.
+    """
     if not current_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
@@ -318,7 +331,7 @@ async def update_current_user(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
-    update_data = {}
+    update_data: Dict[str, Any] = {}
 
     if request.reading_language is not None:
         lang = request.reading_language.lower().strip()
@@ -327,7 +340,37 @@ async def update_current_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unsupported reading language: {lang}. Supported: {sorted(V1_READING_LANGUAGES)}",
             )
-        update_data["reading_language"] = lang
+        # Re-sending the language already stored is not a change: it must neither
+        # spend the monthly allowance nor be refused. The app does exactly that on
+        # a Save it did not need to make.
+        if lang != user.reading_language:
+            if user.reading_language is None:
+                # First setting of the account — the onboarding pick, or a first
+                # visit to the setting. Never limited, and it does not start the
+                # clock either: the guard-rail counts *changes*.
+                update_data["reading_language"] = lang
+            else:
+                available_at = user.reading_language_change_available_at()
+                if available_at is not None:
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        "auth.reading_language.change_refused",
+                        "Reading language change refused: one change per month",
+                        user_id=user.id,
+                        error_code=READING_LANGUAGE_CHANGE_TOO_SOON,
+                        available_at=available_at.isoformat(),
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail={
+                            "error_code": READING_LANGUAGE_CHANGE_TOO_SOON,
+                            "message": "The reading language can only be changed once a month",
+                            "available_at": available_at.isoformat(),
+                        },
+                    )
+                update_data["reading_language"] = lang
+                update_data["reading_language_changed_at"] = datetime.now(timezone.utc)
 
     if request.iana_timezone is not None:
         zone = normalize_iana_timezone(request.iana_timezone)

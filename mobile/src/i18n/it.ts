@@ -309,6 +309,8 @@ export const it: Catalog = {
   "readingLanguage.disclaimer": "Questa impostazione riguarda solo i contenuti futuri. I riassunti e le traduzioni esistenti non verranno rielaborati.",
   "readingLanguage.saved": "Lingua aggiornata",
   "readingLanguage.saveA11y": "Salva la lingua di lettura",
+  "readingLanguage.changeLimit": "Puoi cambiare la lingua di lettura una volta al mese. Il prossimo cambio sarà possibile il {date}.",
+  "readingLanguage.changeLimitNoDate": "Puoi cambiare la lingua di lettura una volta al mese, e il cambio di questo mese è già stato usato.",
   "deleteAccount.title": "Elimina l'account",
   "deleteAccount.warningTitle": "Questa azione è irreversibile",
   "deleteAccount.warningBody": "Eliminare il tuo account lo cancella definitivamente, insieme a tutto ciò che hai salvato. Non possiamo ripristinarlo in seguito, nemmeno su richiesta.",
