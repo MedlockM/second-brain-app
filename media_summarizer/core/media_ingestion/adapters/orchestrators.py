@@ -48,7 +48,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DEEPGRAM_TRANSCRIPTION_QUEUE = required_env("DEEPGRAM_TRANSCRIPTION_QUEUE")
 DEFAULT_PODCASTINDEX_RESOLUTION_QUEUE = required_env("PODCASTINDEX_RESOLUTION_QUEUE")
-DEFAULT_ARTICLE_EXTRACTION_QUEUE = required_env("ARTICLE_EXTRACTION_QUEUE")
 DEFAULT_X_INGESTION_QUEUE = required_env("X_INGESTION_QUEUE")
 DEFAULT_YOUTUBE_INGESTION_QUEUE = required_env("YOUTUBE_INGESTION_QUEUE")
 DEFAULT_TIKTOK_INGESTION_QUEUE = required_env("TIKTOK_INGESTION_QUEUE")
@@ -426,7 +425,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         *,
         deepgram_transcription_queue: Optional[str] = None,
         podcastindex_resolution_queue: Optional[str] = None,
-        article_extraction_queue: Optional[str] = None,
         x_ingestion_queue: Optional[str] = None,
         youtube_ingestion_queue: Optional[str] = None,
         tiktok_ingestion_queue: Optional[str] = None,
@@ -438,9 +436,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
         )
         self._podcastindex_resolution_queue = (
             podcastindex_resolution_queue or DEFAULT_PODCASTINDEX_RESOLUTION_QUEUE
-        )
-        self._article_extraction_queue = (
-            article_extraction_queue or DEFAULT_ARTICLE_EXTRACTION_QUEUE
         )
         self._x_ingestion_queue = x_ingestion_queue or DEFAULT_X_INGESTION_QUEUE
         self._youtube_ingestion_queue = (
@@ -582,7 +577,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
 
             pipeline_enqueued = False
             podcastindex_resolution_enqueued = False
-            article_extraction_enqueued = False
             x_ingestion_enqueued = False
             youtube_ingestion_enqueued = False
             tiktok_ingestion_enqueued = False
@@ -839,30 +833,18 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     resolver_key=resolved.resolver_key,
                     source_platform=resolved.source_platform.value,
                 )
-            elif resolved.media_family == MediaFamily.ARTICLE:
-                await sqs.send_message(
-                    queue_name=self._article_extraction_queue,
-                    message_body={
-                        "job_id": job.id,
-                        "user_id": command.user.user_id,
-                        "user_email": command.user.user_email,
-                        "media_key": resolved.media_key,
-                        "normalized_url": resolved.normalized_url,
-                        "resolver_key": resolved.resolver_key,
-                    },
-                )
-                pipeline_enqueued = True
-                article_extraction_enqueued = True
-                log_event(
-                    logger,
-                    logging.INFO,
-                    "worker.enqueued",
-                    "Article extraction enqueued",
-                    job_id=job.id,
+            elif resolved.resolver_key == "article.default":
+                # The article's text is already in hand: `ArticleResolver` read the
+                # page before this submission existed, because its fingerprint is
+                # part of `media_key` (task-392). There is nothing left to queue --
+                # the transcript is stored here, in the request.
+                outcome_status = await self._settle_article_submission(
+                    job=job,
+                    resolved=resolved,
                     media_item_id=canonical_media_item_id,
-                    queue=self._article_extraction_queue,
-                    resolver_key=resolved.resolver_key,
-                    source_platform=resolved.source_platform.value,
+                )
+                pipeline_enqueued = (
+                    outcome_status == ProcessingLifecycleStatus.COMPLETED
                 )
             elif resolved.resolver_key == "tiktok.default":
                 job.mark_extracting()
@@ -1021,7 +1003,6 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
                     "resolver_key": resolved.resolver_key,
                     "pipeline_enqueued": pipeline_enqueued,
                     "podcastindex_resolution_enqueued": podcastindex_resolution_enqueued,
-                    "article_extraction_enqueued": article_extraction_enqueued,
                     "x_ingestion_enqueued": x_ingestion_enqueued,
                     "youtube_ingestion_enqueued": youtube_ingestion_enqueued,
                     "tiktok_ingestion_enqueued": tiktok_ingestion_enqueued,
@@ -1082,3 +1063,164 @@ class ProcessingJobSubmissionOrchestrator(SubmissionOrchestratorPort):
             raise OrchestrationError(
                 f"Failed to orchestrate media submission for key '{resolved.media_key}': {exc}"
             ) from exc
+
+    async def _settle_article_submission(
+        self,
+        *,
+        job: ProcessingJob,
+        resolved: ResolvedMedia,
+        media_item_id: str,
+    ) -> ProcessingLifecycleStatus:
+        """Close out a web-article submission in the request that made it.
+
+        `ArticleResolver` already read the page -- it had to, because the text's
+        fingerprint is half of `media_key` (task-392) -- so there is nothing left
+        for a queue to do: either the text is here and this stores it, or the page
+        could not be read and this records why.
+
+        The failed branch is where the reservation matters. A page that answered a
+        503 or timed out must not leave `media_idempotence` holding a terminal
+        `failed` row: the URL-derived key is the only identity a failure has, and a
+        `failed` row under it would answer every later save of that URL with the
+        same failure without ever re-reading the page. So a transient cause
+        *releases* the reservation and a verdict on the page itself keeps it.
+        """
+        if resolved.raw_text is None:
+            return await self._fail_unreadable_article(
+                job=job,
+                resolved=resolved,
+                media_item_id=media_item_id,
+            )
+
+        transcript_s3_key = f"{job.id}.txt"
+        # No re-normalization: `resolved.raw_text` is the exact string that was
+        # fingerprinted into `media_key`, and the stored transcript has to be the
+        # same bytes or the identity would describe something nobody can read.
+        transcript_text = resolved.raw_text
+        extraction_metadata: Dict[str, Any] = dict(
+            resolved.metadata.get("extraction_metadata") or {}
+        )
+        source_url = (
+            extraction_metadata.get("final_url")
+            or extraction_metadata.get("requested_url")
+            or resolved.normalized_url
+        )
+        transcription_metadata: Dict[str, Any] = {
+            "provider": resolved.metadata.get("transcript_provider")
+            or "article_extractor",
+            "model_used": resolved.metadata.get("transcript_extractor")
+            or "trafilatura",
+            "language": extraction_metadata.get("language"),
+            # Paragraph count, comparable across sources (task-231 §13.1).
+            "segments_count": extraction_metadata.get("paragraph_count")
+            or count_paragraphs(transcript_text),
+            "duration_seconds": 0,
+            "source_url": source_url,
+            "transcribed_at": extraction_metadata.get("fetched_at") or _now_iso(),
+        }
+
+        await s3.upload_file_object(
+            bucket=DEFAULT_TRANSCRIPT_BUCKET,
+            key=transcript_s3_key,
+            file_obj=BytesIO(transcript_text.encode("utf-8")),
+            content_type="text/plain",
+            metadata={
+                "content-type": "text/plain",
+                "job-type": "article-transcription",
+                "provider": "article-extractor",
+            },
+        )
+        job.set_transcription_location(transcript_s3_key)
+        job.set_transcription_metadata(transcription_metadata)
+        if extraction_metadata:
+            job.extraction_metadata = extraction_metadata
+        job.mark_completed()
+        await database_async.update_processing_job(job)
+        await sqs.send_message(
+            queue_name=DEFAULT_EPISODE_COMPLETED_EVENTS_QUEUE,
+            message_body={
+                "event_type": "episode_completion_status",
+                "status": "success",
+                "media_key": resolved.media_key,
+                "canonical_job_id": job.id,
+                "transcription_s3_key": transcript_s3_key,
+                "transcription_metadata": transcription_metadata,
+            },
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "transcription.completed",
+            "Article transcript stored inline at submission",
+            job_id=job.id,
+            media_item_id=media_item_id,
+            resolver_key=resolved.resolver_key,
+            source_platform=resolved.source_platform.value,
+            transcript_source="article_extractor",
+            content_fingerprint=resolved.metadata.get("content_fingerprint"),
+        )
+        return ProcessingLifecycleStatus.COMPLETED
+
+    async def _fail_unreadable_article(
+        self,
+        *,
+        job: ProcessingJob,
+        resolved: ResolvedMedia,
+        media_item_id: str,
+    ) -> ProcessingLifecycleStatus:
+        """Record a page whose text could not be read, with the code the app renders."""
+        failure_code = MediaFailureCode.UNEXPECTED_ERROR
+        raw_failure_code = resolved.metadata.get("article_failure_code")
+        if isinstance(raw_failure_code, str):
+            try:
+                failure_code = MediaFailureCode(raw_failure_code)
+            except ValueError:
+                failure_code = MediaFailureCode.UNEXPECTED_ERROR
+        retryable = bool(resolved.metadata.get("article_fetch_retryable"))
+        error_metadata: Dict[str, Any] = dict(
+            resolved.metadata.get("article_fetch_error_metadata") or {}
+        )
+
+        job.mark_failed(
+            error_code=failure_code,
+            error_step="article_extraction",
+            error_metadata=error_metadata,
+        )
+        # Mirrors the durable library row to FAILED, which is what turns the
+        # spinner into the localized failed tile the reader already knows.
+        await database_async.update_processing_job(job)
+
+        if retryable:
+            # Deletes the row while it is still `reserved`, so the next save of
+            # this URL reads the page again instead of inheriting this outage.
+            await episode_idempotence.release_reservation(
+                media_key=resolved.media_key,
+                job_id=job.id,
+            )
+        else:
+            await sqs.send_message(
+                queue_name=DEFAULT_EPISODE_COMPLETED_EVENTS_QUEUE,
+                message_body={
+                    "event_type": "episode_completion_status",
+                    "status": "failure",
+                    "media_key": resolved.media_key,
+                    "canonical_job_id": job.id,
+                    "reason": failure_code.value,
+                },
+            )
+
+        log_event(
+            logger,
+            logging.ERROR,
+            "transcription.failed",
+            "Article could not be read at submission",
+            job_id=job.id,
+            media_item_id=media_item_id,
+            resolver_key=resolved.resolver_key,
+            source_platform=resolved.source_platform.value,
+            transcript_source="article_extractor",
+            error_code=failure_code.value,
+            detail=resolved.metadata.get("article_fetch_error_code"),
+            retryable=retryable,
+        )
+        return ProcessingLifecycleStatus.FAILED

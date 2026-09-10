@@ -1,10 +1,16 @@
 """
 Article extraction worker.
 
+Serves the RSS path: `rss_feed_poll_worker` publishes one message per new article
+item, with its processing job already created. A URL a user saves themselves is
+*not* routed here -- it is read inside the request, because an article's text is
+part of its content identity and has to be known before anything is written
+(task-392, `ArticleResolver`).
+
 Pipeline:
 - Consumes messages from ARTICLE_EXTRACTION_QUEUE
-- Fetches article HTML from normalized URL
-- Extracts clean text with trafilatura
+- Reads the page through `ArticleContentFetcherPort` (the same reader the API path
+  uses, so both agree on what a page says)
 - Uploads transcript to TRANSCRIPT_BUCKET as {job_id}.txt
 - Updates processing job metadata/status
 - Publishes success/failure completion events
@@ -20,18 +26,14 @@ from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, Dict, Optional
 
-import httpx
-import trafilatura
-
-from media_summarizer.core.media_ingestion.media_metadata import (
-    normalize_cover_url,
-    select_creator,
-)
-from media_summarizer.core.media_ingestion.title_derivation import select_title
 from media_summarizer.core.models.failure_codes import MediaFailureCode
-from media_summarizer.core.services.transcript_formatting import (
-    count_paragraphs,
-    normalize_transcript_text,
+from media_summarizer.core.ports.article_content import (
+    ArticleContent,
+    ArticleContentFetcherPort,
+    ArticleFetchError,
+)
+from media_summarizer.infrastructure.resolvers.trafilatura_article_resolver import (
+    TrafilaturaArticleResolver,
 )
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.env import required_env
@@ -56,18 +58,8 @@ EPISODE_COMPLETED_EVENTS_QUEUE = required_env("EPISODE_COMPLETED_EVENTS_QUEUE")
 ARTICLE_WORKER_MAX_RETRIES = max(
     1, int(os.environ.get("ARTICLE_WORKER_MAX_RETRIES", "3"))
 )
-ARTICLE_EXTRACT_TIMEOUT_SECONDS = float(
-    os.environ.get("ARTICLE_EXTRACT_TIMEOUT_SECONDS", "20")
-)
-ARTICLE_EXTRACT_MAX_HTML_BYTES = max(
-    1024, int(os.environ.get("ARTICLE_EXTRACT_MAX_HTML_BYTES", "2000000"))
-)
-ARTICLE_EXTRACT_USER_AGENT = os.environ.get(
-    "ARTICLE_EXTRACT_USER_AGENT",
-    "media-summarizer/article-extractor (+https://media-summarizer.local)",
-)
 
-_SUPPORTED_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+_content_fetcher: Optional[ArticleContentFetcherPort] = None
 
 
 class ArticleExtractionError(IngestionFailure):
@@ -78,204 +70,50 @@ def _now_iso_utc() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _is_supported_content_type(content_type: str) -> bool:
-    value = (content_type or "").lower()
-    return any(token in value for token in _SUPPORTED_CONTENT_TYPES)
+def _fetcher() -> ArticleContentFetcherPort:
+    """The shared page reader, built once per container.
+
+    The fetch policy -- redirects, the content-type gate, the size cap, the
+    encoding fallback -- lives in the adapter, not here. It used to live in this
+    file, where the API path could not reach it; two copies of it would be how the
+    two paths come to disagree about what a page says (task-392).
+    """
+    global _content_fetcher
+    if _content_fetcher is None:
+        _content_fetcher = TrafilaturaArticleResolver()
+    return _content_fetcher
 
 
-def _word_count(text: str) -> int:
-    return len([token for token in text.split() if token.strip()])
+def _failure_from_fetch_error(error: ArticleFetchError) -> ArticleExtractionError:
+    """Translate a provider-level fetch error into this worker's retry vocabulary."""
+    return ArticleExtractionError(
+        error.media_failure_code,
+        details=error.details,
+        retryable=error.retryable,
+        fetch_error_code=error.code.value,
+        **error.context,
+    )
 
 
-def _build_extraction_metadata(
-    *,
-    requested_url: str,
-    final_url: Optional[str] = None,
-    http_status: Optional[int] = None,
-    content_type: Optional[str] = None,
-    fetched_at: Optional[str] = None,
-    char_count: Optional[int] = None,
-    word_count: Optional[int] = None,
-    paragraph_count: Optional[int] = None,
-    language: Optional[str] = None,
-    title: Optional[str] = None,
-    last_error_code: Optional[str] = None,
+def _error_extraction_metadata(
+    *, requested_url: str, error: ArticleExtractionError
 ) -> Dict[str, Any]:
+    """The `extraction_metadata` shape for a page that could not be read."""
     return {
         "extractor": "trafilatura",
         "extractor_version": "v1",
         "requested_url": requested_url,
-        "final_url": final_url,
-        "http_status": http_status,
-        "content_type": content_type,
-        "fetched_at": fetched_at or _now_iso_utc(),
-        "char_count": char_count,
-        "word_count": word_count,
-        "paragraph_count": paragraph_count,
-        "language": language,
-        "title": title,
-        "last_error_code": last_error_code,
+        "final_url": None,
+        "http_status": None,
+        "content_type": None,
+        "fetched_at": _now_iso_utc(),
+        "char_count": None,
+        "word_count": None,
+        "paragraph_count": None,
+        "language": None,
+        "title": None,
+        "last_error_code": error.code.value,
     }
-
-
-async def _fetch_article_html(url: str) -> Dict[str, Any]:
-    headers = {
-        "User-Agent": ARTICLE_EXTRACT_USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml",
-    }
-
-    try:
-        async with httpx.AsyncClient(
-            timeout=ARTICLE_EXTRACT_TIMEOUT_SECONDS,
-            follow_redirects=True,
-            headers=headers,
-        ) as client:
-            async with client.stream("GET", url) as response:
-                status_code = response.status_code
-                content_type = (response.headers.get("content-type") or "").strip()
-                final_url = str(response.url)
-
-                if status_code >= 400:
-                    retryable = status_code >= 500
-                    raise ArticleExtractionError(
-                        MediaFailureCode.PROVIDER_UNAVAILABLE,
-                        details="article_http_error",
-                        retryable=retryable,
-                        http_status=status_code,
-                        final_url=final_url,
-                    )
-
-                if not _is_supported_content_type(content_type):
-                    raise ArticleExtractionError(
-                        MediaFailureCode.NOT_AN_ARTICLE_PAGE,
-                        details="article_unsupported_content_type",
-                        retryable=False,
-                        content_type=content_type or None,
-                        final_url=final_url,
-                    )
-
-                total = 0
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    total += len(chunk)
-                    if total > ARTICLE_EXTRACT_MAX_HTML_BYTES:
-                        raise ArticleExtractionError(
-                            MediaFailureCode.ARTICLE_TEXT_NOT_FOUND,
-                            details="html_too_large",
-                            retryable=False,
-                            html_bytes_limit=ARTICLE_EXTRACT_MAX_HTML_BYTES,
-                        )
-                    chunks.append(chunk)
-
-                encoding = response.encoding or "utf-8"
-                raw_html = b"".join(chunks)
-                try:
-                    html = raw_html.decode(encoding, errors="replace")
-                except LookupError:
-                    html = raw_html.decode("utf-8", errors="replace")
-
-                return {
-                    "html": html,
-                    "http_status": status_code,
-                    "content_type": content_type,
-                    "final_url": final_url,
-                }
-    except ArticleExtractionError:
-        raise
-    except httpx.TimeoutException as exc:
-        raise ArticleExtractionError(
-            MediaFailureCode.PROVIDER_TIMED_OUT,
-            details="article_fetch_timeout",
-            retryable=True,
-            exception_type=type(exc).__name__,
-            timeout_seconds=ARTICLE_EXTRACT_TIMEOUT_SECONDS,
-        ) from exc
-    except httpx.HTTPError as exc:
-        raise ArticleExtractionError(
-            MediaFailureCode.PROVIDER_UNAVAILABLE,
-            details="article_fetch_transport_error",
-            retryable=True,
-            exception_type=type(exc).__name__,
-        ) from exc
-    except Exception as exc:
-        raise ArticleExtractionError(
-            MediaFailureCode.UNEXPECTED_ERROR,
-            details="article_fetch_unexpected_exception",
-            retryable=False,
-            exception_type=type(exc).__name__,
-        ) from exc
-
-
-def _extract_clean_text(html: str) -> str:
-    """Extract the article body as paragraph-delimited plain text.
-
-    trafilatura already emits blank-line separated paragraphs, so the normalizer
-    is effectively a pass-through here — a useful idempotence canary for the
-    shared formatter (task-231 option B).
-    """
-    try:
-        extracted = trafilatura.extract(
-            html,
-            output_format="txt",
-            include_comments=False,
-            include_tables=False,
-            include_links=False,
-        )
-    except Exception as exc:
-        raise ArticleExtractionError(
-            MediaFailureCode.ARTICLE_TEXT_NOT_FOUND,
-            details="trafilatura_error",
-            retryable=False,
-            exception_type=type(exc).__name__,
-        ) from exc
-
-    text = normalize_transcript_text(extracted, source="article")
-    if not text:
-        raise ArticleExtractionError(
-            MediaFailureCode.ARTICLE_TEXT_NOT_FOUND,
-            details="empty_text_after_extraction",
-            retryable=False,
-        )
-    return text
-
-
-def _extract_article_metadata(
-    html: str, *, requested_url: str
-) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """``(title, creator_name, cover_url)`` for one page, or ``None`` each.
-
-    One `extract_metadata` call answers all three: trafilatura merges JSON-LD,
-    OpenGraph and the `<title>` tag, and its `Document` exposes `image` (mapped
-    from `og:image`/`twitter:image`), `sitename` and `author` (task-302 §2.3).
-    The site name is the creator, the byline only its fallback -- for an article
-    the publisher is what a reader recognises (task-302 §7.3).
-
-    Any parsing failure is swallowed: a missing headline, creator or cover means
-    a fallback, never a failed extraction.
-    """
-    try:
-        document = trafilatura.extract_metadata(html, default_url=requested_url)
-    except Exception:
-        return None, None, None
-    if document is None:
-        return None, None, None
-
-    site_name = getattr(document, "sitename", None)
-    title = select_title(
-        [getattr(document, "title", None)],
-        authors=[getattr(document, "author", None)],
-        site_names=[
-            site_name,
-            getattr(document, "hostname", None),
-            requested_url,
-        ],
-    )
-    creator_name = select_creator(
-        [site_name, getattr(document, "author", None)],
-        title=title,
-    )
-    cover_url = normalize_cover_url(getattr(document, "image", None))
-    return title, creator_name, cover_url
 
 
 async def _upload_transcript(job_id: str, text: str) -> str:
@@ -354,9 +192,9 @@ async def _mark_job_failed(
     job = await database_async.get_processing_job_by_id(job_id)
     if not job:
         return
-    job.extraction_metadata = _build_extraction_metadata(
+    job.extraction_metadata = _error_extraction_metadata(
         requested_url=requested_url,
-        last_error_code=error.code.value,
+        error=error,
     )
     job.extraction_metadata["failure_details"] = error.details
     job.mark_failed(
@@ -395,38 +233,23 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
     job.mark_extracting()
     await database_async.update_processing_job(job)
 
-    fetch_result = await _fetch_article_html(normalized_url)
-    clean_text = _extract_clean_text(fetch_result["html"])
-    article_title, article_creator, article_cover = _extract_article_metadata(
-        fetch_result["html"],
-        requested_url=fetch_result.get("final_url") or normalized_url,
-    )
-    transcript_s3_key = await _upload_transcript(job_id, clean_text)
+    try:
+        article: ArticleContent = await _fetcher().fetch(normalized_url)
+    except ArticleFetchError as exc:
+        raise _failure_from_fetch_error(exc) from exc
 
-    extraction_metadata = _build_extraction_metadata(
-        requested_url=normalized_url,
-        final_url=fetch_result.get("final_url"),
-        http_status=fetch_result.get("http_status"),
-        content_type=fetch_result.get("content_type"),
-        char_count=len(clean_text),
-        word_count=_word_count(clean_text),
-        paragraph_count=count_paragraphs(clean_text),
-        language=None,
-        title=article_title,
-        last_error_code=None,
-    )
+    transcript_s3_key = await _upload_transcript(job_id, article.text)
+
+    extraction_metadata = article.extraction_metadata()
     transcription_metadata = {
-        "provider": "article_extractor",
-        "model_used": "trafilatura",
-        "language": extraction_metadata.get("language"),
+        "provider": article.provider or "article_extractor",
+        "model_used": article.extractor or "trafilatura",
+        "language": article.language,
         # Paragraph count, comparable across sources (task-231 s13.1).
-        "segments_count": extraction_metadata.get("paragraph_count"),
+        "segments_count": article.paragraph_count,
         "duration_seconds": 0,
-        "source_url": (
-            extraction_metadata.get("final_url")
-            or extraction_metadata.get("requested_url")
-        ),
-        "transcribed_at": extraction_metadata.get("fetched_at"),
+        "source_url": article.final_url or article.requested_url,
+        "transcribed_at": article.fetched_at,
     }
 
     job.set_transcription_location(transcript_s3_key)
@@ -438,12 +261,12 @@ async def process_article_message(message_body: Dict[str, Any]) -> Dict[str, Any
     # is unsigned and stable, and re-hosting the highest-volume source would put
     # a second-host fetch on the one path that makes no external call today
     # (task-302 §5.3).
-    if article_title:
-        job.title = article_title
-    if article_creator:
-        job.creator_name = article_creator
-    if article_cover:
-        job.media_image = article_cover
+    if article.title:
+        job.title = article.title
+    if article.creator_name:
+        job.creator_name = article.creator_name
+    if article.cover_url:
+        job.media_image = article.cover_url
     job.mark_completed()
     await database_async.update_processing_job(job)
 

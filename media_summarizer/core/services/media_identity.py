@@ -3,12 +3,24 @@ Media identity helpers.
 
 This module defines the canonical URL normalization policy and the deterministic
 media key generation used for cross-media idempotence.
+
+It also owns the **source type** of a URL (`MediaSourceType`,
+`classify_source_type`): the single place that decides what kind of thing a link
+points at. Both the canonicalization below and the ingestion classifier
+(`core/media_ingestion/adapters/classifiers.py`) read that one answer, because
+two host tables deciding the same question is how they come to disagree.
+
+`WEB_ARTICLE` is a *recognised* type with its own criterion, not the leftover of
+a chain of per-domain branches (task-392): whether a URL is an article decides
+whether its text is fetched before its identity is settled, so it cannot be a
+classification default.
 """
 
 from __future__ import annotations
 
 import hashlib
 import re
+from enum import Enum
 from typing import Dict, List, Tuple
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
@@ -43,8 +55,77 @@ _TIKTOK_HOSTS = {
     *_TIKTOK_SHORT_HOSTS,
 }
 _SPOTIFY_HOSTS = {"open.spotify.com", "www.open.spotify.com"}
+_APPLE_PODCASTS_HOSTS = {"podcasts.apple.com", "www.podcasts.apple.com"}
+_DEEZER_HOSTS = {"deezer.com", "www.deezer.com"}
+
+#: A host that serves feeds and nothing else. `feeds.example.com` is a feed even
+#: when its path says nothing.
+_FEED_HOST_PREFIXES = ("feeds.", "rss.")
+#: Path extensions that make a URL a direct audio import rather than a page.
+_AUDIO_EXTENSIONS = (
+    ".mp3",
+    ".m4a",
+    ".aac",
+    ".ogg",
+    ".wav",
+    ".flac",
+    ".opus",
+)
 
 _MULTI_SLASH_RE = re.compile(r"/+")
+
+
+class MediaSourceType(str, Enum):
+    """What kind of source a URL points at, decided once for the whole pipeline.
+
+    The values are stable identifiers, not display labels. `WEB_ARTICLE` is the
+    last *criterion*, not a fallback bucket: a link is an article when it is an
+    http(s) page on a host we recognise no platform for, and whose path is
+    neither a feed nor a media file. Everything a page is not has its own member,
+    so adding a source means adding a member here rather than another `elif`
+    somewhere downstream.
+    """
+
+    YOUTUBE = "youtube"
+    INSTAGRAM = "instagram"
+    TIKTOK = "tiktok"
+    X = "x"
+    SPOTIFY = "spotify"
+    APPLE_PODCASTS = "apple_podcasts"
+    DEEZER = "deezer"
+    FEED = "feed"
+    AUDIO_FILE = "audio_file"
+    WEB_ARTICLE = "web_article"
+
+
+#: The hosts each platform source type is recognised by. Published so the
+#: ingestion classifier and the share showcase read the same table.
+PLATFORM_HOSTS: Dict[MediaSourceType, frozenset[str]] = {
+    MediaSourceType.YOUTUBE: frozenset(_YOUTUBE_HOSTS),
+    MediaSourceType.INSTAGRAM: frozenset(_INSTAGRAM_HOSTS),
+    MediaSourceType.TIKTOK: frozenset(_TIKTOK_HOSTS),
+    MediaSourceType.X: frozenset(_X_HOSTS),
+    MediaSourceType.SPOTIFY: frozenset(_SPOTIFY_HOSTS),
+    MediaSourceType.APPLE_PODCASTS: frozenset(_APPLE_PODCASTS_HOSTS),
+    MediaSourceType.DEEZER: frozenset(_DEEZER_HOSTS),
+}
+
+#: Published for the same reason as `PLATFORM_HOSTS`: the list the share showcase
+#: names has to be the list that decides acceptance.
+AUDIO_URL_EXTENSIONS: Tuple[str, ...] = _AUDIO_EXTENSIONS
+
+#: Source types whose canonical URL is the publisher's own URL, cleaned of
+#: tracking parameters and nothing else. There is no id to extract and no
+#: platform route to rewrite.
+_URL_PRESERVING_SOURCE_TYPES = frozenset(
+    {
+        MediaSourceType.APPLE_PODCASTS,
+        MediaSourceType.DEEZER,
+        MediaSourceType.FEED,
+        MediaSourceType.AUDIO_FILE,
+        MediaSourceType.WEB_ARTICLE,
+    }
+)
 
 
 def _normalize_host(host: str) -> str:
@@ -62,6 +143,61 @@ def _normalize_path(path: str) -> str:
         raw = raw[:-1]
     # Quote each segment to keep deterministic escaping.
     return "/".join(quote(seg, safe=":@+") for seg in raw.split("/"))
+
+
+def _path_segments(path: str) -> Tuple[str, ...]:
+    return tuple(segment for segment in path.split("/") if segment)
+
+
+def _path_looks_like_feed(path: str) -> bool:
+    return (
+        path.endswith(".rss")
+        or path.endswith(".xml")
+        or "feed" in _path_segments(path)
+    )
+
+
+def _path_looks_like_audio_file(path: str) -> bool:
+    return path.endswith(_AUDIO_EXTENSIONS)
+
+
+def classify_source_type(*, host: str, path: str) -> MediaSourceType:
+    """The source type of one URL, from its host and path.
+
+    The order below is the order the pipeline has always used and is load-bearing
+    in one place: the feed criterion is read **before** the platform hosts, so
+    `youtube.com/feeds/videos.xml` is a feed rather than a video. Everything else
+    is disjoint.
+
+    Returns `WEB_ARTICLE` when the URL is a page: no platform owns the host, the
+    path is not a feed and does not end in an audio extension. That is the
+    explicit criterion task-392 asked for -- an article is recognised, not left
+    over.
+    """
+    normalized_host = _normalize_host(host)
+    normalized_path = (path or "/").lower()
+
+    if normalized_host in _SPOTIFY_HOSTS:
+        return MediaSourceType.SPOTIFY
+    if normalized_host in _APPLE_PODCASTS_HOSTS:
+        return MediaSourceType.APPLE_PODCASTS
+    if normalized_host in _DEEZER_HOSTS:
+        return MediaSourceType.DEEZER
+    if _path_looks_like_feed(normalized_path) or normalized_host.startswith(
+        _FEED_HOST_PREFIXES
+    ):
+        return MediaSourceType.FEED
+    if normalized_host in _YOUTUBE_HOSTS:
+        return MediaSourceType.YOUTUBE
+    if normalized_host in _INSTAGRAM_HOSTS:
+        return MediaSourceType.INSTAGRAM
+    if normalized_host in _X_HOSTS:
+        return MediaSourceType.X
+    if normalized_host in _TIKTOK_HOSTS:
+        return MediaSourceType.TIKTOK
+    if _path_looks_like_audio_file(normalized_path):
+        return MediaSourceType.AUDIO_FILE
+    return MediaSourceType.WEB_ARTICLE
 
 
 def _strip_tracking_query(query: str) -> List[Tuple[str, str]]:
@@ -188,6 +324,11 @@ def canonicalize_media_url(url: str) -> str:
     - normalize path separators and trailing slashes
     - remove known tracking query params and sort remaining query params
     - apply platform-specific canonicalization for YouTube/Instagram/TikTok/Spotify
+
+    The dispatch reads `classify_source_type` rather than testing hosts again: the
+    types that need no rewriting are named (`_URL_PRESERVING_SOURCE_TYPES`), so a
+    web article goes through this function as a recognised type instead of as the
+    tail of a domain chain (task-392).
     """
     if not isinstance(url, str) or not url.strip():
         raise ValueError("media URL must be a non-empty string")
@@ -209,18 +350,22 @@ def canonicalize_media_url(url: str) -> str:
     path = _normalize_path(split.path)
     query_items = _strip_tracking_query(split.query)
 
-    if host in _YOUTUBE_HOSTS:
+    source_type = classify_source_type(host=host, path=path)
+
+    if source_type is MediaSourceType.YOUTUBE:
         netloc, path, query = _canon_youtube(host, path, query_items)
-    elif host in _INSTAGRAM_HOSTS:
+    elif source_type is MediaSourceType.INSTAGRAM:
         netloc, path, query = _canon_instagram(path)
-    elif host in _TIKTOK_HOSTS:
+    elif source_type is MediaSourceType.TIKTOK:
         netloc, path, query = _canon_tiktok(host, path)
-    elif host in _X_HOSTS:
+    elif source_type is MediaSourceType.X:
         netloc, path, query = _canon_x(path)
-    elif host in _SPOTIFY_HOSTS:
+    elif source_type is MediaSourceType.SPOTIFY:
         netloc, path, query = _canon_spotify(path)
-    else:
+    elif source_type in _URL_PRESERVING_SOURCE_TYPES:
         query = urlencode(query_items, doseq=True)
+    else:  # pragma: no cover - every member is handled above
+        raise ValueError(f"unhandled media source type '{source_type.value}'")
 
     return urlunsplit((scheme, netloc, path, query, ""))
 
@@ -237,3 +382,55 @@ def derive_media_identity(media_url: str) -> Tuple[str, str]:
     """Return (canonical_url, media_key) from a raw URL."""
     canonical_url = canonicalize_media_url(media_url)
     return canonical_url, generate_media_key(canonical_url)
+
+
+#: Version of the article content-identity recipe. Bumping it re-keys every
+#: article, which is a decision and not a refactor -- hence a named constant.
+ARTICLE_CONTENT_IDENTITY_VERSION = "v1"
+
+
+def article_content_fingerprint(article_text: str) -> str:
+    """The fingerprint of an article's body, exactly as it will be stored.
+
+    Taken on the *extracted* text and not on the HTML: the markup around an
+    article changes on every request (ad slots, CSRF tokens, a "3 comments"
+    counter), so hashing the page would make each save a new media and would
+    break the half of task-392 that matters most -- an unchanged article stays
+    mutualised, within an account and across accounts.
+
+    Strict by design: any change to the body is a different article. A publisher
+    that appends a live counter *to the body* will therefore re-key on each save,
+    which is the direction the owner chose (a stale text is the failure to avoid,
+    a duplicate save is not).
+    """
+    if not isinstance(article_text, str) or not article_text.strip():
+        raise ValueError("article text must be a non-empty string")
+    return hashlib.sha256(article_text.encode("utf-8")).hexdigest()
+
+
+def generate_article_media_key(
+    *,
+    canonical_url: str,
+    content_fingerprint: str,
+) -> str:
+    """The content identity of a web article: its URL *and* the text it served.
+
+    Two saves of the same unchanged page produce the same key and stay
+    deduplicated; a rewritten page produces a different one, so it becomes a
+    different media -- with its own transcript and, because `build_artifact_id`
+    hashes content ids, its own artifacts. Serving the previous text's summary
+    for the new text is what this makes impossible (task-392).
+
+    The URL stays in the material: two unrelated pages that happen to carry the
+    same text (a syndicated article, an empty placeholder) remain two medias,
+    each opening its own source link.
+    """
+    if not isinstance(canonical_url, str) or not canonical_url.strip():
+        raise ValueError("canonical URL must be a non-empty string")
+    if not isinstance(content_fingerprint, str) or not content_fingerprint.strip():
+        raise ValueError("content fingerprint must be a non-empty string")
+    locator = (
+        f"article:{ARTICLE_CONTENT_IDENTITY_VERSION}:"
+        f"{canonical_url.strip()}#text-sha256={content_fingerprint.strip()}"
+    )
+    return generate_media_key(locator)

@@ -32,6 +32,14 @@ from media_summarizer.core.media_ingestion.media_metadata import (
 )
 from media_summarizer.core.media_ingestion.ports import ContentResolverPort
 from media_summarizer.core.media_ingestion.title_derivation import select_title
+from media_summarizer.core.ports.article_content import (
+    ArticleContentFetcherPort,
+    ArticleFetchError,
+)
+from media_summarizer.core.services.media_identity import (
+    article_content_fingerprint,
+    generate_article_media_key,
+)
 from media_summarizer.utils.language_codes import normalize_language_code
 from media_summarizer.utils.logging_config import log_event
 
@@ -187,22 +195,81 @@ class PodcastResolver(ContentResolverPort):
 
 
 class ArticleResolver(ContentResolverPort):
+    """Reads the page, then decides what media it is (task-392).
+
+    The only resolver that inverts the pipeline's usual order, and it has to: a
+    web page can be rewritten, so its content identity cannot be its URL. The text
+    is fetched here, before `ProcessingJobSubmissionOrchestrator` writes anything,
+    and its fingerprint goes into `media_key` -- which is what makes a rewritten
+    article a *different* media, with its own transcript and its own artifacts,
+    while an unchanged one keeps being shared between accounts.
+
+    Cost accepted by the owner: this is a scrape, not a model call. The budget is
+    the API's 30 s ceiling, so the reader is built with a shorter timeout than the
+    worker's (`build_api_article_content_fetcher`).
+
+    A page that cannot be read does not raise. The submission goes through with
+    the URL-derived identity and the failure code in its metadata, so the reader
+    gets the same failed library tile -- in their own language, with the same
+    "request support for this source" action -- as when this ran in a worker.
+    """
+
+    def __init__(
+        self,
+        *,
+        content_fetcher: Optional[ArticleContentFetcherPort] = None,
+    ) -> None:
+        self._content_fetcher = content_fetcher
+
     @property
     def key(self) -> str:
         return "article.default"
 
+    def _fetcher(self) -> ArticleContentFetcherPort:
+        """The reader, built on first use.
+
+        Lazily, because the adapter imports `trafilatura` (and therefore `lxml`):
+        an API cold start that never touches an article must not pay for it.
+        """
+        if self._content_fetcher is None:
+            from media_summarizer.infrastructure.resolvers.trafilatura_article_resolver import (  # noqa: E501
+                build_api_article_content_fetcher,
+            )
+
+            self._content_fetcher = build_api_article_content_fetcher()
+        return self._content_fetcher
+
     async def resolve(self, context: ResolveContext) -> ResolvedMedia:
+        try:
+            article = await self._fetcher().fetch(context.normalized_url)
+        except ArticleFetchError as exc:
+            return self._unreadable_page(context=context, error=exc)
+
+        content_fingerprint = article_content_fingerprint(article.text)
+        media_key = generate_article_media_key(
+            canonical_url=context.normalized_url,
+            content_fingerprint=content_fingerprint,
+        )
         resolved = ResolvedMedia(
-            media_key=context.media_key,
+            media_key=media_key,
             normalized_url=context.normalized_url,
             media_family=MediaFamily.ARTICLE,
             media_type=MediaType.ARTICLE,
             source_platform=SourcePlatform.WEB,
             resolver_key=self.key,
+            title=article.title,
+            creator_name=article.creator_name,
+            cover_url=article.cover_url,
+            raw_text=article.text,
             metadata={
-                "resolver_version": "v1",
-                "extraction_mode": "queued_worker",
+                "resolver_version": "v2",
+                "extraction_mode": "inline_fetch",
                 "source_url": context.normalized_url,
+                "content_fingerprint": content_fingerprint,
+                "url_media_key": context.media_key,
+                "extraction_metadata": article.extraction_metadata(),
+                "transcript_provider": article.provider,
+                "transcript_extractor": article.extractor,
             },
         )
         log_event(
@@ -213,9 +280,56 @@ class ArticleResolver(ContentResolverPort):
             source_platform=SourcePlatform.WEB.value,
             resolver_key=self.key,
             media_type=MediaType.ARTICLE.value,
-            fallback_strategy="queued_worker",
+            fallback_strategy="inline_fetch",
+            media_key=media_key,
+            content_fingerprint=content_fingerprint,
+            char_count=article.char_count,
         )
         return resolved
+
+    def _unreadable_page(
+        self,
+        *,
+        context: ResolveContext,
+        error: ArticleFetchError,
+    ) -> ResolvedMedia:
+        """A page we could not read: submitted anyway, with the reason attached.
+
+        The URL-derived key is the only identity available -- there is no text to
+        fingerprint -- and it is the right one: nothing was stored under it, so the
+        first save that *does* read the page settles the real identity.
+        """
+        log_event(
+            logger,
+            logging.WARNING,
+            "resolver.failed",
+            "Article resolver could not read the page",
+            source_platform=SourcePlatform.WEB.value,
+            resolver_key=self.key,
+            media_type=MediaType.ARTICLE.value,
+            error_code=error.media_failure_code.value,
+            detail=error.details,
+            retryable=error.retryable,
+        )
+        return ResolvedMedia(
+            media_key=context.media_key,
+            normalized_url=context.normalized_url,
+            media_family=MediaFamily.ARTICLE,
+            media_type=MediaType.ARTICLE,
+            source_platform=SourcePlatform.WEB,
+            resolver_key=self.key,
+            metadata={
+                "resolver_version": "v2",
+                "extraction_mode": "inline_fetch",
+                "source_url": context.normalized_url,
+                "article_fetch_error_code": error.code.value,
+                "article_failure_code": error.media_failure_code.value,
+                "article_fetch_retryable": error.retryable,
+                "article_fetch_error_metadata": error.error_metadata(
+                    step="article_extraction"
+                ),
+            },
+        )
 
 
 class XPostResolver(ContentResolverPort):

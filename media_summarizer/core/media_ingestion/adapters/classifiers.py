@@ -15,34 +15,26 @@ from media_summarizer.core.media_ingestion.domain import (
 )
 from media_summarizer.core.media_ingestion.errors import (
     DEFAULT_INVALID_URL_MESSAGE,
+    DEFAULT_UNSUPPORTED_URL_MESSAGE,
     InvalidUrlError,
     UnsupportedUrlError,
 )
 from media_summarizer.core.media_ingestion.ports import UrlClassifierPort
+from media_summarizer.core.services.media_identity import (
+    AUDIO_URL_EXTENSIONS as _AUDIO_EXTENSIONS,
+)
+from media_summarizer.core.services.media_identity import (
+    PLATFORM_HOSTS,
+    MediaSourceType,
+    classify_source_type,
+)
 
 logger = logging.getLogger(__name__)
 
-_SPOTIFY_HOSTS = {"open.spotify.com", "www.open.spotify.com"}
-_APPLE_HOSTS = {"podcasts.apple.com", "www.podcasts.apple.com"}
-_DEEZER_HOSTS = {"www.deezer.com", "deezer.com"}
-_YOUTUBE_HOSTS = {
-    "youtube.com",
-    "www.youtube.com",
-    "m.youtube.com",
-    "music.youtube.com",
-    "youtu.be",
-    "www.youtu.be",
-}
+#: The short hosts, kept here because they change how a *path* is validated, not
+#: which source type the URL has: their path is an opaque redirect code.
 _YOUTUBE_SHORT_HOSTS = {"youtu.be", "www.youtu.be"}
-_INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com"}
-_X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
 _TIKTOK_SHORT_HOSTS = {"vm.tiktok.com", "vt.tiktok.com"}
-_TIKTOK_HOSTS = {
-    "tiktok.com",
-    "www.tiktok.com",
-    "m.tiktok.com",
-    *_TIKTOK_SHORT_HOSTS,
-}
 _SUPPORTED_SCHEMES = {"http", "https"}
 _FORBIDDEN_HOSTS = {"localhost"}
 _DEFAULT_BLOCKED_DOMAINS = {
@@ -50,15 +42,6 @@ _DEFAULT_BLOCKED_DOMAINS = {
     "phishing.test",
     "localhost.localdomain",
 }
-_AUDIO_EXTENSIONS = (
-    ".mp3",
-    ".m4a",
-    ".aac",
-    ".ogg",
-    ".wav",
-    ".flac",
-    ".opus",
-)
 _UNSUPPORTED_SCHEME_MESSAGE = (
     "Unsupported URL scheme. Only http:// and https:// are allowed."
 )
@@ -74,10 +57,14 @@ _UNSUPPORTED_TIKTOK_PHOTO_MESSAGE = "TikTok photo posts are not supported yet."
 _UNSAFE_URL_FORMAT_MESSAGE = "Unsupported unsafe URL format."
 _BLOCKED_DOMAIN_MESSAGE = "Blocked URL host by safety policy."
 _MAX_URL_LENGTH = 2048
-_RSS_HOST_HINT_PREFIXES = ("feeds.", "rss.")
 _HOST_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 #: The hosts each platform is recognised by, published for `share_targets.py`.
+#:
+#: Derived from the source-type table in `core/services/media_identity.py`, which
+#: is the single place a host is attached to a platform (task-392). This mapping
+#: only translates that table into the `SourcePlatform` vocabulary the API and the
+#: share showcase speak.
 #:
 #: The paywall used to list the platforms it accepts as prose retyped in eleven
 #: translation catalogues, and that prose had drifted from this table: it
@@ -91,13 +78,13 @@ _HOST_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 #: `DIRECT_URL` is decided by the path extension below, and `UNKNOWN` is a
 #: sentinel. `share_targets.py` decides which of those are worth offering.
 RECOGNISED_HOSTS: dict[SourcePlatform, frozenset[str]] = {
-    SourcePlatform.SPOTIFY: frozenset(_SPOTIFY_HOSTS),
-    SourcePlatform.APPLE_PODCASTS: frozenset(_APPLE_HOSTS),
-    SourcePlatform.DEEZER: frozenset(_DEEZER_HOSTS),
-    SourcePlatform.YOUTUBE: frozenset(_YOUTUBE_HOSTS),
-    SourcePlatform.INSTAGRAM: frozenset(_INSTAGRAM_HOSTS),
-    SourcePlatform.TIKTOK: frozenset(_TIKTOK_HOSTS),
-    SourcePlatform.X: frozenset(_X_HOSTS),
+    SourcePlatform.SPOTIFY: PLATFORM_HOSTS[MediaSourceType.SPOTIFY],
+    SourcePlatform.APPLE_PODCASTS: PLATFORM_HOSTS[MediaSourceType.APPLE_PODCASTS],
+    SourcePlatform.DEEZER: PLATFORM_HOSTS[MediaSourceType.DEEZER],
+    SourcePlatform.YOUTUBE: PLATFORM_HOSTS[MediaSourceType.YOUTUBE],
+    SourcePlatform.INSTAGRAM: PLATFORM_HOSTS[MediaSourceType.INSTAGRAM],
+    SourcePlatform.TIKTOK: PLATFORM_HOSTS[MediaSourceType.TIKTOK],
+    SourcePlatform.X: PLATFORM_HOSTS[MediaSourceType.X],
 }
 
 #: Path extensions that turn any URL into a direct audio import. Published for
@@ -125,26 +112,6 @@ _ALLOWED_DOMAIN_SUFFIXES = _parse_domain_set(
 
 def _path_segments(path: str) -> tuple[str, ...]:
     return tuple(segment for segment in path.split("/") if segment)
-
-
-def _path_has_feed_segment(path: str) -> bool:
-    return "feed" in _path_segments(path)
-
-
-def _path_looks_like_rss(path: str) -> bool:
-    return (
-        path.endswith(".rss")
-        or path.endswith(".xml")
-        or _path_has_feed_segment(path)
-    )
-
-
-def _host_looks_like_rss(host: str) -> bool:
-    return host.startswith(_RSS_HOST_HINT_PREFIXES)
-
-
-def _path_looks_like_audio(path: str) -> bool:
-    return path.endswith(_AUDIO_EXTENSIONS)
 
 
 def _host_has_invalid_pattern(host: str) -> bool:
@@ -281,8 +248,12 @@ class RuleBasedUrlClassifier(UrlClassifierPort):
     """
     Deterministic URL classifier.
 
-    This adapter is intentionally simple and deterministic. It is a placeholder
-    implementation for task-21, while still enforcing strict routing behavior.
+    Two questions, answered in order. **What kind of source is this URL?** is not
+    answered here: `classify_source_type` owns it, so the canonical URL policy and
+    this routing table cannot disagree about a host (task-392). What is answered
+    here is **what the pipeline does with that source type** -- which family, which
+    platform, which resolver -- and whether the path is one this platform actually
+    serves.
     """
 
     def classify(self, normalized_url: str) -> ClassifiedUrl:
@@ -362,7 +333,9 @@ class RuleBasedUrlClassifier(UrlClassifierPort):
             host=host,
         )
 
-        if host in _SPOTIFY_HOSTS:
+        source_type = classify_source_type(host=host, path=path)
+
+        if source_type is MediaSourceType.SPOTIFY:
             if not _is_spotify_podcast_path(path):
                 raise UnsupportedUrlError(_UNSUPPORTED_SPOTIFY_FORMAT_MESSAGE)
             return ClassifiedUrl(
@@ -371,7 +344,7 @@ class RuleBasedUrlClassifier(UrlClassifierPort):
                 resolver_key="podcast.default",
             )
 
-        if host in _APPLE_HOSTS:
+        if source_type is MediaSourceType.APPLE_PODCASTS:
             if not _is_apple_podcast_path(path):
                 raise UnsupportedUrlError(_UNSUPPORTED_APPLE_FORMAT_MESSAGE)
             return ClassifiedUrl(
@@ -380,7 +353,7 @@ class RuleBasedUrlClassifier(UrlClassifierPort):
                 resolver_key="podcast.default",
             )
 
-        if host in _DEEZER_HOSTS:
+        if source_type is MediaSourceType.DEEZER:
             if not _is_deezer_podcast_path(path):
                 raise UnsupportedUrlError(_UNSUPPORTED_DEEZER_FORMAT_MESSAGE)
             return ClassifiedUrl(
@@ -389,14 +362,14 @@ class RuleBasedUrlClassifier(UrlClassifierPort):
                 resolver_key="podcast.default",
             )
 
-        if _path_looks_like_rss(path) or _host_looks_like_rss(host):
+        if source_type is MediaSourceType.FEED:
             return ClassifiedUrl(
                 media_family=MediaFamily.PODCAST,
                 source_platform=SourcePlatform.RSS,
                 resolver_key="podcast.default",
             )
 
-        if host in _YOUTUBE_HOSTS:
+        if source_type is MediaSourceType.YOUTUBE:
             if not _is_youtube_video_path(
                 host=host,
                 path=path,
@@ -409,7 +382,7 @@ class RuleBasedUrlClassifier(UrlClassifierPort):
                 resolver_key="youtube.default",
             )
 
-        if host in _INSTAGRAM_HOSTS:
+        if source_type is MediaSourceType.INSTAGRAM:
             if not _is_instagram_video_path(path):
                 raise UnsupportedUrlError(_UNSUPPORTED_INSTAGRAM_FORMAT_MESSAGE)
             return ClassifiedUrl(
@@ -418,7 +391,7 @@ class RuleBasedUrlClassifier(UrlClassifierPort):
                 resolver_key="instagram.default",
             )
 
-        if host in _X_HOSTS:
+        if source_type is MediaSourceType.X:
             if not _is_x_post_path(path):
                 raise UnsupportedUrlError(_UNSUPPORTED_X_FORMAT_MESSAGE)
             return ClassifiedUrl(
@@ -427,7 +400,7 @@ class RuleBasedUrlClassifier(UrlClassifierPort):
                 resolver_key="x.default",
             )
 
-        if host in _TIKTOK_HOSTS:
+        if source_type is MediaSourceType.TIKTOK:
             if _is_tiktok_photo_path(path):
                 raise UnsupportedUrlError(_UNSUPPORTED_TIKTOK_PHOTO_MESSAGE)
             if not _is_tiktok_video_path(host=host, path=path):
@@ -438,15 +411,26 @@ class RuleBasedUrlClassifier(UrlClassifierPort):
                 resolver_key="tiktok.default",
             )
 
-        if _path_looks_like_audio(path):
+        if source_type is MediaSourceType.AUDIO_FILE:
             return ClassifiedUrl(
                 media_family=MediaFamily.AUDIO,
                 source_platform=SourcePlatform.DIRECT_URL,
                 resolver_key="audio.default",
             )
 
-        return ClassifiedUrl(
-            media_family=MediaFamily.ARTICLE,
-            source_platform=SourcePlatform.WEB,
-            resolver_key="article.default",
-        )
+        if source_type is MediaSourceType.WEB_ARTICLE:
+            # A recognised type, reached on its own criterion (an http(s) page, no
+            # platform host, no feed or media path) rather than by falling off the
+            # end of the chain. `article.default` fetches the page before the
+            # content identity is settled, so what "web article" means has to be a
+            # decision and not a leftover (task-392).
+            return ClassifiedUrl(
+                media_family=MediaFamily.ARTICLE,
+                source_platform=SourcePlatform.WEB,
+                resolver_key="article.default",
+            )
+
+        # Unreachable: every `MediaSourceType` member is answered above. Raising
+        # rather than guessing is what makes a new member a compile-time-ish
+        # failure instead of a silent article.
+        raise UnsupportedUrlError(DEFAULT_UNSUPPORTED_URL_MESSAGE)
