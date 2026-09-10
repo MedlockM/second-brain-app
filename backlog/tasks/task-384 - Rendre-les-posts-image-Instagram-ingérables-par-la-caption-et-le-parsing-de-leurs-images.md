@@ -3,9 +3,10 @@ id: task-384
 title: >-
   Rendre les posts image Instagram ingérables par la caption et le parsing de
   leurs images
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-09 15:55'
+updated_date: '2026-09-10 08:37'
 labels:
   - backend
   - ingestion
