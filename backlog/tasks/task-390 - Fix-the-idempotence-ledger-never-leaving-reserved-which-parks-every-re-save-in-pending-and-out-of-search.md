@@ -3,9 +3,10 @@ id: task-390
 title: >-
   Fix the idempotence ledger never leaving reserved, which parks every re-save
   in pending and out of search
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-09 21:44'
+updated_date: '2026-09-10 08:33'
 labels:
   - bug
   - ingestion
@@ -66,6 +67,7 @@ Deduplication must keep saving the expensive half of the work — extraction, tr
 <!-- AC:END -->
 
 ## Implementation Notes
+
 <!-- SECTION:NOTES:BEGIN -->
 ### Root cause, confirmed
 
