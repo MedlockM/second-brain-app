@@ -1,9 +1,10 @@
 ---
 id: task-397
 title: Auditer et corriger tous les messages d'erreur destinés aux utilisateurs
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-10 12:42'
+updated_date: '2026-09-10 13:54'
 labels:
   - mobile
   - backend
