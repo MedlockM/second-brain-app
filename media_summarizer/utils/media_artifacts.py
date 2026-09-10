@@ -255,6 +255,68 @@ async def fail_awaiting_artifact(
         raise
 
 
+async def fail_stalled_artifact(
+    *,
+    artifact_id: str,
+    stale_before: datetime,
+    error_code: str,
+    error_message: str,
+) -> bool:
+    """End a generation that is still in flight but has stopped moving.
+
+    The counterpart of :func:`fail_awaiting_artifact` for the other kind of stuck
+    entry: one that was really enqueued or claimed, and whose generation never
+    reported back — a message lost to the DLQ, a worker killed with no redelivery
+    left. ``fail_awaiting_artifact`` cannot serve here: it is conditional on
+    ``awaiting_expires_at``, and that attribute is exactly what these entries lack.
+
+    ``stale_before`` is part of the condition, not only of the caller's decision. A
+    worker that claimed the entry between the caller's read and this write bumped
+    ``updated_at``, so the write is refused and a live generation is never marked
+    failed. Both sides are UTC ISO-8601 with the same offset, so DynamoDB's string
+    comparison is the chronological one.
+
+    Returns ``False`` when the entry no longer matches — already terminal, or alive
+    after all.
+    """
+    session = database_async.get_session()
+    now_iso = _now_iso()
+    try:
+        async with session.resource(
+            "dynamodb",
+            region_name=database_async.AWS_REGION,
+        ) as dynamodb:
+            table = await dynamodb.Table(MEDIA_ARTIFACTS_TABLE)
+            await table.update_item(
+                Key={"artifact_id": artifact_id},
+                UpdateExpression=(
+                    "SET #st = :failed, error_code = :code, error_message = :msg, "
+                    "updated_at = :now, completed_at = :now "
+                    "REMOVE awaiting_expires_at, lease_expires_at"
+                ),
+                ConditionExpression=(
+                    "attribute_exists(artifact_id) "
+                    "AND (#st = :queued OR #st = :generating) "
+                    "AND updated_at < :stale_before"
+                ),
+                ExpressionAttributeNames={"#st": "status"},
+                ExpressionAttributeValues={
+                    ":failed": "failed",
+                    ":queued": "queued",
+                    ":generating": "generating",
+                    ":stale_before": stale_before.isoformat(),
+                    ":code": error_code,
+                    ":msg": error_message[:500],
+                    ":now": now_iso,
+                },
+            )
+            return True
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        raise
+
+
 async def list_queued_artifact_ids_by_scope(*, scope_key: str) -> List[str]:
     """Every ``queued`` entry id of one scope, newest first.
 

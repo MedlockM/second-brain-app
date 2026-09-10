@@ -886,6 +886,11 @@ async def _resolve_review_blurb_status(
     No entry at all is read against the pipeline: still running means the trigger
     has not fired yet (``pending``), already over means it fired and was lost
     (``failed``, which ``scripts/backfill_review_blurbs.py`` repairs).
+
+    ``pending`` is bounded on the other side too: an entry stuck in flight past
+    ``INTERNAL_GENERATION_STALL_SECONDS`` is ended by the read itself and comes back
+    ``failed`` (task-391). There is no state left in which this answers "being
+    written" for ever.
     """
     artifact_status = await latest_internal_artifact_status(
         user_id=record.user_id,

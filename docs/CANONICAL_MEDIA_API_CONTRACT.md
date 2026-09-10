@@ -734,7 +734,12 @@ Response (`UploadAudioResponse`, `202 Accepted`):
   tells a client whether that null is a preview on its way or one that will never come: the
   generation is an internal artifact triggered best-effort at the end of ingestion, so no entry
   at all on a finished item reads as `failed` (repaired by
-  `media_summarizer/scripts/backfill_review_blurbs.py`).
+  `media_summarizer/scripts/backfill_review_blurbs.py`). **`pending` is bounded** (task-391):
+  an entry left in flight past `ARTIFACT_INTERNAL_STALL_SECONDS` (30 min) is ended by the read
+  itself and answers `failed`, so no item stays "preview being written" for ever. A save of
+  content someone already ingested provisions its own preview at save time, from the content's
+  existing artifact or from a generation of its own, so a deduplicated save never announces
+  `ready` over a row that carries nothing.
 
 `MediaArtifact`:
 - `scope`: `media | folder`

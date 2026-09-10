@@ -116,6 +116,20 @@ AWAITING_SOURCES_TIMEOUT_SECONDS = int(
     os.environ.get("ARTIFACT_AWAITING_TIMEOUT_SECONDS", "3600")
 )
 
+# How long an *internal* entry may stay in flight before a read stops calling it
+# pending (task-391). It is the age bound the other two mechanisms leave out: a
+# waiting entry is bounded by `awaiting_expires_at`, a claimed one by its lease —
+# but an internal type is triggered by a backend hook that gives up after a single
+# attempt, so a `queued` entry whose SQS message was lost, or a `generating` one
+# whose lease expired with no redelivery left, is revisited by nobody. The media
+# contract then answers "the preview is being written" for ever.
+#
+# 30 minutes is six generation leases (`GENERATION_LEASE_SECONDS`), so a generation
+# that is merely slow, or being retried by SQS, is never mistaken for a dead one.
+INTERNAL_GENERATION_STALL_SECONDS = int(
+    os.environ.get("ARTIFACT_INTERNAL_STALL_SECONDS", "1800")
+)
+
 REQUESTABLE_ARTIFACT_TYPES = {
     MediaArtifactType.SUMMARY_SHORT,
     MediaArtifactType.SUMMARY_DETAILED,
@@ -185,6 +199,18 @@ _LIBRARY_STATUSES_IN_PREPARATION = frozenset(
 ERROR_CODE_PREPARATION_TIMEOUT = "sources_preparation_timeout"
 ERROR_CODE_PREPARATION_FAILED = "sources_preparation_failed"
 ERROR_CODE_SOURCES_CHANGED = "sources_changed"
+
+#: ``error_code`` of an entry that was really enqueued and never reported back.
+#: Terminal like the three above, and reclaimable: the next trigger for the same
+#: key generates again instead of being answered by the corpse.
+ERROR_CODE_GENERATION_STALLED = "generation_stalled"
+
+#: The two non-terminal statuses. Grouped because every age bound has to treat them
+#: alike: a request nobody will serve is as stuck queued as it is generating.
+_IN_FLIGHT_ARTIFACT_STATUSES = (
+    MediaArtifactStatus.QUEUED,
+    MediaArtifactStatus.GENERATING,
+)
 
 
 class ArtifactServiceError(Exception):
@@ -985,6 +1011,10 @@ async def latest_internal_artifact_status(
     Read without a ``limit`` on purpose: a media scope holds at most one entry per
     type, so the whole scope is one query, and a page-bounded read could hand back
     a first page of user artifacts with the internal entry left on the next one.
+
+    It is also where an in-flight entry that stopped moving becomes terminal
+    (task-391), the same way ``list_scope_artifacts`` ends an overdue wait: on read,
+    at the only moment the answer matters.
     """
     records, _ = await media_artifacts.list_artifacts_by_scope(
         scope_key=build_scope_key(
@@ -996,8 +1026,101 @@ async def latest_internal_artifact_status(
     # Newest first, so the first internal entry seen is the current one.
     for record in records:
         if record.artifact_type in INTERNAL_ARTIFACT_TYPES:
-            return record.status
+            return await _bounded_internal_status(record)
     return None
+
+
+async def _bounded_internal_status(
+    record: MediaArtifactRecord,
+) -> MediaArtifactStatus:
+    """The entry's status, with an in-flight one that stopped moving turned terminal.
+
+    The age bound that makes ``pending`` finite (task-391). An internal entry is
+    queued by a hook that tries once and gives up, so nothing in the codebase ever
+    revisits it: a lost SQS message left it ``queued``, and a worker killed after its
+    last redelivery left it ``generating`` with a dead lease. Both used to be
+    reported as "the preview is being written" for ever, and a *terminal* answer is
+    what the reader needs — the tile settles, and the entry becomes reclaimable, so
+    the next trigger for this content generates again instead of reusing a corpse.
+
+    Two-step like :func:`end_overdue_waits`, and for the same reason: ``scope-index``
+    projects ``created_at`` but neither ``updated_at`` nor ``lease_expires_at``, and a
+    reclaimed entry keeps the ``created_at`` of the first attempt while its own clock
+    restarts. The projected date can therefore only rule an expiry *out* — which is
+    enough to make the common read free, since a preview generated minutes ago never
+    reaches the base table.
+
+    Never raises: a media detail response must still answer if the entry cannot be
+    judged or ended, and it then reports what the index said.
+    """
+    if record.status not in _IN_FLIGHT_ARTIFACT_STATUSES:
+        return record.status
+
+    now = _now_utc()
+    stale_before = now - timedelta(seconds=INTERNAL_GENERATION_STALL_SECONDS)
+    if record.created_at > stale_before:
+        return record.status
+
+    try:
+        full = await media_artifacts.get_media_artifact_by_id(record.artifact_id)
+    except Exception as exc:  # noqa: BLE001 - a media read must still answer
+        logger.warning(
+            "Could not read internal artifact %s to bound its age: %s",
+            record.artifact_id,
+            exc,
+        )
+        return record.status
+
+    if full is None:
+        # The row is gone (the purge script deletes them) while the index still
+        # lists it. Nothing is generating anything, so terminal is the honest answer.
+        return MediaArtifactStatus.FAILED
+    if full.status not in _IN_FLIGHT_ARTIFACT_STATUSES:
+        return full.status
+    if full.updated_at > stale_before:
+        return full.status
+    if full.lease_expires_at is not None and full.lease_expires_at > now:
+        # A worker holds a live lease: the generation is running, however old the
+        # entry looks.
+        return full.status
+
+    try:
+        ended = await media_artifacts.fail_stalled_artifact(
+            artifact_id=full.artifact_id,
+            stale_before=stale_before,
+            error_code=ERROR_CODE_GENERATION_STALLED,
+            error_message=(
+                "This generation stopped reporting and its entry was ended."
+            ),
+        )
+        if not ended:
+            # Something wrote to the entry between the read and the write: it is
+            # alive after all, or already terminal. Either way this read must report
+            # what the entry now says rather than the verdict it had prepared.
+            refreshed = await media_artifacts.get_media_artifact_by_id(
+                full.artifact_id
+            )
+            return refreshed.status if refreshed is not None else MediaArtifactStatus.FAILED
+    except Exception as exc:  # noqa: BLE001 - a media read must still answer
+        logger.warning(
+            "Could not end the stalled generation of artifact %s: %s",
+            full.artifact_id,
+            exc,
+        )
+        return full.status
+
+    log_event(
+        logger,
+        logging.WARNING,
+        "artifact.generation_stalled",
+        "Artifact generation ended: it stopped reporting before completing",
+        artifact_id=full.artifact_id,
+        artifact_type=full.artifact_type.value,
+        artifact_status=full.status.value,
+        scope_id=full.scope_id,
+        stall_seconds=INTERNAL_GENERATION_STALL_SECONDS,
+    )
+    return MediaArtifactStatus.FAILED
 
 
 async def get_media_artifact_record(
@@ -1573,11 +1696,9 @@ async def complete_artifact_generation(
         record.artifact_type == MediaArtifactType.REVIEW_BLURB
         and record.scope == ArtifactScope.MEDIA
     ):
-        await _mirror_review_blurb_onto_library_row(
-            user_id=record.user_id,
-            media_item_id=record.scope_id,
+        await _mirror_review_blurb_onto_content_rows(
+            record=record,
             blurb=_read_blurb(content),
-            artifact_id=record.artifact_id,
         )
 
     log_event(
@@ -1664,6 +1785,64 @@ async def _mirror_review_blurb_onto_library_row(
             detail=str(exc)[:200],
         )
         return False
+
+
+async def _mirror_review_blurb_onto_content_rows(
+    *,
+    record: MediaArtifactRecord,
+    blurb: Optional[ReviewBlurb],
+) -> None:
+    """Copy a finished blurb onto every row of its owner that holds the content.
+
+    ``artifact_id`` is keyed on the *content* (the deduplicated ``media_key``), never
+    on the save, so a single entry answers every save the same user made of the same
+    URL — while the generation was triggered from whichever of those rows asked
+    first. Writing onto ``scope_id`` alone therefore leaves the other rows blank
+    while the shared entry reports ``ready``, which is the media contract announcing
+    a card that exists nowhere (task-391). The second save is not exotic: it is what
+    happens whenever a user re-files a source while the first blurb is still being
+    generated.
+
+    Best-effort like the single-row copy it wraps: the artifact is sealed by the time
+    this runs, and ``copy_review_blurb_to_library_row`` remains the repair path for a
+    row this missed.
+    """
+    if blurb is None:
+        return
+
+    targets = [record.scope_id]
+    content_id = content_scope_id_from_scope_key(record.scope_key)
+    if content_id and content_id != record.scope_id:
+        try:
+            from media_summarizer.utils import user_media as user_media_store
+
+            rows = await user_media_store.list_for_user_by_media_key(
+                record.user_id, content_id
+            )
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.WARNING,
+                "artifact.review_blurb_fanout_failed",
+                "Could not list the owner's saves of this content; copying onto the "
+                "requesting row only",
+                artifact_id=record.artifact_id,
+                media_item_id=record.scope_id,
+                error_type=type(exc).__name__,
+                detail=str(exc)[:200],
+            )
+            rows = []
+        targets.extend(
+            row.media_item_id for row in rows if row.media_item_id != record.scope_id
+        )
+
+    for media_item_id in targets:
+        await _mirror_review_blurb_onto_library_row(
+            user_id=record.user_id,
+            media_item_id=media_item_id,
+            blurb=blurb,
+            artifact_id=record.artifact_id,
+        )
 
 
 async def copy_review_blurb_to_library_row(

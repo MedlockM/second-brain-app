@@ -290,6 +290,45 @@ def display_attributes_from_job(job: ProcessingJob) -> Dict[str, Any]:
     return attributes
 
 
+async def _provision_review_blurb(*, user_id: str, media_item_id: str) -> None:
+    """Give a deduplicated save the source preview its row would otherwise never get.
+
+    A duplicate runs no job, so the completion event that normally queues the blurb
+    (``workers/events/media_completed_worker``) fired long ago — for another user's
+    row, or for an earlier save of this same user. Nothing else was ever going to
+    look at this row, which is how a save ended up announced as ``ready`` with no
+    card on it, or announced as unavailable while the content had one elsewhere
+    (task-391).
+
+    Both cases are handled by ``trigger_review_blurb_generation``: this user already
+    has the content's artifact, and it is copied onto the new row; or they have never
+    held this content, and a generation is queued under their own scope.
+
+    Imported locally because ``review_blurb_service`` imports this module for
+    :func:`resolve_job_for_record`.
+
+    Swallows everything. The strict part of the finalisation is the status write; a
+    preview that could not be provisioned must not turn a successful save into a 500,
+    and ``scripts/backfill_review_blurbs.py`` picks up whatever this missed.
+    """
+    try:
+        from media_summarizer.core.services.review_blurb_service import (
+            trigger_review_blurb_generation,
+        )
+
+        await trigger_review_blurb_generation(user_id, media_item_id)
+    except Exception as exc:  # noqa: BLE001 - a preview never fails a save
+        log_event(
+            logger,
+            logging.WARNING,
+            "review_blurb.trigger_failed",
+            "Failed to provision the review_blurb of a deduplicated save (non-fatal)",
+            user_id=user_id,
+            media_item_id=media_item_id,
+            error_type=type(exc).__name__,
+        )
+
+
 async def finalize_deduplicated_save(
     *,
     user_id: str,
@@ -300,7 +339,7 @@ async def finalize_deduplicated_save(
     """Make a save of already-known content arrive complete.
 
     A duplicate does not run a job for the newly created library row, so the
-    normal worker mirror will never update it. Three things therefore happen
+    normal worker mirror will never update it. Four things therefore happen
     here, and nowhere else:
 
     1. the terminal ``processing_status`` is persisted. This write is strict,
@@ -311,7 +350,10 @@ async def finalize_deduplicated_save(
        submission derived, because they are what the reused content is actually
        called (task-390);
     3. the transcript is submitted for indexing under *this* save's id, since an
-       Algolia record is keyed by the save and this one has none yet.
+       Algolia record is keyed by the save and this one has none yet;
+    4. the source preview is provisioned for *this* row (task-391), copied from
+       the content's existing artifact or generated for a user who has never held
+       this content.
 
     ``content_job`` is the job that processed the content and may belong to
     another user; when it is ``None`` the job has expired or could not be read,
@@ -364,6 +406,9 @@ async def finalize_deduplicated_save(
             f"Durable row missing during duplicate finalization for {media_item_id}"
         )
 
+    # Both of the following need the content to be readable, which is exactly what
+    # a READY status backed by a live job means: the transcript the index and the
+    # preview both read hangs off that job.
     if processing_status == UserMediaStatus.READY and content_job is not None:
         # Imported here so a module every worker loads does not require the
         # indexing queue to be configured just to read a library row.
@@ -380,6 +425,7 @@ async def finalize_deduplicated_save(
             source_platform=content_job.source_platform,
             job_id=content_job.id,
         )
+        await _provision_review_blurb(user_id=user_id, media_item_id=media_item_id)
 
     return owned_job_id
 
