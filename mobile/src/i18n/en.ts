@@ -384,7 +384,7 @@ export const en = {
   // pipeline detail. The `transcript.` key prefix stays — only the copy moved.
   "preview.heading": "Preview",
   "preview.pending": "The preview is being written…",
-  "preview.failed": "No preview for this source.",
+  "preview.unavailable": "No preview for this source.",
   "transcript.heading": "Full text",
   "transcript.empty": "No text available yet.",
   "transcript.emptyHint": "The text will appear once processing completes.",

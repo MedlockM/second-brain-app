@@ -329,7 +329,7 @@ export const de: Catalog = {
     "{rule} Testminuten füllen sich nicht wieder auf.",
   "preview.heading": "Vorschau",
   "preview.pending": "Die Vorschau wird geschrieben …",
-  "preview.failed": "Keine Vorschau für diese Quelle.",
+  "preview.unavailable": "Keine Vorschau für diese Quelle.",
   "transcript.heading": "Volltext",
   "transcript.empty": "Noch kein Text verfügbar.",
   "transcript.emptyHint":

@@ -113,13 +113,14 @@ const TRANSLATION_POLL_MAX_ATTEMPTS = 20;
 /** Delay between polls while the source preview is still being generated (ms). */
 const PREVIEW_POLL_DELAY_MS = 3000;
 /**
- * Maximum number of preview polls, i.e. one minute of waiting.
+ * Maximum number of preview reads, i.e. one minute of waiting.
  *
  * The generation runs off the completion event and takes seconds, so a preview
- * that has not landed by then is not going to land while the screen is open. The
- * section then stays on its waiting line: the next visit re-reads the item, and
- * a generation that was lost outright comes back as `failed` from the API rather
- * than being guessed at here.
+ * that has not landed by then is not going to land while the screen is open.
+ * Reaching this bound is therefore an answer, and the section says so — a
+ * terminal line, not a waiting line kept alive by nothing. Coming back to the
+ * screen re-reads the item and buys a fresh minute if the API still calls the
+ * generation pending, which is the only thing that could still change it.
  */
 const PREVIEW_POLL_MAX_ATTEMPTS = 20;
 
@@ -225,16 +226,68 @@ export function CompletedDetailView({
     [toastOpacity],
   );
 
-  // Refresh folder state when returning from the folder picker
+  // --- Source preview ("Aperçu"), above the full text ---
+  //
+  // Declared before the focus refresh below, which is one of the two doors data
+  // reaches it through.
+
+  // Seeded from the item this screen was opened with, then owned here: the
+  // detail poll stops the moment processing completes, and the preview is
+  // generated *after* that — so nothing else would ever bring it in.
+  const [preview, setPreview] = useState<SourcePreviewState>(() =>
+    resolveSourcePreviewState(media_item),
+  );
+
+  // How many reads the current wait has already cost. A budget, not a lifetime
+  // counter: the ceiling is what turns waiting into an answer, so every path that
+  // brings in a fresh read hands back a full one.
+  const previewPollCountRef = useRef(0);
+
+  /**
+   * Adopt what a fresh read of the item says about its preview.
+   *
+   * The one door for server data — the focus refresh, and the item the props
+   * carry — and it refills the budget on the way in. Re-entering the wait on a
+   * spent budget would end it again on the very next tick, which would make
+   * coming back to the screen a no-op.
+   */
+  const adoptPreview = useCallback(
+    (item: Pick<MediaItemContract, "review_blurb" | "review_blurb_status">) => {
+      previewPollCountRef.current = 0;
+      setPreview(resolveSourcePreviewState(item));
+    },
+    [],
+  );
+
+  // The preview belongs to an item, not to a mount. `/media/[id]` keeps this
+  // instance across a change of route parameter, and the Digest pager hands a
+  // page a new id the same way; without this the second item would inherit the
+  // first one's preview *and* its spent budget.
+  const previewItemId = media_item.media_item_id;
+  const previewItemIdRef = useRef(previewItemId);
+  useEffect(() => {
+    if (previewItemIdRef.current === previewItemId) return;
+    previewItemIdRef.current = previewItemId;
+    adoptPreview(media_item);
+  }, [previewItemId, media_item, adoptPreview]);
+
+  // One read on every return to the screen, and everything on it is used.
+  //
+  // The folder, because the picker is pushed from here and answers by writing to
+  // the item rather than back to this screen. And the source preview, which used
+  // to be dropped with the rest of the response: coming back is the gesture a
+  // reader makes when the section was still writing itself, so it is also what
+  // hands the wait a fresh budget after the poll has spent its own.
   useFocusEffect(
     useCallback(() => {
       if (!isAuthenticated) return;
 
-      const refreshFolder = async () => {
+      const refreshOnFocus = async () => {
         try {
           const response = await MediaService.getMediaStatus(
             media_item.media_item_id,
           );
+          adoptPreview(response.media_item);
           const newFolderId = response.media_item.folder_id ?? null;
           setCurrentFolderId(newFolderId);
 
@@ -264,8 +317,8 @@ export function CompletedDetailView({
         }
       };
 
-      void refreshFolder();
-    }, [isAuthenticated, media_item.media_item_id, showToast]),
+      void refreshOnFocus();
+    }, [isAuthenticated, media_item.media_item_id, showToast, adoptPreview]),
   );
 
   // Cleanup toast timeout on unmount
@@ -689,66 +742,63 @@ export function CompletedDetailView({
     };
   }, [mediaReady, transcriptStatus, fetchRawContent]);
 
-  // --- Source preview ("Aperçu"), above the full text ---
-
-  // Seeded from the item this screen was opened with, then owned here: the
-  // detail poll stops the moment processing completes, and the preview is
-  // generated *after* that — so nothing else would ever bring it in.
-  const [preview, setPreview] = useState<SourcePreviewState>(() =>
-    resolveSourcePreviewState(media_item),
-  );
-
-  const previewPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const previewPollCountRef = useRef(0);
-  // Same indirection as the translation poll: the callback reschedules itself,
-  // and a ref keeps it from referencing its own binding before it exists.
-  const pollForPreviewRef = useRef<() => Promise<void>>(async () => undefined);
-
-  const pollForPreview = useCallback(async () => {
-    if (!isAuthenticated || !mountedRef.current) return;
-    previewPollCountRef.current += 1;
-
-    try {
-      const response = await MediaService.getMediaStatus(
-        media_item.media_item_id,
-      );
-      if (!mountedRef.current) return;
-      const next = resolveSourcePreviewState(response.media_item);
-      setPreview(next);
-      // Resolved, either way: nothing left to wait for.
-      if (next.status !== "pending") return;
-    } catch {
-      // Silent: a failed read is not news the reader needs, and the attempt
-      // still counts against the ceiling so a broken network cannot loop.
-      if (!mountedRef.current) return;
-    }
-
-    if (previewPollCountRef.current < PREVIEW_POLL_MAX_ATTEMPTS) {
-      previewPollRef.current = setTimeout(() => {
-        void pollForPreviewRef.current();
-      }, PREVIEW_POLL_DELAY_MS);
-    }
-  }, [isAuthenticated, media_item.media_item_id]);
-
+  /**
+   * The poll behind the waiting line — armed by that line, and by nothing else.
+   *
+   * An interval owned by the effect, the shape the artifact poll above already
+   * uses, rather than a chain of timeouts that reschedules itself. A chain has to
+   * be re-armed by each of its own ticks, so one tick that cannot read — signed
+   * out for a moment while a token refreshes — ends it for good and leaves a
+   * spinner with nothing running under it. Here the effect decides: it does not
+   * arm while unauthenticated, and it arms again the moment that changes.
+   *
+   * It stops by answering. The ceiling turns the last read into a terminal state,
+   * and a terminal state is exactly what disarms this effect.
+   */
   useEffect(() => {
-    pollForPreviewRef.current = pollForPreview;
-  }, [pollForPreview]);
+    if (!isAuthenticated || preview.status !== "pending") return undefined;
 
-  // Armed once, from the waiting state itself, and stopped by the cleanup —
-  // whether the preview resolved or the screen went away. No interval: the chain
-  // is a bounded series of timeouts that ends on its own.
-  useEffect(() => {
-    if (preview.status !== "pending") return undefined;
-    previewPollRef.current = setTimeout(() => {
-      void pollForPreviewRef.current();
+    // Torn down by the cleanup: an item swapped underneath us, or the screen
+    // gone. A read that comes back after that belongs to nobody.
+    let armed = true;
+
+    // Asked after the read comes back, never before it: a return to the screen
+    // may have refilled the budget while this attempt was in flight, and closing
+    // the section on a budget that is no longer spent would undo that refresh.
+    const budgetSpent = () =>
+      previewPollCountRef.current >= PREVIEW_POLL_MAX_ATTEMPTS;
+
+    const interval = setInterval(() => {
+      void (async () => {
+        // Every attempt is spent, including one the network refuses: a free retry
+        // is how a flapping connection turns a bounded wait into an endless one.
+        previewPollCountRef.current += 1;
+
+        try {
+          const response = await MediaService.getMediaStatus(previewItemId);
+          if (!armed) return;
+          const next = resolveSourcePreviewState(response.media_item);
+          setPreview(
+            next.status === "pending" && budgetSpent()
+              ? { status: "unavailable" }
+              : next,
+          );
+        } catch {
+          // A failed read is not news the reader needs — except on the last
+          // attempt, where staying quiet would leave the spinner standing in
+          // front of a poll that has stopped.
+          if (armed && budgetSpent()) {
+            setPreview({ status: "unavailable" });
+          }
+        }
+      })();
     }, PREVIEW_POLL_DELAY_MS);
+
     return () => {
-      if (previewPollRef.current) {
-        clearTimeout(previewPollRef.current);
-        previewPollRef.current = null;
-      }
+      armed = false;
+      clearInterval(interval);
     };
-  }, [preview.status]);
+  }, [isAuthenticated, preview.status, previewItemId]);
 
   return (
     <DetailContainer showChrome={showChrome}>

@@ -335,7 +335,7 @@ export const fr: Catalog = {
     "{rule} Les minutes d'essai ne se rechargent pas.",
   "preview.heading": "Aperçu",
   "preview.pending": "L'aperçu est en cours de rédaction…",
-  "preview.failed": "Pas d'aperçu pour cette source.",
+  "preview.unavailable": "Pas d'aperçu pour cette source.",
   "transcript.heading": "Texte complet",
   "transcript.empty": "Aucun texte disponible pour l'instant.",
   "transcript.emptyHint":

@@ -273,7 +273,7 @@ export const pt: Catalog = {
   "account.plan.minutesRuleTrial": "{rule} Os minutos de teste não voltam a encher.",
   "preview.heading": "Pré-visualização",
   "preview.pending": "A pré-visualização está a ser escrita…",
-  "preview.failed": "Sem pré-visualização para esta fonte.",
+  "preview.unavailable": "Sem pré-visualização para esta fonte.",
   "transcript.heading": "Texto completo",
   "transcript.empty": "Ainda não há texto disponível.",
   "transcript.emptyHint": "O texto aparecerá quando o processamento terminar.",
