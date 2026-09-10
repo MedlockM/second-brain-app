@@ -312,6 +312,15 @@ class AuthUser(BaseModel):
     reading_language: Optional[str] = Field(
         default=None, description="Preferred reading language (ISO 639-1)"
     )
+    reading_language_change_available_at: Optional[str] = Field(
+        default=None,
+        description=(
+            "ISO 8601 instant at which the reading language may be changed again, "
+            "when a change is currently barred by the once-a-month guard-rail. "
+            "Null means a change is possible now — which is the answer for every "
+            "account that has never changed its language."
+        ),
+    )
     iana_timezone: Optional[str] = Field(
         default=None,
         description=(
@@ -329,10 +338,18 @@ class AuthUser(BaseModel):
         when a field joins the profile. They had already been copy-pasted five
         times over ``reading_language``, which is one forgotten call site per
         new field.
+
+        The availability date is computed here rather than stored: what the row
+        holds is when the language last moved, and every client only ever needs
+        the one date it would derive from it.
         """
+        available_at = user.reading_language_change_available_at()
         return cls(
             id=user.id,
             email=user.email,
             reading_language=user.reading_language,
+            reading_language_change_available_at=(
+                available_at.isoformat() if available_at is not None else None
+            ),
             iana_timezone=user.iana_timezone,
         )

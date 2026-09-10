@@ -424,6 +424,16 @@ export const en = {
     "Changing this setting affects future content only. Existing summaries and translations will not be re-processed.",
   "readingLanguage.saved": "Language updated successfully",
   "readingLanguage.saveA11y": "Save reading language",
+  // Once-a-month reading-language guard-rail (task-396). Changing the language
+  // re-translates every media opened afterwards, so the backend allows one change
+  // per month and answers `reading_language_change_too_soon` past that. One
+  // sentence serves both sides of it — the notice the screen shows while it holds
+  // and the refusal a save gets anyway — and the dateless form is the fallback for
+  // a refusal that reached the app without its date.
+  "readingLanguage.changeLimit":
+    "You can change your reading language once a month. The next change will be possible on {date}.",
+  "readingLanguage.changeLimitNoDate":
+    "You can change your reading language once a month, and this month's change has already been used.",
 
   // --- Delete account ---
   "deleteAccount.title": "Delete Account",

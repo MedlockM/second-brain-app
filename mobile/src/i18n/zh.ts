@@ -299,6 +299,8 @@ export const zh: Catalog = {
   "readingLanguage.disclaimer": "此设置只影响之后的内容。已有的摘要和翻译不会重新处理。",
   "readingLanguage.saved": "语言已更新",
   "readingLanguage.saveA11y": "保存阅读语言",
+  "readingLanguage.changeLimit": "阅读语言每月只能更改一次。下次可更改的时间为 {date}。",
+  "readingLanguage.changeLimitNoDate": "阅读语言每月只能更改一次，本月的更改次数已用完。",
   "deleteAccount.title": "删除账户",
   "deleteAccount.warningTitle": "此操作无法撤销",
   "deleteAccount.warningBody": "删除账户会将其连同你保存的一切永久抹除。之后我们无法恢复，即使你提出请求也不行。",

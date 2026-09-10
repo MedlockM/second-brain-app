@@ -361,6 +361,10 @@ export const es: Catalog = {
     "Cambiar este ajuste solo afecta al contenido futuro. Los resúmenes y traducciones existentes no se volverán a procesar.",
   "readingLanguage.saved": "Idioma actualizado",
   "readingLanguage.saveA11y": "Guardar el idioma de lectura",
+  "readingLanguage.changeLimit":
+    "Puedes cambiar el idioma de lectura una vez al mes. El próximo cambio será posible el {date}.",
+  "readingLanguage.changeLimitNoDate":
+    "Puedes cambiar el idioma de lectura una vez al mes, y el cambio de este mes ya se ha usado.",
   "deleteAccount.title": "Eliminar la cuenta",
   "deleteAccount.warningTitle": "Esto no se puede deshacer",
   "deleteAccount.warningBody":

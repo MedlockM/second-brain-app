@@ -11,6 +11,13 @@ interface UserPreferencesContextValue {
   readingLanguage: string | null;
   /** Whether onboarding language selection is needed (user has no reading_language set) */
   needsLanguageOnboarding: boolean;
+  /**
+   * ISO 8601 instant at which the reading language may be changed again, or null
+   * when a change is possible now. The backend allows one change per month and
+   * hands this date back on every profile it serves, so the settings screen can
+   * say when instead of letting the reader run into a refusal.
+   */
+  readingLanguageChangeAvailableAt: string | null;
   /** Update the reading language preference via the API */
   updateReadingLanguage: (language: ReadingLanguageCode) => Promise<void>;
   /** Whether an update is currently in progress */
@@ -31,11 +38,21 @@ export function UserPreferencesProvider({
   const [localReadingLanguage, setLocalReadingLanguage] = useState<
     string | null
   >(null);
+  // Held alongside the language for the same reason: the profile in AuthContext
+  // is the one the session was opened with, so a change made in this session
+  // would otherwise leave the guard-rail invisible until the next sign-in.
+  const [localChangeAvailableAt, setLocalChangeAvailableAt] = useState<
+    string | null
+  >(null);
 
   // reading_language comes from the user object (populated by AuthContext from /me response)
   // or from local state after a successful update
   const readingLanguage = localReadingLanguage ?? user?.reading_language ?? null;
   const needsLanguageOnboarding = !readingLanguage;
+  const readingLanguageChangeAvailableAt =
+    localChangeAvailableAt ??
+    user?.reading_language_change_available_at ??
+    null;
 
   // The device's time zone is the other account preference the backend stores,
   // and the only one the user is never asked about: the OS knows it, so it is
@@ -54,6 +71,9 @@ export function UserPreferencesProvider({
         const updatedUser =
           await UserPreferencesService.updateReadingLanguage(language);
         setLocalReadingLanguage(updatedUser.reading_language ?? language);
+        setLocalChangeAvailableAt(
+          updatedUser.reading_language_change_available_at ?? null,
+        );
       } finally {
         setIsUpdating(false);
       }
@@ -64,6 +84,7 @@ export function UserPreferencesProvider({
   const value: UserPreferencesContextValue = {
     readingLanguage,
     needsLanguageOnboarding,
+    readingLanguageChangeAvailableAt,
     updateReadingLanguage,
     isUpdating,
   };

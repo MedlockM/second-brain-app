@@ -309,6 +309,8 @@ export const hi: Catalog = {
   "readingLanguage.disclaimer": "यह सेटिंग सिर्फ़ आगे की सामग्री पर लागू होती है। मौजूदा सारांश और अनुवाद दोबारा प्रोसेस नहीं होंगे।",
   "readingLanguage.saved": "भाषा अपडेट हो गई",
   "readingLanguage.saveA11y": "पढ़ने की भाषा सहेजें",
+  "readingLanguage.changeLimit": "आप पढ़ने की भाषा महीने में एक बार बदल सकते हैं। अगला बदलाव {date} से संभव होगा।",
+  "readingLanguage.changeLimitNoDate": "आप पढ़ने की भाषा महीने में एक बार बदल सकते हैं, और इस महीने का बदलाव पहले ही इस्तेमाल हो चुका है।",
   "deleteAccount.title": "खाता मिटाएँ",
   "deleteAccount.warningTitle": "इसे पहले जैसा नहीं किया जा सकता",
   "deleteAccount.warningBody": "खाता मिटाने पर वह हमेशा के लिए मिट जाता है, और उसके साथ आपकी सहेजी हुई हर चीज़ भी। इसके बाद हम उसे वापस नहीं ला सकते, अनुरोध पर भी नहीं।",

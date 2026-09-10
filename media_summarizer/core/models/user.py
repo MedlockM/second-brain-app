@@ -14,10 +14,24 @@ Notes:
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+# How long an account waits between two reading-language changes.
+#
+# The reading language is not a display setting: moving it translates the full
+# text of every media the reader opens next, then each of that media's
+# artifacts, at a provider cost we pay. That cost is bounded *per media* — a
+# translation is persisted and never redone — but nothing bounded how often an
+# account could reopen the door on its whole library, so the interval between
+# two changes is what this guard-rail holds: one change per month, per account.
+#
+# A rolling 30-day window rather than a calendar month: under a calendar rule a
+# change on 31 January and another on 1 February are a day apart and both
+# legal, which is exactly the burst the guard exists to prevent.
+READING_LANGUAGE_CHANGE_INTERVAL = timedelta(days=30)
 
 
 class User(BaseModel):
@@ -41,6 +55,14 @@ class User(BaseModel):
 
     # User preferences
     reading_language: Optional[str] = None  # ISO 639-1 code (e.g., "fr", "en")
+
+    # When the reading language last *moved*, which is what the once-a-month
+    # guard-rail above is measured from. Stays None until one language actually
+    # replaces another: choosing a first language (at onboarding, or on a first
+    # visit to the setting) is not a change, it is the initial setting, and it
+    # must not start the clock — otherwise a reader who mis-picks during
+    # onboarding is locked out of their own library's language for a month.
+    reading_language_changed_at: Optional[datetime] = None
 
     # IANA zone name of the user's device (e.g. "Europe/Paris"), never a UTC
     # offset: a stored "+02:00" is wrong six months a year, while the name
@@ -68,6 +90,23 @@ class User(BaseModel):
     def touch(self) -> None:
         """Update the updated_at timestamp."""
         self.updated_at = datetime.now(timezone.utc)
+
+    def reading_language_change_available_at(
+        self, now: Optional[datetime] = None
+    ) -> Optional[datetime]:
+        """When the next reading-language change becomes possible.
+
+        ``None`` means "right now": an account that never changed its language
+        and one whose last change is older than
+        ``READING_LANGUAGE_CHANGE_INTERVAL`` give the same answer — there is
+        nothing to wait for. A datetime is the instant the guard-rail lifts, and
+        the only figure a refused caller needs to be told.
+        """
+        if self.reading_language_changed_at is None:
+            return None
+        available_at = self.reading_language_changed_at + READING_LANGUAGE_CHANGE_INTERVAL
+        reference = now if now is not None else datetime.now(timezone.utc)
+        return available_at if available_at > reference else None
 
     def update(self, **kwargs):
         """
@@ -108,6 +147,8 @@ class User(BaseModel):
             item["avatar_url"] = self.avatar_url
         if self.reading_language is not None:
             item["reading_language"] = self.reading_language
+        if self.reading_language_changed_at is not None:
+            item["reading_language_changed_at"] = self.reading_language_changed_at.isoformat()
         if self.iana_timezone is not None:
             item["iana_timezone"] = self.iana_timezone
         return item
@@ -134,6 +175,11 @@ class User(BaseModel):
             name=item.get("name"),
             avatar_url=item.get("avatar_url"),
             reading_language=item.get("reading_language"),
+            reading_language_changed_at=(
+                datetime.fromisoformat(item["reading_language_changed_at"])
+                if item.get("reading_language_changed_at")
+                else None
+            ),
             iana_timezone=item.get("iana_timezone"),
         )
 

@@ -369,6 +369,10 @@ export const de: Catalog = {
     "Diese Einstellung wirkt sich nur auf künftige Inhalte aus. Vorhandene Zusammenfassungen und Übersetzungen werden nicht erneut verarbeitet.",
   "readingLanguage.saved": "Sprache aktualisiert",
   "readingLanguage.saveA11y": "Lesesprache speichern",
+  "readingLanguage.changeLimit":
+    "Du kannst die Lesesprache einmal im Monat ändern. Die nächste Änderung ist ab dem {date} möglich.",
+  "readingLanguage.changeLimitNoDate":
+    "Du kannst die Lesesprache einmal im Monat ändern, und die Änderung dieses Monats ist bereits verbraucht.",
   "deleteAccount.title": "Konto löschen",
   "deleteAccount.warningTitle": "Das lässt sich nicht rückgängig machen",
   "deleteAccount.warningBody":
