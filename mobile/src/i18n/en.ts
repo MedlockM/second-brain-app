@@ -15,6 +15,8 @@
 export const en = {
   // --- Words that belong to no single screen ---
   "common.ok": "OK",
+  "common.yes": "Yes",
+  "common.no": "No",
   "common.cancel": "Cancel",
   "common.retry": "Retry",
   "common.delete": "Delete",
@@ -726,48 +728,24 @@ export const en = {
   "artifact.explanation": "EXPLANATION",
   "artifact.optionA11y": "Option {label}: {text}{state}",
   // --- Share confirmation ---
-  "share.title.url": "Save Link",
-  "share.title.text": "Save Note",
-  "share.title.audio": "Save Audio",
-  "share.title.file": "Import File",
-  "share.title.photo": "Save Photo",
+  // The whole modal, in the nominal case: the save is already under way, so the
+  // only thing left to ask is where it should live (task-389).
+  "share.inProgress.body": "Your media is being saved to your second brain.",
+  "share.inProgress.duplicate": "This media is already in your second brain.",
+  "share.inProgress.question": "Would you also like to file it in a folder?",
   "share.processing": "Processing shared content...",
   "share.invalid": "Cannot save this content",
-  "share.saved": "Saved!",
   "share.saveFailed": "Save failed",
-  "share.saving": "Saving...",
-  "share.uploadingAudio": "Uploading audio...",
-  "share.uploadingFile": "Uploading file...",
-  "share.noteText": "Note",
   "share.reject.noText":
     "This note has no text to save. If it is locked, unlock it and share it again.",
   "share.reject.tooLong":
     "This note is too long to save: {count} characters, and {max} is the maximum.",
   "share.reject.nothingToSave":
     "There is nothing here we can save yet. Try sharing the text of the note.",
-  "share.chooseFolder": "Choose folder",
-  "share.folderPlaceholder": "Save to a folder",
-  "share.success.duplicate": "This content was already in your inbox.",
-  "share.success.audio": "Audio saved. Transcription will begin shortly.",
-  "share.success.text": "Note saved to your inbox.",
-  "share.success.photo": "Photo imported. Text extraction will begin shortly.",
-  "share.success.audioFile":
-    "Audio file imported. Transcription will begin shortly.",
-  "share.success.file": "File imported. Processing will begin shortly.",
-  "share.success.url": "Link added to your inbox. Processing will begin shortly.",
-  // Auto-started ingestion: what the two header buttons do (task-378)
-  "share.autoStart.hint": "Processing has already started.",
-  "share.autoStart.keep":
-    "Pick a folder if you want, then tap Save to keep it. Closing removes it.",
-  "share.autoStart.done": "Processing started",
-  "share.cancel.action": "Remove this save",
-  "share.cancel.inProgress": "Removing this save...",
-  "share.cancel.failedTitle": "Could not remove it",
-  "share.cancel.failed":
-    "This save could not be removed. Check your connection and try again.",
-  "share.cancel.keepHint": "Or tap Save to keep it after all.",
+  // Only the filing failed, never the save — so this says where the media is
+  // rather than offering a retry the modal no longer has room for.
   "share.folderFailed":
-    "The folder could not be applied. Tap Save to try again.",
+    "The folder could not be applied. Your media is saved, and you can file it from your library.",
   // --- Local import (file picker, camera, gallery) ---
   "import.filesUnavailable": "Could not open your files",
   "import.filesUnavailableBody":

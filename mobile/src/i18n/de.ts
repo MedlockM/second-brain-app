@@ -3,6 +3,8 @@ import type { Catalog } from "./runtime";
 /** German catalogue. See `en` for the reference wording and the key layout. */
 export const de: Catalog = {
   "common.ok": "OK",
+  "common.yes": "Ja",
+  "common.no": "Nein",
   "common.cancel": "Abbrechen",
   "common.retry": "Wiederholen",
   "common.delete": "Löschen",
@@ -661,51 +663,20 @@ export const de: Catalog = {
   "artifact.quizComplete": "Quiz abgeschlossen",
   "artifact.explanation": "ERKLÄRUNG",
   "artifact.optionA11y": "Option {label}: {text}{state}",
-  "share.title.url": "Link speichern",
-  "share.title.text": "Notiz speichern",
-  "share.title.audio": "Audio speichern",
-  "share.title.file": "Datei importieren",
-  "share.title.photo": "Foto speichern",
+  "share.inProgress.body": "Dein Inhalt wird in deinem zweiten Gehirn gespeichert.",
+  "share.inProgress.duplicate": "Dieser Inhalt ist schon in deinem zweiten Gehirn.",
+  "share.inProgress.question": "Möchtest du ihn außerdem in einem Ordner ablegen?",
   "share.processing": "Geteilter Inhalt wird verarbeitet …",
   "share.invalid": "Dieser Inhalt kann nicht gespeichert werden",
-  "share.saved": "Gespeichert!",
   "share.saveFailed": "Speichern fehlgeschlagen",
-  "share.saving": "Wird gespeichert …",
-  "share.uploadingAudio": "Audio wird hochgeladen …",
-  "share.uploadingFile": "Datei wird hochgeladen …",
-  "share.noteText": "Notiz",
   "share.reject.noText":
     "Diese Notiz enthält keinen Text zum Speichern. Wenn sie gesperrt ist, entsperre sie und teile sie erneut.",
   "share.reject.tooLong":
     "Diese Notiz ist zu lang zum Speichern: {count} Zeichen, das Maximum liegt bei {max}.",
   "share.reject.nothingToSave":
     "Hier ist nichts, das wir speichern können. Teile stattdessen den Text der Notiz.",
-  "share.chooseFolder": "Ordner wählen",
-  "share.folderPlaceholder": "In einem Ordner ablegen",
-  "share.success.duplicate": "Dieser Inhalt war schon in deinem Posteingang.",
-  "share.success.audio":
-    "Audio gespeichert. Die Transkription beginnt in Kürze.",
-  "share.success.text": "Notiz in deinem Posteingang gespeichert.",
-  "share.success.photo":
-    "Foto importiert. Die Texterkennung beginnt in Kürze.",
-  "share.success.audioFile":
-    "Audiodatei importiert. Die Transkription beginnt in Kürze.",
-  "share.success.file": "Datei importiert. Die Verarbeitung beginnt in Kürze.",
-  "share.success.url":
-    "Link zu deinem Posteingang hinzugefügt. Die Verarbeitung beginnt in Kürze.",
-  // Auto-started ingestion: what the two header buttons do (task-378)
-  "share.autoStart.hint": "Die Verarbeitung läuft bereits.",
-  "share.autoStart.keep":
-    "Wähle bei Bedarf einen Ordner und tippe dann auf Speichern, um es zu behalten. Beim Schließen wird es gelöscht.",
-  "share.autoStart.done": "Verarbeitung gestartet",
-  "share.cancel.action": "Diese Speicherung löschen",
-  "share.cancel.inProgress": "Diese Speicherung wird gelöscht …",
-  "share.cancel.failedTitle": "Löschen nicht möglich",
-  "share.cancel.failed":
-    "Diese Speicherung konnte nicht gelöscht werden. Prüfe deine Verbindung und versuche es erneut.",
-  "share.cancel.keepHint": "Oder tippe auf Speichern, um es doch zu behalten.",
   "share.folderFailed":
-    "Der Ordner konnte nicht übernommen werden. Tippe auf Speichern, um es erneut zu versuchen.",
+    "Der Ordner konnte nicht übernommen werden. Dein Inhalt ist gespeichert, und du kannst ihn aus deiner Bibliothek ablegen.",
   "import.filesUnavailable": "Deine Dateien konnten nicht geöffnet werden",
   "import.filesUnavailableBody":
     "Der Dateibrowser konnte nicht geöffnet werden. Bitte versuche es erneut.",

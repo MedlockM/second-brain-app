@@ -10,6 +10,8 @@ import type { Catalog } from "./runtime";
  */
 export const fr: Catalog = {
   "common.ok": "OK",
+  "common.yes": "Oui",
+  "common.no": "Non",
   "common.cancel": "Annuler",
   "common.retry": "Réessayer",
   "common.delete": "Supprimer",
@@ -672,52 +674,22 @@ export const fr: Catalog = {
   "artifact.quizComplete": "Quiz terminé",
   "artifact.explanation": "EXPLICATION",
   "artifact.optionA11y": "Option {label} : {text}{state}",
-  "share.title.url": "Enregistrer le lien",
-  "share.title.text": "Enregistrer la note",
-  "share.title.audio": "Enregistrer l'audio",
-  "share.title.file": "Importer le fichier",
-  "share.title.photo": "Enregistrer la photo",
+  "share.inProgress.body":
+    "Votre média est en cours d'enregistrement dans votre second cerveau.",
+  "share.inProgress.duplicate": "Ce média est déjà dans votre second cerveau.",
+  "share.inProgress.question":
+    "Souhaitez-vous également le ranger dans un dossier ?",
   "share.processing": "Traitement du contenu partagé…",
   "share.invalid": "Impossible d'enregistrer ce contenu",
-  "share.saved": "Enregistré !",
   "share.saveFailed": "Échec de l'enregistrement",
-  "share.saving": "Enregistrement…",
-  "share.uploadingAudio": "Envoi de l'audio…",
-  "share.uploadingFile": "Envoi du fichier…",
-  "share.noteText": "Note",
   "share.reject.noText":
     "Cette note ne contient aucun texte à enregistrer. Si elle est verrouillée, déverrouillez-la puis partagez-la à nouveau.",
   "share.reject.tooLong":
     "Cette note est trop longue pour être enregistrée : {count} caractères, et le maximum est {max}.",
   "share.reject.nothingToSave":
     "Il n'y a rien ici que nous puissions enregistrer. Essayez de partager le texte de la note.",
-  "share.chooseFolder": "Choisir un dossier",
-  "share.folderPlaceholder": "Ranger dans un dossier",
-  "share.success.duplicate": "Ce contenu était déjà dans votre boîte de réception.",
-  "share.success.audio":
-    "Audio enregistré. La transcription va bientôt commencer.",
-  "share.success.text": "Note enregistrée dans votre boîte de réception.",
-  "share.success.photo":
-    "Photo importée. L'extraction du texte va bientôt commencer.",
-  "share.success.audioFile":
-    "Fichier audio importé. La transcription va bientôt commencer.",
-  "share.success.file": "Fichier importé. Le traitement va bientôt commencer.",
-  "share.success.url":
-    "Lien ajouté à votre boîte de réception. Le traitement va bientôt commencer.",
-  // Auto-started ingestion: what the two header buttons do (task-378)
-  "share.autoStart.hint": "Le traitement a déjà commencé.",
-  "share.autoStart.keep":
-    "Choisissez un dossier si vous le souhaitez, puis appuyez sur Enregistrer pour le conserver. Fermer le supprime.",
-  "share.autoStart.done": "Traitement lancé",
-  "share.cancel.action": "Supprimer cette sauvegarde",
-  "share.cancel.inProgress": "Suppression de cette sauvegarde…",
-  "share.cancel.failedTitle": "Suppression impossible",
-  "share.cancel.failed":
-    "Cette sauvegarde n'a pas pu être supprimée. Vérifiez votre connexion et réessayez.",
-  "share.cancel.keepHint":
-    "Ou appuyez sur Enregistrer pour finalement le conserver.",
   "share.folderFailed":
-    "Le dossier n'a pas pu être appliqué. Appuyez sur Enregistrer pour réessayer.",
+    "Le dossier n'a pas pu être appliqué. Votre média est enregistré, vous pouvez le ranger depuis votre bibliothèque.",
   "import.filesUnavailable": "Impossible d'ouvrir vos fichiers",
   "import.filesUnavailableBody":
     "Le navigateur de fichiers n'a pas pu être ouvert. Veuillez réessayer.",

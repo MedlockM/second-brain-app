@@ -3,6 +3,8 @@ import type { Catalog } from "./runtime";
 /** Spanish catalogue. See `en` for the reference wording and the key layout. */
 export const es: Catalog = {
   "common.ok": "OK",
+  "common.yes": "Sí",
+  "common.no": "No",
   "common.cancel": "Cancelar",
   "common.retry": "Reintentar",
   "common.delete": "Eliminar",
@@ -654,52 +656,20 @@ export const es: Catalog = {
   "artifact.quizComplete": "Cuestionario completado",
   "artifact.explanation": "EXPLICACIÓN",
   "artifact.optionA11y": "Opción {label}: {text}{state}",
-  "share.title.url": "Guardar el enlace",
-  "share.title.text": "Guardar la nota",
-  "share.title.audio": "Guardar el audio",
-  "share.title.file": "Importar el archivo",
-  "share.title.photo": "Guardar la foto",
+  "share.inProgress.body": "Tu contenido se está guardando en tu segundo cerebro.",
+  "share.inProgress.duplicate": "Este contenido ya está en tu segundo cerebro.",
+  "share.inProgress.question": "¿Quieres además archivarlo en una carpeta?",
   "share.processing": "Procesando el contenido compartido…",
   "share.invalid": "No se puede guardar este contenido",
-  "share.saved": "¡Guardado!",
   "share.saveFailed": "Error al guardar",
-  "share.saving": "Guardando…",
-  "share.uploadingAudio": "Subiendo el audio…",
-  "share.uploadingFile": "Subiendo el archivo…",
-  "share.noteText": "Nota",
   "share.reject.noText":
     "Esta nota no tiene texto que guardar. Si está bloqueada, desbloquéala y vuelve a compartirla.",
   "share.reject.tooLong":
     "Esta nota es demasiado larga para guardarla: {count} caracteres, y el máximo es {max}.",
   "share.reject.nothingToSave":
     "Aquí no hay nada que podamos guardar. Prueba a compartir el texto de la nota.",
-  "share.chooseFolder": "Elegir una carpeta",
-  "share.folderPlaceholder": "Guardar en una carpeta",
-  "share.success.duplicate": "Este contenido ya estaba en tu bandeja.",
-  "share.success.audio":
-    "Audio guardado. La transcripción empezará en breve.",
-  "share.success.text": "Nota guardada en tu bandeja.",
-  "share.success.photo":
-    "Foto importada. La extracción del texto empezará en breve.",
-  "share.success.audioFile":
-    "Archivo de audio importado. La transcripción empezará en breve.",
-  "share.success.file":
-    "Archivo importado. El procesamiento empezará en breve.",
-  "share.success.url":
-    "Enlace añadido a tu bandeja. El procesamiento empezará en breve.",
-  // Auto-started ingestion: what the two header buttons do (task-378)
-  "share.autoStart.hint": "El procesamiento ya ha empezado.",
-  "share.autoStart.keep":
-    "Elige una carpeta si quieres y luego pulsa Guardar para conservarlo. Al cerrar se elimina.",
-  "share.autoStart.done": "Procesamiento iniciado",
-  "share.cancel.action": "Eliminar este guardado",
-  "share.cancel.inProgress": "Eliminando este guardado…",
-  "share.cancel.failedTitle": "No se pudo eliminar",
-  "share.cancel.failed":
-    "No se pudo eliminar este guardado. Comprueba tu conexión e inténtalo de nuevo.",
-  "share.cancel.keepHint": "O pulsa Guardar para conservarlo después de todo.",
   "share.folderFailed":
-    "No se pudo aplicar la carpeta. Pulsa Guardar para intentarlo de nuevo.",
+    "No se pudo aplicar la carpeta. Tu contenido está guardado y puedes archivarlo desde tu biblioteca.",
   "import.filesUnavailable": "No se han podido abrir tus archivos",
   "import.filesUnavailableBody":
     "No se ha podido abrir el explorador de archivos. Inténtalo de nuevo.",

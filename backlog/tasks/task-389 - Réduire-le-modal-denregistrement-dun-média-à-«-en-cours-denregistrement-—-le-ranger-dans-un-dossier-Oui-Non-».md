@@ -87,17 +87,50 @@ Copie française, **verbatim de l'owner**, les cinq :
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Dans `mobile/app/share-confirmation.tsx`, l'état nominal du modal (statuts `submitting` et `success`) rend exactement la phrase, la question et deux boutons « Non » et « Oui » : aucune carte d'aperçu du contenu, aucun titre par type de contenu dans la barre haute, aucune ligne « dossier », et aucun bouton « Enregistrer » dans le slot `trailing` du `ScreenHeader`
-- [ ] #2 « Oui » appelle `router.push("/media/folder?mode=share")`, et au retour du sélecteur avec un dossier choisi le modal se ferme de lui-même sans qu'une action supplémentaire de l'utilisateur soit requise ; l'application du dossier repose sur le `syncFolder()` déjà déclenché par `selectFolder` et `registerSave` dans `ShareIntentContext`
-- [ ] #3 « Non » quitte le modal sans supprimer quoi que ce soit : aucun chemin partant de ce bouton n'appelle `MediaService.deleteMedia`
-- [ ] #4 L'effet d'auto-soumission de `mobile/src/contexts/ShareIntentContext.tsx` ne teste plus l'origine de l'intake : un import local (`startLocalUpload`) est soumis dès sa réception, comme un partage système et une URL tapée
-- [ ] #5 `ingestsOnArrival` n'existe plus : `grep -rn "ingestsOnArrival" mobile/src mobile/app` ne renvoie rien. Le champ `origin` de `ShareIntakeState` et le type `ShareIntakeOrigin` sont conservés, et `sourceAppFor(intake.origin)` est inchangé
-- [ ] #6 La branche d'échec est intégralement conservée dans le modal : titre et message de refus de quota, CTA « Voir les plans » vers `/paywall?reason=out_of_minutes`, bloc de diagnostic de téléversement de task-371 (`intake.uploadDiagnostics`, `upload.diagnostics.*`), bouton Réessayer câblé sur `retry()`, et l'état `invalid` avec `share.invalid`
-- [ ] #7 Toute la machinerie d'annulation est supprimée : `grep -rn "cancelIntake\|ShareCancellation\|CancellationState\|cancelRequested\|share.cancel" mobile/src mobile/app` ne renvoie rien, catalogues i18n compris
-- [ ] #8 Les composants et helpers devenus sans emploi sont supprimés de `share-confirmation.tsx` : un `grep -rn` de `IntakeChoice`, `OrganizationControls`, `IntakePreview`, `UrlPreviewCard`, `TextPreviewCard`, `AudioPreviewCard`, `FilePreviewCard`, `previewStatus`, `submissionLabel`, `getSuccessMessage`, `TOP_BAR_TITLE_KEYS`, `confirmIntake` et `ShareConfirmResult` sous `mobile/src` et `mobile/app` ne renvoie rien
-- [ ] #9 Les 27 clés listées dans la description sont supprimées des 11 catalogues de `mobile/src/i18n/`, et il reste exactement 11 clés de la famille `share.*` : `processing`, `invalid`, `saveFailed`, `folderFailed`, les 3 `reject.*`, les 3 `signIn*`, `unsupportedFile`
-- [ ] #10 Les 5 nouvelles clés (la phrase, sa variante dédup, la question, « Oui », « Non ») sont définies dans les 11 catalogues, et `mobile/src/i18n/fr.ts` porte exactement « Votre média est en cours d'enregistrement dans votre second cerveau. », « Ce média est déjà dans votre second cerveau. », « Souhaitez-vous également le ranger dans un dossier ? », « Oui » et « Non »
-- [ ] #11 Le cas `intake.deduplicated` affiche la variante dédup à la place de la phrase nominale, et pose la même question de rangement
-- [ ] #12 Aucune clé `share.*` restante n'est orpheline : chacune des 11 clés conservées a au moins un consommateur sous `mobile/src` ou `mobile/app` hors de `mobile/src/i18n/`
-- [ ] #13 `npm run lint` et `npm run typecheck` sortent 0 depuis `mobile/`
+- [x] #1 Dans `mobile/app/share-confirmation.tsx`, l'état nominal du modal (statuts `submitting` et `success`) rend exactement la phrase, la question et deux boutons « Non » et « Oui » : aucune carte d'aperçu du contenu, aucun titre par type de contenu dans la barre haute, aucune ligne « dossier », et aucun bouton « Enregistrer » dans le slot `trailing` du `ScreenHeader`
+- [x] #2 « Oui » appelle `router.push("/media/folder?mode=share")`, et au retour du sélecteur avec un dossier choisi le modal se ferme de lui-même sans qu'une action supplémentaire de l'utilisateur soit requise ; l'application du dossier repose sur le `syncFolder()` déjà déclenché par `selectFolder` et `registerSave` dans `ShareIntentContext`
+- [x] #3 « Non » quitte le modal sans supprimer quoi que ce soit : aucun chemin partant de ce bouton n'appelle `MediaService.deleteMedia`
+- [x] #4 L'effet d'auto-soumission de `mobile/src/contexts/ShareIntentContext.tsx` ne teste plus l'origine de l'intake : un import local (`startLocalUpload`) est soumis dès sa réception, comme un partage système et une URL tapée
+- [x] #5 `ingestsOnArrival` n'existe plus : `grep -rn "ingestsOnArrival" mobile/src mobile/app` ne renvoie rien. Le champ `origin` de `ShareIntakeState` et le type `ShareIntakeOrigin` sont conservés, et `sourceAppFor(intake.origin)` est inchangé
+- [x] #6 La branche d'échec est intégralement conservée dans le modal : titre et message de refus de quota, CTA « Voir les plans » vers `/paywall?reason=out_of_minutes`, bloc de diagnostic de téléversement de task-371 (`intake.uploadDiagnostics`, `upload.diagnostics.*`), bouton Réessayer câblé sur `retry()`, et l'état `invalid` avec `share.invalid`
+- [x] #7 Toute la machinerie d'annulation est supprimée : `grep -rn "cancelIntake\|ShareCancellation\|CancellationState\|cancelRequested\|share.cancel" mobile/src mobile/app` ne renvoie rien, catalogues i18n compris
+- [x] #8 Les composants et helpers devenus sans emploi sont supprimés de `share-confirmation.tsx` : un `grep -rn` de `IntakeChoice`, `OrganizationControls`, `IntakePreview`, `UrlPreviewCard`, `TextPreviewCard`, `AudioPreviewCard`, `FilePreviewCard`, `previewStatus`, `submissionLabel`, `getSuccessMessage`, `TOP_BAR_TITLE_KEYS`, `confirmIntake` et `ShareConfirmResult` sous `mobile/src` et `mobile/app` ne renvoie rien
+- [x] #9 Les 27 clés listées dans la description sont supprimées des 11 catalogues de `mobile/src/i18n/`, et il reste exactement 11 clés de la famille `share.*` : `processing`, `invalid`, `saveFailed`, `folderFailed`, les 3 `reject.*`, les 3 `signIn*`, `unsupportedFile`
+- [x] #10 Les 5 nouvelles clés (la phrase, sa variante dédup, la question, « Oui », « Non ») sont définies dans les 11 catalogues, et `mobile/src/i18n/fr.ts` porte exactement « Votre média est en cours d'enregistrement dans votre second cerveau. », « Ce média est déjà dans votre second cerveau. », « Souhaitez-vous également le ranger dans un dossier ? », « Oui » et « Non »
+- [x] #11 Le cas `intake.deduplicated` affiche la variante dédup à la place de la phrase nominale, et pose la même question de rangement
+- [x] #12 Aucune clé `share.*` restante n'est orpheline : chacune des 11 clés conservées a au moins un consommateur sous `mobile/src` ou `mobile/app` hors de `mobile/src/i18n/`
+- [x] #13 `npm run lint` et `npm run typecheck` sortent 0 depuis `mobile/`
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Delivered
+
+- `mobile/app/share-confirmation.tsx` goes from 1153 to 572 lines. The nominal state is `FolderQuestion`: the sentence, the question, and `[ Non ] [ Oui ]`. The header carries a close button and nothing else — `ScreenHeader` is given only a `leading`, so both the per-content-type title and the Save slot are gone.
+- All three origins now ingest on arrival. The auto-submission effect no longer reads `intake.origin`, `ingestsOnArrival` is deleted, and `ShareIntakeOrigin` / `origin` / `sourceAppFor(intake.origin)` are untouched — the value is a fact reported to the backend, not a branch.
+- The cancellation apparatus is gone whole: `cancelIntake`, `ShareCancellation`, `ShareCancellationStatus`, `NO_CANCELLATION`, the `cancellation` state, the `cancelRequested` flag and its four guards, and the `MediaService.deleteMedia` call the close button used to make. `dismissIntake` replaces `dismiss`/`cancelIntake` and only lets go: it does not reset `trackingRef`, so a folder patch still in flight when the modal closes lands on the right save (only `beginReception` starts fresh tracking).
+- `confirmIntake` and `ShareConfirmResult` left with the Save button. `share.folderFailed` kept its consumer: `reportFolderFailure` in the provider raises it as an `Alert` from the two `syncFolder()` call sites (`registerSave`, `selectFolder`), which is where it belongs now that the modal is normally gone by the time a folder PATCH fails. Its copy was rewritten in all 11 catalogues — the old wording named a Save button that no longer exists.
+- 27 keys deleted from the 11 catalogues; the 11 pre-existing `share.*` keys named in AC#9 remain, plus the 3 new `share.inProgress.*`, giving 14 `share.*` per catalogue. `common.yes` / `common.no` sit next to `common.ok`. The 11 key sets are byte-identical across catalogues.
+
+## Two decisions worth knowing
+
+- **"Oui" is a one-way door.** The modal closes on *any* return from the picker, not only when a folder came back. The picker answers in three ways a folder id cannot carry: a folder lands in `selectedFolder`, "Unsorted" lands as `null` — indistinguishable from never having gone — and backing out means "no folder after all". Keying the close on `selectedFolder` alone would have stranded a user who tapped "Unsorted" on the same question. A `visitedPickerRef` set at push time is the signal instead. AC#2 is satisfied either way: a return with a chosen folder closes with no further action.
+- **A quota refusal still has no in-modal way forward.** Retry stays gated on `quotaErrorCode === null` (branche d'échec conservée telle quelle, AC#6), and Save — which used to be the way back after subscribing — is gone. Someone who subscribes on the paywall has to send the content again from the app it came from. Worth a follow-up task if the owner would rather the Retry button appear once an entitlement changes.
+
+## Also touched
+
+Three doc comments that had gone stale on the deleted Save button: `applyUrlEntry` in the provider, the header block of `mobile/app/(tabs)/inbox.tsx` ("the three local imports still send on Save"), and the header of `mobile/src/lib/localImport.ts`.
+
+## Verification
+
+- `cd mobile && npm run typecheck`: passes. This is also the proof of i18n completeness — `Catalog = Record<TranslationKey, string>` makes a key missing from any of the 11 catalogues a `tsc` error.
+- `cd mobile && npm run lint`: exit 0, 0 errors. The single warning is pre-existing in `src/services/purchaseService.ts:98`, untouched here.
+- The AC greps (#5, #7, #8) return nothing over `mobile/src mobile/app`. `deleteMedia` survives only in `useMediaActions.ts` and `media/unsorted-review.tsx` — nothing reachable from the modal (#3).
+- Each of the 14 remaining `share.*` keys has at least one consumer outside `mobile/src/i18n/` (#12).
+- No automated tests were added, per repository delivery rules. Maestro flows were not treated as a constraint.
+
+## Owner check after merge
+
+The visual pass the description asks for is not reachable from a worktree: it needs a build on a device. The three entries to walk are share a URL from Safari/Chrome, type a URL in the "+" menu, and take a photo from the app — plus, on each, tapping "Oui" then "Unsorted" to see the modal close. German and Dutch are the languages that stretch the question the most.
+<!-- SECTION:NOTES:END -->
