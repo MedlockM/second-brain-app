@@ -72,12 +72,9 @@ import type { RecentEngagement } from "../../src/types/engagements";
  * Also hosts the ingestion gestures (task-264): a camera button that shoots
  * straight away, and an "add" button opening the choice between a link, a file
  * and a gallery photo (task-379). All four hand the result to the share
- * confirmation screen, where the folder is picked.
- *
- * The link is the one of the four that does not wait for Save: a URL needs
- * nothing uploaded, so processing starts the moment the address is validated and
- * the confirmation screen opens over a run already under way. The three local
- * imports still send on Save, because their bytes leave from that screen.
+ * confirmation screen, which asks the one question left — whether to file it in
+ * a folder — over a run already under way: since task-389 none of the four waits
+ * for a tap to be sent.
  */
 
 /**

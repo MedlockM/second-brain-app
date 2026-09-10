@@ -1,7 +1,7 @@
 /**
  * The device-side gestures that start an import (task-264): browsing for a file,
  * taking a photo, and picking one from the gallery. All end on a
- * `LocalUploadFile` that the share confirmation screen can display and submit.
+ * `LocalUploadFile` that `ShareIntentContext` sends the moment it has it.
  *
  * Kept out of the screens so the inbox stays presentational and the same entry
  * points can be reused from any other surface.

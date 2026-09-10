@@ -6,7 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Platform } from "react-native";
+import { Alert, Platform } from "react-native";
 import { t } from "../i18n";
 import { useRouter, usePathname } from "expo-router";
 import { useShareIntentContext } from "expo-share-intent";
@@ -58,32 +58,22 @@ import {
 export type ShareContentType = "url" | "text" | "audio" | "file" | "photo";
 
 /**
- * Where an intake came from, and therefore what the two buttons of the
- * confirmation screen mean (task-378).
+ * Where an intake came from — a fact about the save, not a branch in its
+ * handling (task-389).
  *
- * - "share": the user picked this app in the system share sheet. The ingestion
- *   starts on arrival, so Save only *confirms* the save and the close button
- *   deletes it.
+ * - "share": the user picked this app in the system share sheet.
  * - "url-entry": the user typed or pasted the URL in the app, from the "+" menu
- *   of the Home screen (task-379). Same two meanings as a share — the URL was
- *   validated and the session revalidated before the intake existed, so there is
- *   nothing left to wait for — and it is a separate value only so the submission
- *   can report where it came from.
- * - "local": a file picked or a photo taken inside the app. Save is still what
- *   submits it, and closing submits nothing and deletes nothing.
+ *   of the Home screen (task-379).
+ * - "local": a file picked or a photo taken inside the app.
+ *
+ * All three start their ingestion the moment the content is understood, so none
+ * of them changes what the confirmation modal does: it says the save is under
+ * way and asks whether to file it. The value survives because
+ * `sourceAppFor` reports it to the backend — the same link reaching us from the
+ * share sheet and from the "+" menu are two different facts about how the
+ * product is used.
  */
 export type ShareIntakeOrigin = "share" | "url-entry" | "local";
-
-/**
- * Whether the content is already being processed by the time the confirmation
- * screen shows it — the one question that decides what its two buttons do.
- *
- * Asked instead of comparing against `"share"`, because that comparison would
- * silently answer "no" for a typed URL, which behaves exactly like a share.
- */
-export function ingestsOnArrival(origin: ShareIntakeOrigin): boolean {
-  return origin !== "local";
-}
 
 export type ShareIntakeStatus =
   | "idle"
@@ -109,9 +99,9 @@ export interface ShareIntakeState {
   /** Audio file attachment (for audio shares) */
   audioFile: SharedFileAttachment | null;
   /**
-   * The save the accepted submission created — the one the close button deletes
-   * and the one a folder picked during processing is applied to. Optional so a
-   * fresh intake, written as a whole object, cannot inherit the previous save.
+   * The save the accepted submission created — the one a folder picked during
+   * processing is applied to. Optional so a fresh intake, written as a whole
+   * object, cannot inherit the previous save.
    */
   mediaItemId?: string | null;
   /** True when the backend recognised content it had already processed. */
@@ -146,35 +136,8 @@ export interface ShareSelectedFolder {
   path: string;
 }
 
-/**
- * Where the removal of a cancelled share stands.
- *
- * It is tracked apart from the intake status because it is not a step of the
- * ingestion: the save may be halfway through processing, or already processed,
- * when the user closes the modal.
- */
-export type ShareCancellationStatus = "idle" | "pending" | "failed";
-
-export interface ShareCancellation {
-  status: ShareCancellationStatus;
-  /** Why the removal failed, so the screen can say it and offer a retry. */
-  message: string | null;
-}
-
-/** What `confirmIntake` answers, so the screen knows whether it may close. */
-export interface ShareConfirmResult {
-  /** True when everything the user chose is on the server and the modal may go. */
-  ok: boolean;
-  /**
-   * A failure to surface, or null when the screen already shows it — a refused
-   * submission has its own card and needs no alert on top of it.
-   */
-  message: string | null;
-}
-
 interface ShareIntentContextValue {
   intake: ShareIntakeState;
-  cancellation: ShareCancellation;
   selectedFolder: ShareSelectedFolder | null;
   setSelectedFolder: (folder: ShareSelectedFolder | null) => void;
   /**
@@ -194,18 +157,11 @@ interface ShareIntentContextValue {
   /** Preserve the open confirmation state while authentication is restored. */
   parkCurrentIntakeForAuth: () => void;
   /**
-   * Send the pending intake to the endpoint its content type belongs to. Fired
-   * automatically on a share and on a typed URL, and by Save on a local import.
+   * Let go of the current intake: the modal is done with it. Nothing is deleted
+   * — the save exists and stays (task-389) — and the native module's stored
+   * intent is cleared so the same content can be shared again.
    */
-  submitIntake: () => Promise<void>;
-  /** Keep the save: finish applying the user's choices, then let the modal go. */
-  confirmIntake: () => Promise<ShareConfirmResult>;
-  /**
-   * Close the modal. Anything that was ingested on arrival — a share, a typed URL
-   * — has its save deleted; a local import, which Save alone submits, is only
-   * dismissed. Resolves to whether the screen may leave.
-   */
-  cancelIntake: () => Promise<boolean>;
+  dismissIntake: () => void;
   retry: () => void;
 }
 
@@ -221,10 +177,10 @@ type PendingIntake =
 
 /**
  * Everything about the submission of the current reception that must not be read
- * through a stale render closure: whether it already went out, what it created,
- * and whether the user has since asked for it to be removed.
+ * through a stale render closure: whether it already went out, and what it
+ * created.
  *
- * One mutable object rather than eight refs, because these fields are only ever
+ * One mutable object rather than seven refs, because these fields are only ever
  * read together and none of them may drive a render.
  */
 interface ShareSubmissionTracking {
@@ -238,8 +194,6 @@ interface ShareSubmissionTracking {
   saveCreated: boolean;
   /** The save that submission created. */
   mediaItemId: string | null;
-  /** The user closed the modal: nothing may be applied to the save any more. */
-  cancelRequested: boolean;
   /** The folder the user wants the save in. */
   desiredFolderId: string | null;
   /** The folder the server holds — sent with the submission, or patched since. */
@@ -255,7 +209,6 @@ function freshTracking(receptionId: number): ShareSubmissionTracking {
     inFlight: null,
     saveCreated: false,
     mediaItemId: null,
-    cancelRequested: false,
     desiredFolderId: null,
     appliedFolderId: null,
     folderSync: null,
@@ -264,8 +217,8 @@ function freshTracking(receptionId: number): ShareSubmissionTracking {
 
 const INITIAL_STATE: ShareIntakeState = {
   status: "idle",
-  // Nothing has been received yet: the neutral origin is the one whose close
-  // button deletes nothing.
+  // Nothing has been received yet. Any of the three would do — the origin only
+  // labels the source of a save that exists.
   origin: "local",
   url: null,
   rawText: null,
@@ -278,8 +231,6 @@ const INITIAL_STATE: ShareIntakeState = {
   quotaErrorCode: null,
   uploadDiagnostics: null,
 };
-
-const NO_CANCELLATION: ShareCancellation = { status: "idle", message: null };
 
 const ShareIntentContext = createContext<ShareIntentContextValue | null>(null);
 
@@ -421,17 +372,19 @@ function toSubmissionError(
  * - Navigation to the share-confirmation screen
  * - Submission logic (ingest URL, text, or audio to backend)
  *
- * Since task-378 a share is submitted the moment it is mapped, not when the user
- * presses Save: the seconds spent picking a folder are seconds of processing
- * already under way. The confirmation screen therefore confirms or removes a save
- * that already exists, which is why deletion and folder patching live here too —
- * both must survive the screen being closed while a call is still in flight.
+ * Since task-378 a reception is submitted the moment it is mapped, and since
+ * task-389 that holds for all three of them, local imports included: the seconds
+ * the user spends answering the modal are seconds of processing already under
+ * way. The confirmation screen therefore stands in front of a save that already
+ * exists and asks one thing, whether to file it — which is why folder patching
+ * lives here: it must survive the screen being closed while a call is still in
+ * flight.
  *
  * Since task-379 it also holds the third way a URL can arrive: typed or pasted in
  * the app, from the "+" menu of the Home screen. It goes through this provider
  * rather than straight to `MediaService` so it inherits the whole of the above —
- * the auth replay, the automatic start, the folder patching, the deletion — and
- * differs from a share in exactly one thing, the `source_app` it reports.
+ * the auth replay, the automatic start, the folder patching — and differs from a
+ * share in exactly one thing, the `source_app` it reports.
  *
  * Must be placed inside AuthProvider and the package's ShareIntentProvider.
  */
@@ -445,8 +398,6 @@ export function ShareIntentProvider({
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
   const [intake, setIntake] = useState<ShareIntakeState>(INITIAL_STATE);
-  const [cancellation, setCancellation] =
-    useState<ShareCancellation>(NO_CANCELLATION);
   const [selectedFolder, setSelectedFolder] =
     useState<ShareSelectedFolder | null>(null);
   const hasNavigatedRef = useRef(false);
@@ -489,7 +440,6 @@ export function ShareIntentProvider({
    */
   const beginReception = useCallback(() => {
     trackingRef.current = freshTracking(trackingRef.current.receptionId + 1);
-    setCancellation(NO_CANCELLATION);
     setSelectedFolder(null);
   }, []);
 
@@ -520,7 +470,7 @@ export function ShareIntentProvider({
    *
    * The URL arrives already extracted and validated by the dialog that collected
    * it, so the intake is "ready" from the first frame — which is what makes the
-   * automatic submission below fire without a tap on Save.
+   * automatic submission below fire on the frame the modal opens.
    */
   const applyUrlEntry = useCallback(
     (url: string) => {
@@ -885,13 +835,12 @@ export function ShareIntentProvider({
    * the last choice may survive.
    *
    * A failure leaves `appliedFolderId` behind, which *is* the memory of the
-   * pending choice: the next call retries it, and Save awaits this before
-   * closing so the failure is reported rather than swallowed.
+   * pending choice: the next call retries it. It is also said out loud —
+   * `reportFolderFailure` below — because the modal is normally gone by then.
    */
   const syncFolder = useCallback((): Promise<void> => {
     const apply = async (): Promise<void> => {
       const tracking = trackingRef.current;
-      if (tracking.cancelRequested) return;
       const mediaItemId = tracking.mediaItemId;
       if (!mediaItemId) return;
       const desired = tracking.desiredFolderId;
@@ -909,8 +858,23 @@ export function ShareIntentProvider({
   }, []);
 
   /**
-   * Record the save a submission created: what the close button deletes, and
-   * what a folder picked during processing is applied to.
+   * Say that a folder could not be put on the save.
+   *
+   * An alert, from the provider, because there is no screen left to say it on:
+   * the whole point of applying the choice from here is that it outlives the
+   * modal, and the modal closes as soon as a destination is tapped (task-389).
+   * The user is told, and the item is still theirs to file from the library.
+   */
+  const reportFolderFailure = useCallback((error: unknown) => {
+    Alert.alert(
+      t("common.error"),
+      getFriendlyErrorMessage(error, { fallback: t("share.folderFailed") }),
+    );
+  }, []);
+
+  /**
+   * Record the save a submission created: what a folder picked during processing
+   * is applied to.
    */
   const registerSave = useCallback(
     (mediaItemId: string, submittedFolderId: string | null) => {
@@ -918,9 +882,11 @@ export function ShareIntentProvider({
       tracking.saveCreated = true;
       tracking.mediaItemId = mediaItemId || null;
       tracking.appliedFolderId = submittedFolderId;
-      void syncFolder().catch(() => undefined);
+      // The choice may have been made while this submission was still going out,
+      // in which case this is what puts it on the save it just created.
+      void syncFolder().catch(reportFolderFailure);
     },
-    [syncFolder],
+    [reportFolderFailure, syncFolder],
   );
 
   const selectFolder = useCallback(
@@ -929,9 +895,9 @@ export function ShareIntentProvider({
       trackingRef.current.desiredFolderId = folder?.id ?? null;
       // Applied straight away when the save already exists, so the choice lands
       // even if the user walks away from the modal.
-      void syncFolder().catch(() => undefined);
+      void syncFolder().catch(reportFolderFailure);
     },
-    [syncFolder],
+    [reportFolderFailure, syncFolder],
   );
 
   /**
@@ -1102,9 +1068,9 @@ export function ShareIntentProvider({
    * Send the intake to the endpoint its content type belongs to.
    *
    * One reception submits once: the in-flight guard is what makes the automatic
-   * start, a screen remount, a return from the login screen and a tap on Save
-   * add up to a single save. A voluntary retry after a failure goes through
-   * `retry`, which reopens the door on purpose.
+   * start, a screen remount and a return from the login screen add up to a
+   * single save. A voluntary retry after a failure goes through `retry`, which
+   * reopens the door on purpose.
    */
   const submitIntake = useCallback(async (): Promise<void> => {
     const tracking = trackingRef.current;
@@ -1112,7 +1078,7 @@ export function ShareIntentProvider({
       await tracking.inFlight;
       return;
     }
-    if (!isSubmittable(intake.status) || tracking.cancelRequested) return;
+    if (!isSubmittable(intake.status)) return;
 
     const operation =
       intake.contentType === "url"
@@ -1131,30 +1097,30 @@ export function ShareIntentProvider({
   }, [intake, submitSharedContent, submitUpload, submitUrl]);
 
   /**
-   * Start processing the moment the content is understood (task-378, task-379).
+   * Start processing the moment the content is understood (task-378, task-379,
+   * task-389).
    *
    * The session was revalidated before the intake was mapped
    * (`resumePendingIntake`) and the content was validated while mapping it — or,
-   * for a typed URL, by the dialog that collected it — so "ready" on either of
-   * those two origins means every gate before the submission has been passed and
-   * the only thing left to wait for would be a tap on Save. A local import is
-   * untouched: Save is still what sends it.
+   * for a typed URL, by the dialog that collected it — so "ready" means every
+   * gate before the submission has been passed and there is nothing left to wait
+   * for. The origin is not consulted: a file picked in the app goes out on
+   * arrival like the rest, which is what makes the modal's "your media is being
+   * saved" true on all three journeys.
    */
   useEffect(() => {
-    if (!ingestsOnArrival(intake.origin) || intake.status !== "ready") return;
+    if (intake.status !== "ready") return;
     const tracking = trackingRef.current;
     if (tracking.autoSubmittedId === tracking.receptionId) return;
-    if (tracking.cancelRequested) return;
     tracking.autoSubmittedId = tracking.receptionId;
     void submitIntake();
-  }, [intake.origin, intake.status, submitIntake]);
+  }, [intake.status, submitIntake]);
 
   /**
    * Start an import from a file picked or captured on the device (task-264).
    *
-   * The confirmation screen is opened right away: a photo goes from the shutter
-   * to the folder step with nothing in between, and the actual upload only
-   * happens when the user hits Save.
+   * The confirmation screen is opened right away and the upload leaves with it: a
+   * photo goes from the shutter to the folder question with nothing in between.
    */
   const startLocalUpload = useCallback(
     (
@@ -1191,115 +1157,31 @@ export function ShareIntentProvider({
   }, [intake.status]);
 
   /**
-   * Drop the intake and clear the native module's stored intent so the same
+   * Let the modal go, and clear the native module's stored intent so the same
    * share is not handed back on the next cycle.
+   *
+   * Nothing is deleted and nothing is awaited (task-389). The question the modal
+   * asks is about filing, so neither answer means "throw it away" — a media
+   * shared by mistake is removed from the inbox like any other. A submission
+   * still in flight keeps its tracking too: it is `beginReception` that starts a
+   * fresh one, so the folder patch that follows still lands on the right save.
    */
-  const dismiss = useCallback(() => {
+  const dismissIntake = useCallback(() => {
     setIntake(INITIAL_STATE);
     setSelectedFolder(null);
-    setCancellation(NO_CANCELLATION);
-    trackingRef.current = freshTracking(trackingRef.current.receptionId + 1);
     lastProcessedKeyRef.current = null;
     resetShareIntent();
   }, [resetShareIntent]);
 
-  const confirmIntake = useCallback(async (): Promise<ShareConfirmResult> => {
-    const tracking = trackingRef.current;
-    // Save after a failed removal means "keep it after all".
-    tracking.cancelRequested = false;
-    setCancellation(NO_CANCELLATION);
-
-    // Pressing Save while the ingestion is still going out is an answer, not a
-    // second submission: wait for the one in flight rather than starting one.
-    const inFlight = tracking.inFlight;
-    if (inFlight) {
-      const mediaItemId = await inFlight;
-      if (mediaItemId === null && !trackingRef.current.saveCreated) {
-        // The submission was refused. Its card is already on screen and says
-        // more than any alert could.
-        return { ok: false, message: null };
-      }
-    }
-
-    try {
-      await syncFolder();
-    } catch (error) {
-      return {
-        ok: false,
-        message: getFriendlyErrorMessage(error, {
-          fallback: t("share.folderFailed"),
-        }),
-      };
-    }
-
-    dismiss();
-    return { ok: true, message: null };
-  }, [dismiss, syncFolder]);
-
-  const cancelIntake = useCallback(async (): Promise<boolean> => {
-    const tracking = trackingRef.current;
-    tracking.cancelRequested = true;
-
-    // A local import is submitted by Save alone, so closing has nothing to undo.
-    // Neither has a share or a typed URL that was refused, or one whose content
-    // never made it past validation.
-    if (
-      !ingestsOnArrival(intake.origin) ||
-      (!tracking.inFlight && !tracking.saveCreated)
-    ) {
-      dismiss();
-      return true;
-    }
-
-    setCancellation({ status: "pending", message: null });
-    try {
-      // A close during the submission itself has to wait for the id: the save
-      // exists on the server whether or not the modal is still open, so the
-      // late answer is what tells us which one to delete.
-      const inFlight = tracking.inFlight;
-      const mediaItemId = inFlight ? await inFlight : tracking.mediaItemId;
-
-      if (mediaItemId) {
-        // The canonical deletion: the row leaves the library and its search
-        // records go with it, whether processing is still running or done.
-        // Idempotent server-side, so a retry after a flaky network is safe.
-        await MediaService.deleteMedia(mediaItemId);
-      } else if (trackingRef.current.saveCreated) {
-        // Accepted, but nothing in the answer named the save it created. There is
-        // no id to delete, and reporting a removal would be a lie.
-        setCancellation({
-          status: "failed",
-          message: t("share.cancel.failed"),
-        });
-        return false;
-      }
-      // Nothing else to undo: a submission that was refused while the modal was
-      // closing created no save.
-
-      dismiss();
-      return true;
-    } catch (error) {
-      setCancellation({
-        status: "failed",
-        message: getFriendlyErrorMessage(error, {
-          fallback: t("share.cancel.failed"),
-        }),
-      });
-      return false;
-    }
-  }, [dismiss, intake.origin]);
-
   /**
    * Retry after an error - go back to ready state.
    *
-   * The reception's submission guard is reopened, so a share or a typed URL
-   * submits again on its own and a local import waits for Save, exactly as they do
-   * on arrival.
+   * The reception's submission guard is reopened, so the effect above sends the
+   * content again exactly as it did on arrival.
    */
   const retry = useCallback(() => {
     if (intake.status === "error") {
       trackingRef.current.autoSubmittedId = null;
-      trackingRef.current.cancelRequested = false;
       setIntake((prev) => ({
         ...prev,
         status: "ready",
@@ -1312,15 +1194,12 @@ export function ShareIntentProvider({
 
   const value: ShareIntentContextValue = {
     intake,
-    cancellation,
     selectedFolder,
     setSelectedFolder: selectFolder,
     startLocalUpload,
     startUrlEntry,
     parkCurrentIntakeForAuth,
-    submitIntake,
-    confirmIntake,
-    cancelIntake,
+    dismissIntake,
     retry,
   };
 
