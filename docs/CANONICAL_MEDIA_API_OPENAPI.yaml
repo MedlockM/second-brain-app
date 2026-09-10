@@ -724,10 +724,10 @@ components:
         normalized_url: { type: string }
         media_type:
           type: string
-          enum: [podcast_episode, article, youtube_video, short_video, audio_file, unknown]
+          enum: [podcast_episode, article, youtube_video, short_video, image_post, audio_file, shared_text, unknown]
         source_platform:
           type: string
-          enum: [spotify, apple_podcasts, deezer, rss, podcast_index, youtube, instagram, tiktok, web, direct_url, unknown]
+          enum: [spotify, apple_podcasts, deezer, rss, podcast_index, youtube, instagram, tiktok, x, whatsapp, notes, web, direct_url, unknown]
         status:
           type: string
           enum: [ingested, resolving, processing, ready_for_artifacts, failed, cancelled]

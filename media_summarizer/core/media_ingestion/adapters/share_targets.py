@@ -3,9 +3,9 @@
 Until task-377 the subscription screen listed its sources as prose, retyped in
 eleven translation catalogues, with nothing tying it to the code that decides
 acceptance. It had drifted exactly the way duplicated facts do: it sold Instagram
-photo posts, which `instagram_ingestion_worker` refuses with
-`IMAGE_POST_UNSUPPORTED`, and it never mentioned WhatsApp, `music.youtube.com`,
-`twitter.com`, the short TikTok links or a plain audio URL — all of which work.
+photo posts, which `instagram_ingestion_worker` refused outright at the time, and
+it never mentioned WhatsApp, `music.youtube.com`, `twitter.com`, the short TikTok
+links or a plain audio URL — all of which work.
 
 So the list became data. `GET /api/pricing` serves it next to the allowances the
 screen already fetches, and the client only *renders* it, the same way it renders
@@ -120,9 +120,9 @@ _WITHHELD_PLATFORMS: frozenset[SourcePlatform] = frozenset({SourcePlatform.UNKNO
 SHARE_TARGETS: tuple[ShareTarget, ...] = (
     ShareTarget(id=SourcePlatform.YOUTUBE.value, group=GROUP_PLATFORM, label="YouTube"),
     ShareTarget(id=SourcePlatform.TIKTOK.value, group=GROUP_PLATFORM, label="TikTok"),
-    # Reels, IGTV and `/p/` videos. Photo posts are *not* offered, and never
-    # were supported: `IMAGE_POST_UNSUPPORTED`. A chip that says "Instagram"
-    # claims the platform, not every post type on it.
+    # Reels, IGTV, `/p/` videos, and since task-384 photo posts and carousels:
+    # their images are OCR'd and their caption carries the rest. A chip that says
+    # "Instagram" claims the platform, and here it holds for every post type on it.
     ShareTarget(
         id=SourcePlatform.INSTAGRAM.value, group=GROUP_PLATFORM, label="Instagram"
     ),

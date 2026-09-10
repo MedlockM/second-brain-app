@@ -35,6 +35,20 @@ from typing import Any, Optional
 #: One key for every platform that writes it directly on the job.
 SOURCE_DESCRIPTION_KEY = "source_description"
 
+#: Set by a worker that has already put the description *in the transcript*, which
+#: makes it the body of the media rather than a block beside it (task-384).
+#:
+#: One source needs this: an Instagram photo post whose images returned no text at
+#: all — a sunset, a portrait, a meme with no legible words. A job cannot complete
+#: on an empty transcript (`artifact_service._load_transcript_bytes` refuses one),
+#: so the caption becomes the transcript. Serving it *again* as the description
+#: would put the same paragraph twice in every prompt built from that media.
+#:
+#: The caption itself stays where the resolver wrote it: ``resolver_metadata`` is
+#: that actor's own record of what it returned, and deleting a field from it to
+#: change a reading decision would be lying about the run.
+SOURCE_DESCRIPTION_IN_TRANSCRIPT_KEY = "source_description_in_transcript"
+
 #: Where the description may sit on a job's ``extraction_metadata``, in the order
 #: it is probed: the canonical top-level key first, then the nested spellings a
 #: resolver established before the key existed.
@@ -66,6 +80,10 @@ def job_source_description(job: Any) -> Optional[str]:
     nothing else, and for a YouTube actor that declares no description in its
     output schema. Absence is never an error here.
 
+    Also None when the job carries ``SOURCE_DESCRIPTION_IN_TRANSCRIPT_KEY``: the
+    text is already the body of the transcript, and a description is a block
+    *beside* the transcript, never a second copy of it.
+
     Only the interior of the text is preserved: leading and trailing whitespace
     goes, and the text is *not* truncated. A cut would sever a sentence, and the
     corpus already has the right place to refuse a volume that got too big —
@@ -73,6 +91,8 @@ def job_source_description(job: Any) -> Optional[str]:
     """
     metadata = getattr(job, "extraction_metadata", None)
     if not isinstance(metadata, dict):
+        return None
+    if metadata.get(SOURCE_DESCRIPTION_IN_TRANSCRIPT_KEY):
         return None
     for path in _DESCRIPTION_PATHS:
         node: Any = metadata

@@ -6,7 +6,14 @@ parses it via LlamaParse (primary) with fallback to Unstructured API,
 uploads the resulting markdown to the transcript bucket, writes the media's
 cover, and emits a completion event to continue the downstream LLM pipeline.
 
-Owner decision (task-90): LlamaParse free tier API cloud -> fallback Unstructured API.
+The chain itself and its meter live in
+`core/services/document_parsing_service.py`, shared with the Instagram worker
+since task-384: an uploaded photo and the images of an Instagram carousel are the
+same purchase from the same two providers (owner decision on task-90: LlamaParse
+free tier API cloud -> fallback Unstructured API). Everything left in this module
+is what an *uploaded file* specifically needs: the S3 download, the title, the
+cover and the completion event.
+
 Owner decision (task-343): the cover of an uploaded file is the render of its
 first page -- see `_capture_page_cover`. A photo has no page to render: it *is*
 its own cover, so `_capture_photo_cover` writes it before the parse rather than
@@ -34,24 +41,18 @@ from media_summarizer.core.models.failure_codes import MediaFailureCode
 from media_summarizer.core.ports.document_parser import (
     TEXT_FORMATS,
     DocumentFormat,
-    DocumentParserPort,
     ParseError,
     ParseResult,
 )
 from media_summarizer.core.services import (
     cover_capture,
-    provider_pool_guard,
-    quota_enforcer,
     sheet_preview,
 )
-from media_summarizer.infrastructure.resolvers.llamaparse_resolver import (
-    LlamaParseResolver,
-)
-from media_summarizer.infrastructure.resolvers.plain_text_resolver import (
-    PlainTextResolver,
-)
-from media_summarizer.infrastructure.resolvers.unstructured_resolver import (
-    UnstructuredResolver,
+from media_summarizer.core.services.document_parsing_service import (
+    IMAGE_FORMATS,
+    llamaparse,
+    parse_document_with_fallback,
+    record_document_consumption,
 )
 from media_summarizer.utils import database_async, s3, sqs
 from media_summarizer.utils.env import required_env
@@ -76,30 +77,6 @@ DOCUMENT_PARSING_VISIBILITY_TIMEOUT = int(
     os.environ.get("DOCUMENT_PARSING_VISIBILITY_TIMEOUT", "600")
 )
 
-# Resolvers (instantiated at module level for reuse across messages). The primary
-# is held as its concrete type because the cover reads back one of its artefacts
-# (`fetch_first_page_screenshot`), which is a LlamaParse capability rather than a
-# parsing contract: nothing else on this path paginates a document.
-_llamaparse = LlamaParseResolver()
-_unstructured: DocumentParserPort = UnstructuredResolver()
-# The text formats never reach either of the two above: a `.txt`, `.md` or `.rtf`
-# already holds its own text, so it is decoded here (task-380). No provider call,
-# no page, nothing billed.
-_plain_text: DocumentParserPort = PlainTextResolver()
-
-# Formats whose parsed output is OCR of a picture rather than a structured
-# document: their leading heading is body text, not a title (task-266).
-_IMAGE_FORMATS = frozenset(
-    {
-        DocumentFormat.IMAGE_JPG,
-        DocumentFormat.IMAGE_JPEG,
-        DocumentFormat.IMAGE_PNG,
-        DocumentFormat.IMAGE_TIFF,
-        DocumentFormat.IMAGE_BMP,
-        DocumentFormat.IMAGE_HEIF,
-    }
-)
-
 # Formats LlamaParse paginates, and therefore rasterises: it renders every page
 # of these to a JPEG while parsing, on the very request `_upload_file` already
 # sends (task-343 §4.1). Their cover is that render, fetched from the finished
@@ -117,173 +94,6 @@ def _detect_format(file_name: str) -> DocumentFormat | None:
     """Detect the document format from the file name extension."""
     ext = Path(file_name).suffix.lstrip(".")
     return DocumentFormat.from_extension(ext)
-
-
-async def parse_document_with_fallback(
-    file_path: str,
-    file_name: str,
-    document_format: DocumentFormat,
-) -> ParseResult | ParseError:
-    """
-    Attempt parsing with LlamaParse, falling back to Unstructured on failure.
-
-    Fallback triggers:
-    - LlamaParse returns a retryable error (rate limit, timeout, network)
-    - LlamaParse returns an API error
-
-    Does NOT fallback if:
-    - The format itself is unsupported (both services support all our formats)
-    - LlamaParse returns a non-retryable auth error and Unstructured also has
-      no key configured (both would fail)
-    - The format is a text one: it has no provider and therefore no fallback,
-      because there is nothing a second provider could read better than the file
-      itself.
-    """
-    if document_format in TEXT_FORMATS:
-        text_result = await _plain_text.parse(file_path, file_name, document_format)
-        log_event(
-            logger,
-            logging.INFO if isinstance(text_result, ParseResult) else logging.WARNING,
-            "document_parsing.text_decoded",
-            "Text file decoded locally; no parsing provider involved",
-            provider="plain_text",
-            document_format=document_format.value,
-            succeeded=isinstance(text_result, ParseResult),
-        )
-        return text_result
-
-    # Primary: LlamaParse
-    primary_result = await _llamaparse.parse(file_path, file_name, document_format)
-
-    if isinstance(primary_result, ParseResult):
-        log_event(
-            logger,
-            logging.INFO,
-            "document_parsing.primary_success",
-            "Document parsed successfully with LlamaParse",
-            provider="llamaparse",
-            page_count=primary_result.page_count,
-        )
-        return primary_result
-
-    # Primary failed -- log and attempt fallback
-    assert isinstance(primary_result, ParseError)
-    log_event(
-        logger,
-        logging.WARNING,
-        "document_parsing.primary_failed",
-        "LlamaParse failed, attempting Unstructured fallback",
-        provider="llamaparse",
-        error_code=primary_result.code.value,
-        error_message=primary_result.message,
-    )
-
-    # Fallback: Unstructured API
-    fallback_result = await _unstructured.parse(file_path, file_name, document_format)
-
-    if isinstance(fallback_result, ParseResult):
-        log_event(
-            logger,
-            logging.INFO,
-            "document_parsing.fallback_success",
-            "Document parsed successfully with Unstructured (fallback)",
-            provider="unstructured",
-            page_count=fallback_result.page_count,
-        )
-        return fallback_result
-
-    # Both failed
-    assert isinstance(fallback_result, ParseError)
-    log_event(
-        logger,
-        logging.ERROR,
-        "document_parsing.all_failed",
-        "Both LlamaParse and Unstructured failed to parse document",
-        primary_error=primary_result.message,
-        fallback_error=fallback_result.message,
-    )
-
-    # Return the fallback error (most recent) with context about both failures
-    return ParseError(
-        code=fallback_result.code,
-        message=(
-            f"All parsers failed. "
-            f"LlamaParse: {primary_result.message}. "
-            f"Unstructured: {fallback_result.message}"
-        ),
-        provider="llamaparse+unstructured",
-        retryable=primary_result.retryable or fallback_result.retryable,
-    )
-
-
-async def _record_document_consumption(
-    *,
-    user_id: Optional[str],
-    job_id: str,
-    document_format: DocumentFormat,
-    page_count: int,
-    provider: str,
-) -> None:
-    """Charge a parsed document and count its pages against the LlamaParse pool.
-
-    Best-effort: the parse is done and paid for, so a counter failure must not
-    fail an import that succeeded.
-
-    A text file takes the other branch: it has no pages to price and cost no
-    provider call, so it is *counted* as an import and charged zero minutes
-    rather than rounded up to the single page every other format has (task-380).
-    """
-    if document_format in TEXT_FORMATS:
-        if not user_id:
-            return
-        await quota_enforcer.record_text_file_parse(
-            user_id,
-            idempotency_token=quota_enforcer.gate_token(job_id),
-        )
-        log_event(
-            logger,
-            logging.INFO,
-            "quota.text_file_counted",
-            "Text file counted as an import; no minutes charged",
-            job_id=job_id,
-            document_format=document_format.value,
-        )
-        return
-
-    pages = max(1, int(page_count or 1))
-
-    if provider.strip().lower() == "llamaparse":
-        await provider_pool_guard.record_spend(
-            provider_pool_guard.POOL_LLAMAPARSE,
-            units=pages,
-            idempotency_token=f"llamaparse:{job_id}",
-        )
-
-    if not user_id:
-        log_event(
-            logger,
-            logging.WARNING,
-            "quota.document_debit_skipped_no_user",
-            "No user_id on the document parsing message; nothing to charge",
-            job_id=job_id,
-        )
-        return
-
-    minutes = await quota_enforcer.record_document_parse(
-        user_id,
-        page_count=pages,
-        idempotency_token=quota_enforcer.gate_token(job_id),
-    )
-    log_event(
-        logger,
-        logging.INFO,
-        "quota.document_debited",
-        "Document parse charged to the user's minutes",
-        job_id=job_id,
-        page_count=pages,
-        provider=provider,
-        debited_minutes=minutes,
-    )
 
 
 async def _render_document_page(
@@ -309,12 +119,12 @@ async def _render_document_page(
 
     if document_format not in _PAGINATED_FORMATS:
         return None
-    if result.provider != _llamaparse.provider_name:
+    if result.provider != llamaparse.provider_name:
         return None
     job_id = str(result.metadata.get("job_id") or "").strip()
     if not job_id:
         return None
-    return await _llamaparse.fetch_first_page_screenshot(job_id)
+    return await llamaparse.fetch_first_page_screenshot(job_id)
 
 
 async def _capture_photo_cover(
@@ -466,7 +276,7 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
             # glyph for the whole of its processing and the picture only at the
             # end of it. A document has nothing to show at this point: its first
             # page does not exist until the parse has rendered it.
-            if job and document_format in _IMAGE_FORMATS:
+            if job and document_format in IMAGE_FORMATS:
                 photo_cover = await _capture_photo_cover(
                     media_item_id=job.media_item_id,
                     file_path=local_path,
@@ -511,7 +321,7 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
         # minute per five pages, keyed on the job so a redelivery cannot debit
         # twice. LlamaParse pages also feed the shared pool of layer 3. A text
         # file has neither pages nor a provider, and is charged nothing.
-        await _record_document_consumption(
+        await record_document_consumption(
             user_id=message_body.get("user_id"),
             job_id=str(job_id),
             document_format=document_format,
@@ -560,7 +370,7 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
             # names it, so the sentence falls back to that. The heading is still
             # tried first -- `first_sentence` would hand back "# Title" verbatim,
             # hash marks included.
-            if document_format not in _IMAGE_FORMATS:
+            if document_format not in IMAGE_FORMATS:
                 candidates = [first_markdown_heading(result.markdown_content)]
                 if document_format in TEXT_FORMATS:
                     candidates.append(first_sentence(result.markdown_content))
@@ -575,7 +385,7 @@ async def process_document_parsing_message(message_body: Dict[str, Any]) -> None
             # captured a second time -- theirs was written before the parse.
             # Nothing is downloaded from a third party, nothing is billed twice,
             # and a failure leaves the tile on its media-type glyph.
-            if document_format not in _IMAGE_FORMATS:
+            if document_format not in IMAGE_FORMATS:
                 page_cover = await _capture_page_cover(
                     media_item_id=job.media_item_id,
                     document_format=document_format,

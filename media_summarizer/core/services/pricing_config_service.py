@@ -33,8 +33,10 @@ _cache_loaded_at: float = 0.0
 # One unit is metered: the *minute*. A minute is a minute of media we pay a
 # transcription provider to process, and everything that is not transcription is
 # unlimited. Ingestion paths that trigger no per-item provider fee (articles, web
-# pages, TikTok, Instagram photo posts, single-item AI generations) cost zero
-# minutes by design — see §3.1 of the benchmark for the conversion table.
+# pages, TikTok, single-item AI generations) cost zero minutes by design — see
+# §3.1 of the benchmark for the conversion table. An Instagram photo post is no
+# longer one of them since task-384: its images go through the document parser we
+# pay for, so they are billed at `document_pages_per_minute` like any page.
 #
 # These are seeded into DynamoDB if the table is empty on first read.
 # ---------------------------------------------------------------------------

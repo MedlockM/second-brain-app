@@ -5,8 +5,10 @@ One unit is metered: the **minute**. A minute is a minute of media we pay a
 transcription provider to process, plus the three flat conversions of the model
 (a bought caption set counts 1, five document pages count 1, five sources of a
 folder generation count 1). Everything that is not transcription — articles,
-web pages, TikToks, Instagram photo posts, single-item AI generations — is
-unlimited and debits nothing.
+web pages, TikToks, single-item AI generations — is unlimited and debits nothing.
+An Instagram photo post left that free list in task-384: its slides are read by
+the paid document parser, so they debit at the document rate through
+:func:`record_document_parse`, exactly like the pages of an upload.
 
 The rule that keeps the accounting honest: **the meter follows the provider call,
 not the URL**. An API endpoint only ever *checks*; the debit happens at the place

@@ -40,8 +40,6 @@ class MediaFailureCode(str, Enum):
     AGE_RESTRICTED = "AGE_RESTRICTED"
     #: A live stream or space: there is no finished recording to work on.
     LIVE_CONTENT_UNSUPPORTED = "LIVE_CONTENT_UNSUPPORTED"
-    #: A photo or carousel post — nothing to transcribe.
-    IMAGE_POST_UNSUPPORTED = "IMAGE_POST_UNSUPPORTED"
     #: The page or post carries no audio, no video and no caption track.
     NO_TRANSCRIBABLE_MEDIA = "NO_TRANSCRIBABLE_MEDIA"
     #: There is media, but no transcript could be obtained from it.

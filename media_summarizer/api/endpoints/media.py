@@ -677,6 +677,10 @@ _LEGACY_MEDIA_TYPE_MAP = {
     "audio_file": CanonicalMediaType.AUDIO_FILE,
     "shared_text": CanonicalMediaType.SHARED_TEXT,
     "document": CanonicalMediaType.ARTICLE,
+    # An Instagram photo post (task-384). The worker writes `image_post` on the
+    # job and the mirror copies it to the library row, so without this entry the
+    # detail endpoint answered `unknown` for a media it had fully ingested.
+    "image_post": CanonicalMediaType.IMAGE_POST,
 }
 
 
