@@ -27,12 +27,17 @@ dependencies = [
     "yt-dlp",
     "algoliasearch>=4.0.0,<5.0.0",
     "python-dotenv>=1.0.0",
+    # Article extraction. A base dependency since task-392: a web article's text
+    # is part of its content identity, so the page is read inside the API request
+    # -- the API image needs the extractor too, not just the worker image. It
+    # pulls `lxml`, which ships `manylinux2014_aarch64` wheels for cp311, so no
+    # compiler is involved in either image; the import is deferred to first use so
+    # a cold start that never touches an article does not pay for it.
+    "trafilatura>=1.12.0",
 ]
 
 [project.optional-dependencies]
 worker = [
-    # Article extraction runs only in the shared asynchronous worker image.
-    "trafilatura>=1.12.0",
     # Cover thumbnails: the workers that re-host an Instagram/TikTok cover or a
     # user photo downscale it before storing (task-304). Only the worker image
     # needs it -- the API just signs a URL.
@@ -58,7 +63,6 @@ dev = [
     # Keep worker modules importable for local checks and the E2E suite. Pillow
     # carries the same ceiling as the worker extra so both resolve to one
     # version in the lock.
-    "trafilatura>=1.12.0",
     "pillow>=11.0.0,<12.3",
 ]
 

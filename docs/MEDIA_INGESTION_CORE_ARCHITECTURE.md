@@ -36,10 +36,13 @@ Not allowed:
 
 ## Core ingestion flow
 
-1. canonicalize URL and derive `media_key`
+1. canonicalize URL and derive a provisional `media_key` from it
 2. **consumption check** via `quota_enforcer.check_submission_allowed` (does the plan have the minutes this import needs?)
 3. route URL through `ResolverRouter` (classification + resolver lookup)
-4. resolve URL through `ContentResolverPort`
+4. resolve URL through `ContentResolverPort`. The resolver may **replace** the
+   provisional `media_key`: for a web article it does, because the identity of a
+   page is its text and not its address (task-392). What the orchestrator persists
+   is always `resolved.media_key`.
 5. submit persistence/pipeline through `SubmissionOrchestratorPort`
 6. **count the accepted submission** via `quota_enforcer.record_submitted_item` (daily burst guard only — no minutes are charged here)
 
@@ -203,15 +206,41 @@ Only steps 1-5 should be needed; `use_cases.py` and `registry.py` should remain 
 - it keeps orchestration behind `SubmissionOrchestratorPort`
 - future tasks can replace this adapter without changing use-case logic
 
-## Article connector runtime path (task-29)
+## Article connector runtime path (task-29, task-392)
 
-`article.default` now follows a queue-first extraction path:
+`article.default` is the one resolver that reads its source **inside the HTTP
+request**, and it is the inverse of every other path for a reason: a web page can
+be rewritten, so its content identity cannot be its URL. Since task-392 the text
+is fetched before anything is written, and a fingerprint of that text is half of
+`media_key`.
 
-1. URL is classified as `article` and routed to `ArticleResolver`.
-2. Resolver returns normalized media payload with extraction mode `queued_worker`.
-3. `ProcessingJobSubmissionOrchestrator` enqueues `article-extraction-queue`.
-4. `article_extraction_worker` fetches HTML, extracts clean text, uploads transcript to S3 (`{job_id}.txt`), and persists `extraction_metadata` on `ProcessingJob`.
-5. Worker publishes unified completion events (`episode_completion_status`) for success/failure, preserving shared completion fan-out behavior.
+1. URL is classified as `web_article` by `classify_source_type` — a recognised
+   source type, decided on its own criterion (an http(s) page with no platform
+   host, no feed path, no media extension), not the last `else` of a chain — and
+   routed to `ArticleResolver`.
+2. The resolver reads the page through `ArticleContentFetcherPort`
+   (`infrastructure/resolvers/trafilatura_article_resolver.py`) with a 12 s budget
+   (`ARTICLE_FETCH_TIMEOUT_SECONDS`), chosen against the API's non-negotiable 30 s
+   ceiling. Extraction mode is `inline_fetch`.
+3. `media_key = generate_article_media_key(canonical_url, sha256(extracted_text))`.
+   Two saves of an unchanged page produce the same key and stay shared across
+   accounts; a rewritten page produces a different key, so it is a different media
+   with its own transcript, its own ledger row and its own `artifact_id`.
+4. `ProcessingJobSubmissionOrchestrator` stores the transcript to S3
+   (`{job_id}.txt`), writes `extraction_metadata`, marks the job completed and
+   publishes the unified `episode_completion_status` success event. Nothing is
+   enqueued: there is nothing left to fetch.
+5. A page that cannot be read does not raise. The submission carries the
+   URL-derived key plus the failure code, and the orchestrator marks the job failed
+   with the existing `MediaFailureCode` (`NOT_AN_ARTICLE_PAGE`,
+   `ARTICLE_TEXT_NOT_FOUND`, `PROVIDER_UNAVAILABLE`, `PROVIDER_TIMED_OUT`), so the
+   reader gets the localized failed tile they already know. A **transient** cause
+   releases the idempotence reservation instead of failing it, so the next save of
+   that URL reads the page again rather than inheriting one outage for ever.
+6. `article_extraction_worker` and `article-extraction-queue` stay alive for the
+   **RSS path only**: `rss_feed_poll_worker` publishes one message per new article
+   item, with the job already created. It reads pages through the same port, so the
+   API and the worker cannot disagree about what a page says.
 
 ## YouTube connector runtime path (task-30)
 

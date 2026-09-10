@@ -217,7 +217,9 @@ resource "aws_iam_policy" "lambda_api" {
         ]
         Resource = [
           aws_sqs_queue.rss_resolution.arn,
-          aws_sqs_queue.article_extraction.arn,
+          # `article_extraction` is absent on purpose: the API reads an article
+          # inside the request now, because the text's fingerprint is part of the
+          # media key (task-392). Only the RSS poll worker still fills that queue.
           aws_sqs_queue.x_ingestion.arn,
           aws_sqs_queue.youtube_ingestion.arn,
           aws_sqs_queue.tiktok_ingestion.arn,

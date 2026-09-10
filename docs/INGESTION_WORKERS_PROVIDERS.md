@@ -32,23 +32,39 @@ Last verified against codebase: 2026-09-09 (task-383: the author's description i
 
 ## Article
 
-**Source type**: `article` (also covers the catch-all `web` fallback)
-**Worker file**: `media_summarizer/workers/article_extraction_worker.py`
+**Source type**: `web_article` — a recognised type since task-392, decided by
+`classify_source_type` on its own criterion, not the last `else` of the chain.
+**Reader (shared)**: `media_summarizer/infrastructure/resolvers/trafilatura_article_resolver.py`
+(`ArticleContentFetcherPort`, defined in `core/ports/article_content.py`)
+**Two callers, one reader**:
+
+| Caller | When | Timeout |
+|---|---|---|
+| `ArticleResolver` (`core/media_ingestion/adapters/resolvers.py`) | a user saves a URL — **inside the HTTP request** | `ARTICLE_FETCH_TIMEOUT_SECONDS` (12 s, against the API's 30 s ceiling) |
+| `workers/article_extraction_worker.py` | an item published by `rss_feed_poll_worker`, job already created | `ARTICLE_EXTRACT_TIMEOUT_SECONDS` (20 s) |
+
+The API path reads the page *before* the content identity is settled, because
+`media_key` for an article is `sha256` over the canonical URL **and** a `sha256` of
+the extracted text: a page that was rewritten is a different media (task-392). The
+fingerprint is taken on the extracted, already-normalized text — never on the raw
+HTML, whose ads and CSRF tokens would make every save a new media.
 
 ### Primary path
 
 | Provider/library | Identifier | Extracts | Key env vars |
 |---|---|---|---|
-| trafilatura | `trafilatura.extract()` | Clean text from HTML (no comments, tables, links) | `ARTICLE_EXTRACTION_QUEUE`, `TRANSCRIPT_BUCKET`, `ARTICLE_EXTRACT_TIMEOUT_SECONDS`, `ARTICLE_EXTRACT_MAX_HTML_BYTES`, `ARTICLE_EXTRACT_USER_AGENT` |
+| trafilatura | `trafilatura.extract()` | Clean text from HTML (no comments, tables, links) | `TRANSCRIPT_BUCKET`, `ARTICLE_FETCH_TIMEOUT_SECONDS`, `ARTICLE_EXTRACT_TIMEOUT_SECONDS`, `ARTICLE_EXTRACT_MAX_HTML_BYTES`, `ARTICLE_EXTRACT_USER_AGENT`, `ARTICLE_EXTRACTION_QUEUE` (RSS path only) |
 
-Workflow:
+Workflow (identical in both callers, since both go through the port):
 1. HTTP GET the normalized URL via `httpx` (streaming, respects `ARTICLE_EXTRACT_MAX_HTML_BYTES`)
 2. Validate `Content-Type` is `text/html` or `application/xhtml+xml`
 3. Extract clean text with `trafilatura.extract(output_format="txt")`
 4. Upload text to S3 as `{job_id}.txt`
 5. Publish `episode_completion_status(status=success)` to `EPISODE_COMPLETED_EVENTS_QUEUE`
 
-Ref: `article_extraction_worker.py::_fetch_article_html`, `article_extraction_worker.py::_extract_clean_text`
+On the API path, steps 4-5 happen in `ProcessingJobSubmissionOrchestrator._settle_article_submission`: nothing is enqueued, the job is already completed when the request returns.
+
+Ref: `trafilatura_article_resolver.py::TrafilaturaArticleResolver.fetch`, `resolvers.py::ArticleResolver.resolve`
 
 ### Fallback chain
 
@@ -58,15 +74,20 @@ No fallback — failure is terminal.
 
 - Mark `ProcessingJob` as failed (`error_step="article_extraction"`)
 - Publish `episode_completion_status(status=failure)` to `EPISODE_COMPLETED_EVENTS_QUEUE`
-- User-facing `error_code` → observability `reason` (see [how a failure is written down](#cross-cutting-how-a-failure-is-written-down-task-359)):
-  - `PROVIDER_UNAVAILABLE` ← `article_http_error` (+`http_status`, `final_url`), `article_fetch_transport_error`
-  - `NOT_AN_ARTICLE_PAGE` ← `article_unsupported_content_type` (+`content_type`, `final_url`)
-  - `ARTICLE_TEXT_NOT_FOUND` ← `html_too_large`, `trafilatura_error`, `empty_text_after_extraction`
-  - `PROVIDER_TIMED_OUT` ← `article_fetch_timeout` (+`timeout_seconds`)
-  - `INVALID_JOB_MESSAGE` ← `missing_job_id`, `missing_normalized_url`, `processing_job_not_found`
-  - `UNEXPECTED_ERROR` ← `article_fetch_unexpected_exception`, `unexpected_exception`
+- `ArticleFetchErrorCode` (provider-level, in the port) → user-facing `error_code` → observability `reason` (see [how a failure is written down](#cross-cutting-how-a-failure-is-written-down-task-359)):
+  - `PROVIDER_UNAVAILABLE` ← `http_error` / `article_http_error` (+`http_status`, `final_url`), `transport_error` / `article_fetch_transport_error`
+  - `NOT_AN_ARTICLE_PAGE` ← `not_html` / `article_unsupported_content_type` (+`content_type`, `final_url`)
+  - `ARTICLE_TEXT_NOT_FOUND` ← `page_too_large` / `html_too_large`, `extraction_failed` / `trafilatura_error`, `empty_text` / `empty_text_after_extraction`
+  - `PROVIDER_TIMED_OUT` ← `timeout` / `article_fetch_timeout` (+`timeout_seconds`)
+  - `INVALID_JOB_MESSAGE` ← `missing_job_id`, `missing_normalized_url`, `processing_job_not_found` (RSS path only)
+  - `UNEXPECTED_ERROR` ← `unexpected_error` / `article_fetch_unexpected_exception`, `unexpected_exception`
+- **On the API path, a retryable cause releases the idempotence reservation.** A 5xx,
+  a timeout or a reset connection deletes the `reserved` ledger row instead of moving
+  it to `failed`; a verdict on the page itself (a PDF, no body) keeps the row and
+  publishes the failure event. Without that split, one outage would answer every
+  later save of that URL with the same failure, for ever, without re-reading it.
 
-Ref: `article_extraction_worker.py::_mark_job_failed`, `article_extraction_worker.py::ArticleExtractionError`
+Ref: `core/ports/article_content.py::MEDIA_FAILURE_CODE_BY_ARTICLE_FETCH_ERROR`, `orchestrators.py::_fail_unreadable_article`, `article_extraction_worker.py::_mark_job_failed`
 
 ### Downstream dependencies
 
@@ -978,9 +999,17 @@ The `RuleBasedUrlClassifier` in `media_summarizer/core/media_ingestion/adapters/
 | `x.com`, `twitter.com` | `/{user}/status/{id}`, `/i/status/{id}`, `/i/web/status/{id}` | ARTICLE | X | `x.default` | `x-ingestion-queue` |
 | `tiktok.com`, `vm.tiktok.com` | `/@user/video/*` or `/t/*` | SOCIAL_VIDEO | TIKTOK | `tiktok.default` | `tiktok-ingestion-queue` |
 | any | path ends with `.mp3/.m4a/.aac/.ogg/.wav/.flac/.opus` | AUDIO | DIRECT_URL | `audio.default` | `deepgram-transcription-queue` |
-| any (catch-all) | anything else | ARTICLE | WEB | `article.default` | `article-extraction-queue` |
+| any | an http(s) page that is none of the above → source type `web_article` | ARTICLE | WEB | `article.default` | **none** — read inline in the request (task-392) |
 
-Ref: `classifiers.py::RuleBasedUrlClassifier.classify`
+Which source type a URL *is* is not decided in this file: `classify_source_type`
+in `core/services/media_identity.py` owns that, so the canonical-URL policy and
+this routing table cannot disagree about a host. The classifier decides what the
+pipeline *does* with a source type, and whether the path is one that platform
+actually serves.
+
+`article-extraction-queue` is still live, fed only by `rss_feed_poll_worker`.
+
+Ref: `classifiers.py::RuleBasedUrlClassifier.classify`, `media_identity.py::classify_source_type`
 
 ### ASCII routing diagram
 
@@ -1005,9 +1034,9 @@ Ref: `classifiers.py::RuleBasedUrlClassifier.classify`
 [PODCAST] [YOUTUBE]  [INSTAGRAM]            [X]    [TIKTOK]  [AUDIO]   [ARTICLE]
    |          |           |                   |        |        |          |
    v          v           v                   v        v        v          v
-podcast-   youtube-   instagram-           x-ingest tiktok-  deepgram-  article-
-index-     ingest-    ingest-              -queue   ingest-  transcr-   extract-
-queue      queue      queue                         queue    queue      queue
+podcast-   youtube-   instagram-           x-ingest tiktok-  deepgram-  no queue:
+index-     ingest-    ingest-              -queue   ingest-  transcr-   read in
+queue      queue      queue                         queue    queue      the request
    |          |           |                   |        |        |          |
    v          v           v                   v        v        v          v
 [RSS 2.0   [Apify     [Apify Reel          [X API  [yt-dlp     [Deepgram [Trafilatura]
@@ -1035,6 +1064,8 @@ queue      queue      queue                         queue    queue      queue
 | `ProcessingJobSubmissionOrchestrator` | `media_summarizer/core/media_ingestion/adapters/orchestrators.py` |
 | `PodcastResolver` / `ArticleResolver` / `YouTubeResolver` / `XPostResolver` / `TikTokResolver` / `AudioResolver` / `InstagramResolver` | `media_summarizer/core/media_ingestion/adapters/resolvers.py` |
 | `InstagramApifyResolver` | `media_summarizer/infrastructure/resolvers/instagram_apify_resolver.py` |
+| `ArticleContentFetcherPort` (the article reader's contract, shared by the API path and the RSS worker) | `media_summarizer/core/ports/article_content.py` |
+| `TrafilaturaArticleResolver` | `media_summarizer/infrastructure/resolvers/trafilatura_article_resolver.py` |
 | `LlamaParseResolver` | `media_summarizer/infrastructure/resolvers/llamaparse_resolver.py` |
 | `UnstructuredResolver` | `media_summarizer/infrastructure/resolvers/unstructured_resolver.py` |
 | `SpotifyPodcastPlatformResolver` / `ApplePodcastsPlatformResolver` / `DeezerPodcastPlatformResolver` / `RssPodcastPlatformResolver` | `media_summarizer/workers/podcast_platform_resolvers.py` |
