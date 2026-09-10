@@ -31,17 +31,42 @@
  *
  * Two rules govern what may go in there:
  *
- * - **Never the presigned URL, never any part of its signature.** The query
- *   string is a bearer credential for the object. Captured error messages are
- *   run through `redactUrls`, and the S3 body is never surfaced whole — only its
+ * - **Never the presigned URL, never any part of its signature, and never the
+ *   file's own name.** The query string is a bearer credential for the object;
+ *   the name is the title of someone's note. Captured error messages are run
+ *   through `redactSensitive`, and the S3 body is never surfaced whole — only its
  *   `<Code>` element, because the `SignatureDoesNotMatch` body embeds
  *   `StringToSign`, `CanonicalRequest` and the access key id.
  * - **Stable ASCII, not translated copy.** The values are read off a screenshot
  *   by whoever fixes the bug, whatever language the reporter's interface is in.
+ *
+ * That instrumentation then did its job. A TestFlight report on build 9 came back
+ * with `stage=read_file · cause=TypeError: Network request failed`, which named the
+ * step and, in doing so, showed the message to be a lie: nothing had been sent, and
+ * `POST /api/media/upload-url` had not even been called. The file was read with
+ * `fetch(uri)`, and on iOS a failure anywhere in `RCTConvert NSURL:` →
+ * `RCTFileRequestHandler` surfaces as that one sentence about a network. Reading a
+ * local file now goes through `localFileTransfer`, which does not involve one — see
+ * that module for what replaced it and why.
+ *
+ * The diagnostics grew by two fields in the same pass, both of them about the URI
+ * the picker handed over and neither of them containing it: `shape=` says whether
+ * it carried a space, a non-ASCII character, or escapes it already had, and `ext=`
+ * says which extension came with the name. The path itself stays out, as it did
+ * from the start — it is the title of someone's note.
  */
 
 import { t } from "../i18n";
+import { getFileExtension } from "../types/upload";
 import { apiRequest } from "./apiClient";
+import {
+  describeUriShape,
+  putLocalFileToUrl,
+  redactSensitive,
+  stageLocalFile,
+  type LocalFilePutResult,
+  type StagedLocalFile,
+} from "./localFileTransfer";
 
 /** Which ingestion flow a staged object is destined for. */
 export type UploadTarget = "document" | "audio" | "shared_audio";
@@ -55,8 +80,9 @@ interface UploadUrlResponse {
 /**
  * Which step of the transfer failed.
  *
- * - `read_file` — the local file could not be read into a blob, so nothing was
- *   ever sent and the picker's URI is the suspect.
+ * - `read_file` — the local file could not be opened or measured, so nothing was
+ *   ever sent and the picker's URI is the suspect. `shape` and `ext` are there to
+ *   say what about it.
  * - `put_network` — the PUT never came back with a response: no connectivity, a
  *   dropped socket, a request the OS killed.
  * - `put_rejected` — S3 answered, and refused. This is the one a status code and
@@ -69,6 +95,14 @@ export interface UploadFailureDiagnostics {
   stage: UploadFailureStage;
   /** Scheme of the local URI (`file`, `content`, `ph`…); the path is dropped. */
   uriScheme?: string;
+  /**
+   * Flags describing the local URI's shape — a space, non-ASCII, existing
+   * escapes — never any of its characters. This is what makes a read failure
+   * conclusive, since those three are what decide whether a URI parses.
+   */
+  uriShape?: string;
+  /** Extension of the file name, lowercased, without the dot. Not the name. */
+  extension?: string;
   /** MIME type declared for the object — what the API signed the PUT for. */
   contentType?: string;
   /** Bytes handed to the PUT. Absent when the file could never be read. */
@@ -77,7 +111,7 @@ export interface UploadFailureDiagnostics {
   status?: number;
   /** `<Code>` extracted from S3's XML error body, when it held one. */
   s3Code?: string;
-  /** Set when reading the body itself failed — a `Response` is consumed once. */
+  /** Set when S3 answered but its body came back with no readable text. */
   bodyUnread?: boolean;
   /** Name and message of the thrown error, URLs stripped, truncated. */
   cause?: string;
@@ -87,24 +121,21 @@ export interface UploadFailureDiagnostics {
 const MAX_CAUSE_LENGTH = 120;
 
 /**
- * Strip anything URL-shaped.
+ * Name and message of a thrown error, redacted, then truncated.
  *
- * A presigned URL carries `X-Amz-Signature` in its query string: it is a
- * credential for the object, and it must not reach the screen through a caught
- * error message. React Native's `fetch` rejects with a bare "Network request
- * failed" today, but that is an implementation detail of the engine, not a
- * guarantee — so the redaction is unconditional.
+ * The redaction comes first and is unconditional, and it now has real work to do.
+ * `fetch` rejected with a bare "Network request failed", so nothing could leak
+ * through it — that was also the whole problem. The native calls that replaced it
+ * report what actually happened, which means they report the presigned URL when
+ * `URLSession` fails and the file's own name when Cocoa cannot open it. See
+ * `redactSensitive` for what is removed and why over-removing is the safe side.
  */
-function redactUrls(text: string): string {
-  return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "[url]");
-}
-
 function describeCause(error: unknown): string {
   const raw =
     error instanceof Error
       ? `${error.name}${error.message ? `: ${error.message}` : ""}`
       : String(error);
-  return redactUrls(raw).slice(0, MAX_CAUSE_LENGTH);
+  return redactSensitive(raw).slice(0, MAX_CAUSE_LENGTH);
 }
 
 /** The scheme of a local URI, which is the part that says how it was obtained. */
@@ -125,22 +156,6 @@ function extractS3ErrorCode(body: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
-/**
- * Read an error response, never throwing.
- *
- * `text()` can reject on its own — a truncated body, a stream the engine already
- * released — and that rejection must not replace the diagnosis with an exception
- * of its own. `null` means "unreadable", which the diagnosis reports as such
- * while keeping the step and the status it already knows.
- */
-async function readErrorBody(response: Response): Promise<string | null> {
-  try {
-    return await response.text();
-  } catch {
-    return null;
-  }
-}
-
 /** One line, meant to be read off a screenshot and typed into a bug report. */
 function formatDiagnostics(diagnostics: UploadFailureDiagnostics): string {
   const parts = [`stage=${diagnostics.stage}`];
@@ -155,6 +170,8 @@ function formatDiagnostics(diagnostics: UploadFailureDiagnostics): string {
   if (diagnostics.bytes !== undefined) parts.push(`bytes=${diagnostics.bytes}`);
   if (diagnostics.contentType) parts.push(`type=${diagnostics.contentType}`);
   if (diagnostics.uriScheme) parts.push(`uri=${diagnostics.uriScheme}`);
+  if (diagnostics.uriShape) parts.push(`shape=${diagnostics.uriShape}`);
+  if (diagnostics.extension) parts.push(`ext=${diagnostics.extension}`);
   if (diagnostics.cause) parts.push(`cause=${diagnostics.cause}`);
   return parts.join(" · ");
 }
@@ -182,54 +199,38 @@ export class DirectUploadError extends Error {
   }
 }
 
-/** Read a local file (file:// or content://) as a blob backed by the native side. */
-async function readLocalFile(uri: string, contentType: string): Promise<Blob> {
+async function putToS3(params: {
+  uploadUrl: string;
+  fileUri: string;
+  bytes: number;
+  contentType: string;
+}): Promise<void> {
+  const shared = { bytes: params.bytes, contentType: params.contentType };
+  let result: LocalFilePutResult;
   try {
-    const response = await fetch(uri);
-    return await response.blob();
-  } catch (error) {
-    throw new DirectUploadError({
-      stage: "read_file",
-      uriScheme: uriScheme(uri),
-      contentType,
-      cause: describeCause(error),
-    });
-  }
-}
-
-async function putToS3(
-  uploadUrl: string,
-  blob: Blob,
-  contentType: string,
-): Promise<void> {
-  let response: Response;
-  try {
-    response = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": contentType },
-      body: blob,
+    result = await putLocalFileToUrl({
+      url: params.uploadUrl,
+      fileUri: params.fileUri,
+      contentType: params.contentType,
     });
   } catch (error) {
     throw new DirectUploadError({
       stage: "put_network",
-      bytes: blob.size,
-      contentType,
+      ...shared,
       cause: describeCause(error),
     });
   }
-  if (!response.ok) {
+  if (result.status < 200 || result.status >= 300) {
     // An expired signature reads 403 and a truncated body 400, and the answer is
     // the same "send it again" either way — but which of the two it was decides
     // what gets fixed, so the status and the S3 code are kept. Still a single
     // attempt: retrying is the user's tap, not this function's business.
-    const body = await readErrorBody(response);
     throw new DirectUploadError({
       stage: "put_rejected",
-      status: response.status,
-      s3Code: body === null ? undefined : extractS3ErrorCode(body),
-      bodyUnread: body === null,
-      bytes: blob.size,
-      contentType,
+      status: result.status,
+      s3Code: result.body === null ? undefined : extractS3ErrorCode(result.body),
+      bodyUnread: result.body === null,
+      ...shared,
     });
   }
 }
@@ -237,9 +238,11 @@ async function putToS3(
 /**
  * Send a local file to S3 and return the key the ingestion endpoint expects.
  *
- * `size` is what the picker reported; when it reported nothing, the blob's own
- * size is used, since the API needs a figure to check the ceiling against before
- * signing.
+ * `size` is what the picker reported; when it reported nothing, the size read off
+ * the file is used, since the API needs a figure to check the ceiling against
+ * before signing. Reading comes first for that reason — there is no point signing
+ * a URL for a file that cannot be opened, and a failure at that step is the one
+ * that leaves no server-side trace of any kind.
  */
 export async function stageUpload(params: {
   target: UploadTarget;
@@ -248,20 +251,45 @@ export async function stageUpload(params: {
   mimeType: string;
   size?: number | null;
 }): Promise<string> {
-  const blob = await readLocalFile(params.uri, params.mimeType);
-  const fileSize =
-    params.size && params.size > 0 ? params.size : blob.size || 1;
+  let staged: StagedLocalFile;
+  try {
+    staged = await stageLocalFile(params.uri);
+  } catch (error) {
+    throw new DirectUploadError({
+      stage: "read_file",
+      uriScheme: uriScheme(params.uri),
+      uriShape: describeUriShape(params.uri),
+      extension: getFileExtension(params.fileName) || undefined,
+      contentType: params.mimeType,
+      cause: describeCause(error),
+    });
+  }
 
-  const issued = await apiRequest<UploadUrlResponse>("/api/media/upload-url", {
-    method: "POST",
-    body: {
-      target: params.target,
-      filename: params.fileName,
-      content_type: params.mimeType,
-      file_size: fileSize,
-    },
-  });
+  try {
+    const fileSize =
+      params.size && params.size > 0 ? params.size : staged.bytes || 1;
 
-  await putToS3(issued.upload_url, blob, params.mimeType);
-  return issued.upload_key;
+    const issued = await apiRequest<UploadUrlResponse>(
+      "/api/media/upload-url",
+      {
+        method: "POST",
+        body: {
+          target: params.target,
+          filename: params.fileName,
+          content_type: params.mimeType,
+          file_size: fileSize,
+        },
+      },
+    );
+
+    await putToS3({
+      uploadUrl: issued.upload_url,
+      fileUri: staged.fileUri,
+      bytes: staged.bytes,
+      contentType: params.mimeType,
+    });
+    return issued.upload_key;
+  } finally {
+    staged.release();
+  }
 }
