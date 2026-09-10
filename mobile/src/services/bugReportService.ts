@@ -1,4 +1,10 @@
 import { apiRequest } from "./apiClient";
+import {
+  putLocalFileToUrl,
+  redactSensitive,
+  stageLocalFile,
+  type StagedLocalFile,
+} from "./localFileTransfer";
 
 /**
  * Allowed file extensions for bug report attachments.
@@ -134,27 +140,44 @@ export class BugReportService {
   /**
    * Upload a file directly to S3 using the presigned PUT URL.
    * This does NOT go through the backend API.
+   *
+   * The attachment is read and streamed by `localFileTransfer`. It used to be
+   * `fetch(fileUri)` then `.blob()`, the same anti-pattern that made a shared
+   * Markdown note fail to import on build 9 — a local file is not a URL you can
+   * fetch, and on iOS the attempt fails as a network error about a network that
+   * was never involved. An attachment here is a screenshot or a screen recording,
+   * so it comes from the photo picker rather than a share intent, but it is the
+   * same read on the same URIs and it deserved the same correction.
    */
   static async uploadFileToS3(
     uploadUrl: string,
     fileUri: string,
     contentType: string,
   ): Promise<void> {
-    const response = await fetch(fileUri);
-    const blob = await response.blob();
-
-    const uploadResponse = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: {
-        "Content-Type": contentType,
-      },
-      body: blob,
-    });
-
-    if (!uploadResponse.ok) {
+    let staged: StagedLocalFile;
+    try {
+      staged = await stageLocalFile(fileUri);
+    } catch (error) {
+      // `bug-report.tsx` puts `error.message` straight into an alert, and Cocoa's
+      // way of saying a file is missing is to quote its name. Redact first.
       throw new Error(
-        `Upload failed with status ${uploadResponse.status}: ${uploadResponse.statusText}`,
+        redactSensitive(error instanceof Error ? error.message : String(error)),
       );
+    }
+    try {
+      const result = await putLocalFileToUrl({
+        url: uploadUrl,
+        fileUri: staged.fileUri,
+        contentType,
+      });
+      if (result.status < 200 || result.status >= 300) {
+        // No `statusText` to report: a native upload gives back a status code and
+        // a body, not a reason phrase. The code is the half that identifies the
+        // refusal anyway.
+        throw new Error(`Upload failed with status ${result.status}`);
+      }
+    } finally {
+      staged.release();
     }
   }
 
