@@ -105,11 +105,11 @@ export const hi: Catalog = {
   "auth.continueWithGoogle": "Google से जारी रखें",
   "auth.signInWithApple": "Apple से साइन इन करें",
   "auth.google.notCompleted": "Google से साइन इन पूरा नहीं हुआ। कृपया फिर से कोशिश करें।",
-  "auth.google.noIdToken": "Google ID टोकन नहीं मिल सका। कृपया फिर से कोशिश करें।",
   "auth.google.noGoogleAccount":
     "इस डिवाइस पर कोई Google खाता नहीं है। डिवाइस सेटिंग में एक खाता जोड़ें और फिर कोशिश करें।",
   "auth.google.failed": "Google से साइन इन पूरा नहीं हो सका। कृपया फिर से कोशिश करें।",
-  "auth.apple.noIdentityToken": "Apple पहचान टोकन नहीं मिल सका। कृपया फिर से कोशिश करें।",
+  "auth.apple.failed":
+    "Apple से साइन इन पूरा नहीं हो सका। कृपया फिर से कोशिश करें।",
   "artifacts.type.summaryShort": "सारांश",
   "artifacts.type.summaryDetailed": "विस्तृत सारांश",
   "artifacts.type.notes": "अध्ययन नोट्स",
@@ -162,6 +162,8 @@ export const hi: Catalog = {
   "error.passwordsDoNotMatch": "पासवर्ड मेल नहीं खाते। कृपया फिर से कोशिश करें।",
   "error.network": "नेटवर्क त्रुटि। अपना कनेक्शन जाँचकर फिर कोशिश करें।",
   "error.timeout": "अनुरोध का समय समाप्त हो गया। कृपया फिर से कोशिश करें।",
+  "error.unexpected":
+    "हमारी तरफ़ कुछ गड़बड़ हो गई। कृपया थोड़ी देर बाद फिर कोशिश करें।",
   "error.outOfMinutes": "इस अवधि के आपके मिनट ख़त्म हो गए हैं। ऑडियो और वीडियो इम्पोर्ट करते रहने के लिए प्लान बढ़ाएँ।",
   "mediaError.mediaUnavailable": "यह मीडिया अपने स्रोत पर अब उपलब्ध नहीं है।",
   "mediaError.geoRestricted": "यह मीडिया उस क्षेत्र में उपलब्ध नहीं है जहाँ से हम इम्पोर्ट करते हैं।",
@@ -296,6 +298,8 @@ export const hi: Catalog = {
   "login.submitA11y": "ईमेल से साइन इन करें",
   "login.noAccount": "खाता नहीं है?",
   "login.signUpLink": "साइन अप करें",
+  "login.failed":
+    "हम आपको साइन इन नहीं कर सके। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
   "register.title": "खाता बनाएँ",
   "register.subtitle": "अपना ज्ञान-भंडार बनाना शुरू करें",
   "register.passwordPlaceholder": "कम से कम 6 अक्षर",
@@ -303,12 +307,16 @@ export const hi: Catalog = {
   "register.submitA11y": "ईमेल से खाता बनाएँ",
   "register.hasAccount": "पहले से खाता है?",
   "register.signInLink": "साइन इन करें",
+  "register.failed":
+    "आपका खाता नहीं बन सका। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
   "common.goBack": "वापस जाएँ",
   "readingLanguage.title": "पढ़ने की भाषा",
   "readingLanguage.selectA11y": "{language} को पढ़ने की भाषा बनाएँ",
   "readingLanguage.disclaimer": "यह सेटिंग सिर्फ़ आगे की सामग्री पर लागू होती है। मौजूदा सारांश और अनुवाद दोबारा प्रोसेस नहीं होंगे।",
   "readingLanguage.saved": "भाषा अपडेट हो गई",
   "readingLanguage.saveA11y": "पढ़ने की भाषा सहेजें",
+  "readingLanguage.saveFailed":
+    "आपकी पढ़ने की भाषा सहेजी नहीं जा सकी। कृपया फिर से कोशिश करें।",
   "deleteAccount.title": "खाता मिटाएँ",
   "deleteAccount.warningTitle": "इसे पहले जैसा नहीं किया जा सकता",
   "deleteAccount.warningBody": "खाता मिटाने पर वह हमेशा के लिए मिट जाता है, और उसके साथ आपकी सहेजी हुई हर चीज़ भी। इसके बाद हम उसे वापस नहीं ला सकते, अनुरोध पर भी नहीं।",
@@ -333,6 +341,8 @@ export const hi: Catalog = {
   "deleteAccount.confirmTitle": "खाता मिटाएँ?",
   "deleteAccount.confirmBody": "इससे आपका खाता और उसमें मौजूद सब कुछ हमेशा के लिए मिट जाएगा। इसे पहले जैसा नहीं किया जा सकता।",
   "deleteAccount.confirmAction": "हमेशा के लिए मिटाएँ",
+  "deleteAccount.failed":
+    "आपका खाता मिटाया नहीं जा सका। कृपया फिर से कोशिश करें।",
   "account.title": "खाता",
   "account.notSet": "तय नहीं",
   "account.subscription.manage": "प्लान बदलें",
@@ -370,7 +380,8 @@ export const hi: Catalog = {
   "search.noMatches": "«{query}» से मेल खाता कुछ नहीं मिला। कोई और शब्द आज़माएँ।",
   "search.emptyLibrary": "आपकी लाइब्रेरी ख़ाली है",
   "search.emptyLibraryHint": "किसी भी ऐप से लिंक शेयर करें, या इनबॉक्स से कोई फ़ाइल इम्पोर्ट करें, और वह यहाँ दिखेगी।",
-  "search.failed": "खोज विफल रही",
+  "search.failed":
+    "आपकी खोज पूरी नहीं हो सकी। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
   "search.foldersLoadFailed": "आपके फ़ोल्डर लोड नहीं हो सके।",
   "search.libraryLoadFailed": "आपकी लाइब्रेरी लोड नहीं हो सकी।",
   "search.retryLibraryA11y": "आपकी लाइब्रेरी फिर से लोड करें",
@@ -477,6 +488,7 @@ export const hi: Catalog = {
   "bugReport.descriptionPlaceholder": "दोहराने के चरण, आपको क्या उम्मीद थी, इसके बजाय क्या हुआ…",
   "bugReport.descriptionA11y": "गड़बड़ी की सूचना का विवरण",
   "bugReport.attachment": "अनुलग्नक (वैकल्पिक)",
+  "bugReport.attachmentHint": "इमेज, वीडियो, PDF या ZIP — {max} तक",
   "bugReport.attach": "फ़ाइल जोड़ें",
   "bugReport.attachA11y": "गड़बड़ी की सूचना में फ़ाइल जोड़ें",
   "bugReport.attachChoose": "एक स्रोत चुनें",
@@ -488,15 +500,17 @@ export const hi: Catalog = {
   "bugReport.submitting": "सूचना भेजी जा रही है…",
   "bugReport.uploading": "अनुलग्नक अपलोड हो रहा है…",
   "bugReport.submitted": "सूचना भेज दी गई",
-  "bugReport.ticketId": "टिकट संख्या",
+  "bugReport.submittedBody":
+    "बताने के लिए धन्यवाद। हम हर रिपोर्ट पढ़ते हैं और इसे देखेंगे।",
   "bugReport.doneA11y": "हो गया, खाते पर लौटें",
   "bugReport.closeA11y": "गड़बड़ी की सूचना का फ़ॉर्म बंद करें",
   "bugReport.submitFailed": "गड़बड़ी की सूचना नहीं भेजी जा सकी। कृपया फिर से कोशिश करें।",
+  "bugReport.attachmentFailed":
+    "आपका अटैचमेंट नहीं भेजा जा सका। इसे हटाकर रिपोर्ट अकेले भेजें, या फिर कोशिश करें।",
   "bugReport.pickFileFailed": "फ़ाइल नहीं चुनी जा सकी। कृपया फिर से कोशिश करें।",
   "bugReport.pickImageFailed": "तस्वीर नहीं चुनी जा सकी। कृपया फिर से कोशिश करें।",
   "bugReport.fileTypeTitle": "इस तरह की फ़ाइल की अनुमति नहीं",
   "bugReport.fileTypeAccepted": "स्वीकार्य फ़ाइल प्रकार: {list}",
-  "bugReport.fileTypeRejected": "चुनी हुई फ़ाइल का प्रकार ({type}) स्वीकार नहीं किया जाता।",
   "bugReport.fileTooLargeTitle": "फ़ाइल बहुत बड़ी है",
   "bugReport.fileTooLarge": "अधिकतम आकार {max} है। आपकी फ़ाइल {size} की है।",
   "paywall.title": "अपना प्लान चुनें",
@@ -521,6 +535,16 @@ export const hi: Catalog = {
   "paywall.purchasePendingBody": "आपकी ख़रीद मंज़ूरी की प्रतीक्षा में है। पूरी होने पर आपको सूचित किया जाएगा।",
   "paywall.purchaseFailed": "ख़रीद विफल",
   "paywall.unexpectedError": "एक अनपेक्षित त्रुटि हुई। कृपया फिर से कोशिश करें।",
+  "purchaseError.storeProblem":
+    "स्टोर ख़रीद पूरी नहीं कर सका। कृपया थोड़ी देर बाद फिर कोशिश करें।",
+  "purchaseError.notAllowed":
+    "इस डिवाइस पर ख़रीदारी बंद है। अपने डिवाइस की पाबंदियाँ जाँचें, फिर कोशिश करें।",
+  "purchaseError.paymentInvalid":
+    "आपका भुगतान नहीं लिया जा सका। अपने स्टोर खाते में भुगतान का तरीक़ा जाँचें, फिर कोशिश करें।",
+  "purchaseError.alreadyOwned":
+    "यह सदस्यता आपके पास पहले से है। यह उसी स्टोर खाते पर चालू है जिसने इसे ख़रीदा था।",
+  "purchaseError.failed":
+    "ख़रीद पूरी नहीं हो सकी। कोई शुल्क नहीं लिया गया। कृपया फिर से कोशिश करें।",
   "paywall.renewalTerms": "ख़रीद की पुष्टि पर भुगतान आपके {store} खाते से लिया जाता है। मौजूदा अवधि ख़त्म होने से कम से कम 24 घंटे पहले रद्द न किए जाने पर सदस्यता हर महीने नवीनीकृत होती है, और उससे पहले के 24 घंटों में नवीनीकरण का शुल्क आपके खाते से लिया जाता है।",
   "paywall.terms": "उपयोग की शर्तें",
   "paywall.privacy": "गोपनीयता नीति",
@@ -580,6 +604,13 @@ export const hi: Catalog = {
     "यह नोट सहेजने के लिए बहुत लंबा है: {count} अक्षर, और अधिकतम {max} है।",
   "share.reject.nothingToSave":
     "यहाँ सहेजने लायक कुछ नहीं है। नोट का टेक्स्ट शेयर करके देखें।",
+  "share.reject.audioFormat":
+    "यह ऑडियो फ़ॉर्मैट इम्पोर्ट नहीं किया जा सकता। समर्थित फ़ॉर्मैट: {formats}।",
+  "share.saveLinkFailed": "यह लिंक सहेजा नहीं जा सका। कृपया फिर से कोशिश करें।",
+  "share.saveContentFailed":
+    "यह सामग्री सहेजी नहीं जा सकी। कृपया फिर से कोशिश करें।",
+  "share.importFileFailed":
+    "यह फ़ाइल इम्पोर्ट नहीं हो सकी। कृपया फिर से कोशिश करें।",
   "share.folderFailed":
     "फ़ोल्डर लागू नहीं हो सका। आपकी सामग्री सहेज ली गई है और आप उसे अपनी लाइब्रेरी से किसी फ़ोल्डर में रख सकते हैं।",
   "import.filesUnavailable": "आपकी फ़ाइलें नहीं खोली जा सकीं",
@@ -598,10 +629,12 @@ export const hi: Catalog = {
   "upload.reject.noExtension": "इस फ़ाइल का कोई पहचानने योग्य एक्सटेंशन नहीं है। समर्थित प्रारूप: {formats}।",
   "upload.reject.empty": "यह फ़ाइल ख़ाली है, इसलिए इम्पोर्ट करने को कुछ नहीं है।",
   "upload.reject.tooLarge": "यह फ़ाइल {size} की है, जो एक इम्पोर्ट की {max} सीमा से ज़्यादा है।",
-  "upload.transferFailed": "यह फ़ाइल भेजी नहीं जा सकी। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
-  "upload.diagnostics.title": "तकनीकी विवरण",
-  "upload.diagnostics.hint":
-    "समस्या की शिकायत करते समय यह पंक्ति साथ भेजें: यह बताती है कि कौन-सा चरण विफल हुआ।",
+  "upload.transferFailed.read":
+    "यह फ़ाइल आपके फ़ोन से पढ़ी नहीं जा सकी। इसे उसी ऐप में खोलें जहाँ से यह आई है, फिर दोबारा शेयर करें।",
+  "upload.transferFailed.network":
+    "यह फ़ाइल भेजी नहीं जा सकी। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+  "upload.transferFailed.rejected":
+    "यह फ़ाइल स्वीकार नहीं की गई। इसे दोबारा इम्पोर्ट करके देखें।",
   "home.loadFailed": "आपका इनबॉक्स लोड नहीं हो सका। कृपया फिर से कोशिश करें।",
   "share.unsupportedFile": "इस तरह की फ़ाइल अभी समर्थित नहीं है।",
   "share.signInLinks": "लिंक सहेजने के लिए साइन इन करना ज़रूरी है।",
@@ -615,6 +648,4 @@ export const hi: Catalog = {
   "startupError.body":
     "ऐप शुरू होते समय एक अनपेक्षित त्रुटि आ गई। दोबारा कोशिश करने से आमतौर पर काम बन जाता है।",
   "startupError.retryA11y": "ऐप को फिर से शुरू करने की कोशिश करें",
-  "startupError.showDetails": "तकनीकी विवरण दिखाएँ",
-  "startupError.hideDetails": "तकनीकी विवरण छिपाएँ",
 };

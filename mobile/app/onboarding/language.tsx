@@ -64,7 +64,11 @@ export default function OnboardingLanguageScreen() {
       await updateReadingLanguage(selectedLanguage);
       router.replace("/(tabs)/inbox");
     } catch (err) {
-      setError(getFriendlyErrorMessage(err));
+      setError(
+        getFriendlyErrorMessage(err, {
+          fallback: t("readingLanguage.saveFailed"),
+        }),
+      );
     }
   };
 

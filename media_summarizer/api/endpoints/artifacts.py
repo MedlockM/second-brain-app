@@ -367,10 +367,17 @@ async def create_artifact(
             "Invalid artifact type requested",
             artifact_type=artifact_type,
             error_code="INVALID_ARTIFACT_TYPE",
+            error_message=str(exc),
         )
+        # The exception names the internal enum member and the scope it was aimed
+        # at — a developer's sentence about a caller's mistake, and one no reader
+        # can act on. It stays in the log line above (task-397).
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail={
+                "error_code": "INVALID_ARTIFACT_TYPE",
+                "message": "This kind of artifact cannot be generated",
+            },
         )
     except ArtifactGenerationDisabledError:
         raise HTTPException(

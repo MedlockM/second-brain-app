@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
@@ -12,11 +12,8 @@ import {
   TouchTarget,
 } from "../constants/theme";
 import { t } from "../i18n";
-import type { StartupFailureOrigin } from "../lib/startupErrorGuard";
 
 interface StartupErrorScreenProps {
-  error: Error;
-  origin: StartupFailureOrigin;
   /** Clears the failure and lets the tree mount again from scratch. */
   onRetry: () => void;
 }
@@ -35,16 +32,15 @@ interface StartupErrorScreenProps {
  * for want of a context. The only surrounding it does assume is the
  * `SafeAreaProvider` that `ExpoRoot` mounts above the root layout.
  *
+ * The exception itself does not appear here. Its name, its message and its stack
+ * are the trace of a bug in this app — never something the reader caused, and
+ * never something they can act on — so both nets log it on the way in and this
+ * screen offers the one thing that is left: start again (task-397).
+ *
  * Design: Amber Clarity — warm surfaces, tonal shifts instead of rules, one
  * amber CTA.
  */
-export function StartupErrorScreen({
-  error,
-  origin,
-  onRetry,
-}: StartupErrorScreenProps) {
-  const [detailsShown, setDetailsShown] = useState(false);
-
+export function StartupErrorScreen({ onRetry }: StartupErrorScreenProps) {
   // `app/_layout.tsx` holds the native splash from module scope, for the whole
   // life of the process, and `SplashGate` — which is somewhere below this screen
   // and no longer mounted — is what normally gives it back. Without this the
@@ -55,10 +51,6 @@ export function StartupErrorScreen({
       // Already hidden: nothing owed.
     });
   }, []);
-
-  const detailsLabel = detailsShown
-    ? t("startupError.hideDetails")
-    : t("startupError.showDetails");
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -81,37 +73,6 @@ export function StartupErrorScreen({
         >
           <Text style={styles.retryButtonText}>{t("common.retry")}</Text>
         </Pressable>
-
-        <View style={styles.details}>
-          <Text style={styles.detailsOrigin}>
-            {error.name} · {origin}
-          </Text>
-          <Text style={styles.detailsMessage} selectable>
-            {error.message || t("common.somethingWentWrong")}
-          </Text>
-
-          {error.stack ? (
-            <Pressable
-              style={styles.detailsToggle}
-              onPress={() => setDetailsShown((shown) => !shown)}
-              accessibilityLabel={detailsLabel}
-              accessibilityRole="button"
-            >
-              <Text style={styles.detailsToggleText}>{detailsLabel}</Text>
-              <Ionicons
-                name={detailsShown ? "chevron-up" : "chevron-down"}
-                size={16}
-                color={Colors.textSubtle}
-              />
-            </Pressable>
-          ) : null}
-
-          {detailsShown && error.stack ? (
-            <Text style={styles.detailsStack} selectable>
-              {error.stack}
-            </Text>
-          ) : null}
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -155,43 +116,11 @@ const styles = StyleSheet.create({
     minHeight: TouchTarget.comfortable,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: Spacing.xl,
     ...Shadows.soft,
   },
   retryButtonText: {
     fontSize: Typography.body.fontSize,
     fontWeight: "700",
     color: Colors.onPrimary,
-  },
-  details: {
-    backgroundColor: Colors.surfaceContainer,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-  },
-  detailsOrigin: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textSubtle,
-    marginBottom: Spacing.xs,
-  },
-  detailsMessage: {
-    fontSize: Typography.label.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.textMain,
-  },
-  detailsStack: {
-    fontSize: Typography.small.fontSize,
-    color: Colors.textSubtle,
-  },
-  detailsToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.xs,
-    minHeight: TouchTarget.minimum,
-  },
-  detailsToggleText: {
-    fontSize: Typography.label.fontSize,
-    fontWeight: Typography.label.fontWeight,
-    color: Colors.textSubtle,
   },
 });

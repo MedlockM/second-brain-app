@@ -73,7 +73,7 @@ async def search_podcasts(payload: PodcastSearchRequest, request: Request):
         if not search_result.get("status") == "true":
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Erreur lors de la recherche dans Podcast Index",
+                detail="Podcast search is unavailable",
             )
 
         # Formater les résultats
@@ -94,7 +94,7 @@ async def search_podcasts(payload: PodcastSearchRequest, request: Request):
         logger.error(f"Error searching podcasts: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de la recherche de podcasts: {str(e)}",
+            detail="Podcast search is unavailable",
         )
 
 
@@ -125,7 +125,7 @@ async def get_podcast_episodes(payload: EpisodesListRequest, request: Request):
         if not episodes_result.get("status") == "true":
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Erreur lors de la récupération des épisodes",
+                detail="Episodes for this podcast are unavailable",
             )
 
         # Formater les épisodes
@@ -154,7 +154,7 @@ async def get_podcast_episodes(payload: EpisodesListRequest, request: Request):
         logger.error(f"Error getting episodes: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de la récupération des épisodes: {str(e)}",
+            detail="Episodes for this podcast are unavailable",
         )
 
 
@@ -195,7 +195,7 @@ async def submit_episode_for_processing(
         if not episodes_data.get("status") == "true":
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Erreur lors de la récupération des épisodes",
+                detail="Episodes for this podcast are unavailable",
             )
 
         # Chercher l'épisode avec le GUID correspondant
@@ -215,14 +215,14 @@ async def submit_episode_for_processing(
 
         if not episode_info:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Épisode non trouvé"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found"
             )
         audio_url = episode_info.get("enclosureUrl")
 
         if not audio_url:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Aucun fichier audio trouvé pour cet épisode",
+                detail="This episode has no audio file",
             )
 
         # Validation stricte de l'URL audio
@@ -231,9 +231,12 @@ async def submit_episode_for_processing(
 
             await validate_audio_url(audio_url)
         except ValueError as ve:
+            # The validator's own text describes the URL it rejected; it belongs in
+            # the log, not in the answer (task-397).
+            logger.warning(f"Rejected episode audio URL: {ve}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"URL audio invalide: {str(ve)}",
+                detail="This episode's audio file cannot be read",
             )
 
         # Récupérer l'utilisateur authentifié
@@ -241,7 +244,7 @@ async def submit_episode_for_processing(
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Utilisateur authentifié introuvable",
+                detail="User not found",
             )
 
         # Récupérer les détails du podcast pour avoir le titre correct (absent de l'épisode parfois)
@@ -305,11 +308,15 @@ async def submit_episode_for_processing(
             result.get("status") == "skipped"
             and result.get("reason") == "insufficient_credits"
         ):
+            # The code, not the submission's own `message`: that field is whatever
+            # the consumption gate wrote, it was French, and the app has one
+            # sentence for an exhausted allowance already (task-397).
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=result.get(
-                    "message", "Crédits insuffisants pour traiter cet épisode."
-                ),
+                detail={
+                    "error_code": "INSUFFICIENT_MINUTES",
+                    "message": "Not enough minutes left to process this episode",
+                },
             )
 
         return EpisodeSelectionResponse(**result)
@@ -320,7 +327,7 @@ async def submit_episode_for_processing(
         logger.error(f"Error submitting episode: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de la soumission de l'épisode: {str(e)}",
+            detail="This episode could not be submitted",
         )
 
 
@@ -357,7 +364,7 @@ async def get_trending_podcasts(
         if not trending_result.get("status") == "true":
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Erreur lors de la récupération des podcasts tendances",
+                detail="Trending podcasts are unavailable",
             )
 
         # Formater les résultats
@@ -377,5 +384,5 @@ async def get_trending_podcasts(
         logger.error(f"Error getting trending podcasts: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de la récupération des podcasts tendances: {str(e)}",
+            detail="Trending podcasts are unavailable",
         )

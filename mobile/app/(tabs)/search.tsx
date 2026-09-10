@@ -203,9 +203,10 @@ export default function SearchScreen() {
         setResults(response.hits.map(hitToRow));
         setTotalResults(response.found);
       } catch (err: unknown) {
-        const message =
-          err instanceof Error ? err.message : t("search.failed");
-        setError(message);
+        // `err.message` here is whatever the search API put in its `detail`, in
+        // English and written for us. The reader gets a sentence from the
+        // catalogue instead.
+        setError(getFriendlyErrorMessage(err, { fallback: t("search.failed") }));
         setResults([]);
         setTotalResults(0);
       } finally {

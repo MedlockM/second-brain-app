@@ -27,11 +27,7 @@ export function StartupErrorGate({
 
   if (!failure) return children;
 
-  return (
-    <StartupErrorScreen
-      error={failure.error}
-      origin={failure.origin}
-      onRetry={clearStartupFailure}
-    />
-  );
+  // Only that something failed reaches the screen; `startupErrorGuard` has
+  // already logged what it was.
+  return <StartupErrorScreen onRetry={clearStartupFailure} />;
 }

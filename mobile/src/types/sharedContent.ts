@@ -16,6 +16,7 @@
  */
 
 import { formatNumber, t } from "../i18n";
+import { formatUploadSize } from "./upload";
 
 export type SharedContentType = "text" | "audio";
 
@@ -185,4 +186,67 @@ export function validateSharedNoteText(
     };
   }
   return { text: trimmed };
+}
+
+/**
+ * The extensions behind `SUPPORTED_AUDIO_MIME_TYPES`, for the refusal sentence.
+ *
+ * Spelled out rather than derived from the MIME list: several types share an
+ * extension (`audio/mp4` and `audio/x-m4a` are both `.m4a`), and what the reader
+ * needs is the list of things they can share — not the list of types we match on.
+ */
+export const SUPPORTED_AUDIO_EXTENSIONS_LABEL =
+  ".mp3, .m4a, .ogg, .opus, .wav, .aac, .flac, .amr";
+
+/** Why a shared audio file could not be turned into something to save. */
+export type SharedAudioRejectionReason =
+  | "unsupported_format"
+  | "too_large"
+  | "empty";
+
+export interface SharedAudioRejection {
+  reason: SharedAudioRejectionReason;
+  /** Message naming the reason, shown to the user as-is. */
+  message: string;
+}
+
+/**
+ * A shared audio attachment, or a rejection naming what is wrong with it.
+ *
+ * The counterpart of `validateSharedNoteText`, and it exists for the same reason:
+ * the three refusals used to be English sentences built inside
+ * `SharedContentService`, one of which quoted the MIME type the picker had
+ * reported. `audio/x-hx-aac-adts` tells the reader nothing; the list of formats
+ * they *can* share tells them what to do instead.
+ */
+export function validateSharedAudioFile(
+  file: SharedFileAttachment,
+): { file: SharedFileAttachment } | { rejection: SharedAudioRejection } {
+  if (!isSupportedAudioMimeType(file.mimeType)) {
+    return {
+      rejection: {
+        reason: "unsupported_format",
+        message: t("share.reject.audioFormat", {
+          formats: SUPPORTED_AUDIO_EXTENSIONS_LABEL,
+        }),
+      },
+    };
+  }
+  if (file.fileSize !== null && file.fileSize === 0) {
+    return {
+      rejection: { reason: "empty", message: t("upload.reject.empty") },
+    };
+  }
+  if (file.fileSize !== null && file.fileSize > MAX_SHARED_AUDIO_SIZE_BYTES) {
+    return {
+      rejection: {
+        reason: "too_large",
+        message: t("upload.reject.tooLarge", {
+          size: formatUploadSize(file.fileSize),
+          max: formatUploadSize(MAX_SHARED_AUDIO_SIZE_BYTES),
+        }),
+      },
+    };
+  }
+  return { file };
 }

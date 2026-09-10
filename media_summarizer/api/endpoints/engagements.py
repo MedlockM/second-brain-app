@@ -86,7 +86,13 @@ async def create_engagement(
         )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except EngagementSubjectNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        # The exception distinguishes "unknown kind" from "not the caller's" — a
+        # distinction about our data model that nobody reads: the client fires this
+        # without awaiting it, so the answer never reaches a screen (task-397).
+        logger.warning(f"Rejected engagement: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found"
+        )
     finally:
         reset_log_context(token)
 

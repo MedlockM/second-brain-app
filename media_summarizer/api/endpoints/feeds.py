@@ -107,11 +107,33 @@ _ERROR_STATUS_MAP = {
     FeedServiceError.FEED_INVALID_URL: status.HTTP_400_BAD_REQUEST,
 }
 
+#: One neutral sentence per refusal code, in place of ``exc.message``.
+#:
+#: The service's own text is not answerable material: ``FEED_PARSE_ERROR`` carries
+#: whatever ``feedparser`` set as ``bozo_exception``, which is an expat
+#: ``SAXParseException`` naming a line and a column in someone else's XML, and the
+#: two URL cases echo the URL back. The exception is logged instead, and the code
+#: travels with the answer so a client can word its own line (task-397).
+_ERROR_MESSAGE_MAP = {
+    FeedServiceError.FEED_NOT_FOUND: "Feed not found",
+    FeedServiceError.FEED_ACCESS_DENIED: "Access denied",
+    FeedServiceError.FEED_PARSE_ERROR: "This feed could not be read",
+    FeedServiceError.FEED_ALREADY_SUBSCRIBED: "Already subscribed to this feed",
+    FeedServiceError.FEED_INVALID_URL: "This feed address is not valid",
+}
+
 
 def _raise_service_error(exc: FeedServiceException) -> None:
     """Convert a FeedServiceException to an HTTPException."""
     http_status = _ERROR_STATUS_MAP.get(exc.code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-    raise HTTPException(status_code=http_status, detail=exc.message)
+    logger.warning(f"Feed request refused ({exc.code}): {exc.message}")
+    raise HTTPException(
+        status_code=http_status,
+        detail={
+            "error_code": str(exc.code),
+            "message": _ERROR_MESSAGE_MAP.get(exc.code, "This feed request failed"),
+        },
+    )
 
 
 # ---------- Endpoints ----------

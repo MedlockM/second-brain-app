@@ -118,17 +118,6 @@ export interface ShareIntakeState {
    * offered. Null/undefined for any other failure.
    */
   quotaErrorCode?: QuotaErrorCode | null;
-  /**
-   * One technical line describing a failed direct-to-S3 transfer (task-371):
-   * the step that failed, the status S3 answered, its error code, the bytes and
-   * MIME type sent. Set only for a `DirectUploadError`, whose sentence is the
-   * same for all three ways the transfer can die.
-   *
-   * It travels in the state because there is no telemetry channel: the failure
-   * screen is the only place this can be read from, so the tester reads it there
-   * and quotes it in a bug report.
-   */
-  uploadDiagnostics?: string | null;
 }
 
 export interface ShareSelectedFolder {
@@ -229,7 +218,6 @@ const INITIAL_STATE: ShareIntakeState = {
   deduplicated: false,
   uploadFile: null,
   quotaErrorCode: null,
-  uploadDiagnostics: null,
 };
 
 const ShareIntentContext = createContext<ShareIntentContextValue | null>(null);
@@ -308,16 +296,16 @@ function isSubmittable(status: ShareIntakeStatus): boolean {
 /**
  * Build the error half of the intake state from a failed submission.
  *
- * A consumption refusal keeps the backend wording: it is the only text that
- * carries the figures ("This import needs 45 minutes and you have 12 left until
- * Sep 12"), and getFriendlyErrorMessage would collapse it into the generic
- * out-of-minutes sentence, dropping every number the user needs.
+ * A consumption refusal is worded by `getQuotaErrorMessage` rather than by
+ * `getFriendlyErrorMessage`: it is the only sentence that carries the figures
+ * ("This import needs 45 minutes and you have 12 left until Sep 12"), and the
+ * generic path would collapse it into the flat out-of-minutes line, dropping
+ * every number the user needs.
  *
  * A failed transfer to S3 keeps its own wording too, for the opposite reason: it
- * arrives already translated, and getFriendlyErrorMessage flattens anything that
- * mentions S3 into the generic error sentence (task-345). It is also the only
- * failure that hands back a technical line, since it is the only one that left no
- * server-side trace to look up afterwards (task-371).
+ * arrives already translated and already specific to the step that failed, and
+ * `getFriendlyErrorMessage` flattens anything that mentions S3 into the generic
+ * error sentence (task-345).
  */
 function toSubmissionError(
   error: unknown,
@@ -325,34 +313,23 @@ function toSubmissionError(
 ): {
   message: string;
   quotaErrorCode: QuotaErrorCode | null;
-  uploadDiagnostics: string | null;
 } {
   const quotaErrorCode = getQuotaErrorCode(error);
   if (quotaErrorCode) {
     return {
       message: getQuotaErrorMessage(error, quotaErrorCode),
       quotaErrorCode,
-      uploadDiagnostics: null,
     };
   }
-  if (error instanceof DirectUploadError) {
-    return {
-      message: error.message,
-      quotaErrorCode: null,
-      uploadDiagnostics: error.detail,
-    };
-  }
-  if (error instanceof SharedContentValidationError) {
-    return {
-      message: error.message,
-      quotaErrorCode: null,
-      uploadDiagnostics: null,
-    };
+  if (
+    error instanceof DirectUploadError ||
+    error instanceof SharedContentValidationError
+  ) {
+    return { message: error.message, quotaErrorCode: null };
   }
   return {
     message: getFriendlyErrorMessage(error, { fallback }),
     quotaErrorCode: null,
-    uploadDiagnostics: null,
   };
 }
 
@@ -933,20 +910,18 @@ export function ShareIntentProvider({
         mediaItemId: response.media_item_id,
         deduplicated: false,
         quotaErrorCode: null,
-        uploadDiagnostics: null,
       }));
       return response.media_item_id;
     } catch (error) {
-      const { message, quotaErrorCode, uploadDiagnostics } = toSubmissionError(
+      const { message, quotaErrorCode } = toSubmissionError(
         error,
-        "Failed to save the link. Please try again.",
+        t("share.saveLinkFailed"),
       );
       setIntake((prev) => ({
         ...prev,
         status: "error",
         message,
         quotaErrorCode,
-        uploadDiagnostics,
       }));
       return null;
     }
@@ -995,20 +970,18 @@ export function ShareIntentProvider({
         mediaItemId: response.media_item_id,
         deduplicated: response.deduplicated ?? false,
         quotaErrorCode: null,
-        uploadDiagnostics: null,
       }));
       return response.media_item_id;
     } catch (error) {
-      const { message, quotaErrorCode, uploadDiagnostics } = toSubmissionError(
+      const { message, quotaErrorCode } = toSubmissionError(
         error,
-        "Failed to save the content. Please try again.",
+        t("share.saveContentFailed"),
       );
       setIntake((prev) => ({
         ...prev,
         status: "error",
         message,
         quotaErrorCode,
-        uploadDiagnostics,
       }));
       return null;
     }
@@ -1045,20 +1018,18 @@ export function ShareIntentProvider({
         mediaItemId: response.media_item_id,
         deduplicated: false,
         quotaErrorCode: null,
-        uploadDiagnostics: null,
       }));
       return response.media_item_id;
     } catch (error) {
-      const { message, quotaErrorCode, uploadDiagnostics } = toSubmissionError(
+      const { message, quotaErrorCode } = toSubmissionError(
         error,
-        "Failed to import this file. Please try again.",
+        t("share.importFileFailed"),
       );
       setIntake((prev) => ({
         ...prev,
         status: "error",
         message,
         quotaErrorCode,
-        uploadDiagnostics,
       }));
       return null;
     }
@@ -1187,7 +1158,6 @@ export function ShareIntentProvider({
         status: "ready",
         message: null,
         quotaErrorCode: null,
-        uploadDiagnostics: null,
       }));
     }
   }, [intake]);

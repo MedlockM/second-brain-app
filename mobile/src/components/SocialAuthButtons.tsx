@@ -58,8 +58,10 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
         case "noGoogleAccount":
           onError(t("auth.google.noGoogleAccount"));
           return;
+        // The sheet came back with no token, which is our problem and not one the
+        // reader can name — same sentence as any other Google failure.
         case "noIdToken":
-          onError(t("auth.google.noIdToken"));
+          onError(t("auth.google.failed"));
           return;
         case "notCompleted":
           onError(t("auth.google.notCompleted"));
@@ -92,7 +94,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
 
       const identityToken = credential.identityToken;
       if (!identityToken) {
-        onError(t("auth.apple.noIdentityToken"));
+        onError(t("auth.apple.failed"));
         return;
       }
 
@@ -116,7 +118,7 @@ export function SocialAuthButtons({ onError, disabled }: SocialAuthButtonsProps)
       ) {
         // User cancelled - no error to show
       } else {
-        onError(getFriendlyErrorMessage(err));
+        onError(getFriendlyErrorMessage(err, { fallback: t("auth.apple.failed") }));
       }
     } finally {
       setIsAppleLoading(false);

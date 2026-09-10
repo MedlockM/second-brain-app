@@ -49,7 +49,7 @@ export default function RegisterScreen() {
       await register({ email: email.trim(), password });
       router.replace(POST_AUTH_ENTRY_POINT);
     } catch (err) {
-      setError(getFriendlyErrorMessage(err));
+      setError(getFriendlyErrorMessage(err, { fallback: t("register.failed") }));
     } finally {
       setIsSubmitting(false);
     }

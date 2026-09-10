@@ -143,7 +143,7 @@ async def search_podcasts(
         if not search_result.get("status") == "true":
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Erreur lors de la recherche dans Podcast Index",
+                detail="Podcast search is unavailable",
             )
 
         # Formater les résultats pour le frontend
@@ -179,7 +179,7 @@ async def search_podcasts(
         logger.error(f"Error searching podcasts: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erreur lors de la recherche de podcasts: {str(e)}",
+            detail="Podcast search is unavailable",
         )
 
 

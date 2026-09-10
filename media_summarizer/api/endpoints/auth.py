@@ -325,7 +325,14 @@ async def update_current_user(
         if lang not in V1_READING_LANGUAGES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported reading language: {lang}. Supported: {sorted(V1_READING_LANGUAGES)}",
+                # The supported set used to travel as `sorted(...)`, i.e. a Python
+                # list repr with its brackets and quotes. Joined instead: the app
+                # picks from a fixed list and cannot reach this, but a refusal that
+                # prints `['ar', 'de', …]` is not a sentence (task-397).
+                detail=(
+                    f"Unsupported reading language: {lang}. Supported: "
+                    f"{', '.join(sorted(V1_READING_LANGUAGES))}"
+                ),
             )
         update_data["reading_language"] = lang
 

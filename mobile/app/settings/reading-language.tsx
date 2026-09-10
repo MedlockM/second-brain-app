@@ -53,7 +53,11 @@ export default function ReadingLanguageSettingsScreen() {
       await updateReadingLanguage(selectedLanguage);
       setSuccess(true);
     } catch (err) {
-      setError(getFriendlyErrorMessage(err));
+      setError(
+        getFriendlyErrorMessage(err, {
+          fallback: t("readingLanguage.saveFailed"),
+        }),
+      );
     }
   };
 

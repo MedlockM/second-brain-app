@@ -19,6 +19,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+#: What a refused folder operation answers, instead of the ``ValueError``'s own text.
+#:
+#: The service words those for whoever reads a log: they name the folder or the
+#: media item by id, they quote the depth ceiling, and they say things like "does
+#: not belong to this user" — a sentence that describes our authorisation model and
+#: not anything the person tapping Rename did (task-397). Every one of them is
+#: unreachable from the app anyway: the rename sheet caps its input at the server's
+#: own ceiling, and the picker only ever offers folders the caller owns. So the
+#: exception goes to the log, this sentence goes on the wire, and the app renders
+#: the screen-specific line it already has for the operation that failed.
+REJECTED_FOLDER_DETAIL = "This folder change was refused"
+
 
 # ---------- Request / Response models ----------
 
@@ -138,7 +150,11 @@ async def create_folder(
             updated_at=folder.updated_at.isoformat(),
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        logger.warning(f"Rejected folder creation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=REJECTED_FOLDER_DETAIL,
+        )
     except Exception as e:
         logger.error(f"Error creating folder: {e}", exc_info=True)
         raise HTTPException(
@@ -205,7 +221,11 @@ async def update_folder(
             updated_at=folder.updated_at.isoformat(),
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        logger.warning(f"Rejected folder update {folder_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=REJECTED_FOLDER_DETAIL,
+        )
     except Exception as e:
         logger.error(f"Error updating folder {folder_id}: {e}", exc_info=True)
         raise HTTPException(
@@ -232,7 +252,11 @@ async def delete_folder(
             default_folder_id=result["default_folder_id"],
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        logger.warning(f"Rejected folder deletion {folder_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=REJECTED_FOLDER_DETAIL,
+        )
     except Exception as e:
         logger.error(f"Error deleting folder {folder_id}: {e}", exc_info=True)
         raise HTTPException(

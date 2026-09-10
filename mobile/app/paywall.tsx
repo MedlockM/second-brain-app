@@ -100,6 +100,7 @@ import {
   TouchTarget,
 } from "../src/constants/theme";
 import { t, useTranslation } from "../src/i18n";
+import { getFriendlyErrorMessage } from "../src/lib/getFriendlyErrorMessage";
 
 export default function PaywallScreen() {
   // Copy resolved on render: redraw when the interface language changes.
@@ -223,7 +224,12 @@ export default function PaywallScreen() {
           );
           break;
         case "error":
-          Alert.alert(t("paywall.purchaseFailed"), result.message);
+          // The store's own words never reach the alert: `purchasePackage`
+          // returns a code, and the sentence is this app's.
+          Alert.alert(
+            t("paywall.purchaseFailed"),
+            getFriendlyErrorMessage({ code: result.code }),
+          );
           break;
       }
     } catch {

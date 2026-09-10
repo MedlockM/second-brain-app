@@ -1,11 +1,14 @@
 """
 Endpoints pour la vérification de l'état du service.
 """
+import logging
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from media_summarizer.utils.database_async import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -31,9 +34,12 @@ async def health_check(db=Depends(get_db)):
             "version": "1.0.0"
         }
     except Exception as e:
+        # The exception is a boto/DynamoDB failure, table names and all. It goes to
+        # the log; the probe only needs the 503 (task-397).
+        logger.error(f"Health check failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=503,
-            detail=f"Service unhealthy: {str(e)}"
+            detail="Service unhealthy"
         )
 
 

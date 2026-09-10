@@ -23,11 +23,28 @@ import Purchases, {
 import { Platform } from "react-native";
 import { Config } from "../constants/config";
 
+/**
+ * Why a purchase did not go through, in the terms a buyer can act on.
+ *
+ * Five outcomes out of the SDK's thirty-odd error codes, because five is how many
+ * different things there are to do about it: wait for the network, wait for the
+ * store, lift a device restriction, fix a payment method, or nothing at all
+ * because the subscription is already owned. Everything else is one of ours and
+ * reads the same. `getFriendlyErrorMessage` maps each to its sentence.
+ */
+export type PurchaseFailureCode =
+  | "PURCHASE_NETWORK"
+  | "PURCHASE_STORE_PROBLEM"
+  | "PURCHASE_NOT_ALLOWED"
+  | "PURCHASE_PAYMENT_INVALID"
+  | "PURCHASE_ALREADY_OWNED"
+  | "PURCHASE_FAILED";
+
 export type PurchaseResult =
   | { status: "success"; customerInfo: CustomerInfo }
   | { status: "cancelled" }
   | { status: "pending" }
-  | { status: "error"; message: string };
+  | { status: "error"; code: PurchaseFailureCode };
 
 /**
  * Initialize RevenueCat SDK with platform-specific API keys.
@@ -85,9 +102,30 @@ export async function getOfferings(): Promise<PurchasesOfferings | null> {
   }
 }
 
+/** The SDK's error code, narrowed to the outcomes worth telling apart. */
+const PURCHASE_FAILURE_CODES: Partial<
+  Record<PURCHASES_ERROR_CODE, PurchaseFailureCode>
+> = {
+  [PURCHASES_ERROR_CODE.NETWORK_ERROR]: "PURCHASE_NETWORK",
+  [PURCHASES_ERROR_CODE.OFFLINE_CONNECTION_ERROR]: "PURCHASE_NETWORK",
+  [PURCHASES_ERROR_CODE.STORE_PROBLEM_ERROR]: "PURCHASE_STORE_PROBLEM",
+  [PURCHASES_ERROR_CODE.PRODUCT_REQUEST_TIMED_OUT_ERROR]:
+    "PURCHASE_STORE_PROBLEM",
+  [PURCHASES_ERROR_CODE.PURCHASE_NOT_ALLOWED_ERROR]: "PURCHASE_NOT_ALLOWED",
+  [PURCHASES_ERROR_CODE.PURCHASE_INVALID_ERROR]: "PURCHASE_PAYMENT_INVALID",
+  [PURCHASES_ERROR_CODE.PRODUCT_ALREADY_PURCHASED_ERROR]:
+    "PURCHASE_ALREADY_OWNED",
+  [PURCHASES_ERROR_CODE.RECEIPT_ALREADY_IN_USE_ERROR]: "PURCHASE_ALREADY_OWNED",
+};
+
 /**
  * Trigger the native purchase flow for a given package.
  * Handles success, cancellation, pending (Ask to Buy), and errors.
+ *
+ * A failure comes back as a code, never as `error.message`. The SDK's message is
+ * written for a developer — it quotes the store's own diagnostics, and on Android
+ * it has been known to name the billing library — so the paywall would have put
+ * that in an alert under "Purchase failed".
  */
 export async function purchasePackage(
   pkg: PurchasesPackage,
@@ -105,10 +143,12 @@ export async function purchasePackage(
       return { status: "pending" };
     }
 
-    const message =
-      error.message || "An error occurred during purchase. Please try again.";
     console.error("[PurchaseService] Purchase error:", error);
-    return { status: "error", message };
+    return {
+      status: "error",
+      code: PURCHASE_FAILURE_CODES[error.code as PURCHASES_ERROR_CODE] ??
+        "PURCHASE_FAILED",
+    };
   }
 }
 
