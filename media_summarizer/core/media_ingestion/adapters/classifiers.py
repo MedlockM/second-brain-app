@@ -81,10 +81,10 @@ _HOST_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 #:
 #: The paywall used to list the platforms it accepts as prose retyped in eleven
 #: translation catalogues, and that prose had drifted from this table: it
-#: advertised Instagram photo posts, which the worker refuses, and never
-#: mentioned WhatsApp, `music.youtube.com`, `twitter.com` or the short TikTok
-#: links. Publishing the table is what lets the showcase be *derived* from what
-#: decides acceptance instead of being maintained beside it.
+#: advertised Instagram photo posts, which the worker refused at the time, and
+#: never mentioned WhatsApp, `music.youtube.com`, `twitter.com` or the short
+#: TikTok links. Publishing the table is what lets the showcase be *derived* from
+#: what decides acceptance instead of being maintained beside it.
 #:
 #: Platforms with no host of their own are absent on purpose: `WHATSAPP` arrives
 #: as a share rather than a link, `WEB` is the terminal fallback for any host,
@@ -233,7 +233,9 @@ def _is_tiktok_photo_path(path: str) -> bool:
 
     Worth telling apart from an unsupported URL *format*: the link is perfectly
     valid and the user has no way to turn it into a video, so the answer has to
-    name the real reason (the same treatment Instagram image posts get).
+    name the real reason. An Instagram photo post *is* accepted since task-384 --
+    its slides are OCR'd -- and the same technique would apply here, but a TikTok
+    photo URL is refused before any worker sees it, which is a separate change.
     """
     parts = _path_segments(path)
     return len(parts) >= 3 and parts[0].startswith("@") and parts[1] == "photo"

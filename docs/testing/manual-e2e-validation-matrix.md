@@ -32,7 +32,8 @@ Each source app below represents a distinct share mechanism. Test each on at lea
 | S4 | Spotify | iOS / Android | Share Sheet / Intent | podcast_episode | spotify |
 | S5 | Apple Podcasts | iOS | Share Sheet | podcast_episode | apple_podcasts |
 | S6 | X (Twitter) | iOS / Android | Share Sheet / Intent | short_video / article | x |
-| S7 | Instagram | iOS / Android | Share Sheet / Intent | short_video | instagram |
+| S7 | Instagram (reel) | iOS / Android | Share Sheet / Intent | short_video | instagram |
+| S7b | Instagram (photo post or carousel) | iOS / Android | Share Sheet / Intent | image_post | instagram |
 | S8 | TikTok | iOS / Android | Share Sheet / Intent | short_video | tiktok |
 | S9 | WhatsApp (voice message) | iOS / Android | Share Sheet / Intent | audio_file | whatsapp |
 | S10 | Pocket Casts / Overcast | iOS / Android | Share Sheet / Intent | podcast_episode | rss / podcast_index |
@@ -179,7 +180,7 @@ Tests the inbox display with live polling, processing state badges, and pull-to-
 | IN-26 | Failed local submission | Network error during share save | "SUBMITTING" card shows error state, "Failed" badge, error message | Error clearly visible on the card |
 | IN-27 | Greeting changes by time | Check morning/afternoon/evening | "Good Morning/Afternoon/Evening, [name]" | Correct time-of-day greeting |
 | IN-28 | Relative time display | Items from just now, 5m, 2h, 1d, 5d ago | Shows "Just now", "5m ago", "2h ago", "Yesterday", "5d ago" | Correct relative formatting |
-| IN-29 | Failure marker in the Library | Share an Instagram photo post, wait for the failure, open Library | The row shows a red FAILED pill next to its type badge | Pill present and legible, including on a VIDEO / SHORT row whose type badge is itself reddish |
+| IN-29 | Failure marker in the Library | Share a direct link to an image file (`…/foo.jpg`), wait for the `NOT_AN_ARTICLE_PAGE` failure, open Library | The row shows a red FAILED pill next to its type badge | Pill present and legible, including on a VIDEO / SHORT row whose type badge is itself reddish |
 | IN-30 | Failure marker on the Home tile | Same item, Home > "Recently added" | The marker is drawn over the tile cover | Marker present; "Continue learning" tiles and folder tiles never carry it |
 | IN-31 | Search hit carries no marker | Search a query that matches the failed item | The hit renders exactly as before, with no marker | A search hit has no status, so nothing is inferred for it |
 | IN-32 | Failure announced once | VoiceOver / TalkBack on the failed row, then on the failed tile | Each label ends with "Import failed." | Announced once, inside the single existing label — not as a second focusable element |
@@ -214,7 +215,7 @@ Tests the media detail view with metadata, transcript status, and artifact actio
 | MD-22 | Polling stops when done | All artifacts in terminal state | No further /api/media/:id requests | Network traffic ceases |
 | MD-23 | Error loading media detail | Network error on GET /api/media/:id | Error icon, message, Retry button | Error state renders, Retry works |
 | MD-24 | MEDIA_NOT_FOUND error | 404 on media detail | "This media item was not found or is no longer available." | Correct friendly message |
-| MD-25 | Source request block on a requestable code | Open a media that failed with `IMAGE_POST_UNSUPPORTED` (share an Instagram photo post) | Under the error sentence and Refresh: a card "This media source isn't supported yet." with one "Request this source" button | Card present, button >= 48px, and neither the source URL nor any failure code appears on screen |
+| MD-25 | Source request block on a requestable code | Open a media that failed with `NOT_AN_ARTICLE_PAGE` (share a direct link to an image file, e.g. a `…/foo.jpg` URL: the article worker fetches it, sees `image/jpeg` and refuses it). Since task-384 an Instagram photo post no longer serves here — it succeeds | Under the error sentence and Refresh: a card "This media source isn't supported yet." with one "Request this source" button | Card present, button >= 48px, and neither the source URL nor any failure code appears on screen |
 | MD-26 | No block on a non-requestable code | Open a media that failed with `MEDIA_UNAVAILABLE` (deleted or private YouTube video) | Error sentence and Refresh only | Card absent — the "not supported yet" sentence would be false here |
 | MD-27 | Send the request | Tap "Request this source" | Button disables, spinner with "Sending...", then a checkmark with "Request sent. Thank you!" | Card height unchanged between the two states; the confirmation is not tappable |
 | MD-28 | Request while offline | Airplane mode, tap "Request this source" | "Network error. Please check your connection and try again." under the button | Button becomes tappable again, no crash, no half-sent state |

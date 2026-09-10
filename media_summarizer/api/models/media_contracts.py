@@ -29,6 +29,10 @@ class MediaType(str, Enum):
     ARTICLE = "article"
     YOUTUBE_VIDEO = "youtube_video"
     SHORT_VIDEO = "short_video"
+    # An Instagram photo post or carousel, read through the text of its images
+    # (task-384). It is not a `short_video` and not an `article`: the reader is
+    # looking at a publication made of pictures, and the tile says so.
+    IMAGE_POST = "image_post"
     AUDIO_FILE = "audio_file"
     SHARED_TEXT = "shared_text"
     UNKNOWN = "unknown"

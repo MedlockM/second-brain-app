@@ -315,7 +315,7 @@ Ref: `instagram_apify_resolver.py::InstagramApifyResolver.resolve`, `instagram_a
   - `NO_TRANSCRIBABLE_MEDIA` ← `resolver_non_retryable` (+`exception_type`), `no_transcript_or_audio_url`
   - `PROVIDER_UNAVAILABLE` ← `resolver_retryable`, `apify_run_not_succeeded` (both retryable)
   - `PROVIDER_RESULT_INVALID` ← `apify_result_invalid`
-  - `IMAGE_POST_UNSUPPORTED` ← `instagram_image_post`
+  - `POST_TEXT_EMPTY` / `DOCUMENT_PARSE_FAILED` ← `instagram_image_post_no_text` (photo posts only: the first when the OCR ran and found no text and the post has no caption either, the second when the parsing chain itself failed on every image)
   - `INVALID_JOB_MESSAGE` ← `missing_job_id`, `missing_normalized_url`, `processing_job_not_found`
   - `UNEXPECTED_ERROR` ← `unexpected_exception`
 - After max retries (`INSTAGRAM_WORKER_MAX_RETRIES`, default 3), the job is marked failed (`error_step="instagram_ingestion"`) and a failure event is published
@@ -339,26 +339,44 @@ Ref: `instagram_ingestion_worker.py::InstagramIngestionError`, `instagram_ingest
 | Provider/library | Identifier | Extracts | Key env vars |
 |---|---|---|---|
 | Apify Instagram Post Scraper | `apify~instagram-post-scraper` (configurable via `APIFY_INSTAGRAM_POST_ACTOR_ID`) | Image URLs, caption, comments, post type (single / carousel / video-post) | `APIFY_INSTAGRAM_API_TOKEN`, `APIFY_INSTAGRAM_POST_ACTOR_ID` (read by the shared adapter) |
+| LlamaParse, then Unstructured | see [Document](#document) — the chain lives in `core/services/document_parsing_service.py` and is shared with `document_parsing_worker` | The text printed inside each image of the post | `LLAMAPARSE_API_KEY`, `UNSTRUCTURED_API_KEY` |
 
 URL classification scans every path segment for a known indicator (`reel`, `p`, `tv`) so both `/p/<id>/` and `/<username>/p/<id>/` shapes resolve to the same content type.
 
+Since task-384 a photo post is **read**, not refused: what a carousel of slides, a screenshot or an infographic carries is text, and the parsing chain the document worker already pays for reads exactly that. There is no separate worker and no new queue — the OCR happens inside the Instagram Apify callback invocation, which is why that Lambda has a 300 s timeout where the other resolvers have 60 s.
+
 Workflow split inside the resolver:
-- **URL path `/p/...` (image post or carousel)** → returns `MediaType.IMAGE_POST` payload (image URLs + caption). The worker fails the job with `unsupported_content` and the user-facing reason "Instagram image posts are not supported yet.": no OCR/vision pipeline exists, and the `instagram-image-queue` this used to name was never provisioned.
+- **URL path `/p/...` (image post or carousel)** → returns a `MediaType.IMAGE_POST` payload (image URLs + caption). The worker downloads each image *on the callback* (the CDN URLs are signed with `oh`/`oe` and expire within days, so they are never persisted for a later run), parses them through the shared chain, and writes one `## Image N` section per slide into the transcript. A single-image post gets its text with no heading at all.
 - **URL path `/p/...` containing video** → currently treated as `IMAGE_POST` by the post scraper (the V1 pipeline does not split video posts from image posts; video posts surface only via `/reel/...` URLs).
 
-Ref: `instagram_apify_resolver.py::_detect_instagram_content_type`, `instagram_apify_resolver.py::_resolve_post`, `instagram_ingestion_worker.py` (`MediaType.IMAGE_POST` branch)
+Guards on the parsing loop, all in `instagram_ingestion_worker.py`: at most `INSTAGRAM_IMAGE_PARSE_MAX_IMAGES` (10) slides, a wall-clock budget of `INSTAGRAM_IMAGE_PARSE_BUDGET_SECONDS` (240 s) that stops the loop before the Lambda ceiling, a `INSTAGRAM_IMAGE_MAX_BYTES` (20 MB) cap per download, and each temporary file deleted right after it is parsed.
+
+The job completes in place: transcript uploaded to `TRANSCRIPT_BUCKET` as `{job_id}.md` (the `.md` suffix is what makes `raw_content_service` leave the section headings alone), `set_transcription_metadata(provider=…, images_parsed=…, duration_seconds=0, source="instagram_image_ocr")`, `mark_completed`, then a success `episode_completion_status` event — the same shape `x_ingestion_worker` uses for a text-only post. `job.media_type` becomes `image_post`, which the detail endpoint maps to the canonical `MediaType.IMAGE_POST`.
+
+Ref: `instagram_apify_resolver.py::_detect_instagram_content_type`, `instagram_apify_resolver.py::_resolve_post`, `instagram_ingestion_worker.py::_complete_image_post`, `core/services/document_parsing_service.py`
 
 ### Fallback chain
 
-No fallback — failure is terminal. There is no image pipeline to hand a post to.
+| Step | Trigger condition | Action |
+|---|---|---|
+| 1 | The post has images | Parse each one through LlamaParse, then Unstructured for that image if LlamaParse fails (the shared document chain) |
+| 2 | No image yielded any text, but the post has a caption | The caption *becomes* the transcript body. The author's description is then omitted from the media detail (`source_description_in_transcript` on the job metadata) rather than shown twice |
+| 3 | No text and no caption | Terminal failure — there is nothing to summarise |
+
+The caption is never concatenated to the OCR text: when the images speak, they are the document; the caption stays where task-383 put it, in `resolver_metadata`, and is served as the author's description.
+
+Only the user's minutes are debited, once per job, through `record_document_consumption` in the shared service (1 minute per 5 pages, same rate as an uploaded document) plus the LlamaParse pool counter keyed on `llamaparse:<job_id>`. No quota *gate* is added here: `check_submission_allowed` already ran at submission, and refusing a job halfway through its own ingestion would leave the user with a failure they cannot act on.
 
 ### Terminal failure mode
 
-Image-post failures surface from the post-scraper actor (auth, quota, content-type rejection) and use the same `InstagramIngestionError` taxonomy as Reels: `IMAGE_POST_UNSUPPORTED` when the post is a photo or carousel, `PROVIDER_UNAVAILABLE` / `PROVIDER_RESULT_INVALID` when the actor itself is at fault.
+Provider failures from the post-scraper actor (auth, quota, run not succeeded) use the same `InstagramIngestionError` taxonomy as Reels: `PROVIDER_UNAVAILABLE` / `PROVIDER_RESULT_INVALID`. The two failures specific to a photo post, both written with `reason="instagram_image_post_no_text"`:
+
+- `POST_TEXT_EMPTY` — every image was parsed successfully and none contained text, and the post has no caption either. The post is pictures without words; nothing is broken.
+- `DOCUMENT_PARSE_FAILED` — the parsing chain itself did not get to read the images: a download failed, both providers errored, or the budget ran out before any slide was parsed.
 
 ### Downstream dependencies
 
-- Image posts → none: the job is failed in place with `IMAGE_POST_UNSUPPORTED`
+- A parsed post → no transcription queue: the job is completed in place by the Instagram worker, exactly as an X post is. `EPISODE_COMPLETED_EVENTS_QUEUE` receives the success event, which is what gets the media indexed for search, its `review_blurb` generated and any artifact waiting on it resumed (`workers/events/media_completed_worker.py`)
 - Errors → `EPISODE_COMPLETED_EVENTS_QUEUE` env var, default queue `episode-completed-events` (failure event)
 
 ---
@@ -485,11 +503,18 @@ Publishes to `EPISODE_COMPLETED_EVENTS_QUEUE`. Never enqueues to Deepgram.
 | LlamaParse (cloud API) | `LlamaParseResolver` via `https://api.cloud.llamaindex.ai/api/parsing` | Structured markdown from PDF / DOCX / PPTX / XLSX / images (with OCR) | `LLAMAPARSE_API_KEY`, `LLAMAPARSE_TIMEOUT_SECONDS`, `LLAMAPARSE_POLL_INTERVAL`, `LLAMAPARSE_MAX_POLLS`, `DOCUMENT_BUCKET`, `TRANSCRIPT_BUCKET`, `DOCUMENT_PARSING_QUEUE`, `DOCUMENT_PARSING_VISIBILITY_TIMEOUT` |
 | (none) | `PlainTextResolver` | TXT / MD / RTF, decoded in-process — the file already *is* its text (task-380) | none |
 
+**The chain is not owned by this worker.** Since task-384 `parse_document_with_fallback`
+and the metering that follows it live in `core/services/document_parsing_service.py`,
+because the Instagram photo-post branch parses images through the very same chain and
+a worker importing another worker would be the wrong dependency edge. The worker keeps
+what is specific to an uploaded file: the S3 download, the page render for the cover,
+the transcript upload.
+
 **The text formats never reach a provider.** `parse_document_with_fallback` routes
 `TEXT_FORMATS` to `PlainTextResolver` before LlamaParse is called, so there is no
 primary/fallback pair for them: nothing a second provider could read better than
 the bytes themselves. They also report `page_count: 0`, which is what
-`_record_document_consumption` reads to charge zero minutes instead of rounding up
+`record_document_consumption` reads to charge zero minutes instead of rounding up
 to the single page every other format has.
 
 Workflow:
@@ -501,7 +526,7 @@ Workflow:
 
 E2E test seam: Upload a file with a filename starting with `__e2e_force_llamaparse_failure__` (e.g. `__e2e_force_llamaparse_failure__sample.pdf`) to trigger a simulated rate-limit error in `LlamaParseResolver.parse`, exercising the fallback in E2E tests. This approach avoids Lambda env-var propagation delays and requires no IAM permissions.
 
-Ref: `document_parsing/worker.py::parse_document_with_fallback`, `infrastructure/resolvers/llamaparse_resolver.py::LlamaParseResolver.parse`
+Ref: `core/services/document_parsing_service.py::parse_document_with_fallback`, `infrastructure/resolvers/llamaparse_resolver.py::LlamaParseResolver.parse`
 
 ### Fallback chain
 
@@ -509,7 +534,7 @@ Ref: `document_parsing/worker.py::parse_document_with_fallback`, `infrastructure
 |---|---|---|
 | 1 | LlamaParse returns ANY `ParseError` (rate limit, timeout, API error, auth error, network error) | Fall back to Unstructured API |
 
-Ref: `document_parsing/worker.py::parse_document_with_fallback` (lines 92–152)
+Ref: `core/services/document_parsing_service.py::parse_document_with_fallback`
 
 **Fallback provider:**
 
@@ -856,7 +881,7 @@ Which `MediaFailureCode` each worker can emit:
 |---|---|
 | `article_extraction_worker.py` | `NOT_AN_ARTICLE_PAGE`, `ARTICLE_TEXT_NOT_FOUND`, `PROVIDER_UNAVAILABLE`, `PROVIDER_TIMED_OUT`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
 | `youtube_ingestion_worker.py` | `MEDIA_UNAVAILABLE`, `GEO_RESTRICTED`, `AGE_RESTRICTED`, `NO_TRANSCRIPT_AVAILABLE`, `PROVIDER_RESULT_INVALID`, `PROVIDER_UNAVAILABLE`, `PROVIDER_CONFIG_ERROR`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
-| `instagram_ingestion_worker.py` | `NO_TRANSCRIBABLE_MEDIA`, `IMAGE_POST_UNSUPPORTED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RESULT_INVALID`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
+| `instagram_ingestion_worker.py` | `NO_TRANSCRIBABLE_MEDIA`, `POST_TEXT_EMPTY`, `DOCUMENT_PARSE_FAILED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RESULT_INVALID`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
 | `tiktok_ingestion_worker.py` | `MEDIA_UNAVAILABLE`, `LIVE_CONTENT_UNSUPPORTED`, `NO_TRANSCRIBABLE_MEDIA`, `NO_TRANSCRIPT_AVAILABLE`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RATE_LIMITED`, `PROVIDER_TIMED_OUT`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
 | `x_ingestion_worker.py` | `MEDIA_UNAVAILABLE`, `POST_TEXT_EMPTY`, `PROVIDER_UNAVAILABLE`, `PROVIDER_RATE_LIMITED`, `PROVIDER_TIMED_OUT`, `PROVIDER_RESULT_INVALID`, `PROVIDER_AUTH_FAILED`, `PROVIDER_CREDITS_DEPLETED`, `PROVIDER_CONFIG_ERROR`, `INVALID_JOB_MESSAGE`, `UNEXPECTED_ERROR` |
 | `document_parsing/worker.py` | `DOCUMENT_PARSE_FAILED` |
@@ -949,7 +974,7 @@ The `RuleBasedUrlClassifier` in `media_summarizer/core/media_ingestion/adapters/
 | `*.deezer.com` | `/show/*` or `/episode/*` | PODCAST | DEEZER | `podcast.default` | `podcastindex-resolution-queue` |
 | `*.rss`, `*.xml`, `feeds.*`, `rss.*`, path with `feed` segment | feed-like | PODCAST | RSS | `podcast.default` | `podcastindex-resolution-queue` |
 | `youtube.com`, `youtu.be`, `m.*`, `music.*` | `/watch?v=`, `/shorts/`, `/live/`, `/embed/` | YOUTUBE | YOUTUBE | `youtube.default` | `youtube-ingestion-queue` |
-| `instagram.com` | `/reel/*`, `/p/*`, `/tv/*` | SOCIAL_VIDEO | INSTAGRAM | `instagram.default` | `instagram-ingestion-queue` (every shape; the worker fails image posts in place) |
+| `instagram.com` | `/reel/*`, `/p/*`, `/tv/*` | SOCIAL_VIDEO | INSTAGRAM | `instagram.default` | `instagram-ingestion-queue` (every shape; the worker completes image posts in place, from the text of their images) |
 | `x.com`, `twitter.com` | `/{user}/status/{id}`, `/i/status/{id}`, `/i/web/status/{id}` | ARTICLE | X | `x.default` | `x-ingestion-queue` |
 | `tiktok.com`, `vm.tiktok.com` | `/@user/video/*` or `/t/*` | SOCIAL_VIDEO | TIKTOK | `tiktok.default` | `tiktok-ingestion-queue` |
 | any | path ends with `.mp3/.m4a/.aac/.ogg/.wav/.flac/.opus` | AUDIO | DIRECT_URL | `audio.default` | `deepgram-transcription-queue` |

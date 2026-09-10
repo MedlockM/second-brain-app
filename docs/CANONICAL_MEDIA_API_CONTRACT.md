@@ -227,11 +227,11 @@ media from this Instagram URL." on an `fr-FR` screen (task-359).
 
 The vocabulary is `MediaFailureCode` in
 `media_summarizer/core/models/failure_codes.py` — the source of truth, whose
-docstring states the rules for adding a member. As of task-359:
+docstring states the rules for adding a member. As of task-384:
 
 | Group | Codes |
 |---|---|
-| The source cannot yield what we need | `MEDIA_UNAVAILABLE`, `GEO_RESTRICTED`, `AGE_RESTRICTED`, `LIVE_CONTENT_UNSUPPORTED`, `IMAGE_POST_UNSUPPORTED`, `NO_TRANSCRIBABLE_MEDIA`, `NO_TRANSCRIPT_AVAILABLE`, `POST_TEXT_EMPTY`, `NOT_AN_ARTICLE_PAGE`, `ARTICLE_TEXT_NOT_FOUND`, `DOCUMENT_PARSE_FAILED` |
+| The source cannot yield what we need | `MEDIA_UNAVAILABLE`, `GEO_RESTRICTED`, `AGE_RESTRICTED`, `LIVE_CONTENT_UNSUPPORTED`, `NO_TRANSCRIBABLE_MEDIA`, `NO_TRANSCRIPT_AVAILABLE`, `POST_TEXT_EMPTY`, `NOT_AN_ARTICLE_PAGE`, `ARTICLE_TEXT_NOT_FOUND`, `DOCUMENT_PARSE_FAILED` |
 | The extraction chain is at fault | `PROVIDER_UNAVAILABLE`, `PROVIDER_RESULT_INVALID`, `PROVIDER_RATE_LIMITED`, `PROVIDER_TIMED_OUT` |
 | Our configuration or budget | `PROVIDER_AUTH_FAILED`, `PROVIDER_CREDITS_DEPLETED`, `PROVIDER_CONFIG_ERROR` |
 | The user's allowance | `OUT_OF_MINUTES`, `ITEM_TOO_LONG` |

@@ -36,9 +36,18 @@ locals {
     }
     instagram_ingestion = {
       memory_size = 512
-      timeout     = 60
-      queue_arn   = aws_sqs_queue.instagram_ingestion.arn
-      handler     = "media_summarizer.workers.lambda_handlers.instagram_ingestion_handler"
+      # 300 s, not the 60 s the other resolvers get: since task-384 a photo post is
+      # OCR'd inside this invocation, image by image, through LlamaParse (upload
+      # then poll, up to 120 s for one file) with the Unstructured fallback behind
+      # it. That is the document worker's workload, and it is why that worker has
+      # 600 s. The worker's own budget (INSTAGRAM_IMAGE_PARSE_BUDGET_SECONDS, 240 s)
+      # stops the parsing loop before this ceiling, so a long carousel completes
+      # with the slides it managed rather than being killed with nothing. Stays
+      # under the queue's 360 s visibility timeout so a redelivery can never
+      # overlap a running invocation.
+      timeout   = 300
+      queue_arn = aws_sqs_queue.instagram_ingestion.arn
+      handler   = "media_summarizer.workers.lambda_handlers.instagram_ingestion_handler"
     }
     tiktok_ingestion = {
       memory_size = 512

@@ -76,23 +76,108 @@ task-383 est ce qui fait voyager une description jusqu'au corpus. Sans elle, la 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `parse_document_with_fallback` et le décompte de consommation (`_record_document_consumption`) vivent dans un module partagé sous `core/services/`, appelés depuis là par le worker document comme par le worker Instagram. Aucun worker n'importe un autre worker.
-- [ ] #2 Sur `MediaType.IMAGE_POST`, le worker Instagram télécharge chaque URL de `resolver_metadata["image_urls"]` dans l'ordre du carrousel vers un fichier temporaire et la parse par la chaîne partagée. Rien n'est téléchargé plus tard que le callback Apify : un commentaire dit que les URLs `scontent.*.cdninstagram.com` sont signées et expirent.
-- [ ] #3 Le `DocumentFormat` de chaque image est déduit du suffixe de son chemin d'URL ; un suffixe absent ou inconnu de l'enum est parsé comme `IMAGE_JPG`, avec un commentaire disant pourquoi (le `displayUrl` du post scraper sert du JPEG).
-- [ ] #4 Le transcript est le texte parsé des images, une section par image dans l'ordre du carrousel, uploadé dans `TRANSCRIPT_BUCKET` sous la clé du job, puis `set_transcription_location` + `set_transcription_metadata` (provider, nombre d'images parsées, `duration_seconds: 0`, source) + `mark_completed` + événement `episode_completion_status`, sur le motif de `x_ingestion_worker.py:461-507`.
-- [ ] #5 La caption n'est jamais recopiée dans le transcript quand des images ont rendu du texte : elle voyage par la description de task-383. Le prompt d'un post photo ne porte donc pas deux fois le même paragraphe.
-- [ ] #6 Quand aucune image ne rend de texte — OCR vide ou parsing en échec sur toutes — et qu'une caption existe, la caption devient le corps du transcript et la description est omise pour ce job. Le média se termine normalement.
-- [ ] #7 Sans texte parsé et sans caption, le job échoue en terminal : `POST_TEXT_EMPTY` si le parsing a réussi mais n'a rien rendu, `DOCUMENT_PARSE_FAILED` si les deux providers ont échoué. Aucun membre n'est ajouté à `MediaFailureCode`.
-- [ ] #8 Le parsing est facturé une fois par job comme un document : `record_document_parse` avec `page_count` = nombre d'images parsées, et `provider_pool_guard.record_spend(POOL_LLAMAPARSE)` quand LlamaParse a fait le travail. Les deux sont idempotents sur l'id du job (`quota_enforcer.gate_token`), et un échec de compteur ne fait pas échouer une ingestion réussie.
-- [ ] #9 Aucun gate de quota n'est ajouté sur ce chemin : le débit est constaté après le parsing, comme sur le chemin document (`document_parsing/worker.py:514`). Un commentaire dit que `check_submission_allowed` est déjà passé au partage.
-- [ ] #10 La branche image post passe par `apify_orchestration.complete_callback(job)` comme la branche reel (`instagram_ingestion_worker.py:411-415`) : un callback Apify redélivré ne re-parse pas, ne re-uploade pas et ne re-débite pas.
-- [ ] #11 La cover vient de `cover_capture.capture_from_url` sur la `cover_url` du resolver (la première image), le même appel que la branche reel : aucune URL CDN signée n'est stockée sur la ligne de bibliothèque.
-- [ ] #12 Le worker pose `job.media_type` à `image_post` avant de terminer, de sorte que la ligne de bibliothèque cesse de décrire un post photo comme une vidéo (le mirror recopie `media_type`, `durable_media_service.py:446-451`).
-- [ ] #13 `_LEGACY_MEDIA_TYPE_MAP` (`api/endpoints/media.py:672-680`) mappe `image_post`, si bien que l'endpoint de détail sert un `MediaType` canonique au lieu de `unknown`.
-- [ ] #14 `MediaFailureCode.IMAGE_POST_UNSUPPORTED` est supprimé de `failure_codes.py:44` et de tous ses sites backend ; `grep -rn IMAGE_POST_UNSUPPORTED media_summarizer/` ne renvoie plus rien. Rien n'est conservé pour les lignes déjà écrites en base : `_media_failure_code` les laisse tomber par contrat.
-- [ ] #15 Le commentaire de `share_targets.py:123-128` ne dit plus que les posts photo ne sont pas offerts, et celui de `_is_tiktok_photo_path` (`classifiers.py:236`) ne renvoie plus au « même traitement » que les posts image Instagram.
-- [ ] #16 `docs/INGESTION_WORKERS_PROVIDERS.md` (:317, :356, :360, :858) et `docs/CANONICAL_MEDIA_API_CONTRACT.md:234` décrivent le chemin réel des posts image et ne citent plus `IMAGE_POST_UNSUPPORTED`.
-- [ ] #17 Les lignes MD-25 et MD-26 de `docs/testing/manual-e2e-validation-matrix.md:217-218` n'utilisent plus le post photo Instagram pour produire un échec « demandable » : elles nomment un autre des 8 codes qu'un testeur peut réellement provoquer.
+- [x] #1 `parse_document_with_fallback` et le décompte de consommation (`_record_document_consumption`) vivent dans un module partagé sous `core/services/`, appelés depuis là par le worker document comme par le worker Instagram. Aucun worker n'importe un autre worker.
+- [x] #2 Sur `MediaType.IMAGE_POST`, le worker Instagram télécharge chaque URL de `resolver_metadata["image_urls"]` dans l'ordre du carrousel vers un fichier temporaire et la parse par la chaîne partagée. Rien n'est téléchargé plus tard que le callback Apify : un commentaire dit que les URLs `scontent.*.cdninstagram.com` sont signées et expirent.
+- [x] #3 Le `DocumentFormat` de chaque image est déduit du suffixe de son chemin d'URL ; un suffixe absent ou inconnu de l'enum est parsé comme `IMAGE_JPG`, avec un commentaire disant pourquoi (le `displayUrl` du post scraper sert du JPEG).
+- [x] #4 Le transcript est le texte parsé des images, une section par image dans l'ordre du carrousel, uploadé dans `TRANSCRIPT_BUCKET` sous la clé du job, puis `set_transcription_location` + `set_transcription_metadata` (provider, nombre d'images parsées, `duration_seconds: 0`, source) + `mark_completed` + événement `episode_completion_status`, sur le motif de `x_ingestion_worker.py:461-507`.
+- [x] #5 La caption n'est jamais recopiée dans le transcript quand des images ont rendu du texte : elle voyage par la description de task-383. Le prompt d'un post photo ne porte donc pas deux fois le même paragraphe.
+- [x] #6 Quand aucune image ne rend de texte — OCR vide ou parsing en échec sur toutes — et qu'une caption existe, la caption devient le corps du transcript et la description est omise pour ce job. Le média se termine normalement.
+- [x] #7 Sans texte parsé et sans caption, le job échoue en terminal : `POST_TEXT_EMPTY` si le parsing a réussi mais n'a rien rendu, `DOCUMENT_PARSE_FAILED` si les deux providers ont échoué. Aucun membre n'est ajouté à `MediaFailureCode`.
+- [x] #8 Le parsing est facturé une fois par job comme un document : `record_document_parse` avec `page_count` = nombre d'images parsées, et `provider_pool_guard.record_spend(POOL_LLAMAPARSE)` quand LlamaParse a fait le travail. Les deux sont idempotents sur l'id du job (`quota_enforcer.gate_token`), et un échec de compteur ne fait pas échouer une ingestion réussie.
+- [x] #9 Aucun gate de quota n'est ajouté sur ce chemin : le débit est constaté après le parsing, comme sur le chemin document (`document_parsing/worker.py:514`). Un commentaire dit que `check_submission_allowed` est déjà passé au partage.
+- [x] #10 La branche image post passe par `apify_orchestration.complete_callback(job)` comme la branche reel (`instagram_ingestion_worker.py:411-415`) : un callback Apify redélivré ne re-parse pas, ne re-uploade pas et ne re-débite pas.
+- [x] #11 La cover vient de `cover_capture.capture_from_url` sur la `cover_url` du resolver (la première image), le même appel que la branche reel : aucune URL CDN signée n'est stockée sur la ligne de bibliothèque.
+- [x] #12 Le worker pose `job.media_type` à `image_post` avant de terminer, de sorte que la ligne de bibliothèque cesse de décrire un post photo comme une vidéo (le mirror recopie `media_type`, `durable_media_service.py:446-451`).
+- [x] #13 `_LEGACY_MEDIA_TYPE_MAP` (`api/endpoints/media.py:672-680`) mappe `image_post`, si bien que l'endpoint de détail sert un `MediaType` canonique au lieu de `unknown`.
+- [x] #14 `MediaFailureCode.IMAGE_POST_UNSUPPORTED` est supprimé de `failure_codes.py:44` et de tous ses sites backend ; `grep -rn IMAGE_POST_UNSUPPORTED media_summarizer/` ne renvoie plus rien. Rien n'est conservé pour les lignes déjà écrites en base : `_media_failure_code` les laisse tomber par contrat.
+- [x] #15 Le commentaire de `share_targets.py:123-128` ne dit plus que les posts photo ne sont pas offerts, et celui de `_is_tiktok_photo_path` (`classifiers.py:236`) ne renvoie plus au « même traitement » que les posts image Instagram.
+- [x] #16 `docs/INGESTION_WORKERS_PROVIDERS.md` (:317, :356, :360, :858) et `docs/CANONICAL_MEDIA_API_CONTRACT.md:234` décrivent le chemin réel des posts image et ne citent plus `IMAGE_POST_UNSUPPORTED`.
+- [x] #17 Les lignes MD-25 et MD-26 de `docs/testing/manual-e2e-validation-matrix.md:217-218` n'utilisent plus le post photo Instagram pour produire un échec « demandable » : elles nomment un autre des 8 codes qu'un testeur peut réellement provoquer.
 - [ ] #18 Une vérification directe contre `-dev` est consignée dans les Implementation Notes : sur un job de post photo réel, `extraction_metadata.resolver_metadata.image_urls` est bien peuplée en base (`aws dynamodb ... --region eu-west-3` — `AWS_REGION` du shell pointe ailleurs). C'est la prémisse dont dépend tout le chemin de parsing.
-- [ ] #19 `ruff check` et `mypy` passent sur `media_summarizer/`.
+- [x] #19 `ruff check` et `mypy` passent sur `media_summarizer/`.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+18 of the 19 ACs are done. **AC #18 stays unchecked**, and the reason is not a
+missing effort but a missing row: `-dev` has never held a photo-post job.
+
+What was actually run against real `-dev` DynamoDB (region passed explicitly,
+because the shell's `AWS_REGION` points elsewhere):
+
+```
+aws dynamodb scan --table-name processing_jobs-dev --region eu-west-3 \
+  --projection-expression "source_url,media_type,source_platform"
+aws dynamodb scan --table-name processing_jobs-dev --region eu-west-3 \
+  --filter-expression "source_platform = :p" \
+  --expression-attribute-values '{":p":{"S":"instagram"}}' \
+  --projection-expression "extraction_metadata,job_status"
+aws dynamodb scan --table-name user_media-dev --region eu-west-3 \
+  --projection-expression "media_type"
+```
+
+- 77 jobs in `processing_jobs-dev`, 15 of them Instagram, and **all 15 are `/reel/`
+  URLs — zero `/p/`**. There is no row whose
+  `extraction_metadata.resolver_metadata.image_urls` could be read back.
+  `user_media-dev` (76 rows) confirms it from the other side: media types are only
+  `document`, `article`, `short_video`, `youtube_video`, `podcast_episode`,
+  `audio_file` — no `image_post`, and no job in the table carries an
+  `IMAGE_POST_UNSUPPORTED` code either.
+- The premise could not have been satisfied even if a photo post had been shared:
+  the refusal path this task deletes went through `_mark_job_failed`, which rewrites
+  `extraction_metadata` **without** `resolver_metadata`. The image URLs were
+  computed by the resolver and dropped by the failure handler before any write. The
+  same scan shows this directly: of the 15 Instagram jobs, the 13 `completed` ones
+  carry a `resolver_metadata` map and the 2 `failed` ones carry none.
+
+What *was* verified directly instead, on the same table, and is the closest true
+statement to what AC #18 wanted: on those 13 completed Instagram jobs,
+`extraction_metadata.resolver_metadata` round-trips intact through DynamoDB — the
+observed keys are `audio_url_available`, `audio_url_kind`, `caption`,
+`duration_seconds`, `instagram_content_type`, `provider`, `provider_actor`,
+`resolution_mode`, `resolver_version`, `transcript_source`. The map the new code
+reads `image_urls` from is therefore stored and returned verbatim; `_resolve_post`
+puts `image_urls` in that same map. Confirming it on a real photo post requires a
+deploy and one share, which is owner note #1 of this task.
+
+### One deviation from the description
+
+The description states "no Terraform change". That was wrong, and following it
+would have shipped a path that dies on every carousel: the `instagram_ingestion`
+Lambda had a **60 s** timeout, while a single LlamaParse upload-then-poll can take
+up to 120 s. `modules/platform/lambda_workers.tf` now gives that function 300 s,
+with a comment explaining the workload, the worker's own 240 s parsing budget and
+why 300 s stays under the queue's 360 s visibility timeout (a redelivery must not
+overlap a running invocation). `terraform plan` against dev shows exactly this and
+nothing else from this task:
+
+```
+# module.platform.aws_lambda_function.worker["instagram_ingestion"] will be updated in-place
+~ timeout = 60 -> 300
+```
+
+(The plan's two other diffs — a `BugReportCreated` metric filter to add and
+`job_archiver`'s `source_code_hash` — are pre-existing drift, untouched here.)
+
+The env-var half of that claim held: `TRANSCRIPT_BUCKET` and the parser keys were
+already on this Lambda through the shared `local.lambda_environment`.
+
+### Also corrected, because the change made them false
+
+- `quota_enforcer.py` and `pricing_config_service.py` both listed "Instagram photo
+  posts" among the paths that cost zero minutes. They now bill at the document rate.
+- `docs/MEDIA_INGESTION_CORE_ARCHITECTURE.md` said the worker fails image posts
+  with `unsupported_content`, and repeated the free-list claim.
+- `docs/CANONICAL_MEDIA_API_OPENAPI.yaml` had a stale `media_type` enum; `image_post`
+  is added, and the two enums are resynced with the canonical models.
+- Matrix rows S7/IN-29 used the photo post as a failure fixture. IN-29 and MD-25 now
+  use a direct image-file URL, which fails `NOT_AN_ARTICLE_PAGE` in the article
+  worker — a code that is in task-381's requestable list, so MD-25 still tests what
+  it was written to test. S7b is the new photo-post success row.
+
+### Not done, on purpose
+
+**No automated test was added** (this project forbids them unless explicitly
+requested). Nothing in the ACs asked for one, so nothing was skipped for it.
+<!-- SECTION:NOTES:END -->

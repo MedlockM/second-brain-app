@@ -45,7 +45,7 @@ Not allowed:
 
 ## Consumption enforcement (task-288, per the validated model of task-287)
 
-**One unit is metered: the minute.** A minute is a minute of media we pay a transcription provider to process, plus three flat conversions — a bought caption set counts 1, five document pages count 1, five sources of a folder generation count 1. Everything else (articles, web pages, TikToks, Instagram photo posts, single-item AI generations) is unlimited and costs nothing.
+**One unit is metered: the minute.** A minute is a minute of media we pay a transcription provider to process, plus three flat conversions — a bought caption set counts 1, five document pages count 1, five sources of a folder generation count 1. Everything else (articles, web pages, TikToks, single-item AI generations) is unlimited and costs nothing. An Instagram photo post is *not* in that free list since task-384: its slides go through the paid document parser, so they are billed at the document rate, five images to the minute, by the same `record_document_parse` an upload uses.
 
 **The meter follows the provider call, not the URL.** An API endpoint only ever *checks*; the debit happens where provider money is spent — the Deepgram gate (`audio_quota_gate`), the paid caption fetch, the document parse, the folder generation. That is what makes "a transcription nobody charged" and "the same import charged twice" unrepresentable rather than merely fixed. There is no per-platform category map and therefore no platform that can be exempt.
 
@@ -246,8 +246,13 @@ happens in the worker, never in the HTTP request:
    minutes it is long, like any other audio.
 5. For **Image posts** (single or carousel): the Apify Post Scraper returns
    `displayUrl`, `images`, `childPosts` and the resolver a `MediaType.IMAGE_POST`
-   payload. The worker fails the job with `unsupported_content` — no OCR/vision
-   pipeline exists.
+   payload. Since task-384 the worker *reads* the post instead of refusing it: on
+   the Apify callback it downloads each image (the signed CDN URLs expire, so they
+   are never kept for later) and parses them through the document chain shared in
+   `core/services/document_parsing_service.py`, one transcript section per slide.
+   When no image holds any text the caption becomes the transcript body instead;
+   when there is neither, the job fails with `POST_TEXT_EMPTY`. The job completes
+   in the Instagram worker, without ever touching Deepgram.
 6. **Caption**: extracted from the `caption` field of every scraper response and
    persisted in resolved metadata, i.e. under
    `extraction_metadata.resolver_metadata.caption` on the job — which is where the
