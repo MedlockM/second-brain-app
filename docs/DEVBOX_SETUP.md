@@ -32,20 +32,36 @@ ici**, seulement le moyen de la récupérer. Le repo est public (`AGENTS.md`).
 
 ## 1. Ce qui ne se régénère pas
 
-Presque tout se reconstruit. **Trois exceptions** à transférer hors ligne (clé
+Presque tout se reconstruit. **Une seule exception** à transférer hors ligne (clé
 USB ou gestionnaire de mots de passe — **jamais** un service en ligne) :
 
 | Fichier | Pourquoi | Alternative si perdu |
 |---|---|---|
 | `~/.aws/credentials` | Porte l'access key du profil `second-brain-app`, la seule valeur qui authentifie. AWS ne l'affiche qu'à la création et ne la stocke nulle part sous forme récupérable | Créer une nouvelle access key dans IAM, puis **supprimer l'ancienne** (voir §4) |
-| La clé **App Store Connect API** (`~/.appstoreconnect/private_keys/AuthKey_*.p8`) | Apple ne propose le `.p8` au téléchargement **qu'une fois**. Trois consommateurs en dépendent : `eas submit`, RevenueCat iOS, et le triage quotidien — MCP `asc-testflight` et `scripts/testflight_feedback.py` | Révoquer la clé dans App Store Connect → *Users and Access* → *Integrations* → *App Store Connect API*, en créer une neuve, puis la redéclarer dans les trois consommateurs |
-| La clé **In-App Purchase** (`SubscriptionKey_*.p8`) | Même téléchargement unique. Déjà téléversée dans RevenueCat (`subscription_key_configured`), et RevenueCat ne la restitue pas | En créer une neuve au même endroit et la re-téléverser dans RevenueCat |
 
-La troisième clé Apple du poste, celle de **Sign in with Apple**, n'est **pas**
-dans cette liste : son PEM vit dans Secrets Manager sous `APPLE_PRIVATE_KEY` et le
-`.env` reconstruit la récupère (§6). Vérifié identique au `.p8` du disque le
-2026-09-11. Le tableau des trois clés et de leurs consommateurs est dans
-`mobile/MOBILE_CI_CD.md`.
+Les trois clés Apple `.p8` du poste **étaient** dans ce tableau jusqu'au
+2026-09-11. Elles n'y sont plus : leur PEM vit désormais dans Secrets Manager, et
+le §7 les réécrit sur disque. Apple ne les retélécharge pourtant qu'une fois —
+c'est le coffre qui a changé, pas Apple.
+
+| Clé Apple | Où elle est sauvegardée |
+|---|---|
+| *Sign in with Apple* | `APPLE_PRIVATE_KEY` du secret runtime ; le `.env` reconstruit la récupère (§6) |
+| *App Store Connect API* | `ASC_PRIVATE_KEY` du secret `media-summarizer-devbox` (§7) |
+| *In-App Purchase* | `APPLE_IAP_PRIVATE_KEY` du même secret (§7) |
+
+Les trois ont été vérifiées identiques au `.p8` du disque, octet pour octet, le
+2026-09-11. Le tableau de leurs consommateurs est dans `mobile/MOBILE_CI_CD.md`.
+
+Ce qui rend la manœuvre possible sans contradiction : l'argument du « coffre qui
+ne peut pas contenir sa propre clé » (plus bas) vaut **uniquement** pour
+`~/.aws/credentials`. Tout le reste, une fois authentifié auprès d'AWS, se lit.
+Étendre cet argument aux clés Apple était le raccourci qui les laissait dehors.
+
+Contrepartie à connaître : qui obtient les clés AWS obtient maintenant aussi
+l'accès App Store Connect **Admin**. Deux compromissions distinctes n'en font
+plus qu'une. Arbitrage assumé — sur un poste solo, les deux vivaient déjà sur le
+même disque.
 
 Son voisin `~/.aws/config` n'en est pas une : il ne contient aucun secret et vit
 dans le repo (`infrastructure/aws/config.example`, §4).
@@ -279,13 +295,63 @@ npx expo prebuild --platform android --clean    # régénère android/, debug.ke
 
 Les valeurs `EXPO_PUBLIC_*` vivent dans les variables d'environnement EAS
 (`eas env:list development`). Une copie de secours du fichier complet est dans le
-secret AWS `media-summarizer-devbox-mobile-env` — jamais lu par une Lambda ni par
-Terraform, uniquement une cible de restauration.
+secret AWS `media-summarizer-devbox`.
 
 Sur les keystores : `mobile/android/app/debug.keystore` porte les credentials de
 debug publics d'Android et est réécrit à chaque `prebuild` — rien à sauvegarder.
 Le keystore d'**upload**, lui, est géré par EAS (`eas credentials`), pas par ce
 repo.
+
+### Le secret `media-summarizer-devbox`
+
+Créé à la main le 2026-09-11, **hors Terraform**, et lu par personne : ni Lambda,
+ni Terraform, ni code applicatif. Sa seule raison d'être est qu'un humain remonte
+une machine. Il porte quinze clés : les sept `EXPO_PUBLIC_*` ci-dessus, les deux
+clés Apple de §1 avec leur Key ID, et les trois valeurs de `claude-bedrock`.
+
+Restaurer les deux `.p8` et le wrapper Bedrock, sans qu'aucune valeur ne passe
+par un fichier intermédiaire ni par la ligne de commande :
+
+```bash
+mkdir -p ~/.appstoreconnect/private_keys ~/.config/claude-bedrock
+aws secretsmanager get-secret-value --secret-id media-summarizer-devbox \
+  --region eu-west-3 --query SecretString --output text \
+| python3 -c '
+import json, os, stat, sys
+s = json.load(sys.stdin)
+home = os.path.expanduser("~")
+# AWS_REGION, pas BEDROCK_AWS_REGION : le wrapper doit exporter le nom que lit le
+# SDK. La cle est renommee DANS le secret pour quun export naif de lensemble ne
+# repointe pas tout le projet sur la region de Bedrock. Valeurs entre guillemets,
+# comme loriginal.
+env = ("export AWS_BEARER_TOKEN_BEDROCK=\"" + s["AWS_BEARER_TOKEN_BEDROCK"] + "\"\n"
+       "export AWS_REGION=\"" + s["BEDROCK_AWS_REGION"] + "\"\n"
+       "export ANTHROPIC_MODEL=\"" + s["ANTHROPIC_MODEL"] + "\"\n")
+targets = [
+    (home + "/.appstoreconnect/private_keys/AuthKey_" + s["ASC_KEY_ID"] + ".p8", s["ASC_PRIVATE_KEY"]),
+    (home + "/Documents/SubscriptionKey_" + s["APPLE_IAP_KEY_ID"] + ".p8", s["APPLE_IAP_PRIVATE_KEY"]),
+    (home + "/.config/claude-bedrock/env", env),
+]
+for path, content in targets:
+    open(path, "w").write(content)
+    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    print("écrit", path)
+print("ASC_ISSUER_ID =", s["ASC_ISSUER_ID"], "(pour la registration MCP, §3)")
+'
+```
+
+Rejoué le 2026-09-11 contre un `HOME` bidon : les deux `.p8` ressortent identiques
+à l'octet près, en `600`. Deux pièges rencontrés en l'écrivant, tous deux évités
+dans la forme ci-dessus — une f-string ne peut pas contenir de backslash
+(`SyntaxError` en 3.10/3.11, d'où les concaténations), et comparer le résultat
+avec `diff` **imprime la clé privée dans le terminal** : utiliser `cmp -s`.
+
+**Le piège de la région.** `claude-bedrock` exporte `AWS_REGION=us-east-1`, la
+région de Bedrock, alors que l'infra du projet est en `eu-west-3`. Un shell qui
+a sourcé cet `env` fait lire au code la mauvaise région, et l'erreur se présente
+comme une table DynamoDB absente. C'est pourquoi la clé est stockée sous
+`BEDROCK_AWS_REGION` dans le secret : elle ne peut pas repeupler `AWS_REGION` par
+accident, seul le wrapper la remet sous son vrai nom.
 
 ---
 
