@@ -316,13 +316,22 @@ cd mobile && npx eas env:list development && npm run typecheck
 `IMPORT_OK` est le contrôle le plus utile : le code lit ses noms de ressources
 via `required_env()`, sans fallback, donc un import réussi prouve que le `.env`
 est complet et cohérent avec l'infra déployée. Attendu aujourd'hui :
-`IMPORT_OK 73`.
+`IMPORT_OK 68`.
 
-La procédure §6 a été validée en entier le 2026-08-13 depuis ce poste : 35 des 37
-clés injectées (les 2 sautées sont celles listées plus haut), `IMPORT_OK 73`, puis
+La procédure §6 a été rejouée en entier le 2026-09-11 depuis ce poste : 38 des 40
+clés injectées (les 2 sautées sont celles listées plus haut), `IMPORT_OK 68`, puis
 boot `uvicorn` avec `PRESTART_INFRA_CHECK=1` et `GET /docs` → `200`. Ce dernier
 point est ce qui prouve le plus : le check infra tape réellement AWS, donc un
-`200` valide les 48 noms de ressources contre l'environnement dev déployé.
+`200` valide les noms de ressources contre l'environnement dev déployé.
+
+Le compte de routes et le compte de clés bougent à chaque tâche ; ils datent la
+dernière vérification, ils ne sont pas un contrat. Ce qui compte est que l'import
+passe et que `/docs` réponde `200`.
+
+Cette validation a aussi montré pourquoi le `.env` ne se transfère pas (§1) : le
+`.env` du poste de référence avait dérivé au point de ne plus démarrer du tout —
+il lui manquait `USER_PUSH_TOKENS_TABLE`, que le template porte. Le `.env`
+reconstruit boote, l'ancien non.
 
 ---
 
@@ -348,7 +357,18 @@ Ce qui reste manuel ou fragile, à connaître avant le prochain déménagement :
   de voir le paywall avec de vrais prix tant que les abonnements n'existent pas
   dans App Store Connect. Bascule locale et volontaire — vérifier laquelle des
   deux est en place avant de conclure quoi que ce soit sur un build.
+- **`scripts/check_env_example_complete.py` échoue au 2026-09-11** sur sept
+  variables lues par le code et absentes du template :
+  `ARTICLE_FETCH_TIMEOUT_SECONDS`, `ARTIFACT_INTERNAL_STALL_SECONDS`, les quatre
+  `INSTAGRAM_IMAGE_*` et `MEDIA_IDEMPOTENCE_RECONCILE_APPLY`. Les sept sont des
+  `os.environ.get(..., défaut)` : elles ne bloquent aucun démarrage, et le boot
+  §9 passe malgré le rouge. C'est une dette de documentation, pas une panne — ne
+  pas la confondre avec un `.env` incomplet, qui lui lève au moment de l'import.
 - **Branches locales non poussées** : le dépôt distant ne garde que ce qui a été
   poussé. Avant de débrancher, `git push --all origin` et vérifier que chaque
   branche a un upstream (`git config --global push.autoSetupRemote true` évite le
-  problème à la racine).
+  problème à la racine). Les branches `worktree-agent-*` laissées par le
+  dispatcher sont l'exception : leur contenu est repris sur `main` au merge, et ce
+  qui reste sur la branche est l'état antérieur à la relecture. Vérifier avant de
+  pousser par réflexe (`git log main..<branche>`), plutôt que d'archiver une
+  variante périmée.
