@@ -32,12 +32,20 @@ ici**, seulement le moyen de la récupérer. Le repo est public (`AGENTS.md`).
 
 ## 1. Ce qui ne se régénère pas
 
-Presque tout se reconstruit. **Une seule exception** à transférer hors ligne (clé
+Presque tout se reconstruit. **Trois exceptions** à transférer hors ligne (clé
 USB ou gestionnaire de mots de passe — **jamais** un service en ligne) :
 
 | Fichier | Pourquoi | Alternative si perdu |
 |---|---|---|
 | `~/.aws/credentials` | Porte l'access key du profil `second-brain-app`, la seule valeur qui authentifie. AWS ne l'affiche qu'à la création et ne la stocke nulle part sous forme récupérable | Créer une nouvelle access key dans IAM, puis **supprimer l'ancienne** (voir §4) |
+| La clé **App Store Connect API** (`~/.appstoreconnect/private_keys/AuthKey_*.p8`) | Apple ne propose le `.p8` au téléchargement **qu'une fois**. Trois consommateurs en dépendent : `eas submit`, RevenueCat iOS, et le triage quotidien — MCP `asc-testflight` et `scripts/testflight_feedback.py` | Révoquer la clé dans App Store Connect → *Users and Access* → *Integrations* → *App Store Connect API*, en créer une neuve, puis la redéclarer dans les trois consommateurs |
+| La clé **In-App Purchase** (`SubscriptionKey_*.p8`) | Même téléchargement unique. Déjà téléversée dans RevenueCat (`subscription_key_configured`), et RevenueCat ne la restitue pas | En créer une neuve au même endroit et la re-téléverser dans RevenueCat |
+
+La troisième clé Apple du poste, celle de **Sign in with Apple**, n'est **pas**
+dans cette liste : son PEM vit dans Secrets Manager sous `APPLE_PRIVATE_KEY` et le
+`.env` reconstruit la récupère (§6). Vérifié identique au `.p8` du disque le
+2026-09-11. Le tableau des trois clés et de leurs consommateurs est dans
+`mobile/MOBILE_CI_CD.md`.
 
 Son voisin `~/.aws/config` n'en est pas une : il ne contient aucun secret et vit
 dans le repo (`infrastructure/aws/config.example`, §4).
@@ -89,6 +97,34 @@ LocalStack (déprécié par task-130).
 | AWS, compte prod `866874944541` | Aucune clé propre : assumption de rôle depuis les clés dev (§4) |
 | GitHub | `gh auth login` |
 | Expo / EAS | `eas login` — donne accès aux variables d'environnement et aux credentials de build |
+| Bedrock, pour les agents | `~/.config/claude-bedrock/env` : `AWS_BEARER_TOKEN_BEDROCK`, `AWS_REGION`, `ANTHROPIC_MODEL`. Le token se régénère dans la console Bedrock ; les deux autres valeurs se relisent ici |
+
+### Outillage des agents, hors repo
+
+`scripts/dispatch_backlog.sh` et `scripts/testflight_triage.sh` sont versionnés,
+mais trois de leurs dépendances vivent hors du dépôt et ne suivent pas le clone.
+Aucune n'est un secret irremplaçable ; toutes bloquent le script si elles
+manquent.
+
+- **`~/.local/bin/claude-bedrock`** — prérequis dur des deux scripts
+  (`command -v claude-bedrock`, sinon arrêt). Wrapper d'une dizaine de lignes :
+  il source `~/.config/claude-bedrock/env`, exporte `CLAUDE_CODE_USE_BEDROCK=1`
+  et fait `exec claude "$@"`. À réécrire à la main, avec `chmod +x`.
+- **La registration MCP `asc-testflight`** dans `~/.claude.json` — porte
+  `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY_PATH`, `ASC_READ_ONLY` et
+  `ASC_REDACT_PII`. C'est aussi, à défaut de variables d'environnement, la source
+  que lit `scripts/testflight_feedback.py` : les deux identifiants ne sont donc
+  écrits qu'à cet endroit, jamais dans un fichier tracké.
+- **`~/.config/systemd/user/testflight-triage.{service,timer}`** — le
+  déclencheur de 9h00, plus `loginctl enable-linger` pour qu'il survive au
+  logout. Les unités ne sont pas versionnées ; leurs réglages structurants sont
+  décrits un par un dans `mobile/MOBILE_CI_CD.md`, section « The trigger — a user
+  systemd timer ». Les recopier depuis l'ancien poste évite de réinventer le
+  `Environment=PATH`, qui dépend de la version de node installée.
+
+Rien à sauvegarder en revanche du côté de `.testflight-feedback/` : le triage
+borne sa collecte par `--since-hours` et non par un état sur disque, donc un
+dossier absent se recrée au run suivant sans rien rejouer à tort.
 
 ---
 
